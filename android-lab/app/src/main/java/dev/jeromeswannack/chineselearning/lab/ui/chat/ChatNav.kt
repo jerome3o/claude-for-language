@@ -59,6 +59,26 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
         dev.jeromeswannack.chineselearning.lab.data.chat.ChatPresence.chatOpened(convId)
         onDispose { dev.jeromeswannack.chineselearning.lab.data.chat.ChatPresence.chatClosed(convId) }
     }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // 📎: the photo picker (no permission) or the camera into a FileProvider uri (cache/shared/).
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.preparePhoto(context, uri)
+    }
+    var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val camera = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { ok ->
+        cameraUri?.let { if (ok) vm.preparePhoto(context, it) }
+    }
+    fun launchCamera() {
+        val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", java.io.File(dir, "chat-camera-${System.currentTimeMillis()}.jpg"))
+        cameraUri = uri
+        vm.openSheet(null)
+        runCatching { camera.launch(uri) }
+    }
+    val cameraPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted -> if (granted) launchCamera() }
+    // Granted: the next press records (a recording never starts by itself).
+    val micPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+    fun has(p: String) = androidx.core.content.ContextCompat.checkSelfPermission(context, p) == android.content.pm.PackageManager.PERMISSION_GRANTED
     val call = dev.jeromeswannack.chineselearning.lab.ui.calls.relationshipCallBanner(nav, relId, Routes.chat(relId, convId))
     ChatScreen(
         ui,
@@ -76,6 +96,28 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onDismissNotice = vm::dismissNotice,
             onJoinCall = { nav.open(Routes.call(it)) },
             onRetry = { nav.back(); nav.open(Routes.chat(relId, convId)) },
+            onRetryPending = vm::retryPending,
+            onDiscardPending = vm::discardPending,
+            onCancelEdit = vm::cancelEdit,
+            onOpenSearch = vm::openSearch,
+            onSearchQuery = vm::setSearchQuery,
+            onSearchStep = vm::searchStep,
+            onCloseSearch = vm::closeSearch,
+            onJumpTo = vm::jumpTo,
+            onAtBottom = vm::setAtBottom,
+            onScrollToEnd = vm::scrollToEnd,
+            onRecordStart = { locked ->
+                if (has(android.Manifest.permission.RECORD_AUDIO)) { vm.startRecording(locked); true }
+                else { micPermission.launch(android.Manifest.permission.RECORD_AUDIO); false }
+            },
+            onRecordLock = vm::lockRecording,
+            onRecordCancel = vm::cancelRecording,
+            onRecordFinish = vm::finishRecording,
+            onRecordSend = vm::sendRecording,
+            onToggleVoice = vm::toggleVoice,
+            onToggleTranslation = vm::toggleTranslation,
+            loadImage = vm::image,
+            loadLocalImage = vm::localImage,
         ),
         callBanner = call?.let { b ->
             {
@@ -107,6 +149,19 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onSaveDiscussCards = vm::saveDiscussCards,
                 define = vm::define,
                 deckHolding = vm::deckHolding,
+                onEdit = vm::startEdit,
+                onAskDelete = vm::askDelete,
+                onDelete = vm::delete,
+                onPin = vm::setPinned,
+                onCamera = {
+                    // CAMERA is declared (video calls), so TakePicture needs it granted.
+                    if (has(android.Manifest.permission.CAMERA)) launchCamera() else cameraPermission.launch(android.Manifest.permission.CAMERA)
+                },
+                onGallery = { vm.openSheet(null); picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onSendPhoto = vm::sendPhoto,
+                onDiscardPhoto = vm::discardPhoto,
+                onJump = vm::jumpTo,
+                loadLocalImage = vm::localImage,
             ),
         )
     }

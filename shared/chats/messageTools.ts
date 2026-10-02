@@ -28,7 +28,12 @@ export type MessageToolId =
   | 'translate'
   | 'word_by_word'
   | 'discuss'
-  | 'copy';
+  | 'copy'
+  // PR 2 (manageToolsForMessage only — toolsForMessage never returns these):
+  | 'pin'
+  | 'unpin'
+  | 'edit'
+  | 'delete';
 
 export interface MessageToolInput {
   sender_id: string;
@@ -109,4 +114,37 @@ export function toolsForMessage(
   menu.push({ id: 'copy', label: 'Copy text', icon: '📋', needsInternet: false });
 
   return { inline, menu, isMine, hasChinese };
+}
+
+/** What `manageToolsForMessage` needs to know about a message (docs/CHAT.md PR 2). */
+export interface ManageToolInput {
+  sender_id: string;
+  deleted_at?: string | null;
+  pinned_at?: string | null;
+  attachment?: { kind: string } | null;
+  /** A send still in the outbox: nothing to manage until the server has it. */
+  pending?: boolean;
+}
+
+/**
+ * Pin / edit / delete for the ⋯ sheet, appended after `toolsForMessage(...).menu`
+ * (kept separate so the original tool set — and its Lab parity vectors — stay
+ * exactly as they were). Pin / unpin for either participant; edit (text, or a
+ * photo's caption) and delete only on my own messages. Nothing on a deleted or
+ * pending message, nor in the Claude practice chat.
+ */
+export function manageToolsForMessage(message: ManageToolInput, isAiConversation: boolean, viewerId: string): MessageTool[] {
+  if (isAiConversation || message.deleted_at || message.pending) return [];
+  const isMine = message.sender_id === viewerId;
+  const kind = message.attachment?.kind ?? null;
+  const out: MessageTool[] = [
+    message.pinned_at
+      ? { id: 'unpin', label: 'Unpin', icon: '📌', needsInternet: true }
+      : { id: 'pin', label: 'Pin', icon: '📌', needsInternet: true },
+  ];
+  if (isMine && kind !== 'voice') {
+    out.push({ id: 'edit', label: kind === 'image' ? 'Edit caption' : 'Edit', icon: '✏️', needsInternet: true });
+  }
+  if (isMine) out.push({ id: 'delete', label: 'Delete', icon: '🗑', needsInternet: true });
+  return out;
 }

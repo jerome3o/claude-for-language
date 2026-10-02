@@ -34,6 +34,8 @@ import java.util.concurrent.TimeUnit
 sealed interface LiveEvent {
     /** A new message in [conversationId] ([message] null when only a push said so: refetch). */
     data class Message(val conversationId: String, val message: ChatMessageDto?, val relationshipId: String?) : LiveEvent
+    /** An edit / delete / pin / reaction / transcript on a message (PR 2): replace it by id. */
+    data class Updated(val conversationId: String, val message: ChatMessageDto) : LiveEvent
     data class Read(val conversationId: String, val userId: String, val lastReadAt: String?) : LiveEvent
     data class Typing(val conversationId: String, val userId: String) : LiveEvent
 }
@@ -44,8 +46,9 @@ sealed interface LiveEvent {
  * ChatHub; ping every 25 s; reconnect with backoff; after each connect, catch up through the
  * inbox. A `message` for me → notification (unless that chat is on screen — the chat collects
  * [events] and shows it at once); a `read` by me → drop that conversation's notification.
- * The socket is a doorbell: the REST API stays the source of truth, and the open chat keeps
- * polling (slowly while [connected], every 3 s when not).
+ * The socket is a doorbell: the REST API stays the source of truth; the open chat polls only
+ * while it is down (3 s) and catches up once after each reconnect (docs/CHAT.md PR 2). It also
+ * carries `message_updated` (edits, deletes, pins, transcripts) and my `typing` frames ([sendTyping]).
  */
 class ChatLive(private val app: LabApp) {
     private val _events = MutableSharedFlow<LiveEvent>(extraBufferCapacity = 64)
@@ -57,6 +60,7 @@ class ChatLive(private val app: LabApp) {
     private val signedIn = MutableStateFlow(false)
     private var job: Job? = null
     private var myId: String? = null
+    @Volatile private var socket: WebSocket? = null
 
     private val client by lazy {
         app.repo.api.http.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).pingInterval(0, TimeUnit.SECONDS).build()
@@ -76,6 +80,20 @@ class ChatLive(private val app: LabApp) {
 
     /** After sign-in / before sign-out. */
     fun setSignedIn(value: Boolean) { signedIn.value = value }
+
+    /**
+     * `{"type":"typing","conversation_id"}` to the hub (docs/CHAT.md PR 2: the open chat throttles
+     * it to every 2.5 s while composing). False when the socket is down — nothing is queued.
+     */
+    fun sendTyping(conversationId: String): Boolean {
+        val ws = socket ?: return false
+        if (!_connected.value) return false
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("type", kotlinx.serialization.json.JsonPrimitive("typing"))
+            put("conversation_id", kotlinx.serialization.json.JsonPrimitive(conversationId))
+        }
+        return ws.send(body.toString())
+    }
 
     /** An FCM push for a conversation: an open chat refetches at once. */
     fun nudge(conversationId: String) { _events.tryEmit(LiveEvent.Message(conversationId, null, null)) }
@@ -112,6 +130,7 @@ class ChatLive(private val app: LabApp) {
         val closed = CompletableDeferred<Throwable?>()
         val ws = client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                socket = webSocket
                 _connected.value = true
                 app.scope.launch { ChatInboxCheck.runFor(app) } // catch up on what came while away
             }
@@ -141,6 +160,7 @@ class ChatLive(private val app: LabApp) {
                 ping.cancel()
             }
         } finally {
+            if (socket === ws) socket = null
             ws.close(1000, null)
             ws.cancel()
         }
@@ -161,6 +181,10 @@ class ChatLive(private val app: LabApp) {
                 } else if (rel != null) {
                     ChatNotifier.notifyIncoming(app, IncomingChat.fromMessage(m, rel), me)
                 }
+            }
+            "message_updated" -> {
+                val m = obj["message"]?.let { runCatching { app.repo.api.json.decodeFromJsonElement(ChatMessageDto.serializer(), it) }.getOrNull() } ?: return
+                _events.emit(LiveEvent.Updated(m.conversation_id, m))
             }
             "read" -> {
                 val conv = obj.str("conversation_id") ?: return

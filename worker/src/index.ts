@@ -82,6 +82,7 @@ import callsRoutes, { mountCallSocket } from './routes/calls';
 import boardPagesRoutes from './routes/board-pages';
 import pushRoutes from './routes/push';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
+import chatMessagesRoutes from './routes/chat-messages';
 import profileRoutes from './routes/profile';
 import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
@@ -136,7 +137,6 @@ import {
   getChatContext,
   buildFlashcardPrompt,
   buildResponseOptionsPrompt,
-  toggleReaction,
   getMessageDiscussion,
   saveMessageDiscussion,
 } from './services/conversations';
@@ -500,6 +500,8 @@ app.route('/api', boardPagesRoutes);
 app.route('/api', pushRoutes);
 // Chat: messages, read markers, inbox, native push tokens, live ticket (docs/CHAT.md)
 app.route('/api', chatLiveRoutes);
+// Rich messages: photo / voice upload + serving, edit, delete, pin, reactions (docs/CHAT.md PR 2)
+app.route('/api', chatMessagesRoutes);
 
 // Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
 app.route('/api', noteSearchRoutes);
@@ -2740,6 +2742,8 @@ app.post('/api/audio-quality/regenerate', async (c) => {
 
 app.get('/api/audio/*', async (c) => {
   const key = c.req.path.replace('/api/audio/', '');
+  // Chat photos / voice messages are private: only GET /api/chat-media/:messageId serves them.
+  if (key.startsWith('chat-media/')) return c.json({ error: 'Audio not found' }, 404);
 
   // <audio> streams media with Range requests. Answering every one with the
   // full body (200) forces the element to re-buffer from zero whenever it
@@ -4219,53 +4223,7 @@ app.post('/api/messages/:id/discuss', async (c) => {
   }
 });
 
-// Toggle a reaction on a message
-app.post('/api/messages/:id/reactions', async (c) => {
-  const userId = c.get('user').id;
-  const msgId = c.req.param('id');
-  const { emoji } = await c.req.json<{ emoji: string }>();
-
-  if (!emoji) {
-    return c.json({ error: 'Emoji is required' }, 400);
-  }
-
-  try {
-    // Verify message exists and user has access
-    const message = await c.env.DB
-      .prepare('SELECT conversation_id FROM messages WHERE id = ?')
-      .bind(msgId)
-      .first<{ conversation_id: string }>();
-
-    if (!message) {
-      return c.json({ error: 'Message not found' }, 404);
-    }
-
-    const conv = await c.env.DB
-      .prepare('SELECT relationship_id FROM conversations WHERE id = ?')
-      .bind(message.conversation_id)
-      .first<{ relationship_id: string }>();
-
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    const rel = await c.env.DB
-      .prepare('SELECT id FROM tutor_relationships WHERE id = ? AND status = ? AND (requester_id = ? OR recipient_id = ?)')
-      .bind(conv.relationship_id, 'active', userId, userId)
-      .first();
-
-    if (!rel) {
-      return c.json({ error: 'Access denied' }, 403);
-    }
-
-    const result = await toggleReaction(c.env.DB, msgId, userId, emoji);
-    return c.json(result);
-  } catch (error) {
-    console.error('Toggle reaction error:', error);
-    const errMsg = error instanceof Error ? error.message : 'Failed to toggle reaction';
-    return c.json({ error: errMsg }, 500);
-  }
-});
+// POST /api/messages/:id/reactions lives in routes/chat-messages.ts (bumps updated_at, live message_updated).
 
 // Get persistent discussion for a message
 app.get('/api/messages/:id/discussion', async (c) => {

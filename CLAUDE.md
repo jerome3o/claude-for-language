@@ -1938,6 +1938,15 @@ The app supports many-to-many tutor-student relationships where users can be tut
   MessagingStyle per conversation, Reply via the Outbox, Mark as read, tap → the chat even from a cold start), FCM gated on
   `app/google-services.json` (CI secret `GOOGLE_SERVICES_JSON`, setup in `android-lab/PUSH.md`), the live socket while in
   front, `ChatCheckWorker` every 15 min as the fallback.
+- **Live chat & rich messages** (docs/CHAT.md "PR 2", migration 0090): typing indicator + "Seen" receipts over the
+  ChatHub socket (polling only while it is down), optimistic sends through an outbox (web `services/chatOutbox.ts`, own
+  Dexie db `chat-outbox`; Lab Outbox) replaced by `client_id`, photos + voice messages (`POST /api/conversations/:id/media`,
+  R2 `chat-media/<conv>/<msg>.<ext>` — person-made, never collected; served only to the two participants by
+  `GET /api/chat-media/:messageId`; voice transcribed with `transcribeTake` + translated in the background), edit / delete
+  (soft) / pin (`PATCH|DELETE /api/messages/:id`, `POST …/pin`), `?since=` also returns changed messages
+  (`updated_at`) and every change is a `message_updated` event, search in the chat (`shared/chats/search.ts`
+  `searchMessages`, Lab `ChatSearch.kt` parity-tested), "New messages" divider + "↓ N new" pill, unread badges on the
+  conversation lists. Web: `services/chatLive.ts`, `hooks/useChatThread.ts`, `components/chat/*Bubble.tsx`; Lab: `ui/chat/ChatRich.kt`, `data/chat/ChatMedia.kt`.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics

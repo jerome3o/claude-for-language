@@ -32,9 +32,22 @@ data class IncomingChat(
             senderId = m.sender.id,
             senderName = m.sender.name?.takeIf { it.isNotBlank() } ?: "New message",
             senderPicture = m.sender.picture_url,
-            content = m.content,
+            content = m.preview?.takeIf { it.isNotBlank() } ?: previewText(m.content, m.attachment_kind),
             createdAt = m.created_at,
         )
+
+        /**
+         * The notification text for a message (the worker's preview, docs/CHAT.md PR 2): a photo is
+         * "📷 Photo" / "📷 Photo: caption", a voice message "🎤 Voice message", text as is.
+         */
+        fun previewText(content: String, attachmentKind: String?): String {
+            val c = content.trim()
+            return when (attachmentKind) {
+                "image" -> if (c.isEmpty()) "📷 Photo" else "📷 Photo: $c"
+                "voice" -> "🎤 Voice message"
+                else -> content
+            }
+        }
 
         fun fromMessage(m: ChatMessageDto, relationshipId: String) = IncomingChat(
             messageId = m.id,
@@ -43,7 +56,7 @@ data class IncomingChat(
             senderId = m.sender_id.ifEmpty { m.sender.id },
             senderName = m.sender.name?.takeIf { it.isNotBlank() } ?: "New message",
             senderPicture = m.sender.picture_url,
-            content = m.content,
+            content = previewText(m.content, m.attachment?.kind),
             createdAt = m.created_at,
         )
     }
@@ -71,6 +84,7 @@ object ChatPushData {
                     senderId = data["sender_id"].orEmpty(),
                     senderName = data["sender_name"]?.takeIf { it.isNotBlank() } ?: "New message",
                     senderPicture = data["sender_picture_url"]?.takeIf { it.isNotBlank() },
+                    // Already the preview for photos / voice ("📷 Photo", "🎤 Voice message").
                     content = data["content"].orEmpty(),
                     createdAt = data["created_at"].orEmpty(),
                 ),

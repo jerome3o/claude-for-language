@@ -104,6 +104,7 @@ describe('chat notifications', () => {
       sender_name: 'Minghui',
       sender_picture_url: 'https://img.example/m.jpg',
       content: '明天上课吗？',
+      attachment_kind: '',
       created_at: '2026-10-02T09:00:00.000Z',
       url: '/connections/rel-1/chat/conv-1',
     });

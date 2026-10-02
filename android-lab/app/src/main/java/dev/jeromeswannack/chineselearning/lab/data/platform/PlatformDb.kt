@@ -91,4 +91,6 @@ interface PlatformDao {
     suspend fun retryFailedOutbox(kind: String?)
     @Query("DELETE FROM outbox WHERE state = 'failed' AND (:kind IS NULL OR kind = :kind)")
     suspend fun discardFailedOutbox(kind: String?)
+    @Query("UPDATE outbox SET state = 'pending', attempts = 0, lastError = NULL WHERE id = :id")
+    suspend fun retryOutboxItem(id: String)
 }

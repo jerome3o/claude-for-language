@@ -346,7 +346,31 @@ export interface Message {
   // Interactive translation fields
   translation: string | null;
   segmentation: string | null; // JSON-stringified SentenceBreakdown
+  // Live chat & rich messages (docs/CHAT.md PR 2) — optional until every server has them.
+  client_id?: string | null;
+  /** Set on ANY change after creation (edit, delete, reaction, transcript, pin). */
+  updated_at?: string | null;
+  edited_at?: string | null;
+  /** Soft delete: content '' and attachment null; render "Message deleted". */
+  deleted_at?: string | null;
+  attachment?: ChatAttachment | null;
+  /** `/api/chat-media/<messageId>` when there is an attachment (fetched with auth). */
+  media_url?: string | null;
+  pinned_at?: string | null;
+  pinned_by?: string | null;
 }
+
+export type ChatAttachment =
+  | { kind: 'image'; width: number; height: number; bytes: number; mime: string }
+  | {
+      kind: 'voice';
+      duration_ms: number;
+      bytes: number;
+      mime: string;
+      transcript_status: 'pending' | 'done' | 'failed';
+      transcript?: string | null;
+      translation?: string | null;
+    };
 
 export interface VocabularyDefinition {
   hanzi: string;
@@ -372,14 +396,18 @@ export interface MessageWithSender extends Message {
     id: string;
     content: string;
     sender: { id: string; name: string | null; picture_url: string | null };
+    /** The quoted message was deleted (content ''). */
+    deleted_at?: string | null;
   } | null;
   reactions?: MessageReaction[];
   has_discussion?: boolean;
 }
 
 export interface ConversationWithLastMessage extends Conversation {
-  last_message?: Message;
+  last_message?: Message & { attachment_kind?: 'image' | 'voice' | null };
   other_user: UserSummary;
+  /** Messages from the other person after my read marker (docs/CHAT.md PR 2). */
+  unread?: number;
 }
 
 export interface SharedDeck {

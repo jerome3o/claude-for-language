@@ -11,12 +11,12 @@ class ChatLogicTest {
     private fun m(id: String, at: String, content: String = "x") = ChatMessageDto(id, content = content, created_at = at)
 
     @Test
-    fun mergeKeepsFirstOccurrenceInOrder() {
+    fun mergeReplacesByIdAndKeepsTimeOrder() {
         val a = listOf(m("1", "2026-09-27T10:00:00Z"), m("2", "2026-09-27T10:01:00Z"))
-        val b = listOf(m("2", "2026-09-27T10:01:00Z", "dup"), m("3", "2026-09-27T10:02:00Z"))
+        val b = listOf(m("3", "2026-09-27T10:02:00Z"), m("2", "2026-09-27T10:01:00Z", "edited"), m("0", "2026-09-27T09:00:00Z"))
         val merged = ChatLogic.merge(a, b)
-        assertEquals(listOf("1", "2", "3"), merged.map { it.id })
-        assertEquals("x", merged[1].content)
+        assertEquals(listOf("0", "1", "2", "3"), merged.map { it.id })
+        assertEquals("edited", merged[2].content)
     }
 
     @Test

@@ -82,13 +82,48 @@ class ChatSheetActions(
     val onSaveDiscussCards: (ChatMessageDto, deckId: String?, newDeck: String?) -> Unit = { _, _, _ -> },
     val define: suspend (hanzi: String, context: String, refresh: Boolean) -> CardTools.Definition = { _, _, _ -> error("offline") },
     val deckHolding: suspend (String) -> String? = { null },
+    // ---- PR 2 ----
+    val onEdit: (ChatMessageDto) -> Unit = {},
+    val onAskDelete: (ChatMessageDto) -> Unit = {},
+    val onDelete: (ChatMessageDto) -> Unit = {},
+    val onPin: (ChatMessageDto, Boolean) -> Unit = { _, _ -> },
+    val onCamera: () -> Unit = {},
+    val onGallery: () -> Unit = {},
+    val onSendPhoto: (caption: String) -> Unit = {},
+    val onDiscardPhoto: () -> Unit = {},
+    val onJump: (String) -> Unit = {},
+    val loadLocalImage: suspend (String, Int) -> androidx.compose.ui.graphics.ImageBitmap? = { _, _ -> null },
 )
 
 @Composable
 fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
     when (val s = ui.sheet) {
         null -> {}
-        is ChatSheet.Actions -> MessageActionSheet(s.message, ui.tools(s.message).menu, ui.online, ChatLogic.quickEmojis(ui.recentEmojis), ui.recentEmojis, actions)
+        is ChatSheet.Actions -> MessageActionSheet(s.message, ui.tools(s.message).menu, ui.online, ChatLogic.quickEmojis(ui.recentEmojis), ui.recentEmojis, actions, mine = s.message.sender_id == ui.myId, rich = !ui.isAi)
+        ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Send a photo") {
+            NavRow("📷", "Take a photo", trailing = {}, onClick = actions.onCamera)
+            RowDivider()
+            NavRow("🖼️", "Choose from gallery", trailing = {}, onClick = actions.onGallery)
+            Spacer(Modifier.height(16.dp))
+        }
+        is ChatSheet.Photo -> PhotoSheet(s, ui, actions)
+        ChatSheet.Pins -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Pinned messages") {
+            val pins = ui.pinned
+            if (pins.isEmpty()) Text("Nothing pinned.", color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 20.dp))
+            pins.forEachIndexed { i, m ->
+                if (i > 0) RowDivider()
+                NavRow("📌", m.sender.name ?: "", desc = previewOf(m), trailing = {}, onClick = { actions.onJump(m.id) })
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+        is ChatSheet.ConfirmDelete -> dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog(
+            "Delete this message?",
+            "It's removed for both of you — they'll see \"Message deleted\".",
+            confirmLabel = "Delete",
+            onConfirm = { actions.onDelete(s.message) },
+            onDismiss = actions.onDismiss,
+            danger = true,
+        )
         ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) {
             NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
             RowDivider()
@@ -135,12 +170,12 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
 /** Per-message tools: quick reactions (expandable), then every other tool as a 48dp row (web: MessageActionSheet). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MessageActionSheet(m: ChatMessageDto, tools: List<MessageTool>, online: Boolean, quick: List<String>, recent: List<String>, actions: ChatSheetActions) {
+private fun MessageActionSheet(m: ChatMessageDto, tools: List<MessageTool>, online: Boolean, quick: List<String>, recent: List<String>, actions: ChatSheetActions, mine: Boolean = false, rich: Boolean = false) {
     var all by remember { mutableStateOf(false) }
     LabBottomSheet(onDismiss = actions.onDismiss) {
         Column(Modifier.padding(horizontal = 20.dp).testTag("message-actions")) {
             Text(m.sender.name ?: "Unknown", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
-            Text(if (m.content.length > 90) m.content.take(90) + "…" else m.content, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, maxLines = 3)
+            Text(previewOf(m), style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, maxLines = 3)
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 quick.forEach { e -> EmojiButton(e, online) { actions.onReact(m, e) } }
@@ -162,6 +197,14 @@ private fun MessageActionSheet(m: ChatMessageDto, tools: List<MessageTool>, onli
         tools.filter { it.id != "react" }.forEach { t ->
             val blocked = t.needsInternet && !online
             NavRow(t.icon, t.label, desc = if (blocked) "Needs internet" else null, enabled = !blocked, trailing = {}, onClick = { actions.onTool(t.id, m) })
+        }
+        // PR 2 (docs/CHAT.md): pin for either person; edit / delete my own.
+        if (rich) {
+            val pinned = !m.pinned_at.isNullOrEmpty()
+            val off = if (!online) "Needs internet" else null
+            NavRow("📌", if (pinned) "Unpin" else "Pin", desc = off, enabled = online, trailing = {}, onClick = { actions.onPin(m, !pinned) })
+            if (mine && !m.isVoice) NavRow("✏️", if (m.isImage) "Edit caption" else "Edit", desc = off, enabled = online, trailing = {}, onClick = { actions.onEdit(m) })
+            if (mine) NavRow("🗑️", "Delete", desc = off, danger = true, enabled = online, trailing = {}, onClick = { actions.onAskDelete(m) })
         }
         Spacer(Modifier.height(16.dp))
     }
@@ -369,6 +412,29 @@ private fun WordSheet(hanzi: String, context: String, ui: ChatUi, actions: ChatS
                 }
             }
             ui.modalNotice?.let { InlineNotice(it.text, kind = NoticeKind.Error) }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+/** The photo about to go: preview at its aspect ratio, an optional caption, Send. */
+@Composable
+private fun PhotoSheet(s: ChatSheet.Photo, ui: ChatUi, actions: ChatSheetActions) {
+    var caption by rememberSaveable { mutableStateOf("") }
+    val bitmap by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, s.path) { value = runCatching { actions.loadLocalImage(s.path, 1080) }.getOrNull() }
+    LabBottomSheet(onDismiss = actions.onDiscardPhoto, title = "Send a photo") {
+        Column(Modifier.padding(horizontal = 20.dp).testTag("chat-photo-sheet"), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            val (w, h) = dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaSizing.bubbleSize(s.width, s.height, maxW = 320f, maxH = 380f)
+            Box(Modifier.size(w.dp, h.dp).clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint), contentAlignment = Alignment.Center) {
+                bitmap?.let { androidx.compose.foundation.Image(it, "Photo", contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.matchParentSize()) }
+                    ?: Text("📷", fontSize = 32.sp)
+            }
+            OutlinedTextField(caption, { caption = it }, placeholder = { Text("Add a caption (optional)") }, maxLines = 3, modifier = Modifier.fillMaxWidth().testTag("chat-photo-caption"))
+            if (!ui.online) Text("You're offline — it sends when you're back online.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryPill("Cancel", Modifier.weight(1f), onClick = actions.onDiscardPhoto)
+                PrimaryPill("Send", Modifier.weight(1f).height(52.dp).testTag("chat-photo-send")) { actions.onSendPhoto(caption) }
+            }
             Spacer(Modifier.height(12.dp))
         }
     }

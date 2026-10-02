@@ -93,3 +93,24 @@ describe('toolsForMessage — connectivity', () => {
     expect(offline).toEqual(['reply', 'copy']);
   });
 });
+
+import { manageToolsForMessage } from './messageTools';
+
+describe('manageToolsForMessage (PR 2)', () => {
+  const ids = (t: { id: string }[]) => t.map((x) => x.id);
+  it('pin for anyone; edit + delete on my own messages', () => {
+    expect(ids(manageToolsForMessage({ sender_id: 'me' }, false, 'me'))).toEqual(['pin', 'edit', 'delete']);
+    expect(ids(manageToolsForMessage({ sender_id: 'other' }, false, 'me'))).toEqual(['pin']);
+    expect(ids(manageToolsForMessage({ sender_id: 'other', pinned_at: 'x' }, false, 'me'))).toEqual(['unpin']);
+  });
+  it('photo caption editable, voice not', () => {
+    const photo = manageToolsForMessage({ sender_id: 'me', attachment: { kind: 'image' } }, false, 'me');
+    expect(photo.find((t) => t.id === 'edit')?.label).toBe('Edit caption');
+    expect(ids(manageToolsForMessage({ sender_id: 'me', attachment: { kind: 'voice' } }, false, 'me'))).toEqual(['pin', 'delete']);
+  });
+  it('nothing on deleted / pending messages or in the Claude chat', () => {
+    expect(manageToolsForMessage({ sender_id: 'me', deleted_at: 'x' }, false, 'me')).toEqual([]);
+    expect(manageToolsForMessage({ sender_id: 'me', pending: true }, false, 'me')).toEqual([]);
+    expect(manageToolsForMessage({ sender_id: 'me' }, true, 'me')).toEqual([]);
+  });
+});

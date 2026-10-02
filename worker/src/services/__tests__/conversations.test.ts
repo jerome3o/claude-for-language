@@ -88,6 +88,7 @@ describe('conversations service', () => {
       const conv = createTestConversation({ id: 'conv-1', relationship_id: 'rel-1' });
       db.addAllResult('FROM conversations c', [{
         ...conv,
+        last_id: 'msg-9',
         last_content: 'Hello!',
         last_sender_id: tutor.id,
         last_created_at: '2026-01-02T00:00:00Z',
@@ -269,6 +270,8 @@ describe('conversations service', () => {
         u_picture: null,
       }]);
 
+      db.addResult('MAX(COALESCE(updated_at, created_at))', { latest: '2026-01-01T10:00:00Z' });
+
       const result = await getMessages(db as any, 'conv-1', tutor.id);
 
       expect(result.messages).toHaveLength(1);
@@ -332,8 +335,12 @@ describe('conversations service', () => {
       const conv = createTestConversation({ id: 'conv-1', relationship_id: 'rel-1' });
       db.addResult('SELECT * FROM conversations WHERE id', conv);
 
-      const sender = { id: tutor.id, name: 'Tutor', picture_url: null };
-      db.addResult('SELECT id, name, picture_url FROM users', sender);
+      // The message is read back as the chat shows it (sender joined).
+      db.addAllResult('FROM messages m', [{
+        id: 'generated-id-1', conversation_id: 'conv-1', sender_id: tutor.id, content: 'Hello student!',
+        created_at: '2026-01-01T10:00:00Z', check_status: null, check_feedback: null, recording_url: null,
+        u_id: tutor.id, u_name: 'Tutor', u_picture: null,
+      }]);
 
       const result = await sendMessage(db as any, 'conv-1', tutor.id, 'Hello student!');
 

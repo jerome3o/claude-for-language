@@ -21,6 +21,7 @@ import {
 import { verifyRelationshipAccess, getOtherUserId, getMyRole } from './relationships';
 import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED } from './audio';
 import { generateId } from './cards';
+import { chatMediaUrl, parseStoredAttachment, publicAttachment, type StoredAttachment } from './chat/media';
 
 type UserSummary = Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
 
@@ -48,22 +49,35 @@ export async function getConversations(
     throw new Error('Other user not found');
   }
 
-  // Get conversations with last message
+  // Get conversations with last message and my unread count (the other
+  // person's non-deleted messages after my read marker).
   const conversations = await db
     .prepare(`
-      SELECT c.*, m.content as last_content, m.sender_id as last_sender_id, m.created_at as last_created_at
+      SELECT c.*, m.id as last_id, m.content as last_content, m.sender_id as last_sender_id, m.created_at as last_created_at,
+             m.deleted_at as last_deleted_at, m.attachment as last_attachment, m.edited_at as last_edited_at,
+             m.updated_at as last_updated_at, m.client_id as last_client_id,
+             (SELECT COUNT(*) FROM messages um
+               WHERE um.conversation_id = c.id AND um.sender_id != ?2 AND um.deleted_at IS NULL
+                 AND um.created_at > COALESCE((SELECT last_read_at FROM conversation_reads cr WHERE cr.conversation_id = c.id AND cr.user_id = ?2), '')) as unread
       FROM conversations c
       LEFT JOIN messages m ON m.id = (
         SELECT id FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1
       )
-      WHERE c.relationship_id = ?
+      WHERE c.relationship_id = ?1
       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
     `)
-    .bind(relationshipId)
+    .bind(relationshipId, userId)
     .all<Conversation & {
+      last_id: string | null;
       last_content: string | null;
       last_sender_id: string | null;
       last_created_at: string | null;
+      last_deleted_at: string | null;
+      last_attachment: string | null;
+      last_edited_at: string | null;
+      last_updated_at: string | null;
+      last_client_id: string | null;
+      unread: number;
     }>();
 
   return conversations.results.map(conv => ({
@@ -79,19 +93,31 @@ export async function getConversations(
     voice_id: conv.voice_id,
     voice_speed: conv.voice_speed,
     other_user: otherUser,
-    last_message: conv.last_content ? {
-      id: '', // Not needed for display
-      conversation_id: conv.id,
-      sender_id: conv.last_sender_id!,
-      content: conv.last_content,
-      created_at: conv.last_created_at!,
-      check_status: null,
-      check_feedback: null,
-      recording_url: null,
-      reply_to_message_id: null,
-      translation: null,
-      segmentation: null,
-    } : undefined,
+    unread: Number(conv.unread ?? 0),
+    last_message: conv.last_id ? (() => {
+      const deleted = !!conv.last_deleted_at;
+      const attachment = deleted ? null : publicAttachment(parseStoredAttachment(conv.last_attachment));
+      return {
+        id: conv.last_id!,
+        conversation_id: conv.id,
+        sender_id: conv.last_sender_id!,
+        content: deleted ? '' : (conv.last_content ?? ''),
+        created_at: conv.last_created_at!,
+        check_status: null,
+        check_feedback: null,
+        recording_url: null,
+        reply_to_message_id: null,
+        translation: null,
+        segmentation: null,
+        client_id: conv.last_client_id ?? null,
+        updated_at: conv.last_updated_at ?? null,
+        edited_at: conv.last_edited_at ?? null,
+        deleted_at: conv.last_deleted_at ?? null,
+        attachment,
+        attachment_kind: attachment?.kind ?? null,
+        media_url: attachment ? chatMediaUrl(conv.last_id!) : null,
+      };
+    })() : undefined,
   }));
 }
 
@@ -178,11 +204,18 @@ type MessageRow = {
   translation: string | null;
   segmentation: string | null;
   client_id: string | null;
+  updated_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  attachment: string | null;
+  pinned_at: string | null;
+  pinned_by: string | null;
   u_id: string;
   u_name: string | null;
   u_picture: string | null;
   reply_id: string | null;
   reply_content: string | null;
+  reply_deleted_at: string | null;
   reply_sender_id: string | null;
   reply_sender_name: string | null;
   reply_sender_picture: string | null;
@@ -200,8 +233,9 @@ async function queryMessages(
     SELECT m.id, m.conversation_id, m.sender_id, m.content, m.created_at,
            m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
            m.translation, m.segmentation, m.client_id,
+           m.updated_at, m.edited_at, m.deleted_at, m.attachment, m.pinned_at, m.pinned_by,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
-           rm.id as reply_id, rm.content as reply_content, rm.sender_id as reply_sender_id,
+           rm.id as reply_id, rm.content as reply_content, rm.deleted_at as reply_deleted_at, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
            CASE WHEN md.id IS NOT NULL THEN 1 ELSE 0 END as has_discussion
     FROM messages m
@@ -218,36 +252,75 @@ async function queryMessages(
   const messageIds = result.results.map(r => r.id);
   const reactionsMap = await getReactionsForMessages(db, messageIds);
 
-  return result.results.map(row => ({
-    id: row.id,
-    conversation_id: row.conversation_id,
-    sender_id: row.sender_id,
-    content: row.content,
-    created_at: row.created_at,
-    check_status: row.check_status as Message['check_status'],
-    check_feedback: row.check_feedback,
-    recording_url: row.recording_url,
-    reply_to_message_id: row.reply_to_message_id,
-    translation: row.translation,
-    segmentation: row.segmentation,
-    client_id: row.client_id ?? null,
-    sender: {
-      id: row.u_id,
-      name: row.u_name,
-      picture_url: row.u_picture,
-    },
-    reply_to: row.reply_id ? {
-      id: row.reply_id,
-      content: row.reply_content!,
+  return result.results.map(row => {
+    const deleted = !!row.deleted_at;
+    const attachment = deleted ? null : publicAttachment(parseStoredAttachment(row.attachment));
+    return {
+      id: row.id,
+      conversation_id: row.conversation_id,
+      sender_id: row.sender_id,
+      content: deleted ? '' : row.content,
+      created_at: row.created_at,
+      check_status: row.check_status as Message['check_status'],
+      check_feedback: row.check_feedback,
+      recording_url: deleted ? null : row.recording_url,
+      reply_to_message_id: row.reply_to_message_id,
+      translation: deleted ? null : row.translation,
+      segmentation: deleted ? null : row.segmentation,
+      client_id: row.client_id ?? null,
+      updated_at: row.updated_at ?? null,
+      edited_at: row.edited_at ?? null,
+      deleted_at: row.deleted_at ?? null,
+      attachment,
+      media_url: attachment ? chatMediaUrl(row.id) : null,
+      pinned_at: row.pinned_at ?? null,
+      pinned_by: row.pinned_by ?? null,
       sender: {
-        id: row.reply_sender_id!,
-        name: row.reply_sender_name,
-        picture_url: row.reply_sender_picture,
+        id: row.u_id,
+        name: row.u_name,
+        picture_url: row.u_picture,
       },
-    } : null,
-    reactions: reactionsMap.get(row.id) || [],
-    has_discussion: row.has_discussion === 1,
-  }));
+      reply_to: row.reply_id ? {
+        id: row.reply_id,
+        // A reply to a deleted message shows "deleted", never the old text.
+        content: row.reply_deleted_at ? '' : row.reply_content!,
+        deleted_at: row.reply_deleted_at ?? null,
+        sender: {
+          id: row.reply_sender_id!,
+          name: row.reply_sender_name,
+          picture_url: row.reply_sender_picture,
+        },
+      } : null,
+      reactions: reactionsMap.get(row.id) || [],
+      has_discussion: row.has_discussion === 1,
+    };
+  });
+}
+
+/** One message as `viewerId` sees it (no access check), or null. */
+export async function getMessageById(db: D1Database, messageId: string, viewerId: string): Promise<MessageWithSender | null> {
+  const found = await queryMessages(db, viewerId, 'm.id = ?', [messageId]);
+  return found[0] ?? null;
+}
+
+/** The raw row of a message for permission checks and writes. */
+export interface MessageRecord {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+  deleted_at: string | null;
+  attachment: StoredAttachment | null;
+}
+
+export async function getMessageRecord(db: D1Database, messageId: string): Promise<MessageRecord | null> {
+  const row = await db
+    .prepare('SELECT id, conversation_id, sender_id, content, created_at, deleted_at, attachment FROM messages WHERE id = ?')
+    .bind(messageId)
+    .first<Omit<MessageRecord, 'attachment'> & { attachment: string | null }>();
+  if (!row) return null;
+  return { ...row, deleted_at: row.deleted_at ?? null, attachment: parseStoredAttachment(row.attachment) };
 }
 
 /**
@@ -265,13 +338,19 @@ export async function getMessages(
     throw new Error('Conversation not found');
   }
 
+  // `since` returns new messages AND messages changed since (edits, deletes,
+  // reactions, transcripts, pins); clients merge by id.
   const messages = since
-    ? await queryMessages(db, userId, 'm.conversation_id = ? AND m.created_at > ?', [conversationId, since])
+    ? await queryMessages(db, userId, 'm.conversation_id = ? AND (m.created_at > ? OR m.updated_at > ?)', [conversationId, since, since])
     : await queryMessages(db, userId, 'm.conversation_id = ?', [conversationId]);
 
-  const latest = messages.length > 0 ? messages[messages.length - 1].created_at : null;
+  // The next cursor: the newest creation or change in the whole conversation.
+  const latestRow = await db
+    .prepare('SELECT MAX(COALESCE(updated_at, created_at)) AS latest FROM messages WHERE conversation_id = ?')
+    .bind(conversationId)
+    .first<{ latest: string | null }>();
 
-  return { messages, latest_timestamp: latest };
+  return { messages, latest_timestamp: latestRow?.latest ?? null };
 }
 
 /** The message this sender already sent with this idempotency key, if any. */
@@ -307,7 +386,13 @@ export async function sendMessage(
   userId: string,
   content: string,
   replyToMessageId?: string,
-  opts: { clientId?: string | null } = {}
+  opts: {
+    clientId?: string | null;
+    /** A pre-chosen id (media uploads put the R2 object first, keyed by it). */
+    id?: string;
+    /** Photo / voice attachment incl. its R2 key (docs/CHAT.md PR 2). */
+    attachment?: StoredAttachment | null;
+  } = {}
 ): Promise<SentMessage> {
   // Verify access
   const conv = await getConversationById(db, conversationId, userId);
@@ -321,16 +406,16 @@ export async function sendMessage(
     if (existing) return { ...existing, client_id: clientId, duplicate: true };
   }
 
-  const id = generateId();
+  const id = opts.id ?? generateId();
   const now = new Date().toISOString();
 
   try {
     await db
       .prepare(`
-        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id, attachment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .bind(id, conversationId, userId, content, now, replyToMessageId || null, clientId)
+      .bind(id, conversationId, userId, content, now, replyToMessageId || null, clientId, opts.attachment ? JSON.stringify(opts.attachment) : null)
       .run();
   } catch (err) {
     // Two sends with the same key at once: the other one won the unique index.
@@ -347,32 +432,9 @@ export async function sendMessage(
     .bind(now, conversationId)
     .run();
 
-  // Get sender info
-  const sender = await db
-    .prepare('SELECT id, name, picture_url FROM users WHERE id = ?')
-    .bind(userId)
-    .first<{ id: string; name: string | null; picture_url: string | null }>();
-
-  // Get reply-to message if applicable
-  let replyTo = null;
-  if (replyToMessageId) {
-    const replyMsg = await db
-      .prepare(`
-        SELECT m.id, m.content, m.sender_id, u.name, u.picture_url
-        FROM messages m JOIN users u ON m.sender_id = u.id
-        WHERE m.id = ?
-      `)
-      .bind(replyToMessageId)
-      .first<{ id: string; content: string; sender_id: string; name: string | null; picture_url: string | null }>();
-    if (replyMsg) {
-      replyTo = {
-        id: replyMsg.id,
-        content: replyMsg.content,
-        sender: { id: replyMsg.sender_id, name: replyMsg.name, picture_url: replyMsg.picture_url },
-      };
-    }
-  }
-
+  const stored = await getMessageById(db, id, userId);
+  if (stored) return { ...stored, client_id: clientId };
+  // Not readable back (no sender row joined): what was written.
   return {
     id,
     conversation_id: conversationId,
@@ -386,8 +448,15 @@ export async function sendMessage(
     translation: null,
     segmentation: null,
     client_id: clientId,
-    sender: sender || { id: userId, name: null, picture_url: null },
-    reply_to: replyTo,
+    updated_at: null,
+    edited_at: null,
+    deleted_at: null,
+    attachment: publicAttachment(opts.attachment ?? null),
+    media_url: opts.attachment ? chatMediaUrl(id) : null,
+    pinned_at: null,
+    pinned_by: null,
+    sender: { id: userId, name: null, picture_url: null },
+    reply_to: null,
     reactions: [],
     has_discussion: false,
   };

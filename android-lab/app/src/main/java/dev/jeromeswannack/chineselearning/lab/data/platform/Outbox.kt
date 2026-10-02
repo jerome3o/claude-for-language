@@ -102,6 +102,16 @@ class Outbox(private val dao: PlatformDao, private val api: Api, val dir: File) 
 
     suspend fun discardFailed(kind: String? = null) = dao.discardFailedOutbox(kind)
 
+    /** Re-queues one item (a chat's "Not sent · Tap to retry"). */
+    suspend fun retry(id: String) = dao.retryOutboxItem(id)
+
+    /** Drops one item (pending or failed) and its staged file. */
+    suspend fun discard(id: String) {
+        val item = dao.allOutbox().firstOrNull { it.id == id } ?: return
+        dao.deleteOutbox(id)
+        item.filePath?.let { p -> File(p).takeIf { it.parentFile?.canonicalPath == dir.canonicalPath }?.delete() }
+    }
+
     /**
      * Sends pending items oldest first. Throws [UnauthorizedException] (the session
      * expired); every other problem is recorded on the item.

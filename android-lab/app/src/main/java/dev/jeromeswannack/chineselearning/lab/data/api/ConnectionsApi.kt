@@ -59,6 +59,9 @@ data class MessageDto(
     val reply_to_message_id: String? = null,
     val translation: String? = null,
     val segmentation: String? = null,
+    /** PR 2 (docs/CHAT.md): image | voice | null, and the soft delete — for the list preview. */
+    val attachment_kind: String? = null,
+    val deleted_at: String? = null,
 )
 
 @Serializable
@@ -76,6 +79,8 @@ data class ChatConversationDto(
     val voice_speed: Double? = null,
     val last_message: MessageDto? = null,
     val other_user: UserSummaryDto? = null,
+    /** PR 2: messages from the other person after my read marker. */
+    val unread: Int = 0,
 )
 
 suspend fun Api.chatConversations(relId: String): List<ChatConversationDto> = get("/api/relationships/${enc(relId)}/conversations")

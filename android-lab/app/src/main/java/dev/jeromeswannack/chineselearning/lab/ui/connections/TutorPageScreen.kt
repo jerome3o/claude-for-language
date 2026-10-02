@@ -48,6 +48,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.EmptyState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
+import dev.jeromeswannack.chineselearning.lab.ui.kit.CountBadge
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadableContent
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
@@ -222,11 +223,19 @@ fun ConversationList(list: List<ChatConversationDto>, onOpen: (String) -> Unit) 
                 Column(Modifier.weight(1f)) {
                     Text(c.title?.takeIf { it.isNotBlank() } ?: "Chat", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1)
                     c.last_message?.let {
-                        Text(it.content.take(50) + if (it.content.length > 50) "..." else "", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(it.content, it.attachment_kind, it.deleted_at),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = if (c.unread > 0) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (c.unread > 0) Lab.colors.ink else Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(Fmt.conversationDate(c.last_message_at ?: c.created_at), style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(Fmt.conversationDate(c.last_message_at ?: c.created_at), style = MaterialTheme.typography.labelMedium, color = if (c.unread > 0) Lab.colors.accent else Lab.colors.muted)
+                    if (c.unread > 0) { Spacer(Modifier.height(4.dp)); CountBadge(if (c.unread > 99) "99+" else c.unread.toString()) }
+                }
             }
         }
     }
