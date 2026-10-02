@@ -698,7 +698,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           const r = await api.post<{ job: SessionNotesJobRow; existing?: boolean }>(`/api/calls/${encodeURIComponent(call_id)}/homework`, options);
           return jsonResult({
             ...compactSessionNotesJob(r.job),
-            ...(r.existing ? { note: 'A job for this call is already running; this is it.' } : {}),
+            ...(r.existing ? { note: "Homework for this call's lesson (calls within 20 minutes of each other count as one lesson) was already made or is being made; this is that job — no new one was started." } : {}),
             hint: 'Poll get_session_notes_job until status is done (or failed); a job usually takes one to three minutes.',
           });
         }
