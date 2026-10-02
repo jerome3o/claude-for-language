@@ -38,6 +38,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // The last run crashed or froze: show its trace first (plain Views, nothing of the app's own
+        // UI), with Copy / Send to Claude / Continue (LastCrashActivity). Never on a sign-in callback.
+        if (savedInstanceState == null && intent?.data?.host != "auth" && !intent.getBooleanExtra(LastCrashActivity.EXTRA_SKIP, false) &&
+            dev.jeromeswannack.chineselearning.lab.data.CrashLog.hasUnseenCrash(this)
+        ) {
+            startActivity(Intent(this, LastCrashActivity::class.java))
+            finish()
+            return
+        }
         signedIn = app.repo.isSignedIn
         notificationPermission = ShellPermission(this).also { if (signedIn) it.maybeAsk() }
         if (savedInstanceState == null) handleIntent(intent)

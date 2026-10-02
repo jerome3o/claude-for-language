@@ -27,8 +27,14 @@ function fakeContext(routes: Record<string, () => unknown>) {
 const text = (r: CallToolResult) => r.content.map((c) => (c.type === 'text' ? c.text : '')).join('');
 
 describe('debug report tools', () => {
-  it('registers list / get / compare', () => {
-    expect([...fakeContext({}).tools.keys()].sort()).toEqual(['compare_debug_reports', 'get_debug_report', 'list_debug_reports']);
+  it('registers list / get / compare / crashes', () => {
+    expect([...fakeContext({}).tools.keys()].sort()).toEqual(['compare_debug_reports', 'get_debug_report', 'list_crash_reports', 'list_debug_reports']);
+  });
+
+  it('lists crash reports with traces', async () => {
+    const { tools, calls } = fakeContext({ 'GET /api/debug/crashes': () => ({ crashes: [{ id: 'c1', trace: 'java.lang.X' }] }) });
+    expect(JSON.parse(text(await tools.get('list_crash_reports')!({ client: 'lab' }))).crashes[0].trace).toBe('java.lang.X');
+    expect(calls[0].path).toBe('/api/debug/crashes?limit=10&trace_chars=6000&client=lab');
   });
 
   it('lists with the client filter and a default limit', async () => {

@@ -8,6 +8,9 @@
  *   GET  /debug/reports?client=&limit=         index rows, newest first
  *   GET  /debug/reports/:id?section=overview|decks|cards|events|full&offset&limit&deck_id&queue&in_due_queue&card_id
  *   GET  /debug/compare?a=&b=&max_cards=&server=0   diff (defaults: newest lab vs newest web)
+ *   POST /debug/crash              { client?, app_version?, device?, crashes: [{ id, source, at, reason?, thread?, description?, trace? }] }
+ *                                  (sent the moment a crash / freeze happens; services/crash-reports.ts)
+ *   GET  /debug/crashes?client=&limit=&trace_chars=   newest first, with the traces
  */
 
 import { Hono } from 'hono';
@@ -21,6 +24,7 @@ import {
   sliceDebugReport,
   storeDebugReport,
 } from '../services/debug-reports';
+import { listCrashes, storeCrashes } from '../services/crash-reports';
 
 const debugReports = new Hono<{ Bindings: Env }>();
 
@@ -82,6 +86,31 @@ debugReports.get('/debug/compare', async (c) => {
     return c.json(comparison);
   } catch (err) {
     return fail(c, err, 'Compare');
+  }
+});
+
+debugReports.post('/debug/crash', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => null);
+    const result = await storeCrashes(c.env.DB, c.get('user').id, body);
+    if ('error' in result) return c.json({ error: result.error }, 400);
+    return c.json(result, 201);
+  } catch (err) {
+    return fail(c, err, 'Crash upload');
+  }
+});
+
+debugReports.get('/debug/crashes', async (c) => {
+  try {
+    const traceChars = c.req.query('trace_chars');
+    const crashes = await listCrashes(c.env.DB, c.get('user').id, {
+      client: c.req.query('client'),
+      limit: Number(c.req.query('limit') || 20),
+      traceChars: traceChars != null ? Number(traceChars) : undefined,
+    });
+    return c.json({ crashes });
+  } catch (err) {
+    return fail(c, err, 'Crash list');
   }
 });
 

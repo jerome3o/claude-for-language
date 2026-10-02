@@ -79,6 +79,22 @@ export function registerDebugTools(ctx: ToolContext): void {
   );
 
   server.tool(
+    'list_crash_reports',
+    'Crashes and freezes of the user\'s apps, newest first, WITH the stack traces — sent the moment they happen (not with the hourly debug report), so a crash on launch shows up here. Lab app sources: `uncaught` (an uncaught exception, sent from the crash handler before the process died), `freeze` (the main thread did not respond for 2 s+; the trace starts with the frozen main thread\'s stack, then every other thread), `exit_info` (Android\'s own record read at the next start: reason anr / crash / crash_native / low_memory…, with the system ANR thread dump in `trace`), `last_crash_screen` (the person pressed "Send to Claude" on the crash screen). Each row: id, client, app_version, device, source, reason, thread, description, at (when it happened), created_at (when it arrived), trace.',
+    {
+      client: CLIENT.optional().describe('Only this app\'s crashes.'),
+      limit: z.number().int().min(1).max(100).optional().describe('Default 10.'),
+      trace_chars: z.number().int().min(0).max(20000).optional().describe('Characters of each trace to return (default 6000).'),
+    },
+    async ({ client, limit, trace_chars }) =>
+      guard(async () => {
+        const query: Record<string, string> = { limit: String(limit ?? 10), trace_chars: String(trace_chars ?? 6000) };
+        if (client) query.client = client;
+        return jsonResult(await api.get('/api/debug/crashes', query));
+      })
+  );
+
+  server.tool(
     'compare_debug_reports',
     'Diff two debug reports on the server — by default the newest Lab report (a) against the newest web report (b) — to explain why the apps show different numbers of cards due. Returns: `hints` (plain-language pointers — read these first), `context` (minutes apart, local dates, timezones, cutoffs, budgets, bonus), `headline` (every home / queue / totals number side by side, diff = b − a), `decks` (per-deck fields that differ: pools, introduced today, allocation, counts), `cards` (how many differ and by which field, queue transitions, cards in one side\'s queue only, "same events but different state", the first `max_cards` differing cards with both sides\' state and the SERVER\'s event count, cards only one side has), and `events` (event ids only one side has, which of those the server has, and how many server events each side is missing).',
     {
