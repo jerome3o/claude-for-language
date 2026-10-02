@@ -51,6 +51,7 @@ private fun CallReviewRoute(nav: LabNav, id: String) {
         CallReviewActions(
             onBack = nav::back,
             onJoin = { nav.open(Routes.call(id)) },
+            onOpenCall = { other -> nav.open(Routes.call(other)) },
             onRefresh = vm::refresh,
             onPlay = vm::play,
             onMakeCards = vm::makeCards,

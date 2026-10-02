@@ -11,8 +11,23 @@ import { createCall, listCalls } from '../api/calls';
 import { getMyRelationships } from '../api/client';
 import { CLAUDE_AI_USER_ID, getOtherUserInRelationship } from '../types';
 import type { CallListItem } from '../types/calls';
+import { groupCallsByLesson } from '@shared/calls';
 import './CallPage.css';
 import './CallReviewPage.css';
+
+const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { timeStyle: 'short' });
+
+/** One lesson: "2 Oct 2026, 12:31 · 57 min · 4 calls · notes ready". */
+function lessonMeta(calls: CallListItem[]): string {
+  const first = calls[0];
+  const last = calls[calls.length - 1];
+  if (calls.length === 1) return callMeta(first);
+  const when = new Date(first.started_at ?? first.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const live = calls.some((c) => c.status === 'live');
+  const span = !live && first.started_at && last.ended_at ? ` · ${Math.max(1, Math.round((last.ended_at - first.started_at) / 60_000))} min` : '';
+  const notes = calls.some((c) => c.has_summary) ? ' · notes ready' : '';
+  return `${when}${span} · ${calls.length} calls${notes}`;
+}
 
 function callMeta(c: CallListItem): string {
   const when = new Date(c.started_at ?? c.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -95,16 +110,34 @@ export function CallsListPage() {
             <p className="td-muted">No calls yet.</p>
           ) : (
             <div className="calls-list" data-testid="calls-list">
-              {calls.map((c) => (
-                <Link key={c.id} to={c.status === 'live' ? `/calls/${c.id}` : `/calls/${c.id}/review`} className="calls-row">
-                  <span className="calls-row-icon" aria-hidden="true">{c.status === 'live' ? '🔴' : c.has_summary ? '📝' : '📼'}</span>
-                  <span className="calls-row-main">
-                    <span className="calls-row-title">{c.title || (c.other_user_name ? `Lesson with ${c.other_user_name}` : 'Test call')}</span>
-                    <span className="calls-row-meta" style={{ display: 'block' }}>{callMeta(c)}</span>
-                  </span>
-                  {c.status === 'live' ? <span className="calls-live-pill">LIVE</span> : <span className="td-chevron">›</span>}
-                </Link>
-              ))}
+              {/* One entry per lesson (calls within 20 minutes of each other), its calls inside. */}
+              {groupCallsByLesson(calls).map(({ lessonId, calls: group }) => {
+                const live = group.find((c) => c.status === 'live');
+                const head = live ?? group[group.length - 1];
+                const title = group.find((c) => c.title)?.title || (head.other_user_name ? `Lesson with ${head.other_user_name}` : 'Test call');
+                return (
+                  <div key={lessonId} className="calls-lesson" data-testid="calls-lesson">
+                    <Link to={live ? `/calls/${live.id}` : `/calls/${head.id}/review`} className="calls-row">
+                      <span className="calls-row-icon" aria-hidden="true">{live ? '🔴' : group.some((c) => c.has_summary) ? '📝' : '📼'}</span>
+                      <span className="calls-row-main">
+                        <span className="calls-row-title">{title}</span>
+                        <span className="calls-row-meta" style={{ display: 'block' }}>{lessonMeta(group)}</span>
+                      </span>
+                      {live ? <span className="calls-live-pill">LIVE</span> : <span className="td-chevron">›</span>}
+                    </Link>
+                    {group.length > 1 && (
+                      <div className="calls-lesson-calls" aria-label="Calls in this lesson">
+                        {group.map((c, i) => (
+                          <span key={c.id} className="calls-lesson-call">
+                            {i + 1}. {time(c.started_at ?? Date.parse(c.created_at.replace(' ', 'T') + 'Z'))}
+                            {c.status === 'live' ? ' (live)' : c.started_at && c.ended_at ? `–${time(c.ended_at)}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

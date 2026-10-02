@@ -13,6 +13,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -82,7 +85,6 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 import dev.jeromeswannack.chineselearning.lab.core.calls.VideoFit
 import dev.jeromeswannack.chineselearning.lab.data.calls.AudioRoute
 import dev.jeromeswannack.chineselearning.lab.data.calls.RoomStatus
-import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
@@ -146,7 +148,10 @@ data class CallActions(
     val onToggleRecording: () -> Unit = {},
     val onAudioRoute: (AudioRoute) -> Unit = {},
     val onEnd: () -> Unit = {},
+    /** Leave: the call goes on for the other person (the "You left" screen offers Rejoin). */
     val onLeave: () -> Unit = {},
+    /** Back into the call I left (same call; mic / camera as I left them). */
+    val onRejoin: () -> Unit = {},
     val onCommitBoard: (BoardOp) -> Unit = {},
     val onLive: (LiveStroke?) -> Unit = {},
     val onSendChat: (String) -> Boolean = { false },
@@ -194,6 +199,8 @@ fun CallScreen(
     initialAnnotating: Boolean = false,
     /** The call's layout (the ViewModel's, remembered per user); null = a local one from [initialPanel] (screenshots). */
     layout: CallLayoutHolder? = null,
+    /** Screenshots: End's confirm already open. */
+    initialEndConfirm: Boolean = false,
 ) {
     when {
         info.loading -> Center { Text("Loading the call…", color = OnDark) }
@@ -202,9 +209,10 @@ fun CallScreen(
             Spacer(Modifier.height(16.dp))
             SecondaryPill("Back to calls", onClick = actions.onAllCalls)
         }
+        s.phase == CallPhase.LEFT -> Left(s, info, actions)
         s.phase == CallPhase.ENDED || s.phase == CallPhase.ERROR -> Ended(s, actions)
         s.phase == CallPhase.PREJOIN || s.phase == CallPhase.JOINING -> PreJoin(s, info, actions, video)
-        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating)
+        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm)
     }
 }
 
@@ -444,11 +452,11 @@ fun layoutForPanel(panel: CallPanel, wide: Boolean): CallLayout.Layout {
 }
 
 @Composable
-private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false) {
+private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false) {
     var seenChat by rememberSaveable { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
     var layoutSheet by remember { mutableStateOf(false) }
-    var confirmEnd by remember { mutableStateOf(false) }
+    var confirmEnd by remember { mutableStateOf(initialEndConfirm) }
     var now by remember { mutableLongStateOf(nowMs()) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1_000); now = nowMs() } }
     val remote = s.remote
@@ -627,8 +635,33 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 // Phones are focus-only (a swipe moves between tiles): the layout menu is for the unfolded screen, like the web.
                 if (wide) RoundButton("▦", "Layout", active = layoutSheet, size = btn) { layoutSheet = true }
                 RoundButton("⋯", "More", size = btn) { more = true }
-                RoundButton("📞", "End call", danger = true, size = btn) { confirmEnd = true }
+                // Leave (the call goes on) next to End (for everyone) when there is room; on a phone it is in ⋯ and in End's confirm.
+                if (wide) LeavePill(btn) { actions.onTick(); actions.onLeave() }
+                RoundButton("📞", "End the call for everyone", danger = true, size = btn) { confirmEnd = true; actions.onTick() }
             }
+        }
+        // End asks first, and offers "Just leave" (web: the end-confirm popover above the controls).
+        androidx.compose.animation.AnimatedVisibility(
+            confirmEnd,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            Box(
+                Modifier.fillMaxSize().background(Color(0x99000000))
+                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { confirmEnd = false },
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            confirmEnd,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = (if (wide) 52.dp else 48.dp) + 36.dp, start = 16.dp, end = 16.dp),
+            enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 500f)) { it / 3 } + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            EndConfirm(
+                onLeave = { confirmEnd = false; actions.onLeave() },
+                onEnd = { confirmEnd = false; actions.onEnd() },
+                onCancel = { confirmEnd = false },
+            )
         }
         if (layoutSheet) LabBottomSheet(onDismiss = { layoutSheet = false }, title = "Layout") {
             CallLayoutMenu(layout, available, first, onAction = { dispatch(it); actions.onTick() }, close = { layoutSheet = false })
@@ -637,7 +670,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     if (more) LabBottomSheet(onDismiss = { more = false }, title = "Call") {
         CallMoreMenu(s, info, actions, close = { more = false })
     }
-    if (confirmEnd) ConfirmDialog("End the call for everyone?", "The recording is uploaded and the transcript and lesson notes follow.", "End call", onConfirm = { confirmEnd = false; actions.onEnd() }, onDismiss = { confirmEnd = false }, danger = true)
+    androidx.activity.compose.BackHandler(enabled = confirmEnd) { confirmEnd = false }
 }
 
 /**
@@ -738,7 +771,7 @@ fun CallMoreMenu(s: CallState, info: CallScreenInfo, actions: CallActions, close
     }
     Spacer(Modifier.height(8.dp))
     RowDivider()
-    NavRow("🚪", "Leave (the call goes on)", desc = "Rejoin from the calls page", onClick = { close(); actions.onLeave() })
+    NavRow("🚪", "Leave — the call goes on", desc = "Rejoin any time, from here or another device", onClick = { close(); actions.onLeave() })
     if (!s.turn) Text("No TURN relay configured — calls on strict networks may not connect.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(16.dp))
     Spacer(Modifier.height(16.dp))
 }
@@ -883,6 +916,85 @@ private fun ChatPanel(messages: List<CallChatMessage>, myUserId: String, onSend:
                 colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Lab.colors.card, unfocusedContainerColor = Lab.colors.card),
             )
             PrimaryPill("Send", Modifier.height(52.dp), enabled = text.isNotBlank()) { send() }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- leave / end
+
+/** 🚪 Leave — next to End on a wide screen (web: .call-btn.leave). */
+@Composable
+private fun LeavePill(height: Dp, onClick: () -> Unit) {
+    Row(
+        Modifier.height(height).clip(RoundedCornerShape(999.dp)).background(Color(0x33FFFFFF))
+            .bouncyClickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Leave — the call continues" }
+            .padding(horizontal = 16.dp).testTag("leave-call"),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("🚪", fontSize = 20.sp)
+        Text("Leave", color = OnDark, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** "End the call for everyone?" with Just leave / End for everyone / Cancel (web: .call-end-confirm). */
+@Composable
+fun EndConfirm(onLeave: () -> Unit, onEnd: () -> Unit, onCancel: () -> Unit) {
+    Column(
+        Modifier.widthIn(max = 380.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).padding(18.dp).testTag("end-confirm"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("End the call for everyone?", color = Color(0xFF111827), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text(
+            androidx.compose.ui.text.buildAnnotatedString {
+                append("To switch device or step away, ")
+                pushStyle(androidx.compose.ui.text.SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontWeight = FontWeight.SemiBold))
+                append("Leave")
+                pop()
+                append(" instead — the call goes on.")
+            },
+            color = Color(0xFF374151), fontSize = 15.sp, lineHeight = 21.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F4F6))
+                    .bouncyClickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onLeave).testTag("end-confirm-leave"),
+                contentAlignment = Alignment.Center,
+            ) { Text("🚪 Just leave", color = Color(0xFF111827), fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+            Box(
+                Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(12.dp)).background(Palette.Again)
+                    .bouncyClickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onEnd).testTag("end-confirm-end"),
+                contentAlignment = Alignment.Center,
+            ) { Text("End for everyone", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+        }
+        Box(
+            Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(12.dp)).bouncyClickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onCancel),
+            contentAlignment = Alignment.Center,
+        ) { Text("Cancel", color = Color(0xFF4B5563), fontSize = 15.sp) }
+    }
+}
+
+/** "You left the call" — it goes on for them; Rejoin (same call, devices as I left them) or All calls (web: phase 'left'). */
+@Composable
+private fun Left(s: CallState, info: CallScreenInfo, actions: CallActions) {
+    val first = info.otherName?.trim()?.takeIf { it.isNotEmpty() }?.substringBefore(' ') ?: "the other person"
+    Center {
+        Column(
+            Modifier.widthIn(max = 420.dp).clip(RoundedCornerShape(24.dp)).background(DarkCard).padding(24.dp).testTag("call-left"),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("🚪", fontSize = 48.sp)
+            Text("You left the call", color = OnDark, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "It goes on for $first — rejoin from here or from another device. A call nobody is in ends by itself after 10 minutes.",
+                color = MutedDark, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium,
+            )
+            if (s.pendingUploads > 0) Text(
+                "Uploading your recording… ${CallsFormat.plural(s.pendingUploads, "part")} left.",
+                color = MutedDark, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall,
+            )
+            PrimaryPill("Rejoin", Modifier.fillMaxWidth().height(52.dp).testTag("rejoin-call"), onClick = actions.onRejoin)
+            SecondaryPill("All calls", Modifier.fillMaxWidth().height(48.dp), onClick = actions.onAllCalls)
         }
     }
 }

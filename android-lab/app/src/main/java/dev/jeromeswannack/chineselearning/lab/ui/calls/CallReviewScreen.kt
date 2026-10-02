@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -62,6 +63,44 @@ import dev.jeromeswannack.chineselearning.lab.ui.teaching.JobActions
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.SessionJobCard
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+
+/** The lesson's homework exists: a job that didn't fail or get cancelled (web: CallHomeworkSection `made`). */
+fun homeworkMade(jobs: List<SessionJobDto>): Boolean = jobs.any { it.status != "failed" && it.status != "cancelled" }
+
+/**
+ * "One lesson, 4 calls in a row: 12:31–12:53 · 12:54–13:11 · …" — the current call bold, a live one
+ * a link to join it; then what the page below covers (web: the review page's lesson box).
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun LessonCallsBox(calls: List<dev.jeromeswannack.chineselearning.lab.data.api.CallLessonCallDto>, current: String, onOpenCall: (String) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.accent.copy(alpha = 0.07f))
+            .border(1.dp, Lab.colors.accent.copy(alpha = 0.18f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)
+            .testTag("lesson-calls"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("One lesson, ${calls.size} calls in a row:", color = Lab.colors.ink, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyMedium)
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            calls.forEachIndexed { i, c ->
+                val label = CallsFormat.callSpan(c.status, c.started_at, c.ended_at, c.created_at)
+                val isCurrent = c.id == current
+                val sep = if (i < calls.size - 1) "  ·" else ""
+                if (c.status == "live" && !isCurrent) Text(
+                    "$label ›$sep", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).bouncyClickable { onOpenCall(c.id) }.heightIn(min = 44.dp).padding(vertical = 12.dp),
+                ) else Text(
+                    label + sep, color = Lab.colors.ink, fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 2.dp),
+                )
+            }
+        }
+        Text("The transcript, board, report and homework below cover all of them.", color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall)
+    }
+}
 
 /** A deck the words can go into. */
 data class DeckChoice(val id: String, val name: String)
@@ -103,6 +142,8 @@ fun callPageHeader(p: dev.jeromeswannack.chineselearning.lab.data.api.CallBoardP
 data class CallReviewActions(
     val onBack: () -> Unit = {},
     val onJoin: () -> Unit = {},
+    /** Another call of the lesson that is live: join it. */
+    val onOpenCall: (String) -> Unit = {},
     val onRefresh: () -> Unit = {},
     val onPlay: (TranscriptSegmentDto) -> Unit = {},
     val onMakeCards: (words: List<CallReportWordDto>, deckId: String?, deckName: String) -> Unit = { _, _, _ -> },
@@ -144,6 +185,9 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
                 BetaBadge()
             }
         }
+        val lessonCalls = d.lesson?.calls.orEmpty()
+        val callCount = CallsFormat.lessonCallCount(d)
+        if (lessonCalls.size > 1) item { LessonCallsBox(lessonCalls, current = ui.callId, onOpenCall = actions.onOpenCall) }
         if (q.offline) item { OfflineNotice(updatedAt = q.updatedAt) }
         else if (q.error != null) item { InlineNotice(q.error, kind = NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRefresh) }
         ui.notice?.let { item { InlineNotice(it, kind = NoticeKind.Error) } }
@@ -209,7 +253,10 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
             }
         }
 
-        ui.homework?.let { hw -> item { HomeworkSection(hw, ready = call.status == "ended" && !busy, online = ui.online, actions) } }
+        ui.homework?.let { hw ->
+            val ready = call.status == "ended" && !busy && lessonCalls.none { it.status == "live" }
+            item { HomeworkSection(hw, ready = ready, online = ui.online, callCount = callCount, actions = actions) }
+        }
 
         item {
             SectionHeader("Transcript", trailing = {
@@ -222,7 +269,7 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
         val turns = CallTranscript.groupTurns(d.transcript.map { SegmentRef(it) }).map { t -> t.map { it.seg } }
         if (turns.isEmpty()) item {
             Text(
-                when { call.status == "live" -> "The transcript appears after the call."; busy -> "Working on it…"; else -> "No speech was transcribed for this call." },
+                when { call.status == "live" -> "The transcript appears after the call."; busy -> "Working on it…"; else -> "No speech was transcribed in this ${if (callCount > 1) "lesson" else "call"}." },
                 color = Lab.colors.muted, style = MaterialTheme.typography.bodyMedium,
             )
         } else {
@@ -331,13 +378,14 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SecondaryPill(if (d.report != null) "Transcribe & summarise again" else "Process now", Modifier.fillMaxWidth().height(48.dp), enabled = !ui.busy && !busy && ui.online, onClick = actions.onReprocess)
-                    if (call.created_by == ui.myId) SecondaryPill("Delete call", Modifier.fillMaxWidth().height(48.dp), enabled = !ui.busy && ui.online, danger = true) { confirmDelete = true }
+                    if (call.created_by == ui.myId) SecondaryPill(if (callCount > 1) "Delete this call (not the others)" else "Delete call", Modifier.fillMaxWidth().height(48.dp), enabled = !ui.busy && ui.online, danger = true) { confirmDelete = true }
                 }
             }
         }
     }
     if (confirmDelete) ConfirmDialog(
-        "Delete this call?", "Its recording and transcript are deleted too. This cannot be undone.", "Delete",
+        "Delete this call?",
+        "Its recording and transcript are deleted too.${if (d != null && CallsFormat.lessonCallCount(d) > 1) " The other calls of the lesson stay." else ""} This cannot be undone.", "Delete",
         onConfirm = { confirmDelete = false; actions.onDelete() }, onDismiss = { confirmDelete = false }, danger = true,
     )
 }
@@ -452,19 +500,26 @@ private fun WordPicker(words: List<CallReportWordDto>, startedAt: Long?, ui: Cal
 }
 
 @Composable
-private fun HomeworkSection(hw: CallHomeworkUi, ready: Boolean, online: Boolean, actions: CallReviewActions) {
+private fun HomeworkSection(hw: CallHomeworkUi, ready: Boolean, online: Boolean, callCount: Int, actions: CallReviewActions) {
     val active = hw.jobs.any { it.active }
+    // Homework is made once per LESSON (all its calls): a job that didn't fail or get cancelled means it's made.
+    val made = homeworkMade(hw.jobs)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader("Homework")
         if (hw.jobs.isEmpty()) Text(
-            "Turn this lesson into homework for ${hw.studentName}: the assistant reads the transcript, the whiteboard and the report, makes a deck of cards for what you taught (skipping words they already know) and a mini lesson when a grammar point was taught, and sends them to the student. Same as pasting notes on their page.",
+            "Turn this lesson into homework for ${hw.studentName}: the assistant reads the transcript, the whiteboard and the report, makes a deck of cards for what you taught (skipping words they already know) and a mini lesson when a grammar point was taught, and sends them to the student. Same as pasting notes on their page." +
+                if (callCount > 1) " This lesson was $callCount calls in a row — it reads all of them, and the homework is made once." else "",
             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
+        )
+        if (made && !active) Text(
+            "Homework for this lesson is made${if (callCount > 1) " (from all $callCount calls)" else ""} — it is below; open it to review or change what was sent.",
+            style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.testTag("call-homework-made"),
         )
         hw.jobs.forEach { SessionJobCard(it, actions.jobs) }
         hw.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        if (!active) {
+        if (!active && !made) {
             PrimaryPill(
-                if (hw.starting) "Starting…" else if (hw.jobs.isNotEmpty()) "Make homework again" else "✨ Make homework from this lesson",
+                if (hw.starting) "Starting…" else if (hw.jobs.isNotEmpty()) "Try again" else "✨ Make homework from this lesson",
                 Modifier.fillMaxWidth().height(52.dp),
                 enabled = ready && !hw.starting && online,
                 onClick = actions.onMakeHomework,

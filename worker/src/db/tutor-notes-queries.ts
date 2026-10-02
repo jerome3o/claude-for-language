@@ -160,15 +160,16 @@ export async function listJobs(db: D1Database, relationshipId: string, limit = 5
   return rows.results.map(parseJob);
 }
 
-/** Jobs made from one video call's transcript, newest first (no transcripts). */
-export async function listJobsForCall(db: D1Database, callId: string): Promise<TutorNotesJob[]> {
+/** Jobs made from these video calls' material (one call, or every call of a lesson), newest first (no transcripts). */
+export async function listJobsForCall(db: D1Database, ...callIds: string[]): Promise<TutorNotesJob[]> {
+  if (callIds.length === 0) return [];
   const rows = await db
     .prepare(
       `SELECT id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, status, progress, steps,
               NULL AS transcript, rounds, result, error, lesson_log_id, source_call_id, review, plan, chat, assigned_at, created_at, updated_at, started_at, finished_at
-       FROM tutor_note_jobs WHERE source_call_id = ? ORDER BY created_at DESC LIMIT 20`
+       FROM tutor_note_jobs WHERE source_call_id IN (${callIds.map(() => '?').join(',')}) ORDER BY created_at DESC LIMIT 20`
     )
-    .bind(callId)
+    .bind(...callIds)
     .all<TutorNotesJobRow>();
   return rows.results.map(parseJob);
 }

@@ -88,7 +88,9 @@ export interface CustomLessonImageMessage {
 /** After-call processing: transcribe one recording piece, or write the lesson report. */
 export type CallProcessingMessage =
   | { kind: 'piece'; pieceId: string }
-  | { kind: 'report'; callId: string };
+  | { kind: 'report'; callId: string }
+  // The lesson report over all the lesson's calls (services/calls/lessons.ts).
+  | { kind: 'lesson_report'; lessonId: string };
 
 /** Background generation of a quest world (one Claude call + repair rounds). */
 export interface PictureHuntJobMessage {

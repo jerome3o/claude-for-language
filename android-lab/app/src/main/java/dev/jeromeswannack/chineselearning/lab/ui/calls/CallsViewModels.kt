@@ -204,7 +204,13 @@ class CallReviewViewModel(private val app: LabApp, private val callId: String) :
         local.update { it.copy(homework = it.homework?.copy(starting = true, error = null)) }
         viewModelScope.launch {
             attempt { app.repo.api.makeCallHomework(callId) }
-                .onSuccess { job -> app.haptics.tick(); local.update { it.copy(homework = it.homework?.copy(jobs = listOf(job) + it.homework.jobs.filter { j -> j.id != job.id })) }; refreshHomework() }
+                .onSuccess { r ->
+                    app.haptics.tick()
+                    // The lesson's homework already exists (made from another of its calls): show those jobs.
+                    val got = r.jobs?.takeIf { r.existing && it.isNotEmpty() } ?: listOf(r.job)
+                    local.update { it.copy(homework = it.homework?.copy(jobs = got + it.homework.jobs.filter { j -> got.none { g -> g.id == j.id } })) }
+                    refreshHomework()
+                }
                 .onFailure { e -> local.update { it.copy(homework = it.homework?.copy(error = e.userMessage())) } }
             local.update { it.copy(homework = it.homework?.copy(starting = false)) }
         }

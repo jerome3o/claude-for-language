@@ -15,8 +15,8 @@
 
 /** A socket unheard from for this long counts as gone. */
 export const PRESENCE_TIMEOUT_MS = 45_000;
-/** The call ends this long after the last person left. */
-export const EMPTY_CALL_END_MS = 3 * 60_000;
+/** The call ends this long after the last person left — 10 min (round 4; was 3): leaving to switch device, or a long network drop, never ends the lesson. */
+export const EMPTY_CALL_END_MS = 10 * 60_000;
 /** A call nobody ever entered ends this long after it was created. */
 export const UNJOINED_CALL_END_MS = 10 * 60_000;
 /** The room writes a socket's "last heard" time at most this often (a storage write per ping is wasteful). */

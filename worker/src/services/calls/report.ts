@@ -78,28 +78,57 @@ function trimMiddle(text: string, max: number): string {
   return `${text.slice(0, half)}\n\n[… middle of the lesson omitted for length …]\n\n${text.slice(-half)}`;
 }
 
+/** What a report is written from: one call, or a whole lesson of calls (services/calls/lessons.ts). */
+export interface ReportSource {
+  /** A call of it (its relationship decides who is tutor / student). */
+  call: CallRow;
+  segments: SegmentRow[];
+  chat: CallChatMessage[];
+  board: BoardItem[];
+  boardText: string;
+  title: string | null;
+  startedAt: number | null;
+  /** How many calls the lesson was (the report says so when it is more than one). */
+  callCount?: number;
+}
+
 /** The report, or null when there is nothing to write about (or no API key). */
 export async function writeCallReport(env: Env, call: CallRow, participants: CallParticipant[]): Promise<CallReport | null> {
   const rows = await env.DB
     .prepare('SELECT id, user_id, start_ms, end_ms, text, translation FROM call_transcript_segments WHERE call_id = ? ORDER BY start_ms')
     .bind(call.id)
     .all<SegmentRow>();
-  const segments = mergeTranscript(rows.results ?? []);
-  const chat: CallChatMessage[] = call.chat_json ? JSON.parse(call.chat_json) : [];
-  const board: BoardItem[] = call.board_json ? JSON.parse(call.board_json) : [];
+  return writeReport(env, {
+    call,
+    segments: rows.results ?? [],
+    chat: call.chat_json ? JSON.parse(call.chat_json) : [],
+    board: call.board_json ? JSON.parse(call.board_json) : [],
+    boardText: call.board_text ?? '',
+    title: call.title,
+    startedAt: call.started_at,
+  }, participants);
+}
+
+export async function writeReport(env: Env, src: ReportSource, participants: CallParticipant[]): Promise<CallReport | null> {
+  const call = src.call;
+  const segments = mergeTranscript(src.segments);
+  const chat = src.chat;
+  const board = src.board;
   const boardText = board.filter((b) => b.type === 'text').map((b) => (b.type === 'text' ? b.text : '')).filter(Boolean);
-  const sharedNotes = (call.board_text ?? '').trim();
+  const sharedNotes = (src.boardText ?? '').trim();
   if (segments.length === 0 && chat.length === 0 && boardText.length === 0 && !sharedNotes) return null;
   if (!env.ANTHROPIC_API_KEY) return null;
 
   const names = await roleNames(env.DB, call, participants);
-  const startMs = call.started_at ?? segments[0]?.start_ms ?? 0;
+  const startMs = src.startedAt ?? segments[0]?.start_ms ?? 0;
   const transcript = trimMiddle(transcriptToText(segments, names, startMs, { translations: true }), MAX_TRANSCRIPT_CHARS);
   const chatText = chat.map((m) => `${names[m.user_id] || m.name}: ${m.text}`).join('\n');
 
   const system = `You review a recorded 1:1 Mandarin Chinese lesson between a tutor and a learner and write the learner's lesson report.
 
-The transcript was produced by speech recognition from each person's own microphone, so the speaker labels are reliable but the words may contain recognition errors — especially in code-switched speech (Chinese and English mixed in one sentence). Silently correct obvious recognition errors when you quote; never invent things that were not said.
+The transcript was produced by speech recognition from each person's own microphone, so the speaker labels are reliable but the words may contain recognition errors — especially in code-switched speech (Chinese and English mixed in one sentence). Silently correct obvious recognition errors when you quote; never invent things that were not said.${(src.callCount ?? 1) > 1 ? `
+
+The lesson was ${src.callCount} video calls in a row (the connection dropped or someone switched device); treat it as ONE lesson — gaps in the transcript are the moments between calls.` : ''}
 
 Write:
 - summary: 3–6 sentences in English — what the lesson covered and how the learner did. Address the learner as "you".
@@ -111,9 +140,9 @@ Write:
 ${CARD_STANDARD}`;
 
   const user = `Participants: ${Object.values(names).join(', ')}
-Lesson title: ${call.title || '(none)'}
+Lesson title: ${src.title || '(none)'}
 
-TRANSCRIPT (time from the start of the call; translations in brackets where the recogniser gave one):
+TRANSCRIPT (time from the start of the lesson; translations in brackets where the recogniser gave one):
 ${transcript || '(no speech was transcribed)'}
 ${sharedNotes ? `\nSHARED NOTES (typed together on the board during the lesson):\n${sharedNotes.slice(0, 20_000)}\n` : ''}${chatText ? `\nIN-CALL CHAT:\n${chatText}` : ''}${boardText.length ? `\nWRITTEN ON THE WHITEBOARD:\n${boardText.join('\n')}` : ''}`;
 

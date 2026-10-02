@@ -350,7 +350,7 @@ applied by the CallRoom; worker tests with a mocked clock in `durable/__tests__/
   would time out, closes it (4003, the client reconnects if it is in fact alive) and tells the other
   side `peer_left`.
 - **Ends by itself** — through the same path as End (`ended_at`, the "missed call" push, post-call
-  processing): **3 min** after the last person left (time for a reload or a network blip), or
+  processing): **10 min** after the last person left (time for a reload or a network blip), or
   **10 min** after creation for a call nobody ever entered (the caller may still be on the pre-join
   screen). `POST /api/calls` arms the room; `GET /api/calls` asks each live call's room
   `presence()` (≤ 10 rooms, 2.5 s), which also ends a room past its deadline — so a call stuck from
@@ -366,6 +366,42 @@ applied by the CallRoom; worker tests with a mocked clock in `durable/__tests__/
   a new one (`reused: true`, no chat line / push) when someone is in it, or when it started in the
   last 10 min (one conditional `INSERT … WHERE NOT EXISTS`, so two presses in the same second can't
   both insert).
+
+## Lessons: calls in a row are one lesson (round 4)
+
+On 2 Oct 2026 one lesson became four calls: Jerome pressed the big red button to switch to his
+computer (it ended the call for both, an ended room refuses joins), Minghui's network froze, and a
+4-second accidental call followed — and Minghui then made homework three times (three decks).
+
+- **Leave vs End** — the red button still ends the call for everyone, but asks first ("End the call
+  for everyone? To switch device or step away, Leave instead — the call goes on." · Just leave · End
+  for everyone · Cancel). **🚪 Leave** sits next to it on wide screens and in ⋯ everywhere: it sends
+  `leave`, and the page says "You left the call — it goes on for <name>" with **Rejoin** (same call,
+  same page; devices restored as you left them). A call nobody is in ends by itself after **10 min**
+  (`EMPTY_CALL_END_MS`, was 3).
+- **The rule** (`shared/calls/lessons.ts`, unit-tested; Lab port parity-tested): calls between the
+  same two people (a relationship; a solo call: its caller) belong to one **lesson** when a call
+  starts no more than `LESSON_GAP_MS` = **20 min** after the previous one ended, or while it is still
+  live. `POST /api/calls` puts the new call in the open lesson (`lessonForNewCall`,
+  `services/calls/lessons.ts`) or starts one; ending a call updates the lesson's `last_ended_at`.
+- **Storage** — migration 0089: `call_lessons` (relationship, started_at / last_ended_at in ms,
+  processing_status none | waiting | summarizing | done | failed, summary_json, report_call_ids) and
+  `calls.lesson_id`. The migration back-filled every existing call by the same rule (2 Oct's four
+  calls → one lesson); a one-call lesson kept its call's report, a lesson of several calls gets its
+  combined report the first time it is opened.
+- **Processing is per lesson, incremental** — each call's pieces are transcribed as before; when a
+  call has ended and is transcribed, and no call of the lesson is live or still transcribing, the
+  lesson report is (re)written over ALL its calls (`lesson_report` queue message,
+  `processLessonReport`). A call that joins later makes the report stale (`report_call_ids`) and it is
+  written again when that call is transcribed. Chosen over "wait until the 20-minute window has
+  passed": that would make every report 20 minutes late for a case that is rare. "Process now" on the
+  review page re-runs the whole lesson.
+- **What shows per lesson** — `GET /api/calls/:id` returns the lesson (`lesson.calls`) and its whole
+  transcript, recordings, board pages / text, chat, connection log and report; the review page shows
+  "One lesson, N calls in a row: 12:31–12:53 · …". **Past calls** lists one entry per lesson
+  (`groupCallsByLesson`) with its calls underneath. **Make homework** works on the lesson once:
+  `POST /api/calls/:id/homework` returns the existing job (`existing: true`, with `jobs`) when any call
+  of the lesson already has one that didn't fail or get cancelled; the agent reads all the calls.
 
 ## Finding the call (banners, ring, notifications)
 

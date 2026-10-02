@@ -13,6 +13,7 @@ import type { User } from '../types';
 import * as jobs from '../db/tutor-notes-queries';
 import * as iq from '../db/insights-queries';
 import { MAX_NOTES_CHARS } from './tutor-notes-agent';
+import type { LessonMaterial } from './calls/lessons';
 import type { CallRow, CallParticipant } from './calls/store';
 import { roleNames, type CallReport } from './calls/report';
 
@@ -162,6 +163,23 @@ export function composeCallNotes(input: CallNotesInput): string {
   parts.push('TRANSCRIPT (time from the start of the call; translations in brackets where the recogniser gave one)');
   parts.push(segments.length > 0 ? trimMiddle(transcriptToText(segments, input.names, startMs, { translations: true }), TRANSCRIPT_BUDGET) : '(no speech was transcribed)');
   return parts.join('\n');
+}
+
+/** Load a LESSON's material (every call of it) and shape it as session notes. */
+export async function lessonNotesFor(env: Env, m: LessonMaterial, participants: CallParticipant[]): Promise<{ notes: string; names: Record<string, string> }> {
+  const names = await roleNames(env.DB, m.calls[0], participants);
+  const report = m.lesson.summary_json ? (JSON.parse(m.lesson.summary_json) as CallReport) : null;
+  const notes = composeCallNotes({
+    title: m.calls.length > 1 ? `${m.title ?? 'Lesson'} (${m.calls.length} calls in a row, one lesson)` : m.title,
+    startedAt: m.startedAt,
+    names,
+    transcript: m.segments,
+    board: m.board,
+    boardText: m.boardText,
+    chat: m.chat,
+    report,
+  });
+  return { notes, names };
 }
 
 /** Load a call's material and shape it as session notes. */

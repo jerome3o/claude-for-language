@@ -10,3 +10,4 @@ export * from './connection';
 export * from './layout';
 export * from './pages';
 export * from './presence';
+export * from './lessons';
