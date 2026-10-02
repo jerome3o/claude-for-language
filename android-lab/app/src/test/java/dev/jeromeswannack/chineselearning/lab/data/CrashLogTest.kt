@@ -146,6 +146,163 @@ class CrashLogTest {
         }
     }
 
+    private fun fakeServer(vararg codes: Int): okhttp3.mockwebserver.MockWebServer {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        codes.forEach { server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(it).setBody("{}")) }
+        server.start()
+        CrashLog.apiBase = server.url("").toString().trimEnd('/')
+        app.getSharedPreferences("lab", android.content.Context.MODE_PRIVATE).edit().putString("session_token", "tok").commit()
+        return server
+    }
+
+    private fun crashFiles() = java.io.File(app.filesDir, "crash").listFiles().orEmpty().toList()
+
+    @Test
+    fun theStartUpUploadRetriesWithBackoffAndDeletesOnlyAfterA2xx() {
+        val base = CrashLog.apiBase
+        val sleeper = CrashLog.sleeper
+        val server = fakeServer(500, 503, 201)
+        try {
+            CrashLog.write(java.io.File(app.filesDir, "crash"), "0.999", "main", IllegalStateException("start-up crash"))
+            val waits = ArrayList<Long>()
+            val filesDuringRetries = ArrayList<Int>()
+            CrashLog.sleeper = { waits += it; filesDuringRetries += crashFiles().size }
+            assertEquals(CrashLog.Upload.SENT, CrashLog.uploadWithRetries(app, "0.999"))
+            assertEquals(3, server.requestCount, "failed twice, accepted the third time")
+            assertEquals(listOf(2_000L, 4_000L), waits, "backoff between attempts")
+            assertEquals(listOf(1, 1), filesDuringRetries, "the file stays until the server accepted it")
+            assertTrue(crashFiles().isEmpty())
+            // Every attempt carried the same crash id.
+            val ids = (1..3).map {
+                val body = kotlinx.serialization.json.Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+                (body["crashes"] as kotlinx.serialization.json.JsonArray).single().jsonObject["id"]!!.jsonPrimitive.content
+            }
+            assertEquals(1, ids.toSet().size)
+        } finally {
+            CrashLog.apiBase = base
+            CrashLog.sleeper = sleeper
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun theUploadWorkerSucceedsAfterTwoFailuresAndRetriesTheJobWhenEveryAttemptFails() {
+        val base = CrashLog.apiBase
+        val sleeper = CrashLog.sleeper
+        CrashLog.sleeper = {}
+        val input = androidx.work.workDataOf(CrashUploadWorker.KEY_VERSION to "0.999")
+        fun worker() = androidx.work.testing.TestWorkerBuilder.from(app, CrashUploadWorker::class.java, java.util.concurrent.Executors.newSingleThreadExecutor())
+            .setInputData(input).build()
+        var server = fakeServer(500, 500, 201)
+        try {
+            CrashLog.recordNonFatal(app, "0.999", RuntimeException("x"))
+            assertEquals(androidx.work.ListenableWorker.Result.success(), worker().doWork())
+            assertEquals(3, server.requestCount)
+            assertTrue(crashFiles().isEmpty())
+            server.shutdown()
+
+            server = fakeServer(500, 500, 500, 500)
+            CrashLog.recordNonFatal(app, "0.999", RuntimeException("y"))
+            assertEquals(androidx.work.ListenableWorker.Result.retry(), worker().doWork(), "WorkManager tries again later")
+            assertEquals(4, server.requestCount, "1 + 3 retries")
+            assertEquals(1, crashFiles().size, "kept for the next try")
+        } finally {
+            CrashLog.apiBase = base
+            CrashLog.sleeper = sleeper
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun anIdTheServerAcceptedIsNeverSentAgain() {
+        val base = CrashLog.apiBase
+        val server = fakeServer(201)
+        try {
+            CrashLog.recordNonFatal(app, "0.999", RuntimeException("once"))
+            val file = crashFiles().single()
+            val text = file.readText()
+            assertTrue(CrashLog.uploadNow(app, "0.999"))
+            // The delete "failed": the same file is back.
+            file.writeText(text)
+            assertTrue(CrashLog.unsent(app).isEmpty())
+            assertTrue(crashFiles().isEmpty(), "the leftover is removed, not posted")
+            assertEquals(1, server.requestCount)
+        } finally {
+            CrashLog.apiBase = base
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun startUpQueuesTheUploadJobOnlyWhenSomethingIsPending() {
+        val wm = androidx.work.WorkManager.getInstance(app)
+        fun queued() = wm.getWorkInfosForUniqueWork(CrashUploadWorker.NAME).get()
+        CrashLog.uploadInBackground(app, "0.999")
+        Thread.sleep(500)
+        assertTrue(queued().isEmpty(), "nothing pending, nothing queued")
+        // No session token here: the job finds nothing it can send and ends without any network.
+        CrashLog.recordNonFatal(app, "0.999", RuntimeException("pending"))
+        CrashLog.uploadInBackground(app, "0.999")
+        val deadline = System.currentTimeMillis() + 5_000
+        while (queued().isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        assertTrue(queued().isNotEmpty(), "a one-shot job was queued")
+    }
+
+    private fun addExit(reason: Int, at: Long, description: String) {
+        val am = app.getSystemService(android.app.ActivityManager::class.java)
+        org.robolectric.Shadows.shadowOf(am).addApplicationExitInfo(
+            org.robolectric.shadows.ShadowActivityManager.ApplicationExitInfoBuilder.newBuilder()
+                .setProcessName(app.packageName).setPid(4242).setReason(reason).setTimestamp(at).setDescription(description).build(),
+        )
+    }
+
+    @Test
+    fun theScreenShowsTheJavaStackNotTheSystemsBareCrashRecord() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        try {
+            Thread.setDefaultUncaughtExceptionHandler { _, _ -> }
+            CrashLog.install(app, "0.999")
+            Thread { throw IllegalStateException("Key 42 was already used") }.apply { name = "main"; start(); join() }
+            // The system writes its own record of the same death a moment later.
+            addExit(android.app.ApplicationExitInfo.REASON_CRASH, System.currentTimeMillis() + 800, "crash")
+
+            assertTrue(CrashLog.hasUnseenCrash(app))
+            val text = CrashLog.lastCrashText(app)
+            assertTrue(text.contains("Thread: main"), text)
+            assertTrue(text.contains("Key 42 was already used"), text)
+            assertTrue(text.contains("\tat "), "the Java stack is shown: $text")
+            assertFalse(text.contains("system: crash"), text)
+            // …and stays: the system record did not overwrite the screen file.
+            CrashLog.clear(app) // the crash files went up meanwhile
+            assertTrue(CrashLog.lastCrashText(app).contains("Key 42 was already used"))
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous)
+        }
+    }
+
+    @Test
+    fun theScreenPrefersTheNewestEntryWithAStackAndMentionsANewerBareRecord() {
+        val now = System.currentTimeMillis()
+        // A crash file with a stack, then a newer bare system record in the screen file (as older versions wrote it).
+        CrashLog.write(java.io.File(app.filesDir, "crash"), "0.999", "main", IllegalArgumentException("count -1"))
+        CrashLog.writeLast(app, "${now + 90_000}\n(previous run)\nsystem: crash\ncrash\n")
+        val text = CrashLog.lastCrashText(app)
+        assertTrue(text.startsWith("When: "), text)
+        assertTrue(text.indexOf("count -1") in 0 until text.indexOf("system: crash"), "stack first, then the bare record: $text")
+        assertTrue(text.contains("Also recorded (no stack)"), text)
+    }
+
+    @Test
+    fun aCrashRecordIsCoveredOnlyByAStackWrittenShortlyBeforeIt() {
+        assertTrue(CrashLog.coveredByStack(100_000, listOf(99_500)))
+        assertTrue(CrashLog.coveredByStack(100_000, listOf(40_000)))
+        assertFalse(CrashLog.coveredByStack(100_000, listOf(39_999)), "over 60 s before: another death")
+        assertFalse(CrashLog.coveredByStack(100_000, listOf(100_001)), "written after the exit: a later crash")
+        assertFalse(CrashLog.coveredByStack(100_000, emptyList()))
+        assertFalse(CrashLog.hasStack("1\n(previous run)\nsystem: crash\ncrash\n"))
+        assertTrue(CrashLog.hasStack("1\n0.9\nmain\njava.lang.X: y\n\tat a.b.C.d(C.kt:1)\n"))
+    }
+
     @Test
     fun aFreezeDumpLeadsWithTheMainThread() {
         val dump = CrashLog.freezeDump()

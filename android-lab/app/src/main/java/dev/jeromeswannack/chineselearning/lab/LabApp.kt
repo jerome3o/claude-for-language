@@ -73,8 +73,9 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
         super.onCreate()
         // First: a crash anywhere after this line is written down and reported (data/CrashLog.kt).
         // The handler POSTs the trace before the process dies; the last run's crash files and the
-        // system's exit records (ANR thread dumps included) go up now on a background thread; a
-        // watchdog reports a frozen main thread (an ANR has no exception) — all before any UI.
+        // system's exit records (ANR thread dumps included) go up through a WorkManager job
+        // (CrashUploadWorker: network constraint, retries with backoff); a watchdog reports a
+        // frozen main thread (an ANR has no exception) — all before any UI.
         val version = appVersion()
         runCatching { dev.jeromeswannack.chineselearning.lab.data.CrashLog.install(this, version) }
         runCatching { dev.jeromeswannack.chineselearning.lab.data.CrashLog.uploadInBackground(this, version) }
