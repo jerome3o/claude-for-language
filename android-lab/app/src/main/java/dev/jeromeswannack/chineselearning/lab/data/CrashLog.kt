@@ -195,25 +195,67 @@ object CrashLog {
 
     private val uploadLock = Any()
 
+    /** Connect / read timeout of a crash POST: a fresh process on a slow network needs time for a 60 KB+ body. */
+    internal const val UPLOAD_TIMEOUT_MS = 15_000
+
+    /** Retries after a failed start-up upload (so 1 + 3 attempts), with [backoffMs] between them. */
+    internal const val UPLOAD_RETRIES = 3
+
+    /** Wait before retry n (0-based): 2 s, 4 s, 8 s. */
+    internal fun backoffMs(retry: Int): Long = 2_000L shl retry
+
+    /** How the retry loop waits. Tests swap it to record the waits instead of sleeping. */
+    @Volatile
+    internal var sleeper: (Long) -> Unit = { Thread.sleep(it) }
+
+    /** What one upload attempt came to. */
+    enum class Upload { SENT, NOTHING, NO_TOKEN, FAILED }
+
     /**
      * Sends everything pending (crash / freeze files + new exit records) to the server now, on
      * the calling thread, and forgets it on a 2xx. Returns true when there was nothing to send
      * or it was accepted. Never throws. Must not run on the main thread (network).
      */
-    fun uploadNow(context: Context, appVersion: String): Boolean = try {
+    fun uploadNow(context: Context, appVersion: String): Boolean =
+        uploadOnce(context, appVersion).let { it == Upload.SENT || it == Upload.NOTHING }
+
+    /** One attempt. Local files are deleted only after a 2xx (the server ignores an id it already has). */
+    internal fun uploadOnce(context: Context, appVersion: String): Upload = try {
         synchronized(uploadLock) {
-            val items = pending(context)
+            val items = unsent(context)
             if (items.isEmpty()) {
-                true
+                Upload.NOTHING
             } else {
-                val ok = post(context, appVersion, items)
-                if (ok) clearSent(context, items)
-                ok
+                val code = post(context, appVersion, items)
+                when {
+                    code == null -> Upload.NO_TOKEN
+                    code in 200..299 -> {
+                        clearSent(context, items)
+                        Upload.SENT
+                    }
+                    else -> Upload.FAILED
+                }
             }
         }
     } catch (e: Throwable) {
         Log.w(TAG, "crash upload failed", e)
-        false
+        Upload.FAILED
+    }
+
+    /** [uploadOnce], retried up to [retries] times with [backoffMs] between attempts (a background thread / worker). */
+    internal fun uploadWithRetries(context: Context, appVersion: String, retries: Int = UPLOAD_RETRIES): Upload {
+        var result = uploadOnce(context, appVersion)
+        var retry = 0
+        while (result == Upload.FAILED && retry < retries) {
+            try {
+                sleeper(backoffMs(retry))
+            } catch (_: InterruptedException) {
+                return result
+            }
+            retry++
+            result = uploadOnce(context, appVersion)
+        }
+        return result
     }
 
     /** [uploadNow] on its own thread, waiting at most [waitMs] (the uncaught handler: the process is about to die). */
@@ -224,7 +266,11 @@ object CrashLog {
         t.join(waitMs)
     }
 
-    /** At start-up, before any UI: last run's crash files and the system's exit records go up in the background. */
+    /**
+     * At start-up, before any UI: the last run's crash files and the system's exit records go up
+     * through a WorkManager one-shot job (network constraint, retries with backoff, persisted —
+     * so it still goes if the app dies again straight away). Nothing pending = nothing queued.
+     */
     fun uploadInBackground(context: Context, appVersion: String) {
         val app = context.applicationContext ?: context
         val t = Thread({
@@ -232,15 +278,52 @@ object CrashLog {
                 rememberExitForScreen(app)
             } catch (_: Throwable) {
             }
-            uploadNow(app, appVersion)
+            val anything = try {
+                unsent(app).isNotEmpty()
+            } catch (_: Throwable) {
+                false
+            }
+            if (anything) {
+                val queued = try {
+                    CrashUploadWorker.enqueue(app, appVersion)
+                    true
+                } catch (e: Throwable) {
+                    Log.w(TAG, "could not queue the crash upload", e)
+                    false
+                }
+                // No WorkManager: try from this thread instead (with the same retries).
+                if (!queued) uploadWithRetries(app, appVersion)
+            }
         }, "lab-crash-startup-upload")
         t.isDaemon = true
         t.start()
     }
 
-    /** POST {client, app_version, device, crashes} with the stored session token. */
-    private fun post(context: Context, appVersion: String, items: JsonArray): Boolean {
-        val token = context.getSharedPreferences("lab", Context.MODE_PRIVATE).getString("session_token", null) ?: return false
+    /** [pending], one entry per id, minus ids already accepted by the server (their leftover files are removed). */
+    internal fun unsent(context: Context): JsonArray {
+        val sent = sentIds(context)
+        val seen = HashSet<String>()
+        val keep = ArrayList<kotlinx.serialization.json.JsonElement>()
+        for (item in pending(context)) {
+            val id = ((item as? JsonObject)?.get("id") as? JsonPrimitive)?.content
+            if (id != null && id in sent) {
+                runCatching { File(File(context.filesDir, DIR), "$id.txt").delete() }
+                continue
+            }
+            if (id == null || seen.add(id)) keep += item
+        }
+        return JsonArray(keep)
+    }
+
+    private const val SENT_IDS = "sent_ids"
+
+    private fun sentIds(context: Context): List<String> =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(SENT_IDS, null)
+            ?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
+
+    /** POST {client, app_version, device, crashes} with the stored session token: the HTTP status, or null without a token. */
+    private fun post(context: Context, appVersion: String, items: JsonArray): Int? {
+        val token = context.getSharedPreferences("lab", Context.MODE_PRIVATE).getString("session_token", null) ?: return null
         val body = buildJsonObject {
             put("client", "lab")
             put("app_version", appVersion)
@@ -250,14 +333,14 @@ object CrashLog {
         val conn = java.net.URL("$apiBase/api/debug/crash").openConnection() as java.net.HttpURLConnection
         return try {
             conn.requestMethod = "POST"
-            conn.connectTimeout = 2_500
-            conn.readTimeout = 2_500
+            conn.connectTimeout = UPLOAD_TIMEOUT_MS
+            conn.readTimeout = UPLOAD_TIMEOUT_MS
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Authorization", "Bearer $token")
             conn.setFixedLengthStreamingMode(body.size)
             conn.outputStream.use { it.write(body) }
-            conn.responseCode in 200..299
+            conn.responseCode
         } finally {
             conn.disconnect()
         }
@@ -267,6 +350,10 @@ object CrashLog {
     private fun clearSent(context: Context, items: JsonArray) {
         val ids = items.mapNotNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.content }.toSet()
         File(context.filesDir, DIR).listFiles().orEmpty().forEach { f -> if (f.name.removeSuffix(".txt") in ids) f.delete() }
+        // Remember the last few accepted ids: a file whose delete failed (or a copy the dying
+        // process also sent) is never posted twice.
+        val remembered = (sentIds(context) + ids).distinct().takeLast(50)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(SENT_IDS, remembered.joinToString("\n")).apply()
         val newestExit = ids.filter { it.startsWith("exit-") }.mapNotNull { it.split('-').getOrNull(1)?.toLongOrNull() }.maxOrNull() ?: return
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (newestExit > sp.getLong(EXIT_SEEN, 0)) sp.edit().putLong(EXIT_SEEN, newestExit).apply()
@@ -289,13 +376,24 @@ object CrashLog {
         }
     }
 
-    /** The system's record of an ANR / crash in the last run (it has the ANR's thread dump) → the screen's text. */
+    /** A Java crash's record from the system comes this long after the handler wrote the stack, at most. */
+    internal const val STACK_COVERS_EXIT_MS = 60_000L
+
+    /**
+     * The system's record of an ANR / crash in the last run (it has the ANR's thread dump) → the
+     * screen's text. A REASON_CRASH record is skipped when the uncaught handler wrote the Java
+     * stack shortly before it: the system's version says only "crash", and must not replace it.
+     */
     private fun rememberExitForScreen(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         val am = context.getSystemService(ActivityManager::class.java) ?: return
         val seen = maxOf(lastShownAt(context), lastFileAt(context))
+        val stacks = stackTimes(context)
         val info = am.getHistoricalProcessExitReasons(context.packageName, 0, 5)
-            .firstOrNull { it.timestamp > seen && it.reason in FATAL_EXITS }
+            .firstOrNull {
+                it.timestamp > seen && it.reason in FATAL_EXITS &&
+                    !(it.reason == ApplicationExitInfo.REASON_CRASH && coveredByStack(it.timestamp, stacks))
+            }
             ?: return
         val trace = runCatching { info.traceInputStream?.use { s -> String(s.readNBytesCompat(MAX_TRACE)) } }.getOrNull()
         writeLast(context, buildString {
@@ -305,6 +403,26 @@ object CrashLog {
             append(info.description ?: "").append('\n')
             if (trace != null) append(trace)
         })
+    }
+
+    /** True when one of [stackTimes] lies within [STACK_COVERS_EXIT_MS] before (or at) [exitAt]. */
+    internal fun coveredByStack(exitAt: Long, stackTimes: List<Long>): Boolean =
+        stackTimes.any { it <= exitAt && exitAt - it <= STACK_COVERS_EXIT_MS }
+
+    /** When the stack traces we hold (the screen file, pending crash files) were written. */
+    private fun stackTimes(context: Context): List<Long> = buildList {
+        runCatching { File(context.filesDir, LAST_FILE).takeIf { it.exists() }?.readText() }.getOrNull()
+            ?.takeIf { hasStack(it) }?.let { t -> t.substringBefore('\n').toLongOrNull()?.let { add(it) } }
+        addAll(runCatching { fatalFiles(context) }.getOrDefault(emptyList()).filter { hasStack(it.second) }.map { it.first })
+    }
+
+    /** Whether a saved entry (time / version / thread / body) carries a real stack or thread dump. */
+    internal fun hasStack(text: String): Boolean {
+        val body = text.split('\n', limit = 4).getOrNull(3) ?: return false
+        return body.lineSequence().any { line ->
+            val t = line.trimStart()
+            t.startsWith("at ") || t.startsWith("#0") || t.startsWith("Caused by:") || t.startsWith("backtrace:")
+        }
     }
 
     private fun lastShownAt(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(SCREEN_SEEN, 0)
@@ -356,10 +474,25 @@ object CrashLog {
                 ?.let { add((it.substringBefore('\n').toLongOrNull() ?: 0L) to it) }
             addAll(runCatching { fatalFiles(context) }.getOrDefault(emptyList()))
         }.filter { it.first > shown }.sortedByDescending { it.first }
-        val newest = candidates.firstOrNull() ?: return "No crash recorded."
-        val lines = newest.second.split('\n', limit = 4)
+        if (candidates.isEmpty()) return "No crash recorded."
+        // The newest entry WITH a stack trace wins over a newer bare system record ("crash").
+        val shownEntry = candidates.firstOrNull { hasStack(it.second) } ?: candidates.first()
+        val newer = candidates.first().takeIf { it !== shownEntry }
         return buildString {
-            append("When: ").append(Js_iso(newest.first)).append('\n')
+            append(describe(shownEntry))
+            if (newer != null) {
+                val lines = newer.second.split('\n', limit = 4)
+                append("\n\n— Also recorded (no stack): ").append(Js_iso(newer.first)).append(" · ")
+                append(lines.getOrNull(2) ?: "?")
+                lines.getOrNull(3)?.trim()?.takeIf { it.isNotEmpty() }?.let { append(" · ").append(it.take(500)) }
+            }
+        }
+    }
+
+    private fun describe(entry: Pair<Long, String>): String {
+        val lines = entry.second.split('\n', limit = 4)
+        return buildString {
+            append("When: ").append(Js_iso(entry.first)).append('\n')
             append("Version: ").append(lines.getOrNull(1) ?: "?").append('\n')
             append("Thread: ").append(lines.getOrNull(2) ?: "?").append("\n\n")
             append(lines.getOrNull(3) ?: "")
@@ -383,7 +516,7 @@ object CrashLog {
             put("app_version", appVersion)
             put("trace", text.take(MAX_TRACE))
         }
-        val ok = post(context, appVersion, JsonArray(listOf(item)))
+        val ok = post(context, appVersion, JsonArray(listOf(item))) in 200..299
         uploadNow(context, appVersion)
         ok
     } catch (_: Throwable) {
