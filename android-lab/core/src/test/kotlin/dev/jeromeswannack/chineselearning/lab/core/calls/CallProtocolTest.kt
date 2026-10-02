@@ -115,9 +115,35 @@ class CallProtocolTest {
         assertEquals(ServerMessage.AnnotMode("c1", "", false), CallProtocol.parseServer("""{"type":"annot_mode","from":"c1","persist":"yes"}"""))
         val kept = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"annot_persist":true}""") as ServerMessage.Welcome
         assertTrue(kept.annotPersist)
-        // An older room sends no annot_persist: drawings fade.
+        // Round 4: an older room sends no annot_persist — Keep is the default, so drawings are kept.
         val old = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[]}""") as ServerMessage.Welcome
-        assertEquals(false, old.annotPersist)
+        assertEquals(true, old.annotPersist)
+        assertEquals(null, old.annots)
+        val off = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"annot_persist":false}""") as ServerMessage.Welcome
+        assertEquals(false, off.annotPersist)
+    }
+
+    @Test fun textOnASharedScreenInAndOut() {
+        // Round 4: text boxes go both ways; the welcome carries what the room kept.
+        val t = AnnotText("t1", "#f43f5e", 0.25, 0.5, "这个字\n读什么？", CallAnnotate.ANNOT_TEXT_SIZE, done = true)
+        assertEquals(
+            """{"type":"annot_text","text":{"id":"t1","color":"#f43f5e","x":0.25,"y":0.5,"text":"这个字\n读什么？","size":0.032,"done":true}}""",
+            CallProtocol.annotText(t),
+        )
+        assertEquals("""{"type":"annot_text_delete","id":"t1"}""", CallProtocol.annotTextDelete("t1"))
+        assertEquals(
+            ServerMessage.AnnotTextMsg("c1", "王老师", t),
+            CallProtocol.parseServer("""{"type":"annot_text","from":"c1","name":"王老师","text":{"id":"t1","color":"#f43f5e","x":0.25,"y":0.5,"text":"这个字\r\n读什么？","size":0.032,"done":true}}"""),
+        )
+        // A bad text is dropped, not crashed on.
+        assertEquals(null, CallProtocol.parseServer("""{"type":"annot_text","from":"c1","text":{"id":"t1","color":"red","x":0,"y":0,"text":"a"}}"""))
+        assertEquals(ServerMessage.AnnotTextDelete("c1", "t1"), CallProtocol.parseServer("""{"type":"annot_text_delete","from":"c1","id":"t1"}"""))
+        assertEquals(null, CallProtocol.parseServer("""{"type":"annot_text_delete","from":"c1","id":""}"""))
+        val w = CallProtocol.parseServer(
+            """{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"annot_persist":true,"annots":{"strokes":[{"key":"c1:s1","from":"c1","name":"王老师","stroke":{"id":"s1","color":"#38bdf8","width":0.006,"points":[[0.1,0.2]],"done":true}}],"texts":[{"from":"c1","name":"王老师","text":{"id":"t1","color":"#38bdf8","x":0.1,"y":0.2,"text":"你好","size":0.032,"done":true}}]}}""",
+        ) as ServerMessage.Welcome
+        assertEquals(listOf("c1:s1"), w.annots!!.strokes.map { it.key })
+        assertEquals(listOf("你好"), w.annots!!.texts.map { it.text.text })
     }
 
     // ------------------------------------------------------------ board pages (round 3)

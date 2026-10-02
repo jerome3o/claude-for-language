@@ -778,10 +778,10 @@ class CallControllerTest {
         rig.room.handlers.onMessage(ServerMessage.Annot("c-a", "王老师", annot("s3", "#38bdf8", done = false)))
         runCurrent()
         assertEquals(setOf("c-a:s3"), rig.controller.state.value.annotations.strokes.keys)
-        // A welcome without annot_persist (an older room) = fade.
+        // Round 4: a welcome without annot_persist (an older room) = kept — Keep is the default.
         rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))))
         runCurrent()
-        assertFalse(rig.controller.state.value.annotations.persist)
+        assertTrue(rig.controller.state.value.annotations.persist)
     }
 
     @Test fun myKeepSwitchIsSentToTheRoom() = runTest(UnconfinedTestDispatcher()) {
@@ -827,6 +827,104 @@ class CallControllerTest {
         runCurrent()
         assertFalse(rig.controller.state.value.iShareScreen)
         assertEquals("#f43f5e", annotPen(null, rig.controller.state.value))
+    }
+
+    // ------------------------------------------------------------ round 4: typing on a shared screen, Keep by default
+
+    private fun atext(id: String, text: String, done: Boolean = true, x: Double = 0.3, color: String = "#f43f5e") =
+        dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText(id, color, x, 0.4, text, dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_TEXT_SIZE, done)
+
+    @Test fun keepIsOnBeforeTheRoomSaysAnything() = runTest(UnconfinedTestDispatcher()) {
+        val rig = Rig(this)
+        assertTrue("Keep starts on", rig.controller.state.value.annotations.persist)
+        rig.controller.join(record = false)
+        runCurrent()
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))))
+        runCurrent()
+        assertTrue(rig.controller.state.value.annotations.persist)
+        // A room someone switched to fading says so.
+        rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))).copy(annotPersist = false))
+        runCurrent()
+        assertFalse(rig.controller.state.value.annotations.persist)
+    }
+
+    @Test fun textsGoToTheRoomAsTypedAndCanBeDeleted() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        // Typing: live updates (not done), then finished.
+        rig.controller.sendAnnotText(atext("t1", "这个", done = false))
+        assertNull("still being written: not fading", rig.controller.state.value.annotations.texts["t1"]!!.doneAt)
+        rig.controller.sendAnnotText(atext("t1", "这个字读什么？"))
+        val finishedAt = rig.controller.state.value.annotations.texts["t1"]!!.doneAt
+        assertEquals(testScheduler.currentTime, finishedAt)
+        // Moved later: the same text, the moment it was first finished is kept.
+        advanceTimeBy(5_000)
+        rig.controller.sendAnnotText(atext("t1", "这个字读什么？", x = 0.6))
+        val t = rig.controller.state.value.annotations.texts["t1"]!!
+        assertEquals(0.6, t.text.x, 0.0)
+        assertEquals(finishedAt, t.doneAt)
+        assertEquals("me", t.from)
+        val sent = rig.sentOf("annot_text")
+        assertEquals(3, sent.size)
+        assertEquals(listOf("false", "true", "true"), sent.map { it["text"]!!.jsonObject["done"]!!.jsonPrimitive.content })
+        assertEquals("这个字读什么？", sent.last()["text"]!!.jsonObject["text"]!!.jsonPrimitive.content)
+        // ✕: gone here and for them.
+        rig.controller.deleteAnnotText("t1")
+        assertTrue(rig.controller.state.value.annotations.texts.isEmpty())
+        assertEquals(listOf("t1"), rig.sentOf("annot_text_delete").map { it["id"]!!.jsonPrimitive.content })
+    }
+
+    @Test fun theirTextsArriveMoveAndGo() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        rig.room.handlers.onMessage(ServerMessage.AnnotTextMsg("c-a", "王老师", atext("t9", "看这里", color = "#38bdf8")))
+        runCurrent()
+        val a = rig.controller.state.value.annotations
+        assertEquals("看这里", a.texts["t9"]!!.text.text)
+        assertEquals("c-a", a.texts["t9"]!!.from)
+        assertEquals("王老师", a.lastRemoteName)
+        // Kept (the default): a minute later it is still there.
+        advanceTimeBy(60_000)
+        rig.room.handlers.onMessage(ServerMessage.AnnotTextMsg("c-a", "王老师", atext("t10", "好")))
+        runCurrent()
+        assertEquals(setOf("t9", "t10"), rig.controller.state.value.annotations.texts.keys)
+        rig.room.handlers.onMessage(ServerMessage.AnnotTextDelete("c-a", "t9"))
+        runCurrent()
+        assertEquals(setOf("t10"), rig.controller.state.value.annotations.texts.keys)
+        // Keep off: finished texts start fading now, and once faded the next text prunes them.
+        rig.room.handlers.onMessage(ServerMessage.AnnotMode("c-a", "王老师", false))
+        runCurrent()
+        assertEquals(testScheduler.currentTime, rig.controller.state.value.annotations.texts["t10"]!!.doneAt)
+        advanceTimeBy(dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_HOLD_MS + dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_FADE_MS + 1)
+        rig.room.handlers.onMessage(ServerMessage.AnnotTextMsg("c-a", "王老师", atext("t11", "再", done = false)))
+        runCurrent()
+        assertEquals(setOf("t11"), rig.controller.state.value.annotations.texts.keys)
+        // Clear clears texts too (theirs and mine).
+        rig.room.handlers.onMessage(ServerMessage.AnnotClear("c-a"))
+        runCurrent()
+        assertTrue(rig.controller.state.value.annotations.texts.isEmpty())
+        rig.controller.sendAnnotText(atext("m1", "我的"))
+        rig.controller.clearAnnotations()
+        assertTrue(rig.controller.state.value.annotations.texts.isEmpty())
+    }
+
+    @Test fun aRejoinShowsWhatTheRoomKept() = runTest(UnconfinedTestDispatcher()) {
+        val rig = Rig(this)
+        rig.controller.join(record = false)
+        runCurrent()
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        val kept = dev.jeromeswannack.chineselearning.lab.core.calls.KeptAnnotations(
+            strokes = listOf(dev.jeromeswannack.chineselearning.lab.core.calls.KeptAnnotations.KeptStroke("c-a:s1", "c-a", "王老师", annot("s1", "#38bdf8"))),
+            texts = listOf(dev.jeromeswannack.chineselearning.lab.core.calls.KeptAnnotations.KeptText("c-a", "王老师", atext("t1", "第五课"))),
+        )
+        rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))).copy(annots = kept))
+        runCurrent()
+        val a = rig.controller.state.value.annotations
+        assertTrue(a.persist)
+        assertEquals(setOf("c-a:s1"), a.strokes.keys)
+        assertEquals("第五课", a.texts["t1"]!!.text.text)
+        // Drawn at once, as finished.
+        assertEquals(testScheduler.currentTime, a.texts["t1"]!!.doneAt)
+        assertEquals(testScheduler.currentTime, a.strokes["c-a:s1"]!!.doneAt)
     }
 
     // ------------------------------------------------------------ board pages (round 3)

@@ -306,6 +306,8 @@ fun CallRoute(nav: LabNav, id: String) {
             onAnnotate = vm.controller::sendAnnotation,
             onPing = vm.controller::sendPing,
             onClearAnnotations = vm.controller::clearAnnotations,
+            onAnnotText = vm.controller::sendAnnotText,
+            onAnnotTextDelete = vm.controller::deleteAnnotText,
             onAnnotationsKept = { keep -> vm.controller.setAnnotationsKept(keep); nav.app.haptics.tick() },
             onToggleScreenOverlay = {
                 if (!overlay.permitted()) { vm.overlayWanted.value = true; context.startActivity(overlay.permissionIntent()) }

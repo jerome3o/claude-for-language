@@ -38,7 +38,9 @@ object CallProtocol {
             chat = (o["chat"] as? JsonArray)?.mapNotNull { parseChat(it) }.orEmpty(),
             text = CallTextDoc.parseSnapshot(o["text"]),
             textCursors = (o["text_cursors"] as? JsonArray)?.mapNotNull { parseCursor(it) }.orEmpty(),
-            annotPersist = (o["annot_persist"] as? JsonPrimitive)?.booleanOrNull == true,
+            // Round 4: Keep is the default — an older room that never says counts as kept (annotPersistOf).
+            annotPersist = CallAnnotate.annotPersistOf((o["annot_persist"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull),
+            annots = CallAnnotate.parseKept(o["annots"]),
             pages = (o["pages"] as? JsonArray)?.mapNotNull { CallPages.parseMeta(it) }.orEmpty(),
             page = o.str("page"),
             pageViews = (o["page_views"] as? JsonObject)?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { k to it } }?.toMap().orEmpty(),
@@ -56,6 +58,8 @@ object CallProtocol {
         "annot" -> o.str("from")?.let { from -> CallAnnotate.sanitizeStroke(o["stroke"])?.let { ServerMessage.Annot(from, o.str("name").orEmpty(), it) } }
         "annot_mode" -> ServerMessage.AnnotMode(o.str("from").orEmpty(), o.str("name").orEmpty(), (o["persist"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true)
         "annot_clear" -> ServerMessage.AnnotClear(o.str("from").orEmpty())
+        "annot_text" -> o.str("from")?.let { from -> CallAnnotate.sanitizeText(o["text"])?.let { ServerMessage.AnnotTextMsg(from, o.str("name").orEmpty(), it) } }
+        "annot_text_delete" -> o.str("id")?.takeIf { it.isNotEmpty() }?.let { ServerMessage.AnnotTextDelete(o.str("from").orEmpty(), it.take(64)) }
         "annot_ping" -> o.str("from")?.let { from -> CallAnnotate.sanitizePing(o)?.let { (x, y) -> ServerMessage.AnnotPingMsg(from, o.str("name").orEmpty(), x, y) } }
         "peer_joined" -> parsePeer(o["peer"])?.let { ServerMessage.PeerJoined(it) }
         "peer_left" -> o.str("client_id")?.let { ServerMessage.PeerLeft(it) }
@@ -120,6 +124,9 @@ object CallProtocol {
     }.toString()
     fun annot(stroke: AnnotStroke): String = buildJsonObject { put("type", "annot"); put("stroke", stroke.toJson()) }.toString()
     fun annotClear(): String = buildJsonObject { put("type", "annot_clear") }.toString()
+    /** Place / edit / move a text box on the shared screen (round 4). */
+    fun annotText(text: AnnotText): String = buildJsonObject { put("type", "annot_text"); put("text", text.toJson()) }.toString()
+    fun annotTextDelete(id: String): String = buildJsonObject { put("type", "annot_text_delete"); put("id", id) }.toString()
     /** Keep drawings on the shared screen (true) or let them fade (false) — one setting for both. */
     fun annotMode(persist: Boolean): String = buildJsonObject { put("type", "annot_mode"); put("persist", persist) }.toString()
     fun annotPing(x: Double, y: Double): String = buildJsonObject { put("type", "annot_ping"); put("x", x); put("y", y) }.toString()
@@ -166,8 +173,10 @@ sealed interface ServerMessage {
         /** The shared text board (null from an older room). */
         val text: List<TextRun>? = null,
         val textCursors: List<TextCursor> = emptyList(),
-        /** Drawings on a shared screen are kept rather than fading (absent = fade). */
-        val annotPersist: Boolean = false,
+        /** Drawings on a shared screen are kept rather than fading (round 4: absent = kept, the default). */
+        val annotPersist: Boolean = CallAnnotate.DEFAULT_ANNOT_PERSIST,
+        /** Drawings and texts the room kept (round 4; only while kept): drawn at once, as finished. */
+        val annots: KeptAnnotations? = null,
         /** Board pages in strip order (empty from an older room). */
         val pages: List<BoardPageMeta> = emptyList(),
         /** The page [text] is — the one this call opened on (null from an older room). */
@@ -189,6 +198,9 @@ sealed interface ServerMessage {
     data class PageSummon(val from: String, val name: String, val page: String) : ServerMessage
     data class Annot(val from: String, val name: String, val stroke: AnnotStroke) : ServerMessage
     data class AnnotClear(val from: String) : ServerMessage
+    /** A text box placed / typed into / moved by [from] (round 4). */
+    data class AnnotTextMsg(val from: String, val name: String, val text: AnnotText) : ServerMessage
+    data class AnnotTextDelete(val from: String, val id: String) : ServerMessage
     data class AnnotMode(val from: String, val name: String, val persist: Boolean) : ServerMessage
     data class AnnotPingMsg(val from: String, val name: String, val x: Double, val y: Double) : ServerMessage
     data class PeerJoined(val peer: CallPeer) : ServerMessage
