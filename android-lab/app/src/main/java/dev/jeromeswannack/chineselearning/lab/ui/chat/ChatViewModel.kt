@@ -41,6 +41,10 @@ import dev.jeromeswannack.chineselearning.lab.data.api.toggleReaction
 import dev.jeromeswannack.chineselearning.lab.data.api.translateMessageCard
 import dev.jeromeswannack.chineselearning.lab.data.api.translateSegmented
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
+import dev.jeromeswannack.chineselearning.lab.data.api.markChatRead
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatNotifier
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPresence
+import dev.jeromeswannack.chineselearning.lab.data.chat.LiveEvent
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.ui.connections.Connections
 import dev.jeromeswannack.chineselearning.lab.ui.connections.ConnectionsKeys
@@ -127,7 +131,8 @@ data class ChatUi(
 }
 
 /**
- * `/connections/:relId/chat/:convId` (web: ChatPage). Messages poll every 3 s; the last copy
+ * `/connections/:relId/chat/:convId` (web: ChatPage). New messages arrive over the live socket
+ * (data/chat/ChatLive.kt) with a poll as fallback (3 s, 20 s while the socket is up); the last copy
  * is cached so the history opens offline. Sending and every tool need a connection — like
  * the web, nothing is queued (the composer says so).
  */
@@ -147,6 +152,18 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         viewModelScope.launch { app.online.collect { o -> _ui.update { it.copy(online = o) } } }
         viewModelScope.launch { load() }
         viewModelScope.launch { Connections.markConversationRead(app, convId) }
+        viewModelScope.launch { readHere() }
+        // The live socket (data/chat/ChatLive.kt): a new message shows at once, not at the next poll.
+        viewModelScope.launch { app.chatLive.events.collect(::onLive) }
+        // Back from the background onto this chat: drop its notification, fetch what came meanwhile.
+        viewModelScope.launch {
+            ChatPresence.foreground.collect { fg ->
+                if (fg && ChatPresence.visibleConversation.value == convId && lastTimestamp != null) {
+                    ChatNotifier.cancel(app, convId)
+                    fetchNew()
+                }
+            }
+        }
         viewModelScope.launch { loadDecks() }
         viewModelScope.launch {
             val recent = app.cache.get<List<String>>(RECENT_KEY).orEmpty()
@@ -194,23 +211,51 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
+    /** Polls every 3 s, or every 20 s while the live socket is connected (it's the doorbell then). */
     private fun startPolling() {
         if (pollJob?.isActive == true) return
         pollJob = viewModelScope.launch {
             while (isActive) {
-                delay(ChatLogic.POLL_MS)
-                if (!app.online.value) continue
-                val since = lastTimestamp ?: continue
-                runCatching { api.chatMessages(convId, since) }.onSuccess { r ->
-                    if (r.messages.isNotEmpty()) {
-                        addMessages(r.messages)
-                        lastTimestamp = r.latest_timestamp ?: lastTimestamp
-                        if (r.messages.any { m -> m.sender_id != _ui.value.myId }) app.haptics.tick()
-                        Connections.markConversationRead(app, convId)
-                    }
-                }
+                delay(if (app.chatLive.connected.value) ChatLogic.LIVE_POLL_MS else ChatLogic.POLL_MS)
+                fetchNew()
             }
         }
+    }
+
+    private suspend fun fetchNew() {
+        if (!app.online.value) return
+        val since = lastTimestamp ?: return
+        runCatching { api.chatMessages(convId, since) }.onSuccess { r ->
+            if (r.messages.isEmpty()) return@onSuccess
+            val known = _ui.value.messages.mapTo(HashSet()) { it.id }
+            val fresh = r.messages.filter { it.id !in known }
+            addMessages(r.messages)
+            lastTimestamp = r.latest_timestamp ?: lastTimestamp
+            if (fresh.any { m -> m.sender_id != _ui.value.myId }) onIncomingWhileOpen()
+        }
+    }
+
+    /** docs/CHAT.md §4: a `message` event for this chat (null = a push said so: fetch). */
+    private suspend fun onLive(e: LiveEvent) {
+        if (e !is LiveEvent.Message || e.conversationId != convId) return
+        val m = e.message ?: return fetchNew()
+        if (_ui.value.messages.any { it.id == m.id }) return
+        // lastTimestamp stays: the next poll re-reads from there (deduped), so nothing in between is skipped.
+        addMessages(listOf(m))
+        if (lastTimestamp == null) lastTimestamp = m.created_at
+        if (m.sender_id != _ui.value.myId) onIncomingWhileOpen()
+    }
+
+    private suspend fun onIncomingWhileOpen() {
+        app.haptics.tick()
+        Connections.markConversationRead(app, convId)
+        readHere()
+    }
+
+    /** This chat is read (docs/CHAT.md §2 `POST …/read`): its notification goes, on every device. */
+    private suspend fun readHere() {
+        ChatNotifier.cancel(app, convId)
+        if (app.online.value) runCatching { api.markChatRead(convId) }
     }
 
     private fun addMessages(list: List<ChatMessageDto>) {
@@ -248,9 +293,10 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         if (content.isEmpty() || s.sending || s.waitingForAi) return
         if (!s.online) { error("You're offline. Messages can't be sent until you're back online."); return }
         _ui.update { it.copy(sending = true, notice = null) }
+        val clientId = java.util.UUID.randomUUID().toString()
         viewModelScope.launch {
             try {
-                val msg = api.sendChatMessage(convId, content, s.replyingTo?.id)
+                val msg = api.sendChatMessage(convId, content, s.replyingTo?.id, clientId)
                 app.sounds.play(Sounds.Sfx.POP, 0.5f)
                 app.haptics.tick()
                 addMessages(listOf(msg))

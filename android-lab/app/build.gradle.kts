@@ -14,6 +14,33 @@ val appVersionCode = (System.getenv("APP_VERSION_CODE") ?: "1").toInt()
 val appVersionName = System.getenv("APP_VERSION_NAME") ?: "0.1-dev"
 val releaseKeystore: String? = System.getenv("ANDROID_KEYSTORE_FILE")
 
+// Firebase Cloud Messaging (chat notifications, android-lab/PUSH.md). No google-services plugin
+// (it fails the build without the file): when app/google-services.json exists (CI decodes it from
+// the GOOGLE_SERVICES_JSON secret) its values become BuildConfig.FCM_*; otherwise they are empty
+// and the app runs without FCM (live socket + 15-minute inbox check only).
+val fcmConfig: Map<String, String> = run {
+    val file = file("google-services.json")
+    val empty = mapOf("FCM_PROJECT_ID" to "", "FCM_APP_ID" to "", "FCM_API_KEY" to "", "FCM_SENDER_ID" to "")
+    if (!file.exists()) return@run empty
+    @Suppress("UNCHECKED_CAST")
+    val root = groovy.json.JsonSlurper().parse(file) as Map<String, Any?>
+    val project = root["project_info"] as? Map<String, Any?> ?: emptyMap()
+    val clients = (root["client"] as? List<Map<String, Any?>>).orEmpty()
+    val client = clients.firstOrNull { c ->
+        val info = c["client_info"] as? Map<String, Any?>
+        val android = info?.get("android_client_info") as? Map<String, Any?>
+        android?.get("package_name") == "dev.jeromeswannack.chineselearning.lab"
+    } ?: return@run empty.also { logger.warn("google-services.json has no client for dev.jeromeswannack.chineselearning.lab — FCM off") }
+    val info = client["client_info"] as Map<String, Any?>
+    val key = (client["api_key"] as? List<Map<String, Any?>>)?.firstOrNull()?.get("current_key") as? String
+    mapOf(
+        "FCM_PROJECT_ID" to (project["project_id"] as? String).orEmpty(),
+        "FCM_APP_ID" to (info["mobilesdk_app_id"] as? String).orEmpty(),
+        "FCM_API_KEY" to key.orEmpty(),
+        "FCM_SENDER_ID" to (project["project_number"]?.toString()).orEmpty(),
+    )
+}
+
 android {
     namespace = "dev.jeromeswannack.chineselearning.lab"
     compileSdk = 35
@@ -29,6 +56,7 @@ android {
         versionName = appVersionName
         // WebRTC ships native code for 4 ABIs (~20 MB); phones are ARM, the emulator x86_64.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        fcmConfig.forEach { (name, value) -> buildConfigField("String", name, "\"$value\"") }
     }
 
     signingConfigs {
@@ -53,7 +81,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -97,6 +128,8 @@ dependencies {
     implementation(libs.zxing.core) // invite QR codes (ui/teaching)
     implementation(libs.webrtc) // video calls (ui/calls, data/calls): org.webrtc, Google's WebRTC built for Android
     implementation(libs.kotlinx.serialization.json)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging) // chat notifications (data/chat/), initialised by hand when configured
     implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.compose.ui.tooling)
 

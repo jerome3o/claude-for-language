@@ -11,6 +11,8 @@ import java.util.Locale
 /** The chat page's pure rules (web: pages/ChatPage.tsx), unit-tested in ChatLogicTest. */
 object ChatLogic {
     const val POLL_MS = 3_000L
+    /** While the live socket is up the poll is only a safety net (docs/CHAT.md §4). */
+    const val LIVE_POLL_MS = 20_000L
     val DEFAULT_EMOJIS = listOf("👍", "❤️", "😂", "😮", "👏", "🔥")
     const val MAX_RECENT = 5
 

@@ -475,7 +475,11 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         }.awaitAll()
     }
 
+    /** Runs first in [signOut], while the session is still valid (e.g. unregister this device's push token). */
+    val beforeSignOut = java.util.concurrent.CopyOnWriteArrayList<suspend () -> Unit>()
+
     suspend fun signOut() = withContext(Dispatchers.IO) {
+        beforeSignOut.forEach { hook -> runCatching { hook() } }
         stopAudioPrefetch()
         db.clearAllTables()
         prefs.clearAccount()

@@ -43,8 +43,7 @@ object ChatInboxCheck {
         var posted = 0
         for (m in inbox.messages) {
             val chat = IncomingChat.fromInbox(m)
-            val shown = if (avatar != null) ChatNotifier.notifyIncoming(ctx, chat, myId, avatar) else ChatNotifier.notifyIncoming(ctx, chat, myId)
-            if (shown) posted++
+            if (ChatNotifier.notifyIncoming(ctx, chat, myId, avatar)) posted++
         }
         val unread = inbox.conversations.filter { it.unread > 0 }.map { it.conversation_id }.toSet()
         val asOf = inbox.server_time ?: Js.toIsoString(nowMs)

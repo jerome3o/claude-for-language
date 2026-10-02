@@ -54,7 +54,7 @@ object ChatNotifier {
         ctx: Context,
         chat: IncomingChat,
         myId: String? = null,
-        avatar: suspend (IncomingChat) -> Bitmap? = { ChatAvatars.load(ctx, it.senderPicture, it.senderName) },
+        avatar: (suspend (IncomingChat) -> Bitmap?)? = null,
     ): Boolean {
         if (myId != null && chat.senderId == myId) return false
         val store = ChatNotificationStore(ctx)
@@ -74,18 +74,19 @@ object ChatNotifier {
             lines = (prev?.lines.orEmpty().filter { it.id != line.id } + line).sortedBy { it.timeMs }.takeLast(ChatNotificationStore.MAX_LINES),
         )
         store.put(c)
-        post(ctx, c, runCatching { avatar(chat) }.getOrNull(), alert = true)
+        val bitmap = runCatching { if (avatar != null) avatar(chat) else ChatAvatars.load(ctx, c.senderPicture, c.senderName) }.getOrNull()
+        post(ctx, c, bitmap, alert = true)
         return true
     }
 
     /** My reply from the notification: appended as a "me" line, quietly (docs/CHAT.md §5). */
-    suspend fun appendMyReply(ctx: Context, conversationId: String, text: String, clientId: String, avatar: suspend (ChatNotificationStore.Conversation) -> Bitmap? = { ChatAvatars.load(ctx, it.senderPicture, it.senderName) }) {
+    suspend fun appendMyReply(ctx: Context, conversationId: String, text: String, clientId: String) {
         val store = ChatNotificationStore(ctx)
         val prev = store.get(conversationId) ?: return
         val now = System.currentTimeMillis()
         val c = prev.copy(lines = (prev.lines + ChatNotificationStore.Line(clientId, text, Js.toIsoString(now), now, fromMe = true)).takeLast(ChatNotificationStore.MAX_LINES))
         store.put(c)
-        post(ctx, c, runCatching { avatar(c) }.getOrNull(), alert = false)
+        post(ctx, c, runCatching { ChatAvatars.load(ctx, c.senderPicture, c.senderName) }.getOrNull(), alert = false)
     }
 
     /** Posts the conversation's notification again unchanged (quietly). */

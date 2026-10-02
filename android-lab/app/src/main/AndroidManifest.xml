@@ -119,6 +119,23 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/shell_widget_due_info" />
         </receiver>
         <!-- ===== end native shell ===== -->
+
+        <!-- data/chat/: chat notifications (docs/CHAT.md §5). Firebase is initialised by hand from
+             BuildConfig (PushRegistration) — only when the build has a google-services.json — so the
+             auto-init provider goes. -->
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider"
+            tools:node="remove" />
+        <service
+            android:name=".data.chat.LabMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Reply / Mark as read / dismissed on a chat notification. -->
+        <receiver android:name=".data.chat.ChatActionReceiver" android:exported="false" />
         <!-- ui/calls: keeps a live video call (mic, camera, screen share) running in the background. -->
         <service
             android:name=".data.calls.CallService"

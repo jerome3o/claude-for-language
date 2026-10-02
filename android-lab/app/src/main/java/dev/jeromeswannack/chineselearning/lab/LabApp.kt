@@ -95,6 +95,7 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
         uploadDebugReportsAfterSync()
         reportLastCrash()
         dev.jeromeswannack.chineselearning.lab.shell.Shell.install(this) // widget, notifications (package I)
+        runCatching { dev.jeromeswannack.chineselearning.lab.data.chat.ChatDelivery.install(this) } // chat notifications, live socket, FCM
     }
 
     private fun appVersion(): String = appVersionOrNull() ?: "unknown"
@@ -160,6 +161,9 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
 
     /** Incoming video calls: the banner's live list, the ring, background checks (data/calls/CallAlertsWatcher.kt). */
     val callAlerts by lazy { dev.jeromeswannack.chineselearning.lab.data.calls.CallAlertsWatcher(this) }
+
+    /** The foreground ChatHub socket (data/chat/ChatLive.kt): instant chat updates + notifications. */
+    val chatLive by lazy { dev.jeromeswannack.chineselearning.lab.data.chat.ChatLive(this) }
 
     /** Reviews made offline still reach the server after the app is closed. */
     fun scheduleBackgroundUpload() = SyncWorker.enqueue(this)

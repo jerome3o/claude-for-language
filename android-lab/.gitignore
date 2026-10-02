@@ -6,3 +6,4 @@ local.properties
 .idea/
 # Roborazzi output (copy what a PR needs into docs/pr-screenshots/)
 app/screenshots/
+app/google-services.json
