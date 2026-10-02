@@ -72,7 +72,13 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         // First: a crash anywhere after this line is written down and reported (data/CrashLog.kt).
-        runCatching { dev.jeromeswannack.chineselearning.lab.data.CrashLog.install(this, appVersion()) }
+        // The handler POSTs the trace before the process dies; the last run's crash files and the
+        // system's exit records (ANR thread dumps included) go up now on a background thread; a
+        // watchdog reports a frozen main thread (an ANR has no exception) — all before any UI.
+        val version = appVersion()
+        runCatching { dev.jeromeswannack.chineselearning.lab.data.CrashLog.install(this, version) }
+        runCatching { dev.jeromeswannack.chineselearning.lab.data.CrashLog.uploadInBackground(this, version) }
+        runCatching { dev.jeromeswannack.chineselearning.lab.data.CrashLog.startFreezeWatchdog(this, version) }
         prefs = Prefs(this)
         repo = Repository(this, LabDatabase.open(this), Api(tokenProvider = { prefs.sessionToken }), prefs)
         sounds = Sounds(this) { prefs.soundOn }

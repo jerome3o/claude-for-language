@@ -84,6 +84,12 @@
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shell_shortcuts" />
         </activity>
 
+        <!-- The previous run's crash / freeze trace, before the app's own UI (data/CrashLog.kt). Plain Views. -->
+        <activity
+            android:name=".LastCrashActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
         <!-- ===== Native shell (shell/, package I). Own ids/labels: never clashes with the hybrid app. ===== -->
         <!-- Select text anywhere → ⋮ → "Coach (Lab)" → /coach?text=… -->
         <activity

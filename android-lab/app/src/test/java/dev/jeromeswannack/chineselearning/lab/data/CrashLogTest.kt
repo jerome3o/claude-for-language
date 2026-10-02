@@ -89,4 +89,67 @@ class CrashLogTest {
         app.scope.launch { ran = true }.join()
         assertTrue(ran)
     }
+
+    @Test
+    fun theUncaughtHandlerPostsTheTraceBeforeHandingOnThenTheScreenShowsItOnce() {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(201).setBody("{\"stored\":1}"))
+        server.start()
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        val base = CrashLog.apiBase
+        try {
+            CrashLog.apiBase = server.url("").toString().trimEnd('/')
+            app.getSharedPreferences("lab", android.content.Context.MODE_PRIVATE).edit().putString("session_token", "tok-123").commit()
+            var handedOnAfterUpload = false
+            Thread.setDefaultUncaughtExceptionHandler { _, _ -> handedOnAfterUpload = server.requestCount == 1 }
+            CrashLog.install(app, "0.999")
+            Thread { throw IllegalStateException("Key 42 was already used") }.apply { name = "main"; start(); join() }
+
+            val req = server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!
+            assertEquals("/api/debug/crash", req.path)
+            assertEquals("Bearer tok-123", req.getHeader("Authorization"))
+            val body = kotlinx.serialization.json.Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+            assertEquals("lab", body["client"]!!.jsonPrimitive.content)
+            val crash = body["crashes"]!!.let { it as kotlinx.serialization.json.JsonArray }[0].jsonObject
+            assertEquals("uncaught", crash["source"]!!.jsonPrimitive.content)
+            assertTrue(crash["trace"]!!.jsonPrimitive.content.contains("Key 42 was already used"))
+            assertTrue(handedOnAfterUpload, "the POST finished before the platform handler ran")
+            assertFalse(CrashLog.hasPendingUncaught(app), "accepted → forgotten")
+
+            // The next open shows it once (LastCrashActivity), until Continue.
+            assertTrue(CrashLog.hasUnseenCrash(app))
+            assertTrue(CrashLog.lastCrashText(app).contains("Key 42 was already used"))
+            CrashLog.markCrashSeen(app)
+            assertFalse(CrashLog.hasUnseenCrash(app))
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous)
+            CrashLog.apiBase = base
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun aFailedUploadKeepsTheCrashForLater() {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(500))
+        server.start()
+        val base = CrashLog.apiBase
+        try {
+            CrashLog.apiBase = server.url("").toString().trimEnd('/')
+            app.getSharedPreferences("lab", android.content.Context.MODE_PRIVATE).edit().putString("session_token", "tok").commit()
+            CrashLog.recordNonFatal(app, "0.999", RuntimeException("x"))
+            assertFalse(CrashLog.uploadNow(app, "0.999"))
+            assertEquals(1, CrashLog.pending(app).size)
+        } finally {
+            CrashLog.apiBase = base
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun aFreezeDumpLeadsWithTheMainThread() {
+        val dump = CrashLog.freezeDump()
+        assertTrue(dump.startsWith("FROZEN main thread"))
+        assertTrue(dump.contains("Other threads:"))
+    }
 }
