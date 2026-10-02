@@ -59,10 +59,10 @@ class ProgressViewModel(private val app: LabApp) : ViewModel() {
         job = viewModelScope.launch {
             val zone = ZoneId.systemDefault()
             val now = System.currentTimeMillis()
-            val snap = store.snapshot(now, zone)
+            val snap = app.safely("progress") { store.snapshot(now, zone) } ?: return@launch
             // Keep the last known counts on screen while they are recomputed.
             _ui.value = ProgressUi(true, snap, LocalDate.now(zone), barsFor(snap, now), known = _ui.value.known)
-            val known = store.known(now)
+            val known = app.safely("known counts") { store.known(now) } ?: return@launch
             _ui.value = _ui.value.copy(known = known)
         }
     }

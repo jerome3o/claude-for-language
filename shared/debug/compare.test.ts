@@ -81,6 +81,23 @@ describe('validateDebugReport / summarizeDebugReport', () => {
     const r = report('lab');
     expect(validateDebugReport(r)).toEqual([]);
     expect(summarizeDebugReport(r)).toMatchObject({ home_total: 2, cards: 3, events: 3, queue_due_cards: 2 });
+    expect(summarizeDebugReport(r).crashes).toBeUndefined();
+  });
+  it('puts crashes carried by a report into the summary (top of the trace)', () => {
+    const r = {
+      ...report('lab'),
+      crashes: [
+        { source: 'uncaught', at: '2026-10-02T07:00:00.000Z', app_version: '0.357', thread: 'main', trace: 'java.lang.IllegalStateException: boom\n\tat x.y' + 'z'.repeat(3000) },
+        { source: 'exit_info', at: '2026-10-02T06:00:00.000Z', reason: 'anr', description: 'Input dispatching timed out' },
+      ],
+    };
+    expect(validateDebugReport(r)).toEqual([]);
+    const s = summarizeDebugReport(r);
+    expect(s.crashes).toHaveLength(2);
+    expect(s.crashes![0]).toMatchObject({ source: 'uncaught', app_version: '0.357' });
+    expect(s.crashes![0].head.startsWith('java.lang.IllegalStateException: boom')).toBe(true);
+    expect(s.crashes![0].head.length).toBe(1500);
+    expect(s.crashes![1]).toMatchObject({ reason: 'anr', head: 'Input dispatching timed out' });
   });
   it('lists what is wrong with a broken one', () => {
     expect(validateDebugReport({ client: 'ios' })).toEqual(

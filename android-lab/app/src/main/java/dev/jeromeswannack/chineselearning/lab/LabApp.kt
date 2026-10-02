@@ -43,7 +43,15 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
     lateinit var debugReports: DebugReporter
     /** Auto-audio: missing / broken clips made on the card, queued offline, backfilled after sync (data/audio/). */
     lateinit var noteAudio: dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * App-wide background work (sync follow-ups, widget refresh, audio fixer, debug reports…).
+     * A failure in one of those jobs is recorded (CrashLog) and logged — it must never take
+     * the whole app down at start-up.
+     */
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+        android.util.Log.e("LabApp", "background job failed", e)
+        dev.jeromeswannack.chineselearning.lab.data.CrashLog.recordNonFatal(this, appVersionOrNull() ?: "unknown", e)
+    })
 
     /** Offline store for feature data (data/platform/JsonCache.kt). */
     val cache: JsonCache get() = repo.platform.cache
@@ -63,6 +71,8 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // First: a crash anywhere after this line is written down and reported (data/CrashLog.kt).
+        runCatching { dev.jeromeswannack.chineselearning.lab.data.CrashLog.install(this, appVersion()) }
         prefs = Prefs(this)
         repo = Repository(this, LabDatabase.open(this), Api(tokenProvider = { prefs.sessionToken }), prefs)
         sounds = Sounds(this) { prefs.soundOn }
@@ -76,11 +86,13 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
         debugReports = DebugReporter(this, repo, appVersion())
         watchNetwork()
         uploadDebugReportsAfterSync()
+        reportLastCrash()
         dev.jeromeswannack.chineselearning.lab.shell.Shell.install(this) // widget, notifications (package I)
     }
 
-    private fun appVersion(): String =
-        runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "unknown"
+    private fun appVersion(): String = appVersionOrNull() ?: "unknown"
+
+    private fun appVersionOrNull(): String? = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull()
 
     /** Study-state debug report (data/DebugReport.kt) after each successful sync, every 30 min at most. */
     private fun uploadDebugReportsAfterSync() {
@@ -92,6 +104,30 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
                     debugReports.sendIfDue()
                 }
             }
+        }
+    }
+
+    /**
+     * Runs non-critical work (start-up loads, refreshes, syncs started from the UI) so that a
+     * failure — any Throwable — is logged and reported (CrashLog) instead of crashing the app.
+     * Returns null when [block] failed. Cancellation still propagates.
+     */
+    suspend fun <T> safely(what: String, block: suspend () -> T): T? = try {
+        block()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        android.util.Log.e("LabApp", "$what failed", e)
+        dev.jeromeswannack.chineselearning.lab.data.CrashLog.recordNonFatal(this, appVersion(), e)
+        null
+    }
+
+    /** A crash recorded by the last run goes up soon after start, not at the next 30-min window. */
+    private fun reportLastCrash() {
+        if (!dev.jeromeswannack.chineselearning.lab.data.CrashLog.hasPendingUncaught(this)) return
+        scope.launch {
+            kotlinx.coroutines.delay(15_000)
+            if (online.value) runCatching { debugReports.sendIfDue() }
         }
     }
 

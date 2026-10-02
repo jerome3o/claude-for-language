@@ -107,4 +107,49 @@ class StudyQueueTest {
         assertEquals(AnswerKey.Verdict.ALTERNATIVE, AnswerKey.check("您好", "你好", listOf("您好")))
         assertEquals(AnswerKey.Verdict.WRONG, AnswerKey.check("你们", "你好", listOf("您好")))
     }
+
+    /** An account shaped like the one that reported the launch crash: 26 decks, ~3000 notes, odd hanzi. */
+    private fun bigAccount(): Triple<List<QueueDeck>, List<QueueCard>, Map<String, String>> {
+        val rnd = Random(3)
+        val decks = (0 until 26).map { QueueDeck("d$it", 26 - it, "2026-01-01 00:00:00", if (it % 5 == 0) 0 else 3, 6) }
+        val odd = listOf("", " ", "𠮷野家", "😀", "OK", "我…了", "（请）坐", "你好/您好", "也许是我手机的问题。")
+        val hanzi = HashMap<String, String>()
+        val cards = ArrayList<QueueCard>()
+        for (n in 0 until 3037) {
+            val deck = if (n < 3000) "d${1 + n % 23}" else "d24"
+            hanzi["n$n"] = if (n % 50 == 0) odd[n / 50 % odd.size] else (0 until 1 + rnd.nextInt(4)).joinToString("") { String(Character.toChars(0x4e00 + rnd.nextInt(0x5000))) }
+            val reviewed = n % 3 != 0
+            for (t in listOf(CardTypes.HANZI_TO_MEANING, CardTypes.MEANING_TO_HANZI, CardTypes.AUDIO_TO_HANZI)) {
+                val q = if (reviewed && (t == CardTypes.HANZI_TO_MEANING || n % 2 == 0)) CardQueue.REVIEW else CardQueue.NEW
+                cards += card("c$n-$t", "n$n", deck, t, q, if (q == CardQueue.REVIEW) now - rnd.nextLong(0, 86_400_000L * 5) else null)
+            }
+        }
+        // A note with no hanzi row at all (deleted / not synced yet).
+        cards += card("orphan", "missing-note", "d1")
+        return Triple(decks, cards, hanzi)
+    }
+
+    @Test
+    fun newCharactersFirstCopesWithAWholeRealSizedAccount() {
+        val (decks, cards, hanzi) = bigAccount()
+        for (bonus in listOf(0, 10, 200)) for (deck in listOf<String?>(null, "d1", "d24", "d0")) {
+            val plain = StudyQueue.build(decks, cards, StudyBudget(5, 10), bonus, emptyMap(), cutoff, deck)
+            val novel = StudyQueue.build(decks, cards, StudyBudget(5, 10), bonus, emptyMap(), cutoff, deck, hanzi)
+            // Same amount of every kind of card; only which new words differs.
+            assertEquals(StudyQueue.counts(plain.dueCards, plain.reviewedNoteIds), StudyQueue.counts(novel.dueCards, novel.reviewedNoteIds), "bonus $bonus deck $deck")
+            assertEquals(novel.dueCards.size, novel.dueCards.map { it.id }.distinct().size)
+        }
+    }
+
+    @Test
+    fun aFailureInNewCharactersFirstFallsBackToThePlainOrder() {
+        val (decks, cards, _) = bigAccount()
+        val broken = object : AbstractMap<String, String>() {
+            override val entries: Set<Map.Entry<String, String>> get() = throw IllegalStateException("broken hanzi map")
+            override fun get(key: String): String = throw IllegalStateException("broken hanzi map")
+        }
+        val plain = StudyQueue.build(decks, cards, StudyBudget(5, 10), 0, emptyMap(), cutoff, null)
+        val fallback = StudyQueue.build(decks, cards, StudyBudget(5, 10), 0, emptyMap(), cutoff, null, broken)
+        assertEquals(plain.dueCards.map { it.id }, fallback.dueCards.map { it.id })
+    }
 }

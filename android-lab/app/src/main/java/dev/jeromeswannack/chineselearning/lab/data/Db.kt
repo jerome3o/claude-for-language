@@ -226,5 +226,15 @@ abstract class LabDatabase : RoomDatabase() {
     }
 }
 
-/** note id → hanzi for StudyQueue.build's "new characters first". */
-suspend fun LabDao.noteHanzi(): Map<String, String> = noteHanziRows().associate { it.id to it.hanzi }
+/**
+ * note id → hanzi for StudyQueue.build's "new characters first"; null (= the plain order) if it
+ * can't be read — an ordering nicety must never stop the queue from being built.
+ */
+suspend fun LabDao.noteHanzi(): Map<String, String>? = try {
+    noteHanziRows().associate { it.id to it.hanzi }
+} catch (e: kotlinx.coroutines.CancellationException) {
+    throw e
+} catch (e: Throwable) {
+    android.util.Log.w("LabDao", "note hanzi unavailable, plain new-card order", e)
+    null
+}
