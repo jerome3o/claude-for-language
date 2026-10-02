@@ -40,7 +40,8 @@ fun interface FeatureSync {
  */
 class LabPlatform(private val db: LabDatabase, private val api: Api, filesDir: File) {
     val dao: PlatformDao = db.platform()
-    val cache = JsonCache(dao, api.json)
+    /** Documents over 256 KB are kept as files in json-cache/ (a row over 2 MB can't be read back). */
+    val cache = JsonCache(dao, api.json, dir = File(filesDir, "json-cache"))
     val outbox = Outbox(dao, api, File(filesDir, "outbox"))
 
     private val syncs = LinkedHashMap<String, FeatureSync>()

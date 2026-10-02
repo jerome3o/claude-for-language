@@ -112,6 +112,42 @@ class ColdStartTest {
         assertNothingFailed("cold start")
     }
 
+    /**
+     * The v0.357–v0.360 "closes on every open": a readers list over 2 MB (Jerome: 38 readers,
+     * 1.4 MB of vocabulary lists + 0.5 MB of word chips) left in json_cache by the background
+     * sync. Reading that row threw SQLiteBlobTooBigException in Home's readers flow.
+     */
+    @Test
+    fun coldStartWithAReadersListBiggerThanACursorWindowDoesNotCrash() {
+        runBlocking {
+            val readers = (0 until 38).map { r ->
+                dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto(
+                    id = "r$r", titleChinese = "小明在巴黎 $r", titleEnglish = "Xiaoming in Paris $r", status = "ready", createdAt = "2026-09-${10 + r % 20}T09:00:00.000Z",
+                    vocabularyUsed = (0 until 600).map { v -> dev.jeromeswannack.chineselearning.lab.data.api.VocabItemDto("实际上$v", "shí jì shàng", "in fact; actually; in reality") },
+                    pages = (0 until 6).map { p ->
+                        dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto(
+                            "r$r-p$p", p + 1, "小明坐在靠窗的座位上，看着外面的雨。", "Xiǎo Míng zuò zài kào chuāng de zuòwèi shang.", "Xiaoming sits by the window watching the rain.",
+                            words = (0 until 40).map { w -> dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto("座位$w", "zuòwèi", "seat") },
+                        )
+                    },
+                )
+            }
+            val text = app.cache.json.encodeToString(kotlinx.serialization.builtins.ListSerializer(dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto.serializer()), readers)
+            assertTrue(text.toByteArray().size > 2_200_000, "bigger than a CursorWindow: ${text.toByteArray().size}")
+            // Written the way the old build left it: the whole document in the row.
+            app.repo.platform.dao.putCache(listOf(dev.jeromeswannack.chineselearning.lab.data.platform.JsonCacheEntity("readers/list", "readers", text, System.currentTimeMillis())))
+        }
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        repeat(200) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(25)
+        }
+        controller.pause().stop().destroy()
+        assertNothingFailed("cold start with a 2 MB+ readers list")
+        val back = runBlocking { app.cache.get("readers/list", kotlinx.serialization.builtins.ListSerializer(dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto.serializer())) }
+        assertTrue(back?.size == 38, "the readers survived (moved to a file): ${back?.size}")
+    }
+
     /** Opening the app from the widget's / a card notification's Study: the real study screen draws on this data. */
     @Test
     fun coldStartStraightIntoStudyDoesNotCrash() {

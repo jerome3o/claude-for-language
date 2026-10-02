@@ -41,7 +41,10 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
         // Today's lessons / story change when one is completed or a sync brings new ones.
         val runtime = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app)
         viewModelScope.launch {
-            kotlinx.coroutines.flow.merge(runtime.store.observe().map { }, runtime.readers.observe().map { }).drop(2).collect { refresh() }
+            // Guarded: a failing cache read (e.g. a document too big for a CursorWindow) must never take Home down.
+            app.safely("home lessons / readers watch") {
+                kotlinx.coroutines.flow.merge(runtime.store.observe().map { }, runtime.readers.observe().map { }).drop(2).collect { refresh() }
+            }
         }
     }
 
