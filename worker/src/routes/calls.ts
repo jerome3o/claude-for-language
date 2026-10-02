@@ -163,7 +163,7 @@ calls.delete('/calls/:id', async (c) => {
     const call = await requireCall(c.env.DB, c.req.param('id'), user.id);
     if (call.created_by !== user.id) throw new CallError(403, 'Only the person who started the call can delete it');
     if (call.status === 'live' && c.env.CALL_ROOM) {
-      await c.env.CALL_ROOM.get(c.env.CALL_ROOM.idFromName(call.id)).end(call.id, user.id);
+      await c.env.CALL_ROOM.get(c.env.CALL_ROOM.idFromName(call.id)).end(call.id, user.id, 'deleted the call');
     }
     const keys = await deleteCallRows(c.env.DB, call.id);
     for (let i = 0; i < keys.length; i += 500) await c.env.AUDIO_BUCKET.delete(keys.slice(i, i + 500));
@@ -190,7 +190,7 @@ calls.post('/calls/:id/end', async (c) => {
     const user = c.get('user');
     const call = await requireCall(c.env.DB, c.req.param('id'), user.id);
     if (call.status === 'live') {
-      if (c.env.CALL_ROOM) await c.env.CALL_ROOM.get(c.env.CALL_ROOM.idFromName(call.id)).end(call.id, user.id);
+      if (c.env.CALL_ROOM) await c.env.CALL_ROOM.get(c.env.CALL_ROOM.idFromName(call.id)).end(call.id, user.id, 'End, sent over HTTP');
       else {
         await markCallEnded(c.env.DB, call.id);
         await advanceCallProcessing(c.env, call.id);

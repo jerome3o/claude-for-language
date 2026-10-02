@@ -33,13 +33,21 @@ import {
   videoEncodingFor,
   type CallDiagKind,
   type LinkHealth,
+  newLinkId,
   type PcState,
   type VideoSource,
 } from '@shared/calls';
 
-export type SignalData =
+/**
+ * `link` = the sending link's id (connection.ts `linkSignalAction`); a fresh
+ * link opens with `hello` so the other side knows to start over too, and an
+ * offerer still waiting for an answer sends its offer again on a hello.
+ */
+export type SignalData = (
   | { description: RTCSessionDescriptionInit }
-  | { candidate: RTCIceCandidateInit | null };
+  | { candidate: RTCIceCandidateInit | null }
+  | { hello: true }
+) & { link?: string };
 
 export interface PeerLinkOptions {
   iceServers: RTCIceServer[];
@@ -66,6 +74,10 @@ const STATS_EVERY_MS = 4000;
 
 export class PeerLink {
   readonly pc: RTCPeerConnection;
+  /** This link's id, on every signal it sends. */
+  readonly id = newLinkId();
+  /** The other side's link this one talks to (bound by the first signal that carries an id). */
+  remoteLink: string | null = null;
   private makingOffer = false;
   private ignoreOffer = false;
   private audio: RTCRtpTransceiver | null = null;
@@ -85,12 +97,18 @@ export class PeerLink {
   private route = '';
   private closed = false;
 
-  constructor(private readonly opts: PeerLinkOptions) {
+  private readonly opts: PeerLinkOptions;
+
+  constructor(opts: PeerLinkOptions) {
+    this.opts = opts;
     this.audioTrack = opts.audioTrack;
     this.videoTrack = opts.videoTrack;
     this.videoSource = opts.videoSource ?? 'camera';
     this.screenTrack = opts.screenTrack ?? null;
     this.pc = new RTCPeerConnection({ iceServers: opts.iceServers, bundlePolicy: 'max-bundle' });
+    const send = opts.sendSignal;
+    this.opts = { ...opts, sendSignal: (data: SignalData) => send({ ...data, link: this.id }) };
+    opts = this.opts;
 
     this.pc.ontrack = (event) => {
       // The second video m-line is their screen.
@@ -134,6 +152,21 @@ export class PeerLink {
       void this.applyEncodings();
     }
     this.statsTimer = setInterval(() => void this.readStats(false), STATS_EVERY_MS);
+    // A fresh link announces itself: the other side's link, if it is an older one, starts over too.
+    opts.sendSignal({ hello: true });
+  }
+
+  /**
+   * Their socket (or mine) came back and this link was kept: say hello again
+   * (they re-send an offer of theirs I may have missed) and re-send mine if it
+   * is still unanswered (it may have gone to their old socket).
+   */
+  resume(): void {
+    if (this.closed) return;
+    this.opts.sendSignal({ hello: true });
+    if (this.pc.signalingState === 'have-local-offer' && this.pc.localDescription) {
+      this.opts.sendSignal({ description: this.pc.localDescription.toJSON() });
+    }
   }
 
   get health(): LinkHealth {
@@ -212,7 +245,15 @@ export class PeerLink {
 
   private async applySignal(data: SignalData): Promise<void> {
     if (this.closed) return;
+    if (data.link && !this.remoteLink) this.remoteLink = data.link;
     try {
+      if ('hello' in data) {
+        // Their (new) link is listening: an offer of mine still unanswered may never have reached it.
+        if (this.pc.signalingState === 'have-local-offer' && this.pc.localDescription) {
+          this.opts.sendSignal({ description: this.pc.localDescription.toJSON() });
+        }
+        return;
+      }
       if ('description' in data && data.description) {
         const description = data.description;
         const collision = description.type === 'offer' && (this.makingOffer || this.pc.signalingState !== 'stable');

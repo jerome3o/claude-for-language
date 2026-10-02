@@ -277,6 +277,37 @@ export class TextDoc {
     return op;
   }
 
+  /** Ids of the visible characters, in order. */
+  visibleIds(): CharId[] {
+    const out: CharId[] = [];
+    for (const n of this.nodes) if (!n.del) out.push([n.c, n.s]);
+    return out;
+  }
+
+  /**
+   * Type `text` right after the character `after` (null = the start) — an edit
+   * made against an older view of the text (TextView). A deleted `after` is
+   * fine (the text goes where it stood). Returns the op (already applied here).
+   */
+  localInsertAfter(after: CharId | null, text: string): TextInsertOp | null {
+    if (!text || !this.has(after)) return null;
+    const op: TextInsertOp = { t: 'ins', id: [this.clockValue + 1, this.site], after: after ? [after[0], after[1]] : null, text };
+    this.applyNow(op);
+    return op;
+  }
+
+  /** Delete these characters (those still visible; the rest are already gone). Returns the op (already applied here). */
+  localDeleteIds(ids: CharId[]): TextDeleteOp | null {
+    const live = ids.filter(([c, s]) => {
+      const n = this.byKey.get(key(c, s));
+      return !!n && !n.del;
+    });
+    if (live.length === 0) return null;
+    const op: TextDeleteOp = { t: 'del', ids: live.map(([c, s]) => [c, s] as CharId) };
+    this.applyNow(op);
+    return op;
+  }
+
   /**
    * Turn "the text is now `next`" (what a textarea says after an edit) into
    * ops: one delete of the changed middle and one insert of the new middle.
@@ -292,6 +323,79 @@ export class TextDoc {
     if (del) ops.push(del);
     const ins = this.localInsert(edit.index, edit.insert);
     if (ins) ops.push(ins);
+    return ops;
+  }
+}
+
+/**
+ * What a text field shows of a TextDoc: the visible characters with their ids
+ * as of the last time the field was rewritten. The field may lag the document —
+ * the other person's edits keep arriving while an IME composition is open, and
+ * the field must not be rewritten mid-composition (Gboard keeps a composing span
+ * on the last word for as long as you don't type a space). So the other person's
+ * edits always go into the document at once, and an edit in the field is
+ * diffed against the VIEW and applied to the document by character id
+ * (`edit`): nothing they typed in the meantime is lost or duplicated. `sync`
+ * brings the view up to the document when the field may be rewritten.
+ * (Lab: CallTextDoc.kt `CallTextView`.)
+ */
+export class TextView {
+  private ids: CharId[] = [];
+  private chars: string[] = [];
+
+  constructor(doc?: TextDoc) {
+    if (doc) this.sync(doc);
+  }
+
+  sync(doc: TextDoc): void {
+    this.ids = doc.visibleIds();
+    this.chars = splitChars(doc.text());
+  }
+
+  get text(): string {
+    return this.chars.join('');
+  }
+
+  get length(): number {
+    return this.chars.length;
+  }
+
+  /** Is the view exactly the document's visible text (same characters, same ids)? */
+  inSync(doc: TextDoc): boolean {
+    const ids = doc.visibleIds();
+    if (ids.length !== this.ids.length) return false;
+    for (let i = 0; i < ids.length; i++) if (ids[i][0] !== this.ids[i][0] || ids[i][1] !== this.ids[i][1]) return false;
+    return true;
+  }
+
+  /** The id of the character just before view index `index` (null = the start). */
+  anchorAt(index: number): CharId | null {
+    if (index <= 0 || this.ids.length === 0) return null;
+    return this.ids[Math.min(index, this.ids.length) - 1];
+  }
+
+  /** The view index just after `anchor`, or -1 when the view doesn't hold it. */
+  indexOf(anchor: CharId | null): number {
+    if (!anchor) return 0;
+    for (let i = 0; i < this.ids.length; i++) if (this.ids[i][0] === anchor[0] && this.ids[i][1] === anchor[1]) return i + 1;
+    return -1;
+  }
+
+  /**
+   * The field now says `next` (its text outside any open composition); `caret`
+   * is the UTF-16 caret in `next`. Returns the ops to send (applied to `doc`).
+   */
+  edit(doc: TextDoc, next: string, caret?: number): TextOp[] {
+    const want = splitChars(next);
+    const e = diffChars(this.chars, want, caret === undefined ? undefined : codeUnitToCharIndex(next, caret));
+    const ops: TextOp[] = [];
+    const del = e.remove > 0 ? doc.localDeleteIds(this.ids.slice(e.index, e.index + e.remove)) : null;
+    if (del) ops.push(del);
+    const ins = doc.localInsertAfter(e.index > 0 ? this.ids[e.index - 1] : null, e.insert);
+    if (ins) ops.push(ins);
+    const insChars = ins ? splitChars(e.insert) : [];
+    this.ids.splice(e.index, e.remove, ...insChars.map((_, i) => [ins!.id[0] + i, ins!.id[1]] as CharId));
+    this.chars.splice(e.index, e.remove, ...insChars);
     return ops;
   }
 }

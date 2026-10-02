@@ -86,10 +86,47 @@ export function tileStatus(h: Pick<LinkHealth, 'pc' | 'everConnected'>, peerAway
 
 /**
  * A (re)announced peer is the same connection as the one we have when it is
- * the same person from the same page load / app session.
+ * the same person from the same page load / app session — and the link we
+ * have is worth keeping: a `failed` / `closed` one can't come back, and one
+ * still `new` never got going (its offer may have gone to their old socket,
+ * so it would wait forever — 2 Oct 2026: a minute without media after
+ * Minghui's network froze). Those are renegotiated from scratch.
  */
-export function shouldAdoptPeer(current: { user_id: string; instance?: string } | null | undefined, incoming: Pick<CallPeer, 'user_id' | 'instance'>): boolean {
+export function shouldAdoptPeer(
+  current: { user_id: string; instance?: string } | null | undefined,
+  incoming: Pick<CallPeer, 'user_id' | 'instance'>,
+  pc?: PcState,
+): boolean {
+  if (pc !== undefined && !linkWorthKeeping(pc)) return false;
   return !!current && !!incoming.instance && current.instance === incoming.instance && current.user_id === incoming.user_id;
+}
+
+/** A media link in this state can still carry the call (an ICE restart may heal it). */
+export function linkWorthKeeping(pc: PcState): boolean {
+  return pc === 'connecting' || pc === 'connected' || pc === 'disconnected';
+}
+
+/**
+ * Every link has an id, sent with each of its signals (`link`), and a fresh
+ * link says `hello` first. A signal from a link id other than the one mine is
+ * talking to means the other side started over (their old link failed): mine
+ * starts over too ('replace'), so both ends negotiate a brand-new connection
+ * instead of one side answering into a dead one. Signals from a link already
+ * replaced are late leftovers ('ignore'); signals without an id come from an
+ * app before link ids ('apply', as before).
+ */
+export type LinkSignalAction = 'apply' | 'replace' | 'ignore';
+
+export function linkSignalAction(bound: string | null, retired: readonly string[], incoming: string | undefined): LinkSignalAction {
+  if (!incoming) return 'apply';
+  if (retired.includes(incoming)) return 'ignore';
+  if (bound === null || bound === incoming) return 'apply';
+  return 'replace';
+}
+
+/** A random id for one media link. */
+export function newLinkId(): string {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 /** A random instance id for this page load / app session. */
@@ -139,7 +176,8 @@ export function videoEncodingFor(source: VideoSource, availableBps: number | nul
 
 // ------------------------------------------------------------------ diagnostics
 
-export type CallDiagKind = 'pc' | 'ice' | 'room' | 'restart' | 'route' | 'media' | 'join' | 'peer';
+/** 'call' = the room's own lines (entered / left / timed out / who ended the call); clients can't send it. */
+export type CallDiagKind = 'pc' | 'ice' | 'room' | 'restart' | 'route' | 'media' | 'join' | 'peer' | 'call';
 
 export interface CallDiagEvent {
   /** ms since epoch (client clock). */

@@ -19,8 +19,12 @@ export const GLOSS_DEBOUNCE_MS = 500;
 export const GLOSS_MAX_SEGMENT = 40;
 /** Between the Chinese, the pinyin and the English. */
 export const GLOSS_SEPARATOR = ' - ';
-/** The English is cut to this many words. */
-export const GLOSS_MAX_ENGLISH_WORDS = 8;
+/**
+ * The English is cut to this many words — a safety net only: a sentence (up to
+ * GLOSS_MAX_SEGMENT characters) gets its whole translation. It used to be 8,
+ * which cut Minghui's sentence translations off mid-sentence (2 Oct 2026).
+ */
+export const GLOSS_MAX_ENGLISH_WORDS = 30;
 export const GLOSS_MAX_PINYIN_CHARS = 240;
 
 /** CJK ideographs (unified, ext. A–F, compatibility) and 〇. */

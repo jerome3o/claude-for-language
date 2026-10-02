@@ -233,6 +233,13 @@ export interface DevicePrefs {
   audioId?: string | null;
   videoId?: string | null;
   speakerId?: string | null;
+  /**
+   * The microphone / camera were switched OFF when I last left a call (absent =
+   * on). A rejoin — the next call of the lesson, a reload — comes back the same
+   * way instead of with everything off (Minghui, 2 Oct 2026).
+   */
+  micOff?: boolean;
+  camOff?: boolean;
 }
 
 export function loadDevicePrefs(): DevicePrefs {

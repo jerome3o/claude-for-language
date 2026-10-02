@@ -2,8 +2,14 @@
  * The shared text board's client side: this page's replica of the document
  * (shared/calls/textDoc.ts), the edits not yet accepted by the room, the other
  * person's caret, and the IME rule — while a Chinese pinyin composition is in
- * progress nothing is sent and the other person's edits wait, so the
- * composition window is never disturbed; both catch up on compositionend.
+ * progress nothing of it is sent and the textarea is not rewritten (that would
+ * break the composition), but the other person's edits still go into the
+ * document at once. The textarea shows a `TextView` of the document, and my
+ * edits are diffed against that view and applied by character id, so the two
+ * never lose each other's typing; the view catches up (and the textarea is
+ * rewritten) when the composition ends — or, because Gboard keeps a composing
+ * span on the last word indefinitely, when it has been idle for
+ * COMPOSE_IDLE_MS or the board loses focus (`endComposition`).
  *
  * Board pages (shared/calls/pages.ts): the board is one of the relationship's
  * numbered pages. This session also keeps the page list, which page each
@@ -14,6 +20,7 @@
 
 import {
   TextDoc,
+  TextView,
   pageLabel,
   presenceColor,
   type BoardPageMeta,
@@ -52,7 +59,14 @@ interface PageOp {
   op: TextOp;
 }
 
-export type BoardEvent = 'local' | 'remote' | 'cursor' | 'load' | 'pages';
+/**
+ * 'held' = the other person's edits went into the document during my open
+ * composition; the textarea catches up when it ends (or goes idle).
+ */
+export type BoardEvent = 'local' | 'remote' | 'held' | 'cursor' | 'load' | 'pages';
+
+/** A composition with no update for this long, while the other person's edits wait, is ended (Gboard's lingering span). */
+export const COMPOSE_IDLE_MS = 1500;
 
 /** A short line the board shows for a few seconds ("Minghui brought you to page 7"). */
 export interface BoardNotice {
@@ -64,9 +78,10 @@ export class TextBoardSession {
   /** One site per page load: "<user id>:<random>" (the room checks the prefix). */
   readonly site: string;
   doc: TextDoc;
+  /** What the textarea shows (lags `doc` only while a composition is open). */
+  private view: TextView;
   private unsent: PageOp[] = [];
   private sent: PageOp[] = [];
-  private held: TextOp[] = [];
   /** The page on screen ('' until the room says, or from a room without pages). */
   page = '';
   pages: BoardPageMeta[] = [];
@@ -95,6 +110,13 @@ export class TextBoardSession {
   constructor(userId: string, private send: Sender) {
     this.site = `${userId}:${Math.random().toString(36).slice(2, 8)}`;
     this.doc = new TextDoc(this.site);
+    this.view = new TextView(this.doc);
+  }
+
+  /** The document changed wholesale (a page, a welcome): the view follows. */
+  private setDoc(doc: TextDoc) {
+    this.doc = doc;
+    this.view = new TextView(doc);
   }
 
   subscribe(fn: (reason: BoardEvent) => void): () => void {
@@ -107,8 +129,14 @@ export class TextBoardSession {
     this.listeners.forEach((l) => l(reason));
   }
 
+  /** The text the textarea shows (the document's, except during an open composition with edits waiting). */
   get text(): string {
-    return this.doc.text();
+    return this.view.text;
+  }
+
+  /** The other person's edits are in the document but not on screen yet (an open composition). */
+  get hasHeld(): boolean {
+    return this.composing && !this.view.inSync(this.doc);
   }
 
   get remoteCarets(): RemoteCaret[] {
@@ -128,6 +156,7 @@ export class TextBoardSession {
   load(snapshot: TextDocSnapshot | undefined, cursors: TextCursor[] | undefined, page = this.page) {
     this.page = page;
     this.awaitingPage = false;
+    this.composing = false;
     this.doc = new TextDoc(this.site, snapshot ?? null);
     const replay = [...this.sent, ...this.unsent];
     this.sent = [];
@@ -135,6 +164,7 @@ export class TextBoardSession {
     const known = new Set(this.pages.map((p) => p.id));
     // Only what the room hasn't got yet goes out again (for this page; other pages' edits are resent as they are).
     const missing = replay.filter((x) => (x.page === page ? this.doc.apply(x.op) : !x.page || known.has(x.page)));
+    this.view = new TextView(this.doc);
     this.cursors.clear();
     for (const c of cursors ?? []) this.setCursor(c, false);
     this.push(missing);
@@ -199,9 +229,9 @@ export class TextBoardSession {
     if (this.page) this.docCache.set(this.page, this.doc);
     this.page = pageId;
     this.cursors.clear();
-    this.held = [];
+    this.composing = false;
     const cached = this.docCache.get(pageId);
-    this.doc = cached ?? new TextDoc(this.site);
+    this.setDoc(cached ?? new TextDoc(this.site));
     // A page seen before shows at once (and stays editable: the room's copy merges in);
     // a new one waits for the room's copy.
     this.awaitingPage = !cached;
@@ -283,7 +313,6 @@ export class TextBoardSession {
       this.expectingNewPage = false;
       if (this.page) this.docCache.set(this.page, this.doc);
       this.cursors.clear();
-      this.held = [];
       this.load(snapshot, cursors, page);
       return;
     }
@@ -342,31 +371,37 @@ export class TextBoardSession {
     this.emit('pages');
   }
 
-  /** The textarea now says `next` (after an input event outside a composition). */
+  /**
+   * The textarea now says `next` (after an input event outside a composition).
+   * Diffed against what the textarea showed (the view), applied by id.
+   */
   localEdit(next: string, caret?: number) {
     if (this.composing) return;
-    const ops = this.doc.replaceText(next, caret);
+    const ops = this.view.edit(this.doc, next, caret);
     if (ops.length === 0) return;
     this.push(ops.map((op) => ({ page: this.page, op })));
     this.emit('local');
   }
 
+  /** The other person's edits: always into the document; on screen now, or when my composition ends. */
   applyRemote(ops: TextOp[], page?: string) {
     // Keystrokes for a page I'm not on (a late message after flipping) are left to that page's page_doc.
     if (page !== undefined && page !== this.page) return;
-    if (this.composing) {
-      this.held.push(...ops);
-      return;
-    }
     let changed = false;
     for (const op of ops) changed = this.doc.apply(op) || changed;
-    if (changed) this.emit('remote');
+    if (!changed) return;
+    if (this.composing) {
+      this.emit('held');
+      return;
+    }
+    this.view.sync(this.doc);
+    this.emit('remote');
   }
 
   /**
    * compositionstart → true. compositionend → false with the textarea's final
-   * value: my composed text goes out (typed against the text I had); then call
-   * flushHeld() for what arrived meanwhile.
+   * value: my composed text goes out (diffed against the view the textarea
+   * showed); then call flushHeld() to show what arrived meanwhile.
    */
   setComposing(on: boolean, finalText?: string, caret?: number) {
     if (on) {
@@ -378,19 +413,30 @@ export class TextBoardSession {
     if (finalText !== undefined) this.localEdit(finalText, caret);
   }
 
-  /** Apply the other person's edits that waited for a composition to end. */
+  /** Show the other person's edits that arrived during a composition (the textarea is rewritten). */
   flushHeld() {
-    const held = this.held;
-    this.held = [];
-    if (held.length) this.applyRemote(held);
+    if (this.composing || this.view.inSync(this.doc)) return;
+    this.view.sync(this.doc);
+    this.emit('remote');
+  }
+
+  /**
+   * End an open composition from our side — it went idle with edits waiting,
+   * or the board lost focus: what is composed counts as typed (a pinyin word
+   * picked later replaces it like any edit), and the textarea catches up.
+   */
+  endComposition(finalText: string, caret?: number) {
+    if (!this.composing) return;
+    this.setComposing(false, finalText, caret);
+    this.flushHeld();
   }
 
   /** My caret / selection as character indexes → sent as anchors. */
   sendSelection(start: number, end: number, backwards = false) {
     // Mid-composition the caret moves over uncommitted text: the composition preview says where I am.
     if (this.composing) return;
-    const a = this.doc.anchorAt(backwards ? end : start);
-    const h = this.doc.anchorAt(backwards ? start : end);
+    const a = this.view.anchorAt(backwards ? end : start);
+    const h = this.view.anchorAt(backwards ? start : end);
     this.lastSel = { anchor: a, head: h };
     this.cancelCompose();
     this.send({ type: 'text_cursor', sel: this.lastSel, ...this.pageField() });
@@ -413,7 +459,7 @@ export class TextBoardSession {
    */
   sendComposing(text: string, caretIndex: number) {
     if (!this.lastSel || this.composeText === null) {
-      const anchor = this.doc.anchorAt(caretIndex);
+      const anchor = this.view.anchorAt(caretIndex);
       this.lastSel = { anchor, head: anchor };
     }
     this.composeText = text;
@@ -445,12 +491,14 @@ export class TextBoardSession {
     if (this.cursors.delete(clientId)) this.emit('cursor');
   }
 
-  /** Character index of an anchor in the current text. */
+  /** Character index of an anchor in the text on screen. */
   indexOf(anchor: CharId | null): number {
-    return this.doc.indexOfAnchor(anchor);
+    if (this.view.length === this.doc.length && !this.composing) return this.doc.indexOfAnchor(anchor);
+    const i = this.view.indexOf(anchor);
+    return i >= 0 ? i : Math.min(this.doc.indexOfAnchor(anchor), this.view.length);
   }
 
   anchorAt(index: number): CharId | null {
-    return this.doc.anchorAt(index);
+    return this.view.anchorAt(index);
   }
 }

@@ -207,5 +207,27 @@ describe('CallRoom presence and auto-end', () => {
     expect(minghui.sent).toContainEqual({ type: 'ended', by: 'jerome' });
     expect(minghui.closed?.code).toBe(1000);
     expect(r.alarm()).toBeNull();
+    // The connection log says who ended it, and how.
+    const log = r.store.get('diag') as { kind: string; detail: string; user_id: string }[];
+    expect(log).toContainEqual(expect.objectContaining({ kind: 'call', user_id: 'jerome', detail: 'jerome ended the call for everyone (End for everyone)' }));
+  });
+
+  it('logs a Leave, a timeout and an automatic end in the connection log', async () => {
+    const r = makeRoom();
+    await r.room.presence('call-1', T0);
+    r.store.set('joined', ['jerome', 'minghui']);
+    const jerome = r.add('jerome', T0);
+    r.add('minghui', T0);
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'leave' }));
+    vi.setSystemTime(T0 + PRESENCE_TIMEOUT_MS + 5_000);
+    await r.room.alarm(); // minghui went silent
+    vi.setSystemTime(T0 + PRESENCE_TIMEOUT_MS + 5_000 + EMPTY_CALL_END_MS);
+    await r.room.alarm();
+    const details = (r.store.get('diag') as { kind: string; detail: string }[]).filter((e) => e.kind === 'call').map((e) => e.detail);
+    expect(details).toEqual([
+      'jerome left (Leave) — the call goes on',
+      `minghui timed out (no answer for ${PRESENCE_TIMEOUT_MS / 1000} s)`,
+      'Call ended automatically: nobody in it',
+    ]);
   });
 });
