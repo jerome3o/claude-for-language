@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- data/chat/: chat message notifications (docs/CHAT.md §5). -->
+    <string name="chat_channel_messages">Messages</string>
+    <string name="chat_channel_messages_desc">New chat messages from your tutor or students</string>
+    <string name="chat_action_reply">Reply</string>
+    <string name="chat_action_mark_read">Mark as read</string>
+    <string name="chat_reply_hint">Reply to %1$s</string>
+</resources>

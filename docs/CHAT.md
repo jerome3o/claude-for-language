@@ -1,0 +1,223 @@
+# Tutor–student chat: live delivery, notifications, read state
+
+This is the contract the worker, the web app and the Lab app share for chat delivery.
+(Rich-message features — edit/delete, photos, voice, corrections, flashcards from chat —
+are documented further down as they land.)
+
+## 1. Data (migration 0089_chat_push.sql)
+
+```sql
+-- One row per installed native app (FCM registration token).
+CREATE TABLE device_push_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token TEXT NOT NULL UNIQUE,          -- FCM registration token
+  platform TEXT NOT NULL DEFAULT 'android',
+  app TEXT NOT NULL DEFAULT 'lab',     -- 'lab' (future: other native shells)
+  device_label TEXT,                   -- e.g. "Pixel 10 Pro Fold" (shown nowhere critical)
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_success_at TEXT,
+  failure_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_device_push_tokens_user ON device_push_tokens(user_id);
+
+-- How far each person has read each conversation (read receipts, unread counts,
+-- clearing notifications on every device).
+CREATE TABLE conversation_reads (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_read_at TEXT NOT NULL,          -- created_at of the newest message read (ISO, same format as messages.created_at)
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (conversation_id, user_id)
+);
+
+-- Idempotent sends (offline outbox, notification inline reply, retries).
+ALTER TABLE messages ADD COLUMN client_id TEXT;
+CREATE UNIQUE INDEX idx_messages_sender_client ON messages(sender_id, client_id) WHERE client_id IS NOT NULL;
+```
+
+`messages.created_at` is an ISO string (`new Date().toISOString()`); compare as strings.
+Admin account deletion (`services/admin/delete-user.ts` `DELETE_STEPS`) must cover the two new tables.
+
+## 2. API
+
+All behind the normal auth middleware unless noted.
+
+- `POST /api/conversations/:id/messages` — body `{ content, reply_to_message_id?, client_id? }`.
+  With `client_id` the send is **idempotent**: a second POST with the same `(sender, client_id)`
+  returns the existing message (200 instead of 201) and notifies nobody again.
+  After insert: the sender's own read marker moves to the new message; the recipient is notified
+  (§3). The response is `MessageWithSender` (+ `client_id`).
+- `POST /api/conversations/:id/read` — body `{ up_to?: string }` (a message `created_at`; default =
+  newest message). Moves my marker forward only (never back). Returns
+  `{ conversation_id, last_read_at, unread: number }`. Side effects: a `chat_read` FCM data
+  message to **my own** native devices (so they drop the notification), and a `read` live event
+  to my other connected clients and to the other person (read receipts).
+- `GET /api/conversations/:id/messages` — unchanged shape, plus `read_state: { me: last_read_at|null, other: last_read_at|null }`.
+- `GET /api/me/chat-inbox?since=<iso>` — for background checks and the live-socket catch-up.
+  ```json
+  {
+    "server_time": "2026-10-02T10:00:00.000Z",
+    "messages": [ { "id", "conversation_id", "relationship_id", "content", "created_at",
+                    "sender": { "id", "name", "picture_url" } } ],   // messages to me (not sent by me), created_at > since, unread, oldest first, ≤ 50
+    "conversations": [ { "conversation_id", "relationship_id", "title", "other_user": { "id","name","picture_url" },
+                         "unread": 3, "last_read_at": "…|null", "last_message_at": "…" } ]   // only those with unread > 0
+  }
+  ```
+  `since` omitted = the last 7 days. Excludes AI (Claude role-play) conversations.
+- `POST /api/push/devices` — `{ token, platform?: 'android', app?: 'lab', device_label? }` → `{ id }`;
+  upsert by token (a token moving to another account moves with it).
+- `DELETE /api/push/devices` — `{ token }` (sign-out).
+- `GET /api/push/config` additionally returns `fcm: boolean` (the worker has FCM credentials).
+- `POST /api/live/ticket` → `{ ticket, ws_path: "/api/live/ws" }` — a one-minute HMAC ticket
+  (same scheme as call tickets, purpose `live`), then `GET /api/live/ws?ticket=` upgrades to a
+  WebSocket into the caller's **ChatHub** Durable Object (registered before the auth middleware).
+
+## 3. Delivering a new message
+
+`notifyNewChatMessage(env, message, conversation)` (worker `services/chat/notify.ts`), in `waitUntil`:
+
+1. **Live**: the recipient's ChatHub broadcasts `{"type":"message","message":MessageWithSender,"relationship_id"}`
+   to every socket the recipient has open; the sender's ChatHub gets the same (their other devices).
+2. **FCM** (if `FCM_SERVICE_ACCOUNT_JSON` is set): a **data-only, high-priority** message to each of
+   the recipient's tokens:
+   ```json
+   { "type": "chat_message", "conversation_id", "relationship_id", "message_id",
+     "sender_id", "sender_name", "sender_picture_url", "content" (≤ 1000 chars), "created_at",
+     "url": "/connections/<relId>/chat/<convId>" }
+   ```
+   (FCM data values are strings.) `android.priority = "high"`, `collapse_key` = conversation id,
+   `ttl` = 86400s. A token answered with `UNREGISTERED` / `404` / `INVALID_ARGUMENT` (token) is deleted;
+   other failures bump `failure_count` and are dropped after 5.
+3. **Web Push** (existing `pushToUsers`) with
+   `{ type: 'chat_message', title: sender name, body: preview, url, tag: 'chat-<convId>', conversation_id, relationship_id }`.
+   The service worker skips the notification when a focused, visible tab is already on that chat.
+4. The existing in-app notification row, e-mail and ntfy stay as they were.
+
+## 4. ChatHub Durable Object (one per user, `CHAT_HUB` binding, SQLite class, Hibernation API)
+
+- `fetch` with an upgrade: accepts the socket (tagged with a per-connection id).
+- RPC `broadcast(event)` from the worker: send to every socket.
+- Client → hub frames: `{"type":"ping"}` → `{"type":"pong"}`; `{"type":"typing","conversation_id"}`
+  → the hub checks membership (via D1, cached) and calls the other participant's hub
+  `broadcast({"type":"typing","conversation_id","user_id"})` (clients show "typing…" for 4 s after the last one).
+- Server → client events: `hello {user_id, server_time}`, `message`, `message_updated` (edits / deletes / reactions — later PRs),
+  `read {conversation_id, user_id, last_read_at}`, `typing`.
+- After (re)connecting a client calls `/api/me/chat-inbox?since=` (or the open chat's `?since=`) to catch up —
+  the socket is a doorbell, the REST API stays the source of truth. Clients fall back to polling
+  (web: the old 3 s while a chat is open) whenever the socket is down.
+
+## 5. Notifications on each client
+
+**Lab (Android)** — one channel `lab_messages` "Messages"; one notification per conversation
+(id = stable hash of the conversation id), `MessagingStyle` with the sender `Person` (name + avatar),
+each message a line (+ pinyin line when it contains hanzi); actions **Reply** (RemoteInput →
+outbox `POST …/messages` with a `client_id`, the notification updated with my reply) and
+**Mark as read** (`POST …/read`). Tapping opens `chineselearning-lab:///connections/<rel>/chat/<conv>`
+(works from a cold start). Opening a chat, or a `chat_read` FCM message / `read` event for me,
+cancels that conversation's notification. No notification while that chat is on screen.
+Sources, in order: FCM (instant, when configured) → the live socket while the app is in the
+foreground → a 15-minute periodic `ChatCheckWorker` (`/api/me/chat-inbox`) as the fallback.
+
+**Web** — the service worker shows `chat_message` pushes with `tag: chat-<convId>` (replaces the
+previous one for that chat, `renotify: true`), click opens/focuses the chat URL; the chat page
+closes that tag's notifications (`registration.getNotifications({ tag })`) when it opens.
+
+---
+
+# PR 2 — live chat & rich messages (migration 0090_chat_rich.sql)
+
+```sql
+ALTER TABLE messages ADD COLUMN updated_at TEXT;   -- set on ANY change after creation (edit, delete, reaction, transcript, pin, correction)
+ALTER TABLE messages ADD COLUMN edited_at TEXT;
+ALTER TABLE messages ADD COLUMN deleted_at TEXT;   -- soft delete: content '' and attachment NULL, the row stays
+ALTER TABLE messages ADD COLUMN attachment TEXT;   -- JSON ChatAttachment
+ALTER TABLE messages ADD COLUMN pinned_at TEXT;
+ALTER TABLE messages ADD COLUMN pinned_by TEXT;
+CREATE INDEX idx_messages_conv_updated ON messages(conversation_id, updated_at);
+```
+
+```ts
+type ChatAttachment =
+  | { kind: 'image'; width: number; height: number; bytes: number; mime: string }
+  | { kind: 'voice'; duration_ms: number; bytes: number; mime: string;
+      transcript_status: 'pending' | 'done' | 'failed';
+      transcript?: string | null; translation?: string | null };
+```
+The R2 key is never sent to clients: `chat-media/<conversationId>/<messageId>.<ext>` (person-made data,
+registered in `STORAGE_PREFIXES` as NOT collectable; removed when the message is deleted and by
+account deletion).
+
+Message JSON (`MessageWithSender`) gains: `client_id`, `updated_at`, `edited_at`, `deleted_at`,
+`attachment`, `media_url` (`/api/chat-media/<messageId>` when there is an attachment, else null),
+`pinned_at`, `pinned_by`.
+
+### Endpoints
+- `GET /api/conversations/:id/messages?since=` — returns messages with `created_at > since OR updated_at > since`;
+  `latest_timestamp` = the max of `COALESCE(updated_at, created_at)` over the conversation (the next cursor).
+  Clients merge by id (replace). Deleted messages come back with `deleted_at` (render "Message deleted").
+- `POST /api/conversations/:id/media?kind=image|voice&client_id=&caption=&reply_to_message_id=&duration_ms=` —
+  raw body (`image/jpeg|png|webp` ≤ 8 MB — clients send a ≤ 1600 px JPEG; `audio/webm|ogg|mp4|aac|mpeg|wav` ≤ 10 MB,
+  ≤ 5 min). Creates the message (content = caption or ''), idempotent by client_id like text sends, notifies like a
+  text message (preview "📷 Photo" / "🎤 Voice message"). A voice message is transcribed in `waitUntil` with
+  `transcribeTake` (services/take-transcription.ts), translated (existing auto-translate), then `transcript_status`
+  → done/failed, `updated_at` bumped, `message_updated` live event to both people.
+- `GET /api/chat-media/:messageId` — the bytes, only for the two participants (403 otherwise), `Cache-Control: private, max-age=31536000, immutable`.
+  Clients fetch it with their normal auth and cache it (web: blob URL + Cache Storage / IndexedDB; Lab: disk cache).
+- `PATCH /api/messages/:id` `{ content }` — sender only, not deleted, text messages (or a photo's caption);
+  sets `edited_at`, clears translation (re-translated in the background).
+- `DELETE /api/messages/:id` — sender only; soft delete (+ R2 object removed).
+- `POST /api/messages/:id/pin` `{ pinned: boolean }` — either participant.
+- Reactions (`POST /api/messages/:id/reactions`) now bump `updated_at` and emit `message_updated`.
+- `GET /api/relationships/:relId/conversations` — each conversation gains `unread` (messages from the other person after my read marker) and `last_message` carries attachment kind / deleted.
+- Every change above → ChatHub `{"type":"message_updated","message":MessageWithSender}` to both participants.
+
+### Client behaviour (web + Lab, same rules)
+- **Live**: while a chat is open, the ChatHub socket delivers `message` / `message_updated` / `read` / `typing`;
+  REST polling (`?since=`) runs only while the socket is down (web 3 s; Lab 3 s in chat) and once after every reconnect.
+- **Typing**: send `{"type":"typing","conversation_id"}` at most every 2.5 s while the compose box is non-empty and changing;
+  show "<name> is typing…" for 4 s after the last event (cleared at once when their message arrives).
+- **Read receipts**: under my newest message the other person has read (`read_state.other >= created_at`): "Seen"; else
+  "Sent" (✓) / pending (clock) / failed ("Not sent · Tap to retry").
+- **Optimistic send**: a bubble appears at once with a client_id; text and media go through the offline queue
+  (web: persisted per conversation in IndexedDB/localStorage and retried when online/at open; Lab: Outbox `enqueueJson` /
+  `enqueueRaw`); the server's message replaces the bubble by client_id.
+- **Unread**: opening a chat scrolls to the first unread message under a "New messages" divider (read marker as it was
+  before opening); a floating "↓ N new" pill when scrolled up and new messages arrive.
+- **Pinned**: a slim bar at the top with the newest pinned message (tap → jump; ⋯ → list of all pins).
+- **Search**: header 🔍 filters the loaded messages client-side — shared pure `searchMessages(messages, query)`
+  in `shared/chats/search.ts` (content, translation, transcript, caption; case-insensitive; pinyin with or without
+  tones when the message has `words`) — Lab port parity-tested.
+- **Photos**: 📎 → camera or gallery, compressed on device to ≤ 1600 px JPEG q≈0.8, optional caption; full-screen viewer on tap.
+- **Voice**: hold-to-record (or tap to start/stop) → preview → send; bubble with ▶, duration, waveform-ish bar,
+  transcript (hanzi), then toggles for pinyin / translation.
+- **Edit / delete**: on my own messages in the ⋯ sheet; "edited" label.
+
+---
+
+# PR 3 — learning tools in the chat (migration 0091_chat_learning.sql)
+
+```sql
+ALTER TABLE messages ADD COLUMN words TEXT;        -- JSON ReaderWord[] (shared/reader/words.ts), concatenating to the text exactly
+ALTER TABLE messages ADD COLUMN correction TEXT;   -- JSON { text, note, by, at }
+```
+- Words are computed in the background for every message (or voice transcript) containing Chinese, with the reader
+  words splitter (`segmentReaderText`, Haiku), and lazily by `POST /api/messages/:id/words` → `{ words }` for older
+  messages. `message_updated` when they land.
+- **Pinyin / Translate toggles** per message (pinyin from `words`; translation from `translation`), remembered per
+  conversation on the device. A "Show pinyin for all" switch in the chat header menu.
+- **Tap a word** (chips when words exist) → the reader word sheet (hanzi · pinyin · gloss · ▶ · the sentence ·
+  "More about this word" via `/api/reader-words/explain` · **+ Add as card**).
+- **Make flashcards from this chat**: header ⋯ → select messages (or "Today" / "Last 50 messages") →
+  `POST /api/conversations/:id/flashcards/propose { message_ids?, since?, focus?: 'correction' }` →
+  `{ cards: [FlashcardItem + { already_have: boolean, source_message_id }] }` (structuredCall, CARD_STANDARD, the shared
+  FLASHCARD_ITEM_SCHEMA; corrections and words the learner got wrong first; `already_have` = normalised hanzi already in
+  one of the caller's notes) → review sheet (edit fields, uncheck, deck picker, remembered last deck) →
+  `POST /api/decks/:id/notes/batch` in one tap.
+- **Correct this** (the tutor of the relationship, on the other person's text message): `PUT /api/messages/:id/correction
+  { text, note? }` / `DELETE`. Shown under the bubble as a character diff (`diffHanzi`, shared/lesson/answer-check.ts) +
+  note; the student's ⋯ → "Make a card from the correction" (`propose` with `focus: 'correction'`). The student gets a
+  push "✏️ <tutor> corrected your message".
+- **Check my Chinese before sending**: a ✓ button on the compose box (when the draft has Chinese) → existing
+  `POST /api/sentence/coach` → corrected sentence as a diff + short critique → "Use this" replaces the draft.

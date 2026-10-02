@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { CallAlertsSection } from '../components/calls/CallAlertsSettings';
+import { NotificationsSection } from '../components/NotificationsSection';
 import { Link } from 'react-router-dom';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget } from '../api/client';
 import { readStudyBudget, writeStudyBudget } from '../services/studyBudget';
@@ -802,7 +802,7 @@ export function SettingsPage() {
 
         <StartOnSection hasStudents={role.hasStudents} />
 
-        <CallAlertsSection />
+        <NotificationsSection />
 
         <div className="settings-section">
           <button className="btn btn-secondary export-btn settings-signout" onClick={() => { logout(); }}>

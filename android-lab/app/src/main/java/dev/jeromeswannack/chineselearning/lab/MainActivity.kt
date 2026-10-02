@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
                 authError = null
                 signedIn = true
                 notificationPermission.maybeAsk()
+                dev.jeromeswannack.chineselearning.lab.data.chat.ChatDelivery.signedIn(app)
                 lifecycleScope.launch { app.safely("sync after sign-in") { app.repo.sync(forceFull = true) } }
             }
         }

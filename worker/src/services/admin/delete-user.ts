@@ -167,6 +167,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   // Relationships and what lives in them.
   { label: 'message_reactions', sql: `DELETE FROM message_reactions WHERE user_id = ?1 OR message_id IN ${MESSAGES}` },
   { label: 'message_discussions', sql: `DELETE FROM message_discussions WHERE user_id = ?1 OR message_id IN ${MESSAGES}` },
+  { label: 'conversation_reads', sql: `DELETE FROM conversation_reads WHERE user_id = ?1 OR conversation_id IN ${CONVERSATIONS}` },
   { label: 'messages', sql: `DELETE FROM messages WHERE id IN ${MESSAGES}` },
   { label: 'conversations', sql: `DELETE FROM conversations WHERE id IN ${CONVERSATIONS}` },
   { label: 'shared_decks', sql: `DELETE FROM shared_decks WHERE relationship_id IN ${REL}` },
@@ -180,6 +181,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'invites', sql: `DELETE FROM invites WHERE created_by = ?1` },
   { label: 'pending_invitations', sql: `DELETE FROM pending_invitations WHERE inviter_id = ?1` },
   { label: 'push_subscriptions', sql: `DELETE FROM push_subscriptions WHERE user_id = ?1` },
+  { label: 'device_push_tokens', sql: `DELETE FROM device_push_tokens WHERE user_id = ?1` },
   { label: 'oauth_codes', sql: `DELETE FROM oauth_codes WHERE user_id = ?1` },
   { label: 'oauth_tokens', sql: `DELETE FROM oauth_tokens WHERE user_id = ?1` },
   { label: 'auth_sessions', sql: `DELETE FROM auth_sessions WHERE user_id = ?1` },

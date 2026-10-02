@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chat
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,11 @@ private fun NewConversation(nav: LabNav, relId: String) {
 private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
     val vm: ChatViewModel = viewModel(key = "chat-$convId", factory = factory { ChatViewModel(nav.app, relId, convId) })
     val ui by vm.ui.collectAsStateWithLifecycle()
+    // No notification for the chat on screen (data/chat/ChatPresence.kt).
+    DisposableEffect(convId) {
+        dev.jeromeswannack.chineselearning.lab.data.chat.ChatPresence.chatOpened(convId)
+        onDispose { dev.jeromeswannack.chineselearning.lab.data.chat.ChatPresence.chatClosed(convId) }
+    }
     val call = dev.jeromeswannack.chineselearning.lab.ui.calls.relationshipCallBanner(nav, relId, Routes.chat(relId, convId))
     ChatScreen(
         ui,

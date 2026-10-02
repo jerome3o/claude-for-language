@@ -62,7 +62,7 @@ import {
   generateState,
   getAllUsersWithStats,
 } from './services/auth';
-import { notifyNewUser, notifyNewChatMessage, notifyAccessRequest } from './services/notifications';
+import { notifyNewUser, notifyAccessRequest } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
 import invitesRoutes from './routes/invites';
@@ -81,6 +81,7 @@ import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
 import boardPagesRoutes from './routes/board-pages';
 import pushRoutes from './routes/push';
+import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
 import profileRoutes from './routes/profile';
 import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
@@ -119,7 +120,7 @@ import {
   cancelPendingInvitation,
   processPendingInvitations,
 } from './services/relationships';
-import { sendNewMessageNotification, sendInvitationEmail, sendConnectionRequestEmail } from './services/email';
+import { sendInvitationEmail, sendConnectionRequestEmail } from './services/email';
 import {
   getConversations,
   createConversation,
@@ -140,7 +141,7 @@ import {
   saveMessageDiscussion,
 } from './services/conversations';
 import { getSharedDeckProgress, getStudentSharedDeckProgress, getOwnDeckProgress } from './services/shared-deck-progress';
-import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
+import { CreateRelationshipRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
 import {
   computeCardState,
   initialCardState,
@@ -459,6 +460,8 @@ app.route('/api/test', testAuth);
 // Apply auth middleware to all /api/* routes except auth routes
 // Video-call WebSocket: authenticated by a short-lived join ticket, not the session (see routes/calls.ts).
 mountCallSocket(app);
+// Chat live socket: authenticated by a one-minute `live` ticket (see routes/chat-live.ts).
+mountLiveSocket(app);
 
 app.use('/api/*', authMiddleware);
 
@@ -495,6 +498,8 @@ app.route('/api', callsRoutes);
 app.route('/api', boardPagesRoutes);
 // Web Push subscriptions + the call-alerts setting (routes/push.ts).
 app.route('/api', pushRoutes);
+// Chat: messages, read markers, inbox, native push tokens, live ticket (docs/CHAT.md)
+app.route('/api', chatLiveRoutes);
 
 // Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
 app.route('/api', noteSearchRoutes);
@@ -3816,118 +3821,7 @@ app.post('/api/relationships/:relId/conversations', async (c) => {
   }
 });
 
-// Get messages for a conversation (supports polling with ?since=)
-app.get('/api/conversations/:id/messages', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-  const since = c.req.query('since');
-
-  try {
-    const result = await getMessages(c.env.DB, convId, userId, since);
-    return c.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to get messages';
-    return c.json({ error: message }, 400);
-  }
-});
-
-// Send a message
-app.post('/api/conversations/:id/messages', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-  const { content, reply_to_message_id } = await c.req.json<SendMessageRequest>();
-
-  if (!content || content.trim() === '') {
-    return c.json({ error: 'Message content is required' }, 400);
-  }
-
-  try {
-    const message = await sendMessage(c.env.DB, convId, userId, content, reply_to_message_id);
-
-    // Send email + in-app notification to the other user (non-blocking)
-    // Must use waitUntil() so the worker stays alive for the SendGrid fetch
-    c.executionCtx.waitUntil((async () => {
-      try {
-        const conv = await getConversationById(c.env.DB, convId, userId);
-        if (!conv) return;
-        const relationship = await getRelationshipById(c.env.DB, conv.relationship_id);
-        if (!relationship) return;
-        const otherUserId = getOtherUserId(relationship, userId);
-        const otherUser =
-          relationship.requester.id === otherUserId
-            ? relationship.requester
-            : relationship.recipient;
-        const senderName = message.sender.name || 'Someone';
-        const truncatedContent = content.length > 100 ? content.slice(0, 100) + '...' : content;
-
-        // Send email notification
-        if (c.env.SENDGRID_API_KEY && otherUser.email) {
-          const sent = await sendNewMessageNotification(c.env.SENDGRID_API_KEY, {
-            recipientEmail: otherUser.email,
-            recipientName: otherUser.name,
-            senderName: message.sender.name,
-            messagePreview: content,
-            conversationId: convId,
-            relationshipId: conv.relationship_id,
-          });
-          console.log('[Email] Message notification to', otherUser.email, sent ? 'sent' : 'FAILED');
-        }
-
-        // Create in-app notification (with deduplication)
-        const existing = await db.getRecentUnreadChatNotification(c.env.DB, otherUserId, convId);
-        if (existing) {
-          // Count existing messages from the title (e.g., "2 new messages from X")
-          const countMatch = existing.title.match(/^(\d+) new messages from/);
-          const currentCount = countMatch ? parseInt(countMatch[1], 10) : 1;
-          const newCount = currentCount + 1;
-          await db.updateNotificationMessage(
-            c.env.DB,
-            existing.id,
-            `${newCount} new messages from ${senderName}`,
-            truncatedContent,
-          );
-        } else {
-          await db.createNotification(
-            c.env.DB,
-            otherUserId,
-            'new_chat_message',
-            `New message from ${senderName}`,
-            truncatedContent,
-            { conversation_id: convId, relationship_id: conv.relationship_id },
-          );
-        }
-
-        // Send push notification via ntfy
-        await notifyNewChatMessage(c.env.NTFY_TOPIC, senderName, truncatedContent);
-      } catch (err) {
-        console.error('[Notifications] Failed to send message notification:', err);
-      }
-    })());
-
-    // Auto-translate Chinese messages (non-blocking)
-    const hasChinese = /[\u4e00-\u9fff]/.test(content);
-    if (hasChinese && c.env.ANTHROPIC_API_KEY) {
-      c.executionCtx.waitUntil((async () => {
-        try {
-          const { translateAndSegment } = await import('./services/translation');
-          const result = await translateAndSegment(c.env.ANTHROPIC_API_KEY, content);
-          await c.env.DB
-            .prepare('UPDATE messages SET translation = ?, segmentation = ? WHERE id = ?')
-            .bind(result.translation, JSON.stringify(result.segmentation), message.id)
-            .run();
-          console.log('[Translation] Auto-translated message', message.id);
-        } catch (err) {
-          console.error('[Translation] Auto-translate failed for message', message.id, err);
-        }
-      })());
-    }
-
-    return c.json(message, 201);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to send message';
-    return c.json({ error: message }, 400);
-  }
-});
+// GET / POST /api/conversations/:id/messages live in routes/chat-live.ts (read markers, client_id, live delivery).
 
 // Generate flashcard from conversation
 app.post('/api/conversations/:id/generate-flashcard', async (c) => {
@@ -6692,6 +6586,7 @@ app.get('*', async (c) => {
 
 // The video-call room (Durable Object class must be exported from the entry module)
 export { CallRoom } from './durable/call-room';
+export { ChatHub } from './durable/chat-hub';
 
 // Export worker with fetch and queue handlers
 export default {

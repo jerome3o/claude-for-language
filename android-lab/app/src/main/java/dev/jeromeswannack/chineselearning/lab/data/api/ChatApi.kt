@@ -45,10 +45,11 @@ suspend fun Api.chatMessages(conversationId: String, since: String? = null): Mes
     get("/api/conversations/${enc(conversationId)}/messages" + (since?.let { "?since=${enc(it)}" } ?: ""))
 
 @Serializable
-data class SendMessageBody(val content: String, val reply_to_message_id: String? = null)
+data class SendMessageBody(val content: String, val reply_to_message_id: String? = null, val client_id: String? = null)
 
-suspend fun Api.sendChatMessage(conversationId: String, content: String, replyTo: String?): ChatMessageDto =
-    post("/api/conversations/${enc(conversationId)}/messages", SendMessageBody(content, replyTo))
+/** [clientId] makes the send idempotent (docs/CHAT.md §2): a retry returns the same message. */
+suspend fun Api.sendChatMessage(conversationId: String, content: String, replyTo: String?, clientId: String? = null): ChatMessageDto =
+    post("/api/conversations/${enc(conversationId)}/messages", SendMessageBody(content, replyTo, clientId))
 
 @Serializable
 data class AIRespondDto(val message: ChatMessageDto, val audio_base64: String? = null, val audio_content_type: String? = null)

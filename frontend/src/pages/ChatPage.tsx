@@ -43,6 +43,8 @@ import type { MessageToolId } from '../components/chat/messageTools';
 import { InlineNotice, describeError } from '../components/chat/InlineNotice';
 import type { Notice } from '../components/chat/InlineNotice';
 import { SpinnerButton } from '../components/chat/SpinnerButton';
+import { ChatNotifyNudge } from '../components/chat/ChatNotifyNudge';
+import { newestCreatedAt, useChatReadMarker } from '../services/chatNotifications';
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { OfflineWarning } from '../components/OfflineWarning';
@@ -333,6 +335,21 @@ export function ChatPage() {
     seenIds.add(msg.id);
     return true;
   });
+
+  // Open + visible: close this chat's notifications and move the read marker (docs/CHAT.md).
+  useChatReadMarker(wantsNew ? undefined : convId, newestCreatedAt(messages));
+
+  // A push for this chat arrived (the service worker tells every tab): fetch at once
+  // instead of waiting for the next poll.
+  useEffect(() => {
+    if (!convId || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data?.type === 'push' ? event.data.data : null;
+      if (data?.type === 'chat_message' && data.conversation_id === convId) void pollMessages();
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [convId, pollMessages]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -928,6 +945,8 @@ export function ChatPage() {
           </button>
         </div>
       </div>
+
+      {!isAIConversation && <ChatNotifyNudge />}
 
       {relId && (
         <div className="chat-call-banner">

@@ -981,9 +981,32 @@ export async function createConversation(
   });
 }
 
+export interface ChatReadState {
+  /** created_at of the newest message I have read (docs/CHAT.md §2). */
+  me: string | null;
+  /** created_at of the newest message the other person has read. */
+  other: string | null;
+}
+
 export interface MessagesResponse {
   messages: MessageWithSender[];
   latest_timestamp: string | null;
+  /** Present once the server has conversation_reads (docs/CHAT.md). */
+  read_state?: ChatReadState;
+}
+
+export interface MarkReadResponse {
+  conversation_id: string;
+  last_read_at: string;
+  unread: number;
+}
+
+/** Move my read marker forward to `upTo` (a message created_at; default = newest). */
+export async function markConversationRead(conversationId: string, upTo?: string): Promise<MarkReadResponse> {
+  return fetchJSON<MarkReadResponse>(`/conversations/${conversationId}/read`, {
+    method: 'POST',
+    body: JSON.stringify(upTo ? { up_to: upTo } : {}),
+  });
 }
 
 export async function getMessages(

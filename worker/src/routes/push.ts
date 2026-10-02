@@ -1,7 +1,7 @@
 /**
  * Push notifications (call alerts). Mounted under /api after the auth middleware.
  *
- *   GET    /push/config          { public_key, call_alerts, subscriptions } — the VAPID key to subscribe with
+ *   GET    /push/config          { public_key, call_alerts, subscriptions, fcm } — the VAPID key to subscribe with; fcm = native push configured
  *   POST   /push/subscriptions   { endpoint, keys: { p256dh, auth } } → 201 (idempotent by endpoint)
  *   DELETE /push/subscriptions   { endpoint }
  *   POST   /push/test            a test notification to my own devices → { sent, failed, removed }
@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { countSubscriptions, deleteSubscription, getVapidKeys, normalizeCallAlerts, PushError, pushToUsers, saveSubscription } from '../services/push';
 import type { CallPushPayload } from '@shared/calls';
+import { fcmConfigured } from '../services/push/fcm';
 
 const push = new Hono<{ Bindings: Env }>();
 
@@ -22,7 +23,7 @@ push.get('/push/config', async (c) => {
     c.env.DB.prepare('SELECT call_alerts FROM users WHERE id = ?').bind(user.id).first<{ call_alerts: string | null }>(),
     countSubscriptions(c.env, user.id),
   ]);
-  return c.json({ public_key: keys.publicKey, call_alerts: normalizeCallAlerts(row?.call_alerts), subscriptions });
+  return c.json({ public_key: keys.publicKey, call_alerts: normalizeCallAlerts(row?.call_alerts), subscriptions, fcm: fcmConfigured(c.env) });
 });
 
 push.post('/push/subscriptions', async (c) => {

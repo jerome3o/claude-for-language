@@ -333,6 +333,8 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
+- `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
+- `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
 - `shared_decks` - Record of decks shared from tutor to student
 - `shared_readers` - Record of graded readers copied from tutor to student (source/target reader ids; the copies share R2 image keys)
 - `push_subscriptions` - Web Push subscriptions (endpoint, p256dh, auth, the VAPID key used; migration 0080) for call alerts; `users.call_alerts` ('silent' or NULL = ring); `app_keys` holds the generated VAPID pair when no `VAPID_*` secrets are set
@@ -1925,6 +1927,17 @@ The app supports many-to-many tutor-student relationships where users can be tut
   show as Coach-style inline notices (`InlineNotice`), never `alert()`. `?new=1` on the chat route
   (or `/chat/new`) opens a fresh untitled conversation; `PATCH /api/conversations/:id` `{ title }`
   renames it (header ⋯ → Add a title / Rename).
+- **Live delivery & notifications** (docs/CHAT.md — the contract): a per-user **ChatHub** Durable Object
+  (`worker/src/durable/chat-hub.ts`, binding `CHAT_HUB`; `POST /api/live/ticket` → `GET /api/live/ws?ticket=`) pushes
+  `message` / `read` / `typing` events to every open client; `services/chat/notify.ts` sends each new message to the
+  recipient's ChatHub, **FCM** (`services/push/fcm.ts`, HTTP v1, secret `FCM_SERVICE_ACCOUNT_JSON` — optional, skipped when
+  unset; tokens in `device_push_tokens`, `POST|DELETE /api/push/devices`) and Web Push (`chat_message`, tag `chat-<convId>`,
+  skipped by `push-sw.js` when that chat is in front). Read markers per person in `conversation_reads`
+  (`POST /api/conversations/:id/read`, `read_state` on GET messages, `GET /api/me/chat-inbox?since=` for background checks);
+  sends are idempotent by `client_id` (`messages.client_id`). Lab: `data/chat/` — `ChatNotifier` (Messages channel,
+  MessagingStyle per conversation, Reply via the Outbox, Mark as read, tap → the chat even from a cold start), FCM gated on
+  `app/google-services.json` (CI secret `GOOGLE_SERVICES_JSON`, setup in `android-lab/PUSH.md`), the live socket while in
+  front, `ChatCheckWorker` every 15 min as the fallback.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics

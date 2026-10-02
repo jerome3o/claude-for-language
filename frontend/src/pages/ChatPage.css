@@ -1496,3 +1496,36 @@ body:has(.chat-page) #root {
 .chat-call-banner { padding: 0 0.75rem; }
 .chat-call-banner:empty { display: none; }
 .chat-call-banner .call-banner-inline { margin: 0.5rem 0; }
+
+/* "🔔 Get notified of new messages — Turn on" (components/chat/ChatNotifyNudge.tsx) */
+.chat-notify-nudge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+  border-bottom: 1px solid var(--border-color, #e5e5e5);
+  background: var(--muted-bg, #f5f5f5);
+}
+.chat-notify-nudge-text { flex: 1; min-width: 0; }
+.chat-notify-nudge-on {
+  min-height: 44px;
+  padding: 0 0.5rem;
+  border: none;
+  background: none;
+  color: var(--primary-color, #3b82f6);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.chat-notify-nudge-on:disabled { opacity: 0.6; }
+.chat-notify-nudge-close {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  color: var(--text-light, #666);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
