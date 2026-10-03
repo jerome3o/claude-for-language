@@ -18,6 +18,7 @@ import {
   type CallAlertsMode,
   type PushState,
 } from '../services/push';
+import { track } from '../services/analytics';
 
 function usePushState(): [PushState | null, () => void] {
   const [state, setState] = useState<PushState | null>(null);
@@ -42,6 +43,7 @@ export function NotificationsSection() {
     setNote(null);
     try {
       await setChatEmails(next);
+      track('settings.change', { setting: 'email_chat_messages', value: next });
     } catch (err) {
       setEmails(!next);
       setNote(err instanceof Error ? err.message : 'Could not save');
@@ -54,6 +56,7 @@ export function NotificationsSection() {
     setNote(null);
     try {
       await setCallAlerts(next);
+      track('settings.change', { setting: 'call_alerts', value: next });
     } catch (err) {
       setMode(prev);
       setNote(err instanceof Error ? err.message : 'Could not save');

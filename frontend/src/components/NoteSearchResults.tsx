@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, LocalNote, LocalCard, removeNotesLocally } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -9,7 +9,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { syncService } from '../services/sync';
 import { useNetwork } from '../contexts/NetworkContext';
 import { noteMatches, stripTones } from '../services/noteSearch';
-import { track } from '../services/analytics';
 import { track } from '../services/analytics';
 
 /** Render at most this many matches (a one-character query can match thousands). */

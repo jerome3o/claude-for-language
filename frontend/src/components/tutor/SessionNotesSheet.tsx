@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { submitSessionNotes } from '../../api/tutorNotes';
 import type { SessionNotesJob, SessionNotesPriority } from '../../types/tutorNotes';
 import { useNetwork } from '../../contexts/NetworkContext';
-import { track } from '../../services/analytics';
+import { track, trackError } from '../../services/analytics';
 import './tutor-dashboard.css';
 import './session-notes.css';
 
@@ -74,7 +74,10 @@ export function SessionNotesSheet({ relId, studentName, onClose, onSubmitted }: 
       onSubmitted?.(job);
       onClose();
     },
-    onError: (e) => setError(e instanceof Error ? e.message : 'Could not send the notes'),
+    onError: (e) => {
+      trackError('session_notes', e);
+      setError(e instanceof Error ? e.message : 'Could not send the notes');
+    },
   });
 
   const onPickFile = async (file: File | undefined) => {

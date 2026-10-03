@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { startAnalytics, track, trackScreen } from './services/analytics';
+import { BUILD_TIME } from './utils/appUpdates';
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -168,6 +169,16 @@ function AnalyticsListener() {
   const location = useLocation();
   useEffect(() => {
     startAnalytics();
+    // A new app version is running (the previous launch had another build): app.update_applied.
+    try {
+      const last = localStorage.getItem('analytics-last-build');
+      if (last !== BUILD_TIME) {
+        if (last) track('app.update_applied');
+        localStorage.setItem('analytics-last-build', BUILD_TIME);
+      }
+    } catch {
+      // private mode
+    }
     // Opened from a notification (public/push-sw.js adds ?notif=<kind>): record it, then drop the marker.
     try {
       const url = new URL(window.location.href);

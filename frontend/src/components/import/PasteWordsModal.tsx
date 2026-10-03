@@ -286,6 +286,7 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
     setShareState(prev => new Map(prev).set(share.shared_deck_id, { busy: true }));
     try {
       const res = await updateSharedDeckCopy(share.relationship_id, share.shared_deck_id);
+      track('deck.share', { update: true });
       const parts = [res.added ? `added ${res.added}` : '', res.updated ? `updated ${res.updated}` : ''].filter(Boolean);
       setShareState(prev => new Map(prev).set(share.shared_deck_id, { busy: false, note: parts.length ? `${parts.join(', ')} — their progress is kept` : 'Already up to date' }));
       loadShares();

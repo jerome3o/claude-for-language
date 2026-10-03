@@ -402,6 +402,7 @@ function NativePlaybackPanel() {
               checked={compression}
               onChange={(e) => {
                 setNativeCompressionPref(e.target.checked);
+                track('settings.change', { setting: 'audio_compression', value: e.target.checked });
                 setState(describeNativeBridge());
               }}
             />
@@ -416,6 +417,7 @@ function NativePlaybackPanel() {
               checked={keepAwake}
               onChange={(e) => {
                 setNativeKeepAwakePref(e.target.checked);
+                track('settings.change', { setting: 'audio_keep_awake', value: e.target.checked });
                 setState(describeNativeBridge());
               }}
             />
@@ -669,6 +671,7 @@ function DailyBudgetSection() {
     setError(null);
     try {
       const next = await updateStudyBudget({ new_cards_per_day: primary, secondary_cards_per_day: secondary });
+      track('settings.change', { setting: 'study_budget', value: primary });
       writeStudyBudget(next);
       await refreshUser();
       setSaved(true);
@@ -714,6 +717,7 @@ function StartOnSection({ hasStudents }: { hasStudents: boolean }) {
     setError(null);
     try {
       await updateLandingPage(next === '' ? null : next);
+      track('settings.change', { setting: 'landing_page', value: next || 'auto' });
       await refreshUser();
     } catch (err) {
       setValue(prev);

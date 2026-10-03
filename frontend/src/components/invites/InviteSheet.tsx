@@ -6,7 +6,7 @@ import type { Invite } from '../../types/invites';
 import { QRCode } from './QRCode';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { OfflineWarning } from '../OfflineWarning';
-import { track } from '../../services/analytics';
+import { track, trackError } from '../../services/analytics';
 import './invites.css';
 
 type RoleChoice = 'tutor' | 'student' | 'none';
@@ -116,6 +116,7 @@ export function InviteSheet({ onClose, onCreated }: InviteSheetProps) {
       track('tutor.invite_create', { decks: shareDeckIds.length });
       onCreated?.(created);
     } catch (err) {
+      trackError('invite_create', err);
       setError(err instanceof Error ? err.message : 'Could not create the invite');
     } finally {
       setIsCreating(false);

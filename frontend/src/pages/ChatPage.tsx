@@ -789,6 +789,7 @@ export function ChatPage() {
       track('chat.correction');
       void thread.pollNow();
     } catch (error) {
+      trackError('chat_correction', error);
       setCorrectError(describeError(error, "Couldn't save the correction."));
     } finally {
       setCorrectBusy(false);

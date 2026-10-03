@@ -4,7 +4,7 @@ import { createDeck, createNotesBatch, getDecks } from '../../api/client';
 import { proposeChatFlashcards } from '../../api/chat';
 import { usePinnedDecks } from '../../hooks/usePinnedDecks';
 import { invalidateKnownHanzi } from '../../services/readerWords';
-import { track } from '../../services/analytics';
+import { track, trackError } from '../../services/analytics';
 import {
   batchNotesFrom,
   draftsFromProposal,
@@ -140,6 +140,7 @@ export function MakeFlashcardsSheet({
           .join('; ')}`,
       );
     } catch (error) {
+      trackError('chat_make_flashcards', error);
       setSaveError(describeError(error, "Couldn't add the cards."));
     } finally {
       setSaving(false);
