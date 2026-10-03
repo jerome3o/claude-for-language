@@ -18,6 +18,7 @@ import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** Round 2 PR 3's pure rules: the forward list, the queue line, message info, previews, the upload path, file names. */
 class ChatRound3Test {
@@ -35,10 +36,11 @@ class ChatRound3Test {
             "r2" to listOf(ChatConversationDto("anna", "r2", null, "2026-09-15T00:00:00Z")),
         )
         val t = ChatRound3.forwardTargets(MyRelationshipsDto(tutors = listOf(tutorRel), students = listOf(studentRel)), convs, "me")
-        assertEquals(listOf("new", "anna", "old"), t.map { it.conversationId })
+        // One chat per pair: one target per person (a stale list's older chat is dropped), never a title.
+        assertEquals(listOf("new", "anna"), t.map { it.conversationId })
         assertEquals(ForwardTarget("new", "r1", "Minghui Li", null), t[0])
         assertEquals("anna@example.com", t[1].label, "no name → the email, like the web")
-        assertEquals("Grammar", t[2].sub)
+        assertTrue(t.all { it.sub == null })
         assertEquals(emptyList(), ChatRound3.forwardTargets(MyRelationshipsDto(), emptyMap(), "me"))
     }
 

@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { openConversation } from '../../api/tutorDashboard';
 
 /**
- * "Message" opens the most recent conversation directly (creating one when
- * there is none) — no title modal. Returns the click handler + busy flag.
+ * "Message" opens THE chat with the student (one chat per pair, created on
+ * first use). Returns the click handler + busy flag.
  */
 export function useMessageStudent(relId: string, knownConversationId?: string | null) {
   const navigate = useNavigate();

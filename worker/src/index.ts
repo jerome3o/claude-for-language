@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
@@ -501,6 +502,11 @@ app.route('/api/email', emailPublic);
 app.use('/api/*', authMiddleware);
 // Hand the signed-in user + route pattern to analytics (server events, AI calls).
 app.use('/api/*', bindAnalyticsScope);
+
+// One chat per pair: merged-away conversation ids answer as the chat they became,
+// and the conversation get / create / rename routes (routes/one-chat.ts).
+mountMergedConversations(app);
+app.route('/api', oneChatRoutes);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
 app.route('/api', lessonEditor);
@@ -3858,21 +3864,6 @@ app.get('/api/relationships/:relId/conversations', async (c) => {
   }
 });
 
-// Create a new conversation
-app.post('/api/relationships/:relId/conversations', async (c) => {
-  const userId = c.get('user').id;
-  const relId = c.req.param('relId');
-  const body = await c.req.json<CreateConversationRequest>();
-
-  try {
-    const conversation = await createConversation(c.env.DB, relId, userId, body);
-    return c.json(conversation, 201);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to create conversation';
-    return c.json({ error: message }, 400);
-  }
-});
-
 // GET / POST /api/conversations/:id/messages live in routes/chat-live.ts (read markers, client_id, live delivery).
 
 // Generate flashcard from conversation
@@ -4783,39 +4774,6 @@ app.post('/api/messages/:id/recording', async (c) => {
   } catch (error) {
     console.error('Upload recording error:', error);
     const message = error instanceof Error ? error.message : 'Failed to upload recording';
-    return c.json({ error: message }, 500);
-  }
-});
-
-// Update conversation voice settings
-// Rename a conversation (title is optional; conversations opened via ?new=1 start untitled)
-app.patch('/api/conversations/:id', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-  const { title } = await c.req.json<{ title?: string | null }>();
-
-  if (title !== undefined && title !== null && typeof title !== 'string') {
-    return c.json({ error: 'title must be a string' }, 400);
-  }
-  if (title === undefined) {
-    return c.json({ error: 'No updates provided' }, 400);
-  }
-
-  try {
-    const conv = await getConversationById(c.env.DB, convId, userId);
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-    const trimmed = (title || '').trim().slice(0, 120);
-    await c.env.DB
-      .prepare('UPDATE conversations SET title = ? WHERE id = ?')
-      .bind(trimmed || null, convId)
-      .run();
-    const updated = await getConversationById(c.env.DB, convId, userId);
-    return c.json(updated);
-  } catch (error) {
-    console.error('Rename conversation error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to rename conversation';
     return c.json({ error: message }, 500);
   }
 });

@@ -19,8 +19,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { budgetChangeMessage, DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, type StudyBudgetInfo } from '@shared/decks';
 import { getStudyBudgetInfo, setStudyBudget } from '../db/queries';
-import { fetchLastConversationId } from '../db/tutor-dashboard-queries';
-import { createConversation, sendMessage } from '../services/conversations';
+import { openRelationshipConversation, sendMessage } from '../services/conversations';
 import { guardTutorOf } from './student-profile';
 import { background, deliverSentMessage } from './chat-live';
 
@@ -88,8 +87,7 @@ studentStudyBudget.put('/relationships/:relId/student-study-budget', async (c) =
   let message_sent = false;
   if (changed) {
     try {
-      let conversationId = await fetchLastConversationId(c.env.DB, g.rel.id);
-      if (!conversationId) conversationId = (await createConversation(c.env.DB, g.rel.id, user.id, {})).id;
+      const conversationId = (await openRelationshipConversation(c.env.DB, g.rel.id, user.id)).conversation.id;
       const sent = await sendMessage(c.env.DB, conversationId, user.id, budgetChangeMessage(budget, budget.is_default));
       const { duplicate: _duplicate, ...message } = sent;
       await background(c, deliverSentMessage(c.env, conversationId, user.id, message));

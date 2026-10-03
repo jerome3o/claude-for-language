@@ -109,6 +109,39 @@ function ConversationsList({ relId, conversations, isLoading, onStart }: { relId
   );
 }
 
+/**
+ * THE chat with a person (one chat per pair, docs/CHAT.md): a single row with
+ * the last message and the unread count — no list of conversations.
+ */
+function OneChatRow({ name, conversation, isLoading, onOpen }: { name: string; conversation: ConversationWithLastMessage | null; isLoading: boolean; onOpen: () => void }) {
+  const preview = conversation ? lastMessagePreview(conversation.last_message) : null;
+  const unread = conversation?.unread ?? 0;
+  const when = conversation ? conversation.last_message?.created_at ?? conversation.last_message_at ?? null : null;
+  return (
+    <button
+      type="button"
+      className={`conversation-item one-chat-row${unread > 0 ? ' has-unread' : ''}`}
+      onClick={onOpen}
+      data-testid="one-chat-row"
+    >
+      <div className="conversation-info">
+        <span className="conversation-title">💬 Chat with {name}</span>
+        <span className="conversation-preview">
+          {isLoading && !conversation ? 'Loading…' : preview ? `${preview.slice(0, 60)}${preview.length > 60 ? '…' : ''}` : 'No messages yet — say hello'}
+        </span>
+      </div>
+      <span className="conversation-side">
+        {when && <span className="conversation-time">{formatConversationDate(when)}</span>}
+        {unread > 0 && (
+          <span className="conversation-unread" aria-label={`${unread} unread`} data-testid="conversation-unread">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
 /** "Last studied today, 12:32 AM · 🔥 1 day · 7 active days / 30" */
 function studentStatusLine(o: StudentOverview): string {
   if (o.is_new) {
@@ -239,13 +272,13 @@ export function ConnectionDetailPage() {
     },
   });
 
-  /** Message: most recent conversation, created when there is none (H3). */
+  /** Message: THE chat with this person (one chat per pair), created when there is none. */
   const handleMessage = async () => {
     if (isClaudeRelationship) {
       setShowNewConvModal(true);
       return;
     }
-    const known = overviewQuery.data?.last_conversation_id ?? conversationsQuery.data?.[0]?.id ?? null;
+    const known = conversationsQuery.data?.find((c) => !c.is_ai_conversation)?.id ?? overviewQuery.data?.last_conversation_id ?? null;
     if (known) {
       navigate(`/connections/${relId}/chat/${known}`);
       return;
@@ -326,6 +359,19 @@ export function ConnectionDetailPage() {
   const otherUser = getOtherUserInRelationship(relationship, user!.id);
   const otherName = otherUser.name || otherUser.email || 'Unknown';
   const conversations = conversationsQuery.data || [];
+  const oneChat = conversations.find((c) => !c.is_ai_conversation) ?? null;
+  // A person: one "Message" row. Claude: its practice chats (several allowed).
+  const chatSection = isClaudeRelationship ? (
+    <section className="detail-section">
+      <h2>Practice chats</h2>
+      <ConversationsList relId={relId!} conversations={conversations} isLoading={conversationsQuery.isLoading} onStart={handleMessage} />
+    </section>
+  ) : (
+    <section className="detail-section">
+      <h2>Messages</h2>
+      <OneChatRow name={otherUser.name?.split(' ')[0] || otherName} conversation={oneChat} isLoading={conversationsQuery.isLoading} onOpen={() => void handleMessage()} />
+    </section>
+  );
   const sharedDecks = sharedDecksQuery.data || [];
   const studentSharedDecks = studentSharedDecksQuery.data || [];
   const overview = overviewQuery.data ?? null;
@@ -528,11 +574,8 @@ export function ConnectionDetailPage() {
             </section>
           )}
 
-          {/* Conversations */}
-          <section className="detail-section">
-            <h2>Conversations</h2>
-            <ConversationsList relId={relId!} conversations={conversations} isLoading={conversationsQuery.isLoading} onStart={handleMessage} />
-          </section>
+          {/* The one chat with this student */}
+          {chatSection}
 
           {/* Activity: last two days, more in Progress */}
           {overview && !overview.is_new && (
@@ -635,10 +678,7 @@ export function ConnectionDetailPage() {
         {!isClaudeRelationship && <LessonBoardLink relId={relId!} />}
         {pageError && <div className="td-error">{pageError}</div>}
 
-        <section className="detail-section">
-          <h2>Conversations</h2>
-          <ConversationsList relId={relId!} conversations={conversations} isLoading={conversationsQuery.isLoading} onStart={handleMessage} />
-        </section>
+        {chatSection}
 
         {!isClaudeRelationship && <FlaggedCardsSection relId={relId!} role="student" />}
 
@@ -683,7 +723,7 @@ export function ConnectionDetailPage() {
       {showNewConvModal && (
         <div className="modal-overlay" onClick={() => setShowNewConvModal(false)}>
           <div className="modal connection-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{isClaudeRelationship ? 'New Practice Conversation' : 'New Conversation'}</h3>
+            <h3>New Practice Conversation</h3>
             <form onSubmit={handleCreateConversation}>
               <div className="form-group">
                 <label htmlFor="conv-title">Title (optional)</label>

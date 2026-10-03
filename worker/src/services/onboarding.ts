@@ -7,6 +7,7 @@
  */
 import { RelationshipRole, User } from '../types';
 import { findLatestRedemptionForUser } from '../db/invite-queries';
+import { findRelationshipConversationId } from './conversations';
 
 export interface OnboardingDeck {
   id: string;
@@ -84,11 +85,7 @@ export async function getOnboardingState(db: D1Database, user: Pick<User, 'id'>)
     decks = rows.results.map(r => ({ id: r.id, name: r.name, note_count: Number(r.note_count ?? 0) }));
 
     if (redemption.welcome_message) {
-      const conv = await db
-        .prepare('SELECT id FROM conversations WHERE relationship_id = ? ORDER BY created_at ASC LIMIT 1')
-        .bind(relationship.id)
-        .first<{ id: string }>();
-      welcomeConversationId = conv?.id ?? null;
+      welcomeConversationId = await findRelationshipConversationId(db, relationship.id);
     }
   }
 

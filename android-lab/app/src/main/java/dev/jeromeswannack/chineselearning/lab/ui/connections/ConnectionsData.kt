@@ -20,7 +20,8 @@ object ConnectionsKeys {
     /** GET /api/notifications — unread chat messages (Tutor tab badge, Home's "From <tutor>" card). */
     const val NOTIFICATIONS = "connections/notifications"
     fun relationship(id: String) = "connections/rel/$id"
-    fun conversations(relId: String) = "connections/rel/$relId/conversations"
+    /** v2: one chat per pair (migration 0102) — lists cached before it held merged-away chats. */
+    fun conversations(relId: String) = "connections/rel/$relId/conversations-v2"
     fun flags(relId: String) = "connections/rel/$relId/flags"
     fun sharedDecks(relId: String) = "connections/rel/$relId/shared-decks"
     fun studentSharedDecks(relId: String) = "connections/rel/$relId/student-shared-decks"

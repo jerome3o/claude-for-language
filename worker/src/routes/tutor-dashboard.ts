@@ -20,7 +20,7 @@ import {
   getMyRelationships,
   updateSharedDeckCopy,
 } from '../services/relationships';
-import { createConversation, sendMessage } from '../services/conversations';
+import { openRelationshipConversation, sendMessage } from '../services/conversations';
 import { resolveFrontendUrl } from '../services/auth';
 import { listInvitesByUser } from '../db/invite-queries';
 import { fetchReviewRows, fetchRecordingMarks } from '../db/insights-queries';
@@ -194,7 +194,7 @@ tutorDashboard.get('/relationships/:relId/overview', async (c) => {
   }
 });
 
-// ============ Message: open the most recent conversation ============
+// ============ Message: open the pair's one conversation ============
 
 tutorDashboard.post('/relationships/:relId/conversations/open', async (c) => {
   try {
@@ -205,10 +205,9 @@ tutorDashboard.post('/relationships/:relId/conversations/open', async (c) => {
     } catch {
       throw new HttpError(404, 'Relationship not found or not active');
     }
-    const existing = await q.fetchLastConversationId(c.env.DB, relId);
-    if (existing) return c.json({ conversation_id: existing, created: false });
-    const conv = await createConversation(c.env.DB, relId, user.id, {});
-    return c.json({ conversation_id: conv.id, created: true }, 201);
+    // The pair's one chat, created on first use (docs/CHAT.md "One chat per pair").
+    const { conversation, created } = await openRelationshipConversation(c.env.DB, relId, user.id);
+    return c.json({ conversation_id: conversation.id, created }, created ? 201 : 200);
   } catch (error) {
     return errorResponse(c, error, 'Failed to open the conversation');
   }
@@ -235,10 +234,7 @@ tutorDashboard.post('/relationships/:relId/send-howto', async (c) => {
     const relId = c.req.param('relId');
     const { studentId } = await requireTutor(c.env.DB, relId, user.id);
     const student = await q.fetchStudentUserRow(c.env.DB, studentId);
-    let conversationId = await q.fetchLastConversationId(c.env.DB, relId);
-    if (!conversationId) {
-      conversationId = (await createConversation(c.env.DB, relId, user.id, {})).id;
-    }
+    const conversationId = (await openRelationshipConversation(c.env.DB, relId, user.id)).conversation.id;
     const message = await sendMessage(
       c.env.DB,
       conversationId,

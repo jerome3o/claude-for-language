@@ -16,7 +16,7 @@ import {
   getAIResponse,
   checkMessage,
   updateConversationVoiceSettings,
-  updateConversationTitle,
+  getConversation,
   getConversations,
   markNotificationsReadByConversation,
   toggleMessageReaction,
@@ -48,6 +48,7 @@ import { ForwardSheet, type ForwardTarget } from '../components/chat/ForwardShee
 import { MessageInfoSheet } from '../components/chat/MessageInfoSheet';
 import { newClientId } from '../services/chatOutbox';
 import { loadDraft, queueLabel, saveDraft } from '../services/chatDrafts';
+import { openConversation } from '../api/tutorDashboard';
 import { createCall } from '../api/calls';
 import { InlineNotice, describeError } from '../components/chat/InlineNotice';
 import type { Notice } from '../components/chat/InlineNotice';
@@ -130,9 +131,12 @@ export function ChatPage() {
   const { isOnline } = useNetwork();
   const queryClient = useQueryClient();
 
-  // `?new=1` (or `/chat/new`) opens a fresh, untitled conversation for the
-  // relationship and replaces the URL with the new conversation's id.
-  const wantsNew = searchParams.get('new') === '1' || convId === 'new';
+  // One chat per pair (docs/CHAT.md "One chat per pair"): `/connections/:relId/chat`
+  // (no id) opens THE chat with that person; old links `/chat/new` and `?new=1`
+  // do the same (with Claude they start a new practice chat). The URL is then
+  // replaced with the conversation's id.
+  const wantsNew = !convId || searchParams.get('new') === '1' || convId === 'new';
+  const startPractice = convId === 'new' || searchParams.get('new') === '1';
   const creatingRef = useRef(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -257,11 +261,8 @@ export function ChatPage() {
   // Voice settings state
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
 
-  // Header ⋯ menu + rename
+  // Header ⋯ menu
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
-  const [showRenameModal, setShowRenameModal] = useState(false);
-  const [renameValue, setRenameValue] = useState('');
-  const [isRenaming, setIsRenaming] = useState(false);
 
   // Reply state
   const [replyingTo, setReplyingTo] = useState<MessageWithSender | null>(null);
@@ -313,18 +314,19 @@ export function ChatPage() {
     if (!wantsNew || !relId || creatingRef.current) return;
     creatingRef.current = true;
     setCreateError(null);
-    createConversation(relId)
-      .then((conv) => {
+    // With a person both calls return the one chat; with Claude `new` makes a new practice chat.
+    (startPractice ? createConversation(relId).then((conv) => conv.id) : openConversation(relId).then((r) => r.conversation_id))
+      .then((id) => {
         queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-        navigate(`/connections/${relId}/chat/${conv.id}`, { replace: true, state: location.state });
+        navigate(`/connections/${relId}/chat/${id}`, { replace: true, state: location.state });
       })
       .catch((error) => {
-        setCreateError(describeError(error, "Couldn't start a new conversation."));
+        setCreateError(describeError(error, "Couldn't open the chat."));
       })
       .finally(() => {
         creatingRef.current = false;
       });
-  }, [wantsNew, relId, navigate, queryClient]);
+  }, [wantsNew, startPractice, relId, navigate, queryClient]);
 
   // Escape closes the header menu
   useEffect(() => {
@@ -350,6 +352,27 @@ export function ChatPage() {
   });
 
   const conversation = conversationsQuery.data?.find((c) => c.id === convId);
+
+  // An old conversation id (merged into the pair's one chat by migration 0102 —
+  // a notification, an e-mail, a bookmark) → swap to the chat it became, carrying
+  // the unsent draft along, so live events and read markers line up.
+  const listedIds = conversationsQuery.data?.map((c) => c.id).join(',');
+  useEffect(() => {
+    if (wantsNew || !convId || !relId || listedIds === undefined || listedIds.split(',').includes(convId)) return;
+    let cancelled = false;
+    getConversation(convId)
+      .then((conv) => {
+        if (cancelled || !conv || conv.id === convId) return;
+        const draft = loadDraft(convId);
+        if (draft && !loadDraft(conv.id)) saveDraft(conv.id, draft);
+        saveDraft(convId, '');
+        navigate(`/connections/${conv.relationship_id}/chat/${conv.id}${location.search}`, { replace: true, state: location.state });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsNew, convId, relId, listedIds, navigate, location.search, location.state]);
   const isAIConversation = conversation?.is_ai_conversation ?? false;
 
   const me = useMemo(
@@ -1071,22 +1094,6 @@ export function ChatPage() {
     }
   };
 
-  const handleRename = async () => {
-    if (!convId) return;
-    setIsRenaming(true);
-    setModalNotice(null);
-    try {
-      await updateConversationTitle(convId, renameValue.trim());
-      queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-      setShowRenameModal(false);
-    } catch (error) {
-      console.error('Failed to rename conversation:', error);
-      showModalError("Couldn't save the title.", error);
-    } finally {
-      setIsRenaming(false);
-    }
-  };
-
   const handleCopy = async (msg: MessageWithSender) => {
     try {
       await navigator.clipboard.writeText(msg.content);
@@ -1352,7 +1359,7 @@ export function ChatPage() {
         <div className="chat-page">
           <div className="chat-header">
             <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
-            <span className="chat-header-name">New conversation</span>
+            <span className="chat-header-name">Chat</span>
           </div>
           <div className="chat-messages">
             <div className="chat-notice chat-notice-error" role="alert">
@@ -1362,7 +1369,7 @@ export function ChatPage() {
         </div>
       );
     }
-    return <Loading message="Starting a new conversation..." />;
+    return <Loading message="Opening the chat..." />;
   }
 
   if (thread.isLoading || relationshipQuery.isLoading) {
@@ -1874,7 +1881,7 @@ export function ChatPage() {
                 🎧 Listening mode{conversation?.title ? ` · ${conversation.title}` : ''}
               </span>
             ) : (
-              conversation?.title && <span className="chat-header-title">{conversation.title}</span>
+              isAIConversation && conversation?.title && <span className="chat-header-title">{conversation.title}</span>
             )}
           </div>
         </div>
@@ -1960,33 +1967,6 @@ export function ChatPage() {
               type="button"
               role="menuitem"
               className="chat-header-menu-item"
-              disabled={!isOnline}
-              onClick={() => {
-                setShowHeaderMenu(false);
-                navigate(`/connections/${relId}/chat/${convId}?new=1`);
-              }}
-            >
-              <span aria-hidden="true">＋</span> New conversation
-              {!isOnline && <span className="msg-sheet-action-hint">Needs internet</span>}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="chat-header-menu-item"
-              disabled={!isOnline}
-              onClick={() => {
-                setShowHeaderMenu(false);
-                setRenameValue(conversation?.title || '');
-                setModalNotice(null);
-                setShowRenameModal(true);
-              }}
-            >
-              <span aria-hidden="true">✏️</span> {conversation?.title ? 'Rename conversation' : 'Add a title'}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="chat-header-menu-item"
               disabled={!isOnline || serverMessages.length === 0}
               onClick={() => startSelecting()}
             >
@@ -2063,9 +2043,11 @@ export function ChatPage() {
                 <span aria-hidden="true">🔊</span> Voice settings
               </button>
             )}
-            <Link role="menuitem" className="chat-header-menu-item" to={`/connections/${relId}`}>
-              <span aria-hidden="true">☰</span> All conversations
-            </Link>
+            {isAIConversation && (
+              <Link role="menuitem" className="chat-header-menu-item" to={`/connections/${relId}`}>
+                <span aria-hidden="true">☰</span> All practice chats
+              </Link>
+            )}
           </div>
         </div>
       )}
@@ -2677,43 +2659,6 @@ export function ChatPage() {
               <button className="btn btn-secondary" onClick={() => { setShowWordSaveModal(false); setModalNotice(null); }}>
                 Cancel
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Rename conversation modal */}
-      {showRenameModal && (
-        <div className="modal-overlay" onClick={() => { setShowRenameModal(false); setModalNotice(null); }}>
-          <div className="modal idk-dialog-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{conversation?.title ? 'Rename conversation' : 'Add a title'}</h3>
-            <div className="idk-field">
-              <label htmlFor="conv-title-input">Title (optional)</label>
-              <input
-                id="conv-title-input"
-                type="text"
-                className="new-deck-input chat-title-input"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                placeholder="e.g. This week's homework"
-                maxLength={120}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleRename();
-                  }
-                }}
-              />
-            </div>
-            <InlineNotice notice={modalNotice} onDismiss={clearModalNotice} className="chat-modal-notice" />
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => { setShowRenameModal(false); setModalNotice(null); }}>
-                Cancel
-              </button>
-              <SpinnerButton type="button" className="btn btn-primary" busy={isRenaming} onClick={handleRename}>
-                Save
-              </SpinnerButton>
             </div>
           </div>
         </div>

@@ -60,7 +60,7 @@ class ChatsLiveTest {
 
     @Test fun newChatPeople() {
         val people = ChatsViewModel.peopleFor(rows, null, "me")
-        assertEquals(listOf("rel-minghui", "rel-wei", "rel-anna", "rel-tom"), people.map { it.relationshipId })
+        assertEquals(listOf("rel-minghui", "rel-wei", "rel-zhang", "rel-anna", "rel-tom"), people.map { it.relationshipId })
         assertEquals("Your tutor", people[0].role)
         // A connection with no chat yet comes from the cached relationships; Claude never does.
         val rels = MyRelationshipsDto(
@@ -70,7 +70,7 @@ class ChatsLiveTest {
                 RelationshipDto("rel-old", requester_id = "me", recipient_id = "u-old", status = "removed", recipient = UserSummaryDto("u-old", name = "Old")),
             ),
         )
-        assertEquals(listOf("rel-minghui", "rel-wei", "rel-anna", "rel-tom", "rel-li"), ChatsViewModel.peopleFor(rows, rels, "me").map { it.relationshipId })
+        assertEquals(listOf("rel-minghui", "rel-wei", "rel-zhang", "rel-anna", "rel-tom", "rel-li"), ChatsViewModel.peopleFor(rows, rels, "me").map { it.relationshipId })
         assertEquals(listOf("rel-li"), ChatsViewModel.peopleFor(emptyList(), rels, "me").map { it.relationshipId })
     }
 }

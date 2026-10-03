@@ -97,6 +97,16 @@
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
+/* The one chat with a person is a button (it opens or creates the chat). */
+.one-chat-row {
+  width: 100%;
+  min-height: 44px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  gap: 0.75rem;
+}
+
 .conversation-item:hover {
   border-color: var(--primary-color, #3b82f6);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);

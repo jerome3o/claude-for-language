@@ -35,7 +35,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.deleteLessonNote
 import dev.jeromeswannack.chineselearning.lab.data.api.lessonNotes
 import dev.jeromeswannack.chineselearning.lab.data.api.myClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.api.myRelationships
-import dev.jeromeswannack.chineselearning.lab.data.api.openConversation
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.data.api.relationship
 import dev.jeromeswannack.chineselearning.lab.data.api.removeRelationship
 import dev.jeromeswannack.chineselearning.lab.data.api.reopenCardFlag
@@ -161,16 +161,14 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
         }
     }
 
-    /** Message: the most recent conversation, created when there is none. */
+    /** Message: THE chat with them (one chat per pair; `/conversations/open`, the cached one offline). */
     fun message(open: (String) -> Unit) {
-        conversations.state.value.data?.firstOrNull()?.let { open(it.id); return }
         status.value = Busy(true)
         viewModelScope.launch {
             try {
-                val c = app.repo.api.openConversation(relId)
+                val id = ChatPair.theChat(app, relId)
                 status.value = Busy()
-                conversations.refresh()
-                open(c.conversation_id)
+                open(id)
             } catch (e: Exception) {
                 status.value = Busy(false, e.userMessage(), error = true)
             }

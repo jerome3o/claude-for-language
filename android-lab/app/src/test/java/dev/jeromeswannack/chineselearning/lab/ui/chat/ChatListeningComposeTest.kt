@@ -101,7 +101,7 @@ class ChatListeningComposeTest {
 
     @Test fun menuHasTheToggleAndHideAll() {
         val toggles = mutableListOf<String>()
-        compose.setContent { LabTheme { ConversationMenuContent(s.ui, ChatSheetActions(onToggleListening = { toggles += "toggle" }, onHideAll = { toggles += "hide-all" })) } }
+        compose.setContent { LabTheme { ChatMenuContent(s.ui, ChatSheetActions(onToggleListening = { toggles += "toggle" }, onHideAll = { toggles += "hide-all" })) } }
         compose.onNodeWithTag("chat-menu-listening").performClick()
         compose.onAllNodesWithText("Hide all messages").onFirst().performClick()
         assertEquals(listOf("toggle", "hide-all"), toggles)

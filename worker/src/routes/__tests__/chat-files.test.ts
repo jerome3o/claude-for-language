@@ -57,12 +57,15 @@ describe('chat files, video and forwarding', () => {
 
   beforeEach(async () => {
     db = await createSqliteD1();
-    for (const [id, name] of [[TUTOR, 'Minghui'], [STUDENT, 'Jerome'], ['stranger', 'Nobody']]) {
+    for (const [id, name] of [[TUTOR, 'Minghui'], [STUDENT, 'Jerome'], ['stranger', 'Nobody'], ['tutor-2', 'Li']]) {
       db.raw.run('INSERT INTO users (id, email, name, role) VALUES (?, ?, ?, ?)', [id, `${id}@x.test`, name, 'student']);
     }
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-1', ?, ?, 'tutor', 'active')", [TUTOR, STUDENT]);
     db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('conv-1', 'rel-1')");
-    db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('conv-2', 'rel-1')");
+    // One chat per pair: the student's other chat is with a second tutor; 'conv-old' was merged into conv-1.
+    db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-3', 'tutor-2', ?, 'tutor', 'active')", [STUDENT]);
+    db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('conv-2', 'rel-3')");
+    db.raw.run("INSERT INTO conversations (id, relationship_id, merged_into) VALUES ('conv-old', 'rel-1', 'conv-1')");
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-2', 'stranger', ?, 'tutor', 'active')", [TUTOR]);
     db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('conv-x', 'rel-2')");
     w = world(db);
@@ -131,7 +134,8 @@ describe('chat files, video and forwarding', () => {
     expect(((await again.json()) as MessageWithSender).id).toBe(copy.id);
     // Deleting the original leaves the copy's file.
     await w.as(TUTOR).call('DELETE', `/api/messages/${up.id}`);
-    expect((await w.as(TUTOR).call('GET', `/api/chat-media/${copy.id}`)).status).toBe(200);
+    expect((await w.as(STUDENT).call('GET', `/api/chat-media/${copy.id}`)).status).toBe(200);
+    expect((await w.as(TUTOR).call('GET', `/api/chat-media/${copy.id}`)).status).toBe(403);
 
     db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content, created_at) VALUES ('t1', 'conv-1', ?, '明天见', '2026-10-02T09:00:00.000Z')", [TUTOR]);
     expect((await w.as(STUDENT).call('POST', '/api/messages/t1/forward', { conversation_id: 'conv-x' })).status).toBe(403);
@@ -140,5 +144,8 @@ describe('chat files, video and forwarding', () => {
     const text = (await (await w.as(TUTOR).call('POST', '/api/messages/t1/forward', { conversation_id: 'conv-x' })).json()) as MessageWithSender;
     expect(text).toMatchObject({ content: '明天见', conversation_id: 'conv-x', forwarded_from: 't1', attachment: null });
     expect((await w.as(STUDENT).call('POST', `/api/messages/${up.id}/forward`, { conversation_id: 'conv-2' })).status).toBe(409);
+    // A merged-away conversation id forwards into the chat it became.
+    const merged = (await (await w.as(STUDENT).call('POST', '/api/messages/t1/forward', { conversation_id: 'conv-old' })).json()) as MessageWithSender;
+    expect(merged.conversation_id).toBe('conv-1');
   });
 });

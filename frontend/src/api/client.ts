@@ -1264,14 +1264,9 @@ export async function textToFlashcard(
   });
 }
 
-export async function updateConversationTitle(
-  conversationId: string,
-  title: string
-): Promise<Conversation> {
-  return fetchJSON<Conversation>(`/conversations/${conversationId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ title }),
-  });
+/** One conversation; a merged-away id (one chat per pair) answers with the chat it became (`merged_from` = the id asked for). */
+export async function getConversation(conversationId: string): Promise<Conversation & { merged_from?: string | null }> {
+  return fetchJSON<Conversation & { merged_from?: string | null }>(`/conversations/${conversationId}`);
 }
 
 export async function updateConversationVoiceSettings(
