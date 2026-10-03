@@ -20,7 +20,7 @@ export interface NavRole {
   loaded: boolean;
   /**
    * The account's role is `tutor` (users.role, set by the admin): the
-   * tutor-first app — Students · Decks · Library · More, opens on Students,
+   * tutor-first app — Students · Chats · Library · More, opens on Students,
    * no study nagging. Known from the signed-in user, so it never waits for
    * relationships.
    */

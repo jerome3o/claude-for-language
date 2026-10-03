@@ -8,6 +8,7 @@
  * deletion find it) and stripped from every response (`publicAttachment`).
  */
 
+import { chatMessagePreview } from '@shared/chats/inbox';
 import type { ChatAttachment, MessageWithSender } from '../../types';
 import { sniffImage, extFor as imageExt } from '../picture-hunt';
 
@@ -234,14 +235,13 @@ export function publicAttachment(stored: StoredAttachment | null): ChatAttachmen
   return rest as ChatAttachment;
 }
 
-const PREVIEW_LABEL: Record<ChatMediaKind, string> = { image: '📷 Photo', voice: '🎤 Voice message', file: '📄 File', video: '🎬 Video' };
-
-/** The one-line text a notification shows for a message (photo / voice label + caption). */
+/** The one-line text a notification shows for a message (photo / voice / file / video label + caption): the shared rule. */
 export function messagePreviewText(message: Pick<MessageWithSender, 'content' | 'attachment' | 'deleted_at'>): string {
-  if (message.deleted_at) return 'Message deleted';
-  const kind = message.attachment?.kind;
-  if (!kind) return message.content;
-  const caption = message.content.trim();
-  const label = message.attachment?.kind === 'file' ? `📄 ${message.attachment.name}` : PREVIEW_LABEL[kind];
-  return caption ? `${label}: ${caption}` : label;
+  const a = message.attachment;
+  return chatMessagePreview({
+    content: message.content,
+    attachment_kind: a?.kind ?? null,
+    attachment_name: a?.kind === 'file' ? a.name : null,
+    deleted: !!message.deleted_at,
+  });
 }

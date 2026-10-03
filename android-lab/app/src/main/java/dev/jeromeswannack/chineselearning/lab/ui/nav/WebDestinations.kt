@@ -40,6 +40,7 @@ object WebDestinations {
         WebDestination("/settings", "Settings", "⚙️", "Study budget, start on, offline audio, backup.", 'D'),
         WebDestination("/duplicate-finder", "Duplicate finder", "🪞", "Words that appear in more than one deck.", 'D'),
         // E / F — tutor & teaching
+        WebDestination("/chats", "Chats", "💬", "Every conversation with your tutor, students and Claude.", 'E'),
         WebDestination("/connections/:relId/chat/:convId", "Chat", "💬", "Messages with your tutor or student.", 'E'),
         WebDestination("/connections/:relId/homework/:jobId", "Homework draft", "📝", "Review the homework Claude drafted from your lesson notes.", 'F'),
         WebDestination("/connections/:relId/session-notes", "Session notes", "📝", "Lesson notes turned into homework.", 'F'),

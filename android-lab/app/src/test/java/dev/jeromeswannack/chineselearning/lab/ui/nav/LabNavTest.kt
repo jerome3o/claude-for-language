@@ -35,6 +35,7 @@ class LabNavTest {
             composable(Routes.route("/decks")) {}
             composable(Routes.route("/decks/{id}")) {}
             composable(Routes.route("/more")) {}
+            composable(Routes.route("/chats")) {}
             composable(Routes.route("/study?deck={deck}"), arguments = listOf(navArgument("deck") { type = NavType.StringType; nullable = true; defaultValue = null })) {}
             composable(Routes.PLACEHOLDER_ROUTE, arguments = listOf(navArgument("path") { type = NavType.StringType; defaultValue = "/" })) {}
         }
@@ -71,18 +72,19 @@ class LabNavTest {
     }
 
     @Test fun tabsKeepOneEntryPerRoot() {
+        nav.openTab(NavRules.CHATS)
         nav.openTab(NavRules.MORE)
-        nav.openTab(NavRules.DECKS)
+        // Decks live under More now: a deck page keeps the More tab's stack.
         nav.open("/decks/abc")
+        nav.openTab(NavRules.CHATS)
+        assertEquals("/chats", nav.currentPath())
+        // Home + Chats: switching never stacks tab roots on each other.
+        assertEquals(listOf("home", "chats"), controller.currentBackStack.value.mapNotNull { it.destination.route }.filter { it != controller.graph.route })
+        // Back to More restores its stack (the deck); re-selecting it pops to the root.
+        nav.openTab(NavRules.MORE)
+        assertEquals("/decks/abc", nav.currentPath())
         nav.openTab(NavRules.MORE)
         assertEquals("/more", nav.currentPath())
-        // Home + More: switching never stacks tab roots on each other.
-        assertEquals(listOf("home", "more"), controller.currentBackStack.value.mapNotNull { it.destination.route }.filter { it != controller.graph.route })
-        // Back to Decks restores its stack; re-selecting it pops to the root.
-        nav.openTab(NavRules.DECKS)
-        assertEquals("/decks/abc", nav.currentPath())
-        nav.openTab(NavRules.DECKS)
-        assertEquals("/decks", nav.currentPath())
     }
 
     @Test fun deepLinks() {

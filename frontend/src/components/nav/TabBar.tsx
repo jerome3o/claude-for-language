@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useNavRole } from './useNavRole';
+import { useChatList } from '../../hooks/useChatList';
+import { unreadConversationCount } from '@shared/chats/inbox';
 import { tabsFor, activeTab, isImmersiveRoute, TabId } from './tabs';
 import './TabBar.css';
 
@@ -65,11 +67,10 @@ function TabIcon({ id }: { id: TabId }) {
           <path d="M3 10h18" />
         </svg>
       );
-    case 'decks':
+    case 'chats':
       return (
         <svg {...common}>
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
         </svg>
       );
     case 'tutor':
@@ -125,6 +126,9 @@ export function TabBar() {
   const role = useNavRole();
   const visible = !isImmersiveRoute(pathname);
   useTabBarLayout(visible);
+  // The Chats tab's badge: conversations with unread messages (cached list, refreshed every minute).
+  const { rows: chatRows } = useChatList();
+  const unreadChats = chatRows ? unreadConversationCount(chatRows) : 0;
   if (!visible) return null;
 
   const tabs = tabsFor(role);
@@ -143,7 +147,14 @@ export function TabBar() {
               aria-current={isActive ? 'page' : undefined}
               data-tab={tab.id}
             >
-              <TabIcon id={tab.id} />
+              <span className="tab-bar-icon">
+                <TabIcon id={tab.id} />
+                {tab.id === 'chats' && unreadChats > 0 && (
+                  <span className="tab-bar-badge" data-testid="chats-tab-badge" aria-label={`${unreadChats} unread`}>
+                    {unreadChats > 99 ? '99+' : unreadChats}
+                  </span>
+                )}
+              </span>
               <span className="tab-bar-label">{tab.label}</span>
             </Link>
           );

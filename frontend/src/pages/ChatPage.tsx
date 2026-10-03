@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LiveCallBanner } from '../components/calls/CallBanner';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { chatBackTarget } from '../components/chat/chatBack';
 import { base64ToBlob } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -104,6 +105,9 @@ export function ChatPage() {
   const { relId, convId } = useParams<{ relId: string; convId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Opened from the Chats tab → back returns to the inbox, else to the person's page.
+  const backTo = chatBackTarget(location.state, relId);
   const { user } = useAuth();
   const { isOnline } = useNetwork();
   const queryClient = useQueryClient();
@@ -290,7 +294,7 @@ export function ChatPage() {
     createConversation(relId)
       .then((conv) => {
         queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-        navigate(`/connections/${relId}/chat/${conv.id}`, { replace: true });
+        navigate(`/connections/${relId}/chat/${conv.id}`, { replace: true, state: location.state });
       })
       .catch((error) => {
         setCreateError(describeError(error, "Couldn't start a new conversation."));
@@ -1220,7 +1224,7 @@ export function ChatPage() {
       return (
         <div className="chat-page">
           <div className="chat-header">
-            <Link to={`/connections/${relId}`} className="chat-back" aria-label="Back">←</Link>
+            <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
             <span className="chat-header-name">New conversation</span>
           </div>
           <div className="chat-messages">
@@ -1660,7 +1664,7 @@ export function ChatPage() {
     <div className="chat-page">
       {/* Header */}
       <div className="chat-header">
-        <Link to={`/connections/${relId}`} className="chat-back" aria-label="Back">←</Link>
+        <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
         <div className="chat-header-user">
           {otherUser.picture_url ? (
             <img src={otherUser.picture_url} alt="" className="chat-avatar" />

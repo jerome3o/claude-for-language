@@ -49,7 +49,7 @@ class CallAlertsScreenshots : LabScreenshotTest() {
         })
     }
 
-    @Test fun variants() = shootInShell("calls-32-banner-variants", active = TabId.DECKS) {
+    @Test fun variants() = shootInShell("calls-32-banner-variants", active = TabId.MORE) {
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().background(Lab.colors.background).padding(16.dp).padding(top = 72.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("Across the top of every normal screen ↑", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)

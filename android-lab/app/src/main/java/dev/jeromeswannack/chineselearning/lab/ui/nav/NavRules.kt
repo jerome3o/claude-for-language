@@ -54,7 +54,8 @@ object NavRules {
 
     // "/today" = the Lab-only "today split" screens (today's lessons / reader; no web route).
     val STUDY = TabSpec(TabId.STUDY, "Study", "/", listOf("/", "/study", "/today"))
-    val DECKS = TabSpec(TabId.DECKS, "Decks", "/decks", listOf("/decks", "/generate", "/search"))
+    /** The Chats inbox (every conversation, Signal style) — took the Decks tab's place. */
+    val CHATS = TabSpec(TabId.CHATS, "Chats", "/chats", listOf("/chats"))
     val TUTOR = TabSpec(TabId.TUTOR, "Tutor", "/connections", listOf("/connections"))
     val STUDENTS = TabSpec(TabId.STUDENTS, "Students", "/connections", listOf("/connections"))
     val LIBRARY = TabSpec(TabId.LIBRARY, "Library", "/library", listOf("/library"))
@@ -64,19 +65,22 @@ object NavRules {
         listOf(
             "/more", "/settings", "/profile", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
             "/quests", "/picture-hunt", "/library", "/duplicate-finder", "/admin",
+            // Decks live under More since the Chats tab took their tab.
+            "/decks", "/generate", "/search",
         ),
     )
 
     /**
-     * Tutor account (role):   Students · Decks · Library · More
-     * Student account:        Study · Decks · Tutor · Progress · More
-     * Account with students:  Students · Decks · Study · More (+ Progress if they also study)
+     * Tutor account (role):   Students · Chats · Library · More
+     * Student account:        Study · Chats · Tutor · Progress · More
+     * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
+     * Decks are one tap away: More → Decks, and Home's deck list.
      */
     fun tabsFor(role: NavRole): List<TabSpec> = when {
-        role.isTutorAccount -> listOf(STUDENTS, DECKS, LIBRARY, MORE)
-        !role.hasStudents -> listOf(STUDY, DECKS, TUTOR, PROGRESS, MORE)
-        role.isTutorOnly -> listOf(STUDENTS, DECKS, STUDY, MORE)
-        else -> listOf(STUDENTS, DECKS, STUDY, PROGRESS, MORE)
+        role.isTutorAccount -> listOf(STUDENTS, CHATS, LIBRARY, MORE)
+        !role.hasStudents -> listOf(STUDY, CHATS, TUTOR, PROGRESS, MORE)
+        role.isTutorOnly -> listOf(STUDENTS, CHATS, STUDY, MORE)
+        else -> listOf(STUDENTS, CHATS, STUDY, PROGRESS, MORE)
     }
 
     /** Which tab is active for a path (the longest matching prefix wins); query strings are ignored. */
@@ -132,7 +136,7 @@ object NavRules {
     }
 }
 
-enum class TabId { STUDY, DECKS, TUTOR, STUDENTS, LIBRARY, PROGRESS, MORE }
+enum class TabId { STUDY, CHATS, TUTOR, STUDENTS, LIBRARY, PROGRESS, MORE }
 
 data class TabSpec(val id: TabId, val label: String, val to: String, val match: List<String>)
 

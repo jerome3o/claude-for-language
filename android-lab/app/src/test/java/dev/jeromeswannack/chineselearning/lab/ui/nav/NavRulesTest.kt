@@ -43,18 +43,21 @@ class NavRulesTest {
     }
 
     @Test fun tabSets() {
-        assertEquals(listOf("Study", "Decks", "Tutor", "Progress", "More"), labels(NavRole(hasStudents = false, isTutorOnly = false)))
-        assertEquals(listOf("Students", "Decks", "Study", "More"), labels(NavRole(hasStudents = true, isTutorOnly = true)))
-        assertEquals(listOf("Students", "Decks", "Study", "Progress", "More"), labels(NavRole(hasStudents = true, isTutorOnly = false)))
+        assertEquals(listOf("Study", "Chats", "Tutor", "Progress", "More"), labels(NavRole(hasStudents = false, isTutorOnly = false)))
+        assertEquals(listOf("Students", "Chats", "Study", "More"), labels(NavRole(hasStudents = true, isTutorOnly = true)))
+        assertEquals(listOf("Students", "Chats", "Study", "Progress", "More"), labels(NavRole(hasStudents = true, isTutorOnly = false)))
+        assertEquals(listOf("Students", "Chats", "Library", "More"), labels(NavRole(hasStudents = true, isTutorAccount = true)))
+        assertEquals(NavRules.CHATS, NavRules.tabsFor(NavRole())[1])
+        assertEquals("/chats", NavRules.CHATS.to)
     }
 
     @Test fun activeTabByPath() {
         val tabs = NavRules.tabsFor(NavRole())
         mapOf(
-            "/" to TabId.STUDY, "/study/review/abc" to TabId.STUDY, "/decks" to TabId.DECKS, "/decks/123" to TabId.DECKS,
-            "/generate" to TabId.DECKS, "/connections/1/insights" to TabId.TUTOR, "/progress/day/2026-01-01" to TabId.PROGRESS,
+            "/" to TabId.STUDY, "/study/review/abc" to TabId.STUDY, "/decks" to TabId.MORE, "/decks/123" to TabId.MORE,
+            "/generate" to TabId.MORE, "/search" to TabId.MORE, "/connections/1/insights" to TabId.TUTOR, "/progress/day/2026-01-01" to TabId.PROGRESS,
             "/more" to TabId.MORE, "/settings/sentences" to TabId.MORE, "/coach" to TabId.MORE, "/lesson-notes" to TabId.MORE,
-            "/decks?q=打算" to TabId.DECKS,
+            "/decks?q=打算" to TabId.MORE, "/chats" to TabId.CHATS, "/chats?q=x" to TabId.CHATS,
         ).forEach { (path, id) -> assertEquals(path, id, NavRules.activeTab(tabs, path)) }
         assertNull(NavRules.activeTab(tabs, "/join/xyz"))
     }
@@ -66,7 +69,7 @@ class NavRulesTest {
         ).forEach { assertTrue(it, NavRules.isImmersiveRoute(it)) }
         listOf(
             "/", "/study/review/abc", "/quests", "/readers", "/readers/generate", "/library", "/library/l1", "/library/catalogue",
-            "/lessons", "/connections/1", "/decks", "/more", "/settings", "/calls", "/calls/c1/review", "/homework",
+            "/lessons", "/connections/1", "/decks", "/chats", "/more", "/settings", "/calls", "/calls/c1/review", "/homework",
         ).forEach { assertFalse(it, NavRules.isImmersiveRoute(it)) }
     }
 
@@ -75,10 +78,10 @@ class NavRulesTest {
         val none = NavRules.deriveNavRole(rels(), 4, 12, accountRole = "tutor")
         assertTrue(none.isTutorAccount); assertTrue(none.isTutorOnly); assertFalse(none.hasStudents)
         val role = NavRules.deriveNavRole(rels(students = listOf(rel("active"))), 2, 5, accountRole = "tutor")
-        assertEquals(listOf(TabId.STUDENTS, TabId.DECKS, TabId.LIBRARY, TabId.MORE), NavRules.tabsFor(role).map { it.id })
+        assertEquals(listOf(TabId.STUDENTS, TabId.CHATS, TabId.LIBRARY, TabId.MORE), NavRules.tabsFor(role).map { it.id })
         assertEquals(TabId.LIBRARY, NavRules.activeTab(NavRules.tabsFor(role), "/library/abc"))
         val student = NavRules.deriveNavRole(rels(), 2, 5, accountRole = "student")
-        assertEquals(listOf(TabId.STUDY, TabId.DECKS, TabId.TUTOR, TabId.PROGRESS, TabId.MORE), NavRules.tabsFor(student).map { it.id })
+        assertEquals(listOf(TabId.STUDY, TabId.CHATS, TabId.TUTOR, TabId.PROGRESS, TabId.MORE), NavRules.tabsFor(student).map { it.id })
         assertTrue(NavRules.isImmersiveRoute("/decks/d1/try"))
         assertTrue(NavRules.isImmersiveRoute("/library/l1/try"))
         assertFalse(NavRules.isImmersiveRoute("/decks/d1"))
@@ -111,7 +114,7 @@ class NavRulesTest {
         assertEquals("Chat", WebDestinations.find("/connections/r1/chat/c1")?.title)
         assertEquals("New story", WebDestinations.find("/readers/generate")?.title)
         assertEquals("Sentence Coach", WebDestinations.find("/coach?text=你好")?.title)
-        for (tab in listOf(NavRules.STUDY, NavRules.DECKS, NavRules.TUTOR, NavRules.LIBRARY, NavRules.PROGRESS, NavRules.MORE)) {
+        for (tab in listOf(NavRules.STUDY, NavRules.CHATS, NavRules.TUTOR, NavRules.LIBRARY, NavRules.PROGRESS, NavRules.MORE)) {
             assertTrue(tab.to, WebDestinations.find(tab.to) != null)
         }
         assertNull(WebDestinations.find("/nope/nothing/here"))

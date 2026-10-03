@@ -8,6 +8,7 @@
 
 import { CLAUDE_AI_USER_ID } from '../../types';
 import { messagePreviewText, parseStoredAttachment, type ChatMediaKind } from './media';
+import { chatMessagePreview, sortChatList, type ChatListResponse, type ChatListRow } from '@shared/chats/inbox';
 
 export interface ChatParticipants {
   conversation_id: string;
@@ -247,4 +248,76 @@ export async function getChatInbox(db: D1Database, userId: string, since?: strin
       last_message_at: r.last_message_at ?? null,
     })),
   };
+}
+
+/**
+ * The Chats inbox (`GET /api/me/chats`): every conversation of my active
+ * relationships — Claude role-play chats flagged `is_ai` — with its last
+ * message, my unread count and the other person, newest activity first. ONE
+ * query (the last message by a correlated subquery per conversation, the
+ * unread count by another; both on the messages(conversation_id, created_at)
+ * index).
+ */
+export async function getChatList(db: D1Database, userId: string, now = new Date()): Promise<ChatListResponse> {
+  const rows = await db
+    .prepare(
+      `SELECT c.id AS conversation_id, c.relationship_id, c.title, c.created_at AS conv_created_at, c.last_message_at,
+              COALESCE(c.is_ai_conversation, 0) AS is_ai_conversation,
+              r.requester_id, r.recipient_id, r.requester_role,
+              u.id AS other_id, u.name AS other_name, u.picture_url AS other_picture,
+              m.id AS last_id, m.sender_id AS last_sender_id, m.content AS last_content, m.created_at AS last_created_at,
+              m.deleted_at AS last_deleted_at, m.attachment AS last_attachment,
+              (SELECT COUNT(*) FROM messages um
+                WHERE um.conversation_id = c.id AND um.sender_id != ?1 AND um.deleted_at IS NULL
+                  AND um.created_at > COALESCE(cr.last_read_at, '')) AS unread
+         FROM conversations c
+         JOIN tutor_relationships r ON r.id = c.relationship_id
+         JOIN users u ON u.id = CASE WHEN r.requester_id = ?1 THEN r.recipient_id ELSE r.requester_id END
+         LEFT JOIN conversation_reads cr ON cr.conversation_id = c.id AND cr.user_id = ?1
+         LEFT JOIN messages m ON m.id = (
+           SELECT id FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1
+         )
+        WHERE (r.requester_id = ?1 OR r.recipient_id = ?1)
+          AND r.status = 'active'
+        ORDER BY COALESCE(m.created_at, c.last_message_at, c.created_at) DESC`,
+    )
+    .bind(userId)
+    .all<{
+      conversation_id: string; relationship_id: string; title: string | null; conv_created_at: string | null; last_message_at: string | null;
+      is_ai_conversation: number; requester_id: string; recipient_id: string; requester_role: 'tutor' | 'student';
+      other_id: string; other_name: string | null; other_picture: string | null;
+      last_id: string | null; last_sender_id: string | null; last_content: string | null; last_created_at: string | null;
+      last_deleted_at: string | null; last_attachment: string | null; unread: number;
+    }>();
+
+  const conversations: ChatListRow[] = (rows.results ?? []).map((r) => {
+    const iAmRequester = r.requester_id === userId;
+    const otherRole: 'tutor' | 'student' = iAmRequester ? (r.requester_role === 'tutor' ? 'student' : 'tutor') : r.requester_role;
+    const attachment = parseStoredAttachment(r.last_attachment);
+    const lastMessage = r.last_id && r.last_sender_id && r.last_created_at
+      ? {
+          id: r.last_id,
+          sender_id: r.last_sender_id,
+          preview: chatMessagePreview({
+            content: r.last_content ?? '',
+            attachment_kind: attachment?.kind ?? null,
+            attachment_name: attachment?.kind === 'file' ? attachment.name : null,
+            deleted: !!r.last_deleted_at,
+          }),
+          created_at: r.last_created_at,
+        }
+      : null;
+    return {
+      conversation_id: r.conversation_id,
+      relationship_id: r.relationship_id,
+      title: r.title,
+      is_ai: !!r.is_ai_conversation || r.requester_id === CLAUDE_AI_USER_ID || r.recipient_id === CLAUDE_AI_USER_ID,
+      other_user: { id: r.other_id, name: r.other_name, picture_url: r.other_picture },
+      other_role: otherRole,
+      last_message: lastMessage,
+      unread: Number(r.unread ?? 0),
+      last_activity_at: lastMessage?.created_at ?? r.last_message_at ?? r.conv_created_at ?? now.toISOString(),
+    };
+  });
+  return { server_time: now.toISOString(), conversations: sortChatList(conversations) };
 }

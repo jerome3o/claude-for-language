@@ -65,7 +65,7 @@ class HomeActions(
     val onStudyDeck: (String) -> Unit = {},
     val onSync: () -> Unit = {},
     val onSignIn: () -> Unit = {},
-    /** "All decks" under the queue → the Decks tab. */
+    /** "All decks" under the queue → the Decks page (`/decks`, under More). */
     val onAllDecks: () -> Unit = {},
     /** Lab "today split": today's mini lessons (`/today/lessons`) and today's story (`/today/reader`). */
     val onTodayLessons: () -> Unit = {},

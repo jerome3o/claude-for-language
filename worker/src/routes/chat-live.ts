@@ -7,6 +7,7 @@
  *   POST   /conversations/:id/messages            { content, reply_to_message_id?, client_id? } → 201 (200 for a repeated client_id)
  *   POST   /conversations/:id/read                { up_to? } → { conversation_id, last_read_at, unread }
  *   GET    /me/chat-inbox[?since=]                unread messages to me + conversations with unread
+ *   GET    /me/chats                              the Chats tab: every conversation, last message, unread, newest first
  *   POST   /push/devices                          { token, platform?, app?, device_label? } → { id }
  *   DELETE /push/devices                          { token }
  *   POST   /live/ticket                           → { ticket, ws_path }
@@ -20,6 +21,7 @@ import { getConversationById, getMessages, normalizeClientId, sendMessage } from
 import {
   countUnread,
   getChatInbox,
+  getChatList,
   getConversationParticipants,
   getReadState,
   markConversationRead,
@@ -150,6 +152,10 @@ chat.get('/me/chat-inbox', async (c) => {
     if (!since) return c.json({ error: 'since must be an ISO timestamp' }, 400);
   }
   return c.json(await getChatInbox(c.env.DB, c.get('user').id, since));
+});
+
+chat.get('/me/chats', async (c) => {
+  return c.json(await getChatList(c.env.DB, c.get('user').id));
 });
 
 // ---------- Native push tokens ----------

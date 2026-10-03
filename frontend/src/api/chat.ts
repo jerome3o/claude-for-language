@@ -161,3 +161,8 @@ export async function fetchLinkPreview(url: string): Promise<LinkPreviewData | n
     throw err;
   }
 }
+
+/** The Chats tab: every conversation with its last message and my unread count (`GET /api/me/chats`). */
+export function getChatList(): Promise<import('@shared/chats/inbox').ChatListResponse> {
+  return request('/me/chats');
+}

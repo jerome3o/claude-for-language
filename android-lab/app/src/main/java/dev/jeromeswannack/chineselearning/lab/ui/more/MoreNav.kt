@@ -49,7 +49,7 @@ fun NavGraphBuilder.moreGraph(nav: LabNav) {
 
 /** Every path a More row can open (to mark which ones are native). */
 private val MORE_PATHS = listOf(
-    Routes.SETTINGS, Routes.profile(), Routes.CONNECTIONS, Routes.LIBRARY, Routes.readers(), Routes.calls(), Routes.coach(), Routes.analyze(),
+    Routes.DECKS, Routes.SETTINGS, Routes.profile(), Routes.CONNECTIONS, Routes.LIBRARY, Routes.readers(), Routes.calls(), Routes.coach(), Routes.analyze(),
     Routes.lessons(), Routes.claudeChats(), Routes.strokes(), Routes.quests(), Routes.pictureHunts(), Routes.homework(), Routes.tutorNotes(), Routes.lessonNotes(),
     Routes.catalogue(), Routes.materials(), Routes.duplicateFinder(), Routes.sentenceCoverage(), Routes.admin(),
 )

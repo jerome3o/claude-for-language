@@ -29,5 +29,6 @@ object FeatureSyncs {
         platform.register("picture-hunt", dev.jeromeswannack.chineselearning.lab.data.picturehunt.PictureHuntSync) // H: finished hunts + pictures, playable offline
         platform.register("calls", dev.jeromeswannack.chineselearning.lab.data.calls.CallsSync) // J: close orphaned call-recording pieces + push them
         platform.register("board-pages", dev.jeromeswannack.chineselearning.lab.data.calls.BoardPagesSync) // J: lesson board pages per relationship, readable offline
+        platform.register("chats", dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsSync) // the Chats tab inbox (/api/me/chats), offline + badge
     }
 }

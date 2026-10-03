@@ -62,6 +62,7 @@ const SentenceCoveragePage = lazy(() => import('./pages/SentenceCoveragePage').t
 const ConversationVoicesPage = lazy(() => import('./pages/ConversationVoicesPage').then(m => ({ default: m.ConversationVoicesPage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 const DecksPage = lazy(() => import('./pages/DecksPage').then(m => ({ default: m.DecksPage })));
+const ChatsPage = lazy(() => import('./pages/ChatsPage').then(m => ({ default: m.ChatsPage })));
 const MorePage = lazy(() => import('./pages/MorePage').then(m => ({ default: m.MorePage })));
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
@@ -167,7 +168,17 @@ function AppRoutes() {
       <Route path="/join/:token" element={<JoinPage />} />
       {/* Public: the privacy policy (Google Play listing of the Lab app links here). */}
       <Route path="/privacy" element={<PrivacyPage />} />
-      {/* Bottom tab bar destinations: Decks (deck list + card search) and More. */}
+      {/* Bottom tab bar destinations: Chats (every conversation) and More. Decks (deck list + card
+          search) left the bar for More's first row; /decks is unchanged. */}
+      <Route
+        path="/chats"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ChatsPage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/decks"
         element={

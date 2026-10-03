@@ -1375,8 +1375,12 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         app.haptics.tick()
         _ui.update { it.copy(voiceSpeed = next) }
         player?.let { mp -> if (_ui.value.voice?.playing == true) runCatching { mp.playbackParams = mp.playbackParams.setSpeed(next) } }
-        viewModelScope.launch { runCatching { app.cache.put(SPEED_KEY, KIND, next) } }
+        // Taps save in their own coroutines; under the lock each writes the CURRENT speed, so two quick
+        // taps can't land out of order and leave the older value stored.
+        viewModelScope.launch { speedSave.withLock { runCatching { app.cache.put(SPEED_KEY, KIND, _ui.value.voiceSpeed) } } }
     }
+
+    private val speedSave = kotlinx.coroutines.sync.Mutex()
 
     /** 📹 in the header: join the live call of this relationship, else start one (web: handleVideoCall). */
     fun videoCall(go: (String) -> Unit) {
