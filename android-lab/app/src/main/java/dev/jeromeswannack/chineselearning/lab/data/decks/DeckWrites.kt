@@ -406,7 +406,7 @@ class DeckWrites(
             id = n.id, deckId = n.deck_id, hanzi = n.hanzi, pinyin = n.pinyin, english = n.english, audioUrl = n.audio_url,
             funFacts = n.fun_facts, context = n.context, sentenceClue = n.sentence_clue, sentenceCluePinyin = n.sentence_clue_pinyin,
             sentenceClueTranslation = n.sentence_clue_translation, sentenceClueAudioUrl = n.sentence_clue_audio_url,
-            alternatives = n.alternatives, createdAt = n.created_at,
+            alternatives = n.alternatives, createdAt = n.created_at, longTerm = n.long_term,
         )
     }
 }

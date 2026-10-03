@@ -2,7 +2,7 @@ import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
 import { selectStudyQueue, isDueByCutoff, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
-import { allocateNewCards } from '@shared/decks';
+import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
 import { CardType, CardQueue, Rating } from '../types';
 
@@ -110,9 +110,19 @@ export interface LocalNote {
   multiple_choice_options: string | null;
   pinyin_only: number;
   alternatives: string | null;
+  /** The learner's "long-term review" choice (shared/decks/long-term.ts): 1 in, 0 out, null = follow the deck. */
+  long_term?: LongTermPref;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;
+}
+
+/** A long-term choice made on this device, waiting for PUT /api/notes/:id/long-term (services/longTerm.ts). */
+export interface LocalPendingNotePref {
+  note_id: string;
+  long_term: LongTermPref;
+  /** When it was chosen (ms) — later choices replace the row. */
+  at: number;
 }
 
 export interface LocalCard {
@@ -592,6 +602,8 @@ export class ChineseLearningDB extends Dexie {
 
   // Cards flagged for the tutor while offline, waiting to be posted
   pendingCardFlags!: Table<LocalPendingCardFlag, string>;
+  // "Add to my long-term review" choices made offline, waiting to be uploaded
+  pendingNotePrefs!: Table<LocalPendingNotePref, string>;
   callUploads!: Table<LocalCallUpload, number>;
   callPieces!: Table<LocalCallPiece, string>;
 
@@ -1024,6 +1036,13 @@ export class ChineseLearningDB extends Dexie {
     this.version(24).stores({
       boardPages: 'id, relationship_id',
     });
+
+    // Version 25: the learner's per-word long-term choice (notes.long_term, indexed so the
+    // queue reads only the notes that have one) and the choices still to upload.
+    this.version(25).stores({
+      notes: 'id, deck_id, updated_at, _synced_at, long_term',
+      pendingNotePrefs: 'note_id',
+    });
   }
 }
 
@@ -1291,6 +1310,26 @@ interface StudyInputs {
   spentElsewhere: { primary: number; secondary: number };
   /** The one deck a session studies (undefined = all decks). */
   deckId?: string;
+  /** note id → the learner's long-term choice (only notes that have one). */
+  longTerm: Map<string, LongTermPref>;
+}
+
+/** The notes with a long-term choice (shared/decks/long-term.ts), with this device's pending ones on top. */
+export async function loadLongTermPrefs(): Promise<Map<string, LongTermPref>> {
+  const [rows, pending] = await Promise.all([
+    db.notes.where('long_term').anyOf(0, 1).toArray(),
+    db.pendingNotePrefs.toArray(),
+  ]);
+  const out = new Map<string, LongTermPref>();
+  for (const n of rows) {
+    const v = toLongTermPref(n.long_term);
+    if (v !== null) out.set(n.id, v);
+  }
+  for (const p of pending) {
+    if (p.long_term === null) out.delete(p.note_id);
+    else out.set(p.note_id, p.long_term);
+  }
+  return out;
 }
 
 async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
@@ -1298,9 +1337,10 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
   const decks = deckId ? allDecks.filter(d => d.id === deckId) : allDecks;
   // The daily budget is shared by every deck, so a single-deck session still
   // has to know what was introduced elsewhere today.
-  const [cards, studied] = await Promise.all([
+  const [cards, studied, longTerm] = await Promise.all([
     loadCards(deckId),
     getNewCardsStudiedTodayMap(allDecks.map(d => d.id)),
+    loadLongTermPrefs(),
   ]);
   const spentElsewhere = { primary: 0, secondary: 0 };
   if (deckId) {
@@ -1310,7 +1350,7 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
       spentElsewhere.secondary += s.secondary;
     }
   }
-  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere, deckId };
+  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere, deckId, longTerm };
 }
 
 /** Notes with at least one reviewed card (queue != NEW). */
@@ -1357,14 +1397,17 @@ export const EMPTY_QUEUE_COUNTS: DeckQueueCounts = {
 };
 
 function poolOf(deckId: string, raw: DeckQueueRaw): DeckNewPool {
+  // A deck out of daily review (0 + 0) only counts its opted-in words, at the
+  // new-deck caps (shared/decks/long-term.ts).
+  const caps = longTermCaps(raw.newCardsPerDay, raw.secondaryCardsPerDay);
   return {
     deckId,
     priority: raw.priority,
     createdAt: raw.createdAt,
     totalNew: raw.totalNew,
     totalSecondaryNew: raw.totalSecondaryNew,
-    capPrimary: raw.newCardsPerDay,
-    capSecondary: raw.secondaryCardsPerDay,
+    capPrimary: caps.capPrimary,
+    capSecondary: caps.capSecondary,
     studiedPrimary: raw.studiedToday,
     studiedSecondary: raw.secondaryStudiedToday,
   };
@@ -1416,13 +1459,15 @@ export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCoun
  * can serve multiple views with different bonuses.
  */
 function countRawQueues(
-  { decks, cards, studied }: StudyInputs,
+  { decks, cards, studied, longTerm }: StudyInputs,
   reviewedNoteIds: Set<string>,
   cutoff: { iso: string; ts: number }
 ): Map<string, DeckQueueRaw> {
   const byDeck = new Map<string, DeckQueueRaw>();
   const unseenByDeck = new Map<string, Set<string>>();
+  const inReview = new Map<string, boolean>();
   for (const d of decks) {
+    inReview.set(d.id, deckInDailyReview(d.new_cards_per_day, d.secondary_cards_per_day ?? DEFAULT_SECONDARY_CARDS_PER_DAY));
     const s = studied.get(d.id) ?? { primary: 0, secondary: 0 };
     byDeck.set(d.id, {
       learning: 0,
@@ -1444,6 +1489,9 @@ function countRawQueues(
     const bucket = byDeck.get(card.deck_id);
     if (!bucket) continue;
     if (card.queue === CardQueue.NEW) {
+      // Words left out of long-term review (or a one-off deck's words nobody opted in)
+      // are never introduced, so they are not "to go" either.
+      if (!admitsNewCards(longTerm.get(card.note_id) ?? null, inReview.get(card.deck_id)!, reviewedNoteIds.has(card.note_id))) continue;
       // Notes with a reviewed card — their remaining NEW cards are "secondary"
       if (reviewedNoteIds.has(card.note_id)) bucket.totalSecondaryNew++;
       else {
@@ -1525,7 +1573,7 @@ function selectDueCards(
   const rows = inputs.cards.map(c => ({ ...queueInput(c), card: c }));
   // `studied` covers every deck; a one-deck session still spends the global
   // budget other decks used today (selectStudyQueue does the spent-elsewhere sum).
-  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText);
+  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm);
   return result.due.map(r => r.card);
 }
 

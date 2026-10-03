@@ -56,6 +56,11 @@ data class NoteEntity(
     /** JSON array of accepted typed answers. */
     val alternatives: String?,
     val createdAt: String?,
+    /**
+     * The learner's "Add to my long-term review" choice (core LongTerm.kt, notes.long_term):
+     * 1 in, 0 out, null = follow the deck. v3.
+     */
+    val longTerm: Int? = null,
 )
 
 @Entity(tableName = "cards", indices = [Index("noteId"), Index("deckId")])
@@ -129,6 +134,9 @@ data class NoteHanzi(val id: String, val hanzi: String)
 
 data class CardPlacement(val id: String, val noteId: String, val deckId: String)
 
+/** A note's long-term choice (only notes that have one) — StudyQueue.build's `longTerm`. */
+data class NoteLongTerm(val id: String, val longTerm: Int)
+
 /** The columns of a review event the FSRS replay reads. */
 data class ReplayEvent(val id: String, val cardId: String, val rating: Int, val reviewedAt: String)
 
@@ -147,6 +155,10 @@ interface LabDao {
     @Query("SELECT * FROM notes WHERE id IN (:ids)") suspend fun notes(ids: List<String>): List<NoteEntity>
     @Query("SELECT * FROM notes") suspend fun allNotes(): List<NoteEntity>
     @Query("SELECT id, hanzi FROM notes") suspend fun noteHanziRows(): List<NoteHanzi>
+    @Query("SELECT id, longTerm FROM notes WHERE longTerm IS NOT NULL") suspend fun noteLongTermRows(): List<NoteLongTerm>
+    @Query("UPDATE notes SET longTerm = :longTerm WHERE id = :id") suspend fun setNoteLongTerm(id: String, longTerm: Int?)
+    /** Notes among [ids] with a card past NEW (their long-term switch is fixed: already in the reviews). */
+    @Query("SELECT DISTINCT noteId FROM cards WHERE noteId IN (:ids) AND queue != 0") suspend fun startedNoteIds(ids: List<String>): List<String>
     @Query("SELECT COUNT(*) FROM notes") suspend fun noteCount(): Int
     @Query("SELECT deckId, COUNT(*) AS count FROM notes GROUP BY deckId") suspend fun noteCounts(): List<DeckCount>
     @Upsert suspend fun upsertNotes(notes: List<NoteEntity>)
@@ -213,7 +225,7 @@ interface LabDao {
         // v2: generic feature tables (data/platform/) — features use these instead of new schema.
         JsonCacheEntity::class, OutboxEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {
@@ -230,6 +242,9 @@ abstract class LabDatabase : RoomDatabase() {
  * note id → hanzi for StudyQueue.build's "new characters first"; null (= the plain order) if it
  * can't be read — an ordering nicety must never stop the queue from being built.
  */
+/** note id → the learner's long-term choice, for every StudyQueue.build (core LongTerm.kt). */
+suspend fun LabDao.noteLongTerm(): Map<String, Int> = noteLongTermRows().associate { it.id to it.longTerm }
+
 suspend fun LabDao.noteHanzi(): Map<String, String>? = try {
     noteHanziRows().associate { it.id to it.hanzi }
 } catch (e: kotlinx.coroutines.CancellationException) {

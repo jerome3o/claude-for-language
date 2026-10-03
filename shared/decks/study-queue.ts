@@ -14,6 +14,11 @@
  *     the most never-seen characters (novelty.ts, "new characters first").
  * The home screen's numbers are the counts of exactly this queue.
  *
+ * A learner's per-word "long-term review" choice (long-term.ts, notes.long_term)
+ * decides which NEW cards enter a deck's pool: opted-out words never do, and a
+ * deck out of daily review (caps 0 + 0) holds only its opted-in words, at the
+ * new-deck default caps.
+ *
  * "Introduced today" is derived from review events (a card counts on the day of
  * its first-ever review; secondary when a sibling card of the same note had
  * been reviewed before it) — never from a counter that can drift.
@@ -21,6 +26,7 @@
 
 import { allocateNewCards, type DeckAllocation, type DeckNewPool, type StudyBudget } from './budget';
 import { markSeen, pickByNovelty, seenFrom } from './novelty';
+import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } from './long-term';
 
 /** CardQueue values (shared/scheduler): NEW 0, LEARNING 1, REVIEW 2, RELEARNING 3. */
 export const QUEUE_NEW = 0;
@@ -159,15 +165,19 @@ export function selectStudyQueue<C extends QueueCardInput>(
   introduced: ReadonlyMap<string, IntroducedToday>,
   cutoffMs: number,
   deckId?: string | null,
-  noteText?: QueueNoteText | null
+  noteText?: QueueNoteText | null,
+  /** note id → the learner's long-term choice (only notes that have one). */
+  longTerm?: ReadonlyMap<string, LongTermPref> | null
 ): StudyQueueResult<C> {
   const reviewed = collectReviewedNoteIds(cards);
   const inScope = deckId ? decks.filter(d => d.id === deckId) : decks;
   const scopeIds = new Set(inScope.map(d => d.id));
+  const inReview = new Map(inScope.map(d => [d.id, deckInDailyReview(d.cap_primary, d.cap_secondary)]));
 
   const newByDeck = new Map<string, C[]>();
   for (const c of cards) {
     if (c.queue !== QUEUE_NEW || !scopeIds.has(c.deck_id)) continue;
+    if (!admitsNewCards(longTerm?.get(c.note_id) ?? null, inReview.get(c.deck_id)!, reviewed.has(c.note_id))) continue;
     const list = newByDeck.get(c.deck_id);
     if (list) list.push(c);
     else newByDeck.set(c.deck_id, [c]);
@@ -178,14 +188,15 @@ export function selectStudyQueue<C extends QueueCardInput>(
     let secondary = 0;
     for (const c of list) if (reviewed.has(c.note_id)) secondary++;
     const intro = introduced.get(d.id) ?? { primary: 0, secondary: 0 };
+    const caps = longTermCaps(d.cap_primary, d.cap_secondary);
     return {
       deckId: d.id,
       priority: d.priority,
       createdAt: d.created_at,
       totalNew: list.length - secondary,
       totalSecondaryNew: secondary,
-      capPrimary: d.cap_primary,
-      capSecondary: d.cap_secondary,
+      capPrimary: caps.capPrimary,
+      capSecondary: caps.capSecondary,
       studiedPrimary: intro.primary,
       studiedSecondary: intro.secondary,
     };

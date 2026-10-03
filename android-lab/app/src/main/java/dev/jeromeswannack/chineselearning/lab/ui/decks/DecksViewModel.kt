@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.decks
 
+import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -119,11 +120,12 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
         val cutoff = StudyQueue.cutoff(now, zone)
         val queueDecks = decks.map { it.toQueueDeck() }
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
+        val longTerm = dao.noteLongTerm()
         val noteCounts = dao.noteCounts().associate { it.deckId to it.count }
         val cardsByDeck = entities.groupBy { it.deckId }
         val ordered = Budget.sortForQueue(decks, { it.studyPriority }, { it.createdAt })
         return ordered.map { d ->
-            val q = StudyQueue.build(queueDecks, cards, env.budget(), env.bonus(d.id, today), introduced, cutoff, d.id)
+            val q = StudyQueue.build(queueDecks, cards, env.budget(), env.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm)
             val completion = DeckStats.completion(cardsByDeck[d.id].orEmpty())
             DeckCardUi(
                 id = d.id, name = d.name, noteCount = noteCounts[d.id] ?: 0,

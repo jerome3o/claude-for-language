@@ -68,6 +68,8 @@ data class HomeworkDeckDto(
     val percent_mastered: Int = 0,
     val notes_total: Int = 0,
     val notes_introduced: Int = 0,
+    /** Words the student left out of long-term review in a homework pass (not in words_to_go). */
+    val notes_left_out: Int = 0,
     val words_to_go: Int = 0,
     val days_to_go: Int = 0,
     val queue_position: Int? = null,

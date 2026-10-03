@@ -8,6 +8,7 @@ import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
 import dev.jeromeswannack.chineselearning.lab.data.platform.LabPlatform
+import dev.jeromeswannack.chineselearning.lab.data.homework.LongTermStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -200,7 +201,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         id = n.id, deckId = deckId, hanzi = n.hanzi, pinyin = n.pinyin, english = n.english, audioUrl = n.audio_url,
         funFacts = n.fun_facts, context = n.context, sentenceClue = n.sentence_clue, sentenceCluePinyin = n.sentence_clue_pinyin,
         sentenceClueTranslation = n.sentence_clue_translation, sentenceClueAudioUrl = n.sentence_clue_audio_url,
-        alternatives = n.alternatives, createdAt = n.created_at,
+        alternatives = n.alternatives, createdAt = n.created_at, longTerm = n.long_term,
     )
 
     /** `fullSync`: replace decks + notes wholesale; keep cards we have (their state comes from events). */
@@ -230,6 +231,8 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
                 dao.upsertDecks(decks.map(::deckEntity))
                 dao.clearNotes()
                 notes.chunked(500).forEach { dao.upsertNotes(it) }
+                // "Long-term review" choices still in the Outbox stay as chosen.
+                LongTermStore.reapplyPending(dao, db.platform())
                 val keep = serverCards.mapTo(HashSet()) { it.id }
                 val placed = dao.cardPlacements().associateBy { it.id }
                 placed.keys.filter { it !in keep }.chunked(500).forEach { dao.deleteCards(it) }
@@ -256,7 +259,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
             api.changes(prefs.changesCursor).also { step.detail = "${it.notes.size} notes · ${it.cards.size} cards · ${it.deleted.note_ids.size + it.deleted.deck_ids.size} deleted" }
         }
         clock.phase("Saving changes") {
-            val ghosts = db.withTransaction { SyncChanges.apply(dao, changes) }
+            val ghosts = db.withTransaction { SyncChanges.apply(dao, changes).also { LongTermStore.reapplyPending(dao, db.platform()) } }
             if (ghosts.isNotEmpty()) android.util.Log.i("LabSync", "Removed ${ghosts.size} decks the server no longer has: $ghosts")
         }
         prefs.changesCursor = Js.parseDate(changes.server_time)

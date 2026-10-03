@@ -491,7 +491,8 @@ fun HomeworkDeckRow(
                 MutedLine(
                     if (d.target_deck_name == null) "The student deleted their copy"
                     else "${d.notes_introduced}/${d.notes_total} words met · ${d.cards_mastered} cards mastered · " +
-                        if (d.words_to_go == 0) "all introduced" else "${d.words_to_go} to go, ~${d.days_to_go} ${if (d.days_to_go == 1) "day" else "days"}",
+                        (if (d.words_to_go == 0) "all introduced" else "${d.words_to_go} to go, ~${d.days_to_go} ${if (d.days_to_go == 1) "day" else "days"}") +
+                        (if (d.notes_left_out > 0) " · ${d.notes_left_out} left out by the student" else ""),
                 )
                 if (d.notes_missing > 0) TeachPill("${TeachingFormat.plural(d.notes_missing, "new word")} not sent", PillTone.Muted)
             }
