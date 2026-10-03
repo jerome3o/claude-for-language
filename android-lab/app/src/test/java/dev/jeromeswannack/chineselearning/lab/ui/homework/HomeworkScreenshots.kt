@@ -109,6 +109,37 @@ class HomeworkScreenshots : LabScreenshotTest() {
         HomeworkPassScreen(deckPass(false).copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true), addState = AddState.Done), PassActions())
     }
 
+    // "Add to my long-term review" (docs/HOMEWORK.md §3a).
+    private fun bothPass(n: PassNote) = deckPass(true).copy(note = n, oneOffOnly = false, deckInReview = true)
+
+    @Test fun passLongTermOff() = shoot("homework-26-pass-longterm-off") { HomeworkPassScreen(bothPass(note.copy(longTerm = 0)), PassActions()) }
+
+    @Test fun passLongTermOnOneOff() = shoot("homework-27-pass-longterm-on-oneoff", dark = true) {
+        HomeworkPassScreen(deckPass(true).copy(note = note.copy(longTerm = 1)), PassActions())
+    }
+
+    @Test fun passLongTermStarted() = shoot("homework-28-pass-longterm-started") { HomeworkPassScreen(bothPass(note.copy(started = true)), PassActions()) }
+
+    @Test fun passDoneLongTerm() = shoot("homework-29-pass-done-longterm") {
+        HomeworkPassScreen(
+            bothPass(note).copy(
+                progress = progress.copy(done = 16, total = 16, remaining = emptyList(), retrying = 0, complete = true),
+                longTermSummary = dev.jeromeswannack.chineselearning.lab.core.LongTerm.Summary(12, 4),
+            ),
+            PassActions(),
+        )
+    }
+
+    @Test fun passDoneOneOffSomeAdded() = shoot("homework-30-pass-done-oneoff-some-added") {
+        HomeworkPassScreen(
+            deckPass(false).copy(
+                progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true),
+                longTermSummary = dev.jeromeswannack.chineselearning.lab.core.LongTerm.Summary(3, 9),
+            ),
+            PassActions(),
+        )
+    }
+
     // Lesson / reader items play in the Lab's own players (package K).
     private val previews = dev.jeromeswannack.chineselearning.lab.core.CardScheduler.intervalPreviews(
         dev.jeromeswannack.chineselearning.lab.core.CardScheduler.initialCardState(), java.time.Instant.parse("2026-09-27T09:00:00Z").toEpochMilli(),

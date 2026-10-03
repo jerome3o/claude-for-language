@@ -102,6 +102,42 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
   regular lesson player. Reader: the regular reader.
 - FSRS enrolment is whatever the tutor chose; the student can still add a one-off deck to daily review.
 
+## 3a. "Add to my long-term review" (per word)
+
+On the answer side of each word in a pass there is a compact switch — **Add to my long-term review** /
+**In my long-term review** (web `components/homework/LongTermSwitch.tsx`, Lab `ui/homework/LongTermSwitch.kt`).
+It lets the learner filter what reaches FSRS:
+
+- in a `both` pass it starts **on** — switch off the words that are too easy, they never enter daily review;
+- in a `one_off`-only pass it starts **off** — switch on a word to really learn it, it joins daily review.
+
+The choice is stored on the student's copy of the note, `notes.long_term` (migration `0093_note_long_term.sql`):
+`NULL` = follow the deck (a one-off copy, caps 0 + 0, never introduces it; any other deck does), `1` = opted in,
+`0` = opted out. Flipping the switch back to the deck's default stores `NULL` again (so *Add these words to my
+daily review* on a one-off deck still takes every word not singled out). Rules, all pure in
+`shared/decks/long-term.ts` (Lab `core/…/LongTerm.kt`, parity-tested through `parity/fixtures/long-term.ts`):
+
+- **Opted out** (`0`): the note's NEW cards never enter the new-card pools — not the primary or secondary budget,
+  not *Study 10 more*, not "words to go". Only for words not met yet: once any card of the note has been reviewed
+  the choice is ignored and the switch shows *✓ Already in your reviews* (disabled) — the pass never suspends
+  existing reviews.
+- **Opted in** (`1`) in a deck out of daily review (both caps 0): the deck's pool holds only its opted-in words,
+  with the new-deck default caps (3 + 6), in the deck's queue position — still inside the ONE global budget, and
+  "new characters first" still orders them.
+- The queue applies it in `selectStudyQueue(..., longTerm)` (`shared/decks/study-queue.ts`); the web's counts
+  (`countRawQueues`) and every Lab `StudyQueue.build` use the same rule, so Home, the deck rows and the session agree.
+- Offline-first: the web writes the note + `pendingNotePrefs` (Dexie v25) and `PUT /api/notes/:id/long-term`
+  `{ long_term: true | false | null }` now or on the next sync (`services/longTerm.ts`); the Lab writes Room
+  `notes.longTerm` (v3) and the Outbox (`data/homework/LongTermStore.kt`). A sync that rewrites notes re-applies
+  the choices not uploaded yet. The server sets `long_term_at`, not `updated_at` (a choice must not make the
+  student's copy look edited to *Update their copy*); `/api/sync/changes` sends notes changed by either.
+  Copies (share / update) never carry it.
+- The finish screen says what happened: "12 words added to daily review · 4 left out" (a `both` pass), or for a
+  one-off pass where some were switched on "3 words added…" plus *Add them all to my daily review*.
+- The card hub (`/cards/:noteId`) shows the same switch for the owner. The tutor's packet row on the student
+  page says "· N left out by the student" and those words are not counted in "N to go"
+  (`notes_left_out`, `fetchHomeworkDecks`).
+
 ## 4. Tutor flow (student page)
 
 1. **Lesson notes** (replaces "Session notes"): one entry per lesson — date, title, and its homework

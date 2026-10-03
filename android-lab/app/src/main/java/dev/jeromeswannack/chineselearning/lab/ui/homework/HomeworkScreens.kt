@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec
 import dev.jeromeswannack.chineselearning.lab.core.DueLabel
 import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
+import dev.jeromeswannack.chineselearning.lab.core.LongTerm
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonPlayer
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult
@@ -133,6 +134,10 @@ data class PassNote(
     val sentences: List<SentenceRow> = emptyList(),
     /** Where "+ Add as card" from a sentence goes by default (the word's own deck). */
     val deckId: String = "",
+    /** The learner's "long-term review" choice (core LongTerm.kt): 1 in, 0 out, null = follow the deck. */
+    val longTerm: Int? = null,
+    /** A card of this word was already reviewed: it is in the reviews whatever the switch says. */
+    val started: Boolean = false,
 )
 
 enum class AddState { Idle, Busy, Done, Error }
@@ -156,6 +161,10 @@ sealed interface PassUi {
         val addState: AddState = AddState.Idle,
         val online: Boolean = true,
         val busy: Boolean = false,
+        /** The deck's own default for the long-term switch (a one-off-only copy, caps 0 + 0, is off). */
+        val deckInReview: Boolean = !oneOffOnly,
+        /** What the pass decided, for the finish screen ("12 words added to daily review · 4 left out"). */
+        val longTermSummary: LongTerm.Summary? = null,
     ) : PassUi
 
     /**
@@ -181,6 +190,8 @@ class PassActions(
     val onAnswer: (right: Boolean) -> Unit = {},
     val onPlay: () -> Unit = {},
     val onAddToDaily: () -> Unit = {},
+    /** The answer side's "Add to my long-term review" switch flipped to `on`. */
+    val onLongTerm: (on: Boolean) -> Unit = {},
     val onRetrySync: () -> Unit = {},
     val onAllHomework: () -> Unit = {},
     /** Lesson: the rated run (completion + attempt + recordings, then the homework `done`). */
@@ -234,7 +245,7 @@ private fun DeckPass(ui: PassUi.Deck, actions: PassActions, playingKey: String?,
     val counter: @Composable () -> Unit = { Text("${p.done}/${p.total}", color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("hw-pass-count")) }
     PassTopBar(ui.title, actions.onClose, counter)
     if (p.complete) {
-        PassDone(if (ui.part != null) "${ui.title} · ${ui.part}" else ui.title, p.total, ui.oneOffOnly, ui.addState, ui.online, actions)
+        PassDone(if (ui.part != null) "${ui.title} · ${ui.part}" else ui.title, p.total, ui.oneOffOnly, ui.addState, ui.online, actions, ui.longTermSummary, ui.deckInReview)
         return
     }
     // How the last card left (Got it flings it away like Good, Not yet drops it like Again),
@@ -261,7 +272,13 @@ private fun DeckPass(ui: PassUi.Deck, actions: PassActions, playingKey: String?,
                     transitionSpec = { studyCardTransition(when (lastRight) { true -> Rating.GOOD; false -> Rating.AGAIN; null -> null }) },
                     label = "pass-card",
                 ) { face ->
-                    PassCard(face.note, face.revealed, actions.onPlay) {
+                    PassCard(face.note, face.revealed, actions.onPlay, longTerm = {
+                        LongTermSwitch(
+                            on = LongTerm.isLongTerm(face.note.longTerm, ui.deckInReview, face.note.started),
+                            started = face.note.started,
+                            onChange = actions.onLongTerm,
+                        )
+                    }) {
                         PassSentences(
                             key = face.key,
                             rows = face.note.sentences,
@@ -325,7 +342,7 @@ private class PassShown {
  * pinyin, meaning, the example sentence — which scrolls when it doesn't fit (large fonts).
  */
 @Composable
-private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, sentences: @Composable () -> Unit) {
+private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, longTerm: @Composable () -> Unit = {}, sentences: @Composable () -> Unit) {
     val rotation by animateFloatAsState(if (revealed) 180f else 0f, StudyCardFlip, label = "flip")
     val density = LocalDensity.current
     Box(
@@ -342,7 +359,7 @@ private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, sent
         if (rotation <= 90f) {
             PassFront(note, onPlay)
         } else {
-            Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) { PassBack(note, onPlay, sentences) }
+            Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) { PassBack(note, onPlay, longTerm, sentences) }
         }
     }
 }
@@ -374,7 +391,7 @@ private fun PassFront(note: PassNote, onPlay: () -> Unit) {
 }
 
 @Composable
-private fun PassBack(note: PassNote, onPlay: () -> Unit, sentences: @Composable () -> Unit) {
+private fun PassBack(note: PassNote, onPlay: () -> Unit, longTerm: @Composable () -> Unit, sentences: @Composable () -> Unit) {
     // Centred in the card while it fits (a word's answer is short — no big empty half);
     // scrolls from the top when it doesn't (large fonts, a long sentence).
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -400,6 +417,8 @@ private fun PassBack(note: PassNote, onPlay: () -> Unit, sentences: @Composable 
                 Spacer(Modifier.width(6.dp))
                 Text("Play", color = Lab.colors.ink, style = MaterialTheme.typography.labelLarge)
             }
+            Spacer(Modifier.height(10.dp))
+            longTerm()
             if (note.sentences.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
                 sentences()
@@ -419,7 +438,16 @@ private fun PlayCircle(onPlay: () -> Unit) {
 }
 
 @Composable
-private fun PassDone(title: String, words: Int?, oneOffOnly: Boolean, addState: AddState, online: Boolean, actions: PassActions) {
+private fun PassDone(
+    title: String,
+    words: Int?,
+    oneOffOnly: Boolean,
+    addState: AddState,
+    online: Boolean,
+    actions: PassActions,
+    longTerm: LongTerm.Summary? = null,
+    deckInReview: Boolean = !oneOffOnly,
+) {
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp).testTag("hw-pass-done"),
@@ -429,14 +457,24 @@ private fun PassDone(title: String, words: Int?, oneOffOnly: Boolean, addState: 
             Text("🎉", fontSize = 64.sp)
             Text("Homework done!", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Lab.colors.ink)
             Text(title + (words?.let { " · $it ${if (it == 1) "word" else "words"}" } ?: ""), style = MaterialTheme.typography.bodyLarge, color = Lab.colors.muted, textAlign = TextAlign.Center)
-            if (oneOffOnly) {
+            // What the switches decided (web: longTermLine) — for a deck in review always, for a
+            // one-off deck once a word was switched on.
+            if (longTerm != null && (deckInReview || longTerm.added > 0) && addState != AddState.Done) {
+                Text(
+                    LongTerm.line(longTerm.added, longTerm.leftOut),
+                    style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Palette.Secondary,
+                    textAlign = TextAlign.Center, modifier = Modifier.testTag("hw-longterm-summary"),
+                )
+            }
+            val someAdded = longTerm != null && longTerm.added > 0
+            if (oneOffOnly && (longTerm == null || (!deckInReview && longTerm.leftOut > 0))) {
                 LabCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         if (addState == AddState.Done) {
                             Text("Added — these words now come up in your daily review.", color = Lab.colors.ink)
                         } else {
-                            Text("These words were a one-off. Want to keep them for good?", color = Lab.colors.ink)
-                            SecondaryPill(if (addState == AddState.Busy) "Adding…" else "Add to my daily review", Modifier.fillMaxWidth(), enabled = addState != AddState.Busy && online) { actions.onAddToDaily() }
+                            Text(if (someAdded) "The others were a one-off. Keep them all for good?" else "These words were a one-off. Want to keep them for good?", color = Lab.colors.ink)
+                            SecondaryPill(if (addState == AddState.Busy) "Adding…" else if (someAdded) "Add them all to my daily review" else "Add to my daily review", Modifier.fillMaxWidth(), enabled = addState != AddState.Busy && online) { actions.onAddToDaily() }
                             if (!online) Text("Available when you’re online.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
                             if (addState == AddState.Error) Text("Couldn’t add them — try again later.", style = MaterialTheme.typography.bodySmall, color = Palette.Again)
                         }

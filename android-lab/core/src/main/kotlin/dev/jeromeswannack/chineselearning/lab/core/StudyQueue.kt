@@ -106,6 +106,10 @@ object StudyQueue {
      * [noteHanzi] (note id → hanzi; null = plain tier / id order) turns on "new characters
      * first" (Novelty.kt): a deck's brand-new words are the ones with never-seen characters.
      * Seen = the notes in [seenNoteIds], default the notes of [cards] with a reviewed card.
+     *
+     * [longTerm] (note id → 0 / 1, only notes with a choice) is the learner's "long-term review"
+     * choice (LongTerm.kt): opted-out words never enter a pool, and a deck out of daily review
+     * (caps 0 + 0) holds only its opted-in words, at the new-deck default caps.
      */
     fun build(
         decks: List<QueueDeck>,
@@ -117,22 +121,31 @@ object StudyQueue {
         deckId: String?,
         noteHanzi: Map<String, String>? = null,
         seenNoteIds: Collection<String>? = null,
+        longTerm: Map<String, Int>? = null,
     ): BuiltQueue {
         val reviewed = reviewedNoteIds(cards)
         val inScope = if (deckId == null) decks else decks.filter { it.id == deckId }
         val scopeIds = inScope.mapTo(HashSet()) { it.id }
+        val inReview = inScope.associate { it.id to LongTerm.deckInDailyReview(it.capPrimary, it.capSecondary) }
+        // The NEW cards each deck may introduce (opted-out words and a one-off copy's words
+        // nobody opted in are left out).
+        val newByDeck = cards.filter {
+            it.queue == CardQueue.NEW && it.deckId in scopeIds &&
+                LongTerm.admitsNewCards(longTerm?.get(it.noteId), inReview.getValue(it.deckId), it.noteId in reviewed)
+        }.groupBy { it.deckId }
 
         val pools = inScope.map { d ->
-            val newCards = cards.filter { it.deckId == d.id && it.queue == CardQueue.NEW }
+            val newCards = newByDeck[d.id].orEmpty()
             val intro = introduced[d.id] ?: Introduced(0, 0)
+            val (capPrimary, capSecondary) = LongTerm.caps(d.capPrimary, d.capSecondary)
             DeckNewPool(
                 deckId = d.id,
                 priority = d.priority,
                 createdAt = d.createdAt,
                 totalNew = newCards.count { it.noteId !in reviewed },
                 totalSecondaryNew = newCards.count { it.noteId in reviewed },
-                capPrimary = d.capPrimary,
-                capSecondary = d.capSecondary,
+                capPrimary = capPrimary,
+                capSecondary = capSecondary,
                 studiedPrimary = intro.primary,
                 studiedSecondary = intro.secondary,
             )
@@ -158,7 +171,7 @@ object StudyQueue {
         // order is used rather than failing the queue (Home, the session, the widget build it).
         var seen = noteHanzi?.let { h -> runCatching { NoveltyRank.seenFrom((seenNoteIds ?: reviewed).map { h[it] ?: "" }) }.getOrNull() }
         for ((id, a) in alloc) {
-            val list = cards.filter { it.deckId == id && it.queue == CardQueue.NEW }
+            val list = newByDeck[id].orEmpty()
                 .sortedWith(compareBy<QueueCard> { tier(it, reviewed) }.thenBy { it.id })
             val primaryList = list.filter { it.noteId !in reviewed }
             val take = Math.max(0, a.primary)

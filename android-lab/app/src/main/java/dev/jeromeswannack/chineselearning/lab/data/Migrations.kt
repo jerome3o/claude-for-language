@@ -31,6 +31,16 @@ object LabMigrations {
         }
     }
 
+    /**
+     * v3: notes.longTerm — the learner's "Add to my long-term review" choice from a homework
+     * pass (server notes.long_term, migration 0093; core LongTerm.kt). Nullable, no index.
+     */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `notes` ADD COLUMN `longTerm` INTEGER")
+        }
+    }
+
     /** Every migration, oldest first. Append new ones here. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }

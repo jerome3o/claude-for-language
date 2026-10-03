@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
 import dev.jeromeswannack.chineselearning.lab.data.noteHanzi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -292,7 +293,7 @@ class StudyViewModel(
             val cards = repo.dao.cards().map { it.toQueueCard() }
             val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
             val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
-            StudyQueue.build(decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi())
+            StudyQueue.build(decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm())
         }
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
@@ -384,7 +385,7 @@ class StudyViewModel(
             val cards = repo.dao.cards().map { it.toQueueCard() }
             val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
             val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
-            StudyQueue.build(decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi())
+            StudyQueue.build(decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm())
         }
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
