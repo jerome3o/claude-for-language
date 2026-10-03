@@ -15,6 +15,7 @@ import {
   type Profile,
   type ProfileUpdate,
 } from '@shared/profile';
+import { parseVoiceGender } from '@shared/chats';
 
 export const AVATAR_PREFIX = 'avatars/';
 
@@ -26,10 +27,11 @@ type ProfileRow = Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'bio'> & 
   picture_key: string | null;
   about: string | null;
   time_zone: string | null;
+  voice_gender: string | null;
 };
 
 const PROFILE_COLUMNS =
-  'id, email, name, picture_url, bio, google_name, google_picture_url, name_custom, picture_source, picture_key, about, time_zone';
+  'id, email, name, picture_url, bio, google_name, google_picture_url, name_custom, picture_source, picture_key, about, time_zone, voice_gender';
 
 function asPictureSource(v: string | null | undefined): PictureSource {
   return v === 'upload' || v === 'none' ? v : 'google';
@@ -48,6 +50,7 @@ export function toProfile(row: ProfileRow): Profile {
     bio: row.bio || null,
     about: row.about || null,
     time_zone: row.time_zone || null,
+    voice_gender: parseVoiceGender(row.voice_gender),
   };
 }
 
@@ -72,7 +75,7 @@ export async function updateProfile(db: D1Database, userId: string, update: Prof
       binds.push(update.name);
     }
   }
-  for (const key of ['bio', 'about', 'time_zone'] as const) {
+  for (const key of ['bio', 'about', 'time_zone', 'voice_gender'] as const) {
     if (update[key] !== undefined) {
       sets.push(`${key} = ?`);
       binds.push(update[key]);

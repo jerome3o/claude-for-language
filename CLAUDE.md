@@ -329,6 +329,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
 - `student_profiles` - The tutor's PRIVATE profile of a student, one per `tutor_relationships` row (tutor_id, student_id, markdown `body` ≤ 8000, optional `level` / `handwriting` / `words_per_lesson`). Migration 0077. Only the tutor-only route, the dashboard's `has_profile` flag and the tutor-side content agents read it — never a student-facing path. See "Student profile" below
+- `users.voice_gender` - 'male' | 'female' | 'other' | NULL: the voice this person's chat messages are read aloud in (migration 0098; Profile → "Your voice when your messages are read aloud", admin `PUT /api/admin/users/:user/voice-gender`, MCP `admin_set_user_voice_gender`). See "Chat read-aloud voice"
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
@@ -1772,6 +1773,7 @@ id or an email. Unit-tested in `tools/admin.test.ts`.
 | `admin_inspect_user_decks` | Live + deleted decks, shares either way, decks deleted before tombstones |
 | `admin_set_role` | `student` / `tutor` (the tutor-first app) |
 | `admin_set_can_invite` | Allow / stop invite links |
+| `admin_set_user_voice_gender` | `male` / `female` / `other` / null — the voice that account's chat messages are read aloud in (`PUT /api/admin/users/:user/voice-gender`) |
 | `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
 | `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
 
@@ -2028,6 +2030,15 @@ The app supports many-to-many tutor-student relationships where users can be tut
   sheet; drafts per conversation (`services/chatDrafts.ts`, Lab `core/…/ChatDrafts.kt` parity-tested) and the header's
   "🕓 N waiting for a connection" (`queueLabel`). Web: `FileBubble`, `VideoBubble`, `ForwardSheet`, `MessageInfoSheet`;
   Lab: `ui/chat/ChatForward.kt`, `ChatRound3Views.kt`, `core/…/ChatFiles.kt`.
+- **Chat read-aloud voice** (`shared/chats/voice.ts`, Lab `core/…/ChatVoice.kt`, parity-tested): Read aloud goes
+  through the exercises' TTS path (`POST /api/practice/tts`, device cache by text + voice + speed, plays offline once
+  heard) in a voice from the LISTENER's conversation voices that matches the SENDER's `users.voice_gender` (male → first
+  enabled male voice, female → first enabled female, other / not set → the app voice Radio Host); Claude's lines in a
+  role-play keep that chat's persona voice. `conversations.voice_id` (column DEFAULT 'female-yujie') is ignored for human
+  chats — it was why every chat read in a sultry role-play voice. `voice_gender` rides on `/api/auth/me`, `/api/profile`
+  and the relationship's requester / recipient. Offline and never fetched → a zh-CN device voice of the sender's gender
+  (`pickChineseVoiceFrom`). `/api/practice/tts` and `/api/conversations/:id/tts` (`{ message_id }` → resolved server-side)
+  keep MiniMax clips in R2 `tts-cache/` (`services/tts-cache.ts`).
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics

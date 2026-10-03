@@ -40,7 +40,7 @@ describe('admin tools', () => {
     registerAdminTools(ctx);
     expect([...tools.keys()].sort()).toEqual([
       'admin_delete_user', 'admin_get_user', 'admin_handle_access_request', 'admin_inspect_user_decks', 'admin_list_access_requests',
-      'admin_list_users', 'admin_preview_delete_user', 'admin_set_can_invite', 'admin_set_role',
+      'admin_list_users', 'admin_preview_delete_user', 'admin_set_can_invite', 'admin_set_role', 'admin_set_user_voice_gender',
     ]);
   });
 
@@ -54,6 +54,16 @@ describe('admin tools', () => {
     expect(calls[0]).toEqual({ method: 'PUT', path: '/api/admin/users/mh%40example.com/role', body: { role: 'tutor' } });
     const decks = JSON.parse(text(await tools.get('admin_inspect_user_decks')!({ user: 'mh@example.com' })));
     expect(decks.untombstoned_deleted_sources).toEqual(['d1']);
+  });
+
+  it('set_user_voice_gender puts male / female / other / null through the admin API', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'PUT /api/admin/users/u1/voice-gender': (body) => ({ id: 'u1', ...(body as object) }),
+    });
+    registerAdminTools(ctx);
+    expect(JSON.parse(text(await tools.get('admin_set_user_voice_gender')!({ user: 'u1', voice_gender: 'male' })))).toMatchObject({ voice_gender: 'male' });
+    await tools.get('admin_set_user_voice_gender')!({ user: 'u1', voice_gender: null });
+    expect(calls.map((c) => c.body)).toEqual([{ voice_gender: 'male' }, { voice_gender: null }]);
   });
 
   it('delete sends the typed email as confirmation and refuses a non-email locally', async () => {

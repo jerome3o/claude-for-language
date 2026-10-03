@@ -77,4 +77,17 @@ class ProfileRulesTest {
         assertNull(c.bio)
         assertEquals("", ProfileChanges.of(saved, ProfileDraft.from(saved).copy(name = " ")).name)
     }
+
+    @Test
+    fun voiceGenderIsAChange() {
+        val saved = ProfileDto(id = "u", name = "Jerome", voice_gender = "male")
+        assertFalse(ProfileChanges.of(saved, ProfileDraft.from(saved)).any)
+        assertEquals("male", ProfileDraft.from(saved).voiceGender)
+        assertEquals(ProfileField("female"), ProfileChanges.of(saved, ProfileDraft.from(saved).copy(voiceGender = "female")).voiceGender)
+        assertEquals(ProfileField(null), ProfileChanges.of(saved, ProfileDraft.from(saved).copy(voiceGender = null)).voiceGender)
+        // An unknown stored value counts as not set.
+        val odd = saved.copy(voice_gender = "robot")
+        assertEquals(null, ProfileDraft.from(odd).voiceGender)
+        assertFalse(ProfileChanges.of(odd, ProfileDraft.from(odd)).any)
+    }
 }
