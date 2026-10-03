@@ -61,7 +61,7 @@ export function ExplainSheet({ text, mode, isOnline, onClose }: { text: string; 
         <div className="msg-sheet-handle" aria-hidden="true" />
         <div className="chat-explain-head">
           <div className="chat-explain-text" lang="zh">{text}</div>
-          <div className="chat-explain-pinyin">{sentencePinyin}</div>
+          <div className="chat-explain-pinyin">{explanation ? sentenceChunk(text, sentencePinyin, explanation).pinyin : sentencePinyin}</div>
           {explanation?.translation && <div className="chat-explain-translation">{explanation.translation}</div>}
         </div>
         {!explanation && !error && (

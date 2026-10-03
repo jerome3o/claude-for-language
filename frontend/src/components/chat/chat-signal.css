@@ -717,3 +717,21 @@
     max-width: 62%;
   }
 }
+
+.chat-voice-composer.held {
+  background: #f1f1f3;
+  border-radius: 22px;
+}
+.chat-voice-composer.held .chat-voice-recording {
+  background: transparent;
+  padding: 0;
+}
+
+.msg-menu.popover {
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+}
+.msg-menu.popover .msg-sheet-action {
+  min-height: 40px;
+}

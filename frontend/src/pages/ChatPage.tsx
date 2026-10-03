@@ -409,6 +409,8 @@ export function ChatPage() {
           next.delete(msg.id);
           return next;
         });
+        // Don't leave "Translating…" spinning: switch it back off for this message.
+        updateDisplay((p) => (isShown(p, 'translate', msg.id) && !p.translateAll ? toggleShown(p, 'translate', msg.id) : p));
         showError("Couldn't translate that message.", error);
       });
   };
