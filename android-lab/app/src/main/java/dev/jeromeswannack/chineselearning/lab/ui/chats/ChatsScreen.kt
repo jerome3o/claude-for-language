@@ -58,7 +58,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 private val SignalBlue: Color
     @Composable get() = dev.jeromeswannack.chineselearning.lab.ui.chat.chatColors().mine // the chat screens' own blue (#2c6bed light)
 
-/** Someone I can start a new conversation with (the ✏️ picker). */
+/** Someone I can message (the ✏️ picker): opens the one chat with them. */
 data class ChatPerson(val relationshipId: String, val name: String, val pictureUrl: String? = null, val role: String? = null)
 
 data class ChatsUi(
@@ -92,7 +92,7 @@ class ChatsActions(
  * The Chats tab (web `/chats`, shared/chats/inbox.ts): one row per conversation, Signal style —
  * round avatar, name, the title when there are several chats with that person, one-line preview,
  * relative time, a blue unread pill. People first, then "Practice with Claude". Search filters
- * by name, title and last message. ✏️ starts a new conversation.
+ * by name, title and last message. ✏️ opens THE chat with a person (one chat per pair).
  */
 @Composable
 fun ChatsScreen(ui: ChatsUi, actions: ChatsActions) {
@@ -101,7 +101,7 @@ fun ChatsScreen(ui: ChatsUi, actions: ChatsActions) {
     LabScreenFrame {
         ScreenTitle("Chats", actions = {
             IconButton(onClick = actions.onNewChat, modifier = Modifier.testTag("chats-new")) {
-                Icon(Icons.Outlined.Edit, "New chat", tint = SignalBlue)
+                Icon(Icons.Outlined.Edit, "Message someone", tint = SignalBlue)
             }
         })
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -262,7 +262,7 @@ private fun Initial(text: String, bg: Color, size: Dp, emoji: Boolean = false) {
 
 @Composable
 private fun PersonPicker(people: List<ChatPerson>, actions: ChatsActions) {
-    LabBottomSheet(onDismiss = actions.onDismissPicker, title = "New chat with…") {
+    LabBottomSheet(onDismiss = actions.onDismissPicker, title = "Chat with…") {
         people.forEachIndexed { i, p ->
             if (i > 0) HorizontalDivider(Modifier.padding(start = 82.dp), color = Lab.colors.faint)
             Row(

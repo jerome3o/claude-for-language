@@ -24,7 +24,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.lessonLibrary
 import dev.jeromeswannack.chineselearning.lab.data.api.lessonLog
 import dev.jeromeswannack.chineselearning.lab.data.api.liveCalls
 import dev.jeromeswannack.chineselearning.lab.data.api.moveSharedDeck
-import dev.jeromeswannack.chineselearning.lab.data.api.openConversation
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.data.api.relationshipHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.removeRelationship
 import dev.jeromeswannack.chineselearning.lab.data.api.reopenCardFlag
@@ -70,7 +70,8 @@ object TeachingKeys {
     fun homework(relId: String) = "teaching/homework/$relId"
     fun flags(relId: String) = "teaching/flags/$relId"
     fun claude(relId: String) = "teaching/claude/$relId"
-    fun conversations(relId: String) = "teaching/conversations/$relId"
+    /** v2: one chat per pair (migration 0099) — lists cached before it held merged-away chats. */
+    fun conversations(relId: String) = "teaching/conversations-v2/$relId"
     fun lessons(relId: String) = "teaching/lessons/$relId"
     fun lessonLog(relId: String) = "teaching/lesson-log/$relId"
     fun readers(relId: String) = "teaching/shared-readers/$relId"
@@ -106,12 +107,12 @@ class DashboardViewModel(private val app: LabApp) : ViewModel() {
             .onFailure { _notice.value = it.userMessage() }
     }
 
-    /** Message: the known conversation, else the most recent one (created if none). */
+    /** Message: THE chat with the student (one chat per pair) — the known id, else `/conversations/open`. */
     fun message(o: dev.jeromeswannack.chineselearning.lab.data.api.StudentOverviewDto, go: (String) -> Unit) {
         o.last_conversation_id?.let { go(it); return }
         viewModelScope.launch {
-            attempt { app.repo.api.openConversation(o.relationship_id) }
-                .onSuccess { go(it.conversation_id) }
+            attempt { ChatPair.theChat(app, o.relationship_id) }
+                .onSuccess { go(it) }
                 .onFailure { _notice.value = it.userMessage() }
         }
     }
@@ -319,14 +320,14 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
 
     fun say(text: String, error: Boolean = false) = _t.update { it.copy(notice = text, noticeIsError = error) }
 
-    /** Message: the most recent conversation, created when there is none. */
+    /** Message: THE chat with the student (one chat per pair) — the known id, else `/conversations/open`. */
     fun message(go: (String) -> Unit) {
         val known = overview.state.value.data?.last_conversation_id ?: conversations.state.value.data?.firstOrNull()?.id
         if (known != null) { go(known); return }
         viewModelScope.launch {
             _t.update { it.copy(messageBusy = true) }
-            attempt { app.repo.api.openConversation(relId) }
-                .onSuccess { conversations.refresh(); go(it.conversation_id) }
+            attempt { ChatPair.theChat(app, relId) }
+                .onSuccess { conversations.refresh(); go(it) }
                 .onFailure { say(it.userMessage(), true) }
             _t.update { it.copy(messageBusy = false) }
         }

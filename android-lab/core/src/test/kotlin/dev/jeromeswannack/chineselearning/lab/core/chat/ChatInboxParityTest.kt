@@ -48,7 +48,7 @@ class ChatInboxParityTest {
     }
 
     @Test fun sortGroupTitlesPreviewsBadge() {
-        assertEquals(8, rows.size)
+        assertEquals(9, rows.size)
         assertEquals(ids("sorted"), ChatInbox.sort(rows).map { it.conversationId })
         val g = ChatInbox.group(rows)
         val eg = f["group"]!!.jsonObject

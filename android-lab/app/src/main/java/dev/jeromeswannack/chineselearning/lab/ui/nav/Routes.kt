@@ -55,6 +55,8 @@ object Routes {
     // ---- tutor tab for students (package E) ----
     fun connection(relId: String) = "/connections/${seg(relId)}"
     fun chat(relId: String, convId: String) = "/connections/${seg(relId)}/chat/${seg(convId)}"
+    /** THE chat with the person of a relationship (one chat per pair; resolved by `/conversations/open`). */
+    fun theChat(relId: String) = "/connections/${seg(relId)}/chat"
     fun claudeChats() = "/claude-chats"
     fun lessonNotes() = "/lesson-notes"
 

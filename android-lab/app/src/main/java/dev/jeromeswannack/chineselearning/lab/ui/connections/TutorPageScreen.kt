@@ -157,11 +157,16 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
             LabCard { NavRow("📝", dev.jeromeswannack.chineselearning.lab.ui.calls.lessonBoardTitle(ui.boardPages), desc = "What you wrote together in your video lessons", onClick = actions.onOpenBoard) }
         }
 
-        item { SectionHeader("Conversations") }
-        item {
-            LoadableContent(ui.conversations, onRetry = actions.onRetry, isEmpty = { it.isEmpty() }, empty = {
-                EmptyState("💬", "No conversations yet", body = "Send a message to get started", actionLabel = "Message", onAction = { if (isClaude) newConv = true else actions.onMessage() })
-            }) { list -> ConversationList(list, actions.onOpenConversation) }
+        if (isClaude) {
+            item { SectionHeader("Conversations") }
+            item {
+                LoadableContent(ui.conversations, onRetry = actions.onRetry, isEmpty = { it.isEmpty() }, empty = {
+                    EmptyState("💬", "No conversations yet", body = "Start a practice conversation", actionLabel = "New conversation", onAction = { newConv = true })
+                }) { list -> ConversationList(list, actions.onOpenConversation) }
+            }
+        } else {
+            // One chat per pair (docs/CHAT.md): the chat with them is one row, not a list.
+            item { OneChatRow(ui.conversations.data?.firstOrNull { !it.is_ai_conversation }, other.displayName(), enabled = !ui.busy, onOpen = actions.onMessage) }
         }
 
         if (!isClaude) {
@@ -209,6 +214,41 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
         )
     }
     if (newConv) NewPracticeConversationSheet(onDismiss = { newConv = false }, busy = ui.busy) { newConv = false; actions.onNewPracticeConversation(it) }
+}
+
+/**
+ * The ONE chat with a person (one chat per pair): their name, the last message and the unread
+ * count; tapping opens it (`/conversations/open`). No chat yet → "Send a message to get started".
+ */
+@Composable
+fun OneChatRow(conv: ChatConversationDto?, name: String, enabled: Boolean = true, onOpen: () -> Unit) {
+    LabCard(Modifier.testTag("one-chat")) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).bouncyClickable(enabled = enabled) { onOpen() }.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("💬", fontSize = 22.sp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Chat with $name", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val last = conv?.last_message
+                val unread = conv?.unread ?: 0
+                Text(
+                    if (last != null) dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(last.content, last.attachment_kind, last.deleted_at) else "Send a message to get started",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = if (unread > 0) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (unread > 0) Lab.colors.ink else Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (conv != null) {
+                Spacer(Modifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(Fmt.conversationDate(conv.last_message_at ?: conv.created_at), style = MaterialTheme.typography.labelMedium, color = if (conv.unread > 0) Lab.colors.accent else Lab.colors.muted)
+                    if (conv.unread > 0) { Spacer(Modifier.height(4.dp)); CountBadge(if (conv.unread > 99) "99+" else conv.unread.toString()) }
+                }
+            }
+        }
+    }
 }
 
 @Composable

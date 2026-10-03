@@ -19,3 +19,20 @@ The student's page for their tutor: one "Messages" row instead of a conversation
 
 ![Student page (tutor side)](05-student-page-message.png)
 The tutor's student page: the same single "Chat with Jerome" entry point with the unread count.
+
+## Lab app (Android)
+
+![Lab inbox](lab-01-inbox.png)
+Chats inbox: one row per person, no titles; the two Claude practice chats keep theirs.
+
+![Lab chat menu, person](lab-02-menu-person.png)
+Chat ⋯ with a person: Search, Make flashcards, pinyin / translation toggles only.
+
+![Lab chat menu, Claude](lab-03-menu-claude.png)
+Chat ⋯ in a Claude practice chat: New conversation, Rename, Voice settings and All conversations stay.
+
+![Lab tutor page](lab-04-tutor-page.png)
+The student's tutor page: Message plus one "Chat with 王老师" row (last message, unread).
+
+![Lab student page](lab-05-student-page-chat.png)
+The tutor's student page: the single "Chat with Jerome Swannack" card.

@@ -34,11 +34,13 @@ object ChatRound3 {
         val rows = (rels.tutors + rels.students).flatMap { rel ->
             val label = rel.other(myId).displayName("Someone")
             conversations[rel.id].orEmpty().filter { !it.is_ai_conversation }.map { cv ->
-                Row(ForwardTarget(cv.id, rel.id, label, cv.title?.takeIf { it.isNotEmpty() }), cv.last_message_at?.takeIf { it.isNotEmpty() } ?: cv.created_at)
+                // One chat per pair: the person is the whole label (a chat with a person has no title).
+                Row(ForwardTarget(cv.id, rel.id, label, null), cv.last_message_at?.takeIf { it.isNotEmpty() } ?: cv.created_at)
             }
         }
         // The web's `sort((a, b) => (a.at < b.at ? 1 : -1))`: newest first.
-        return rows.sortedWith { a, b -> if (a.at < b.at) 1 else if (a.at > b.at) -1 else 0 }.map { it.t }
+        // One chat per pair: a person is one target (the newest chat, should a stale list hold more).
+        return rows.sortedWith { a, b -> if (a.at < b.at) 1 else if (a.at > b.at) -1 else 0 }.map { it.t }.distinctBy { it.relationshipId }
     }
 
     /** "Forwarded the message to Minghui · Weekly chat." / "Forwarded 3 messages to …". */
