@@ -694,13 +694,13 @@ suspend fun Api.studentHistory(relId: String, h: HistoryQuery): HistoryPageDto =
 data class JobStepDto(val at: String = "", val text: String = "", /** info | tool | warn | done | error */ val kind: String = "info")
 
 @Serializable
-data class JobDeckDto(val id: String, val name: String = "", val note_count: Int = 0, val target_deck_id: String? = null)
+data class JobDeckDto(val id: String, val name: String = "", val note_count: Int = 0, val target_deck_id: String? = null, /** Set once the tutor took it back (homework removal). */ val removed_at: String? = null)
 
 @Serializable
-data class JobLessonDto(val library_item_id: String, val title: String = "", val lesson_id: String? = null, val exercise_count: Int = 0)
+data class JobLessonDto(val library_item_id: String, val title: String = "", val lesson_id: String? = null, val exercise_count: Int = 0, val removed_at: String? = null)
 
 @Serializable
-data class JobReaderDto(val id: String, val title_english: String = "", val title_chinese: String = "", val page_count: Int = 0, val target_reader_id: String? = null)
+data class JobReaderDto(val id: String, val title_english: String = "", val title_chinese: String = "", val page_count: Int = 0, val target_reader_id: String? = null, val removed_at: String? = null)
 
 @Serializable
 data class JobResultDto(

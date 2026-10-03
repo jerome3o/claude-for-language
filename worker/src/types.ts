@@ -567,6 +567,8 @@ export interface Message {
   media_url?: string | null;
   pinned_at?: string | null;
   pinned_by?: string | null;
+  /** The message this one was forwarded from (round 2 PR 3); shown as "↪ Forwarded". */
+  forwarded_from?: string | null;
   /**
    * Learning tools (docs/CHAT.md PR 3): the text split into word chips
    * (shared/reader/words.ts), concatenating exactly to `content` — or, for a
@@ -606,7 +608,11 @@ export type ChatAttachment =
       transcript_status: 'pending' | 'done' | 'failed';
       transcript?: string | null;
       translation?: string | null;
-    };
+    }
+  /** A document (PDF, Word, Excel, PowerPoint, text, zip…) — round 2 PR 3. */
+  | { kind: 'file'; name: string; bytes: number; mime: string }
+  /** A short video clip (MP4 / WebM / MOV ≤ 25 MB); size and length as the sender's device measured them. */
+  | { kind: 'video'; bytes: number; mime: string; duration_ms?: number | null; width?: number | null; height?: number | null };
 
 export interface MessageReaction {
   emoji: string;

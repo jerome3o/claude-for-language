@@ -271,6 +271,9 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
     val notesEntries by vm.lessonNotes.entries.state.collectAsStateWithLifecycle()
     val drafting by vm.lessonNotes.drafting.collectAsStateWithLifecycle()
     val profile by vm.profile.resource.state.collectAsStateWithLifecycle()
+    val readers by vm.readers.state.collectAsStateWithLifecycle()
+    val removal by vm.removal.sheet.collectAsStateWithLifecycle()
+    val toast by vm.removal.toast.collectAsStateWithLifecycle()
     var profileEditor by remember { mutableStateOf<StudentProfileFields?>(null) }
     val student = rel.studentUser()
     val name = overview.data?.let { studentName(it) } ?: student?.name ?: student?.email ?: "Student"
@@ -289,6 +292,9 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             claude = claude,
             conversations = conversations,
             lessons = lessons,
+            readers = readers,
+            removal = removal,
+            toast = toast,
             lastLessonAt = lessonLog.data?.firstOrNull()?.lesson_at,
             studentDecks = t.studentDecks,
             liveCallId = call?.callId ?: t.liveCallId,
@@ -343,6 +349,8 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             removeConnection = { vm.remove { nav.open(Routes.CONNECTIONS) } },
             playRecording = { url -> if (playing == url) app.audio.stop() else app.audio.play(url, "", online) },
             refresh = vm::refresh,
+            removeHomework = { target -> vm.removal.start(target, name) },
+            removalSheet = vm.removal.actions,
         ),
     )
     if (showSend) SendHomeworkFor(nav, vm.send, relId, name, overview.data) { showSend = false }
@@ -382,13 +390,16 @@ private fun SessionNotesRoute(nav: LabNav, relId: String, name: String) {
     val vm: SessionNotesViewModel = viewModel(key = "session-notes-$relId", factory = SessionNotesViewModel.Factory(nav.app, relId))
     val jobs by vm.jobs.state.collectAsStateWithLifecycle()
     val online by nav.app.online.collectAsStateWithLifecycle()
+    val removal by vm.removal.sheet.collectAsStateWithLifecycle()
+    val toast by vm.removal.toast.collectAsStateWithLifecycle()
     SessionNotesScreen(
-        SessionNotesUi(relId, name, jobs.data, jobs.error, online),
-        JobActions(retry = { vm.retry(it) }, cancel = { vm.cancel(it) }, delete = { vm.delete(it) }, open = nav::open),
+        SessionNotesUi(relId, name, jobs.data, jobs.error, online, removal, toast),
+        JobActions(retry = { vm.retry(it) }, cancel = { vm.cancel(it) }, delete = { vm.delete(it) }, open = nav::open, remove = { vm.removal.start(it, name) }),
         back = nav::back,
         submit = { notes, title, at, priority, auto, log, done ->
             vm.submit(dev.jeromeswannack.chineselearning.lab.data.api.SubmitSessionNotesBody(notes, title, at, priority, auto, log), done)
         },
+        removalSheet = vm.removal.actions,
     )
 }
 

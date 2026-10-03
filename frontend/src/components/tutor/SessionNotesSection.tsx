@@ -51,7 +51,7 @@ export function SessionNotesSection({ relId, studentName, showAll = false }: { r
       {visible.length > 0 && (
         <div className="sn-jobs">
           {visible.map((job) => (
-            <SessionNotesJobCard key={job.id} relId={relId} job={job} />
+            <SessionNotesJobCard key={job.id} relId={relId} job={job} studentName={studentName} />
           ))}
         </div>
       )}

@@ -209,6 +209,11 @@ Tutor (relationship's tutor only):
 - `GET /api/relationships/:relId/homework-drafts/:jobId` → the draft view (words with `known`, lessons,
   reader, plan, chat, load now / after). `PUT …/plan` `{ plan }`. `POST …/messages` `{ message }` → 202
   (the agent revises). `POST …/assign` → `{ assignments }`.
+- **Taking it back** (`routes/homework-removal.ts`): `DELETE /api/relationships/:relId/shared-decks/:id`
+  (`?delete_source=1`), `DELETE …/student-lessons/:lessonId`, `DELETE …/shared-readers/:id`, each with a
+  `GET …/removal` preview. Deletes only the student's COPY of what this tutor sent (tombstones reach their
+  devices), drops the share row and cancels the assignments that pointed at it (the student's Homework card
+  drops them on sync). MCP: `remove_student_deck`, `remove_student_lesson`, `remove_student_reader`.
 
 MCP (tutor, `mcp-server/src/tools/homework.ts`): `get_student_homework`, `assign_homework`,
 `update_homework_assignment`, `add_student_lesson_notes`, `get_homework_draft`, `revise_homework_draft`,

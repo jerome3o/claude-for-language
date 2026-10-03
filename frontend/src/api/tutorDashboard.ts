@@ -6,7 +6,17 @@ import type { QueueMove } from '@shared/decks';
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
 import type { MessageWithSender } from '../types';
-import type { TutorDashboard, StudentOverview, SharedDeckUpdateResult, SharedDeckMoveResult } from '../types/tutorDashboard';
+import type {
+  TutorDashboard,
+  StudentOverview,
+  SharedDeckUpdateResult,
+  SharedDeckMoveResult,
+  DeckRemovalPreview,
+  LessonRemovalPreview,
+  ReaderRemovalPreview,
+  HomeworkRemovalResult,
+  SharedReaderRow,
+} from '../types/tutorDashboard';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -76,4 +86,36 @@ export async function reportClientState(state: {
   cached_audio_count: number | null;
 }): Promise<void> {
   await request<{ ok: boolean }>('/me/client-state', { method: 'POST', body: JSON.stringify(state) });
+}
+
+// ============ Take homework back (worker routes/homework-removal.ts) ============
+
+/** What removing would lose — the confirm sheet. `id` = the share id or the student's copy id. */
+export function previewDeckRemoval(relId: string, id: string): Promise<DeckRemovalPreview> {
+  return request<DeckRemovalPreview>(`/relationships/${relId}/shared-decks/${encodeURIComponent(id)}/removal`);
+}
+
+export function removeStudentDeck(relId: string, id: string, deleteSource = false): Promise<HomeworkRemovalResult> {
+  return request<HomeworkRemovalResult>(`/relationships/${relId}/shared-decks/${encodeURIComponent(id)}${deleteSource ? '?delete_source=1' : ''}`, { method: 'DELETE' });
+}
+
+export function previewLessonRemoval(relId: string, lessonId: string): Promise<LessonRemovalPreview> {
+  return request<LessonRemovalPreview>(`/relationships/${relId}/student-lessons/${encodeURIComponent(lessonId)}/removal`);
+}
+
+export function removeStudentLesson(relId: string, lessonId: string): Promise<HomeworkRemovalResult> {
+  return request<HomeworkRemovalResult>(`/relationships/${relId}/student-lessons/${encodeURIComponent(lessonId)}`, { method: 'DELETE' });
+}
+
+export function previewReaderRemoval(relId: string, id: string): Promise<ReaderRemovalPreview> {
+  return request<ReaderRemovalPreview>(`/relationships/${relId}/shared-readers/${encodeURIComponent(id)}/removal`);
+}
+
+export function removeStudentReader(relId: string, id: string): Promise<HomeworkRemovalResult> {
+  return request<HomeworkRemovalResult>(`/relationships/${relId}/shared-readers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** Readers shared in this relationship with the student's read status (routes/shared-readers.ts). */
+export function listSharedReaders(relId: string): Promise<SharedReaderRow[]> {
+  return request<SharedReaderRow[]>(`/relationships/${relId}/shared-readers`);
 }

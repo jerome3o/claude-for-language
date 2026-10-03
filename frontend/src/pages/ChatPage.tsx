@@ -38,6 +38,12 @@ import { messageMenu, menuText, type MenuActionId } from '@shared/chats/messageM
 import { firstLink, layoutBubbles, type BubbleLayout } from '@shared/chats/bubbles';
 import { ExplainSheet } from '../components/chat/ExplainSheet';
 import { LinkPreviewCard } from '../components/chat/LinkPreviewCard';
+import { FileBubble } from '../components/chat/FileBubble';
+import { VideoBubble } from '../components/chat/VideoBubble';
+import { ForwardSheet, type ForwardTarget } from '../components/chat/ForwardSheet';
+import { MessageInfoSheet } from '../components/chat/MessageInfoSheet';
+import { newClientId } from '../services/chatOutbox';
+import { loadDraft, queueLabel, saveDraft } from '../services/chatDrafts';
 import { createCall } from '../api/calls';
 import { InlineNotice, describeError } from '../components/chat/InlineNotice';
 import type { Notice } from '../components/chat/InlineNotice';
@@ -49,12 +55,12 @@ import { useNetwork } from '../contexts/NetworkContext';
 import { OfflineWarning } from '../components/OfflineWarning';
 import { DeckSelectorWithCreate } from '../components/chat/DeckSelectors';
 import { FULL_EMOJI_LIST, getQuickEmojis, getRecentEmojis, saveRecentEmoji } from '../components/chat/emojis';
-import { useChatThread, type ChatMessage } from '../hooks/useChatThread';
+import { attachmentLabel, useChatThread, type ChatMessage } from '../hooks/useChatThread';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { firstUnreadId, shouldSendTyping } from '../services/chatThread';
-import { compressPhoto } from '../services/chatMedia';
+import { compressPhoto, fileProblem, videoInfo, VIDEO_MAX_BYTES } from '../services/chatMedia';
 import { searchMessages } from '@shared/chats/search';
-import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrection, clearMessageCorrection } from '../api/chat';
+import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrection, clearMessageCorrection, forwardChatMessage } from '../api/chat';
 import { ChatWordsText, type TappedWord } from '../components/chat/ChatWords';
 import { CorrectionBlock, CorrectMessageSheet } from '../components/chat/ChatCorrection';
 import { MakeFlashcardsSheet } from '../components/chat/MakeFlashcardsSheet';
@@ -108,13 +114,28 @@ export function ChatPage() {
   const creatingRef = useRef(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const [newMessage, setNewMessage] = useState('');
+  const [newMessage, setNewMessage] = useState(() => loadDraft(convId));
+  // The draft follows the conversation (round 2 PR 3): restored on open, kept as it changes.
+  const draftConv = useRef(convId);
+  useEffect(() => {
+    if (draftConv.current === convId) return;
+    draftConv.current = convId;
+    setNewMessage(loadDraft(convId));
+  }, [convId]);
+  useEffect(() => {
+    if (draftConv.current === convId) saveDraft(convId, newMessage);
+  }, [convId, newMessage]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Rich messages (docs/CHAT.md PR 2)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preparingPhoto, setPreparingPhoto] = useState(false);
-  const [pendingPhoto, setPendingPhoto] = useState<{ blob: Blob; width: number; height: number } | null>(null);
+  const [pendingPhotos, setPendingPhotos] = useState<Array<{ blob: Blob; width: number; height: number }> | null>(null);
+  // Forward (message ids, oldest first) / Message info (round 2 PR 3).
+  const [forwarding, setForwarding] = useState<string[] | null>(null);
+  const [infoFor, setInfoFor] = useState<ChatMessage | null>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
   // Voice: 'held' while the finger is on the mic, 'locked' once slid up (or tapped open).
   const [recording, setRecording] = useState<false | 'held' | 'locked'>(false);
   const [voiceCmd, setVoiceCmd] = useState<VoiceCommand | null>(null);
@@ -231,7 +252,9 @@ export function ChatPage() {
     setSearchQuery('');
     setSearchIndex(0);
     setRecording(false);
-    setPendingPhoto(null);
+    setPendingPhotos(null);
+    setForwarding(null);
+    setInfoFor(null);
     setCheckResults(new Map());
     setWordByWord(new Set());
     setDisplayPrefs(loadDisplayPrefs(convId || ''));
@@ -461,28 +484,85 @@ export function ChatPage() {
     resetInputHeight();
   };
 
-  // Photos: pick → compress on the device → caption sheet → outbox.
-  const handlePhotoPicked = async (file: File | undefined) => {
-    if (!file) return;
+  // Photos: pick one or several → compress on the device → caption sheet → outbox (one message each).
+  const handlePhotoPicked = async (files: FileList | null | undefined) => {
+    const list = files ? Array.from(files).slice(0, 10) : [];
+    if (!list.length) return;
     setNotice(null);
     setPreparingPhoto(true);
     try {
-      setPendingPhoto(await compressPhoto(file));
+      const done: Array<{ blob: Blob; width: number; height: number }> = [];
+      for (const f of list) done.push(await compressPhoto(f));
+      setPendingPhotos(done);
+      if (files && files.length > 10) setNotice({ kind: 'info', text: 'Up to 10 photos at a time — the first 10 are ready to send.' });
     } catch (error) {
       showError("Couldn't read that picture.", error);
     } finally {
       setPreparingPhoto(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
     }
   };
 
   const sendPhoto = (caption: string) => {
-    if (!pendingPhoto) return;
-    void thread
-      .sendMedia({ kind: 'image', blob: pendingPhoto.blob, width: pendingPhoto.width, height: pendingPhoto.height, caption, replyTo: replyingTo })
-      .catch((error) => showError("Couldn't queue the photo.", error));
-    setPendingPhoto(null);
+    if (!pendingPhotos?.length) return;
+    pendingPhotos.forEach((p, i) => {
+      void thread
+        .sendMedia({ kind: 'image', blob: p.blob, width: p.width, height: p.height, caption: i === 0 ? caption : '', replyTo: i === 0 ? replyingTo : null })
+        .catch((error) => showError("Couldn't queue the photo.", error));
+    });
+    setPendingPhotos(null);
     setReplyingTo(null);
+  };
+
+  // A document (PDF, Office, text, zip…) goes straight to the outbox.
+  const handleDocPicked = (file: File | undefined) => {
+    if (docInputRef.current) docInputRef.current.value = '';
+    if (!file) return;
+    const problem = fileProblem(file);
+    if (problem) {
+      setNotice({ kind: 'error', text: problem });
+      return;
+    }
+    setNotice(null);
+    void thread
+      .sendMedia({ kind: 'file', blob: file, name: file.name, replyTo: replyingTo })
+      .catch((error) => showError("Couldn't queue the file.", error));
+    setReplyingTo(null);
+  };
+
+  // A short video clip (≤ 25 MB): its length and shape are read on the device.
+  const handleVideoPicked = async (file: File | undefined) => {
+    if (videoInputRef.current) videoInputRef.current.value = '';
+    if (!file) return;
+    if (file.size > VIDEO_MAX_BYTES) {
+      setNotice({ kind: 'error', text: 'Video clips can be at most 25 MB — trim it or send a shorter one.' });
+      return;
+    }
+    setNotice(null);
+    const info = await videoInfo(file);
+    void thread
+      .sendMedia({ kind: 'video', blob: file, width: info.width ?? undefined, height: info.height ?? undefined, duration_ms: info.duration_ms ?? undefined, replyTo: replyingTo })
+      .catch((error) => showError("Couldn't queue the video.", error));
+    setReplyingTo(null);
+  };
+
+  // Forward: each message as a forwarded copy into the chosen conversation, in order.
+  const doForward = async (ids: string[], target: ForwardTarget) => {
+    setForwarding(null);
+    stopSelecting();
+    let sent = 0;
+    for (const id of ids) {
+      try {
+        await forwardChatMessage(id, target.conversationId, newClientId());
+        sent++;
+      } catch (error) {
+        showError(sent ? `Forwarded ${sent} of ${ids.length}.` : "Couldn't forward that.", error);
+        return;
+      }
+    }
+    if (target.conversationId === convId) void thread.pollNow();
+    showSuccess(`Forwarded ${sent === 1 ? 'the message' : `${sent} messages`} to ${target.label}${target.sub ? ` · ${target.sub}` : ''}.`);
   };
 
   const sendVoice = (blob: Blob, durationMs: number) => {
@@ -988,6 +1068,12 @@ export function ChatPage() {
       case 'save_card':
         setExplain({ text: menuText(msg), mode: 'save' });
         break;
+      case 'forward':
+        setForwarding([msg.id]);
+        break;
+      case 'info':
+        setInfoFor(msg);
+        break;
       case 'select_cards':
       case 'select':
         startSelecting(msg.id);
@@ -1234,6 +1320,7 @@ export function ChatPage() {
   const suppressWordTap = () => selecting || Date.now() - pressFiredAt.current < 800 || !!swipe.current?.locked;
 
   const chatToolsBlocked = !isOnline;
+  const queueText = queueLabel(messages.filter((m) => m.outbox && m.outbox.status !== 'failed').length, isOnline);
   const hitSet = new Set(searchHits);
   const composerEmpty = !newMessage.trim();
   // ✓ "Check my Chinese" on the compose box: the learner, a draft with Chinese (same rule as the menu).
@@ -1242,8 +1329,7 @@ export function ChatPage() {
   const replyLine = (m: MessageWithSender['reply_to']) => {
     if (!m) return '';
     if (m.deleted_at) return 'Message deleted';
-    const kind = (m as { attachment?: { kind?: string } | null }).attachment?.kind;
-    if (!m.content) return kind === 'voice' ? '🎤 Voice message' : '📷 Photo';
+    if (!m.content) return '📎 Attachment';
     return m.content.length > 80 ? m.content.slice(0, 80) + '…' : m.content;
   };
 
@@ -1268,6 +1354,22 @@ export function ChatPage() {
               <ChatWordsText text={msg.content} words={usableWords(msg)} showPinyin={pinyinOn} known={known} onTapWord={setTappedWord} suppressTap={suppressWordTap} />
             </div>
           )}
+        </>
+      );
+    }
+    if (att?.kind === 'file') {
+      return (
+        <>
+          <FileBubble messageId={msg.id} mediaUrl={msg.media_url} name={att.name} bytes={att.bytes} mime={att.mime} localBlob={msg.outbox?.blob} />
+          {msg.content && <div className="chat-photo-caption">{msg.content}</div>}
+        </>
+      );
+    }
+    if (att?.kind === 'video') {
+      return (
+        <>
+          <VideoBubble messageId={msg.id} mediaUrl={msg.media_url} width={att.width} height={att.height} durationMs={att.duration_ms} localBlob={msg.outbox?.blob} />
+          {msg.content && <div className="chat-photo-caption">{msg.content}</div>}
         </>
       );
     }
@@ -1450,6 +1552,7 @@ export function ChatPage() {
                     <span className="reply-preview-text">{replyLine(msg.reply_to)}</span>
                   </button>
                 )}
+                {msg.forwarded_from && !isDeleted && <span className="chat-forwarded">↪ Forwarded</span>}
                 {renderBody(msg, isMe, hasZh, pinyinOn, translateOn)}
                 {showMeta && (
                   <span className="chat-bubble-meta" data-testid="chat-bubble-meta">
@@ -1573,6 +1676,8 @@ export function ChatPage() {
             </span>
             {showTyping ? (
               <span className="chat-header-title chat-header-typing">typing…</span>
+            ) : queueText ? (
+              <span className="chat-header-title chat-header-queue" data-testid="chat-queue-status">{queueText}</span>
             ) : (
               conversation?.title && <span className="chat-header-title">{conversation.title}</span>
             )}
@@ -1810,6 +1915,16 @@ export function ChatPage() {
             <button type="button" className="btn btn-secondary" disabled={selectedIds.size === 0} onClick={() => void copySelected()}>
               Copy
             </button>
+            {!isAIConversation && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={selectedIds.size === 0 || !isOnline}
+                onClick={() => setForwarding(serverMessages.filter((m) => selectedIds.has(m.id)).map((m) => m.id))}
+              >
+                Forward
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-primary"
@@ -1904,7 +2019,24 @@ export function ChatPage() {
                 accept="image/*"
                 className="chat-file-input"
                 data-testid="chat-photo-input"
-                onChange={(e) => void handlePhotoPicked(e.target.files?.[0])}
+                multiple
+                onChange={(e) => void handlePhotoPicked(e.target.files)}
+              />
+              <input
+                ref={videoInputRef}
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime,video/*"
+                className="chat-file-input"
+                data-testid="chat-video-input"
+                onChange={(e) => void handleVideoPicked(e.target.files?.[0])}
+              />
+              <input
+                ref={docInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.txt,.csv,.md,.rtf,.zip,.apkg,.epub,.mp3,.m4a"
+                className="chat-file-input"
+                data-testid="chat-file-input"
+                onChange={(e) => handleDocPicked(e.target.files?.[0])}
               />
               <input
                 ref={cameraInputRef}
@@ -1912,7 +2044,7 @@ export function ChatPage() {
                 accept="image/*"
                 capture="environment"
                 className="chat-file-input"
-                onChange={(e) => void handlePhotoPicked(e.target.files?.[0])}
+                onChange={(e) => void handlePhotoPicked(e.target.files)}
               />
               <div className="chat-input-pill">
                 <button
@@ -2008,7 +2140,13 @@ export function ChatPage() {
                   <span className="chat-attach-icon" aria-hidden="true">📷</span> Camera
                 </button>
                 <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); fileInputRef.current?.click(); }}>
-                  <span className="chat-attach-icon" aria-hidden="true">🖼️</span> Photo
+                  <span className="chat-attach-icon" aria-hidden="true">🖼️</span> Photos
+                </button>
+                <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); videoInputRef.current?.click(); }}>
+                  <span className="chat-attach-icon" aria-hidden="true">🎬</span> Video
+                </button>
+                <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); docInputRef.current?.click(); }}>
+                  <span className="chat-attach-icon" aria-hidden="true">📄</span> File
                 </button>
               </>
             )}
@@ -2029,7 +2167,26 @@ export function ChatPage() {
         )}
       </div>
 
-      {pendingPhoto && <PhotoComposeSheet blob={pendingPhoto.blob} onSend={sendPhoto} onCancel={() => setPendingPhoto(null)} />}
+      {pendingPhotos && pendingPhotos.length > 0 && (
+        <PhotoComposeSheet
+          blobs={pendingPhotos.map((p) => p.blob)}
+          onSend={sendPhoto}
+          onRemove={(i) => setPendingPhotos((prev) => (prev && prev.length > 1 ? prev.filter((_, j) => j !== i) : null))}
+          onCancel={() => setPendingPhotos(null)}
+        />
+      )}
+      {forwarding && user && (
+        <ForwardSheet myId={user.id} count={forwarding.length} currentConversationId={convId} onPick={(t) => void doForward(forwarding, t)} onClose={() => setForwarding(null)} />
+      )}
+      {infoFor && (
+        <MessageInfoSheet
+          message={infoFor}
+          myId={myId}
+          otherName={otherFirst}
+          otherReadAt={thread.readState.other}
+          onClose={() => setInfoFor(null)}
+        />
+      )}
       {viewer && <PhotoViewer url={viewer.url} caption={viewer.caption} onClose={() => setViewer(null)} />}
       {editing && (
         <EditMessageSheet
@@ -2050,7 +2207,7 @@ export function ChatPage() {
           return (
             <MessageMenu
               senderName={sheet.message.sender_id === myId ? 'You' : sheet.message.sender.name || 'Unknown'}
-              preview={menuText(sheet.message) || (sheet.message.attachment?.kind === 'voice' ? '🎤 Voice message' : sheet.message.attachment ? '📷 Photo' : '')}
+              preview={menuText(sheet.message) || attachmentLabel(sheet.message.attachment)}
               items={menu.items}
               reactions={menu.reactions}
               isOnline={isOnline}

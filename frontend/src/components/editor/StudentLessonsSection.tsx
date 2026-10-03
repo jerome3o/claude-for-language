@@ -9,6 +9,8 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getStudentLessons } from '../../api/lessonEditor';
 import { Loading } from '../Loading';
+import { OverflowMenu } from '../tutor/OverflowMenu';
+import { removalMenuLabel } from '@shared/homework';
 
 const RATING_LABELS: Record<number, string> = { 0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy' };
 
@@ -18,7 +20,18 @@ function when(iso: string | null): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function StudentLessonsSection({ relId, isTutor }: { relId: string; isTutor: boolean }) {
+export function StudentLessonsSection({
+  relId,
+  isTutor,
+  studentName,
+  onRemove,
+}: {
+  relId: string;
+  isTutor: boolean;
+  studentName?: string;
+  /** "Remove from <student>'s lessons" on lessons I assigned (RemoveHomeworkSheet). */
+  onRemove?: (lesson: { id: string; title: string }) => void;
+}) {
   const lessons = useQuery({
     queryKey: ['student-lessons', relId],
     queryFn: () => getStudentLessons(relId),
@@ -59,6 +72,12 @@ export function StudentLessonsSection({ relId, isTutor }: { relId: string; isTut
               )}
               {l.assigned_by_me && (
                 <Link to={`/lessons/${l.id}/edit`} className="btn btn-link btn-sm">✏️ Edit</Link>
+              )}
+              {l.assigned_by_me && onRemove && (
+                <OverflowMenu
+                  label={`More for ${l.title}`}
+                  items={[{ label: removalMenuLabel('lesson', studentName), danger: true, onClick: () => onRemove({ id: l.id, title: l.title }) }]}
+                />
               )}
             </div>
           ))}

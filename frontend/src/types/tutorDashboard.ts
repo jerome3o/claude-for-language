@@ -175,3 +175,63 @@ export interface SharedDeckUpdateResult {
   /** Existing copies whose text took the tutor's newer edits (pinyin, meaning, notes, example sentence). */
   updated: number;
 }
+
+// ============ Take homework back (worker services/homework-removal.ts) ============
+
+export interface DeckRemovalPreview {
+  kind: 'deck';
+  shared_deck_id: string;
+  target_deck_id: string;
+  /** The student's copy; null when they already deleted it. */
+  deck_name: string | null;
+  source_deck_id: string;
+  source_deck_name: string | null;
+  words_total: number;
+  words_met: number;
+  reviews: number;
+  can_delete_source: boolean;
+}
+
+export interface LessonRemovalPreview {
+  kind: 'lesson';
+  lesson_id: string;
+  title: string;
+  completions: number;
+  library_item_id: string | null;
+}
+
+export interface ReaderRemovalPreview {
+  kind: 'reader';
+  shared_reader_id: string;
+  target_reader_id: string;
+  title: string | null;
+  page_count: number;
+  readings: number;
+}
+
+export type RemovalPreview = DeckRemovalPreview | LessonRemovalPreview | ReaderRemovalPreview;
+
+export interface HomeworkRemovalResult {
+  removed: true;
+  words_met: number;
+  reviews: number;
+  assignments_cancelled: number;
+  source_deleted: boolean;
+}
+
+/** GET /relationships/:relId/shared-readers row. */
+export interface SharedReaderRow {
+  id: string;
+  relationship_id: string;
+  source_reader_id: string;
+  target_reader_id: string;
+  shared_at: string;
+  source_title_chinese: string | null;
+  source_title_english: string | null;
+  target_title_chinese: string | null;
+  target_title_english: string | null;
+  target_deleted: boolean;
+  page_count: number;
+  read_count: number;
+  last_read_at: string | null;
+}
