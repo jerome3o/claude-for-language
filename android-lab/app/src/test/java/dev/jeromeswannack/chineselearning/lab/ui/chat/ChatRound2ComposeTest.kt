@@ -133,7 +133,8 @@ class ChatRound2ComposeTest {
         compose.waitForIdle()
         assertEquals(menu.items.map { it.id } + "react ❤️", got)
         assertEquals(
-            listOf("reply", "copy", "forward", "translate", "pinyin", "explain", "save_card", "select_cards", "check", "correction_card", "play", "discuss", "pin", "info", "edit", "delete", "select"),
+            // m2 is mine and corrected by Minghui: "How to say it better" leads (auto-check).
+            listOf("say_better", "reply", "copy", "forward", "translate", "pinyin", "explain", "save_card", "select_cards", "check", "correction_card", "play", "discuss", "pin", "info", "edit", "delete", "select"),
             menu.items.map { it.id },
         )
     }
