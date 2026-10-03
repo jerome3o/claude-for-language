@@ -835,7 +835,7 @@ export async function getNotesChangedSince(db: D1Database, userId: string, since
 }
 
 /**
- * The learner's "long-term review" choice on one of THEIR notes (migration 0093). Touches
+ * The learner's "long-term review" choice on one of THEIR notes (migration 0094). Touches
  * only long_term / long_term_at — never updated_at, so the copy does not look edited to
  * copyFieldChanges. Returns null when the note is not the user's.
  */
