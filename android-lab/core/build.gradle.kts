@@ -33,12 +33,14 @@ val generateParityFixtures by tasks.registering(Exec::class) {
     inputs.dir(File(repoRoot, "frontend/src/utils"))
     inputs.dir(File(repoRoot, "frontend/src/components/home")) // package E: the "From <tutor>" card rules
     inputs.dir(File(repoRoot, "frontend/src/services/anki")) // package K: the .apkg export (ids, GUIDs, rows)
+    inputs.file(File(repoRoot, "frontend/src/services/chatDrafts.ts")) // chat round 2 PR 3: queueLabel + drafts
     outputs.dir(parityDir)
     commandLine("bash", rootProject.file("parity/generate.sh").absolutePath, parityDir.get().asFile.absolutePath)
 }
 
 tasks.test {
     dependsOn(generateParityFixtures)
+    inputs.dir(parityDir) // the golden vectors ARE the test input: new vectors = rerun
     systemProperty("parity.dir", parityDir.get().asFile.absolutePath)
     testLogging { events("failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
 }

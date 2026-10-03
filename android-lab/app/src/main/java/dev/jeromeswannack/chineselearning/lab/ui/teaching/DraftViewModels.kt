@@ -161,6 +161,15 @@ class DraftViewModel(private val app: LabApp, private val relId: String, private
 class SessionNotesViewModel(private val app: LabApp, private val relId: String) : ViewModel() {
     val jobs: CachedResource<List<SessionJobDto>> = app.cachedResource(viewModelScope, "teaching/session-notes/$relId", TeachingKeys.KIND) { sessionNotesJobs(relId) }
 
+    /** "Undo — remove from Jerome" on what a job sent (take homework back); the job then shows "removed from Jerome". */
+    val removal = HomeworkRemovalController(app, viewModelScope, relId) { _, _ ->
+        jobs.refresh()
+        app.scope.launch {
+            app.cache.delete(TeachingKeys.DASHBOARD)
+            app.cache.delete(TeachingKeys.overview(relId))
+        }
+    }
+
     init {
         viewModelScope.launch {
             while (isActive) {

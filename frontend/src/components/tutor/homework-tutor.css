@@ -631,3 +631,72 @@
   resize: vertical;
   font-family: inherit;
 }
+
+/* ---------- Take homework back (RemoveHomeworkSheet) ---------- */
+
+.hw-remove-sheet .td-sheet-head h2 {
+  font-size: 1.05rem;
+  line-height: 1.35;
+}
+
+.hw-remove-body {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.hw-remove-detail {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+}
+
+.hw-remove-option {
+  display: flex;
+  gap: 0.625rem;
+  align-items: flex-start;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 0.75rem;
+  margin-bottom: 1rem;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.hw-remove-option input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+
+.hw-remove-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.hw-remove-actions .btn {
+  min-height: 44px;
+  flex: 1;
+}
+
+.hw-remove-confirm {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  font-weight: 600;
+}
+
+.hw-remove-confirm:disabled {
+  opacity: 0.6;
+}
+
+.td-subhead {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.hwt-entry-link {
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}

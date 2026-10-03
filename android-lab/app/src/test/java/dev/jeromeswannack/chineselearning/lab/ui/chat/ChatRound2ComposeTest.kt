@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeRight
@@ -127,12 +128,12 @@ class ChatRound2ComposeTest {
                 }
             }
         }
-        for (item in menu.items) compose.onNodeWithTag(menuTag(item.id)).performClick()
-        compose.onNodeWithContentDescription("React ❤️").performClick()
+        for (item in menu.items) compose.onNodeWithTag(menuTag(item.id)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription("React ❤️").performScrollTo().performClick()
         compose.waitForIdle()
         assertEquals(menu.items.map { it.id } + "react ❤️", got)
         assertEquals(
-            listOf("reply", "copy", "translate", "pinyin", "explain", "save_card", "select_cards", "check", "correction_card", "play", "discuss", "pin", "edit", "delete", "select"),
+            listOf("reply", "copy", "forward", "translate", "pinyin", "explain", "save_card", "select_cards", "check", "correction_card", "play", "discuss", "pin", "info", "edit", "delete", "select"),
             menu.items.map { it.id },
         )
     }

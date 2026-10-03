@@ -60,9 +60,30 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
         onDispose { dev.jeromeswannack.chineselearning.lab.data.chat.ChatPresence.chatClosed(convId) }
     }
     val context = androidx.compose.ui.platform.LocalContext.current
-    // 📎: the photo picker (no permission) or the camera into a FileProvider uri (cache/shared/).
-    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.preparePhoto(context, uri)
+    // +: the photo picker (several at once, round 2 PR 3; no permission) or the camera into a FileProvider uri (cache/shared/).
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(dev.jeromeswannack.chineselearning.lab.data.chat.ChatPhoto.MAX_PHOTOS),
+    ) { uris -> if (uris.isNotEmpty()) vm.preparePhotos(context, uris) }
+    // A video clip from the same picker; a document from the system file picker (the server's types).
+    val videoPicker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.sendVideo(context, uri)
+    }
+    val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.sendFile(context, uri)
+    }
+    // Opens a downloaded file in another app (ACTION_VIEW through the FileProvider); none → Share / Save a copy.
+    fun openFile(f: java.io.File, mime: String) {
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", f)
+        val view = android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try { context.startActivity(view) } catch (e: android.content.ActivityNotFoundException) { vm.openSheet(ChatSheet.FileFallback(f.absolutePath, f.name, mime)) }
+    }
+    var saving by remember { mutableStateOf<String?>(null) }
+    val saveCopy = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("*/*")) { dest ->
+        val src = saving
+        saving = null
+        if (dest != null && src != null) runCatching {
+            context.contentResolver.openOutputStream(dest)?.use { out -> java.io.File(src).inputStream().use { it.copyTo(out) } }
+        }.onSuccess { nav.app.haptics.tick() }
     }
     var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val camera = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { ok ->
@@ -141,6 +162,12 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onRequestWaveform = vm::requestWaveform,
             onCycleSpeed = vm::cycleSpeed,
             onCopySelection = vm::copySelection,
+            onForwardSelection = vm::forwardSelection,
+            onOpenFile = { m -> vm.openFile(m, ::openFile) },
+            onOpenPendingFile = { p -> vm.openPendingFile(p, ::openFile) },
+            onToggleVideo = vm::toggleVideo,
+            loadVideo = vm::videoFile,
+            loadPoster = vm::poster,
         ),
         callBanner = call?.let { b ->
             {
@@ -180,6 +207,21 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                     if (has(android.Manifest.permission.CAMERA)) launchCamera() else cameraPermission.launch(android.Manifest.permission.CAMERA)
                 },
                 onGallery = { vm.openSheet(null); picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onVideo = { vm.openSheet(null); videoPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                onFile = {
+                    vm.openSheet(null)
+                    runCatching { filePicker.launch(dev.jeromeswannack.chineselearning.lab.core.ChatFiles.FILE_TYPES.values.distinct().toTypedArray()) }
+                },
+                onRemovePhoto = vm::removePhoto,
+                onForwardTo = vm::forwardTo,
+                onCloseForward = vm::closeForward,
+                onShareFile = { path, name, mime ->
+                    vm.openSheet(null)
+                    val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", java.io.File(path))
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType(mime).putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    runCatching { context.startActivity(android.content.Intent.createChooser(send, name)) }
+                },
+                onSaveFile = { path, name, _ -> vm.openSheet(null); saving = path; runCatching { saveCopy.launch(name) } },
                 onSendPhoto = vm::sendPhoto,
                 onDiscardPhoto = vm::discardPhoto,
                 onJump = vm::jumpTo,

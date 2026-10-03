@@ -9,6 +9,7 @@ import type { BoardItem, BoardOp, BoardPoint } from './board';
 import type { TextDocSnapshot, TextOp, TextSelection } from './textDoc';
 import type { AnnotStroke, AnnotText, KeptAnnotations } from './annotate';
 import type { PresentedMaterial } from '../materials';
+import type { ActivityAction, ActivitySession } from '../call-activities/types';
 import type { CallDiagEvent } from './connection';
 import type { BoardPageMeta } from './pages';
 
@@ -97,6 +98,14 @@ export type ClientMessage =
   | { type: 'material_open'; material_id: string; page?: number }
   | { type: 'material_page'; page: number }
   | { type: 'material_close' }
+  /**
+   * In-call activities (shared/call-activities): start one from the catalogue (replaces any
+   * running one), act in the running one (`session_id` must match), close it (its result is kept
+   * with the lesson). The room runs the state machine and answers with `activity` to everyone.
+   */
+  | { type: 'activity_start'; activity_id: string }
+  | { type: 'activity_action'; session_id: string; action: ActivityAction }
+  | { type: 'activity_close'; session_id?: string }
   /** Keep drawings on the shared screen (true) or let them fade (false) — one setting for both. */
   | { type: 'annot_mode'; persist: boolean }
   | { type: 'chat'; text: string }
@@ -126,6 +135,8 @@ export type ServerMessage =
       /** A lesson material being presented (round 4), and its current page's kept drawings / text. */
       material?: PresentedMaterial | null;
       material_annots?: { target: string; annots: KeptAnnotations } | null;
+      /** The in-call activity being played (absent / null = none). */
+      activity?: ActivitySession | null;
       /** Board pages of the relationship, in strip order (absent from an older room). */
       pages?: BoardPageMeta[];
       /** The page `text` is — the one this call opened on. */
@@ -168,6 +179,8 @@ export type ServerMessage =
   /** The kept drawings / text of a material page (on opening or turning to it). */
   | { type: 'material_annots'; target: string; annots: KeptAnnotations }
   | { type: 'annot_mode'; from: string; name: string; persist: boolean }
+  /** The in-call activity after a start / action / close (null = closed). `from` = the client whose message caused it. */
+  | { type: 'activity'; session: ActivitySession | null; from?: string; name?: string }
   | { type: 'chat'; message: CallChatMessage }
   | { type: 'pong'; t: number; server_time: number }
   | { type: 'ended'; by: string }

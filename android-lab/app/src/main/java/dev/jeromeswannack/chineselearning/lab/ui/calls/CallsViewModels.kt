@@ -216,6 +216,12 @@ class CallReviewViewModel(private val app: LabApp, private val callId: String) :
         }
     }
 
+    /** "Undo — remove from <student>" on what the homework job sent (take homework back). */
+    val removal = dev.jeromeswannack.chineselearning.lab.ui.teaching.HomeworkRemovalController(app, viewModelScope, { local.value.homework?.relId }) { _, _ ->
+        refreshHomework()
+        local.value.homework?.relId?.let { rel -> app.scope.launch { app.cache.delete("teaching/overview/$rel"); app.cache.delete("teaching/dashboard") } }
+    }
+
     fun retryJob(job: SessionJobDto) = jobAction { rel -> app.repo.api.retrySessionJob(rel, job.id) }
     fun cancelJob(job: SessionJobDto) = jobAction { rel -> app.repo.api.cancelSessionJob(rel, job.id) }
     fun deleteJob(job: SessionJobDto) = jobAction { rel -> app.repo.api.deleteSessionJob(rel, job.id) }

@@ -411,3 +411,18 @@ describe('round 4: a presented lesson material is a tile like a shared screen', 
     expect(layoutShortcut('m')).toEqual({ type: 'focus', tile: 'material' });
   });
 });
+
+describe('in-call activities: a running activity is a transient tile like a presented material', () => {
+  it('goes on the stage when it starts, exists only while running, and has a shortcut', () => {
+    const l = layoutReducer({ ...DEFAULT_LAYOUT, open: ['remote', 'self', 'text'] as TileId[] }, { type: 'activityStarted' });
+    expect(l).toMatchObject({ mode: 'focus', main: 'activity' });
+    expect(arrangeTiles(l, { screen: false, activity: true }, 1280).stage).toEqual(['activity']);
+    expect(arrangeTiles(l, { screen: false, activity: true }, 412).stage).toEqual(['activity']);
+    // Closed: the stage falls back, the tile is gone.
+    expect(arrangeTiles(l, { screen: false, activity: false }, 1280).stage).not.toContain('activity');
+    expect(swipeOrder(DEFAULT_LAYOUT, { screen: false, activity: true })).toContain('activity');
+    expect(swipeOrder(DEFAULT_LAYOUT, { screen: false })).not.toContain('activity');
+    expect(layoutShortcut('a')).toEqual({ type: 'focus', tile: 'activity' });
+    expect(TILE_HEADER.activity).toBe(48);
+  });
+});

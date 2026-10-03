@@ -40,6 +40,8 @@ import { MediaProblemCard } from '../components/calls/MediaProblemCard';
 import { DevicesSheet } from '../components/calls/DevicesSheet';
 import { MaterialTile } from '../components/calls/MaterialTile';
 import { PresentMaterialSheet } from '../components/calls/PresentMaterialSheet';
+import { ActivityTile } from '../components/calls/activities/ActivityTile';
+import { ActivityPickerSheet } from '../components/calls/activities/ActivityPickerSheet';
 import './CallPage.css';
 
 function Initials({ name }: { name: string }) {
@@ -126,6 +128,7 @@ export function CallPage() {
   const [endConfirm, setEndConfirm] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [presentOpen, setPresentOpen] = useState(false);
+  const [activitiesOpen, setActivitiesOpen] = useState(false);
   // A device problem in the call is shown until dismissed (a new problem shows again).
   const [dismissedProblem, setDismissedProblem] = useState('');
   const [seenChat, setSeenChat] = useState(0);
@@ -204,12 +207,17 @@ export function CallPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.call.status]);
 
-  const available = { screen: remoteSharing || !!call.screenStream, material: !!call.presenting };
+  const available = { screen: remoteSharing || !!call.screenStream, material: !!call.presenting, activity: !!call.activity };
   // A material someone starts presenting comes onto the stage (like a shared screen).
   const presentingId = call.presenting?.material_id ?? null;
   useEffect(() => {
     if (presentingId) dispatch({ type: 'materialStarted' });
   }, [presentingId]);
+  // An activity either person starts comes onto the stage for both.
+  const activityId = call.activity?.session_id ?? null;
+  useEffect(() => {
+    if (activityId) dispatch({ type: 'activityStarted' });
+  }, [activityId]);
   const chatVisible = arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage.includes('chat') || (layout.open.includes('chat') && layout.mode === 'grid');
   useEffect(() => {
     if (chatVisible) setSeenChat(call.chat.length);
@@ -454,6 +462,12 @@ export function CallPage() {
         />
       ) : null,
     },
+    activity: {
+      label: call.activity ? `🎲 ${call.activity.spec.title}` : 'Activity',
+      content: call.activity ? (
+        <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
+      ) : null,
+    },
     text: {
       label: 'Board',
       closable: true,
@@ -549,6 +563,16 @@ export function CallPage() {
           <button type="button" className="call-panel-close" aria-label="Dismiss" onClick={() => setDismissedProblem(problemKey)}>✕</button>
         </div>
       )}
+      {activitiesOpen && (
+        <ActivityPickerSheet
+          running={call.activity && call.activity.phase !== 'done' ? call.activity.spec.title : null}
+          onPick={(id) => {
+            call.startActivity(id);
+            setActivitiesOpen(false);
+          }}
+          onClose={() => setActivitiesOpen(false)}
+        />
+      )}
       {presentOpen && (
         <PresentMaterialSheet
           onPick={(id) => {
@@ -620,6 +644,7 @@ export function CallPage() {
           {moreOpen && (
             <div className="call-more-menu" role="menu" onClick={() => setMoreOpen(false)}>
               <button type="button" role="menuitem" onClick={() => setPresentOpen(true)} data-testid="menu-present-material">📑 Present material</button>
+              <button type="button" role="menuitem" onClick={() => setActivitiesOpen(true)} data-testid="menu-activities">🎲 Activities</button>
               <button type="button" role="menuitem" onClick={() => setDevicesOpen(true)} data-testid="menu-devices">🎛️ Camera, mic &amp; speaker</button>
               <button type="button" role="menuitem" onClick={() => void call.leave()} data-testid="menu-leave">🚪 Leave — the call goes on</button>
               {call.hasCamera && <button type="button" role="menuitem" onClick={() => void call.flipCamera()}>🔄 Flip camera</button>}

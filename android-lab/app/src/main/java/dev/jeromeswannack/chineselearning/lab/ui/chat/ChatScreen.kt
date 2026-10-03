@@ -199,6 +199,18 @@ class ChatActions(
     val onCycleSpeed: () -> Unit = {},
     /** The selection bar's Copy. */
     val onCopySelection: () -> Unit = {},
+    // ---- round 2 PR 3 ----
+    /** The selection bar's Forward. */
+    val onForwardSelection: () -> Unit = {},
+    /** A tap on a file bubble: download (first time) and open it. */
+    val onOpenFile: (ChatMessageDto) -> Unit = {},
+    val onOpenPendingFile: (PendingBubble) -> Unit = {},
+    /** A tap on a video bubble (id = message id or "p-<clientId>"). */
+    val onToggleVideo: (String) -> Unit = {},
+    /** A video's bytes on the phone (null while unavailable). */
+    val loadVideo: suspend (ChatMessageDto) -> java.io.File? = { null },
+    /** A video's first frame: (file path, key, max side). */
+    val loadPoster: suspend (String, String, Int) -> ImageBitmap? = { _, _, _ -> null },
 )
 
 /**
@@ -262,8 +274,10 @@ private fun ChatHeader(ui: ChatUi, actions: ChatActions) {
                     Text("AI", style = MaterialTheme.typography.labelSmall, color = Lab.colors.accent, modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Lab.colors.accentSoft).padding(horizontal = 6.dp, vertical = 1.dp))
                 }
             }
-            // "typing…" takes the subtitle's place, like a messenger.
+            // "typing…" takes the subtitle's place, like a messenger; then my sends waiting in the outbox.
+            val queue = ui.queueLabel
             if (ui.typing) Text("typing…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
+            else if (queue != null) Text(queue, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("chat-queue-status"))
             else ui.conversation?.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             if (ui.proposingCards) Text("Claude is picking cards…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
         }
@@ -324,7 +338,7 @@ private fun PinnedBar(m: ChatMessageDto, count: Int, actions: ChatActions) {
     }
 }
 
-fun previewOf(m: ChatMessageDto): String = ChatRich.preview(m.content, m.attachment?.kind, m.deleted_at, max = 90)
+fun previewOf(m: ChatMessageDto): String = ChatRich.preview(m.content, m.attachment?.kind, m.deleted_at, max = 90, fileName = m.attachment?.name)
 
 @Composable
 private fun ScenarioBanner(ui: ChatUi) {

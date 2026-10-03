@@ -17,7 +17,7 @@ import Dexie, { type Table } from 'dexie';
 import type { MessageWithSender } from '../types';
 import { sendChatMedia, sendChatText } from '../api/chat';
 
-export type OutboxKind = 'text' | 'image' | 'voice';
+export type OutboxKind = 'text' | 'image' | 'voice' | 'file' | 'video';
 export type OutboxStatus = 'pending' | 'sending' | 'failed';
 
 export interface OutboxEntry {
@@ -34,6 +34,8 @@ export interface OutboxEntry {
   width?: number | null;
   height?: number | null;
   duration_ms?: number | null;
+  /** A file's name (kind file). */
+  name?: string | null;
   created_at: string;
   status: OutboxStatus;
   attempts: number;
@@ -208,6 +210,9 @@ async function sendEntry(entry: OutboxEntry): Promise<MessageWithSender> {
     caption: entry.content || null,
     reply_to_message_id: entry.reply_to_message_id,
     duration_ms: entry.duration_ms,
+    name: entry.name,
+    width: entry.width,
+    height: entry.height,
   });
 }
 

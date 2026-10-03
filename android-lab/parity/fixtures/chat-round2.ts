@@ -7,6 +7,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { messageMenu, menuText, type MenuMessage } from '../../../shared/chats/messageMenu';
+import { queueLabel, loadDraft, saveDraft } from '../../../frontend/src/services/chatDrafts';
 import { layoutBubbles, tickFor, localDay, firstLink, GROUP_GAP_MS, type BubbleMessage } from '../../../shared/chats/bubbles';
 
 const OUT = process.argv[2];
@@ -37,6 +38,9 @@ const attachments: MenuMessage['attachment'][] = [
   { kind: 'voice', transcript: '  ', translation: '' },
   { kind: 'voice', transcript: null },
   { kind: 'voice', transcript: 'thanks', translation: 'thanks' },
+  // Round 2 PR 3: files and video clips (caption tools work on the content; Edit, not "Edit caption").
+  { kind: 'file' },
+  { kind: 'video' },
 ];
 const menus: unknown[] = [];
 for (const content of contents)
@@ -124,4 +128,32 @@ const linkTexts = [
 ];
 const links = linkTexts.map((text) => ({ text, link: firstLink(text) }));
 
-writeFileSync(join(OUT, 'chat-round2.json'), JSON.stringify({ menus, layouts, ticks, days, links, groupGapMs: GROUP_GAP_MS }));
+// ---- Round 2 PR 3: queueLabel + drafts per conversation (frontend/src/services/chatDrafts.ts) ----
+const queueLabels: unknown[] = [];
+for (const waiting of [-1, 0, 1, 2, 3, 10, 51]) for (const online of [false, true]) queueLabels.push({ waiting, online, label: queueLabel(waiting, online) });
+
+// A Map-backed localStorage so the web's own draft functions run here.
+const store = new Map<string, string>();
+(globalThis as { localStorage?: unknown }).localStorage = {
+  getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+  setItem: (k: string, v: string) => void store.set(k, String(v)),
+  removeItem: (k: string) => void store.delete(k),
+  clear: () => store.clear(),
+};
+// A sequence of saves (ids reused, blanks clearing, more than 50 conversations, equal times) and the
+// loads after each one; the Kotlin replays the same sequence.
+const draftOps: unknown[] = [];
+const blanks = ['   ', '', '\n\t'];
+const texts = ['我明天', 'hello', '你好 ', ' 早上好', 'x', '明天见！\n好的'];
+let now = 1_700_000_000_000;
+for (let i = 0; i < 400; i++) {
+  const conv = rand() < 0.05 ? '' : `c${int(0, 90)}`;
+  const text = rand() < 0.12 ? pick(blanks) : pick(texts);
+  now += pick([0, 0, 1, 1000]);
+  saveDraft(conv || undefined, text, now);
+  const probes = [conv, `c${int(0, 90)}`, `c${int(0, 90)}`];
+  draftOps.push({ conv, text, now, loads: probes.map((c) => ({ conv: c, text: loadDraft(c || undefined) })) });
+}
+const finalDrafts = Array.from({ length: 91 }, (_, i) => ({ conv: `c${i}`, text: loadDraft(`c${i}`) }));
+
+writeFileSync(join(OUT, 'chat-round2.json'), JSON.stringify({ menus, layouts, ticks, days, links, groupGapMs: GROUP_GAP_MS, queueLabels, draftOps, finalDrafts }));

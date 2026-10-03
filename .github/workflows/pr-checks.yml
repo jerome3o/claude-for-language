@@ -5,10 +5,29 @@ on:
     branches:
       - main
 
+# A newer push to the same PR cancels the run it supersedes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # The checks run side by side (each on its own runner) instead of one after another; the
+  # commands are exactly what `npm run typecheck`, `npm test` and `npm run build:frontend` run.
   check:
     runs-on: ubuntu-latest
-    name: Typecheck, Test & Build
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Type check
+            run: npm run typecheck
+          - name: Tests (frontend)
+            run: npm run test -w frontend
+          - name: Tests (worker, mcp-server)
+            run: npm run test -w worker && npm run test -w mcp-server
+          - name: Build frontend
+            run: npm run build:frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,13 +41,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build frontend
-        run: npm run build:frontend
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.run }}
         env:
           VITE_API_URL: https://chinese-learning-api.jeromeswannack.workers.dev

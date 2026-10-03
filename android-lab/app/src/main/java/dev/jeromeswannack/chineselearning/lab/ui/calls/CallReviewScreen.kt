@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -133,6 +134,9 @@ data class CallReviewUi(
     val online: Boolean = true,
     /** The board pages this call wrote on (null: not loaded — the review shows `board_text`). */
     val boardPages: List<dev.jeromeswannack.chineselearning.lab.data.api.CallBoardPageDto>? = null,
+    /** "Undo — remove from <student>" on a homework job: the confirm sheet while open, the toast after. */
+    val removal: dev.jeromeswannack.chineselearning.lab.ui.teaching.RemovalSheetUi? = null,
+    val toast: String? = null,
 )
 
 /** A board page's header on the review: "Page 3", its title, or "Deleted page". */
@@ -153,11 +157,42 @@ data class CallReviewActions(
     val onMakeHomework: () -> Unit = {},
     val jobs: JobActions = JobActions(),
     val onAllSessionNotes: (String) -> Unit = {},
+    val removalSheet: dev.jeromeswannack.chineselearning.lab.ui.teaching.RemovalSheetActions = dev.jeromeswannack.chineselearning.lab.ui.teaching.RemovalSheetActions(),
 )
+
+/** One activity of the lesson on the review page (web CallReviewPage's "In-call activities"). */
+@Composable
+private fun ActivityRecord(a: dev.jeromeswannack.chineselearning.lab.data.api.CallActivityDto) {
+    val s = a.summary
+    LabCard {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.KIND_INFO[a.kind]?.icon ?: "🎲")
+                Text(a.title.ifEmpty { s.title }, color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                if (s.scored > 0) Text("${s.correct}/${s.scored} right", color = dev.jeromeswannack.chineselearning.lab.ui.theme.Palette.Good, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+            }
+            Text(
+                "${s.played} of ${s.totalRounds} played" + (if (s.finished) "" else " · not finished"),
+                color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall,
+            )
+            if (s.roles.isNotEmpty()) Text(s.roles.joinToString(" · ") { it.substringAfter(": ") }, color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall)
+            s.lines.forEach { l -> Text(l, color = Lab.colors.ink, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
+}
 
 /** `/calls/:id/review` — report, words → cards, homework (tutor), transcript, board, chat (web: CallReviewPage). */
 @Composable
 fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+        CallReviewContent(ui, actions)
+        dev.jeromeswannack.chineselearning.lab.ui.kit.LabToast(ui.toast, Modifier.align(Alignment.BottomCenter))
+    }
+    ui.removal?.let { dev.jeromeswannack.chineselearning.lab.ui.teaching.RemoveHomeworkSheet(it, actions.removalSheet) }
+}
+
+@Composable
+private fun CallReviewContent(ui: CallReviewUi, actions: CallReviewActions) {
     val q = ui.detail
     val d = q.data
     var showPinyin by rememberSaveable { mutableStateOf(true) }
@@ -251,6 +286,12 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
                     }
                 }
             }
+        }
+
+        // In-call activities played in the lesson: title, score, one line per round.
+        if (d.activities.isNotEmpty()) {
+            item { SectionHeader("In-call activities") }
+            d.activities.forEach { a -> item(key = "activity-${a.id}") { ActivityRecord(a) } }
         }
 
         ui.homework?.let { hw ->
@@ -515,7 +556,7 @@ private fun HomeworkSection(hw: CallHomeworkUi, ready: Boolean, online: Boolean,
             "Homework for this lesson is made${if (callCount > 1) " (from all $callCount calls)" else ""} — it is below; open it to review or change what was sent.",
             style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.testTag("call-homework-made"),
         )
-        hw.jobs.forEach { SessionJobCard(it, actions.jobs) }
+        hw.jobs.forEach { SessionJobCard(it, actions.jobs, studentName = hw.studentName) }
         hw.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
         if (!active && !made) {
             PrimaryPill(

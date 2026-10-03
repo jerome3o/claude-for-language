@@ -44,6 +44,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipHomeworkDto
+import dev.jeromeswannack.chineselearning.lab.data.api.SharedReaderDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentLessonDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentOverviewDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentSharedDeckDto
@@ -52,6 +53,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.EmptyState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabToast
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkRemoval
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
@@ -80,6 +83,12 @@ data class StudentPageUi(
     val claude: Loadable<ClaudeChatsDto> = Loadable(loading = true),
     val conversations: Loadable<List<ConversationDto>> = Loadable(loading = true),
     val lessons: Loadable<List<StudentLessonDto>> = Loadable(loading = true),
+    /** Graded readers I sent (GET …/shared-readers) — the "Readers" list. */
+    val readers: Loadable<List<SharedReaderDto>> = Loadable(loading = true),
+    /** The "Remove from Jerome's decks?" confirm sheet while open (HomeworkRemovalController). */
+    val removal: RemovalSheetUi? = null,
+    /** The floating confirmation after a removal ("Removed “HSK 1” from Jerome's decks"). */
+    val toast: String? = null,
     val lastLessonAt: String? = null,
     val studentDecks: List<StudentSharedDeckDto>? = null,
     val liveCallId: String? = null,
@@ -122,6 +131,9 @@ data class StudentPageActions(
     val removeConnection: () -> Unit = {},
     val playRecording: (String) -> Unit = {},
     val refresh: () -> Unit = {},
+    /** Take homework back: opens the confirm sheet for that deck / lesson / reader. */
+    val removeHomework: (RemovalTarget) -> Unit = {},
+    val removalSheet: RemovalSheetActions = RemovalSheetActions(),
 )
 
 /** "Last studied today, 12:32 AM · 🔥 1 day · 7 active days / 30" (web: studentStatusLine). */
@@ -169,19 +181,21 @@ fun StudentPageScreen(ui: StudentPageUi, actions: StudentPageActions, now: Insta
                             studentColumn(ui, actions, now, onShowQr = { showQr = true })
                         }
                         LazyColumn(Modifier.weight(1f), contentPadding = pad, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            workColumn(ui, actions, now, showStudentDecks)
+                            workColumn(ui, actions, now, showStudentDecks, name)
                         }
                     }
                 } else {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = pad, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         studentColumn(ui, actions, now, onShowQr = { showQr = true })
-                        workColumn(ui, actions, now, showStudentDecks)
+                        workColumn(ui, actions, now, showStudentDecks, name)
                     }
                 }
             }
         }
+        LabToast(ui.toast, Modifier.align(Alignment.BottomCenter))
     }
 
+    ui.removal?.let { RemoveHomeworkSheet(it, actions.removalSheet) }
     if (menu) {
         LabBottomSheet(onDismiss = { menu = false }, title = name) {
             NavRow("🗂️", if (showStudentDecks) "Hide decks the student shared with you" else "Decks the student shared with you" + (ui.studentDecks?.takeIf { it.isNotEmpty() }?.let { " (${it.size})" } ?: ""), onClick = {
@@ -270,7 +284,7 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
     item(key = "links") { StudentNavLinks(ui.relId, o?.pills?.recordings_to_hear ?: 0, actions.open) }
 }
 
-private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, showStudentDecks: Boolean) {
+private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, showStudentDecks: Boolean, name: String) {
     val o = ui.overview.data
     ui.studentProfile?.let { section -> item(key = "student-profile") { section() } }
     ui.lessonNotes?.let { section -> item(key = "lesson-notes") { section() } }
@@ -289,10 +303,25 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
     }
     o?.homework?.decks?.forEach { d ->
         item(key = "deck-${d.shared_deck_id}") {
-            HomeworkDeckRow(ui.relId, d, ui.updatingShare == d.shared_deck_id, { to -> actions.moveShare(d, to) }, { actions.updateShare(d) }, actions.open, now)
+            HomeworkDeckRow(
+                ui.relId, d, ui.updatingShare == d.shared_deck_id, { to -> actions.moveShare(d, to) }, { actions.updateShare(d) }, actions.open, now,
+                removeLabel = HomeworkRemoval.removalMenuLabel(HomeworkRemoval.DECK, name),
+                onRemove = { actions.removeHomework(RemovalTarget(HomeworkRemoval.DECK, d.shared_deck_id, d.source_deck_name)) },
+            )
         }
     }
-    item(key = "lessons") { StudentLessonsCard(ui.relId, ui.lessons.data, ui.lessons.error, actions.open, now) }
+    item(key = "lessons") {
+        StudentLessonsCard(
+            ui.relId, ui.lessons.data, ui.lessons.error, actions.open, now,
+            removeLabel = HomeworkRemoval.removalMenuLabel(HomeworkRemoval.LESSON, name),
+            onRemove = { l -> actions.removeHomework(RemovalTarget(HomeworkRemoval.LESSON, l.id, l.title)) },
+        )
+    }
+    if (!ui.readers.data.isNullOrEmpty()) item(key = "readers") {
+        SharedReadersCard(ui.readers.data, HomeworkRemoval.removalMenuLabel(HomeworkRemoval.READER, name), { r ->
+            actions.removeHomework(RemovalTarget(HomeworkRemoval.READER, r.id, r.title, copyGone = r.target_deleted))
+        }, now)
+    }
     if (showStudentDecks) item(key = "student-decks") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             TeachSectionTitle("Decks the student shared with you")

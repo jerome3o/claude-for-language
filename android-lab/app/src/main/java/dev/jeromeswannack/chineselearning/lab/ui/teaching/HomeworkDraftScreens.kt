@@ -51,6 +51,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkRemoval
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabToast
 import dev.jeromeswannack.chineselearning.lab.data.api.DraftPlanDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DraftPlanItemDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DraftViewDto
@@ -134,7 +136,7 @@ fun LessonNotesSection(relId: String, studentName: String, entries: List<LessonN
                     Spacer(Modifier.width(10.dp))
                     Text(entryTitle(e), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 }
-                EntryState(e, drafting == e.id, actions, now)
+                EntryState(relId, e, drafting == e.id, actions, now)
             }
         }
         if (!showAll && list.size > 4) InlineButton("All lesson notes (${list.size})") { showAll = true }
@@ -143,7 +145,7 @@ fun LessonNotesSection(relId: String, studentName: String, entries: List<LessonN
 }
 
 @Composable
-private fun EntryState(e: LessonNotesEntryDto, drafting: Boolean, actions: LessonNotesActions, now: Instant) {
+private fun EntryState(relId: String, e: LessonNotesEntryDto, drafting: Boolean, actions: LessonNotesActions, now: Instant) {
     val job = e.job
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         when {
@@ -163,7 +165,11 @@ private fun EntryState(e: LessonNotesEntryDto, drafting: Boolean, actions: Lesso
                 Text(if (job.status == "failed") "Draft failed" else "Cancelled", color = Palette.Again, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 TeachButton("Open") { actions.openDraft(job.id) }
             }
-            !job.review -> MutedLine("Sent automatically")
+            !job.review -> {
+                MutedLine("Sent automatically", Modifier.weight(1f))
+                // Take it back from the job card (web: "What was sent · undo ›").
+                InlineButton("What was sent · undo ›") { actions.open(Routes.sessionNotes(relId)) }
+            }
             job.assigned_at != null -> {
                 Text("✓ Assigned ${TeachingFormat.shortDate(job.assigned_at, now)}", color = Palette.Good, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 InlineButton("View") { actions.openDraft(job.id) }
@@ -469,11 +475,13 @@ data class JobActions(
     val cancel: (SessionJobDto) -> Unit = {},
     val delete: (SessionJobDto) -> Unit = {},
     val open: (String) -> Unit = {},
+    /** "Undo — remove from Jerome" on what the job sent; null hides it (a page without the confirm sheet). */
+    val remove: ((RemovalTarget) -> Unit)? = null,
 )
 
 /** One session-notes job: live progress, what it made, Retry / Cancel / Delete (web: SessionNotesJobCard). */
 @Composable
-fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Instant.now()) {
+fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Instant.now(), studentName: String? = null) {
     var showSteps by remember { mutableStateOf(false) }
     var showNotes by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -509,9 +517,31 @@ fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Insta
         if (job.status == "done") {
             val r = job.result
             if (r.deck == null && r.lessons.isEmpty() && r.reader == null) MutedLine("Nothing was created from these notes.")
-            r.deck?.let { d -> MadeRow("📚", "${d.name} · ${TeachingFormat.plural(d.note_count, "card")}", d.target_deck_id != null, "sent to student", "in your library, not sent") { actions.open(Routes.deck(d.id)) } }
-            r.lessons.forEach { l -> MadeRow("📘", "${l.title} · mini lesson, ${TeachingFormat.plural(l.exercise_count, "exercise")}", l.lesson_id != null, "assigned", "in your library, not assigned") { actions.open(Routes.libraryItem(l.library_item_id)) } }
-            r.reader?.let { rd -> MadeRow("📖", "${rd.title_english} · reader, ${TeachingFormat.plural(rd.page_count, "page")}", rd.target_reader_id != null, "sent to student", "in your readers, not sent") { actions.open(Routes.readerEdit(rd.id)) } }
+            // Take it back: "Undo — remove from Jerome" while it is with the student, "removed from Jerome" after.
+            val first = HomeworkRemoval.studentFirstName(studentName)
+            val undo = HomeworkRemoval.removalUndoLabel(studentName)
+            fun undoFor(target: RemovalTarget?): (() -> Unit)? = if (target != null && actions.remove != null) ({ actions.remove.invoke(target) }) else null
+            r.deck?.let { d ->
+                MadeRow(
+                    "📚", "${d.name} · ${TeachingFormat.plural(d.note_count, "card")}", d.target_deck_id != null, "sent to student", "in your library, not sent",
+                    removed = d.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    onUndo = undoFor(d.target_deck_id?.takeIf { d.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.DECK, it, d.name) }),
+                ) { actions.open(Routes.deck(d.id)) }
+            }
+            r.lessons.forEach { l ->
+                MadeRow(
+                    "📘", "${l.title} · mini lesson, ${TeachingFormat.plural(l.exercise_count, "exercise")}", l.lesson_id != null, "assigned", "in your library, not assigned",
+                    removed = l.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    onUndo = undoFor(l.lesson_id?.takeIf { l.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.LESSON, it, l.title) }),
+                ) { actions.open(Routes.libraryItem(l.library_item_id)) }
+            }
+            r.reader?.let { rd ->
+                MadeRow(
+                    "📖", "${rd.title_english} · reader, ${TeachingFormat.plural(rd.page_count, "page")}", rd.target_reader_id != null, "sent to student", "in your readers, not sent",
+                    removed = rd.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    onUndo = undoFor(rd.target_reader_id?.takeIf { rd.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.READER, it, rd.title_chinese.ifEmpty { rd.title_english }) }),
+                ) { actions.open(Routes.readerEdit(rd.id)) }
+            }
             r.summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink) }
             if (r.skipped.isNotEmpty()) MutedLine("${TeachingFormat.plural(r.skipped.size, "word")} left out: ${r.skipped.joinToString("; ")}")
         }
@@ -528,22 +558,64 @@ fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Insta
 }
 
 @Composable
-private fun MadeRow(icon: String, text: String, sent: Boolean, sentLabel: String, unsentLabel: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).bouncyClickable(pressedScale = 0.98f, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
-        Text(icon, fontSize = 18.sp)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(text, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.accent, fontWeight = FontWeight.Medium)
-            Text(if (sent) sentLabel else unsentLabel, style = MaterialTheme.typography.bodySmall, color = if (sent) Palette.Good else Lab.colors.muted)
+private fun MadeRow(
+    icon: String,
+    text: String,
+    sent: Boolean,
+    sentLabel: String,
+    unsentLabel: String,
+    removed: Boolean = false,
+    removedLabel: String = "",
+    undoLabel: String = "",
+    onUndo: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    Column {
+        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).bouncyClickable(pressedScale = 0.98f, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+            Text(icon, fontSize = 18.sp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(text, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.accent, fontWeight = FontWeight.Medium)
+                Text(
+                    when { removed -> removedLabel; sent -> sentLabel; else -> unsentLabel },
+                    style = MaterialTheme.typography.bodySmall, color = if (sent && !removed) Palette.Good else Lab.colors.muted,
+                )
+            }
         }
+        if (sent && !removed && onUndo != null) Row(Modifier.padding(start = 28.dp)) { InlineButton(undoLabel, danger = true, onClick = onUndo) }
     }
 }
 
-data class SessionNotesUi(val relId: String, val studentName: String, val jobs: List<SessionJobDto>? = null, val error: String? = null, val online: Boolean = true)
+data class SessionNotesUi(
+    val relId: String,
+    val studentName: String,
+    val jobs: List<SessionJobDto>? = null,
+    val error: String? = null,
+    val online: Boolean = true,
+    /** The "Undo — remove from Jerome" confirm sheet while open, and the toast after. */
+    val removal: RemovalSheetUi? = null,
+    val toast: String? = null,
+)
 
 /** All session-notes jobs for a student + "Add notes" (web: SessionNotesPage / SessionNotesSection showAll). */
 @Composable
-fun SessionNotesScreen(ui: SessionNotesUi, actions: JobActions, back: () -> Unit, submit: (notes: String, title: String?, lessonAt: String, priority: String, autoShare: Boolean, logLesson: Boolean, (String?) -> Unit) -> Unit, now: Instant = Instant.now()) {
+fun SessionNotesScreen(
+    ui: SessionNotesUi,
+    actions: JobActions,
+    back: () -> Unit,
+    submit: (notes: String, title: String?, lessonAt: String, priority: String, autoShare: Boolean, logLesson: Boolean, (String?) -> Unit) -> Unit,
+    now: Instant = Instant.now(),
+    removalSheet: RemovalSheetActions = RemovalSheetActions(),
+) {
+    Box(Modifier.fillMaxSize()) {
+        SessionNotesList(ui, actions, back, submit, now)
+        LabToast(ui.toast, Modifier.align(Alignment.BottomCenter))
+    }
+    ui.removal?.let { RemoveHomeworkSheet(it, removalSheet) }
+}
+
+@Composable
+private fun SessionNotesList(ui: SessionNotesUi, actions: JobActions, back: () -> Unit, submit: (notes: String, title: String?, lessonAt: String, priority: String, autoShare: Boolean, logLesson: Boolean, (String?) -> Unit) -> Unit, now: Instant) {
     var sheet by remember { mutableStateOf(false) }
     val activeCount = ui.jobs.orEmpty().count { it.active }
     LabScreen("Session notes", onBack = back, subtitle = ui.studentName, actions = { TeachButton("+ Add notes", Modifier.padding(end = 12.dp), primary = true) { sheet = true } }) {
@@ -554,7 +626,7 @@ fun SessionNotesScreen(ui: SessionNotesUi, actions: JobActions, back: () -> Unit
             ui.jobs.isEmpty() -> item {
                 TeachCard { MutedLine("After a lesson, paste your notes here. The assistant turns them into a deck of cards for ${ui.studentName} — and a mini lesson when the notes show a grammar point with examples — then sends them as homework.") }
             }
-            else -> ui.jobs.forEach { j -> item(key = j.id) { SessionJobCard(j, actions, now) } }
+            else -> ui.jobs.forEach { j -> item(key = j.id) { SessionJobCard(j, actions, now, ui.studentName) } }
         }
     }
     if (sheet) LabBottomSheet(onDismiss = { sheet = false }, title = "Session notes for ${ui.studentName}") { SessionNotesForm(ui.studentName, ui.online, submit) { sheet = false } }

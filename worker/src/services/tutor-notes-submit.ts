@@ -14,6 +14,7 @@ import * as jobs from '../db/tutor-notes-queries';
 import * as iq from '../db/insights-queries';
 import { MAX_NOTES_CHARS } from './tutor-notes-agent';
 import { lessonMaterials } from './materials';
+import { activitiesNotes, listCallActivities } from './calls/activities';
 import type { LessonMaterial } from './calls/lessons';
 import type { CallRow, CallParticipant } from './calls/store';
 import { roleNames, type CallReport } from './calls/report';
@@ -107,6 +108,8 @@ export interface CallNotesInput {
   report: Pick<CallReport, 'summary' | 'corrections' | 'follow_ups'> | null;
   /** Lesson materials presented in the call(s) (round 4): title, the pages shown (0-based) and their text. */
   materials?: { title: string; page_count: number; pages_shown: number[]; text: string }[];
+  /** In-call activities played (shared/call-activities) as text (`activitiesNotes`). */
+  activities?: string;
 }
 
 /** The materials' share of the notes. */
@@ -131,7 +134,7 @@ export function composeCallNotes(input: CallNotesInput): string {
   const boardText = input.board.filter((b): b is Extract<BoardItem, { type: 'text' }> => b.type === 'text').map((b) => b.text.trim()).filter(Boolean);
   const chatLines = input.chat.map((m) => `${input.names[m.user_id] || m.name}: ${m.text}`).filter((l) => l.trim());
   const sharedNotes = (input.boardText ?? '').trim();
-  if (segments.length === 0 && boardText.length === 0 && chatLines.length === 0 && !input.report && !sharedNotes && !(input.materials ?? []).some((m) => m.text.trim())) return '';
+  if (segments.length === 0 && boardText.length === 0 && chatLines.length === 0 && !input.report && !sharedNotes && !(input.materials ?? []).some((m) => m.text.trim()) && !input.activities?.trim()) return '';
 
   const startMs = input.startedAt ?? segments[0]?.start_ms ?? 0;
   const parts: string[] = [];
@@ -161,6 +164,11 @@ export function composeCallNotes(input: CallNotesInput): string {
       parts.push(m.text.length > per ? `${m.text.slice(0, per)}\n[… rest of the material cut for length …]` : m.text);
     }
   }
+  if (input.activities?.trim()) {
+    parts.push('');
+    parts.push('IN-CALL ACTIVITIES (two-person exercises played together in the call — what was practised and how it went; ✓ right, ✗ wrong)');
+    parts.push(input.activities.trim());
+  }
   if (sharedNotes) {
     parts.push('');
     parts.push('SHARED NOTES (typed together on the board during the lesson — the most deliberate record of what was taught)');
@@ -187,8 +195,10 @@ export async function lessonNotesFor(env: Env, m: LessonMaterial, participants: 
   const names = await roleNames(env.DB, m.calls[0], participants);
   const report = m.lesson.summary_json ? (JSON.parse(m.lesson.summary_json) as CallReport) : null;
   const materials = await lessonMaterials(env.DB, m.calls.map((c) => c.id)).catch(() => []);
+  const activities = activitiesNotes(await listCallActivities(env.DB, m.calls.map((c) => c.id)).catch(() => []));
   const notes = composeCallNotes({
     materials,
+    activities,
     title: m.calls.length > 1 ? `${m.title ?? 'Lesson'} (${m.calls.length} calls in a row, one lesson)` : m.title,
     startedAt: m.startedAt,
     names,
@@ -209,8 +219,10 @@ export async function callNotesFor(env: Env, call: CallRow, participants: CallPa
     .all<{ id: string; user_id: string; start_ms: number; end_ms: number; text: string; translation: string | null }>();
   const names = await roleNames(env.DB, call, participants);
   const materials = await lessonMaterials(env.DB, [call.id]).catch(() => []);
+  const activities = activitiesNotes(await listCallActivities(env.DB, [call.id]).catch(() => []));
   const notes = composeCallNotes({
     materials,
+    activities,
     title: call.title,
     startedAt: call.started_at,
     names,

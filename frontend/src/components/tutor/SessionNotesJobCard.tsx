@@ -5,6 +5,9 @@ import { cancelSessionNotesJob, deleteSessionNotesJob, retrySessionNotesJob } fr
 import type { SessionNotesJob, SessionNotesStep } from '../../types/tutorNotes';
 import { isActiveJob } from '../../types/tutorNotes';
 import { plural, shortDateTime } from './format';
+import { removalUndoLabel, studentFirstName } from '@shared/homework';
+import { RemoveHomeworkSheet, type RemovalTarget } from './RemoveHomeworkSheet';
+import { Toast, useToast } from '../Toast';
 import './session-notes.css';
 
 const STATUS_LABEL: Record<SessionNotesJob['status'], string> = {
@@ -37,13 +40,32 @@ const LIVE_STEPS = 4;
  * One session-notes job: what the assistant is doing right now (or did), what
  * it made with links into the tutor's own copies, and Retry / Cancel / Delete.
  */
-export function SessionNotesJobCard({ relId, job, defaultOpen = false }: { relId: string; job: SessionNotesJob; defaultOpen?: boolean }) {
+export function SessionNotesJobCard({
+  relId,
+  job,
+  defaultOpen = false,
+  studentName = 'the student',
+}: {
+  relId: string;
+  job: SessionNotesJob;
+  defaultOpen?: boolean;
+  studentName?: string;
+}) {
   const queryClient = useQueryClient();
   const [showSteps, setShowSteps] = useState(defaultOpen);
   const [showNotes, setShowNotes] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const active = isActiveJob(job);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['session-notes', relId] });
+  // "Undo — remove from <student>": the agent sent something by accident (RemoveHomeworkSheet).
+  const [removal, setRemoval] = useState<RemovalTarget | null>(null);
+  const [toast, showToast] = useToast(4500);
+  const name = studentFirstName(studentName);
+  const undo = (target: RemovalTarget) => (
+    <button type="button" className="btn-link sn-danger sn-undo" onClick={() => setRemoval(target)} data-testid="sn-undo">
+      {removalUndoLabel(studentName)}
+    </button>
+  );
 
   const retry = useMutation({ mutationFn: () => retrySessionNotesJob(relId, job.id), onSuccess: invalidate, onError: (e) => setError(e instanceof Error ? e.message : 'Could not retry') });
   const cancel = useMutation({ mutationFn: () => cancelSessionNotesJob(relId, job.id), onSuccess: invalidate, onError: (e) => setError(e instanceof Error ? e.message : 'Could not cancel') });
@@ -112,7 +134,15 @@ export function SessionNotesJobCard({ relId, job, defaultOpen = false }: { relId
                   <span className="sn-made-icon" aria-hidden="true">📚</span>
                   <span>
                     <Link to={`/decks/${deck.id}`}>{deck.name}</Link> · {plural(deck.note_count, 'card')}
-                    {deck.target_deck_id ? <span className="sn-sent"> · sent to student</span> : <span className="sn-unsent"> · in your library, not sent</span>}
+                    {deck.removed_at ? (
+                      <span className="sn-unsent"> · removed from {name}</span>
+                    ) : deck.target_deck_id ? (
+                      <>
+                        <span className="sn-sent"> · sent to student</span> {undo({ kind: 'deck', id: deck.target_deck_id, title: deck.name })}
+                      </>
+                    ) : (
+                      <span className="sn-unsent"> · in your library, not sent</span>
+                    )}
                   </span>
                 </li>
               )}
@@ -121,7 +151,15 @@ export function SessionNotesJobCard({ relId, job, defaultOpen = false }: { relId
                   <span className="sn-made-icon" aria-hidden="true">📘</span>
                   <span>
                     <Link to={`/library/${l.library_item_id}`}>{l.title}</Link> · mini lesson, {plural(l.exercise_count, 'exercise')}
-                    {l.lesson_id ? <span className="sn-sent"> · assigned</span> : <span className="sn-unsent"> · in your library, not assigned</span>}
+                    {l.removed_at ? (
+                      <span className="sn-unsent"> · removed from {name}</span>
+                    ) : l.lesson_id ? (
+                      <>
+                        <span className="sn-sent"> · assigned</span> {undo({ kind: 'lesson', id: l.lesson_id, title: l.title })}
+                      </>
+                    ) : (
+                      <span className="sn-unsent"> · in your library, not assigned</span>
+                    )}
                   </span>
                 </li>
               ))}
@@ -130,7 +168,16 @@ export function SessionNotesJobCard({ relId, job, defaultOpen = false }: { relId
                   <span className="sn-made-icon" aria-hidden="true">📖</span>
                   <span>
                     <Link to={`/readers/${reader.id}/edit`}>{reader.title_english}</Link> · reader, {plural(reader.page_count, 'page')}
-                    {reader.target_reader_id ? <span className="sn-sent"> · sent to student</span> : <span className="sn-unsent"> · in your readers, not sent</span>}
+                    {reader.removed_at ? (
+                      <span className="sn-unsent"> · removed from {name}</span>
+                    ) : reader.target_reader_id ? (
+                      <>
+                        <span className="sn-sent"> · sent to student</span>{' '}
+                        {undo({ kind: 'reader', id: reader.target_reader_id, title: reader.title_chinese || reader.title_english })}
+                      </>
+                    ) : (
+                      <span className="sn-unsent"> · in your readers, not sent</span>
+                    )}
                   </span>
                 </li>
               )}
@@ -188,6 +235,25 @@ export function SessionNotesJobCard({ relId, job, defaultOpen = false }: { relId
       </footer>
 
       {showNotes && <pre className="sn-notes">{job.notes}</pre>}
+
+      {removal && (
+        <RemoveHomeworkSheet
+          relId={relId}
+          studentName={studentName}
+          target={removal}
+          onClose={() => setRemoval(null)}
+          onRemoved={(text) => {
+            setRemoval(null);
+            showToast(text);
+            invalidate();
+            queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
+            queryClient.invalidateQueries({ queryKey: ['student-lessons', relId] });
+            queryClient.invalidateQueries({ queryKey: ['shared-readers', relId] });
+            queryClient.invalidateQueries({ queryKey: ['relationship-homework', relId] });
+          }}
+        />
+      )}
+      <Toast message={toast} />
     </article>
   );
 }

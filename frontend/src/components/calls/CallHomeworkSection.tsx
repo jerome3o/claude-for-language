@@ -64,7 +64,7 @@ export function CallHomeworkSection({ callId, relId, studentName, ready, callCou
       {jobs.length > 0 && (
         <div className="sn-jobs">
           {jobs.map((job) => (
-            <SessionNotesJobCard key={job.id} relId={relId} job={job} />
+            <SessionNotesJobCard key={job.id} relId={relId} job={job} studentName={studentName} />
           ))}
         </div>
       )}

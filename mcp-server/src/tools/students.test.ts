@@ -428,6 +428,9 @@ const EXPECTED_TOOLS = [
   'share_deck_with_student',
   'update_student_deck_copy',
   'move_student_deck',
+  'remove_student_deck',
+  'remove_student_lesson',
+  'remove_student_reader',
   'list_card_flags',
   'reply_to_card_flag',
   'list_student_claude_chats',
@@ -459,6 +462,58 @@ describe('registerStudentTools', () => {
     expect(calls[0]).toMatchObject({ method: 'POST', path: '/api/relationships/rel-1/shared-decks/sd-1/move', body: { to: 'top' } });
     const text = (res.content[0] as { text: string }).text;
     expect(JSON.parse(text)).toEqual({ shared_deck_id: 'sd-1', target_deck_id: 'deck-s', queue_position: 1, queue_total: 6 });
+  });
+
+  it('list_student_homework tells Claude how to take homework back', () => {
+    const { tools } = fakeContext({});
+    const d = tools.get('list_student_homework')!.description;
+    for (const name of ['remove_student_deck', 'remove_student_lesson', 'remove_student_reader']) expect(d).toContain(name);
+  });
+
+  it('remove_student_deck: dry run previews, then deletes the copy (by share or copy id)', async () => {
+    const preview = { kind: 'deck', shared_deck_id: 'sd-1', target_deck_id: 'deck-s', words_total: 319, words_met: 0, reviews: 0, can_delete_source: true };
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships/rel-1/shared-decks/sd-1/removal': preview,
+      'DELETE /api/relationships/rel-1/shared-decks/sd-1': { removed: true, words_met: 0, reviews: 0, assignments_cancelled: 1, source_deleted: false },
+      'DELETE /api/relationships/rel-1/shared-decks/deck-s?delete_source=1': { removed: true, words_met: 0, reviews: 0, assignments_cancelled: 0, source_deleted: true },
+    });
+    const dry = parse(await tools.get('remove_student_deck')!.handler({ relationship_id: 'rel-1', shared_deck_id: 'sd-1', dry_run: true }));
+    expect(dry).toMatchObject({ dry_run: true, words_total: 319, can_delete_source: true });
+    expect(calls.map((c) => c.method)).toEqual(['GET']);
+    const done = parse(await tools.get('remove_student_deck')!.handler({ relationship_id: 'rel-1', shared_deck_id: 'sd-1' }));
+    expect(done).toMatchObject({ removed: true, assignments_cancelled: 1 });
+    const both = parse(await tools.get('remove_student_deck')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-s', delete_source: true }));
+    expect(both.source_deleted).toBe(true);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'GET /api/relationships/rel-1/shared-decks/sd-1/removal',
+      'DELETE /api/relationships/rel-1/shared-decks/sd-1',
+      'DELETE /api/relationships/rel-1/shared-decks/deck-s?delete_source=1',
+    ]);
+  });
+
+  it('remove_student_deck needs an id and surfaces API refusals', async () => {
+    const { tools, calls } = fakeContext({});
+    const res = await tools.get('remove_student_deck')!.handler({ relationship_id: 'rel-1' });
+    expect(res.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    const refused = await tools.get('remove_student_deck')!.handler({ relationship_id: 'rel-1', deck_id: 'own-deck' });
+    expect(refused.isError).toBe(true);
+  });
+
+  it('remove_student_lesson / remove_student_reader hit their endpoints', async () => {
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships/rel-1/student-lessons/l-1/removal': { kind: 'lesson', lesson_id: 'l-1', title: 'Tones', completions: 2 },
+      'DELETE /api/relationships/rel-1/student-lessons/l-1': { removed: true, words_met: 0, reviews: 2, assignments_cancelled: 0, source_deleted: false },
+      'DELETE /api/relationships/rel-1/shared-readers/sr-1': { removed: true, words_met: 0, reviews: 0, assignments_cancelled: 0, source_deleted: false },
+    });
+    expect(parse(await tools.get('remove_student_lesson')!.handler({ relationship_id: 'rel-1', lesson_id: 'l-1', dry_run: true }))).toMatchObject({ completions: 2 });
+    expect(parse(await tools.get('remove_student_lesson')!.handler({ relationship_id: 'rel-1', lesson_id: 'l-1' }))).toMatchObject({ removed: true });
+    expect(parse(await tools.get('remove_student_reader')!.handler({ relationship_id: 'rel-1', shared_reader_id: 'sr-1' }))).toMatchObject({ removed: true });
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'GET /api/relationships/rel-1/student-lessons/l-1/removal',
+      'DELETE /api/relationships/rel-1/student-lessons/l-1',
+      'DELETE /api/relationships/rel-1/shared-readers/sr-1',
+    ]);
   });
 
   it('get_student_overview carries the tutor\'s private student profile', async () => {
@@ -696,6 +751,9 @@ describe('registerStudentTools', () => {
       'GET /api/relationships/rel-1/student-lessons': {
         lessons: [{ id: 'l1', title: 'Tones', description: null, icon: null, source: 'library', created_at: 'c', exercise_count: 5, library_item_id: 'lib1', assigned_by: 'me', assigned_by_me: true, completions: 1, last_completed_at: 'x', last_rating: 2, last_score: { correct: 4, total: 5 } }],
       },
+      'GET /api/relationships/rel-1/shared-readers': [
+        { id: 'sr1', source_reader_id: 'r1', target_reader_id: 'r1c', shared_at: 's', source_title_chinese: '小猫', source_title_english: 'Kitten', target_title_chinese: '小猫', target_title_english: 'Kitten', target_deleted: false, page_count: 6, read_count: 0, last_read_at: null },
+      ],
       'GET /api/relationships/rel-1/shared-decks/sd1/progress': {
         deck_name: 'HSK 1',
         shared_at: 's',
@@ -710,8 +768,10 @@ describe('registerStudentTools', () => {
     expect(calls.map((c) => c.path)).toEqual([
       '/api/relationships/rel-1/shared-decks',
       '/api/relationships/rel-1/student-lessons',
+      '/api/relationships/rel-1/shared-readers',
       '/api/relationships/rel-1/shared-decks/sd1/progress',
     ]);
+    expect(out.readers).toEqual([expect.objectContaining({ shared_reader_id: 'sr1', title: '小猫', student_reader_id: 'r1c', read_count: 0 })]);
     expect(out.decks).toEqual([
       expect.objectContaining({
         shared_deck_id: 'sd1',
