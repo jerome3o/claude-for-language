@@ -311,6 +311,8 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
                                         when {
                                             selecting -> actions.onToggleSelect(m.id)
                                             m.isImage -> onView(ViewerTarget(m, null))
+                                            m.isFile -> actions.onOpenFile(m)
+                                            m.isVideo -> actions.onToggleVideo(m.id)
                                             else -> actions.onToggleTime(m.id)
                                         }
                                     },
@@ -319,11 +321,17 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
                                 )
                                 .testTag("chat-bubble"),
                         ) {
-                            when {
-                                m.isDeleted -> DeletedContent(fg, meta)
-                                m.isImage -> PhotoContent(m, fg, meta, ui, actions)
-                                m.isVoice -> VoiceContent(m.id, m, null, m.attachment!!.duration_ms, mine, meta, ui, actions)
-                                else -> TextContent(m, mine, fg, meta, invite, link, ui, actions, openMenu)
+                            Column {
+                                // Round 2 PR 3: "↪ Forwarded" on top of the bubble.
+                                if (m.isForwarded) ForwardedLabel(mine, Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp))
+                                when {
+                                    m.isDeleted -> DeletedContent(fg, meta)
+                                    m.isImage -> PhotoContent(m, fg, meta, ui, actions)
+                                    m.isVoice -> VoiceContent(m.id, m, null, m.attachment!!.duration_ms, mine, meta, ui, actions)
+                                    m.isFile -> FileContent(m, mine, fg, meta, ui, actions)
+                                    m.isVideo -> VideoContent(m, fg, meta, ui, actions)
+                                    else -> TextContent(m, mine, fg, meta, invite, link, ui, actions, openMenu)
+                                }
                             }
                         }
                     }
@@ -560,6 +568,44 @@ private fun PhotoContent(m: ChatMessageDto, fg: Color, meta: AnnotatedString?, u
     }
 }
 
+/** A document: the reply quote, the file card, the caption, the meta in the corner. */
+@Composable
+private fun FileContent(m: ChatMessageDto, mine: Boolean, fg: Color, meta: AnnotatedString?, ui: ChatUi, actions: ChatActions) {
+    val a = m.attachment!!
+    val reserve = rememberMetaWidth(meta)
+    Box {
+        Column(Modifier.padding(start = 10.dp, end = 12.dp, top = 9.dp, bottom = 7.dp)) {
+            m.reply_to?.let { r -> ReplyQuote(r, mine, ui) { actions.onJumpTo(r.id) } }
+            FileCard(a.name ?: "file", a.bytes, mine, opening = ui.openingFile == m.id, failed = m.id in ui.fileErrors)
+            val query = ui.search?.query?.takeIf { it.isNotBlank() && ui.highlightId == m.id }
+            if (m.content.isNotBlank()) ReservedText(highlight(m.content, query), reserve, color = fg, fontSize = 17.sp, lineHeight = 24.sp, modifier = Modifier.padding(top = 6.dp))
+            else if (meta != null) Spacer(Modifier.height(14.dp))
+        }
+        MetaCorner(meta)
+    }
+}
+
+/** A video clip: the reply quote, the player (first frame + ▶ until tapped), the caption, the meta. */
+@Composable
+private fun VideoContent(m: ChatMessageDto, fg: Color, meta: AnnotatedString?, ui: ChatUi, actions: ChatActions) {
+    val a = m.attachment!!
+    val reserve = rememberMetaWidth(meta)
+    // The clip's width holds the quote and the caption too (a tall clip never sits in a wider bubble).
+    val (vw, _) = dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaSizing.videoSize(a.width, a.height)
+    Column(Modifier.width(vw.dp)) {
+        m.reply_to?.let { r -> Box(Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp)) { ReplyQuote(r, m.sender_id == ui.myId, ui) { actions.onJumpTo(r.id) } } }
+        Box {
+            ChatVideo(m.id, a.width, a.height, a.duration_ms, playing = ui.playingVideo == m.id, loadFile = { actions.loadVideo(m) }, loadPoster = actions.loadPoster)
+            if (m.content.isBlank() && meta != null && ui.playingVideo != m.id) PhotoMeta(meta)
+        }
+        if (m.content.isNotBlank()) Box {
+            val query = ui.search?.query?.takeIf { it.isNotBlank() && ui.highlightId == m.id }
+            ReservedText(highlight(m.content, query), reserve, color = fg, fontSize = 17.sp, lineHeight = 24.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+            MetaCorner(meta)
+        }
+    }
+}
+
 /** On a photo without a caption: the time on a dark scrim. */
 @Composable
 private fun BoxScope.PhotoMeta(meta: AnnotatedString) {
@@ -716,7 +762,15 @@ fun PendingBubbleRow(p: PendingBubble, layout: ChatBubbles.Layout, ui: ChatUi, a
                 Box(
                     Modifier.clip(shape).background(c.mine.copy(alpha = if (p.failed) 0.55f else if (p.delivered) 1f else 0.85f))
                         .combinedClickable(
-                            onClick = { if (p.failed) actions.onRetryPending(p.clientId) else if (p.kind == "image") onView(ViewerTarget(null, p.filePath)) else actions.onToggleTime("p-" + p.clientId) },
+                            onClick = {
+                                when {
+                                    p.failed -> actions.onRetryPending(p.clientId)
+                                    p.kind == "image" -> onView(ViewerTarget(null, p.filePath))
+                                    p.kind == "file" -> actions.onOpenPendingFile(p)
+                                    p.kind == "video" -> actions.onToggleVideo("p-" + p.clientId)
+                                    else -> actions.onToggleTime("p-" + p.clientId)
+                                }
+                            },
                             onLongClick = { if (p.failed) actions.onDiscardPending(p.clientId) },
                         )
                         .testTag("chat-pending"),
@@ -734,6 +788,21 @@ fun PendingBubbleRow(p: PendingBubble, layout: ChatBubbles.Layout, ui: ChatUi, a
                             }
                         }
                         "voice" -> VoiceContent("p-" + p.clientId, null, p.filePath, p.durationMs ?: 0, true, meta, ui, actions)
+                        "file" -> Box {
+                            Column(Modifier.padding(start = 10.dp, end = 12.dp, top = 9.dp, bottom = 7.dp)) {
+                                reply?.let { r -> ReplyQuote(ChatReplyToDto(r.id, r.content, r.sender, r.deleted_at), true, ui) { actions.onJumpTo(r.id) } }
+                                FileCard(p.name ?: "file", p.bytes, mine = true, opening = false, failed = false)
+                                if (meta != null) Spacer(Modifier.height(14.dp))
+                            }
+                            MetaCorner(meta)
+                        }
+                        "video" -> Box {
+                            ChatVideo(
+                                "p-" + p.clientId, p.width, p.height, p.durationMs ?: 0, playing = ui.playingVideo == "p-" + p.clientId,
+                                loadFile = { p.filePath?.let { java.io.File(it) }?.takeIf { it.exists() } }, loadPoster = actions.loadPoster,
+                            )
+                            if (meta != null && ui.playingVideo != "p-" + p.clientId) PhotoMeta(meta)
+                        }
                         else -> Box {
                             Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 7.dp, bottom = 7.dp)) {
                                 reply?.let { r -> ReplyQuote(ChatReplyToDto(r.id, r.content, r.sender, r.deleted_at), true, ui) { actions.onJumpTo(r.id) } }

@@ -4,9 +4,9 @@ package dev.jeromeswannack.chineselearning.lab.core
  * The long-press menu of one chat message — chat round 2 (docs/CHAT.md "Round 2"). Port of
  * `messageMenu` / `menuText` in shared/chats/messageMenu.ts, parity-tested
  * (parity/fixtures/chat-round2.ts → ChatRound2ParityTest). Bubbles carry no buttons: every tool
- * lives here, in this order: Reply, Copy, Translate, Pinyin, Explain, Save as flashcard, Make
+ * lives here, in this order: Reply, Copy, Forward, Translate, Pinyin, Explain, Save as flashcard, Make
  * flashcards from selection, Check my Chinese, Correct, Read aloud, Word by word (Claude practice
- * chat), Discuss with Claude, Pin, Edit, Delete, Select. A reaction bar sits on top ([Menu.reactions]).
+ * chat), Discuss with Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top ([Menu.reactions]).
  */
 object MessageMenu {
     /** `MenuMessage`: what the menu reads off a message. */
@@ -16,7 +16,7 @@ object MessageMenu {
         val deletedAt: String? = null,
         /** Still in the outbox. */
         val pending: Boolean = false,
-        /** image | voice | null. */
+        /** image | voice | file | video | null. */
         val attachmentKind: String? = null,
         val transcript: String? = null,
         val attachmentTranslation: String? = null,
@@ -45,6 +45,7 @@ object MessageMenu {
     // Action ids (`MenuActionId`).
     const val REPLY = "reply"
     const val COPY = "copy"
+    const val FORWARD = "forward"
     const val TRANSLATE = "translate"
     const val PINYIN = "pinyin"
     const val EXPLAIN = "explain"
@@ -60,6 +61,7 @@ object MessageMenu {
     const val DISCUSS = "discuss"
     const val PIN = "pin"
     const val UNPIN = "unpin"
+    const val INFO = "info"
     const val EDIT = "edit"
     const val DELETE = "delete"
     const val SELECT = "select"
@@ -95,6 +97,7 @@ object MessageMenu {
         val translated = if (kind == "voice") truthy(msg.attachmentTranslation) else truthy(msg.translation)
         val items = mutableListOf(Item(REPLY, "Reply", "↩️", false))
         if (text.isNotEmpty()) items += Item(COPY, "Copy", "📋", false)
+        if (!isAiConversation) items += Item(FORWARD, "Forward", "↪️", true)
         if (zh && (kind != "voice" || translated)) {
             items += Item(TRANSLATE, if (translateOn) "Hide translation" else "Translate", "🌐", !translated && !translateOn, active = translateOn)
         }
@@ -118,6 +121,7 @@ object MessageMenu {
         if (text.isNotEmpty()) items += Item(DISCUSS, if (msg.hasDiscussion) "Continue with Claude" else "Discuss with Claude", "💬", true)
         if (!isAiConversation) {
             items += if (truthy(msg.pinnedAt)) Item(UNPIN, "Unpin", "📌", true) else Item(PIN, "Pin", "📌", true)
+            items += Item(INFO, "Info", "ℹ️", false)
             if (isMine && kind != "voice") items += Item(EDIT, if (kind == "image") "Edit caption" else "Edit", "✏️", true)
             if (isMine) items += Item(DELETE, "Delete", "🗑️", true, danger = true)
         }

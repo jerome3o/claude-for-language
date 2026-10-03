@@ -25,7 +25,7 @@ import java.util.Locale
  */
 data class PendingBubble(
     val clientId: String,
-    /** text | image | voice */
+    /** text | image | voice | file | video */
     val kind: String,
     /** The text, or a photo's caption. */
     val content: String,
@@ -39,6 +39,10 @@ data class PendingBubble(
     val width: Int = 0,
     val height: Int = 0,
     val durationMs: Long? = null,
+    /** A file's name (kind file). */
+    val name: String? = null,
+    /** The staged file's size (files / videos: the bubble's "840 KB · PDF"). */
+    val bytes: Long = 0,
 )
 
 /** The chat's rich-message rules (docs/CHAT.md PR 2), pure — unit-tested in ChatRichTest. */
@@ -59,7 +63,12 @@ object ChatRich {
                 item.kind == ChatWrites.KIND_MEDIA && item.path.startsWith(mediaPrefix) -> {
                     val q = query(item.path.substringAfter('?'))
                     val kind = q["kind"] ?: return@mapNotNull null
-                    val size = if (kind == "image") item.filePath?.let(dims) else null
+                    val size = when (kind) {
+                        "image" -> item.filePath?.let(dims)
+                        // A video's shape rides in the query (the device measured it before queueing).
+                        "video" -> (q["width"]?.toIntOrNull() ?: 0) to (q["height"]?.toIntOrNull() ?: 0)
+                        else -> null
+                    }
                     PendingBubble(
                         clientId = q["client_id"] ?: item.id,
                         kind = kind,
@@ -71,6 +80,8 @@ object ChatRich {
                         width = size?.first ?: 0,
                         height = size?.second ?: 0,
                         durationMs = q["duration_ms"]?.toLongOrNull(),
+                        name = q["name"],
+                        bytes = if (kind == "file" || kind == "video") item.filePath?.let { runCatching { java.io.File(it).length() }.getOrNull() } ?: 0 else 0,
                     )
                 }
                 else -> null
@@ -138,10 +149,10 @@ object ChatRich {
         words = m.words?.map { ChatSearch.Word(it.text, it.pinyin) },
     )
 
-    /** The conversation list's one-line preview — the worker's wording (📷 Photo[: caption] / 🎤 Voice message / Message deleted). */
-    fun preview(content: String, attachmentKind: String?, deletedAt: String?, max: Int = 50): String {
+    /** The one-line preview — the worker's wording (📷 Photo[: caption] / 🎤 Voice message / 📄 name / 🎬 Video / Message deleted). */
+    fun preview(content: String, attachmentKind: String?, deletedAt: String?, max: Int = 50, fileName: String? = null): String {
         if (!deletedAt.isNullOrEmpty()) return "Message deleted"
-        return ChatLogic.truncate(dev.jeromeswannack.chineselearning.lab.data.chat.IncomingChat.previewText(content, attachmentKind).trim(), max)
+        return ChatLogic.truncate(dev.jeromeswannack.chineselearning.lab.data.chat.IncomingChat.previewText(content, attachmentKind, fileName).trim(), max)
     }
 
     fun duration(ms: Long): String {

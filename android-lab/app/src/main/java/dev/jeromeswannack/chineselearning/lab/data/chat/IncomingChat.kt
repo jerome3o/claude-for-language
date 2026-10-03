@@ -37,17 +37,11 @@ data class IncomingChat(
         )
 
         /**
-         * The notification text for a message (the worker's preview, docs/CHAT.md PR 2): a photo is
-         * "📷 Photo" / "📷 Photo: caption", a voice message "🎤 Voice message", text as is.
+         * The notification text for a message — the worker's `messagePreviewText` (core
+         * ChatFiles.previewText): "📷 Photo[: caption]", "🎤 Voice message", "📄 <name>", "🎬 Video", text as is.
          */
-        fun previewText(content: String, attachmentKind: String?): String {
-            val c = content.trim()
-            return when (attachmentKind) {
-                "image" -> if (c.isEmpty()) "📷 Photo" else "📷 Photo: $c"
-                "voice" -> "🎤 Voice message"
-                else -> content
-            }
-        }
+        fun previewText(content: String, attachmentKind: String?, fileName: String? = null): String =
+            dev.jeromeswannack.chineselearning.lab.core.ChatFiles.previewText(content, attachmentKind, fileName)
 
         fun fromMessage(m: ChatMessageDto, relationshipId: String) = IncomingChat(
             messageId = m.id,
@@ -56,7 +50,7 @@ data class IncomingChat(
             senderId = m.sender_id.ifEmpty { m.sender.id },
             senderName = m.sender.name?.takeIf { it.isNotBlank() } ?: "New message",
             senderPicture = m.sender.picture_url,
-            content = previewText(m.content, m.attachment?.kind),
+            content = previewText(m.content, m.attachment?.kind, m.attachment?.name),
             createdAt = m.created_at,
         )
     }
