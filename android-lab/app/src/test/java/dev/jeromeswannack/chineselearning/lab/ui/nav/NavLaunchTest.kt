@@ -3,6 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.nav
 import android.app.NotificationManager
 import android.content.Intent
 import android.os.Looper
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.navigation.NavGraph
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.LabApp
@@ -12,7 +13,9 @@ import dev.jeromeswannack.chineselearning.lab.shell.ShellLinks
 import dev.jeromeswannack.chineselearning.lab.shell.ShellNotifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -26,14 +29,17 @@ import org.robolectric.annotation.Config
  * recreate, process death): one Study at most, "go study" taps leave the homework pass alone,
  * and a cold start opens where he was (for 6 h), not Study.
  *
- * One @Test running every scenario in turn (each on fresh activities, the saved route cleared):
- * as separate @Tests in one class, the second test's activity never composed its shell under
- * Robolectric (the view model state was there, the composition never ran) and timed out.
+ * The activities are driven by Robolectric (intents, onNewIntent, recreate, destroy) and composed
+ * on an empty compose rule's clock: without it, only the first activity of a reused sandbox
+ * composes (Compose's window recomposer keeps the first test's frame clock).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = LabApp::class)
 class NavLaunchTest {
+    @get:Rule val compose = createEmptyComposeRule()
+
     private lateinit var app: LabApp
+    private val launched = mutableListOf<ActivityController<MainActivity>>()
 
     @Before
     fun setUp() {
@@ -42,34 +48,20 @@ class NavLaunchTest {
         app.prefs.sessionToken = "test-session"
         app.prefs.accountRole = "student"
         app.prefs.landingPage = "study"
+        compose.mainClock.autoAdvance = false
+        LastRouteStore(app).clear()
         shadowOf(app).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    @Test
-    fun navigationScenarios() {
-        val scenarios = listOf(
-            ::widgetStudyOverAnOpenStudyKeepsOneEntry,
-            ::repeatedIntentsAndRecreationAddNoLayers,
-            ::aColdStartRestoresTheHomeworkPass,
-            ::aStaleLastRouteOpensTheLanding,
-            ::closingStudyReturnsToThePreviousScreen,
-            ::aReminderNotificationTapLeavesTheHomeworkPassOnScreen,
-            ::aReminderTapOpensStudyOtherwiseAndChatsAlwaysOpen,
-        )
-        for (s in scenarios) {
-            LastRouteStore(app).clear()
-            app.getSystemService(NotificationManager::class.java).cancelAll()
-            try {
-                s()
-            } catch (e: Throwable) {
-                throw AssertionError("${s.name}: ${e.message}", e)
-            }
-        }
+    @After
+    fun tearDown() {
+        // Never leave an activity composing for the next test, whatever happened.
+        launched.forEach { c -> runCatching { if (!c.get().isDestroyed) c.pause().stop().destroy() } }
     }
 
     private fun waitFor(what: String, check: () -> Boolean) {
-        repeat(2000) {
-            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20))
+        repeat(1500) {
+            settleOnce()
             if (runCatching(check).getOrDefault(false)) return
             Thread.sleep(10)
         }
@@ -78,13 +70,20 @@ class NavLaunchTest {
 
     private fun launch(intent: Intent? = null): ActivityController<MainActivity> {
         val c = if (intent == null) Robolectric.buildActivity(MainActivity::class.java) else Robolectric.buildActivity(MainActivity::class.java, intent)
+        launched += c
         c.setup()
         waitFor("the shell") { c.get().nav != null }
         settle()
         return c
     }
 
-    private fun settle() = repeat(20) { shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20)); Thread.sleep(5) }
+    private fun settleOnce() {
+        shadowOf(Looper.getMainLooper()).idle()
+        compose.mainClock.advanceTimeBy(50)
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun settle() = repeat(10) { settleOnce(); Thread.sleep(5) }
 
     private fun ActivityController<MainActivity>.nav() = get().nav!!
     private fun ActivityController<MainActivity>.stack() =
@@ -96,7 +95,8 @@ class NavLaunchTest {
     private fun ActivityController<MainActivity>.foreground() = apply { start().resume(); settle() }
 
     /** (a) Home → Study → background → widget Study → back once is Home: one Study entry. */
-    private fun widgetStudyOverAnOpenStudyKeepsOneEntry() {
+    @Test
+    fun widgetStudyOverAnOpenStudyKeepsOneEntry() {
         val c = launch()
         c.nav().open(Routes.study()); settle()
         c.background()
@@ -109,7 +109,8 @@ class NavLaunchTest {
     }
 
     /** (b) Double widget taps, recreate() and a fold change add nothing. */
-    private fun repeatedIntentsAndRecreationAddNoLayers() {
+    @Test
+    fun repeatedIntentsAndRecreationAddNoLayers() {
         val c = launch(widgetStudy())
         waitFor("study from the widget") { c.nav().currentFullPath() == "/study" }
         c.newIntent(widgetStudy()); settle()
@@ -126,7 +127,8 @@ class NavLaunchTest {
     }
 
     /** (c) In a homework pass → the process dies (no saved state) → relaunch restores the pass, not Study. */
-    private fun aColdStartRestoresTheHomeworkPass() {
+    @Test
+    fun aColdStartRestoresTheHomeworkPass() {
         val c = launch()
         c.nav().open(Routes.homework()); settle()
         c.nav().open(Routes.homeworkPass("hw1")); settle()
@@ -140,7 +142,8 @@ class NavLaunchTest {
     }
 
     /** (d) A last route older than 6 h → the normal landing. */
-    private fun aStaleLastRouteOpensTheLanding() {
+    @Test
+    fun aStaleLastRouteOpensTheLanding() {
         LastRouteStore(app).save(listOf("/", "/homework/hw1"), System.currentTimeMillis() - 7 * 3_600_000L)
         val c = launch()
         assertEquals(listOf("/"), c.stack())
@@ -148,7 +151,8 @@ class NavLaunchTest {
     }
 
     /** (e) Closing Study returns to the screen it was opened from. */
-    private fun closingStudyReturnsToThePreviousScreen() {
+    @Test
+    fun closingStudyReturnsToThePreviousScreen() {
         val c = launch()
         c.nav().openTabPath(Routes.DECKS); settle()
         c.nav().open(Routes.deck("abc")); settle()
@@ -162,7 +166,8 @@ class NavLaunchTest {
     }
 
     /** Homework pass open → the due-card reminder is tapped → still on the pass, back stack unchanged. */
-    private fun aReminderNotificationTapLeavesTheHomeworkPassOnScreen() {
+    @Test
+    fun aReminderNotificationTapLeavesTheHomeworkPassOnScreen() {
         val c = launch()
         c.nav().open(Routes.homework()); settle()
         c.nav().open(Routes.homeworkPass("hw1")); settle()
@@ -185,7 +190,8 @@ class NavLaunchTest {
     }
 
     /** Nothing resumable going on: the same tap opens Study; a chat notification always opens its chat. */
-    private fun aReminderTapOpensStudyOtherwiseAndChatsAlwaysOpen() {
+    @Test
+    fun aReminderTapOpensStudyOtherwiseAndChatsAlwaysOpen() {
         val c = launch()
         c.nav().openTabPath(Routes.DECKS); settle()
         c.background()
@@ -196,7 +202,7 @@ class NavLaunchTest {
         c.background()
         c.newIntent(ShellLinks.intent(app, Routes.chat("r1", "c1")))
         c.foreground()
-        assertEquals("/connections/r1/chat/c1", c.nav().currentFullPath())
+        waitFor("the chat (stack ${c.stack()})") { c.nav().currentFullPath() == "/connections/r1/chat/c1" }
         c.pause().stop().destroy()
     }
 }
