@@ -1,0 +1,75 @@
+/* "Daily new cards" on the tutor's student page (DailyBudgetSection). */
+.db-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--color-surface, #fff);
+}
+
+.db-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.db-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.db-value {
+  font-size: 0.9375rem;
+}
+
+.db-muted {
+  color: var(--color-text-light, #6b7280);
+}
+
+.db-small {
+  font-size: 0.8125rem;
+}
+
+.db-edit {
+  min-height: 44px;
+  min-width: 64px;
+  flex-shrink: 0;
+}
+
+.db-lead {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light, #6b7280);
+}
+
+.db-hint {
+  margin: 0.75rem 0 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md, 8px);
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.db-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.db-actions .btn {
+  flex: 1;
+  min-height: 44px;
+}
+
+@media (min-width: 640px) {
+  .db-sheet {
+    max-width: 480px;
+  }
+}

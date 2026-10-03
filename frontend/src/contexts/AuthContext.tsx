@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { writeStudyBudget } from '../services/studyBudget';
+import { STUDY_BUDGET_CHANGED, writeStudyBudget } from '../services/studyBudget';
+import type { StudyBudgetInfo } from '@shared/decks';
 import { writeConversationVoices } from '../services/conversationVoices';
 import { AuthUser } from '../types';
 import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
@@ -96,6 +97,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     loadUser();
+  }, []);
+
+  // A sync brought a new daily budget (e.g. the tutor changed it): keep the user in step.
+  useEffect(() => {
+    const onBudget = (e: Event) => {
+      const info = (e as CustomEvent<Partial<StudyBudgetInfo>>).detail;
+      if (!info || !('is_default' in info)) return;
+      setUser((prev) => {
+        if (!prev) return prev;
+        const next = {
+          ...prev,
+          new_cards_per_day: info.new_cards_per_day,
+          secondary_cards_per_day: info.secondary_cards_per_day,
+          study_budget: info as StudyBudgetInfo,
+        };
+        try { localStorage.setItem(CACHED_USER_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+        return next;
+      });
+    };
+    window.addEventListener(STUDY_BUDGET_CHANGED, onBudget);
+    return () => window.removeEventListener(STUDY_BUDGET_CHANGED, onBudget);
   }, []);
 
   // Set up unauthorized handler

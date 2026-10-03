@@ -7,6 +7,8 @@
  * worker cannot import the API worker's sources, and keeping the list short
  * documents exactly what each tool depends on.
  */
+import type { StudyBudgetInfo } from '../../../../shared/decks/tutor-budget';
+
 
 export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
 
@@ -122,6 +124,8 @@ export interface StudentOverview {
   last_conversation_id: string | null;
   /** The tutor has written a private student profile (get_student_profile). */
   has_profile?: boolean;
+  /** The student's daily new-card budget and who set it (worker: shared/decks/tutor-budget.ts). */
+  study_budget?: StudyBudgetInfo;
 }
 
 export interface DashboardInvite {

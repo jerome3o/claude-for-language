@@ -36,6 +36,7 @@ import { FlaggedCardsSection } from '../components/tutor/FlaggedCardsSection';
 import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
 import { LessonNotesSection } from '../components/tutor/LessonNotesSection';
 import { StudentProfileSection } from '../components/tutor/StudentProfileSection';
+import { DailyBudgetSection } from '../components/tutor/DailyBudgetSection';
 import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
 import { RemoveHomeworkSheet, type RemovalTarget } from '../components/tutor/RemoveHomeworkSheet';
 import { SharedReadersSection } from '../components/tutor/SharedReadersSection';
@@ -427,6 +428,8 @@ export function ConnectionDetailPage() {
           {/* Homework: decks I shared + lessons I assigned */}
           <section className="detail-section">
             <h2>Homework</h2>
+            {/* The student's ONE daily new-card budget — what decides how fast homework decks are introduced */}
+            <DailyBudgetSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} initial={overview?.study_budget} />
             {updateNote && <div className="td-result" role="status">{updateNote}</div>}
             {/* One-off homework with due dates + the load gauge (docs/HOMEWORK.md) */}
             <AssignedHomeworkSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} />

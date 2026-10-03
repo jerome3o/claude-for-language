@@ -5,6 +5,7 @@
  */
 import { groupQuestionThreads } from '../../../../shared/chats/threads';
 import type { StudentProfileFields } from '../../../../shared/students/profile';
+import type { StudyBudgetInfo } from '../../../../shared/decks/tutor-budget';
 import type {
   CardFlagRow,
   SessionNotesJobRow,
@@ -105,6 +106,20 @@ export function compactStudentRow(o: StudentOverview, apiBase: string, needsAtte
     ...(o.is_new ? { setup: compactSetup(o.setup) } : {}),
     last_conversation_id: o.last_conversation_id,
     has_student_profile: o.has_profile ?? false,
+    study_budget: compactStudyBudget(o.study_budget),
+  };
+}
+
+/** The student's daily new-card budget (set_student_study_budget changes it); null from an older API. */
+export function compactStudyBudget(b: StudyBudgetInfo | null | undefined) {
+  if (!b) return null;
+  return {
+    new_words_per_day: b.new_cards_per_day,
+    extra_cards_per_day: b.secondary_cards_per_day,
+    is_default: b.is_default,
+    set_by: b.set_by_id ? (b.set_by_tutor ? 'tutor' : 'student') : null,
+    set_by_name: b.set_by_name,
+    set_at: b.set_at,
   };
 }
 

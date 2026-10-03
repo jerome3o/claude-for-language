@@ -288,6 +288,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     val send = SendHomeworkController(app, viewModelScope) { refreshAfterHomework() }
     val lessonNotes = LessonNotesController(app, this, relId)
     val profile = StudentProfileController(app, this, relId) { overview.refresh() }
+    val budget = StudentBudgetController(app, this, relId) { overview.refresh() }
 
     init {
         // Offline-first: the dashboard already holds this student's card — show it at once.
@@ -308,7 +309,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     }
 
     fun refresh() {
-        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh(); profile.resource.refresh(); readers.refresh()
+        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh(); profile.resource.refresh(); budget.resource.refresh(); readers.refresh()
     }
 
     private fun refreshAfterHomework() {

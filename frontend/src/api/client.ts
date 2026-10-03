@@ -1,3 +1,4 @@
+import type { StudyBudget, StudyBudgetInfo, StudyBudgetUpdate } from '@shared/decks';
 import type { CoachAction } from '@shared/coach';
 import {
   Deck,
@@ -1298,8 +1299,24 @@ export async function shareDeck(
 }
 
 /** The learner's daily new-card budget across all decks. */
-export async function updateStudyBudget(budget: { new_cards_per_day?: number; secondary_cards_per_day?: number }): Promise<{ new_cards_per_day: number; secondary_cards_per_day: number }> {
+export async function updateStudyBudget(budget: StudyBudgetUpdate): Promise<StudyBudgetInfo> {
   return fetchJSON('/profile/study-budget', { method: 'PUT', body: JSON.stringify(budget) });
+}
+
+/** The tutor's view of a student's daily new-card budget (+ the deck at the top of their queue, for the hint). */
+export interface StudentStudyBudget {
+  budget: StudyBudgetInfo;
+  default: StudyBudget;
+  top_deck: { id: string; name: string; words_to_go: number } | null;
+}
+
+export async function getStudentStudyBudget(relId: string): Promise<StudentStudyBudget> {
+  return fetchJSON(`/relationships/${relId}/student-study-budget`);
+}
+
+/** Tutor only: set the student's budget (null = back to the default); posts a chat message from the tutor. */
+export async function setStudentStudyBudget(relId: string, update: StudyBudgetUpdate): Promise<{ budget: StudyBudgetInfo; changed: boolean; message_sent: boolean }> {
+  return fetchJSON(`/relationships/${relId}/student-study-budget`, { method: 'PUT', body: JSON.stringify(update) });
 }
 
 /** Move a deck to the top or bottom of the new-card queue. */

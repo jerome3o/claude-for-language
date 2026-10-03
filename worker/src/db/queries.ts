@@ -26,7 +26,7 @@ import {
 import { generateId, CARD_TYPES } from '../services/cards';
 import { noteCopyValues } from '../services/note-copy';
 import { parseReaderWords } from '@shared/reader/words';
-import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, moveInOrder, sortDecksForQueue, type DeckSettings as DeckSettingsRow, type QueueMove, type StudyBudget } from '@shared/decks';
+import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, moveInOrder, sortDecksForQueue, studyBudgetInfo, type DeckSettings as DeckSettingsRow, type QueueMove, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow, type StudyBudgetUpdate } from '@shared/decks';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 import type { GrammarPoint } from '../services/practice';
 
@@ -582,15 +582,35 @@ export async function getStudyBudget(db: D1Database, userId: string): Promise<St
   };
 }
 
-export async function setStudyBudget(db: D1Database, userId: string, budget: Partial<StudyBudget>): Promise<StudyBudget> {
+/**
+ * Change the budget (a number sets it, null resets it to the default, a missing key
+ * leaves it) and record who did it: the learner themselves or their tutor.
+ */
+export async function setStudyBudget(db: D1Database, userId: string, update: StudyBudgetUpdate, setBy: string = userId): Promise<StudyBudgetInfo> {
   const sets: string[] = [];
-  const values: number[] = [];
-  if (budget.new_cards_per_day !== undefined) { sets.push('new_cards_per_day = ?'); values.push(budget.new_cards_per_day); }
-  if (budget.secondary_cards_per_day !== undefined) { sets.push('secondary_cards_per_day = ?'); values.push(budget.secondary_cards_per_day); }
+  const values: (number | null | string)[] = [];
+  if (update.new_cards_per_day !== undefined) { sets.push('new_cards_per_day = ?'); values.push(update.new_cards_per_day); }
+  if (update.secondary_cards_per_day !== undefined) { sets.push('secondary_cards_per_day = ?'); values.push(update.secondary_cards_per_day); }
   if (sets.length) {
+    sets.push('study_budget_set_by = ?', 'study_budget_set_at = ?');
+    values.push(setBy, new Date().toISOString());
     await db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).bind(...values, userId).run();
   }
-  return getStudyBudget(db, userId);
+  return getStudyBudgetInfo(db, userId);
+}
+
+/** The budget with who set it (shared/decks/tutor-budget.ts) — /auth/me, /sync/changes, the tutor's views. */
+export async function getStudyBudgetInfo(db: D1Database, userId: string): Promise<StudyBudgetInfo> {
+  const row = await db
+    .prepare(
+      `SELECT u.new_cards_per_day, u.secondary_cards_per_day, u.study_budget_set_by, u.study_budget_set_at,
+              s.name AS study_budget_set_by_name
+       FROM users u LEFT JOIN users s ON s.id = u.study_budget_set_by
+       WHERE u.id = ?`
+    )
+    .bind(userId)
+    .first<StudyBudgetRow>();
+  return studyBudgetInfo(row, userId);
 }
 
 export async function updateDeck(

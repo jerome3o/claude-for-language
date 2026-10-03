@@ -245,6 +245,15 @@ private fun BackupSection(ui: SettingsUi, actions: SettingsActions, env: Setting
     }
 }
 
+/** "Set by Minghui · 3 Oct" while the budget is the tutor's, in this phone's zone (the web's getTimezoneOffset for that day). */
+internal fun budgetSetByLine(info: dev.jeromeswannack.chineselearning.lab.core.StudyBudgetInfo?, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String? {
+    if (info == null || !info.setByTutor) return null
+    val tz = info.setAt?.let { at ->
+        runCatching { -zone.rules.getOffset(java.time.Instant.ofEpochMilli(dev.jeromeswannack.chineselearning.lab.core.Js.parseDate(at))).totalSeconds / 60 }.getOrNull()
+    } ?: (-zone.rules.getOffset(java.time.Instant.now()).totalSeconds / 60)
+    return dev.jeromeswannack.chineselearning.lab.core.TutorBudget.budgetSetByLabel(info, tz)
+}
+
 @Composable
 private fun BudgetSection(ui: SettingsUi, env: SettingsEnv, actions: SettingsActions) {
     val d = ui.budgetDraft
@@ -252,6 +261,9 @@ private fun BudgetSection(ui: SettingsUi, env: SettingsEnv, actions: SettingsAct
         "New cards a day",
         "One budget for all your decks, filled from the top of your deck list down. Your tutor can send as much homework as she likes; this is what decides your daily load.",
     ) {
+        budgetSetByLine(ui.budgetInfo)?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        }
         Stepper("New words", "Words you have never seen (blue)", d.newCardsPerDay, { actions.setBudget(d.copy(newCardsPerDay = it)) }, StudyBudget.MAX, !ui.budgetBusy.busy)
         Stepper("Extra cards", "More card types of words you have started (purple)", d.secondaryCardsPerDay, { actions.setBudget(d.copy(secondaryCardsPerDay = it)) }, StudyBudget.MAX, !ui.budgetBusy.busy)
         val dirty = d != ui.budget

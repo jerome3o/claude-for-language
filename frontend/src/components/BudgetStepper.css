@@ -1,0 +1,70 @@
+/* Daily new-card budget steppers (Settings and the tutor's "Daily new cards" sheet) */
+.settings-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.settings-stepper-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settings-stepper-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.settings-stepper-hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.settings-stepper-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.settings-stepper-controls button {
+  width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.settings-stepper-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.settings-stepper-controls input {
+  width: 3.5rem;
+  min-height: 44px;
+  text-align: center;
+  font-size: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* The colour of the pool a stepper sets: blue = new words, purple = extra cards. */
+.settings-stepper.tone-primary .settings-stepper-label::before,
+.settings-stepper.tone-secondary .settings-stepper-label::before {
+  content: '';
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  vertical-align: 0.05rem;
+}
+.settings-stepper.tone-primary .settings-stepper-label::before { background: #3b82f6; }
+.settings-stepper.tone-secondary .settings-stepper-label::before { background: #a855f7; }

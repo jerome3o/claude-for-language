@@ -18,9 +18,11 @@ import { listDeckQueue, type DeckQueueRow } from './queries';
 export async function fetchStudentUserRow(db: D1Database, studentId: string): Promise<StudentUserRow | null> {
   return db
     .prepare(
-      `SELECT id, email, name, picture_url, last_login_at, install_kind, cached_audio_count, last_opened_at, created_at,
-              new_cards_per_day, secondary_cards_per_day
-       FROM users WHERE id = ?`
+      `SELECT u.id, u.email, u.name, u.picture_url, u.last_login_at, u.install_kind, u.cached_audio_count, u.last_opened_at, u.created_at,
+              u.new_cards_per_day, u.secondary_cards_per_day, u.study_budget_set_by, u.study_budget_set_at,
+              s.name AS study_budget_set_by_name
+       FROM users u LEFT JOIN users s ON s.id = u.study_budget_set_by
+       WHERE u.id = ?`
     )
     .bind(studentId)
     .first<StudentUserRow>();

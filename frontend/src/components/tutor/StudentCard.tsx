@@ -54,9 +54,10 @@ export function StudentCard({ overview, onSendHomework }: { overview: StudentOve
           <span className="td-chevron">›</span>
         </Link>
         <SetupChecklistCompact overview={overview} />
-        {overview.has_profile === false && (
+        {(overview.has_profile === false || (overview.study_budget && !overview.study_budget.is_default)) && (
           <div className="td-pills">
-            <ProfileHint relId={relId} />
+            <BudgetPill overview={overview} relId={relId} />
+            {overview.has_profile === false && <ProfileHint relId={relId} />}
           </div>
         )}
         <div className="td-card-actions">
@@ -106,6 +107,7 @@ export function StudentCard({ overview, onSendHomework }: { overview: StudentOve
         {pills.homework_percent != null && (
           <Link to={`/connections/${relId}`} className="td-pill td-pill-homework">Homework {pills.homework_percent}%</Link>
         )}
+        <BudgetPill overview={overview} relId={relId} />
         {overview.has_profile === false && <ProfileHint relId={relId} />}
       </div>
       <div className="td-card-actions">
@@ -113,5 +115,16 @@ export function StudentCard({ overview, onSendHomework }: { overview: StudentOve
         <button type="button" className="btn btn-secondary" onClick={() => onSendHomework(overview)}>📤 Send homework</button>
       </div>
     </article>
+  );
+}
+
+/** "📚 5 + 10 a day" — the student's daily new cards, only when not the default. */
+function BudgetPill({ overview, relId }: { overview: StudentOverview; relId: string }) {
+  const b = overview.study_budget;
+  if (!b || b.is_default) return null;
+  return (
+    <Link to={`/connections/${relId}`} className="td-pill td-pill-budget" title="Daily new cards: new words + extra cards a day" data-testid="td-pill-budget">
+      📚 {b.new_cards_per_day} + {b.secondary_cards_per_day} a day
+    </Link>
   );
 }

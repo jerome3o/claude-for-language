@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -63,8 +64,13 @@ fun SettingsSection(title: String, desc: String? = null, modifier: Modifier = Mo
  * faster), the number rolls with a spring, and every step ticks.
  */
 @Composable
-fun Stepper(label: String, hint: String, value: Int, onChange: (Int) -> Unit, max: Int, enabled: Boolean = true) {
+fun Stepper(label: String, hint: String, value: Int, onChange: (Int) -> Unit, max: Int, enabled: Boolean = true, accent: androidx.compose.ui.graphics.Color? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (accent != null) {
+            // The queue colour this number feeds (blue = new words, purple = extra cards).
+            Box(Modifier.size(width = 4.dp, height = 36.dp).clip(RoundedCornerShape(2.dp)).background(accent))
+            Spacer(Modifier.width(10.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink)
             Text(hint, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)

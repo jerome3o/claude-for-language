@@ -140,6 +140,8 @@ data class StudentOverviewDto(
     val last_conversation_id: String? = null,
     /** The tutor has written a private student profile (null from an older server). */
     val has_profile: Boolean? = null,
+    /** The student's daily new-card budget and who set it (null from an older server). */
+    val study_budget: StudyBudgetInfoDto? = null,
 )
 
 @Serializable
