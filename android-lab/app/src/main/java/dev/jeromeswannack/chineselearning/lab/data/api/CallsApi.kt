@@ -142,6 +142,22 @@ data class CallDetailDto(
     val transcriber: String = "",
     /** The connection log both sides reported (shared/calls/connection.ts CallDiagEntry). */
     val diagnostics: List<CallDiagDto> = emptyList(),
+    /** In-call activities played in the lesson (shared/call-activities), oldest first (absent from an older server). */
+    val activities: List<CallActivityDto> = emptyList(),
+)
+
+/** One in-call activity's record (worker services/calls/activities.ts `CallActivityResult`); [summary] = core ActivitySummary. */
+@Serializable
+data class CallActivityDto(
+    val id: String = "",
+    val call_id: String = "",
+    val activity_id: String = "",
+    val kind: String = "",
+    val title: String = "",
+    val started_by: String? = null,
+    val started_at: Long = 0,
+    val updated_at: Long = 0,
+    val summary: dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySummary = dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySummary(),
 )
 
 /** One connection event: when (ms, reporter's clock), kind (pc / ice / room / restart / route / media / join / peer), who. */

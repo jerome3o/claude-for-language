@@ -217,7 +217,8 @@ sealed class ActivityAction(val type: String) {
     data class Invalid(val raw: String) : ActivityAction("invalid")
 
     companion object {
-        private val SIMPLE = listOf(Next, Skip, ResetRound, SwapRoles, Restart, Finish, Ask, PlayAudio, Reveal, Submit, ClearTiles, Said, LineDone, LineBack).associateBy { it.type }
+        // Lazy: the subclasses' objects need the sealed class initialised first.
+        private val SIMPLE by lazy { listOf(Next, Skip, ResetRound, SwapRoles, Restart, Finish, Ask, PlayAudio, Reveal, Submit, ClearTiles, Said, LineDone, LineBack).associateBy { it.type } }
 
         /** The action in [el], or null when it isn't an object with a string `type` (the engine refuses both). */
         fun parse(el: JsonElement?): ActivityAction? {
