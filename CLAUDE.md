@@ -339,7 +339,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `messages` - Individual chat messages
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
-- `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0098; docs/CHAT.md "Auto-check")
+- `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0099; docs/CHAT.md "Auto-check")
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
 - `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
 - `shared_decks` - Record of decks shared from tutor to student

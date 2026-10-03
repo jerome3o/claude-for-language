@@ -399,7 +399,7 @@ there's more than one) → `/connections/:relId/chat/new`. A row opens the chat 
 
 ---
 
-# Auto-check — "How to say it better" (migration 0098_chat_auto_check.sql)
+# Auto-check — "How to say it better" (migration 0099_chat_auto_check.sql)
 
 Jerome: "When a student sends a message, automatically check if there can be improvements. If so, show a slight visual
 indicator… When they long-press the message, the top option should be 'understand how to make it better'."
