@@ -51,6 +51,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.study.AddChunkBody
+import dev.jeromeswannack.chineselearning.lab.ui.kit.BoundedScrollColumn
 import dev.jeromeswannack.chineselearning.lab.ui.study.Chunk
 import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -172,13 +173,15 @@ fun ExplainContent(e: ExplainUi, saveCard: Boolean, online: Boolean, cards: Sent
                 val shown = adding ?: if (saveCard) card else null
                 if (shown != null) {
                     if (saveCard && adding == null) Text("Save as flashcard", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+                    // Queue-ordered decks, top deck preselected; the add button stays pinned (LabFooterSheet host).
                     AddChunkBody(shown, preferredDeck = "", cards, onDismiss = { if (saveCard) onClose() else adding = null })
-                } else Column(Modifier.padding(horizontal = 16.dp)) {
+                } else BoundedScrollColumn(Modifier.padding(horizontal = 16.dp)) {
                     ExplainResult(breakdownOf(e.text, e.translation, result), enabled = online, onAdd = { adding = it })
+                    Spacer(Modifier.height(12.dp))
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
+        if (result == null) Spacer(Modifier.height(12.dp))
     }
 }
 

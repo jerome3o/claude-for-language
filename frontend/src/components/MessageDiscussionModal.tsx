@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { discussMessage, createNote, createDeck, getDecks, getMessageDiscussion, saveMessageDiscussion } from '../api/client';
+import { discussMessage, createNote, getMessageDiscussion, saveMessageDiscussion } from '../api/client';
 import { MessageWithSender, GeneratedNote } from '../types';
-import { Loading } from './Loading';
-import { usePinnedDecks } from '../hooks/usePinnedDecks';
+import { DeckSelectorWithCreate } from './chat/DeckSelectors';
 import './MessageDiscussionModal.css';
 
 interface DiscussionMessage {
@@ -242,7 +241,7 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
                 ))}
               </div>
               {selectedCards.size > 0 && (
-                <DiscussionDeckSelector
+                <DeckSelectorWithCreate
                   onSelect={handleSaveFlashcards}
                   isSaving={isSaving}
                   selectedCount={selectedCards.size}
@@ -285,117 +284,6 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
             Ask
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function DiscussionDeckSelector({
-  onSelect,
-  isSaving,
-  selectedCount,
-}: {
-  onSelect: (deckId: string) => void;
-  isSaving: boolean;
-  selectedCount: number;
-}) {
-  const [showNewDeckInput, setShowNewDeckInput] = useState(false);
-  const [newDeckName, setNewDeckName] = useState('');
-  const [isCreatingDeck, setIsCreatingDeck] = useState(false);
-  const { isPinned, togglePin, sortWithPinnedFirst } = usePinnedDecks();
-
-  const decksQuery = useQuery({
-    queryKey: ['decks'],
-    queryFn: () => getDecks(),
-  });
-
-  const handleCreateAndSelect = async () => {
-    if (!newDeckName.trim()) return;
-    setIsCreatingDeck(true);
-    try {
-      const newDeck = await createDeck(newDeckName.trim());
-      decksQuery.refetch();
-      onSelect(newDeck.id);
-    } catch (error) {
-      console.error('Failed to create deck:', error);
-      setIsCreatingDeck(false);
-    }
-  };
-
-  if (decksQuery.isLoading) {
-    return <Loading message="Loading decks..." />;
-  }
-
-  const decks = sortWithPinnedFirst(decksQuery.data || []);
-
-  return (
-    <div className="deck-selector">
-      <label>Save {selectedCount} card{selectedCount !== 1 ? 's' : ''} to:</label>
-      <div className="deck-options">
-        {decks.map((deck) => (
-          <div key={deck.id} style={{ display: 'flex', gap: '0.25rem', alignItems: 'stretch' }}>
-            <button
-              className="deck-option"
-              style={{ flex: 1 }}
-              onClick={() => onSelect(deck.id)}
-              disabled={isSaving || isCreatingDeck}
-            >
-              {isPinned(deck.id) && <span style={{ marginRight: '0.25rem' }}>📌</span>}
-              {deck.name}
-            </button>
-            <button
-              onClick={() => togglePin(deck.id)}
-              title={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              disabled={isSaving || isCreatingDeck}
-              style={{
-                padding: '0 0.5rem',
-                borderRadius: '6px',
-                border: '1px solid #e5e7eb',
-                background: isPinned(deck.id) ? '#fef3c7' : '#f9fafb',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                opacity: isPinned(deck.id) ? 1 : 0.4,
-              }}
-            >
-              📌
-            </button>
-          </div>
-        ))}
-        {!showNewDeckInput ? (
-          <button
-            className="deck-option deck-option-new"
-            onClick={() => setShowNewDeckInput(true)}
-            disabled={isSaving || isCreatingDeck}
-          >
-            + New deck
-          </button>
-        ) : (
-          <div className="new-deck-input-row">
-            <input
-              type="text"
-              value={newDeckName}
-              onChange={(e) => setNewDeckName(e.target.value)}
-              placeholder="Deck name..."
-              className="new-deck-input"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newDeckName.trim()) {
-                  handleCreateAndSelect();
-                } else if (e.key === 'Escape') {
-                  setShowNewDeckInput(false);
-                  setNewDeckName('');
-                }
-              }}
-            />
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleCreateAndSelect}
-              disabled={!newDeckName.trim() || isCreatingDeck}
-            >
-              {isCreatingDeck ? '...' : 'Create'}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

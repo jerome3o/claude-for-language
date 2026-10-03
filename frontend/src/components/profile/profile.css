@@ -204,6 +204,35 @@
   appearance: auto;
 }
 
+/* Read-aloud voice: four segments in one row (two on a narrow phone) */
+.pf-seg {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.375rem;
+}
+
+.pf-seg-btn {
+  min-height: 44px;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.pf-seg-on {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+@media (max-width: 359px) {
+  .pf-seg { grid-template-columns: repeat(2, 1fr); }
+}
+
 .pf-field-foot {
   display: flex;
   justify-content: space-between;

@@ -183,7 +183,6 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onDismiss = { vm.openSheet(null) },
                 onReact = vm::react,
                 onSaveCards = { cards, deck, new -> vm.saveCards(cards, deck, new) },
-                onTogglePin = vm::togglePin,
                 onHelpMeSayIt = vm::helpMeSayIt,
                 onToggleOption = vm::toggleOption,
                 onRename = vm::rename,
@@ -270,7 +269,8 @@ private fun rememberChatWordActions(app: dev.jeromeswannack.chineselearning.lab.
             cachedExplanation = { word, s -> runtime.readers.cachedExplanation(word.text, s) },
             explain = { word, s -> runtime.readers.explainWord(word.text, s, word.pinyin, word.gloss) },
             decks = {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repo.dao.decks() }.sortedBy { it.name.lowercase() }
+                // Queue order: the top deck first and preselected (PickerDecks, = the web's decksInQueueOrder).
+                dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repo.dao.decks() }, { it.studyPriority }, { it.createdAt })
                     .map { dev.jeromeswannack.chineselearning.lab.ui.readers.DeckChoice(it.id, it.name, it.description) }
             },
             isDuplicate = { deckId, hanzi -> tools.deckHas(deckId, hanzi) },
@@ -288,9 +288,9 @@ private fun rememberChatCardActions(app: dev.jeromeswannack.chineselearning.lab.
     val tools = dev.jeromeswannack.chineselearning.lab.ui.study.CardTools(app)
     dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions(
         decks = {
+            // Queue order: the top deck first and preselected (nothing remembered between sheets).
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val pinned = app.cache.get<List<String>>(ChatViewModel.PINNED_KEY).orEmpty()
-                app.repo.dao.decks().sortedWith(compareByDescending<dev.jeromeswannack.chineselearning.lab.data.DeckEntity> { it.id in pinned }.thenByDescending { it.studyPriority }.thenByDescending { it.createdAt })
+                dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt })
                     .map { it.id to it.name }
             }
         },
