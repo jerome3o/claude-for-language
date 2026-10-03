@@ -30,6 +30,7 @@ object FeatureSyncs {
         platform.register("calls", dev.jeromeswannack.chineselearning.lab.data.calls.CallsSync) // J: close orphaned call-recording pieces + push them
         platform.register("board-pages", dev.jeromeswannack.chineselearning.lab.data.calls.BoardPagesSync) // J: lesson board pages per relationship, readable offline
         platform.register("chats", dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsSync) // the Chats tab inbox (/api/me/chats), offline + badge
+        platform.register("analytics", dev.jeromeswannack.chineselearning.lab.data.analytics.AnalyticsSync) // usage events queued offline → POST /api/analytics/events
         platform.register("chat-listening", dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore.Sync) // listening mode settings + message clips for offline taps
     }
 }

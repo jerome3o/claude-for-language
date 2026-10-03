@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { decksInQueueOrder, defaultPickerDeckId } from '@shared/decks/queue';
 import { getDecks, createNote } from '../api/client';
 import { db } from '../db/database';
+import { trackError } from '../services/analytics';
 import '../pages/RoleplayPage.css';
 import './AddChunkModal.css';
 
@@ -73,6 +74,7 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void }) {
       setDone(true);
       setTimeout(onClose, 800);
     } catch (e) {
+      trackError('add_card', e);
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);

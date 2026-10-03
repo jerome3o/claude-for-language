@@ -7,6 +7,7 @@
  */
 
 import type { Env } from '../types';
+import { trackServer } from './analytics/server-events';
 import {
   assignmentRowsFor,
   computeHomeworkLoad,
@@ -183,6 +184,10 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
   }
 
   const assignments = await hw.insertAssignments(db, rows);
+  for (const kind of ['deck', 'lesson', 'reader'] as const) {
+    const mine = assignments.filter((a) => a.kind === kind);
+    if (mine.length) void trackServer('server.homework_assigned', { kind, mode: mine[0].mode, count: mine.length }, { env, userId: input.tutorId });
+  }
   return { assignments, skipped, errors, copies };
 }
 

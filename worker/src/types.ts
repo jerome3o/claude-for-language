@@ -44,6 +44,8 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   SESSION_SECRET: string;
   ADMIN_EMAIL: string;
+  /** Usage analytics kill switch: off | basic | verbose (default). docs/ANALYTICS.md */
+  ANALYTICS_LEVEL?: string;
   NTFY_TOPIC: string;
   /** Public origin of this worker for links in e-mails (default: the workers.dev URL). */
   PUBLIC_API_URL?: string;

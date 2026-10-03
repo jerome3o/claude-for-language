@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
 fun DebugReportRow(app: LabApp) {
     val status by app.debugReports.status.collectAsStateWithLifecycle()
     val sending by app.debugReports.sending.collectAsStateWithLifecycle()
-    DebugReportRow(status, sending) { app.scope.launch { app.debugReports.sendNow() } }
+    DebugReportRow(status, sending) { app.analytics.track("settings.debug_report"); app.scope.launch { app.debugReports.sendNow() } }
 }
 
 @Composable

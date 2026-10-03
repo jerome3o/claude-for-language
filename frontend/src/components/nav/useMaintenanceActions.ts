@@ -4,6 +4,7 @@ import { isDebugConsoleEnabled, setDebugConsoleEnabled } from '../../utils/debug
 import { copyDebugDump } from '../../utils/debugDump';
 import { sendDebugReport } from '../../services/debugReport';
 import { checkForUpdateNow, BUILD_TIME } from '../../utils/appUpdates';
+import { track } from '../../services/analytics';
 
 /**
  * The maintenance actions that used to live in the avatar dropdown. They are
@@ -28,6 +29,7 @@ export function useMaintenanceActions() {
       return;
     }
     setIsSyncing(true);
+    track('settings.full_sync');
     try {
       const result = await syncService.deepSync();
       console.log('Full sync result:', result);
@@ -109,6 +111,7 @@ export function useMaintenanceActions() {
     setReportStatus(null);
     try {
       const r = await sendDebugReport();
+      track('settings.debug_report');
       setReportStatus(`Sent: ${r.homeTotal} due, ${r.cards.toLocaleString()} cards, ${r.events.toLocaleString()} reviews (${r.kb} KB).`);
     } catch (err) {
       setReportStatus(`Could not send the report: ${err instanceof Error ? err.message : String(err)}`);

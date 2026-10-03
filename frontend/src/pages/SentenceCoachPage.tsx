@@ -36,6 +36,7 @@ import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
 import { cacheTextExplanation, getCachedTextExplanation } from '../services/sentence-sets';
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
 import { coachReturnPath, setCoachReturn } from '../services/studyResume';
+import { track, trackError } from '../services/analytics';
 import './SentenceCoachPage.css';
 
 const LAST_DECK_KEY = 'coach-last-deck-id';
@@ -122,7 +123,7 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
             type="button"
             className="coach-quick-chip"
             disabled={disabled || (a.key.startsWith('card') && !deck)}
-            onClick={() => onSend(a.message({ hanzi, deck }))}
+            onClick={() => { track('coach.quick_action', { action: a.key }); onSend(a.message({ hanzi, deck })); }}
             data-testid={`coach-quick-${a.key}`}
           >
             {a.label}
@@ -521,14 +522,16 @@ export function SentenceCoachPage() {
     // dropped connection or a busy-server 5xx (the server already retried Claude).
     retry: (failures, err) => failures < 1 && isRetryableCoachError(err),
     retryDelay: 1500,
-    onSuccess: (res) => {
+    onSuccess: (res, { action }) => {
+      track('coach.start', { action });
       queryClient.setQueryData(['coach-conversation', res.conversation.id], res);
       queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
       setSentence('');
       setSavedBreakdown(null);
       setSearchParams({ c: res.conversation.id });
     },
-    onError: (_err, { text, action }) => {
+    onError: (err, { text, action }) => {
+      trackError('coach_start', err);
       if (action === 'explain') void showSavedBreakdown(text);
     },
   });
@@ -568,6 +571,7 @@ export function SentenceCoachPage() {
       }
       setFollowUp('');
     },
+    onError: (err) => trackError('coach_follow_up', err),
   });
 
   const deleteMutation = useMutation({
@@ -644,6 +648,7 @@ export function SentenceCoachPage() {
     e.preventDefault();
     const msg = followUp.trim();
     if (!msg || !conversationId || replyMutation.isPending) return;
+    track('coach.follow_up');
     replyMutation.mutate({ id: conversationId, message: msg });
   };
 

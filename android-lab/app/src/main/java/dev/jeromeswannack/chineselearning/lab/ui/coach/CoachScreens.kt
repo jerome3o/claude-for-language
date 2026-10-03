@@ -322,6 +322,7 @@ private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActio
     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(COACH_QUICK_ACTIONS, key = { it.key }) { a ->
             LabChip(a.label, enabled = !ui.sending && !(a.needsDeck && deck == null), modifier = Modifier.alpha(if (ui.sending || (a.needsDeck && deck == null)) 0.5f else 1f)) {
+                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("coach.quick_action", mapOf("action" to a.key))
                 actions.onSend(a.message(hanzi, deck))
             }
         }

@@ -50,6 +50,8 @@ export interface AuthUser {
   call_alerts?: 'ring' | 'silent';
   /** A new chat message also sends an e-mail (default true; Settings → Notifications, or the e-mail's own link). */
   email_chat_messages?: boolean;
+  /** Settings → Advanced → "Share usage data" (docs/ANALYTICS.md); absent on old servers = on. */
+  share_usage?: boolean;
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;

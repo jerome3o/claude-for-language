@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { track } from '../services/analytics';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { useQuery } from '@tanstack/react-query';
@@ -244,6 +245,15 @@ export function ReaderPage() {
         : false,
   });
 
+  // Analytics: reader.open once the reader has its pages.
+  const readerPages = readerQuery.data?.status !== 'generating' ? readerQuery.data?.pages.length ?? 0 : 0;
+  const openTracked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!id || readerPages === 0 || openTracked.current === id) return;
+    openTracked.current = id;
+    track('reader.open', { source: 'library', pages: readerPages });
+  }, [id, readerPages]);
+
   const goToNextPage = () => {
     if (readerQuery.data && currentPage < readerQuery.data.pages.length - 1) {
       setCurrentPage((p) => p + 1);
@@ -266,6 +276,7 @@ export function ReaderPage() {
 
   const handleFinish = () => {
     if (id) void markDailyActivity('reader', id).catch(() => {});
+    track('reader.finish', { pages: readerQuery.data?.pages.length ?? null });
     handleBack();
   };
 

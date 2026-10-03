@@ -42,6 +42,7 @@ import { endCall as endCallApi } from '../api/calls';
 import { TextBoardSession } from '../services/calls/textBoard';
 import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
+import { track as trackUsage } from '../services/analytics';
 import { DEFAULT_ANNOT_PERSIST, type AnnotStroke, type AnnotText } from '@shared/calls';
 import { materialTarget, type PresentedMaterial } from '@shared/materials';
 import type { ActivityAction, ActivitySession } from '@shared/call-activities';
@@ -54,6 +55,14 @@ import {
   videoConstraints,
   type MediaProblem,
 } from '../services/calls/mediaAccess';
+
+/** Analytics: one call.annotate per stroke (a stroke is re-sent while it is drawn). */
+let lastAnnotId: string | null = null;
+function trackAnnot(id: string, target: 'screen' | 'material'): void {
+  if (lastAnnotId === id) return;
+  lastAnnotId = id;
+  trackUsage('call.annotate', { target });
+}
 
 /** 'left' = I left; the call goes on for the other person (Rejoin brings me back). */
 export type CallPhase = 'prejoin' | 'joining' | 'live' | 'left' | 'ended' | 'error';
@@ -682,6 +691,7 @@ export function useCall(callId: string, myUserId: string) {
   }, [micOn, camOn, installTrack, diag]);
 
   const stopScreenShare = useCallback(async () => {
+    if (screenRef.current) trackUsage('call.screen_share', { on: false });
     screenRef.current?.getTracks().forEach((t) => t.stop());
     screenRef.current = null;
     setScreenStream(null);
@@ -698,6 +708,7 @@ export function useCall(callId: string, myUserId: string) {
       track.onended = () => void stopScreenShare();
       screenRef.current = stream;
       setScreenStream(stream);
+      trackUsage('call.screen_share', { on: true });
       await linkRef.current?.setScreenTrack(track);
       broadcastState({ screen: true });
     } catch {
@@ -715,6 +726,7 @@ export function useCall(callId: string, myUserId: string) {
   }, []);
 
   const sendAnnotation = useCallback((stroke: AnnotStroke) => {
+    trackAnnot(stroke.id, 'screen');
     annotRef.current?.upsert(stroke, 'me');
     roomRef.current?.send({ type: 'annot', stroke });
   }, []);
@@ -736,6 +748,7 @@ export function useCall(callId: string, myUserId: string) {
     stroke: (stroke: AnnotStroke) => {
       const target = materialTargetNow();
       if (!target) return;
+      trackAnnot(stroke.id, 'material');
       materialAnnotRef.current?.upsert(stroke, 'me');
       roomRef.current?.send({ type: 'annot', stroke, target });
     },

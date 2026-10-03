@@ -25,6 +25,7 @@ import { registerContentTools } from './tools/content.js';
 import { registerHomeworkTools } from './tools/homework.js';
 import { registerAdminTools } from './tools/admin.js';
 import { registerDebugTools } from './tools/debug.js';
+import { registerUsageTools } from './tools/usage.js';
 import { registerPictureHuntTools } from './tools/picture-hunts.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerTutorApps } from './tools/apps.js';
@@ -1925,6 +1926,8 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     registerAdminTools(ctx);
     // Study-state debug reports from the web + Lab apps and their server-side diff.
     registerDebugTools(ctx);
+    // Usage analytics: who used which feature, timelines, errors, AI cost (admin only; docs/ANALYTICS.md).
+    registerUsageTools(ctx);
     registerPictureHuntTools(ctx);
     registerMaterialTools(ctx);
   }

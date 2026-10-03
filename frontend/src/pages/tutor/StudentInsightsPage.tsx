@@ -31,6 +31,7 @@ import {
   formatSeconds,
   toDateInputValue,
 } from './tutor-shared';
+import { track } from '../../services/analytics';
 
 type Preset = 'lesson' | '7d' | '14d' | '30d' | 'custom';
 
@@ -424,6 +425,7 @@ function SummaryCard({ relId, range, hasActivity }: { relId: string; range: { fr
   const writeMutation = useMutation({
     mutationFn: () => writeStudentSummary(relId, range),
     onSuccess: (s) => {
+      track('tutor.insights_summary');
       setLatest(s);
       queryClient.invalidateQueries({ queryKey: ['studentSummaries', relId] });
     },

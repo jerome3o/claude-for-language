@@ -862,6 +862,8 @@ class CallController(
         diag("join", "joining with ${joinDevices(s)}; instance $instance${if (deps.device.isNotBlank()) "; ${deps.device}" else ""}")
         deps.keepAlive(true)
         room = deps.openRoom(handlers, instance).also { it.connect() }
+        joinedAt = now()
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.join", mapOf("role" to "member"))
     }
 
     /** "mic muted, camera" — what I join with (web: the join line of the connection log). */
@@ -873,6 +875,7 @@ class CallController(
 
     /** End for everyone (web: endForEveryone). */
     fun endForEveryone() = scope.launch {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.end", mapOf("duration_ms" to joinedAt?.let { now() - it }))
         val sent = room?.send(CallProtocol.end()) ?: false
         if (!sent) runCatching { deps.endCall() }
         finish(CallPhase.ENDED)
@@ -882,7 +885,13 @@ class CallController(
      * Leave (web: leave): the room hears `leave`, the call goes on for the other person and the
      * screen offers Rejoin. A call nobody is in ends by itself after 10 minutes (the server).
      */
-    fun leave() = scope.launch { finish(CallPhase.LEFT) }
+    fun leave() = scope.launch {
+        if (_state.value.phase != CallPhase.LEFT) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.leave", mapOf("duration_ms" to joinedAt?.let { now() - it }))
+        finish(CallPhase.LEFT)
+    }
+
+    /** When I last joined (for call.leave / call.end durations). */
+    private var joinedAt: Long? = null
 
     /** Back into a call I left (web: rejoin): a fresh room socket and link; mic / camera restored as I left them. */
     fun rejoin() = scope.launch {
@@ -938,6 +947,7 @@ class CallController(
         runCatching { deps.prepareScreenShare() }
         val video = media.startScreenShare(permission) { scope.launch { stopScreenShare() } } ?: return@launch
         link?.setScreen(video)
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.screen_share", mapOf("on" to true))
         _state.update { it.copy(screenVideo = video) }
         applyEncoding()
         broadcastState { it.copy(screen = true) }
@@ -946,6 +956,7 @@ class CallController(
     fun stopScreenShare() {
         if (!_state.value.sharingScreen) return
         media.stopScreenShare()
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.screen_share", mapOf("on" to false))
         link?.setScreen(null)
         _state.update { it.copy(screenVideo = null) }
         applyEncoding()
@@ -1080,6 +1091,7 @@ class CallController(
 
     /** ⋯ → 🎲 Activities: start one (replaces a running one); the room answers with `activity` to both. */
     fun startActivity(activityId: String) {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.activity_start", mapOf("activity_kind" to dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind))
         room?.send(CallProtocol.activityStart(activityId))
     }
 
@@ -1125,6 +1137,7 @@ class CallController(
 
     /** Present a material (both see it; either can turn its pages, draw and type on it). The room answers with `material`. */
     fun presentMaterial(materialId: String, page: Int = 0) {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.material_present")
         room?.send(CallProtocol.materialOpen(materialId, page))
     }
 

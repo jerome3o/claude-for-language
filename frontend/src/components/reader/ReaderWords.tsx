@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { isTappableWord, wordOffsets, sentenceAround, wordsMatchText, type ReaderWord } from '@shared/reader/words';
 import { knownHanzi, localPageWords, requestReaderWords, sessionPageWords } from '../../services/readerWords';
 import { ReaderWordSheet } from './ReaderWordSheet';
+import { track } from '../../services/analytics';
 import './ReaderWords.css';
 
 interface PageLike {
@@ -88,6 +89,7 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
                 aria-label={isKnown ? `${w.text} (in your decks)` : w.text}
                 onClick={(e) => {
                   e.stopPropagation();
+                  track('reader.word_tap');
                   setOpen(i);
                 }}
               >
@@ -109,7 +111,11 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
           sentence={sentenceAround(page.content_chinese, offsets[open], offsets[open] + tapped.text.length)}
           known={known.has(tapped.text)}
           onClose={() => setOpen(null)}
-          onAdded={() => setKnownVersion((v) => v + 1)}
+          onAdded={() => {
+            track('reader.word_add_card');
+            setKnownVersion((v) => v + 1);
+          }}
+          onMore={() => track('reader.word_more')}
         />
       )}
     </>

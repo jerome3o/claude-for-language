@@ -113,14 +113,18 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   var url = (event.notification.data && event.notification.data.url) || '/';
+  // Usage analytics: which kind of notification was opened (an enum, docs/ANALYTICS.md).
+  var notifKind = (event.notification.data && event.notification.data.type) || 'push';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
-      var target = new URL(url, self.location.origin).href;
+      var targetUrl = new URL(url, self.location.origin);
+      targetUrl.searchParams.set('notif', notifKind);
+      var target = targetUrl.href;
       for (var i = 0; i < list.length; i++) {
         var c = list[i];
         if (new URL(c.url).origin === self.location.origin && 'focus' in c) {
           // The open app navigates itself (components/calls/CallAlerts.tsx) — no reload, the call keeps its state.
-          c.postMessage({ type: 'navigate', url: url });
+          c.postMessage({ type: 'navigate', url: url, notification: notifKind });
           return c.focus();
         }
       }

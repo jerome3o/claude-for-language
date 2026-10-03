@@ -1,6 +1,7 @@
 /**
  * Email service using SendGrid
  */
+import { trackServer } from './analytics/server-events';
 
 const SENDGRID_API_URL = 'https://api.sendgrid.com/v3/mail/send';
 
@@ -19,6 +20,8 @@ interface SendEmailParams {
   htmlContent?: string;
   /** Extra headers, e.g. List-Unsubscribe (SendGrid passes them through). */
   headers?: Record<string, string>;
+  /** What kind of e-mail, for usage analytics (`server.email_sent`). */
+  kind?: string;
 }
 
 /**
@@ -71,12 +74,15 @@ export async function sendEmail(
     if (!response.ok) {
       const errorText = await response.text();
       console.error('SendGrid error:', response.status, errorText);
+      void trackServer('server.email_sent', { kind: params.kind ?? 'other', ok: false });
       return false;
     }
 
+    void trackServer('server.email_sent', { kind: params.kind ?? 'other', ok: true });
     return true;
   } catch (error) {
     console.error('Failed to send email:', error);
+    void trackServer('server.email_sent', { kind: params.kind ?? 'other', ok: false });
     return false;
   }
 }
@@ -164,6 +170,7 @@ Turn off chat emails: ${unsubscribeUrl}` : ''}`;
 </html>`;
 
   return sendEmail(apiKey, {
+    kind: 'chat_message',
     to: recipientEmail,
     toName: recipientName || undefined,
     subject,
@@ -255,6 +262,7 @@ Chinese Learning App`;
 </html>`;
 
   return sendEmail(apiKey, {
+    kind: 'invitation',
     to: recipientEmail,
     subject,
     textContent,
@@ -330,6 +338,7 @@ Chinese Learning App`;
 </html>`;
 
   return sendEmail(apiKey, {
+    kind: 'connection_request',
     to: recipientEmail,
     toName: recipientName || undefined,
     subject,

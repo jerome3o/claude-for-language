@@ -41,6 +41,8 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
     lateinit var haptics: Haptics
     lateinit var audio: WordAudio
     lateinit var debugReports: DebugReporter
+    /** Usage analytics: `app.analytics.track("chat.send", mapOf("kind" to "text"))` (data/analytics/). */
+    lateinit var analytics: dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
     /** Auto-audio: missing / broken clips made on the card, queued offline, backfilled after sync (data/audio/). */
     lateinit var noteAudio: dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer
     /**
@@ -89,7 +91,9 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
             online.value && !dev.jeromeswannack.chineselearning.lab.data.settings.SettingsStore.forcedOffline(this)
         })
         dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer.current = noteAudio
+        analytics = dev.jeromeswannack.chineselearning.lab.data.analytics.AnalyticsSetup.create(this)
         FeatureSyncs.registerAll(repo.platform)
+        runCatching { dev.jeromeswannack.chineselearning.lab.data.analytics.AnalyticsSetup.install(this, analytics) }
         debugReports = DebugReporter(this, repo, appVersion())
         watchNetwork()
         uploadDebugReportsAfterSync()

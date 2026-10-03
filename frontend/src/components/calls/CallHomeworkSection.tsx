@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { listCallHomework, makeHomeworkFromCall } from '../../api/tutorNotes';
 import { isActiveJob } from '../../types/tutorNotes';
+import { track, trackError } from '../../services/analytics';
 import { SessionNotesJobCard } from '../tutor/SessionNotesJobCard';
 import { SESSION_NOTES_POLL_MS } from '../tutor/SessionNotesSection';
 import '../tutor/session-notes.css';
@@ -38,11 +39,15 @@ export function CallHomeworkSection({ callId, relId, studentName, ready, callCou
   const start = useMutation({
     mutationFn: () => makeHomeworkFromCall(callId, { priority: 'core', auto_share: false, log_lesson: true }),
     onSuccess: () => {
+      track('call.homework_from_call');
       setError(null);
       queryClient.invalidateQueries({ queryKey: ['call-homework', callId] });
       queryClient.invalidateQueries({ queryKey: ['session-notes', relId] });
     },
-    onError: (e) => setError(e instanceof Error ? e.message : 'Could not start'),
+    onError: (e) => {
+      trackError('call_homework', e);
+      setError(e instanceof Error ? e.message : 'Could not start');
+    },
   });
 
   return (

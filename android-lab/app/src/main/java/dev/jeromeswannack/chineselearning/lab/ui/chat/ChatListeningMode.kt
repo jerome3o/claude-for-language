@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chat
 
+import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import android.media.AudioAttributes
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
@@ -66,6 +67,7 @@ class MediaListeningPlayer : ListeningPlayer {
     private var mp: MediaPlayer? = null
 
     override fun play(file: File, speed: Float, onDone: () -> Unit) {
+        Analytics.track("chat.listening_play", mapOf("slow" to (speed < 1f)))
         stop()
         val p = MediaPlayer()
         mp = p
