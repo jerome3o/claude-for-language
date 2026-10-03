@@ -15,3 +15,13 @@ Play still uses the device voice meanwhile.
 
 **Clip arrived** — the pill goes; the note in IndexedDB now carries the new clip key, so it
 is cached for offline like any other clip.
+
+## Lab app (Roborazzi)
+
+![Lab back](04-lab-back-audio-coming.png)
+
+**Lab — back of the card**: the same quiet "Audio coming…" pill beside Play.
+
+![Lab front](05-lab-front-audio-coming.png)
+
+**Lab — front of a listening card**: "Audio coming… (the device voice plays meanwhile)".

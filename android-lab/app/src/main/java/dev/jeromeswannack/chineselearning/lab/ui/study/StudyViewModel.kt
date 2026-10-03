@@ -485,6 +485,9 @@ class StudyViewModel(
         dropLive()
         _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras(), practice = it.practice?.copy(counts = practiceCounts(card))) }
         playWhenMade = null
+        revealedPresentation = null
+        comingPoll?.cancel()
+        comingPoll = null
         onAudioStatus()
         shownAt = System.currentTimeMillis() - start.elapsedMs
         progress = null
@@ -553,12 +556,30 @@ class StudyViewModel(
     /** The presentation whose word clip should play as soon as it is made (it would have auto-played / was tapped). */
     private var playWhenMade: Int? = null
 
+    /** The presentation whose answer has been revealed (the auto-play on reveal waits for a clip that is coming). */
+    private var revealedPresentation: Int? = null
+
+    /** While the card's clip is queued on the server: the next ask (web: `setTimeout(ask, ENSURE_RETRY_MS)`). */
+    private var comingPoll: Job? = null
+
+    private fun isRevealed(v: CardView) = revealedPresentation == v.presentation || v.start.flipped
+
     /** The Play buttons' state for the card on screen. */
     private fun onAudioStatus() {
         val v = currentView()
-        val audio = if (v == null) CardAudio() else CardAudioRules.of(app.noteAudio.missing(v.note), app.noteAudio.statuses.value[v.note.id], aiAvailable)
+        val status = v?.let { app.noteAudio.statuses.value[it.note.id] }
+        val audio = if (v == null) CardAudio() else CardAudioRules.of(app.noteAudio.missing(v.note), status, aiAvailable)
         val prev = _ui.value.cardAudio
         if (audio != prev) _ui.update { it.copy(cardAudio = audio) }
+        // Coming (queued behind MiniMax): ask again about every 20 s while this card is up.
+        if (v != null && status is dev.jeromeswannack.chineselearning.lab.core.NoteAudio.Status.Coming && !status.asking && aiAvailable && comingPoll?.isActive != true) {
+            val noteId = v.note.id
+            val presentation = v.presentation
+            comingPoll = viewModelScope.launch {
+                delay((status.nextAskAtMs - app.noteAudio.now()).coerceAtLeast(0))
+                if (currentView()?.presentation == presentation) app.noteAudio.askAgain(noteId)
+            }
+        }
         // Couldn't be made: whatever was waiting to play gets the device voice instead.
         if (v != null && audio.word == ClipState.FAILED && prev.word != ClipState.FAILED && playWhenMade == v.presentation) {
             playWhenMade = null
@@ -649,6 +670,15 @@ class StudyViewModel(
     fun playWord(advance: Boolean) {
         val v = currentView() ?: return
         val voices = _ui.value.extras.voices
+        if (voices.isEmpty() && _ui.value.cardAudio.word == ClipState.COMING) {
+            // Queued on the server (web "Audio coming…"): once the answer shows, the real clip plays
+            // the moment it lands. The auto-play on reveal waits for it rather than reading the word
+            // in the device voice; a tap (or the front of an audio card) gets the device voice meanwhile.
+            val revealed = isRevealed(v)
+            if (revealed) playWhenMade = v.presentation
+            if (!advance && revealed) return
+            return play(v.note.audioUrl, v.note.hanzi)
+        }
         if (voices.isEmpty() && _ui.value.cardAudio.word == ClipState.GENERATING) {
             // Being made right now: play it the moment it arrives (auto-play, or the tap asked for it).
             playWhenMade = v.presentation
@@ -1018,6 +1048,7 @@ class StudyViewModel(
     /** Typed answer checked (or the answer revealed): feedback only, nothing recorded yet. */
     fun onRevealed(verdict: AnswerKey.Verdict?) {
         currentView()?.let { v ->
+            revealedPresentation = v.presentation
             if (_ui.value.extras.take.recording) stopRecording(flipped = true)
             else if (take != null && _ui.value.extras.take.transcription == null) transcribe(v)
         }

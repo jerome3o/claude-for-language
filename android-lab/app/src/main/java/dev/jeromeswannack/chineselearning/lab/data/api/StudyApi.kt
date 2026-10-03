@@ -80,10 +80,12 @@ suspend fun Api.generateNoteAudio(noteId: String, options: GenerateAudioOptions?
 @Serializable
 data class EnsureAudioBody(val broken: List<String>? = null)
 
-/** `word` / `sentence`: ok | copied | generated | failed | none (worker `ensureNoteClips`). */
+/** `word` / `sentence`: ok | copied | generated | queued | failed | none (worker `ensureNoteClips`). */
 @Serializable
 data class EnsureAudioResult(val note: StudyNoteDto? = null, val word: String = "ok", val sentence: String = "none") {
     val failed: Boolean get() = word == "failed" || sentence == "failed"
+    /** A clip was queued (MiniMax busy) and arrives within a minute or two — not a failure. */
+    val pending: Boolean get() = dev.jeromeswannack.chineselearning.lab.core.NoteAudio.isPending(word) || dev.jeromeswannack.chineselearning.lab.core.NoteAudio.isPending(sentence)
 }
 
 /** Auto-audio: make the note's missing word / sentence clips (idempotent; [broken] = keys that 404'd here). */

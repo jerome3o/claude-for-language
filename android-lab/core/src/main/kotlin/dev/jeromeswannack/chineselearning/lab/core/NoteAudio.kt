@@ -70,9 +70,28 @@ object NoteAudio {
     /** After the 1st, 2nd … failure, wait this long before trying the note again (a tap on "retry" doesn't wait). */
     val BACKOFF_MS = longArrayOf(30_000, 2 * 60_000, 10 * 60_000, 60 * 60_000, 6 * 60 * 60_000)
 
+    /**
+     * The server's answer for one clip (`ensure-audio`'s `word` / `sentence`):
+     * ok | copied | generated | queued | failed | none. `queued` = MiniMax is rate-limited right
+     * now and the clip is on the server's tts-queue at interactive priority — it arrives within a
+     * minute or two. Not a failure. Port of `isPending()` in frontend/src/services/noteAudioEnsure.ts.
+     */
+    fun isPending(outcome: String?): Boolean = outcome == "queued"
+
+    /** While a clip is coming, the note is asked about again this often while its card is up (web `ENSURE_RETRY_MS`)… */
+    const val COMING_RETRY_MS = 20_000L
+    /** …at most this many times per app run (web `ENSURE_MAX_ATTEMPTS`); after that it counts as a failure. */
+    const val COMING_MAX_ASKS = 6
+
     /** Where one note's clips stand, for the Play buttons. */
     sealed interface Status {
         data object Generating : Status
+        /**
+         * Queued on the server (MiniMax busy): the clip is on its way, ask again at [nextAskAtMs].
+         * [asks] = asks that came back `queued` so far; [asking] = a re-ask is in flight (the
+         * card keeps saying "Audio coming…" rather than flashing "Generating audio…").
+         */
+        data class Coming(val asks: Int, val nextAskAtMs: Long, val asking: Boolean = false) : Status
         /** Offline: queued, made on the next sync. */
         data object WaitingForConnection : Status
         data class Failed(val attempts: Int, val retryAtMs: Long) : Status
@@ -94,6 +113,7 @@ object NoteAudio {
         /** May a request for [noteId] start now? Not while one is in flight; not before its backoff ends unless [manual] (the retry button). */
         fun mayStart(noteId: String, nowMs: Long, manual: Boolean = false): Boolean = when (val s = statuses[noteId]) {
             Status.Generating -> false
+            is Status.Coming -> !s.asking && (manual || nowMs >= s.nextAskAtMs)
             is Status.Failed -> manual || nowMs >= s.retryAtMs
             else -> true
         }
@@ -101,7 +121,10 @@ object NoteAudio {
         /** Claims [noteId] for a request; false = don't send one (deduped / backing off). */
         fun start(noteId: String, nowMs: Long, manual: Boolean = false): Boolean {
             if (!mayStart(noteId, nowMs, manual)) return false
-            statuses[noteId] = Status.Generating
+            val s = statuses[noteId]
+            if (manual) comingAsks -= noteId
+            // A clip on its way stays "coming" while it is asked about again.
+            statuses[noteId] = if (s is Status.Coming && !manual) s.copy(asking = true) else Status.Generating
             queuedIds -= noteId
             return true
         }
@@ -110,6 +133,23 @@ object NoteAudio {
             statuses -= noteId
             queuedIds -= noteId
             previousAttempts -= noteId
+            comingAsks -= noteId
+        }
+
+        /**
+         * The server queued the clip (`queued`): not a failure, no backoff — ask again in
+         * [COMING_RETRY_MS]. After [COMING_MAX_ASKS] queued answers in one run it does count as
+         * a failure (the card then offers retry and the device voice). Returns the new status.
+         */
+        fun coming(noteId: String, nowMs: Long): Status {
+            val asks = (comingAsks[noteId] ?: 0) + 1
+            comingAsks[noteId] = asks
+            queuedIds -= noteId
+            if (asks >= COMING_MAX_ASKS) {
+                failed(noteId, nowMs)
+                return statuses.getValue(noteId)
+            }
+            return Status.Coming(asks, nowMs + COMING_RETRY_MS).also { statuses[noteId] = it }
         }
 
         /** The request failed: back off (longer each time); returns when it may be tried again. */
@@ -123,7 +163,8 @@ object NoteAudio {
 
         /** Asked for while offline: wait for the next sync (unless a request is already running). */
         fun queueOffline(noteId: String) {
-            if (statuses[noteId] == Status.Generating) return
+            val s = statuses[noteId]
+            if (s == Status.Generating || (s is Status.Coming && s.asking)) return
             queuedIds += noteId
             if (statuses[noteId] !is Status.Failed) statuses[noteId] = Status.WaitingForConnection
         }
@@ -133,10 +174,15 @@ object NoteAudio {
 
         /** The network request was abandoned without an answer (cancelled): forget it, try again later. */
         fun abandoned(noteId: String) {
-            if (statuses[noteId] == Status.Generating) statuses -= noteId
+            when (val s = statuses[noteId]) {
+                Status.Generating -> statuses -= noteId
+                is Status.Coming -> if (s.asking) statuses[noteId] = s.copy(asking = false)
+                else -> Unit
+            }
         }
 
         // Failed → Generating → Failed must keep counting, so the count outlives the status.
         private val previousAttempts = HashMap<String, Int>()
+        private val comingAsks = HashMap<String, Int>()
     }
 }

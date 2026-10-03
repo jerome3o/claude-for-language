@@ -54,6 +54,8 @@ class NoteAudioFixerTest {
     private val ensured = Collections.synchronizedList(mutableListOf<Pair<String, String>>())
     /** Notes the fake server can't make audio for. */
     private val failing = Collections.synchronizedSet(HashSet<String>())
+    /** Notes whose clips the fake server queues (MiniMax rate-limited). */
+    private val queued = Collections.synchronizedSet(HashSet<String>())
     /** Clip keys the fake server has (GET /api/audio/<key>). */
     private val clips = Collections.synchronizedSet(HashSet<String>())
     private var hold: CountDownLatch? = null
@@ -68,7 +70,8 @@ class NoteAudioFixerTest {
                         val id = path.removePrefix("/api/notes/").removeSuffix("/ensure-audio")
                         ensured += id to request.body.readUtf8()
                         hold?.await(5, TimeUnit.SECONDS)
-                        if (id in failing) MockResponse().setBody("""{"note":null,"word":"failed","sentence":"failed"}""")
+                        if (id in queued) MockResponse().setBody("""{"note":{"id":"$id","deck_id":"d1","hanzi":"刮风","pinyin":"guā fēng","english":"to be windy","sentence_clue":"今天刮风了。"},"word":"queued","sentence":"queued"}""")
+                        else if (id in failing) MockResponse().setBody("""{"note":null,"word":"failed","sentence":"failed"}""")
                         else {
                             clips += "generated/$id.mp3"
                             clips += "generated/$id-s.mp3"
@@ -152,6 +155,25 @@ class NoteAudioFixerTest {
         hold!!.countDown()
         assertNotNull(first.await())
         assertEquals(1, ensured.size)
+    }
+
+    @Test fun aQueuedClipIsComingNotFailedAndIsAskedAgainAfterTwentySeconds() = runBlocking {
+        seed(note("n1"))
+        queued += "n1"
+        val f = fixer()
+        assertNotNull("the request ran", f.ensure("n1"))
+        assertEquals(NoteAudio.Status.Coming(1, now + NoteAudio.COMING_RETRY_MS), f.statuses.value["n1"])
+        // Not before the 20 s are up (no failure backoff either way).
+        now += NoteAudio.COMING_RETRY_MS - 1
+        assertNull("not asked again yet", f.ensure("n1"))
+        assertEquals(1, ensured.size)
+        // The clip has landed by the next ask.
+        now += 1
+        queued -= "n1"
+        assertNotNull(f.ensure("n1"))
+        assertEquals(2, ensured.size)
+        assertNull(f.statuses.value["n1"])
+        assertEquals("generated/n1.mp3", repo.dao.note("n1")!!.audioUrl)
     }
 
     @Test fun failuresBackOffAndTheRetryTapSkipsTheWait() = runBlocking {
