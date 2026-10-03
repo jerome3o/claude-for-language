@@ -144,7 +144,7 @@ export function ChatsPage() {
   }, [rows]);
 
   const startNewChat = () => {
-    if (people.length === 1) navigate(`/connections/${people[0].relId}/chat/new`, { state: { from: '/chats' } });
+    if (people.length === 1) navigate(`/connections/${people[0].relId}/chat`, { state: { from: '/chats' } });
     else setPicking(true);
   };
 
@@ -228,7 +228,7 @@ export function ChatsPage() {
                 key={p.relId}
                 type="button"
                 className="chats-sheet-person"
-                onClick={() => navigate(`/connections/${p.relId}/chat/new`, { state: { from: '/chats' } })}
+                onClick={() => navigate(`/connections/${p.relId}/chat`, { state: { from: '/chats' } })}
               >
                 <ChatAvatar person={p.other} size={40} />
                 <span>

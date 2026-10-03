@@ -336,7 +336,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `usage_events` - Usage analytics (migration 0100, docs/ANALYTICS.md): client + server events (id, user_id, ts, received_at, platform, app_version, session_id, event, screen = route pattern, props JSON of ids / enums / counts only); pruned after 180 days; `users.analytics_opt_out`
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
-- `conversations` - Chat threads within a tutor-student relationship
+- `conversations` - Chat threads within a relationship: ONE per tutor–student pair (migration 0102 merged the extras, `merged_into` = the chat an old id became, unique index on live human rows); Claude practice chats may be several
 - `messages` - Individual chat messages
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
 - `chat_listening` / `users.chat_listening_default` - Chat listening mode (migration 0099, docs/CHAT.md "Listening mode"): per person + conversation `{ listening, since }` (messages after `since` arrive hidden) and the Settings default
@@ -1726,8 +1726,8 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `list_student_recordings` | Pronunciation recordings in a range with `audio_url` and tutor marks; `only_unmarked` = the "recordings to hear" pile |
 | `mark_recording` / `clear_recording_mark` | `listened` or `needs_work` + comment (shown to the student once on the back of that card) / remove the mark |
 | `log_lesson` / `list_lesson_log` / `delete_lesson_log_entry` | Lesson log; the newest entry anchors "since last lesson"; notes are copied into the student's lesson notes |
-| `send_message_to_student` | Opens the latest conversation (creating one if none) and posts a chat message as the tutor |
-| `list_conversations` / `get_conversation_messages` | Read the chat (last N messages, `from: "me"` for the caller) |
+| `send_message_to_student` | Posts a chat message as the tutor into THE chat with the student (one per pair, created on first use) |
+| `list_conversations` / `get_conversation_messages` | Read the chat — `get_conversation_messages` takes the `relationship_id` (or a conversation id; old merged ids work); last N messages, `from: "me"` for the caller |
 | `send_install_howto` | Posts the install instructions (Obtainium / Add to Home screen) into the chat |
 | `list_student_homework` | Shared decks with completion + activity, and the student's mini lessons with completions |
 | `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
@@ -2037,9 +2037,14 @@ The app supports many-to-many tutor-student relationships where users can be tut
   with Claude, Copy) under ⋯ / long-press — a bottom sheet on phones, a popover ≥640px. The set is
   role-aware (`toolsForMessage` in `frontend/src/components/chat/messageTools.ts`, unit-tested):
   Check my Chinese only on the learner's own messages, Translate only on the other party's. Failures
-  show as Coach-style inline notices (`InlineNotice`), never `alert()`. `?new=1` on the chat route
-  (or `/chat/new`) opens a fresh untitled conversation; `PATCH /api/conversations/:id` `{ title }`
-  renames it (header ⋯ → Add a title / Rename).
+  show as Coach-style inline notices (`InlineNotice`), never `alert()`.
+- **One chat per pair** (docs/CHAT.md "One chat per pair", migration 0102, `routes/one-chat.ts`): a tutor and a
+  student have exactly ONE conversation — `openRelationshipConversation` (`services/conversations.ts`) is the
+  get-or-create every path posts through (`POST /api/relationships/:relId/conversations/open`; creating another
+  returns it). Older extras were merged into the most recently active one (messages moved, read markers max'd,
+  rows kept with `merged_into`); any `/api/conversations/<old id>/…` is served as the one chat, and
+  `GET /api/conversations/:id` says `merged_from`. No new conversation / titles / rename for people (PATCH → 410);
+  `/connections/:relId/chat` opens the chat; the inbox has one row per person. Claude practice chats stay many.
 - **Live delivery & notifications** (docs/CHAT.md — the contract): a per-user **ChatHub** Durable Object
   (`worker/src/durable/chat-hub.ts`, binding `CHAT_HUB`; `POST /api/live/ticket` → `GET /api/live/ws?ticket=`) pushes
   `message` / `read` / `typing` events to every open client; `services/chat/notify.ts` sends each new message to the
@@ -2115,7 +2120,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/settings` - Profile link · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, conversation voices (`/settings/voices`), sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
 - `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests
 - `/connections/:relId` - Student page (tutor: status, Message / Send homework, needs attention, homework, conversations, activity; new student: setup checklist) / tutor page (student)
-- `/connections/:relId/chat/:convId` - Chat interface
+- `/connections/:relId/chat/:convId` - Chat interface (a merged-away id swaps to the pair's one chat); `/connections/:relId/chat` opens THE chat with that person
 - `/connections/:relId/progress` - Student progress view (tutor only)
 - `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view
 - `/lessons/:id/edit`, `/lessons/:id/print` - Lesson editor / print view for a student's own lesson or one the tutor assigned

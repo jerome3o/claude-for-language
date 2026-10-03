@@ -543,6 +543,8 @@ export interface Conversation {
   is_ai_conversation: boolean;
   voice_id: string | null;
   voice_speed: number | null;
+  /** Set on a conversation merged into its pair's one chat (migration 0102); null on live ones. */
+  merged_into?: string | null;
 }
 
 export interface ConversationWithLastMessage extends Conversation {

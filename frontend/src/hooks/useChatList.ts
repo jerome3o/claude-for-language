@@ -22,7 +22,20 @@ import {
   type ChatListResponse,
 } from '@shared/chats/inbox';
 
-const CACHE_PREFIX = 'chat-list-v1:';
+// v2: one chat per pair (migration 0102) — a v1 list may still hold the merged-away rows.
+const CACHE_PREFIX = 'chat-list-v2:';
+
+function dropOldCaches(): void {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('chat-list-v1:')) localStorage.removeItem(key);
+    }
+  } catch {
+    /* storage unavailable */
+  }
+}
+dropOldCaches();
 
 export function readChatListCache(userId: string | undefined): ChatListResponse | undefined {
   if (!userId) return undefined;

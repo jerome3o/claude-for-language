@@ -22,7 +22,7 @@ import {
   parseShareDeckIds,
   recordRedemption,
 } from '../db/invite-queries';
-import { shareDeck, createConversation, sendMessage } from './conversations';
+import { shareDeck, openRelationshipConversation, sendMessage } from './conversations';
 import { createNotification } from '../db/queries';
 
 export type SignupResolution =
@@ -108,13 +108,8 @@ export async function deliverWelcomeMessage(
   const text = invite.welcome_message?.trim();
   if (!text) return null;
   try {
-    const existing = await db
-      .prepare('SELECT id FROM conversations WHERE relationship_id = ? ORDER BY created_at ASC LIMIT 1')
-      .bind(relationshipId)
-      .first<{ id: string }>();
-    const conversationId = existing
-      ? existing.id
-      : (await createConversation(db, relationshipId, invite.created_by, { title: 'Welcome' })).id;
+    // The pair's one chat (no "Welcome" title any more: one chat per pair).
+    const conversationId = (await openRelationshipConversation(db, relationshipId, invite.created_by)).conversation.id;
     await sendMessage(db, conversationId, invite.created_by, text);
 
     const inviter = await db

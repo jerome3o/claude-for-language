@@ -41,9 +41,9 @@ class ConnectionsScreenshots : LabScreenshotTest() {
         )
         private val now = Instant.now()
         private fun ago(h: Long) = now.minusSeconds(h * 3600).toString()
+        // One chat per pair: the one conversation with 王老师.
         val conversations = listOf(
-            ChatConversationDto("c1", "rel1", "Lesson questions", ago(30), ago(1), last_message = MessageDto("m1", content = "明天上课前把这些词复习一下，好吗？")),
-            ChatConversationDto("c2", "rel1", null, ago(24 * 9), ago(24 * 3), last_message = MessageDto("m2", content = "Thanks! 我今天学了二十个新词。")),
+            ChatConversationDto("c1", "rel1", null, ago(24 * 9), ago(1), last_message = MessageDto("m1", content = "明天上课前把这些词复习一下，好吗？"), unread = 1),
         )
         val flags = FlagsDto(
             listOf(

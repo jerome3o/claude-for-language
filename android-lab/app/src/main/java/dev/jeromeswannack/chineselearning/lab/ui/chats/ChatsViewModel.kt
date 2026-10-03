@@ -10,6 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.other
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.ui.connections.Connections
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import kotlinx.coroutines.delay
@@ -79,7 +80,23 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
 
     fun setQuery(q: String) = local.update { it.copy(query = q) }
 
-    /** ✏️: one person → straight into a new conversation; several → the picker; nobody → null (Connections). */
+    /**
+     * THE chat with the person of [relId] (one chat per pair): their inbox row when it's listed
+     * (instant, offline), else `POST …/conversations/open` (get-or-create).
+     */
+    fun openChat(relId: String, go: (String) -> Unit) {
+        _ui.value.rows.firstOrNull { it.relationshipId == relId && !it.isAi }?.let { go(it.conversationId); return }
+        viewModelScope.launch {
+            try {
+                go(ChatPair.theChat(app, relId))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                local.update { it.copy(error = "Couldn't open that chat. ${e.userMessage()}") }
+            }
+        }
+    }
+
+    /** ✏️: one person → straight into THE chat with them; several → the picker; nobody → Connections. */
     fun newChatTarget(): NewChat {
         val people = _ui.value.people
         return when (people.size) {

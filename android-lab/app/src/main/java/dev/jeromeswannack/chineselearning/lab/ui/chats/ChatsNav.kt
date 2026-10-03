@@ -37,10 +37,11 @@ private fun ChatsRoute(nav: LabNav) {
                 when (val t = vm.newChatTarget()) {
                     ChatsViewModel.NewChat.Connect -> nav.open(Routes.CONNECTIONS)
                     ChatsViewModel.NewChat.Picking -> Unit
-                    is ChatsViewModel.NewChat.Open -> nav.open(Routes.chat(t.relationshipId, "new"))
+                    is ChatsViewModel.NewChat.Open -> vm.openChat(t.relationshipId) { id -> nav.open(Routes.chat(t.relationshipId, id)) }
                 }
             },
-            onPick = { p -> vm.closePicker(); nav.open(Routes.chat(p.relationshipId, "new")) },
+            // One chat per pair: picking a person opens THE chat with them, never a second one.
+            onPick = { p -> vm.closePicker(); vm.openChat(p.relationshipId) { id -> nav.open(Routes.chat(p.relationshipId, id)) } },
             onDismissPicker = vm::closePicker,
             onConnections = { vm.closePicker(); nav.open(Routes.CONNECTIONS) },
             onRetry = vm::refresh,

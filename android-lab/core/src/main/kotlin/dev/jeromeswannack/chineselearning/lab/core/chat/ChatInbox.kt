@@ -107,9 +107,14 @@ object ChatInbox {
 
     data class RowTitle(val name: String, val subtitle: String?)
 
-    /** Port of chatRowTitle(): the person; the conversation title only when there are several chats with them. */
+    /**
+     * Port of chatRowTitle(): the person. A chat with a person never has a title — one chat per
+     * pair (docs/CHAT.md). Only Claude practice chats, which may be several, show their title
+     * when there is more than one.
+     */
     fun rowTitle(row: ChatListRow, rows: List<ChatListRow>): RowTitle {
         val name = personName(row.otherUser.name)
+        if (!row.isAi) return RowTitle(name, null)
         val many = rows.count { it.relationshipId == row.relationshipId } > 1
         val title = NoteSearch.jsTrim(row.title.orEmpty())
         return RowTitle(name, if (many) title.ifEmpty { "Chat" } else null)
@@ -173,7 +178,7 @@ object ChatInbox {
         return out
     }
 
-    /** Port of filterChatList(): every word of the query in the name, the title or the last message. */
+    /** Port of filterChatList(): every word of the query in the name, the title (Claude chats) or the last message. */
     fun filter(rows: List<ChatListRow>, query: String): List<ChatListRow> {
         val ws = words(fold(query))
         if (ws.isEmpty()) return rows.toList()

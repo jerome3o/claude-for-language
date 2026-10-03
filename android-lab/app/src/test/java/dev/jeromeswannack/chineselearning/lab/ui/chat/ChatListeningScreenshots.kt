@@ -115,12 +115,12 @@ class ChatListeningScreenshots : LabScreenshotTest() {
     }
 
     @Test fun menu() = shoot("chat-listening-05-menu-toggle") {
-        SheetOver({ ChatScreen(s.ui, actions) }) { ConversationMenuContent(s.ui, ChatSheetActions()) }
+        SheetOver({ ChatScreen(s.ui, actions) }) { ChatMenuContent(s.ui, ChatSheetActions()) }
     }
 
     @Test fun menuOff() = shoot("chat-listening-06-menu-off") {
         val off = s.ui.copy(listening = ListeningUi(setting = ChatListening.Setting(false, s.since)))
-        SheetOver({ ChatScreen(off, actions) }) { ConversationMenuContent(off, ChatSheetActions()) }
+        SheetOver({ ChatScreen(off, actions) }) { ChatMenuContent(off, ChatSheetActions()) }
     }
 
     @Test fun dark() = shoot("chat-listening-07-dark", dark = true) { ChatScreen(s.ui.copy(listening = s.ui.listening.copy(playing = "h3")), actions) }

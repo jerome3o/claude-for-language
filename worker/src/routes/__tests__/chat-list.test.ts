@@ -22,7 +22,8 @@ function seed(db: SqliteD1) {
   db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-x', ?, 'gone', 'student', 'removed')", [ME]);
   db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-ai', ?, 'claude-ai', 'student', 'active')", [ME]);
   db.raw.run("INSERT INTO conversations (id, relationship_id, title, created_at) VALUES ('c-home', 'rel-t', 'Homework', '2026-09-01T00:00:00.000Z')");
-  db.raw.run("INSERT INTO conversations (id, relationship_id, title, created_at) VALUES ('c-empty', 'rel-t', NULL, '2026-09-20T00:00:00.000Z')");
+  // An old second chat with Minghui, merged into c-home (one chat per pair): never listed.
+  db.raw.run("INSERT INTO conversations (id, relationship_id, title, created_at, merged_into) VALUES ('c-empty', 'rel-t', NULL, '2026-09-20T00:00:00.000Z', 'c-home')");
   db.raw.run("INSERT INTO conversations (id, relationship_id, title, created_at) VALUES ('c-li', 'rel-s', NULL, '2026-09-01T00:00:00.000Z')");
   db.raw.run("INSERT INTO conversations (id, relationship_id, title, created_at) VALUES ('c-gone', 'rel-x', NULL, '2026-09-01T00:00:00.000Z')");
   db.raw.run("INSERT INTO conversations (id, relationship_id, title, is_ai_conversation, created_at) VALUES ('c-ai', 'rel-ai', 'Café', 1, '2026-09-01T00:00:00.000Z')");
@@ -59,7 +60,7 @@ describe('GET /api/me/chats', () => {
 
   it('lists every conversation of active relationships, newest first, with previews and unread', async () => {
     const { conversations } = await list(ME);
-    expect(conversations.map((c) => c.conversation_id)).toEqual(['c-li', 'c-home', 'c-ai', 'c-empty']);
+    expect(conversations.map((c) => c.conversation_id)).toEqual(['c-li', 'c-home', 'c-ai']);
 
     const li = conversations[0];
     expect(li).toMatchObject({
@@ -76,7 +77,6 @@ describe('GET /api/me/chats', () => {
       last_message: { id: 'h2', preview: '🎤 Voice message' },
     });
 
-    expect(conversations[3]).toMatchObject({ conversation_id: 'c-empty', last_message: null, unread: 0, last_activity_at: '2026-09-20T00:00:00.000Z' });
     expect(conversations[2]).toMatchObject({ conversation_id: 'c-ai', is_ai: true, title: 'Café', unread: 1 });
   });
 
@@ -86,7 +86,7 @@ describe('GET /api/me/chats', () => {
     expect(mine.conversations[0]).toMatchObject({ conversation_id: 'c-home', last_message: { preview: 'Message deleted' }, unread: 1 });
 
     const tutor = await list('tutor');
-    expect(tutor.conversations.map((c) => c.conversation_id)).toEqual(['c-home', 'c-empty']);
+    expect(tutor.conversations.map((c) => c.conversation_id)).toEqual(['c-home']);
     expect(tutor.conversations[0]).toMatchObject({ other_role: 'student', other_user: { id: ME }, unread: 0 });
   });
 });

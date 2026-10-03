@@ -10,8 +10,7 @@
 import { sqliteToIso } from '@shared/chats';
 import type { TutorRelationship } from '../types';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from './relationships';
-import { createConversation, sendMessage } from './conversations';
-import { fetchLastConversationId } from '../db/tutor-dashboard-queries';
+import { openRelationshipConversation, sendMessage } from './conversations';
 
 export type CardFlagStatus = 'open' | 'resolved';
 
@@ -95,11 +94,10 @@ async function requireActiveRelationship(db: D1Database, relId: string, userId: 
   }
 }
 
-/** Post a line into the relationship's most recent chat (created if none) as `senderId`. Best effort. */
+/** Post a line into the pair's one chat (created if none) as `senderId`. Best effort. */
 async function mirrorToChat(db: D1Database, relId: string, senderId: string, content: string): Promise<void> {
   try {
-    let conversationId = await fetchLastConversationId(db, relId);
-    if (!conversationId) conversationId = (await createConversation(db, relId, senderId, {})).id;
+    const conversationId = (await openRelationshipConversation(db, relId, senderId)).conversation.id;
     await sendMessage(db, conversationId, senderId, content);
   } catch (err) {
     console.error('[card-flags] chat mirror failed:', err);

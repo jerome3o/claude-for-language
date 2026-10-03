@@ -24,14 +24,16 @@ import kotlinx.coroutines.sync.withLock
 
 object ChatsKeys {
     const val KIND = "chats"
-    /** `GET /api/me/chats` — the Chats inbox, rendered from here offline. */
-    const val LIST = "chats/list"
+    /** `GET /api/me/chats` — the Chats inbox, rendered from here offline (v2: one row per person since migration 0102). */
+    const val LIST = "chats/list-v2"
 }
 
 /** Registered in FeatureSyncs: the inbox after every sync, so the tab opens instantly offline. */
 object ChatsSync : FeatureSync {
     override suspend fun sync(ctx: SyncContext) {
         ctx.cache.put(ChatsKeys.LIST, ChatsKeys.KIND, ctx.api.chatList())
+        // The list cached before one chat per pair (several rows per person): gone.
+        runCatching { ctx.cache.delete("chats/list") }
     }
 }
 

@@ -6,8 +6,7 @@
 
 import { generateId } from '../cards';
 import { verifyRelationshipAccess, getOtherUserId } from '../relationships';
-import { createConversation, sendMessage } from '../conversations';
-import { fetchLastConversationId } from '../../db/tutor-dashboard-queries';
+import { openRelationshipConversation, sendMessage } from '../conversations';
 import type { BoardItem, CallChatMessage, CallDiagEntry } from '@shared/calls';
 import { CLAUDE_AI_USER_ID } from '../../types';
 import { lessonForNewCall, refreshLessonEnd } from './lessons';
@@ -146,8 +145,7 @@ export async function createCall(
   }
   if (relId && opts.joinUrl) {
     try {
-      let conversationId = await fetchLastConversationId(db, relId);
-      if (!conversationId) conversationId = (await createConversation(db, relId, userId, {})).id;
+      const conversationId = (await openRelationshipConversation(db, relId, userId)).conversation.id;
       await sendMessage(db, conversationId, userId, `📹 I started a video call — join here: ${opts.joinUrl(id)}`);
     } catch (err) {
       console.error('[calls] chat notice failed:', err);

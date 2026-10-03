@@ -26,7 +26,6 @@ function seed(db: SqliteD1) {
   }
   db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-1', ?, ?, 'tutor', 'active')", [TUTOR, STUDENT]);
   db.raw.run("INSERT INTO conversations (id, relationship_id, title) VALUES ('conv-1', 'rel-1', 'Homework')");
-  db.raw.run("INSERT INTO conversations (id, relationship_id, title) VALUES ('conv-2', 'rel-1', NULL)");
 }
 
 function insertMessage(db: SqliteD1, id: string, conv: string, sender: string, at: string, content = '你好') {
@@ -344,17 +343,17 @@ describe('rich chat messages', () => {
     insertMessage(db, 'm-2', 'conv-1', TUTOR, '2026-10-01T09:01:00.000Z');
     insertMessage(db, 'm-3', 'conv-1', STUDENT, '2026-10-01T09:02:00.000Z');
     insertMessage(db, 'm-4', 'conv-1', TUTOR, '2026-10-01T09:03:00.000Z');
-    insertMessage(db, 'm-5', 'conv-2', TUTOR, '2026-10-01T10:00:00.000Z');
-    db.raw.run("UPDATE conversations SET last_message_at = '2026-10-01T10:00:00.000Z' WHERE id = 'conv-2'");
-    db.raw.run("UPDATE conversations SET last_message_at = '2026-10-01T09:03:00.000Z' WHERE id = 'conv-1'");
+    insertMessage(db, 'm-5', 'conv-1', TUTOR, '2026-10-01T10:00:00.000Z');
+    db.raw.run("UPDATE conversations SET last_message_at = '2026-10-01T10:00:00.000Z' WHERE id = 'conv-1'");
     db.raw.run("UPDATE messages SET deleted_at = '2026-10-01T11:00:00.000Z', content = '' WHERE id = 'm-5'");
     db.raw.run("INSERT INTO conversation_reads (conversation_id, user_id, last_read_at) VALUES ('conv-1', ?, '2026-10-01T09:00:00.000Z')", [STUDENT]);
 
     let list = await getConversations(db, 'rel-1', STUDENT);
-    expect(list.map((c) => [c.id, c.unread])).toEqual([['conv-2', 0], ['conv-1', 2]]);
+    // One chat per pair; a deleted message is the last one but never unread.
+    expect(list.map((c) => [c.id, c.unread])).toEqual([['conv-1', 2]]);
     expect(list[0].last_message).toMatchObject({ id: 'm-5', content: '', attachment: null, attachment_kind: null });
     expect(list[0].last_message!.deleted_at).toBeTruthy();
-    expect((await getConversations(db, 'rel-1', TUTOR)).map((c) => c.unread)).toEqual([0, 1]);
+    expect((await getConversations(db, 'rel-1', TUTOR)).map((c) => c.unread)).toEqual([1]);
 
     await w.as(TUTOR).upload('conv-1', 'kind=image', png(3, 3), 'image/png');
     list = await getConversations(db, 'rel-1', STUDENT);

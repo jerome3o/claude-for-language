@@ -509,31 +509,27 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   // ============ Messages ============
 
+  // One chat per pair (docs/CHAT.md "One chat per pair"): a tutor and a student
+  // have exactly one conversation, opened (created on first use) by …/conversations/open.
+  const openChat = (relationship_id: string) =>
+    api.post<{ conversation_id: string; created: boolean }>(`${rel(relationship_id)}/conversations/open`);
+
   server.tool(
     'send_message_to_student',
-    `Send a chat message to the student in the app (they get an in-app notification and, if configured, an email). Without \`conversation_id\` it goes into the most recent conversation of the relationship, creating one if there is none. Write in whatever language the tutor wants the student to read; keep it as the tutor's own voice. Read what the student wrote first with get_conversation_messages.`,
+    `Send a chat message to the student in the app — into THE chat with them (there is one chat per tutor–student pair; it is created on first use). They get a push / in-app notification and, if they have not turned it off, an email. Write in whatever language the tutor wants the student to read; keep it as the tutor's own voice. Read what the student wrote first with get_conversation_messages.`,
     {
       relationship_id: RELATIONSHIP_ID,
       text: z.string().min(1).max(10000).describe('The message text.'),
-      conversation_id: z.string().optional().describe('A specific conversation (from list_conversations). Default: the most recent one.'),
     },
-    async ({ relationship_id, text, conversation_id }) =>
+    async ({ relationship_id, text }) =>
       guard(async () => {
-        let convId = conversation_id;
-        let created = false;
-        if (!convId) {
-          const opened = await api.post<{ conversation_id: string; created: boolean }>(
-            `${rel(relationship_id)}/conversations/open`
-          );
-          convId = opened.conversation_id;
-          created = opened.created;
-        }
-        const message = await api.post<MessageRow>(`/api/conversations/${encodeURIComponent(convId)}/messages`, {
+        const opened = await openChat(relationship_id);
+        const message = await api.post<MessageRow>(`/api/conversations/${encodeURIComponent(opened.conversation_id)}/messages`, {
           content: text,
         });
         return jsonResult({
-          conversation_id: convId,
-          conversation_created: created,
+          conversation_id: opened.conversation_id,
+          conversation_created: opened.created,
           message: { message_id: message.id, content: message.content, created_at: message.created_at },
         });
       })
@@ -541,7 +537,7 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'list_conversations',
-    'The chat conversations in a tutor–student relationship, most recent first, each with its title, the last message and whether it is an AI role-play conversation. Use get_conversation_messages to read one.',
+    'The chat with the other person of a relationship — one conversation per pair — with the last message. (A relationship with Claude lists its role-play practice chats, which may be several.) Usually you want get_conversation_messages with the relationship_id directly.',
     { relationship_id: RELATIONSHIP_ID },
     async ({ relationship_id }) =>
       guard(async () => {
@@ -552,19 +548,25 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'get_conversation_messages',
-    `The messages in one conversation in chronological order (the last \`limit\`). Each: who sent it (\`from\` is "me" for the signed-in user, otherwise the sender's name), content, time, and when present the stored translation, the "check my Chinese" result on the student's messages, an \`audio_url\` for voice messages and what it replied to. Use this to see what the student asked or wrote before answering with send_message_to_student.`,
+    `The messages of the chat with a student, in chronological order (the last \`limit\`). Pass \`relationship_id\` (the one chat of that pair) or a \`conversation_id\` (old ids of merged chats still work). Each message: who sent it (\`from\` is "me" for the signed-in user, otherwise the sender's name), content, time, and when present the stored translation, the "check my Chinese" result on the student's messages, an \`audio_url\` for voice messages and what it replied to. Use this to see what the student asked or wrote before answering with send_message_to_student.`,
     {
-      conversation_id: z.string().describe('From list_conversations or `last_conversation_id` on list_students.'),
+      relationship_id: RELATIONSHIP_ID.optional(),
+      conversation_id: z.string().optional().describe('Instead of relationship_id: a conversation id (e.g. `last_conversation_id` on list_students).'),
       limit: z.number().int().min(1).max(500).optional().describe('How many of the most recent messages (default 50).'),
     },
-    async ({ conversation_id, limit }) =>
+    async ({ relationship_id, conversation_id, limit }) =>
       guard(async () => {
+        let convId = conversation_id;
+        if (!convId) {
+          if (!relationship_id) throw new Error('Pass relationship_id (or a conversation_id).');
+          convId = (await openChat(relationship_id)).conversation_id;
+        }
         const r = await api.get<{ messages: MessageRow[]; latest_timestamp: string | null }>(
-          `/api/conversations/${encodeURIComponent(conversation_id)}/messages`
+          `/api/conversations/${encodeURIComponent(convId)}/messages`
         );
         const n = clampInt(limit, 1, 500, 50);
         return jsonResult({
-          conversation_id,
+          conversation_id: r.messages[0]?.conversation_id ?? convId,
           total: r.messages.length,
           messages: lastMessages(r.messages, n).map((m) => compactMessage(m, ctx.userId, apiBase)),
         });

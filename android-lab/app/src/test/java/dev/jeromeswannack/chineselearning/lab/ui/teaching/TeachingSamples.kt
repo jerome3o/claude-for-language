@@ -155,8 +155,7 @@ object TeachingSamples {
     )
 
     val conversations = listOf(
-        ConversationDto("c1", "Chat", "2026-09-01T10:00:00Z", "2026-09-27T08:00:00Z", LastMessageDto("好的，明天见！我会复习地铁的词。")),
-        ConversationDto("c2", "Lesson questions", "2026-08-20T10:00:00Z", "2026-09-10T08:00:00Z", LastMessageDto("What does 顺便 mean in this sentence?")),
+        ConversationDto("c1", null, "2026-09-01T10:00:00Z", "2026-09-27T08:00:00Z", LastMessageDto("好的，明天见！我会复习地铁的词。"), unread = 1),
     )
 
     val lessons = listOf(
