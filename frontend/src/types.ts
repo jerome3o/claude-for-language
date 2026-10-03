@@ -47,6 +47,8 @@ export interface AuthUser {
   landing_page?: LandingPage | null;
   /** Video-call alerts: 'ring' (ring in the app + push) or 'silent' (banner only). */
   call_alerts?: 'ring' | 'silent';
+  /** A new chat message also sends an e-mail (default true; Settings → Notifications, or the e-mail's own link). */
+  email_chat_messages?: boolean;
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;
