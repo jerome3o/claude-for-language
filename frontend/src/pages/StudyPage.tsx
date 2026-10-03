@@ -44,6 +44,7 @@ import {
   Note,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+import { ensureAudioForNote, isPending, reportBrokenClip, ENSURE_RETRY_MS } from '../services/noteAudioEnsure';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
@@ -557,7 +558,14 @@ export function StudyCard({
     });
   }, [scope, card.id, audioBlob, shuffledMcOptions, mcSelections, mcAnswered, showMultipleChoice]);
   useEffect(() => () => savePointRef.current(), []);
-  const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
+  // A clip that fails to load is reported, and the card asks for it again (docs/AUDIO.md).
+  const [brokenTick, setBrokenTick] = useState(0);
+  const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio('note', {
+    onBroken: useCallback((url: string) => {
+      reportBrokenClip(card.note.id, url);
+      setBrokenTick((t) => t + 1);
+    }, [card.note.id]),
+  });
   // Separate player for the user's own recording so it never fights with the
   // note audio for the single reusable element.
   const recordingPlayerRef = useRef(createAudioPlayer());
@@ -732,21 +740,44 @@ export function StudyCard({
     };
   }, [card.id]);
 
-  // Auto-generate audio if note has no audio_url (skipped while offline —
-  // automatic or forced — no network audio calls on a spotty connection)
-  const generatingAudioForRef = useRef<string | null>(null);
+  // Auto-audio (docs/AUDIO.md; the web twin of the Lab's NoteAudioFixer): a card
+  // without its word / sentence clip — or whose clip failed to load — asks the
+  // server to make it (interactive priority; queued when MiniMax is busy) and
+  // checks back while the card is up. Skipped offline: no network calls then.
+  const [audioComing, setAudioComing] = useState(false);
   useEffect(() => {
-    if (!card.note.audio_url && aiAvailable && generatingAudioForRef.current !== card.note.id) {
-      generatingAudioForRef.current = card.note.id;
-      generateNoteAudio(card.note.id).then((updatedNote) => {
-        if (updatedNote.audio_url) {
-          onUpdateNote({ audio_url: updatedNote.audio_url, audio_provider: updatedNote.audio_provider });
-        }
+    setAudioComing(false);
+  }, [card.note.id]);
+  useEffect(() => {
+    if (!aiAvailable) return;
+    const noteId = card.note.id;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ask = () => {
+      ensureAudioForNote({
+        id: noteId,
+        audio_url: card.note.audio_url,
+        sentence_clue: card.note.sentence_clue,
+        sentence_clue_audio_url: card.note.sentence_clue_audio_url,
+      }).then((res) => {
+        if (cancelled || !res) return;
+        if (Object.keys(res.patch).length > 0) onUpdateNote({ id: noteId, ...res.patch });
+        const pending = isPending(res.response.word) || isPending(res.response.sentence);
+        setAudioComing(pending);
+        if (pending) timer = setTimeout(ask, ENSURE_RETRY_MS);
       }).catch((err) => {
-        console.error('[StudyCard] Auto-generate audio failed:', err);
+        if (!cancelled) setAudioComing(false);
+        console.error('[StudyCard] ensure-audio failed:', err);
       });
-    }
-  }, [card.note.id, card.note.audio_url, aiAvailable, onUpdateNote]);
+    };
+    ask();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [card.note.id, card.note.audio_url, card.note.sentence_clue, card.note.sentence_clue_audio_url, aiAvailable, onUpdateNote, brokenTick]);
+  // The word's own clip is the one we wait for; the sentence row shows its own ▶ when it lands.
+  const wordAudioComing = audioComing && !card.note.audio_url;
 
   // Load review history and enumerate mics when debug modal opens
   useEffect(() => {
@@ -773,16 +804,20 @@ export function StudyCard({
     }
   }, [isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe]);
 
-  // Auto-play audio when answer is revealed
+  // Auto-play audio when answer is revealed. While the real clip is on its way,
+  // wait for it instead of reading the word in the device's robotic voice: the
+  // effect runs again (and plays) when the clip arrives. A tap on ▶ still
+  // falls back to the device voice.
   useEffect(() => {
     if (flipped) {
+      if (wordAudioComing && recordingsRef.current.length === 0) return;
       // Small delay to ensure any previous audio is fully stopped
       const timer = setTimeout(() => {
         playRecordingAtIndex(0);
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [flipped, playRecordingAtIndex]);
+  }, [flipped, playRecordingAtIndex, wordAudioComing]);
 
   const handleFlip = () => {
     if (!flipped) {
@@ -1250,6 +1285,11 @@ export function StudyCard({
                 Play Audio{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
               </button>
             </div>
+            {wordAudioComing && recordings.length === 0 && (
+              <p className="audio-coming-note" role="status">
+                <span className="audio-coming-dot" aria-hidden="true" /> Audio coming… (the device voice plays meanwhile)
+              </p>
+            )}
             {/* "+ New Voice" lives in the ⋯ menu on the back now (D8) */}
             <OfflineAudioNote audioUrl={card.note.audio_url} effectiveOffline={effectiveOffline} />
           </div>
@@ -1432,6 +1472,11 @@ export function StudyCard({
           >
             <span aria-hidden="true">🔊</span> Play{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
           </button>
+          {wordAudioComing && recordings.length === 0 && (
+            <span className="study-pill study-pill--pending" role="status" title="The clip is being made — tap Play for the device voice meanwhile">
+              <span className="audio-coming-dot" aria-hidden="true" /> Audio coming…
+            </span>
+          )}
           {isSpeakingCard && (
             isRecording ? (
               isRecordingDelayActive ? (

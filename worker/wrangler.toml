@@ -31,6 +31,9 @@ bucket_name = "chinese-learning-audio"
 # - SENDGRID_API_KEY: SendGrid API key for email notifications (message alerts, invitations)
 [vars]
 ENVIRONMENT = "production"
+# MiniMax requests per minute we allow ourselves, shared by every TTS call
+# (docs/AUDIO.md). Keep it a few under the plan's RPM.
+MINIMAX_RPM = "55"
 
 # Local development settings
 [dev]
@@ -71,6 +74,8 @@ queue = "sentence-set-queue"
 max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
+# Its clips go to tts-queue; this only bounds the Claude calls.
+max_concurrency = 2
 
 # Queue for background quest generation. A quest world is one big Claude call
 # plus up to two repair rounds, which outlives a waitUntil() — the isolate gets
@@ -148,6 +153,31 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 2
 
+# Every background TTS clip (one per message) and the audio backfill pump
+# (docs/AUDIO.md). Small batches, at most 2 at once: MiniMax allows a fixed
+# number of requests per minute and the TtsLimiter paces every call.
+# Create with: `wrangler queues create tts-queue`
+[[queues.producers]]
+queue = "tts-queue"
+binding = "TTS_QUEUE"
+
+[[queues.consumers]]
+queue = "tts-queue"
+max_batch_size = 4
+max_batch_timeout = 2
+max_concurrency = 2
+max_retries = 3
+
+# One MiniMax rate limiter for every TTS call (token bucket, priorities,
+# backfill pump lease) — docs/AUDIO.md.
+[[durable_objects.bindings]]
+name = "TTS_LIMITER"
+class_name = "TtsLimiter"
+
+[[migrations]]
+tag = "v3-tts-limiter"
+new_sqlite_classes = ["TtsLimiter"]
+
 # Workers AI (for speech-to-text transcription)
 [ai]
 binding = "AI"
@@ -159,8 +189,10 @@ enabled = true
 head_sampling_rate = 1
 
 # Daily at 03:17 UTC: prune usage_events older than 180 days (docs/ANALYTICS.md).
+# 23:00 + 00:00 UTC: the nightly audio backfill, acting only at London midnight
+# (so DST is handled); :37 hourly keeps the daytime drain going (docs/AUDIO.md).
 [triggers]
-crons = ["17 3 * * *"]
+crons = ["17 3 * * *", "0 23 * * *", "0 0 * * *", "37 * * * *"]
 
 # Frontend is deployed separately to Cloudflare Pages
 # See .github/workflows/deploy.yml

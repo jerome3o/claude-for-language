@@ -10,6 +10,13 @@ vi.mock('../audio', () => ({
   generateTTS: (...args: unknown[]) => generateTTSMock(...args),
   deleteAudio: (...args: unknown[]) => deleteAudioMock(...args),
 }));
+// The clip worker itself is tested against real SQLite (tts-backfill.test.ts);
+// here: which clips the content service asks for.
+const ensureClipMock = vi.fn();
+vi.mock('../tts/clips', async (orig) => ({
+  ...(await orig<typeof import('../tts/clips')>()),
+  ensureClip: (...args: unknown[]) => ensureClipMock(...args),
+}));
 
 import * as content from '../content';
 import { DEFAULT_DECK_SETTINGS } from '@shared/decks';
@@ -17,7 +24,13 @@ import { DEFAULT_DECK_SETTINGS } from '@shared/decks';
 const NOTE_ROW = { id: 'n1', deck_id: 'd1', hanzi: '刮风', pinyin: 'guā fēng', english: 'windy', audio_url: null, sentence_clue: null, sentence_clue_audio_url: null };
 
 function envFor(db: MockD1Database) {
-  return { DB: db, MINIMAX_API_KEY: 'k', AUDIO_BUCKET: {}, SENTENCE_SET_QUEUE: { send: vi.fn() } } as any;
+  return {
+    DB: db,
+    MINIMAX_API_KEY: 'k',
+    AUDIO_BUCKET: { delete: (key: string) => deleteAudioMock(key) },
+    SENTENCE_SET_QUEUE: { send: vi.fn() },
+    TTS_QUEUE: { send: vi.fn() },
+  } as any;
 }
 
 describe('content service: decks', () => {
@@ -88,6 +101,8 @@ describe('content service: notes', () => {
     env = envFor(db);
     generateTTSMock.mockReset();
     deleteAudioMock.mockReset();
+    ensureClipMock.mockReset();
+    ensureClipMock.mockResolvedValue({ status: 'generated' });
     db.addResult('SELECT * FROM decks WHERE id = ? AND user_id = ?', createTestDeck({ id: 'd1', user_id: 'u1' }));
     db.addAllResult('SELECT * FROM cards WHERE note_id = ?', []);
   });
@@ -105,27 +120,33 @@ describe('content service: notes', () => {
     expect(insert.params.slice(2, 5)).toEqual(['刮风', 'guā fēng', 'windy']);
     expect(insert.params).toContain('今天刮风。');
     expect(db.getQueries().filter(q => q.sql.includes('INSERT INTO cards'))).toHaveLength(3);
-    expect(env.SENTENCE_SET_QUEUE.send).toHaveBeenCalledWith({ noteId: 'n1', kind: 'note_audio' });
+    // queue mode: both clips on tts-queue at batch priority, nothing made inline
+    expect(env.TTS_QUEUE.send.mock.calls.map((c: any[]) => c[0])).toEqual([
+      { kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'batch', force: undefined, attempt: undefined },
+      { kind: 'clip', target: { kind: 'clue', id: 'n1' }, priority: 'batch', force: undefined, attempt: undefined },
+    ]);
     expect(env.SENTENCE_SET_QUEUE.send).toHaveBeenCalledWith({ noteId: 'n1', count: undefined });
-    expect(generateTTSMock).not.toHaveBeenCalled();
+    expect(ensureClipMock).not.toHaveBeenCalled();
   });
 
-  it('background mode hands the word + sentence clips to waitUntil and propagates the clip to student copies', async () => {
+  it('background mode makes the word + sentence clips at interactive priority; a busy MiniMax queues them', async () => {
     db.addResult('SELECT * FROM notes WHERE id = ?', { ...NOTE_ROW, sentence_clue: '今天刮风。' });
-    db.addResult('SELECT id, deck_id, hanzi, audio_url, audio_provider FROM notes WHERE id = ?', { id: 'n1', deck_id: 'd1', hanzi: '刮风', audio_url: 'generated/new.mp3', audio_provider: 'minimax' });
-    db.addAllResult('SELECT target_deck_id FROM shared_decks WHERE source_deck_id = ?', [{ target_deck_id: 'tgt' }]);
-    generateTTSMock.mockResolvedValue({ audioKey: 'generated/new.mp3', provider: 'minimax' });
+    ensureClipMock.mockResolvedValueOnce({ status: 'generated' }).mockResolvedValueOnce({ status: 'rate_limited', retryAfterMs: 60_000, minimax: true });
     const pending: Promise<unknown>[] = [];
     const bg = { waitUntil: (p: Promise<unknown>) => { pending.push(p); } };
 
     await content.createNote(env, 'u1', 'd1', { hanzi: '刮风', pinyin: 'guā fēng', english: 'windy', sentence_clue: '今天刮风。' }, { audio: 'background', bg });
     expect(pending).toHaveLength(2);
     await Promise.all(pending);
-    expect(generateTTSMock).toHaveBeenCalledTimes(2);
-    expect(generateTTSMock.mock.calls[0][1]).toBe('刮风');
-    expect(generateTTSMock.mock.calls[1][1]).toBe('今天刮风。');
-    const propagate = db.getQueries().find(q => q.sql.includes('UPDATE notes SET audio_url = ?, audio_provider = ?') && q.sql.includes('audio_url IS NULL'));
-    expect(propagate?.params).toEqual(['generated/new.mp3', 'minimax', 'tgt', '刮风']);
+    expect(ensureClipMock.mock.calls.map((c) => [c[1], c[2].priority])).toEqual([
+      [{ kind: 'word', id: 'n1' }, 'interactive'],
+      [{ kind: 'clue', id: 'n1' }, 'interactive'],
+    ]);
+    // the clip MiniMax couldn't make now goes to tts-queue, 60 s later — never silently dropped
+    expect(env.TTS_QUEUE.send).toHaveBeenCalledWith(
+      { kind: 'clip', target: { kind: 'clue', id: 'n1' }, priority: 'interactive', force: undefined, attempt: undefined },
+      { delaySeconds: 60 },
+    );
   });
 
   it('createNote refuses a deck the user does not own', async () => {
@@ -147,21 +168,19 @@ describe('content service: notes', () => {
       { index: 1, hanzi: '下雨', error: expect.stringContaining('tone marks') },
       { index: 2, hanzi: '', error: 'hanzi is required' },
     ]);
-    expect(env.SENTENCE_SET_QUEUE.send).toHaveBeenCalledTimes(4); // 2 × (note_audio + sentence set)
+    expect(env.SENTENCE_SET_QUEUE.send).toHaveBeenCalledTimes(2); // 2 × sentence set
+    expect(env.TTS_QUEUE.send).toHaveBeenCalledTimes(4); // 2 × (word + clue clip)
   });
 
   it('updateNote regenerates the word clip when the hanzi changes and the sentence clip when the clue changes', async () => {
     db.addResult('SELECT n.* FROM notes n', { ...NOTE_ROW, audio_url: 'generated/old.mp3' });
     db.addResult('SELECT * FROM notes WHERE id = ?', { ...NOTE_ROW, hanzi: '大风', audio_url: 'generated/old.mp3' });
-    db.addAllResult('SELECT target_deck_id FROM shared_decks WHERE source_deck_id = ?', []);
-    db.addAllResult('SELECT audio_url AS k FROM notes WHERE audio_url IN', []);
-    generateTTSMock.mockResolvedValue({ audioKey: 'generated/new.mp3', provider: 'gtts' });
 
     const note = await content.updateNote(env, 'u1', 'n1', { hanzi: '大风' });
     expect(note?.hanzi).toBe('大风');
-    expect(generateTTSMock).toHaveBeenCalledWith(env, '大风', 'n1');
-    // the old clip goes only after the new one is stored
-    expect(deleteAudioMock).toHaveBeenCalledWith(env.AUDIO_BUCKET, 'generated/old.mp3');
+    // a new word clip, forced (the key swap + old-clip clean-up are the clip worker's: tts-backfill.test.ts)
+    expect(ensureClipMock.mock.calls[0][1]).toEqual({ kind: 'word', id: 'n1' });
+    expect(ensureClipMock.mock.calls[0][2]).toMatchObject({ priority: 'interactive', force: true });
 
     await expect(content.updateNote(env, 'u1', 'n1', { pinyin: 'da4 feng1' })).rejects.toThrow(/tone marks/);
   });
@@ -176,7 +195,7 @@ describe('content service: notes', () => {
     expect(await content.deleteNote(env, 'u1', 'n1')).toBe(true);
     expect(db.getQueries().some(q => q.sql.includes('DELETE FROM notes WHERE id = ?'))).toBe(true);
     expect(db.getQueries().some(q => q.sql.includes('INSERT INTO deleted_items'))).toBe(true);
-    const deleted = deleteAudioMock.mock.calls.map(c => c[1]).sort();
+    const deleted = deleteAudioMock.mock.calls.map(c => c[0]).sort();
     expect(deleted).toEqual(['generated/clue.mp3', 'generated/s1.mp3']);
   });
 

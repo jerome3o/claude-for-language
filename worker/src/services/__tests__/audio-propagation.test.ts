@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { createMockD1 } from './d1-mock';
 import { propagateNoteAudioToSharedCopies } from '../../db/queries';
 
-const NOTE_SQL = 'SELECT id, deck_id, hanzi, audio_url, audio_provider FROM notes WHERE id = ?';
+const NOTE_SQL = 'SELECT id, deck_id, hanzi, audio_url, audio_provider, audio_voice, audio_model, audio_settings FROM notes WHERE id = ?';
 const SHARES_SQL = 'SELECT target_deck_id FROM shared_decks WHERE source_deck_id = ?';
 const UPDATE_SQL = 'UPDATE notes SET audio_url = ?, audio_provider = ?';
 
 describe('propagateNoteAudioToSharedCopies', () => {
   it('gives every student copy of the word the clip, matched by hanzi and only where it has none', async () => {
     const db = createMockD1();
-    db.addResult(NOTE_SQL, { id: 's1', deck_id: 'src', hanzi: '刮风 ', audio_url: '/audio/s1.mp3', audio_provider: 'gtts' });
+    db.addResult(NOTE_SQL, { id: 's1', deck_id: 'src', hanzi: '刮风 ', audio_url: '/audio/s1.mp3', audio_provider: 'minimax', audio_voice: 'V', audio_model: 'M', audio_settings: 'sx.y' });
     db.addAllResult(SHARES_SQL, [{ target_deck_id: 'tgt-a' }, { target_deck_id: 'tgt-b' }]);
 
     await propagateNoteAudioToSharedCopies(db, 's1');
@@ -17,8 +17,8 @@ describe('propagateNoteAudioToSharedCopies', () => {
     const updates = db.getQueries().filter(q => q.sql.includes(UPDATE_SQL));
     expect(updates).toHaveLength(2);
     expect(updates.map(q => q.params)).toEqual([
-      ['/audio/s1.mp3', 'gtts', 'tgt-a', '刮风'],
-      ['/audio/s1.mp3', 'gtts', 'tgt-b', '刮风'],
+      ['/audio/s1.mp3', 'minimax', 'V', 'M', 'sx.y', 'tgt-a', '刮风'],
+      ['/audio/s1.mp3', 'minimax', 'V', 'M', 'sx.y', 'tgt-b', '刮风'],
     ]);
     expect(updates[0].sql).toContain('AND audio_url IS NULL');
   });

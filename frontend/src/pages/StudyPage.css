@@ -139,6 +139,40 @@
   border-color: var(--color-primary);
 }
 
+/* "Audio coming…": the real clip is being made (docs/AUDIO.md) — quiet, not a button. */
+.study-pill--pending {
+  cursor: default;
+  border-style: dashed;
+  color: var(--color-text-light, #6b7280);
+  font-weight: 400;
+  font-size: 0.875rem;
+}
+
+.audio-coming-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+}
+
+.audio-coming-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-primary);
+  margin-right: 0.125rem;
+  animation: audio-coming-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes audio-coming-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audio-coming-dot { animation: none; opacity: 0.6; }
+}
+
 .study-pill--recording {
   background: #fee2e2;
   border-color: #fca5a5;

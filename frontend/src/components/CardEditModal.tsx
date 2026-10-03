@@ -511,13 +511,6 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
               </button>
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={() => handleGenerateAudio('gtts')}
-                disabled={generating}
-              >
-                {generating ? '...' : 'Google TTS'}
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
                 onClick={() => setShowMiniMaxOptions(!showMiniMaxOptions)}
               >
                 MiniMax {showMiniMaxOptions ? '\u25B2' : '\u25BC'}
