@@ -248,6 +248,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onCloseExplain = vm::closeExplain,
                 onOpenSearch = vm::openSearch,
                 onOpenHelp = { vm.openSheet(ChatSheet.HelpMeSayIt) },
+                onPlayText = vm::playText,
             ),
         )
     }

@@ -122,6 +122,9 @@ class ChatSheetActions(
     /** No app opens a file: share it / save a copy (path, name, mime). */
     val onShareFile: (String, String, String) -> Unit = { _, _, _ -> },
     val onSaveFile: (String, String, String) -> Unit = { _, _, _ -> },
+    // ---- auto-check ----
+    /** ▶ in "How to say it better": read (playing id, text) aloud with the chat's TTS. */
+    val onPlayText: (String, String) -> Unit = { _, _ -> },
 )
 
 @Composable
@@ -139,6 +142,19 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             }
         }
         ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss) { AttachContent(ui, actions) }
+        is ChatSheet.SayBetter -> {
+            val m = ui.messages.firstOrNull { it.id == s.message.id } ?: s.message
+            val v = remember(m, ui.myId, ui.otherName) { SayBetterView.of(m, ui.myId, ui.otherName) }
+            if (v != null) LabBottomSheet(onDismiss = actions.onDismiss) {
+                val playId = "say-better-${m.id}"
+                SayBetterContent(
+                    v, ui.online, playing = ui.playingId == playId, cards = actions.cards,
+                    onPlay = { actions.onPlayText(playId, v.corrected) },
+                    onAsk = { actions.onMenuAction(dev.jeromeswannack.chineselearning.lab.core.MessageMenu.DISCUSS, m) },
+                    onClose = actions.onDismiss,
+                )
+            }
+        }
         is ChatSheet.Explain -> ui.explain?.let { e ->
             LabBottomSheet(onDismiss = actions.onCloseExplain) {
                 ExplainContent(e, s.saveCard, ui.online, actions.cards, onRetry = actions.onRetryExplain, onClose = actions.onCloseExplain)

@@ -152,11 +152,32 @@ fun bubbleShape(mine: Boolean, first: Boolean, last: Boolean): RoundedCornerShap
 }
 
 /** What sits in the bubble's bottom-right corner: 📌 · edited · 9:41 · ✓✓. */
-data class BubbleMeta(val time: String, val tick: ChatBubbles.Tick = ChatBubbles.Tick.NONE, val edited: Boolean = false, val pinned: Boolean = false)
+data class BubbleMeta(
+    val time: String,
+    val tick: ChatBubbles.Tick = ChatBubbles.Tick.NONE,
+    val edited: Boolean = false,
+    val pinned: Boolean = false,
+    /** The ✎ "could be better" mark's accessible label ([SayBetter.label]); null = no mark. */
+    val sayBetter: String? = null,
+    /** false = only the ✎ (a bubble that isn't the last of its group, time not tapped open). */
+    val showTime: Boolean = true,
+)
 
 private val META_STYLE = TextStyle(fontSize = 11.sp, lineHeight = 13.sp)
 
+/** The ✎ mark's colour: a soft amber, calm on the blue bubble (not red, not alarming). */
+val SayBetterAmber = Color(0xFFFFD58A)
+
+/** Annotation tag carrying the ✎ mark's label, read back by [MetaLabel] for TalkBack. */
+private const val SAY_BETTER_TAG = "say_better"
+
 fun metaText(meta: BubbleMeta, base: Color, read: Color): AnnotatedString = buildAnnotatedString {
+    meta.sayBetter?.let { label ->
+        pushStringAnnotation(SAY_BETTER_TAG, label)
+        withStyle(SpanStyle(color = SayBetterAmber, fontWeight = FontWeight.Bold)) { append(if (meta.showTime) "✎  " else "✎") }
+        pop()
+    }
+    if (!meta.showTime) return@buildAnnotatedString
     withStyle(SpanStyle(color = base)) {
         if (meta.pinned) append("📌 ")
         if (meta.edited) append("edited  ")
@@ -182,7 +203,15 @@ private fun rememberMetaWidth(text: AnnotatedString?): Dp {
 
 @Composable
 private fun MetaLabel(text: AnnotatedString, modifier: Modifier = Modifier) {
-    Text(text, style = META_STYLE, maxLines = 1, modifier = modifier.testTag("chat-meta"))
+    // With the ✎ mark, TalkBack reads its label first ("Could be better — hold to see"), then the time.
+    val label = text.getStringAnnotations(SAY_BETTER_TAG, 0, text.length).firstOrNull()?.item
+    val rest = if (label == null) "" else text.text.replace("✎", "").trim()
+    Text(
+        text, style = META_STYLE, maxLines = 1,
+        modifier = modifier.testTag("chat-meta").then(
+            if (label == null) Modifier else Modifier.semantics { contentDescription = if (rest.isEmpty()) label else "$label · $rest" },
+        ),
+    )
 }
 
 /** A long press after 450 ms (docs/CHAT.md), not the platform's default. */
@@ -278,8 +307,14 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
     val fg = if (m.isDeleted) Lab.colors.muted else if (mine) c.onMine else c.onTheirs
     val metaColor = if (mine && !m.isDeleted) c.metaMine else c.metaTheirs
     val showMeta = layout.lastInGroup || m.id in ui.timeShown
-    val meta = if (!showMeta) null else metaText(
-        BubbleMeta(ChatLogic.formatTime(m.created_at), layout.tick, edited = !m.edited_at.isNullOrEmpty() && !m.isDeleted, pinned = !m.pinned_at.isNullOrEmpty() && !m.isDeleted),
+    // ✎ on my own message when it could be better (auto-check) or my tutor corrected it — shown even
+    // without the time; the other side never sees it (auto_check only reaches the sender).
+    val better = ui.sayBetter(m)?.let { dev.jeromeswannack.chineselearning.lab.core.SayBetter.label(it, ui.otherName) }
+    val meta = if (!showMeta && better == null) null else metaText(
+        BubbleMeta(
+            ChatLogic.formatTime(m.created_at), layout.tick, edited = !m.edited_at.isNullOrEmpty() && !m.isDeleted, pinned = !m.pinned_at.isNullOrEmpty() && !m.isDeleted,
+            sayBetter = better, showTime = showMeta,
+        ),
         metaColor, if (mine) Color.White else Lab.colors.accent,
     )
     val haptic = LocalHapticFeedback.current

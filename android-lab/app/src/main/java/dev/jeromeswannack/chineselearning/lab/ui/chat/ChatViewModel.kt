@@ -136,6 +136,9 @@ sealed interface ChatSheet {
     data class Info(val message: ChatMessageDto) : ChatSheet
     /** No app on the phone opens this file: Share… / Save to Downloads. */
     data class FileFallback(val path: String, val name: String, val mime: String) : ChatSheet
+    // ---- auto-check ----
+    /** ✨ How to say it better: the tutor's correction, else the background check (docs/CHAT.md "Auto-check"). */
+    data class SayBetter(val message: ChatMessageDto) : ChatSheet
 }
 
 /** A photo shrunk on the phone, waiting in the compose sheet. */
@@ -323,10 +326,17 @@ data class ChatUi(
         MessageMenu.Message(
             senderId = m.sender_id, content = m.content, deletedAt = m.deleted_at, pending = false,
             attachmentKind = m.attachment?.kind, transcript = m.attachment?.transcript, attachmentTranslation = m.attachment?.translation,
-            translation = m.translation, hasCorrection = m.correction != null, checkStatus = checkStatus(m),
+            translation = m.translation, hasCorrection = m.correction != null, correctionText = m.correction?.text,
+            checkStatus = checkStatus(m), autoCheckStatus = m.auto_check?.status, autoCheckText = m.auto_check?.text,
             hasDiscussion = m.has_discussion, pinnedAt = m.pinned_at,
         ),
         viewerRole, isAi, myId ?: "", pinyinOn = aids.pinyin(m.id), translateOn = aids.translation(m.id),
+    )
+
+    /** "corrected" | "improvable" | null — the ✎ on my own bubble and the menu's ✨ ([SayBetter.state], parity-tested). */
+    fun sayBetter(m: ChatMessageDto): String? = dev.jeromeswannack.chineselearning.lab.core.SayBetter.state(
+        m.sender_id, m.content, m.deleted_at, m.attachment?.kind, m.correction != null, m.correction?.text,
+        m.auto_check?.status, m.auto_check?.text, myId ?: "",
     )
 
     /** The text the learning tools work on (the voice transcript, else the message / caption). */
@@ -1239,6 +1249,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     fun onMenuAction(id: String, m: ChatMessageDto) {
         _ui.update { it.copy(sheet = null) }
         when (id) {
+            MessageMenu.SAY_BETTER -> openSheet(ChatSheet.SayBetter(m))
             MessageMenu.REPLY -> reply(m)
             MessageMenu.COPY -> copy(_ui.value.menuText(m))
             MessageMenu.TRANSLATE -> translateInline(m)
@@ -1413,14 +1424,21 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
-    fun play(m: ChatMessageDto) {
-        if (_ui.value.playingId == m.id) { stopAudio(); return }
-        _ui.update { it.copy(playingId = m.id) }
+    fun play(m: ChatMessageDto) = playText(m.id, m.content)
+
+    /**
+     * Read aloud [text] through the chat's TTS (the conversation's voice), [id] = what shows as playing
+     * (a message id, or "say-better-<id>" for the corrected sentence in "How to say it better").
+     */
+    fun playText(id: String, text: String) {
+        if (_ui.value.playingId == id) { stopAudio(); return }
+        if (text.isBlank()) return
+        _ui.update { it.copy(playingId = id) }
         viewModelScope.launch {
             try {
                 val c = _ui.value.conversation
-                val r = api.conversationTts(convId, m.content, c?.voice_id, c?.voice_speed)
-                playBase64(r.audio_base64, m.id)
+                val r = api.conversationTts(convId, text, c?.voice_id, c?.voice_speed)
+                playBase64(r.audio_base64, id)
             } catch (e: Exception) {
                 _ui.update { it.copy(playingId = null) }
                 error("Couldn't play that message.")
