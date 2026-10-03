@@ -67,6 +67,9 @@ object Routes {
     fun recordings(relId: String) = "/connections/${seg(relId)}/recordings"
     fun sessionNotes(relId: String) = "/connections/${seg(relId)}/session-notes"
     fun homeworkDraft(relId: String, jobId: String) = "/connections/${seg(relId)}/homework/${seg(jobId)}"
+    /** The homework library: one student's (docs/HOMEWORK.md §9) / every student's. */
+    fun studentHomeworkLibrary(relId: String) = "/connections/${seg(relId)}/homework"
+    const val HOMEWORK_LIBRARY = "/homework-library"
     fun studentCardHub(relId: String, noteId: String) = "/connections/${seg(relId)}/cards/${seg(noteId)}"
     fun studentClaudeChats(relId: String) = "/connections/${seg(relId)}/claude-chats"
     fun studentLessonAttempts(relId: String, attemptId: String? = null) =

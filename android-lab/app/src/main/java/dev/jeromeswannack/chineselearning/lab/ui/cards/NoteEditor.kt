@@ -29,6 +29,12 @@ class NoteEditor(private val env: DecksEnv, private val scope: CoroutineScope) {
     /** Called after a save / delete / move landed (Saved or Queued) with a short confirmation. */
     var onDone: (String) -> Unit = {}
 
+    /**
+     * Called after a word was added or edited ON THE SERVER (not queued offline): the deck page
+     * asks "Also update their copies?" (docs/HOMEWORK.md §10). [deckId] = the word's deck.
+     */
+    var onWordSaved: (deckId: String?) -> Unit = {}
+
     fun openEdit(noteId: String) {
         scope.launch {
             val n = withContext(Dispatchers.IO) { env.dao.note(noteId) } ?: return@launch
@@ -54,13 +60,13 @@ class NoteEditor(private val env: DecksEnv, private val scope: CoroutineScope) {
             if (id == null) {
                 val deckId = addToDeck ?: return@launch
                 env.writes.createNote(deckId, f).fold(
-                    onSuccess = { env.fx.success(); close(); onDone("Added ${it.hanzi} — audio is on its way") },
+                    onSuccess = { env.fx.success(); close(); onDone("Added ${it.hanzi} — audio is on its way"); onWordSaved(deckId) },
                     onFailure = { e -> env.fx.failure(); _state.update { it?.copy(busy = false, error = e.message) } },
                 )
                 return@launch
             }
             when (val o = env.writes.updateNote(id, f)) {
-                WriteOutcome.Saved -> { env.fx.success(); close(); onDone("Saved") }
+                WriteOutcome.Saved -> { env.fx.success(); close(); onDone("Saved"); onWordSaved(null) }
                 WriteOutcome.Queued -> { env.fx.success(); close(); onDone("Saved on this phone — it goes to the server when you're back online.") }
                 is WriteOutcome.Refused -> { env.fx.failure(); _state.update { it?.copy(busy = false, error = o.message) } }
             }

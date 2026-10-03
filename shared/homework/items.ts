@@ -6,6 +6,7 @@
  */
 
 import { compareDue, dueLabel, type DueLabel } from './due';
+import { libraryStatus, type LibraryStatus } from './library';
 import { passProgress, passSummary, type PassProgress } from './pass';
 import { passItemIds, type HomeworkAssignment, type HomeworkEvent } from './types';
 
@@ -67,7 +68,7 @@ export function oneOffOnlyTargets(list: Pick<HomeworkAssignment, 'mode' | 'targe
   return new Set(list.filter((a) => a.mode === 'one_off' && !fsrs.has(a.target_id)).map((a) => a.target_id));
 }
 
-const KIND_WORD: Record<string, string> = { lesson: 'mini lesson', reader: 'reader' };
+const KIND_WORD: Record<string, string> = { lesson: 'mini lesson', reader: 'reader', link: 'link' };
 
 /** The meta line of a homework row: "Day 1 of 2 · 3 of 12 words left · then long-term review · from 老师". */
 export function homeworkRowDetail(item: HomeworkItemView, showTutor: boolean): string {
@@ -78,4 +79,17 @@ export function homeworkRowDetail(item: HomeworkItemView, showTutor: boolean): s
   return detail + (a.mode === 'both' && !item.done ? ' · then long-term review' : '') + (showTutor && a.tutor_name ? ` · from ${a.tutor_name}` : '');
 }
 
-export const KIND_ICON: Record<string, string> = { deck: '📚', lesson: '🎓', reader: '📖' };
+export const KIND_ICON: Record<string, string> = { deck: '📚', lesson: '🎓', reader: '📖', link: '🔗' };
+
+/**
+ * The student's own status for an item — the same four as the tutor's library
+ * (Completed / In progress / Overdue / Not started), from the pass on the device.
+ */
+export function itemStatus(item: HomeworkItemView, today: string): LibraryStatus {
+  return libraryStatus({
+    complete: item.done,
+    started: item.progress.done > 0 || item.progress.retrying > 0,
+    due_date: item.assignment.due_date,
+    today,
+  });
+}

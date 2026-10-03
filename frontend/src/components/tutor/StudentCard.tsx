@@ -1,3 +1,5 @@
+import type { LibraryItem } from '@shared/homework';
+import { RecentHomeworkLine } from './library/RecentHomeworkCard';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { StudentOverview } from '../../types/tutorDashboard';
@@ -33,7 +35,7 @@ function ProfileHint({ relId }: { relId: string }) {
   );
 }
 
-export function StudentCard({ overview, onSendHomework }: { overview: StudentOverview; onSendHomework: (o: StudentOverview) => void }) {
+export function StudentCard({ overview, onSendHomework, recent }: { overview: StudentOverview; onSendHomework: (o: StudentOverview) => void; recent?: { item: LibraryItem; today: string } | null }) {
   const { student, relationship_id: relId } = overview;
   const name = student.name || student.email || 'Student';
   const { message, busy } = useMessageStudent(relId, overview.last_conversation_id);
@@ -59,6 +61,11 @@ export function StudentCard({ overview, onSendHomework }: { overview: StudentOve
             <BudgetPill overview={overview} relId={relId} />
             {overview.has_profile === false && <ProfileHint relId={relId} />}
           </div>
+        )}
+        {recent && (
+          <Link to={`/connections/${relId}/homework`} className="td-card-recent">
+            <RecentHomeworkLine item={recent.item} today={recent.today} />
+          </Link>
         )}
         <div className="td-card-actions">
           {overview.setup.invite ? (
@@ -110,6 +117,11 @@ export function StudentCard({ overview, onSendHomework }: { overview: StudentOve
         <BudgetPill overview={overview} relId={relId} />
         {overview.has_profile === false && <ProfileHint relId={relId} />}
       </div>
+      {recent && (
+        <Link to={`/connections/${relId}/homework`} className="td-card-recent">
+          <RecentHomeworkLine item={recent.item} today={recent.today} />
+        </Link>
+      )}
       <div className="td-card-actions">
         <button type="button" className="btn btn-secondary" onClick={message} disabled={busy}>💬 Message</button>
         <button type="button" className="btn btn-secondary" onClick={() => onSendHomework(overview)}>📤 Send homework</button>

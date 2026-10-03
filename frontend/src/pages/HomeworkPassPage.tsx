@@ -16,6 +16,7 @@ import { StudyReader } from '../components/StudyReader';
 import { SentenceSet } from '../components/SentenceSet';
 import { Confetti } from '../components/Confetti';
 import { DueChip } from '../components/homework/HomeworkRow';
+import { LinkPass } from '../components/homework/LinkPass';
 import { useNoteAudio } from '../hooks/useAudio';
 import { API_BASE, updateDeckSettings } from '../api/client';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -82,6 +83,22 @@ function HomeworkPass() {
   const progress = passProgress(passItemIds(a), data.events);
 
   if (a.kind === 'lesson') return <LessonPass assignmentTitle={a.title} targetId={a.target_id} complete={progress.complete} onExit={exit} />;
+  if (a.kind === 'link') {
+    const doneNote = [...data.events].reverse().find((e) => e.result === 'done')?.note ?? null;
+    return (
+      <LinkPass
+        assignmentId={a.id}
+        targetId={a.target_id}
+        title={a.title}
+        details={a.details}
+        dueDate={a.due_date}
+        tutorName={a.tutor_name}
+        complete={progress.complete || a.status === 'done'}
+        note={doneNote}
+        topbar={<PassTopbar title="Homework" onClose={exit} />}
+      />
+    );
+  }
   if (a.kind === 'reader') return <ReaderPass targetId={a.target_id} complete={progress.complete} onExit={exit} />;
   const { base, part } = titleParts(a);
   return <DeckPass assignmentId={a.id} title={base} part={part} dueDate={a.due_date} deckId={a.target_id} oneOffOnly={!hasFsrs(a.mode)} itemIds={passItemIds(a)} progress={progress} onExit={exit} />;

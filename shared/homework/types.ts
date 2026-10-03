@@ -3,8 +3,19 @@
  * See docs/HOMEWORK.md for the model.
  */
 
-/** What is assigned. Free text so a future kind needs no migration; these three exist today. */
-export type HomeworkKind = 'deck' | 'lesson' | 'reader' | (string & {});
+/** What is assigned. Free text so a future kind needs no migration; these four exist today. */
+export type HomeworkKind = 'deck' | 'lesson' | 'reader' | 'link' | (string & {});
+
+/**
+ * Extra fields an assignment carries (assignments.details, JSON). A link
+ * assignment holds the link itself — a snapshot of the tutor's link, so the
+ * student's homework keeps working if the tutor edits or deletes it.
+ */
+export interface HomeworkDetails {
+  url?: string | null;
+  instructions?: string | null;
+  thumbnail_url?: string | null;
+}
 
 /**
  * How it is studied:
@@ -49,6 +60,8 @@ export interface HomeworkAssignment {
   updated_at: string;
   /** Joined for display. */
   tutor_name?: string | null;
+  /** Link homework: the link, instructions and thumbnail (null for other kinds). */
+  details?: HomeworkDetails | null;
 }
 
 export interface HomeworkEvent {
@@ -59,6 +72,8 @@ export interface HomeworkEvent {
   item_id: string;
   result: HomeworkResult;
   created_at: string;
+  /** Optional note back to the tutor (a `done` event, e.g. on link homework). */
+  note?: string | null;
 }
 
 export function isHomeworkMode(value: unknown): value is HomeworkMode {

@@ -13,7 +13,7 @@ export interface TabSpec {
 const STUDY: TabSpec = { id: 'study', label: 'Study', to: '/', match: ['/', '/study'] };
 const CHATS: TabSpec = { id: 'chats', label: 'Chats', to: '/chats', match: ['/chats'] };
 const TUTOR: TabSpec = { id: 'tutor', label: 'Tutor', to: '/connections', match: ['/connections'] };
-const STUDENTS: TabSpec = { id: 'students', label: 'Students', to: '/connections', match: ['/connections'] };
+const STUDENTS: TabSpec = { id: 'students', label: 'Students', to: '/connections', match: ['/connections', '/homework-library'] };
 const LIBRARY: TabSpec = { id: 'library', label: 'Library', to: '/library', match: ['/library'] };
 const PROGRESS: TabSpec = { id: 'progress', label: 'Progress', to: '/progress', match: ['/progress'] };
 const MORE: TabSpec = {

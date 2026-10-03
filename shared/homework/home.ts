@@ -61,8 +61,8 @@ export interface HomeHomework {
 
 export const HOME_HOMEWORK_LIMIT = 4;
 
-const ICON: Record<string, string> = { deck: '📚', lesson: '🎓', reader: '📖' };
-const KIND_WORD: Record<string, string> = { lesson: 'lesson', reader: 'reader' };
+const ICON: Record<string, string> = { deck: '📚', lesson: '🎓', reader: '📖', link: '🔗' };
+const KIND_WORD: Record<string, string> = { lesson: 'lesson', reader: 'reader', link: 'link' };
 
 /** The compact due label: "due in 1 day" reads as "due tomorrow" on Home. */
 export function compactDue(due: DueLabel): string {

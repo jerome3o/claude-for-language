@@ -295,3 +295,68 @@ export async function deleteReaderWithImages(
   }
   return true;
 }
+
+export interface ReaderCopyUpdate {
+  /** Pages whose text / picture changed, added, removed. */
+  changed: number;
+  added: number;
+  removed: number;
+}
+
+/**
+ * Bring the student's copy of a shared reader up to date with the tutor's
+ * reader (docs/HOMEWORK.md §10). Pages are matched by position and the copy's
+ * page ids are KEPT, so the student's reading history stays attached; extra
+ * source pages are inserted, extra copy pages deleted. Pictures and word chips
+ * travel with the text (the same R2 key on both copies — nothing is copied or
+ * deleted in R2; storage clean-up removes keys nothing references).
+ */
+export async function updateSharedReaderCopy(db: D1Database, sourceReaderId: string, targetReaderId: string): Promise<ReaderCopyUpdate> {
+  const source = await db.prepare('SELECT * FROM graded_readers WHERE id = ?').bind(sourceReaderId).first<ReaderRow>();
+  if (!source) throw new Error('The original reader no longer exists');
+  const target = await db.prepare('SELECT id FROM graded_readers WHERE id = ?').bind(targetReaderId).first<{ id: string }>();
+  if (!target) throw new Error('The student no longer has this reader');
+  const [srcPages, copyPages] = await Promise.all([
+    db.prepare('SELECT * FROM reader_pages WHERE reader_id = ? ORDER BY page_number ASC').bind(sourceReaderId).all<ReaderPage>(),
+    db.prepare('SELECT * FROM reader_pages WHERE reader_id = ? ORDER BY page_number ASC').bind(targetReaderId).all<ReaderPage>(),
+  ]);
+  const stmts: D1PreparedStatement[] = [
+    db
+      .prepare('UPDATE graded_readers SET title_chinese = ?, title_english = ?, difficulty_level = ?, topic = ?, vocabulary_used = ? WHERE id = ?')
+      .bind(source.title_chinese, source.title_english, source.difficulty_level, source.topic, source.vocabulary_used, targetReaderId),
+  ];
+  const result: ReaderCopyUpdate = { changed: 0, added: 0, removed: 0 };
+  const words = (p: ReaderPage) => (typeof p.words === 'string' ? p.words : p.words ? JSON.stringify(p.words) : null);
+  srcPages.results.forEach((page, i) => {
+    const copy = copyPages.results[i];
+    if (copy) {
+      const same =
+        copy.page_number === page.page_number &&
+        copy.content_chinese === page.content_chinese &&
+        copy.content_pinyin === page.content_pinyin &&
+        copy.content_english === page.content_english &&
+        (copy.image_url ?? null) === (page.image_url ?? null) &&
+        (copy.image_prompt ?? null) === (page.image_prompt ?? null);
+      if (same) return;
+      result.changed++;
+      stmts.push(
+        db
+          .prepare('UPDATE reader_pages SET page_number = ?, content_chinese = ?, content_pinyin = ?, content_english = ?, image_url = ?, image_prompt = ?, words = ? WHERE id = ?')
+          .bind(page.page_number, page.content_chinese, page.content_pinyin, page.content_english, page.image_url ?? null, page.image_prompt ?? null, words(page), copy.id)
+      );
+    } else {
+      result.added++;
+      stmts.push(
+        db
+          .prepare('INSERT INTO reader_pages (id, reader_id, page_number, content_chinese, content_pinyin, content_english, image_url, image_prompt, words) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .bind(generateId(), targetReaderId, page.page_number, page.content_chinese, page.content_pinyin, page.content_english, page.image_url ?? null, page.image_prompt ?? null, words(page))
+      );
+    }
+  });
+  for (const extra of copyPages.results.slice(srcPages.results.length)) {
+    result.removed++;
+    stmts.push(db.prepare('DELETE FROM reader_pages WHERE id = ?').bind(extra.id));
+  }
+  await db.batch(stmts);
+  return result;
+}

@@ -83,7 +83,13 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
 // ---------------- /homework ----------------
 
-data class HomeworkListUi(val loaded: Boolean = false, val todo: List<HomeworkItemView> = emptyList(), val done: List<HomeworkItemView> = emptyList())
+data class HomeworkListUi(
+    val loaded: Boolean = false,
+    val todo: List<HomeworkItemView> = emptyList(),
+    val done: List<HomeworkItemView> = emptyList(),
+    /** The day the status chips are computed for (the device's calendar day). */
+    val today: String = dev.jeromeswannack.chineselearning.lab.core.Homework.localDate(),
+)
 
 private const val DONE_LIMIT = 10
 
@@ -110,11 +116,11 @@ fun HomeworkListScreen(ui: HomeworkListUi, onBack: (() -> Unit)?, onOpen: (Strin
         item {
             if (ui.todo.isEmpty()) {
                 LabCard { Text("Nothing to do — you’re all caught up. 🎉", Modifier.padding(16.dp).testTag("hw-empty"), color = Lab.colors.muted) }
-            } else HomeworkList(ui.todo, showTutor = true, onOpen = onOpen)
+            } else HomeworkList(ui.todo, showTutor = true, today = ui.today, onOpen = onOpen)
         }
         if (ui.done.isNotEmpty()) {
             item { SectionHeader("Done") }
-            item { HomeworkList(if (showAllDone) ui.done else ui.done.take(DONE_LIMIT), showTutor = true, onOpen = onOpen) }
+            item { HomeworkList(if (showAllDone) ui.done else ui.done.take(DONE_LIMIT), showTutor = true, today = ui.today, onOpen = onOpen) }
             if (!showAllDone && ui.done.size > DONE_LIMIT) {
                 item { SecondaryPill("Show all ${ui.done.size}") { showAllDone = true } }
             }
@@ -182,6 +188,9 @@ sealed interface PassUi {
         val reader: SessionReader? = null,
         val finished: Boolean = false,
     ) : PassUi
+
+    /** Link homework (docs/HOMEWORK.md §8): open it outside the app, then mark it done with a note. */
+    data class Link(val link: LinkPassUi) : PassUi
 }
 
 class PassActions(
@@ -202,6 +211,10 @@ class PassActions(
     val sentences: SentenceActions = SentenceActions(),
     /** ▶ on a sentence row: its clip, else the device voice. */
     val onPlaySentence: (key: String?, text: String) -> Unit = { _, _ -> },
+    /** Link homework: open the link outside the app. */
+    val onOpenLink: (String) -> Unit = {},
+    /** Link homework: the `done` event with the optional note. */
+    val onLinkDone: (String?) -> Unit = {},
 )
 
 /** The lesson a pass plays (the web's `db.customLessons.get(target_id)` + its interval previews). */
@@ -226,6 +239,13 @@ fun HomeworkPassScreen(
             }
             is PassUi.Deck -> DeckPass(ui, actions, playingKey, sentences)
             is PassUi.Player -> PlayerPass(ui, actions, lessonEnv, readerEnv)
+            is PassUi.Link -> {
+                PassTopBar("Homework", onClose = actions.onClose)
+                Box(Modifier.fillMaxSize()) {
+                    LinkPassContent(ui.link, actions.onOpenLink, actions.onLinkDone, actions.onClose)
+                    if (ui.link.justDone) ConfettiRain(key = ui.link.title, colors = Palette.Confetti)
+                }
+            }
         }
     }
 }

@@ -54,7 +54,7 @@ class HomeworkScreenshots : LabScreenshotTest() {
         val events = (1..5).map { HomeworkEvent("e$it", "a1", "a1-n$it", "right", "2026-09-26T10:0$it:00Z") } +
             listOf(HomeworkEvent("e9", "a1", "a1-n6", "wrong", "2026-09-26T10:09:00Z"))
         val sorted = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, TODAY))
-        val listUi = HomeworkListUi(true, sorted.todo, sorted.done)
+        val listUi = HomeworkListUi(true, sorted.todo, sorted.done, TODAY)
 
         val clueRow = SentenceRow("clue:n1", null, "服务员，我们要点菜。", "fúwùyuán, wǒmen yào diǎn cài.", "Waiter, we'd like to order.", null, "From the card")
         val setRows = listOf(

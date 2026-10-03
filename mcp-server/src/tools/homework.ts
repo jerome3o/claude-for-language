@@ -95,7 +95,7 @@ export function registerHomeworkTools(ctx: ToolContext): void {
 
   server.tool(
     'get_student_homework',
-    'A student\'s homework plan: the LOAD GAUGE (one-off items pending / overdue / due per day this week, words still to come in long-term review and ~days at their daily budget, level light / moderate / heavy) and every assignment with its mode, due label and progress. Check it before assigning more — cut back when the level is heavy or items are overdue.',
+    'A student\'s homework plan: the LOAD GAUGE (one-off items pending / overdue / due per day this week, words still to come in long-term review and ~days at their daily budget, level light / moderate / heavy) and every assignment with its mode, due label and progress. Check it before assigning more — cut back when the level is heavy or items are overdue. For the full history of what was sent (every deck, lesson, reader and link, with status and the student\'s notes) use get_homework_library; to send a video / song / article use create_link_homework then assign_link_homework.',
     { relationship_id: RELATIONSHIP_ID, today: TODAY, include_done: z.boolean().optional().describe('Also list finished and cancelled assignments (default false).') },
     async ({ relationship_id, today, include_done }) =>
       guard(async () => {

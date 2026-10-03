@@ -126,7 +126,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts (new characters first); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
-│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan, Home's compact card rows (home.ts) — pure, unit-tested
+│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan, Home's compact card rows (home.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts) — pure, unit-tested
 │   ├── tutor-notes/       # "Notes from your tutor": new / earlier merge, Home line, the practice rule (a rating counts only when the card is due) — parity-tested by the Lab app
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
@@ -328,6 +328,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
+- `homework_links` - A tutor's link homework (migration 0102; docs/HOMEWORK.md §8): title, url, instructions, thumbnail_url (YouTube's public thumbnail only), soft `deleted_at`. Made in HER account, sent as an `assignments` row `kind: 'link'` whose `details` JSON keeps a snapshot `{ url, instructions, thumbnail_url }`; `assignment_events.note` = the student's note back on `done`
 - `student_profiles` - The tutor's PRIVATE profile of a student, one per `tutor_relationships` row (tutor_id, student_id, markdown `body` ≤ 8000, optional `level` / `handwriting` / `words_per_lesson`). Migration 0077. Only the tutor-only route, the dashboard's `has_profile` flag and the tutor-side content agents read it — never a student-facing path. See "Student profile" below
 - `users.voice_gender` - 'male' | 'female' | 'other' | NULL: the voice this person's chat messages are read aloud in (migration 0098; Profile → "Your voice when your messages are read aloud", admin `PUT /api/admin/users/:user/voice-gender`, MCP `admin_set_user_voice_gender`). See "Chat read-aloud voice"
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
@@ -1438,6 +1439,24 @@ Lesson types and future kinds plug into this model — never a second queue (con
 - `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors, copies }` (`copies`: the student's copy + share id per item). Every tutor send path defaults to `both`, due at the next logged lesson else in two days (`DEFAULT_SEND_MODE`, `defaultHomeworkDueDate`; docs/HOMEWORK.md §4a): the Send homework sheet, the library Assign sheet, the MCP send tools (`mcp-server/src/tools/homework-send.ts`)
 - `PATCH /api/relationships/:relId/homework/:id` - tutor: `{ due_date?, status?: 'cancelled' | 'active' }`
 
+**Homework library, link homework, updating students' copies** (`routes/homework-library.ts`, `services/homework-library.ts`,
+pure rules `shared/homework/library.ts` + `link.ts`; docs/HOMEWORK.md §8–10). The **library** is one row per thing a tutor
+sent (deck copy / lesson / reader / link) built by `buildHomeworkLibrary` from the share rows + the assignments on the same
+copy: sent, due, kind, % (pass words / words met / lesson completed / reader read / link done) and status Completed (green) ·
+In progress (blue, amber when due today / tomorrow) · Overdue (red) · Not started (grey) (`libraryStatus`, `statusTone`).
+Web: `/connections/:relId/homework` (one student) and `/homework-library` (all; More → Teaching, Students dashboard) —
+`pages/tutor/HomeworkLibraryPage.tsx`, `components/tutor/library/` (filters, row actions Open · Edit · Update their copy ·
+Change due date · Remove); **Most recent homework** (`mostRecentHomework`: newest + whatever was sent within 30 min, max 3)
+at the TOP of the student page (`RecentHomeworkCard`) and one line on each dashboard card. Students see the same statuses on
+`/homework` (`itemStatus`) and their tutor page lists that tutor's items. **Link homework** (tutor-first: made in her account,
+nothing reaches a student until she sends it): Send homework → 🔗 A link (`LinkHomeworkForm`), the student's `/homework/:id`
+is `components/homework/LinkPass.tsx` (Open link ↗ in the browser — nothing embedded —, Mark as done + optional note,
+offline-first). **Update copies on save**: after saving a sent deck word (deck page), library lesson (lesson editor), reader
+(reader editor) or link, `UpdateCopiesPrompt` offers "Also update <student>'s copy" per student, default on.
+- `GET /api/relationships/:relId/homework-library?today=` → `{ items, counts, today }` · `GET /api/tutor/homework-library?today=` → `{ students, items, counts, today }`
+- `GET|POST /api/homework-links` (`{ title, url, instructions? }`, 400 + `problems`) · `PUT /api/homework-links/:id` (+ `update_student_copies?: true | relId[]` → `copies`) · `DELETE` (soft); send with `POST …/homework` `{ items: [{ kind: 'link', source_id, due_date? (null = none) }] }`
+- `GET /api/student-copies?kind=deck|lesson|reader|link&source_id=` → `{ copies: [{ relationship_id, student_name, target_id, share_id, behind }] }` · `POST /api/student-copies/update` `{ kind, source_id, relationship_ids? }` → `{ updated, results }` (deck = `updateSharedDeckCopy`; lesson = `pushLibraryLessonUpdate`, `services/lesson-push.ts`; reader = `updateSharedReaderCopy`, pages matched by position, the copy's page ids kept; link = the sent assignments' snapshot)
+
 **Lesson notes → draft → review → assign** (`routes/homework-drafts.ts`, `services/homework-drafts.ts`): the student
 page's **Lesson notes** section (`components/tutor/LessonNotesSection.tsx`, replaces Session notes) lists
 `tutor_lesson_log` entries (+ `title`, migration 0073) with their homework state (No homework yet · Drafting… ·
@@ -1727,6 +1746,8 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, all kept in the tutor's account — `auto_share: true` needs `confirm: true`) / poll one job's progress, steps, result and `not_sent` keys / list a student's jobs |
 | `send_session_notes_items` | **Send tool**: a finished job's unsent deck / lessons / reader (`items` keys from `not_sent`, none = all) → `POST …/session-notes/:id/send` |
 | `list_student_lesson_notes` / `add_student_lesson_notes` / `get_homework_draft` / `update_homework_draft_plan` / `revise_homework_draft` / `assign_homework_draft` (`tools/homework.ts`) | Lesson-notes entries and their homework state / add notes (+ draft by default, nothing sent) / the draft with skipped words, plan and load now → after / change modes, dates, split / ask the assistant to change it (same job) / assign it (send tool, `confirm: true`) |
+| `create_link_homework` / `assign_link_homework` / `list_link_homework` / `update_link_homework` (`tools/homework-hub.ts`) | Link homework (docs/HOMEWORK.md §8): save a video / song / article link with instructions in the tutor's OWN account (`POST /api/homework-links`, checked with `pickLinkHomework`; sends nothing) / send it (send tool, `confirm: true`) to one or more students as one-off homework (`POST …/homework`, `kind: 'link'`, optional due date) / list saved links / edit one (`PUT /api/homework-links/:id`, `update_student_copies` only when the tutor asked) |
+| `get_homework_library` (`tools/homework-hub.ts`) | Everything sent, one row per deck copy / lesson / reader / link (§9): student, sent, due, status completed / in_progress / overdue / not_started, %, progress, the student's note, `due_assignment_id`; one student (`…/homework-library`) or all (`/api/tutor/homework-library`); status / kind / text filters (`filterLibrary`) |
 | `get_student_homework` / `assign_homework` / `update_homework_assignment` (`tools/homework.ts`) | The load gauge + assignments with due labels and progress / assign (send tool, `confirm: true`) decks, library lessons and readers as `one_off` (due date, `split_days`, known words left out) / `fsrs` / `both` / move a due date or cancel |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
@@ -1850,6 +1871,7 @@ cd mcp-server && npm run build:ui
 ```
 
 ### Notes on MCP Usage
+- **`update_student_copies`** (boolean, default false — a send: set it only when the tutor asked to update the students' copies; `tools/student-copies.ts`) on `update_note`, `add_note`, `batch_add_notes` (kind deck, the note's deck), `update_library_lesson` (kind lesson; replaces a separate `push_lesson_update`, which is kept), `update_reader` and `update_link_homework`: after the edit it calls `POST /api/student-copies/update` and lists per-student results ("Also updated Anna's copy"). A failed copy update never fails the edit.
 - The deck / note tools (`create_deck`, `update_deck`, `delete_deck`, `add_note`, `batch_add_notes`, `update_note`, `delete_note`, `move_notes`) call the main API, so the worker's content service makes the cards, generates TTS in the background (word + example sentence), queues the sentence set and writes deletion tombstones. The MCP server only reads D1 directly (lists, searches, duplicate pre-checks).
 - A deck created through MCP gets the shared new-deck defaults (3 new + 6 secondary cards a day)
 - Notes created via MCP have audio shortly after the call returns; the tool never waits for it
