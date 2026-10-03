@@ -51,24 +51,28 @@
   font-weight: 700;
 }
 
+/* Stacked, never side by side: a whole sentence's hanzi beside the pinyin squeezed the
+   pinyin / English into a narrow column (same fix as the Lab app's NoteCard). */
 .tn-word {
   display: flex;
-  align-items: baseline;
-  gap: 0.625rem;
+  flex-direction: column;
+  gap: 0.125rem;
   margin: 0.375rem 0;
-  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .tn-hanzi {
   font-size: 1.75rem;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .tn-word-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tn-pinyin {
