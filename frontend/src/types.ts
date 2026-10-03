@@ -367,6 +367,8 @@ export interface Message {
   pinned_by?: string | null;
   /** The message this one was forwarded from (round 2 PR 3); shown as "↪ Forwarded". */
   forwarded_from?: string | null;
+  /** Listening mode: the id of the pre-generated read-aloud clip (`<messageId>-<hash>`), null until made. */
+  audio_clip?: string | null;
   // Learning tools (docs/CHAT.md PR 3).
   /** Word chips; they concatenate to `content` ('content') or to the voice transcript ('transcript'). */
   words?: ChatWord[] | null;
