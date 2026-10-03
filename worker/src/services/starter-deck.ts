@@ -78,7 +78,7 @@ export async function ensureStarterDeck(env: Env, userId: string, bg?: Backgroun
       sentence_clue_pinyin: word.sentence_pinyin,
       sentence_clue_translation: word.sentence_translation,
     })),
-    { audio: 'background', sentences: true, bg }
+    { audio: 'background', sentences: true, check: false, bg }
   );
   if (made.failed.length) console.error('[starter-deck] Some words were not created:', made.failed);
   return { deck, created: true, noteIds: made.created.map(n => n.id) };

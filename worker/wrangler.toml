@@ -164,3 +164,17 @@ crons = ["17 3 * * *"]
 
 # Frontend is deployed separately to Cloudflare Pages
 # See .github/workflows/deploy.yml
+
+# Queue for word checks (services/card-check.ts): new / edited notes when the
+# account's "Check new words" is on, and per-deck "Check for errors" runs (Haiku
+# in batches of 40, progress saved after each batch so a redelivery resumes).
+# Create with: `wrangler queues create card-check-queue`
+[[queues.producers]]
+queue = "card-check-queue"
+binding = "CARD_CHECK_QUEUE"
+
+[[queues.consumers]]
+queue = "card-check-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 2

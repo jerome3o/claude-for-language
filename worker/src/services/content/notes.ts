@@ -16,7 +16,8 @@ import {
   ensureSentenceClueAudio,
   generateNoteAudioNow,
 } from './audio';
-import type { Background, CreateNoteOptions, NoteInput, NotePatch } from './types';
+import type { Background, CreateNoteOptions, NoteInput, NotePatch, UpdateNoteOptions } from './types';
+import { dropStaleIssues, queueNoteCheck } from '../card-check';
 import { cardTextProblems } from '@shared/cards';
 import { toLongTermPref } from '@shared/decks/long-term';
 
@@ -86,6 +87,7 @@ export async function createNote(
   const clean = cleanInput(input);
   const note = await db.createNote(env.DB, deckId, clean);
   await runNoteEffects(env, note.id, !!clean.sentence_clue, options);
+  if (options.check ?? true) await queueNoteCheck(env, userId, [note.id], options.bg);
   void trackServer('server.content_created', { kind: 'note', count: 1 }, { env, userId });
   return note;
 }
@@ -127,6 +129,7 @@ export async function createNotes(
       result.failed.push({ index: i, hanzi: input.hanzi, error: err instanceof Error ? err.message : String(err) });
     }
   }
+  if (result.created.length && (options.check ?? true)) await queueNoteCheck(env, userId, result.created.map(n => n.id), options.bg);
   if (result.created.length) void trackServer('server.content_created', { kind: 'note', count: result.created.length }, { env, userId });
   return result;
 }
@@ -140,7 +143,8 @@ export async function updateNote(
   userId: string,
   noteId: string,
   patch: NotePatch,
-  bg?: Background
+  bg?: Background,
+  options: UpdateNoteOptions = {}
 ): Promise<Note | null> {
   const before = await db.getNoteById(env.DB, noteId, userId);
   if (!before) return null;
@@ -165,6 +169,11 @@ export async function updateNote(
   if (!note) return null;
 
   const later = (p: Promise<unknown>) => (bg ? bg.waitUntil(p) : p);
+  const wordChanged = note.hanzi !== before.hanzi || note.pinyin !== before.pinyin || note.english !== before.english;
+  if (wordChanged) {
+    await dropStaleIssues(env.DB, { id: noteId, hanzi: note.hanzi, pinyin: note.pinyin, english: note.english, check_issues: before.check_issues });
+    if (options.check ?? true) await queueNoteCheck(env, userId, [noteId], bg);
+  }
   const hanziChanged = patch.hanzi !== undefined && note.hanzi !== before.hanzi;
   const clueChanged =
     patch.sentence_clue_audio_url === undefined &&

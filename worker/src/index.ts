@@ -104,6 +104,8 @@ import conversationVoicesRoutes from './routes/conversation-voices';
 import { getConversationVoiceSettings } from './services/conversation-voices';
 import studentProfileRoutes from './routes/student-profile';
 import studentStudyBudgetRoutes from './routes/student-study-budget';
+import cardCheckRoutes from './routes/card-checks';
+import { cardCheckEnabled, runDeckCheckJob, runNotesCheck, type CardCheckMessage } from './services/card-check';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
 import { sanitizeAttemptData } from '@shared/lesson';
@@ -475,6 +477,13 @@ app.get('/api/auth/me', async (c) => {
       const v = (user as { chat_auto_check?: number | null }).chat_auto_check;
       return v === null || v === undefined ? null : v !== 0;
     })(),
+    // "Check new words for mistakes" (services/card-check.ts): the stored choice (null = default)
+    // and what applies now (the default is on for tutors).
+    card_check_setting: (() => {
+      const v = (user as { card_check?: number | null }).card_check;
+      return v === null || v === undefined ? null : v !== 0;
+    })(),
+    card_check: await cardCheckEnabled(c.env.DB, user.id).catch(() => false),
     // Settings → Advanced → "Share usage data to help improve the app" (docs/ANALYTICS.md).
     share_usage: Number((user as { analytics_opt_out?: number | null }).analytics_opt_out) !== 1,
     // The learner's daily new-card budget across all decks (NULL = default).
@@ -577,6 +586,8 @@ app.route('/api', lessonImagesRoutes);
 // The tutor's private profile of a student, read by the tutor-side content agents (routes/student-profile.ts; tutor only)
 app.route('/api', studentProfileRoutes);
 app.route('/api', studentStudyBudgetRoutes);
+// Word checks: ⚠ Possible issue on notes, Paste-a-list preview, per-deck "Check for errors" (routes/card-checks.ts)
+app.route('/api', cardCheckRoutes);
 
 // Conversation voices: the catalogue, this account's selection, cached voice samples (routes/conversation-voices.ts)
 app.route('/api', conversationVoicesRoutes);
@@ -1025,10 +1036,17 @@ app.post('/api/decks/:deckId/notes', async (c) => {
   const userId = c.get('user').id;
   const deckId = c.req.param('deckId');
   const body = await c.req.json<content.NoteInput>();
+  // ?check=sync runs the word check now and returns its issues (the MCP tools);
+  // ?check=none skips it (Paste a list, whose preview already checked the row).
+  const check = c.req.query('check');
   try {
     // TTS + clue audio after the response; sentence set queued.
-    const note = await content.createNote(c.env, userId, deckId, body, { audio: 'background', bg: c.executionCtx });
+    const note = await content.createNote(c.env, userId, deckId, body, { audio: 'background', bg: c.executionCtx, check: !check });
     console.log('[API] Created note:', note.id, 'hanzi:', note.hanzi);
+    if (check === 'sync') {
+      const issues = (await runNotesCheck(c.env, userId, [note.id]).catch(() => new Map())).get(note.id) ?? [];
+      return c.json({ ...note, check_issues: issues.length ? JSON.stringify(issues) : null }, 201);
+    }
     return c.json(note, 201);
   } catch (err) {
     return contentErrorResponse(c, err) ?? Promise.reject(err);
@@ -1050,8 +1068,15 @@ app.post('/api/decks/:deckId/notes/batch', async (c) => {
   if (body.notes.length > 500) {
     return c.json({ error: 'At most 500 notes per batch' }, 400);
   }
+  // ?check=sync: check up to 100 new words now and return check_warnings (the MCP tools); more are queued.
+  const syncCheck = c.req.query('check') === 'sync' && body.notes.length <= 100;
   try {
-    const result = await content.createNotes(c.env, userId, deckId, body.notes, { audio: 'queue', sentences: true });
+    const result = await content.createNotes(c.env, userId, deckId, body.notes, { audio: 'queue', sentences: true, check: !syncCheck });
+    if (syncCheck && result.created.length) {
+      const issues = await runNotesCheck(c.env, userId, result.created.map(n => n.id)).catch(() => new Map());
+      const check_warnings = result.created.flatMap(n => (issues.get(n.id) ?? []).map((i: { id: string; field: string; kind: string; current: string; proposed: string; reason: string }) => ({ note_id: n.id, hanzi: n.hanzi, issue_id: i.id, field: i.field, kind: i.kind, current: i.current, proposed: i.proposed, reason: i.reason })));
+      return c.json({ ...result, check_warnings }, 201);
+    }
     return c.json(result, 201);
   } catch (err) {
     return contentErrorResponse(c, err) ?? Promise.reject(err);
@@ -6585,12 +6610,12 @@ export default {
   },
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
     return runInScope({ env, userId: null, route: `queue:${batch.queue}`, waitUntil: (p) => ctx.waitUntil(p) }, () => handleQueueBatch(batch, env));
   },
 };
 
-async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
+async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6889,6 +6914,23 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           console.error('[Queue] picture hunt crashed:', huntId, err);
         }
         message.ack();
+      }
+    } else if (queueName === 'card-check-queue') {
+      // Word checks: new / edited notes, or one deck's "Check for errors" run (progress
+      // is saved per batch, so a redelivery resumes where it stopped).
+      for (const message of batch.messages) {
+        const body = message.body as CardCheckMessage;
+        try {
+          if (body.kind === 'deck' && body.jobId) {
+            console.log('[Queue] deck check', body.jobId, await runDeckCheckJob(env, body.jobId));
+          } else if (body.kind === 'notes' && body.userId && body.noteIds?.length) {
+            await runNotesCheck(env, body.userId, body.noteIds);
+          }
+          message.ack();
+        } catch (err) {
+          console.error('[Queue] card check crashed:', body, err);
+          message.retry();
+        }
       }
     } else if (queueName === 'tutor-notes-queue') {
       // Session-notes agent: a multi-round tool loop checkpointed in D1. The
