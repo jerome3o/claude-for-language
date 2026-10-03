@@ -1457,7 +1457,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
      * Read aloud [text] in MY voice (the corrected sentence of "How to say it better" — always my own
      * message); [id] = what shows as playing ("say-better-<messageId>").
      */
-    fun playText(id: String, text: String) = speak(id, _ui.value.myId, text, null)
+    fun playText(id: String, text: String) = speak(id, _ui.value.myId.orEmpty(), text, null)
 
     private fun speak(id: String, senderId: String, text: String, messageId: String?) {
         if (_ui.value.playingId == id) { stopAudio(); return }

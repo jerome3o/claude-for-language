@@ -128,7 +128,8 @@ test('a student message gets the ✎, the menu starts with How to say it better,
   await expect(page.getByText('Save to deck:')).toBeVisible();
   await expect(page.locator('.rp-modal-hanzi')).toHaveText('我昨天去商店买东西了。');
   await shoot(page, 'web-04-add-card');
-  await page.getByRole('button', { name: '聊天里学的' }).click();
+  // The top deck of the queue is preselected (#507).
+  await expect(page.getByRole('radio', { name: '聊天里学的' })).toBeChecked();
   await page.getByRole('button', { name: 'Add to deck' }).click();
   await expect(page.getByRole('button', { name: '✓ Added' })).toBeVisible({ timeout: 15000 });
   await expect.poll(async () => {
