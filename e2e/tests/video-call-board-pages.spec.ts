@@ -80,12 +80,17 @@ test('board pages: a new page, follow, bring here, rename, delete — then the r
   expect(page1).toBeTruthy();
   await expect(tp.getByTestId('board-page-thumb')).toHaveCount(1);
 
-  // ---- The tutor starts a new page; the student is told where she is and follows her.
+  // ---- The tutor starts a new page while the student looks at the camera (round 5: a student ON the
+  // shown board follows her page turns by itself); back on the board they are told where she is and follow her.
+  await sp.getByTestId('open-board').click();
+  await expect(sp.getByTestId('call-tiles')).not.toHaveAttribute('data-stage', /text/);
   await tp.getByTestId('board-page-new').click();
   await expect(tBoard).not.toHaveAttribute('data-page', page1, { timeout: 10000 });
   await expect(tBoard).toHaveValue('');
   const page2 = (await tBoard.getAttribute('data-page'))!;
+  await sp.getByTestId('open-board').click();
   await expect(sp.getByTestId('board-page-thumb')).toHaveCount(2, { timeout: 10000 });
+  await expect(sBoard).toHaveAttribute('data-page', page1);
   await expect(sp.getByTestId('board-follow-bar')).toContainText('王老师 is on page 2', { timeout: 10000 });
   await sp.getByTestId('board-follow').click();
   await expect(sBoard).toHaveAttribute('data-page', page2, { timeout: 10000 });
