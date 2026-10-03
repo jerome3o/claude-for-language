@@ -1,4 +1,5 @@
 import { OneOffDeckBanner } from '../components/homework/OneOffDeckBanner';
+import { UpdateCopiesPrompt } from '../components/tutor/library/UpdateCopiesSheet';
 import { useQuery, useMutation, useQueryClient, QueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -1577,6 +1578,8 @@ export function DeckDetailPage() {
   const { user } = useAuth();
 
   const [showAddModal, setShowAddModal] = useState(false);
+  // After adding / editing a word in a deck that was sent: "Also update <student>'s copy" (docs/HOMEWORK.md §10).
+  const [copiesPrompt, setCopiesPrompt] = useState(0);
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteWithCards | null>(null);
   const [historyNote, setHistoryNote] = useState<NoteWithCards | null>(null);
@@ -1789,6 +1792,7 @@ export function DeckDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['deck', id] });
       queryClient.invalidateQueries({ queryKey: ['deckStats', id] });
       setShowAddModal(false);
+      setCopiesPrompt((n) => n + 1);
     },
   });
 
@@ -1798,6 +1802,7 @@ export function DeckDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deck', id] });
       setEditingNote(null);
+      setCopiesPrompt((n) => n + 1);
     },
   });
 
@@ -2543,6 +2548,7 @@ export function DeckDetailPage() {
             </div>
           </div>
         )}
+        {copiesPrompt > 0 && navigator.onLine && <UpdateCopiesPrompt key={copiesPrompt} kind="deck" sourceId={id!} onDone={() => setCopiesPrompt(0)} />}
       </div>
     </div>
   );

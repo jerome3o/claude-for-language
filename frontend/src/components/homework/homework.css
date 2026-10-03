@@ -674,3 +674,34 @@
     width: 100%;
   }
 }
+
+/* ---- Link homework (docs/HOMEWORK.md §8) ---- */
+.hw-link-pass { overflow-y: auto; }
+.hw-link-body { max-width: 640px; margin: 0 auto; padding: 1rem 1rem 2rem; display: flex; flex-direction: column; gap: 1rem; }
+.hw-link-body h1 { font-size: 1.35rem; margin: 0; overflow-wrap: anywhere; }
+.hw-link-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; color: #6b7280; font-size: 0.9rem; }
+.hw-link-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  text-decoration: none;
+  color: inherit;
+  background: #fff;
+}
+.hw-link-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #e5e7eb; }
+.hw-link-icon { display: grid; place-items: center; height: 96px; font-size: 2.5rem; background: #eef2ff; }
+.hw-link-card, .hw-link-card:hover, .hw-link-card .hw-link-open { text-decoration: none; }
+.hw-link-open { min-height: 48px; display: flex; align-items: center; justify-content: center; font-weight: 600; color: #1d4ed8; }
+.hw-link-instructions h2 { font-size: 0.95rem; margin: 0 0 0.3rem; color: #374151; }
+.hw-link-instructions p { margin: 0; white-space: pre-wrap; line-height: 1.5; }
+.hw-link-finish { display: flex; flex-direction: column; gap: 0.5rem; }
+.hw-link-finish label { font-size: 0.9rem; color: #374151; }
+.hw-link-finish textarea { font-size: 1rem; padding: 0.6rem 0.7rem; border-radius: 8px; border: 1px solid #d1d5db; font-family: inherit; }
+.hw-link-done-btn { min-height: 48px; font-size: 1.05rem; }
+.hw-link-done { background: #dcfce7; border-radius: 12px; padding: 0.75rem 1rem; color: #14532d; }
+.hw-link-done p { margin: 0; font-weight: 600; }
+.hw-link-done blockquote { margin: 0.4rem 0 0; font-style: italic; }
+.hw-status { flex-shrink: 0; }
+.hw-row-meta .hw-status { margin-right: 0.4rem; font-size: 0.7rem; padding: 0.05rem 0.45rem; vertical-align: 1px; }

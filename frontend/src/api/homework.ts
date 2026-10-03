@@ -41,7 +41,7 @@ export function getRelationshipHomework(relId: string): Promise<RelationshipHome
 }
 
 export interface AssignItem {
-  kind: 'deck' | 'lesson' | 'reader';
+  kind: 'deck' | 'lesson' | 'reader' | 'link';
   source_id: string;
   mode: HomeworkMode;
   due_date?: string | null;

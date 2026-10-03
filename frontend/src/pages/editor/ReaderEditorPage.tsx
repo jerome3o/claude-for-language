@@ -8,6 +8,7 @@
  * Route: /readers/:id/edit (owner only — readers are per-user).
  */
 
+import { UpdateCopiesPrompt } from '../../components/tutor/library/UpdateCopiesSheet';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -91,6 +92,8 @@ export function ReaderEditorPage() {
   const [spec, setSpec] = useState<ReaderSpec | null>(null);
   const [savedSpec, setSavedSpec] = useState<ReaderSpec | null>(null);
   const [saving, setSaving] = useState(false);
+  // After saving a reader that was sent: "Also update <student>'s copy" (docs/HOMEWORK.md §10).
+  const [copiesPrompt, setCopiesPrompt] = useState(0);
   const [showJson, setShowJson] = useState(false);
   const [showAnki, setShowAnki] = useState(false);
   const [pollImages, setPollImages] = useState(0);
@@ -162,6 +165,7 @@ export function ReaderEditorPage() {
       queryClient.invalidateQueries({ queryKey: ['readers'] });
       // Keep the offline study copy current on this device.
       syncReadersFromServer().catch(() => { /* sync will rebuild it */ });
+      setCopiesPrompt((n) => n + 1);
       if (result.image_jobs) {
         setPollImages(n => n + 1);
         showToast(`Saved — ${result.image_jobs} illustration${result.image_jobs === 1 ? '' : 's'} drawing in the background`);
@@ -298,6 +302,7 @@ export function ReaderEditorPage() {
         />
       )}
       {toast && <div className="ed-toast" role="status">{toast}</div>}
+      {copiesPrompt > 0 && <UpdateCopiesPrompt key={copiesPrompt} kind="reader" sourceId={id} onDone={() => setCopiesPrompt(0)} />}
     </>
   );
 }

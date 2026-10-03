@@ -206,6 +206,7 @@ describe('reader tools', () => {
       'PUT /api/readers/new-1/spec': (body) => ({ id: 'new-1', status: 'ready', image_jobs: 0, spec: (body as { spec: unknown }).spec }),
       'GET /api/relationships/rel-1/lesson-log': LESSON_LOG,
       'POST /api/relationships/rel-1/homework': homeworkRoute({ target_id: 'copy-1', target_name: 'The Kitten Finds a Home', share_id: 's1' }),
+      'POST /api/student-copies/update': () => ({ updated: 1, results: [{ relationship_id: 'rel-1', student_name: 'Anna', ok: true, detail: '2 pages updated' }] }),
     });
     registerReaderTools(ctx);
 
@@ -213,7 +214,8 @@ describe('reader tools', () => {
     expect(created).toMatchObject({ id: 'new-1', image_jobs: 1 });
 
     const updated = JSON.parse(text(await tools.get('update_reader')!({ reader_id: 'new-1', spec: validReader })));
-    expect(updated).toMatchObject({ id: 'new-1', page_count: 2 });
+    expect(updated).toMatchObject({ id: 'new-1', page_count: 2, student_copies: { updated: 1 } });
+    expect(updated.message).toContain("Also updated Anna's copy.");
 
     const shared = JSON.parse(text(await tools.get('share_reader_with_student')!({ relationship_id: 'rel-1', reader_id: 'new-1', today: '2026-09-28' })));
     expect(shared.student_reader).toEqual({ id: 'copy-1', title: 'The Kitten Finds a Home' });
@@ -223,12 +225,14 @@ describe('reader tools', () => {
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
       'POST /api/readers/import',
       'PUT /api/readers/new-1/spec',
+      'POST /api/student-copies/update',
       'GET /api/relationships/rel-1/lesson-log',
       'POST /api/relationships/rel-1/homework',
     ]);
     expect(calls[0].body).toEqual({ spec: validReader });
     // Sent as homework: both, due at the next logged lesson.
-    expect(calls[3].body).toEqual({ items: [{ kind: 'reader', source_id: 'new-1', mode: 'both', due_date: '2026-10-01' }], today: '2026-09-28' });
+    expect(calls[2].body).toEqual({ kind: 'reader', source_id: 'new-1' });
+    expect(calls[4].body).toEqual({ items: [{ kind: 'reader', source_id: 'new-1', mode: 'both', due_date: '2026-10-01' }], today: '2026-09-28' });
   });
 
   it('generate_reader posts the decks source and tells the model to poll', async () => {
@@ -293,7 +297,7 @@ describe('lesson library tools', () => {
     expect(assigned.already_had).toEqual([{ relationship_id: 'rel-2', lesson_id: 'l0', student_id: 'student-2' }]);
     const assignments = JSON.parse(text(await tools.get('get_lesson_assignments')!({ library_id: 'lib-1' })));
     expect(assignments.count).toBe(1);
-    const updated = JSON.parse(text(await tools.get('update_library_lesson')!({ library_id: 'lib-1', spec: lesson })));
+    const updated = JSON.parse(text(await tools.get('update_library_lesson')!({ library_id: 'lib-1', spec: lesson, update_student_copies: false })));
     expect(updated.message).toContain('push_lesson_update');
     const pushed = JSON.parse(text(await tools.get('push_lesson_update')!({ library_id: 'lib-1', relationship_ids: ['rel-1'] })));
     expect(pushed.updated).toBe(1);
@@ -314,6 +318,40 @@ describe('lesson library tools', () => {
     // tags omitted → not sent, so the API keeps the current ones
     expect(calls[4].body).toEqual({ spec: lesson });
     expect(calls[5].body).toEqual({ relationship_ids: ['rel-1'] });
+  });
+});
+
+describe('update_library_lesson updates the students\' copies by default', () => {
+  const lesson = { title: 'Tones', sections: [{ exercises: [{ type: 'match', pairs: [{ hanzi: '有', english: 'have' }, { hanzi: '又', english: 'again' }] }] }] };
+
+  it('posts kind lesson with the library id and reports per student', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'PUT /api/lesson-library/lib-1': () => ({ id: 'lib-1', title: 'Tones', version: 3, tags: [], assignment_count: 2 }),
+      'POST /api/student-copies/update': () => ({
+        updated: 1,
+        results: [
+          { relationship_id: 'rel-1', student_name: 'Anna', ok: true, detail: 'updated' },
+          { relationship_id: 'rel-2', student_name: 'Ben', ok: false, detail: null, error: 'Lesson not found' },
+        ],
+      }),
+    });
+    registerLessonLibraryTools(ctx);
+    const out = JSON.parse(text(await tools.get('update_library_lesson')!({ library_id: 'lib-1', spec: lesson })));
+    expect(calls.map(c => `${c.method} ${c.path}`)).toEqual(['PUT /api/lesson-library/lib-1', 'POST /api/student-copies/update']);
+    expect(calls[1].body).toEqual({ kind: 'lesson', source_id: 'lib-1' });
+    expect(out.message).toContain("Also updated Anna's copy.");
+    expect(out.message).toContain("Couldn't update Ben's copy: Lesson not found.");
+    expect(out.message).not.toContain('push_lesson_update');
+    expect(out.student_copies.updated).toBe(1);
+  });
+
+  it('does not call the copies update when nothing was assigned', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'PUT /api/lesson-library/lib-1': () => ({ id: 'lib-1', title: 'Tones', version: 3, tags: [], assignment_count: 0 }),
+    });
+    registerLessonLibraryTools(ctx);
+    await tools.get('update_library_lesson')!({ library_id: 'lib-1', spec: lesson });
+    expect(calls.map(c => c.path)).toEqual(['/api/lesson-library/lib-1']);
   });
 });
 

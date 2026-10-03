@@ -10,6 +10,8 @@ import { HomeworkModePicker } from './HomeworkModePicker';
 import { listLibrary } from '../../api/lessonEditor';
 import { updateSharedDeckCopy } from '../../api/tutorDashboard';
 import type { Deck } from '../../types';
+import { listHomeworkLinks, type HomeworkLink } from '../../api/homeworkLibrary';
+import { LinkCard, LinkHomeworkForm } from './library/LinkHomeworkForm';
 import type { HomeworkDeck, HomeworkLesson } from '../../types/tutorDashboard';
 import type { LibraryItemSummary } from '../../types/lessonEditor';
 import { Loading } from '../Loading';
@@ -17,8 +19,9 @@ import { useNetwork } from '../../contexts/NetworkContext';
 import { plural, shortDate } from './format';
 import './tutor-dashboard.css';
 import './session-notes.css';
+import './library/homework-library.css';
 
-type Tab = 'decks' | 'lessons';
+type Tab = 'decks' | 'lessons' | 'links';
 
 interface Props {
   relId: string;
@@ -45,6 +48,9 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
   const [pendingDeck, setPendingDeck] = useState<Deck | null>(null);
   const [priority, setPriority] = useState<'core' | 'non_urgent'>('core');
   const [pendingLesson, setPendingLesson] = useState<LibraryItemSummary | null>(null);
+  // Link homework (docs/HOMEWORK.md §8): pick a saved link or make one — saved in MY account, then sent.
+  const [pendingLink, setPendingLink] = useState<HomeworkLink | 'new' | null>(null);
+  const [linkDue, setLinkDue] = useState(true);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // How they do it (docs/HOMEWORK.md "Defaults"): Both — a one-off pass by a date, then long-term review —
@@ -72,6 +78,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
 
   const decksQuery = useQuery({ queryKey: ['decks'], queryFn: getDecks, enabled: tab === 'decks' });
   const libraryQuery = useQuery({ queryKey: ['lesson-library'], queryFn: listLibrary, enabled: tab === 'lessons', retry: 1 });
+  const linksQuery = useQuery({ queryKey: ['homework-links'], queryFn: listHomeworkLinks, enabled: tab === 'links', retry: 1 });
   const pendingDeckQuery = useQuery({ queryKey: ['deck', pendingDeck?.id], queryFn: () => getDeck(pendingDeck!.id), enabled: !!pendingDeck });
   const wordCount = pendingDeckQuery.data?.notes.length ?? 0;
 
@@ -81,6 +88,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
     queryClient.invalidateQueries({ queryKey: ['student-lessons', relId] });
     queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
     queryClient.invalidateQueries({ queryKey: ['relationship-homework', relId] });
+    queryClient.invalidateQueries({ queryKey: ['homework-library'] });
     onChanged?.();
   };
 
@@ -129,10 +137,26 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
     onError: (err: Error) => setError(err.message),
   });
 
+  const linkMutation = useMutation({
+    mutationFn: async (link: HomeworkLink) => {
+      const res = await assignHomework(relId, [{ kind: 'link', source_id: link.id, mode: 'one_off', due_date: linkDue ? dueDate : null }]);
+      if (res.assignments.length === 0) throw new Error(res.errors[0]?.error ?? 'Could not send the link');
+      return res;
+    },
+    onSuccess: (_res, link) => {
+      setResult(`Sent “${link.title}” to ${studentName}${linkDue ? `, due ${shortDate(dueDate)}` : ''}. It opens in their browser; they mark it done with a note for you.`);
+      setPendingLink(null);
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['homework-links'] });
+      invalidate();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
   const ownDecks = (decksQuery.data ?? []).filter((d) => d.user_id !== null);
   const existingShare = (deck: Deck) => sharedDecks.find((sd) => sd.source_deck_id === deck.id) ?? null;
   const alreadyAssigned = (item: LibraryItemSummary) => assignedLessons.some((l) => l.title === item.title);
-  const busy = shareMutation.isPending || updateMutation.isPending || assignMutation.isPending;
+  const busy = shareMutation.isPending || updateMutation.isPending || assignMutation.isPending || linkMutation.isPending;
 
   return (
     <div className="td-sheet-backdrop" onClick={onClose} role="presentation">
@@ -142,13 +166,16 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
           <button type="button" className="td-sheet-close" onClick={onClose} aria-label="Close">×</button>
         </div>
 
-        {!pendingDeck && !pendingLesson && (
+        {!pendingDeck && !pendingLesson && !pendingLink && (
           <div className="td-tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === 'decks'} className={`td-tab ${tab === 'decks' ? 'active' : ''}`} onClick={() => setTab('decks')}>
               📚 A deck
             </button>
             <button type="button" role="tab" aria-selected={tab === 'lessons'} className={`td-tab ${tab === 'lessons' ? 'active' : ''}`} onClick={() => setTab('lessons')}>
               🎓 A lesson
+            </button>
+            <button type="button" role="tab" aria-selected={tab === 'links'} className={`td-tab ${tab === 'links' ? 'active' : ''}`} onClick={() => setTab('links')} data-testid="send-link-tab">
+              🔗 A link
             </button>
           </div>
         )}
@@ -242,8 +269,65 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
             </div>
           )}
 
+          {/* ---- Link: confirm a saved one, or make one (saved in my account, then sent) ---- */}
+          {pendingLink && (() => {
+            const dueFields = (
+              <div className="hl-due-toggle">
+                <label className="sn-check">
+                  <input type="checkbox" checked={linkDue} onChange={(e) => setLinkDue(e.target.checked)} data-testid="link-due-toggle" />
+                  <span>Due date</span>
+                </label>
+                {linkDue && <input type="date" value={dueDate} min={localDate()} onChange={(e) => e.target.value && setDueDate(e.target.value)} aria-label="Due date" />}
+              </div>
+            );
+            if (pendingLink === 'new') {
+              return (
+                <LinkHomeworkForm submitLabel={`Save & send to ${studentName}`} onSaved={(link) => linkMutation.mutateAsync(link).then(() => undefined)} onCancel={() => setPendingLink(null)}>
+                  {dueFields}
+                </LinkHomeworkForm>
+              );
+            }
+            return (
+              <div className="td-confirm">
+                <h3>Send this link to {studentName}?</h3>
+                <LinkCard url={pendingLink.url} title={pendingLink.title} thumbnail={pendingLink.thumbnail_url} />
+                {pendingLink.instructions && <p className="hl-instructions">{pendingLink.instructions}</p>}
+                {dueFields}
+                <div className="td-confirm-actions">
+                  <button type="button" className="btn btn-primary" disabled={busy || !isOnline} onClick={() => linkMutation.mutate(pendingLink)} data-testid="send-link-confirm">
+                    {linkMutation.isPending ? 'Sending…' : 'Send link'}
+                  </button>
+                  <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setPendingLink(null)}>Back</button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {!pendingDeck && !pendingLesson && !pendingLink && tab === 'links' && (
+            <>
+              <button type="button" className="td-option" onClick={() => { setResult(null); setError(null); setPendingLink('new'); }} data-testid="new-link">
+                <span className="td-option-main">
+                  <div className="td-option-title">＋ New link</div>
+                  <div className="td-option-meta">A video, song, drama clip or article, with what to do</div>
+                </span>
+                <span className="td-chevron">›</span>
+              </button>
+              {linksQuery.isLoading && <Loading message="Loading your links…" />}
+              {linksQuery.isError && <div className="td-error">Couldn't load your links.</div>}
+              {(linksQuery.data ?? []).map((link) => (
+                <button key={link.id} type="button" className="td-option" disabled={busy} onClick={() => { setResult(null); setError(null); setPendingLink(link); }}>
+                  <span className="td-option-main">
+                    <div className="td-option-title">🔗 {link.title}</div>
+                    <div className="td-option-meta">{link.sent_count ? `Sent to ${plural(link.sent_count, 'student')}` : 'Not sent yet'}</div>
+                  </span>
+                  <span className="td-chevron">›</span>
+                </button>
+              ))}
+            </>
+          )}
+
           {/* ---- Deck list ---- */}
-          {!pendingDeck && !pendingLesson && tab === 'decks' && (
+          {!pendingDeck && !pendingLesson && !pendingLink && tab === 'decks' && (
             <>
               {decksQuery.isLoading && <Loading message="Loading your decks…" />}
               {decksQuery.isError && <div className="td-error">Couldn't load your decks.</div>}
@@ -272,7 +356,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
           )}
 
           {/* ---- Lesson list ---- */}
-          {!pendingDeck && !pendingLesson && tab === 'lessons' && (
+          {!pendingDeck && !pendingLesson && !pendingLink && tab === 'lessons' && (
             <>
               {libraryQuery.isLoading && <Loading message="Loading your library…" />}
               {libraryQuery.isError && <div className="td-error">Couldn't load your lesson library.</div>}
