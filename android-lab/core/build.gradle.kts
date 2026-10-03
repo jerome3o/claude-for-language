@@ -39,6 +39,7 @@ val generateParityFixtures by tasks.registering(Exec::class) {
 
 tasks.test {
     dependsOn(generateParityFixtures)
+    inputs.dir(parityDir) // the golden vectors ARE the test input: new vectors = rerun
     systemProperty("parity.dir", parityDir.get().asFile.absolutePath)
     testLogging { events("failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
 }
