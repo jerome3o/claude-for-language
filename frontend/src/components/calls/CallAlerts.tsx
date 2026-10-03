@@ -9,6 +9,7 @@
  *  - after sign-in, the push subscription is refreshed (services/push.ts).
  */
 
+import { track } from '../../services/analytics';
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { callIdFromPath, callToRing, pickCallBanner, someoneElseInCall } from '@shared/calls';
@@ -65,6 +66,7 @@ export function CallAlerts() {
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === 'navigate' && typeof event.data.url === 'string' && event.data.url.startsWith('/')) {
         stopRinging();
+        if (typeof event.data.notification === 'string') track('notification.tapped', { kind: event.data.notification });
         navigate(event.data.url);
       }
     };
