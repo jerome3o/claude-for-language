@@ -2,13 +2,14 @@ package dev.jeromeswannack.chineselearning.lab.core.calls
 
 /**
  * Port of shared/calls/lessons.ts — calls between the same two people (a tutor relationship, or
- * one person's solo test calls) that follow each other within [LESSON_GAP_MS] are ONE lesson. The
+ * one person's solo test calls) that follow each other within [LESSON_GAP_MS] (two hours since round 5;
+ * 20 minutes before) are ONE lesson. The
  * server assigns `lesson_id`; the Past calls list shows one entry per lesson ([groupCallsByLesson])
  * and the review page, report and homework cover the whole lesson. Parity-tested against the
  * TypeScript (parity/fixtures/calls-lessons.ts → CallsLessonsParityTest).
  */
 object CallLessons {
-    const val LESSON_GAP_MS = 20 * 60_000L
+    const val LESSON_GAP_MS = 2 * 60 * 60_000L
 
     /** A call for [groupIntoLessons]: [scope] = the relationship id, or `solo:<user id>`; [end] null while live. */
     data class LessonCall(val id: String, val scope: String, val start: Long, val end: Long?)

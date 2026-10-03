@@ -94,6 +94,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             devicePrefs = dev.jeromeswannack.chineselearning.lab.data.calls.CallDevicePrefsStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
             device = "Android ${Build.VERSION.RELEASE}; ${Build.MANUFACTURER} ${Build.MODEL}; Lab app",
             speak = { text -> speaker.speak(text) },
+            layout = layout,
         ),
         viewModelScope,
     )
@@ -350,6 +351,13 @@ fun CallRoute(nav: LabNav, id: String) {
             onAllCalls = { nav.back(); nav.open(Routes.calls()) },
             onTick = { nav.app.haptics.tick() },
             onSnap = { nav.app.haptics.flip() },
+            lead = LeadActions(
+                onShow = { tile -> if (vm.controller.showTile(tile)) nav.app.haptics.tick() },
+                onStopTheirShare = { if (vm.controller.stopTheirShare()) nav.app.haptics.tick() },
+                onDismissShowing = vm.controller::dismissShowingBanner,
+                onDismissShareStopped = vm.controller::dismissShareStopped,
+                onStageWidth = vm.controller::setStageWidth,
+            ),
             material = MaterialActions(
                 onTurn = vm.controller::turnMaterialPage,
                 onStop = { vm.controller.stopPresenting(); nav.app.haptics.tick() },

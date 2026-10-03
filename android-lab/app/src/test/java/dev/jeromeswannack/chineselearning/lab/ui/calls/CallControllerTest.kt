@@ -5,6 +5,7 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.BoardOp
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPoint
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallLayout
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallPeer
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallSignal
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
@@ -114,7 +115,7 @@ class CallControllerTest {
         override suspend fun stop() { if (recording) stops++; recording = false }
     }
 
-    private class Rig(scope: TestScope, media: FakeMedia = FakeMedia(), recorder: FakeRecorder = FakeRecorder(), val prefs: MemoryCallDevicePrefs = MemoryCallDevicePrefs()) {
+    private class Rig(scope: TestScope, media: FakeMedia = FakeMedia(), recorder: FakeRecorder = FakeRecorder(), val prefs: MemoryCallDevicePrefs = MemoryCallDevicePrefs(), val layout: CallLayoutHolder? = null) {
         val room = FakeRoom()
         val media = media
         val recorder = recorder
@@ -138,6 +139,7 @@ class CallControllerTest {
                 now = { scope.testScheduler.currentTime },
                 log = {},
                 devicePrefs = prefs,
+                layout = layout,
             ),
             scope.backgroundScope,
         )
@@ -392,14 +394,14 @@ class CallControllerTest {
 
     // ------------------------------------------------------------ round 4: Leave (the call goes on) vs End (for everyone)
 
-    @Test fun leaveKeepsTheCallForThemAndRejoinComesBackWithTheDevicesAsLeft() = runTest(UnconfinedTestDispatcher()) {
+    @Test fun leaveKeepsTheCallForThemAndRejoinComesBackWithTheCameraOn() = runTest(UnconfinedTestDispatcher()) {
         val rig = Rig(this)
         rig.controller.join(record = true)
         runCurrent()
         rig.room.handlers.onStatus(RoomStatus.OPEN)
         rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))))
         runCurrent()
-        rig.controller.toggleCam() // camera off before leaving: it comes back off
+        rig.controller.toggleCam() // camera off before leaving: it comes back ON (round 5, core CallDevices)
         val firstInstance = rig.room.instance
         rig.controller.leave()
         runCurrent()
@@ -433,7 +435,7 @@ class CallControllerTest {
         assertEquals(opensBefore + 1, rig.media.opens)
         assertTrue(s.hasMic && s.hasCamera)
         assertTrue(s.micOn)
-        assertFalse(s.camOn) // as I left it
+        assertTrue(s.camOn) // round 5: the camera always starts on (Minghui's "camera off" every join)
         assertEquals(listOf(true, false, true), rig.alive)
         rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))))
         runCurrent()
@@ -635,7 +637,7 @@ class CallControllerTest {
         runCurrent()
         val batches = rig.sentOf("diag").map { it["events"]!!.jsonArray.size }
         assertTrue(batches.toString(), batches.all { it <= CallConnection.MAX_DIAG_EVENTS_PER_MESSAGE })
-        assertEquals(72, batches.sum()) // join + 70 + "room open"
+        assertEquals(73, batches.sum()) // "camera opened" + join + 70 + "room open"
     }
 
     @Test fun routeAndEncodingFollowTheStats() = runTest(UnconfinedTestDispatcher()) {
@@ -1158,32 +1160,34 @@ class CallControllerTest {
         assertEquals(1, second.offerResends)
     }
 
-    // ---- round 4: mic / camera come back as I left them
+    // ---- round 4: the mic comes back as I left it; round 5: the camera always starts on
 
     @Test fun micAndCameraAreRememberedAndRestoredOnTheNextJoin() = runTest(UnconfinedTestDispatcher()) {
         val rig = liveRig(emptyList())
         rig.controller.toggleMic()
         rig.controller.toggleCam()
-        assertTrue(rig.prefs.micOff && rig.prefs.camOff)
-        // The next join on this phone (same prefs): the mic comes back muted, the camera off.
+        assertTrue(rig.prefs.micOff)
+        assertFalse(rig.controller.state.value.camOn) // off for this call…
+        // The next join on this phone (same prefs): the mic comes back muted, the camera ON (round 5: never remembered off).
         val again = Rig(this, prefs = rig.prefs)
         assertFalse(again.controller.state.value.micOn)
+        assertTrue(again.controller.state.value.camOn)
         again.controller.join(record = false)
         runCurrent()
         var s = again.controller.state.value
         assertTrue(s.hasMic && s.hasCamera)
         assertFalse(s.micOn)
-        assertFalse(s.camOn)
+        assertTrue(s.camOn)
         assertFalse(again.media.mic) // the tracks themselves
-        assertFalse(again.media.cam)
+        assertTrue(again.media.cam)
         again.room.handlers.onStatus(RoomStatus.OPEN)
         again.room.handlers.onMessage(welcome())
         runCurrent()
         val lines = again.sentOf("diag").flatMap { it["events"]!!.jsonArray }.map { it.jsonObject["detail"]!!.jsonPrimitive.content }
-        assertTrue(lines.toString(), lines.any { it.startsWith("joining with mic muted, camera off; instance ") })
+        assertTrue(lines.toString(), lines.any { it.startsWith("joining with mic muted, camera; instance ") })
         val state = again.sentOf("state").first()["state"]!!.jsonObject
         assertEquals("false", state["mic"]!!.jsonPrimitive.content)
-        assertEquals("false", state["cam"]!!.jsonPrimitive.content)
+        assertEquals("true", state["cam"]!!.jsonPrimitive.content)
         // Turned back on: remembered as on.
         again.controller.toggleMic()
         assertFalse(rig.prefs.micOff)
@@ -1197,6 +1201,58 @@ class CallControllerTest {
         runCurrent()
         val first = fresh.sentOf("diag").flatMap { it["events"]!!.jsonArray }.map { it.jsonObject["detail"]!!.jsonPrimitive.content }
         assertTrue(first.toString(), first.any { it.startsWith("joining with mic, camera; instance ") })
+    }
+
+    @Test fun cameraOffInTheLastCallStillStartsOnAfterLeaveAndRejoin() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(emptyList())
+        rig.controller.toggleCam()
+        assertFalse(rig.controller.state.value.camOn)
+        rig.controller.leave()
+        runCurrent()
+        rig.controller.rejoin()
+        runCurrent()
+        assertTrue(rig.controller.state.value.camOn)
+        assertTrue(rig.media.cam)
+    }
+
+    /** Minghui's "camera off" (2–3 Oct 2026): a camera that opens while the room is still connecting must reach the room. */
+    @Test fun aCameraOpeningWhileJoiningIsAnnouncedWithTheWelcome() = runTest(UnconfinedTestDispatcher()) {
+        val rig = Rig(this, media = FakeMedia().apply { openDelayMs = 6_000 })
+        rig.room.open = false // the socket is still connecting
+        rig.controller.join(record = false)
+        runCurrent()
+        advanceTimeBy(CallController.JOIN_MEDIA_WAIT_MS + 1)
+        runCurrent()
+        assertEquals(1, rig.room.connects) // joined with nothing yet
+        assertEquals(CallPhase.JOINING, rig.controller.state.value.phase)
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertTrue(rig.controller.state.value.hasCamera)
+        assertTrue(rig.controller.state.value.camOn)
+        // The socket opens and the room welcomes me: my state goes with cam = true.
+        rig.room.open = true
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        rig.room.handlers.onMessage(welcome())
+        runCurrent()
+        val first = rig.sentOf("state").first()["state"]!!.jsonObject
+        assertEquals("true", first["cam"]!!.jsonPrimitive.content)
+        assertEquals("true", first["mic"]!!.jsonPrimitive.content)
+        val lines = rig.sentOf("diag").flatMap { it["events"]!!.jsonArray }.map { it.jsonObject["detail"]!!.jsonPrimitive.content }
+        assertTrue(lines.toString(), lines.any { it == "camera opened while joining" })
+    }
+
+    @Test fun aCameraOpeningWhileJoiningOnAnOpenSocketIsSentAtOnce() = runTest(UnconfinedTestDispatcher()) {
+        val rig = Rig(this, media = FakeMedia().apply { openDelayMs = 6_000 })
+        rig.controller.join(record = false)
+        runCurrent()
+        advanceTimeBy(CallController.JOIN_MEDIA_WAIT_MS + 1)
+        runCurrent()
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertEquals(CallPhase.JOINING, rig.controller.state.value.phase)
+        val cams = rig.sentOf("state").map { it["state"]!!.jsonObject["cam"]!!.jsonPrimitive.content }
+        assertEquals("true", cams.last())
     }
 
     @Test fun joinWaitsAtMostFourSecondsForDevicesStillOpening() = runTest(UnconfinedTestDispatcher()) {
@@ -1262,5 +1318,211 @@ class CallControllerTest {
         val ins = rig.sentOf("text").single()["ops"]!!.jsonArray.single().jsonObject
         assertEquals("hello ", ins["text"]!!.jsonPrimitive.content)
         assertEquals("wor", rig.sentOf("text_cursor").last()["compose"]!!.jsonPrimitive.content)
+    }
+
+    // ------------------------------------------------------------ round 5: the tutor leads (core CallFollow)
+
+    private fun shownOf(id: String, view: dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView, v: Int = 1, by: String = "u2", name: String = "Minghui") =
+        dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShownState(id, v, by, name, view, 1_790_000_001_000)
+
+    private val draw = dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView.DRAW
+    private fun textOn(page: String) = dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView.text(page)
+
+    /** The student (me) with the tutor (u2, client c-a) in the room; the board has pages pa / pb / pc. */
+    private fun TestScope.studentRig(shown: dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShownState? = null): Rig {
+        val rig = Rig(this, layout = CallLayoutHolder())
+        rig.controller.join(record = false)
+        runCurrent()
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        rig.room.handlers.onMessage(pagedWelcome().copy(tutorId = "u2", shown = shown))
+        runCurrent()
+        return rig
+    }
+
+    /** I (me) am the tutor; the student (u2, client c-a) is in the room. */
+    private fun TestScope.tutorRig(tutorId: String? = "me", studentState: PeerMediaState = PeerMediaState(mic = true, cam = true)): Rig {
+        val rig = Rig(this, layout = CallLayoutHolder())
+        rig.controller.join(record = false)
+        runCurrent()
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        rig.room.handlers.onMessage(
+            welcome(peers = listOf(peer("c-a", instance = "tab1", state = studentState))).copy(pages = pagesAbc, page = "pa", pageViews = mapOf("c-a" to "pa"), tutorId = tutorId),
+        )
+        runCurrent()
+        return rig
+    }
+
+    private val Rig.main get() = layout!!.layout.value.main
+
+    @Test fun aShowIsAppliedOnceThenTheStudentsOwnLayoutWins() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        assertEquals("u2", rig.controller.state.value.tutorId)
+        assertEquals(CallLayout.TileId.REMOTE, rig.main)
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", draw)))
+        runCurrent()
+        assertEquals(CallLayout.TileId.DRAW, rig.main)
+        assertEquals(CallLayout.Mode.FOCUS, rig.layout!!.layout.value.mode)
+        assertTrue(rig.layout!!.layout.value.remoteFloat)
+        assertEquals("Minghui is showing you this", rig.controller.state.value.showingBanner)
+        // The student goes back to the camera: the banner goes with the drawing board…
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.REMOTE))
+        runCurrent()
+        assertNull(rig.controller.state.value.showingBanner)
+        // …and the same show again (a repeat, or a reconnect's welcome) never overrides that.
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", draw)))
+        runCurrent()
+        assertEquals(CallLayout.TileId.REMOTE, rig.main)
+        rig.room.handlers.onStatus(RoomStatus.RECONNECTING)
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        rig.room.handlers.onMessage(pagedWelcome().copy(tutorId = "u2", shown = shownOf("s1", draw)))
+        runCurrent()
+        assertEquals(CallLayout.TileId.REMOTE, rig.main)
+        assertNull(rig.controller.state.value.showingBanner)
+        // Something NEW shown: applied again.
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s2", draw)))
+        runCurrent()
+        assertEquals(CallLayout.TileId.DRAW, rig.main)
+        // ✕ on the banner hides it; the layout stays.
+        rig.controller.dismissShowingBanner()
+        assertNull(rig.controller.state.value.showingBanner)
+        assertEquals(CallLayout.TileId.DRAW, rig.main)
+        // Nothing shown any more.
+        rig.room.handlers.onMessage(ServerMessage.Shown(null))
+        runCurrent()
+        assertNull(rig.controller.state.value.shown)
+        assertEquals(CallLayout.TileId.DRAW, rig.main)
+    }
+
+    @Test fun aShowInTheWelcomeIsAppliedOnAFreshJoin() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig(shown = shownOf("s1", textOn("pb")))
+        assertEquals(CallLayout.TileId.TEXT, rig.main)
+        assertEquals(listOf("pb"), rig.sentOf("page_open").map { it["page"]!!.jsonPrimitive.content })
+        assertEquals("Minghui is showing you this", rig.controller.state.value.showingBanner)
+    }
+
+    @Test fun pageTurnsAreFollowedOnlyWhileOnTheBoard() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", textOn("pb"))))
+        runCurrent()
+        assertEquals(CallLayout.TileId.TEXT, rig.main)
+        rig.room.handlers.onMessage(doc("pb", "第二页"))
+        runCurrent()
+        assertEquals("pb", rig.controller.state.value.pages.current)
+        // She turns to pc: I'm on the board, so I follow.
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", textOn("pc"), v = 2)))
+        runCurrent()
+        assertEquals(listOf("pb", "pc"), rig.sentOf("page_open").map { it["page"]!!.jsonPrimitive.content })
+        rig.room.handlers.onMessage(doc("pc", "第三页"))
+        runCurrent()
+        // I go to the camera; her next page turn leaves me there.
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.REMOTE))
+        runCurrent()
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", textOn("pa"), v = 3)))
+        runCurrent()
+        assertEquals(listOf("pb", "pc"), rig.sentOf("page_open").map { it["page"]!!.jsonPrimitive.content })
+        assertEquals(CallLayout.TileId.REMOTE, rig.main)
+    }
+
+    @Test fun aShowOfAMaterialIAmNotSeeingYetAppliesWhenItAppears() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView(dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowKind.MATERIAL))))
+        runCurrent()
+        assertEquals(CallLayout.TileId.REMOTE, rig.main)
+        assertNull(rig.controller.state.value.showingBanner)
+        rig.room.handlers.onMessage(ServerMessage.Material(dev.jeromeswannack.chineselearning.lab.core.PresentedMaterial("m1", "第五课", 0, 3, "u2", "Minghui")))
+        runCurrent()
+        assertEquals(CallLayout.TileId.MATERIAL, rig.main)
+        assertEquals("Minghui is showing you this", rig.controller.state.value.showingBanner)
+    }
+
+    @Test fun theTutorsOwnShowNeverMovesHerLayout() = runTest(UnconfinedTestDispatcher()) {
+        val rig = tutorRig()
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", draw, by = "me")))
+        runCurrent()
+        assertEquals(CallLayout.TileId.REMOTE, rig.main)
+        assertNull(rig.controller.state.value.showingBanner)
+    }
+
+    @Test fun theTutorOpeningTheBoardShowsItAndHerPageTurnsFollow() = runTest(UnconfinedTestDispatcher()) {
+        val rig = tutorRig()
+        assertTrue(rig.sentOf("show").isEmpty())
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        runCurrent()
+        val show = rig.sentOf("show").single()
+        assertEquals("text", show["view"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
+        assertEquals("pa", show["view"]!!.jsonObject["page"]!!.jsonPrimitive.content)
+        assertNull(show["follow"])
+        // The room's answer; then she turns her page: the same show, follow = true.
+        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", textOn("pa"), by = "me", name = "Me")))
+        runCurrent()
+        rig.controller.openPage("pb")
+        runCurrent()
+        val turn = rig.sentOf("show").last()
+        assertEquals("pb", turn["view"]!!.jsonObject["page"]!!.jsonPrimitive.content)
+        assertEquals("true", turn["follow"]!!.jsonPrimitive.content)
+        // The corner button on another tile: a new show, not a follow.
+        assertTrue(rig.controller.showTile(CallLayout.TileId.DRAW))
+        val pressed = rig.sentOf("show").last()
+        assertEquals("draw", pressed["view"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
+        assertNull(pressed["follow"])
+        // Leaving the board and coming back shows it again.
+        val before = rig.sentOf("show").size
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.REMOTE))
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.DRAW))
+        runCurrent()
+        assertEquals(before + 1, rig.sentOf("show").size)
+    }
+
+    @Test fun nobodyLeadsInASoloCallOrAsTheStudent() = runTest(UnconfinedTestDispatcher()) {
+        val solo = tutorRig(tutorId = null)
+        solo.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        runCurrent()
+        assertFalse(solo.controller.showTile(CallLayout.TileId.TEXT))
+        assertTrue(solo.sentOf("show").isEmpty())
+        val student = studentRig()
+        student.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        runCurrent()
+        assertFalse(student.controller.showTile(CallLayout.TileId.TEXT))
+        assertTrue(student.sentOf("show").isEmpty())
+        // The tutor alone in the room (the student hasn't joined): nothing to show yet.
+        val alone = Rig(this, layout = CallLayoutHolder())
+        alone.controller.join(record = false)
+        runCurrent()
+        alone.room.handlers.onStatus(RoomStatus.OPEN)
+        alone.room.handlers.onMessage(welcome().copy(tutorId = "me"))
+        runCurrent()
+        alone.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        runCurrent()
+        assertTrue(alone.sentOf("show").isEmpty())
+    }
+
+    @Test fun stopTheirShareIsSentOnlyByTheTutorWhileTheStudentShares() = runTest(UnconfinedTestDispatcher()) {
+        val tutor = tutorRig(studentState = PeerMediaState(mic = true, cam = true, screen = true))
+        assertTrue(tutor.controller.stopTheirShare())
+        assertEquals(1, tutor.sentOf("stop_share").size)
+        val notSharing = tutorRig()
+        assertFalse(notSharing.controller.stopTheirShare())
+        assertTrue(notSharing.sentOf("stop_share").isEmpty())
+        val student = studentRig()
+        student.room.handlers.onMessage(ServerMessage.PeerState("c-a", PeerMediaState(mic = true, cam = true, screen = true)))
+        runCurrent()
+        assertFalse(student.controller.stopTheirShare())
+        assertTrue(student.sentOf("stop_share").isEmpty())
+    }
+
+    @Test fun shareStoppedStopsMyCaptureAndSaysWhoDidIt() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        rig.controller.startScreenShare("consent")
+        runCurrent()
+        assertTrue(rig.controller.state.value.sharingScreen)
+        rig.room.handlers.onMessage(ServerMessage.ShareStopped("u2", "Minghui"))
+        runCurrent()
+        val s = rig.controller.state.value
+        assertFalse(s.sharingScreen)
+        assertNull(rig.media.screenVideo)
+        assertEquals("false", rig.sentOf("state").last()["state"]!!.jsonObject["screen"]!!.jsonPrimitive.content)
+        assertEquals("Minghui stopped your screen share", s.shareStoppedNote?.text)
+        rig.controller.dismissShareStopped()
+        assertNull(rig.controller.state.value.shareStoppedNote)
     }
 }

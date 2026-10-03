@@ -69,7 +69,8 @@ test('board pages: a new page, follow, bring here, rename, delete — then the r
   await join(sp, call.id);
 
   await tp.getByTestId('open-board').click();
-  await sp.getByTestId('open-board').click();
+  // Round 5: the tutor opening the board shows it to the student (no click — a click would close it again).
+  await expect(sp.getByTestId('call-tiles')).toHaveAttribute('data-stage', /text/, { timeout: 10000 });
   const tBoard = tp.getByTestId('text-board');
   const sBoard = sp.getByTestId('text-board');
   await tBoard.click();
@@ -79,12 +80,17 @@ test('board pages: a new page, follow, bring here, rename, delete — then the r
   expect(page1).toBeTruthy();
   await expect(tp.getByTestId('board-page-thumb')).toHaveCount(1);
 
-  // ---- The tutor starts a new page; the student is told where she is and follows her.
+  // ---- The tutor starts a new page while the student looks at the camera (round 5: a student ON the
+  // shown board follows her page turns by itself); back on the board they are told where she is and follow her.
+  await sp.getByTestId('open-board').click();
+  await expect(sp.getByTestId('call-tiles')).not.toHaveAttribute('data-stage', /text/);
   await tp.getByTestId('board-page-new').click();
   await expect(tBoard).not.toHaveAttribute('data-page', page1, { timeout: 10000 });
   await expect(tBoard).toHaveValue('');
   const page2 = (await tBoard.getAttribute('data-page'))!;
+  await sp.getByTestId('open-board').click();
   await expect(sp.getByTestId('board-page-thumb')).toHaveCount(2, { timeout: 10000 });
+  await expect(sBoard).toHaveAttribute('data-page', page1);
   await expect(sp.getByTestId('board-follow-bar')).toContainText('王老师 is on page 2', { timeout: 10000 });
   await sp.getByTestId('board-follow').click();
   await expect(sBoard).toHaveAttribute('data-page', page2, { timeout: 10000 });
@@ -124,6 +130,7 @@ test('board pages: a new page, follow, bring here, rename, delete — then the r
   // ---- End the call.
   tp.on('dialog', (d) => d.accept());
   await tp.getByTestId('end-call').click();
+  await tp.getByTestId('end-confirm-end').click(); // round 4: End asks first (a sheet, not a dialog)
   await tp.getByTestId('call-ended').waitFor({ timeout: 20000 });
 
   // The call remembers the pages it wrote on; the relationship keeps them.

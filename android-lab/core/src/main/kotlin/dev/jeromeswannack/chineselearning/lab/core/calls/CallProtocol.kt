@@ -53,6 +53,9 @@ object CallProtocol {
             },
             // In-call activities: the session being played (absent / null = none).
             activity = CallActivities.parseSession(o["activity"]),
+            // Round 5: the relationship's tutor (null = a solo call / an older room) and what she last showed.
+            tutorId = o.str("tutor_id")?.takeIf { it.isNotEmpty() },
+            shown = CallFollow.parseShown(o["shown"]),
         )
         "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty(), o.str("page")) }
         "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it, o.str("page")) }
@@ -90,6 +93,9 @@ object CallProtocol {
         "ended" -> ServerMessage.Ended(o.str("by").orEmpty())
         "replaced" -> ServerMessage.Replaced
         "error" -> ServerMessage.Error(o.str("message").orEmpty())
+        // Round 5: what the tutor shows now (null = nothing), and "the tutor stopped your screen share".
+        "shown" -> if (!o.containsKey("shown")) null else ServerMessage.Shown(CallFollow.parseShown(o["shown"]))
+        "share_stopped" -> ServerMessage.ShareStopped(o.str("by").orEmpty(), o.str("name").orEmpty())
         else -> null
     } }
 
@@ -177,6 +183,10 @@ object CallProtocol {
     fun ping(t: Long): String = buildJsonObject { put("type", "ping"); put("t", t) }.toString()
     fun end(): String = buildJsonObject { put("type", "end") }.toString()
     /** I'm leaving (the call goes on for the other person): the room stops counting me as present at once. */
+    /** Round 5, the tutor only: put [view] on the student's stage (null = stop showing); [follow] = a page turn of what is shown. */
+    fun show(view: CallFollow.ShowView?, follow: Boolean = false): String = CallFollow.showMessage(view, follow)
+    /** Round 5, the tutor only: stop the other person's screen share. */
+    fun stopShare(): String = CallFollow.stopShareMessage()
     fun leave(): String = buildJsonObject { put("type", "leave") }.toString()
 
     private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -222,6 +232,10 @@ sealed interface ServerMessage {
         val materialAnnots: MaterialAnnots? = null,
         /** The in-call activity being played (null = none). */
         val activity: ActivitySession? = null,
+        /** Round 5: the relationship's tutor (null = a solo call, or an older room) — leads "Show for student" / "Stop their share". */
+        val tutorId: String? = null,
+        /** Round 5: what the tutor last showed (CallFollow). */
+        val shown: CallFollow.ShownState? = null,
     ) : ServerMessage
     /** [page] = the board page the ops belong to (null from an older room). */
     data class Text(val from: String, val ops: List<TextOp>, val page: String? = null) : ServerMessage
@@ -260,4 +274,8 @@ sealed interface ServerMessage {
     data class Ended(val by: String) : ServerMessage
     data object Replaced : ServerMessage
     data class Error(val message: String) : ServerMessage
+    /** Round 5: what the tutor shows now (after a `show`); null = nothing. */
+    data class Shown(val shown: CallFollow.ShownState?) : ServerMessage
+    /** Round 5, to the person sharing: the tutor ([by], [name]) stopped your screen share — stop capturing. */
+    data class ShareStopped(val by: String, val name: String) : ServerMessage
 }

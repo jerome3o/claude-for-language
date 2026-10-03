@@ -212,6 +212,11 @@ object CallLayout {
         data object ActivityStarted : Action
         /** A tile dragged (or moved from its menu) onto a drop zone of the stage ([layoutForDrop]). */
         data class Drop(val tile: TileId, val zone: DropZone) : Action
+        /**
+         * Round 5: the tutor showed this tile to the student ("Show for student", CallFollow): it goes on the
+         * stage with the cameras floating — unless it is already there (a split keeps its partner).
+         */
+        data class Shown(val tile: TileId) : Action
     }
 
     /** `layoutReducer`. */
@@ -256,6 +261,15 @@ object CallLayout {
         Action.MaterialStarted -> l.copy(mode = Mode.FOCUS, main = TileId.MATERIAL, remoteFloat = true)
         Action.ActivityStarted -> l.copy(mode = Mode.FOCUS, main = TileId.ACTIVITY, remoteFloat = true)
         is Action.Drop -> layoutForDrop(l, action.tile, action.zone)
+        is Action.Shown -> {
+            val open = withOpen(l, action.tile)
+            val onStage = when (l.mode) {
+                Mode.FOCUS -> l.main == action.tile
+                Mode.SPLIT -> l.main == action.tile || l.second == action.tile
+                else -> false
+            }
+            if (onStage) l.copy(open = open) else l.copy(mode = Mode.FOCUS, main = action.tile, remoteFloat = true, open = open)
+        }
         is Action.Close -> {
             if (action.tile == TileId.REMOTE || action.tile == TileId.SELF) l // cameras can't be closed
             else {
