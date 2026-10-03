@@ -43,6 +43,10 @@ data class MeDto(
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
     /** Usage analytics on (Settings → Advanced → "Share usage data"; data/analytics/). */
     val share_usage: Boolean = true,
+    /** Word checks: "Check new words for mistakes" — the effective switch (on by default for tutors); null from an older server. */
+    val card_check: Boolean? = null,
+    /** The account's own choice (null = the default). */
+    val card_check_setting: Boolean? = null,
 )
 
 @Serializable
@@ -67,6 +71,8 @@ data class NoteDto(
     val updated_at: String? = null,
     /** The learner's "long-term review" choice (1 in, 0 out, null = follow the deck). */
     val long_term: Int? = null,
+    /** Word checks: JSON string of NoteCheckIssue[] (shared/cards/check.ts), or null. */
+    val check_issues: String? = null,
     val cards: List<CardDto> = emptyList(),
 )
 

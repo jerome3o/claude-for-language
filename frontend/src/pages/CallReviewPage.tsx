@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { pinyin as toPinyin } from 'pinyin-pro';
+import { autoPinyin } from '../utils/autoPinyin';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../api/client';
 import { deleteCall, getCall, listCallBoardPages, makeCallFlashcards, processCall } from '../api/calls';
@@ -59,7 +59,7 @@ function segPinyin(seg: TranscriptSegment): string | null {
   if (seg.pinyin) return seg.pinyin;
   if (!HAN.test(seg.text)) return null;
   try {
-    return toPinyin(seg.text, { toneType: 'symbol', nonZh: 'consecutive' });
+    return autoPinyin(seg.text, { nonZh: 'consecutive' });
   } catch {
     return null;
   }

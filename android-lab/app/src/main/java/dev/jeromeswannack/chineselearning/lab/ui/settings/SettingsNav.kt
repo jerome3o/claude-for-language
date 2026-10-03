@@ -50,6 +50,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                     dev.jeromeswannack.chineselearning.lab.ui.chat.ChatEmailsSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.chat.ChatListeningSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.chat.ChatAutoCheckSettings(app)
+                    dev.jeromeswannack.chineselearning.lab.ui.checks.CardCheckSettings(app)
                 }
             },
             ui = ui,

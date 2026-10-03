@@ -57,7 +57,7 @@ private fun GenerateRoute(nav: LabNav) {
 /** "Paste a list" over the deck page (the web's modal); back closes it. */
 @Composable
 private fun PasteRoute(env: DecksEnv, deckId: String, onClose: () -> Unit) {
-    val vm: PasteWordsViewModel = viewModel(key = "paste-$deckId", factory = PasteWordsViewModel.Factory(env, deckId, dev.jeromeswannack.chineselearning.lab.core.Pinyin::toPinyin))
+    val vm: PasteWordsViewModel = viewModel(key = "paste-$deckId", factory = PasteWordsViewModel.Factory(env, deckId, dev.jeromeswannack.chineselearning.lab.core.ToneChange::autoPinyin))
     val ui by vm.ui.collectAsStateWithLifecycle()
     androidx.activity.compose.BackHandler(enabled = ui.stage != PasteStage.RUNNING, onBack = onClose)
     PasteWordsScreen(
@@ -77,6 +77,8 @@ private fun PasteRoute(env: DecksEnv, deckId: String, onClose: () -> Unit) {
             onToggleUnchanged = vm::toggleUnchanged,
             onSave = { vm.save() },
             onUpdateShare = vm::updateShare,
+            onApplyIssue = vm::applyIssue,
+            onDismissIssue = vm::dismissIssue,
         ),
     )
 }
@@ -130,6 +132,7 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     var settings by remember { mutableStateOf(false) }
     var shareTutor by remember { mutableStateOf(false) }
+    var checkErrors by remember { mutableStateOf(false) }
     var paste by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var anki by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget?>(null) }
     if (paste) {
@@ -162,8 +165,14 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
             onAddToDailyReview = vm::addToDailyReview,
             onShareWithTutor = { vm.clearShareError(); vm.refreshTutorShares(); shareTutor = true },
             onUnshareTutor = vm::unshareTutor,
+            onApplyIssue = vm::applyIssue,
+            onDismissIssue = vm::dismissIssue,
+            onCheckErrors = { checkErrors = true },
         ),
     )
+    if (checkErrors) {
+        dev.jeromeswannack.chineselearning.lab.ui.checks.DeckCheckSheetRoute(nav.app, dev.jeromeswannack.chineselearning.lab.data.api.DeckCheckScope.Own(deckId)) { checkErrors = false }
+    }
     if (shareTutor) {
         ShareWithTutorSheet(ui, onShare = { rel -> vm.shareWithTutor(rel) { shareTutor = false } }, onFindTutors = { shareTutor = false; nav.open(Routes.CONNECTIONS) }, onDismiss = { shareTutor = false })
     }

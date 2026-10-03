@@ -146,7 +146,7 @@ fun TextBoardPanel(
     onBlur: () -> Unit,
     modifier: Modifier = Modifier,
     explain: (suspend (String) -> String?)? = null,
-    pinyinOf: (String) -> String = { dev.jeromeswannack.chineselearning.lab.ui.study.Pinyin.of(it) },
+    pinyinOf: (String) -> String = { dev.jeromeswannack.chineselearning.lab.core.ToneChange.autoPinyin(it) },
     /** The tab-complete lookup; null = the feature is off for this board. */
     gloss: (suspend (String) -> BoardGloss?)? = null,
     glossOn: Boolean = true,

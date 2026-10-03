@@ -329,7 +329,7 @@ describe('student deck tools', () => {
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active' }], tutors: [] }),
       'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
-      'POST /api/decks/deck-1/notes/batch': (body) => {
+      'POST /api/decks/deck-1/notes/batch?check=sync': (body) => {
         // The API creates each row on its own and reports the failures by index.
         const rows = (body as { notes: Array<{ hanzi: string }> }).notes;
         const created: Array<{ id: string; hanzi: string; audio_url: null }> = [];
@@ -371,7 +371,7 @@ describe('student deck tools', () => {
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
       'GET /api/relationships',
       'POST /api/decks',
-      'POST /api/decks/deck-1/notes/batch',
+      'POST /api/decks/deck-1/notes/batch?check=sync',
       'GET /api/decks/deck-1',
       'GET /api/relationships/rel-1/lesson-log',
       'POST /api/relationships/rel-1/homework',
@@ -413,7 +413,7 @@ describe('student deck tools', () => {
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 's', requester_role: 'tutor', status: 'active' }], tutors: [] }),
       'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
-      'POST /api/decks/deck-1/notes/batch': (body) => ({ created: (body as { notes: Array<{ hanzi: string }> }).notes.map(n => ({ id: 'n1', hanzi: n.hanzi, audio_url: 'a.mp3' })), failed: [] }),
+      'POST /api/decks/deck-1/notes/batch?check=sync': (body) => ({ created: (body as { notes: Array<{ hanzi: string }> }).notes.map(n => ({ id: 'n1', hanzi: n.hanzi, audio_url: 'a.mp3' })), failed: [] }),
       'GET /api/decks/deck-1': () => ({ id: 'deck-1', notes: [{ id: 'n1', audio_url: 'a.mp3' }] }),
       'GET /api/relationships/rel-1/lesson-log': () => ({ entries: [] }),
       'POST /api/relationships/rel-1/homework': () => { throw new ApiError(400, 'The student no longer has an account', null); },
@@ -431,7 +431,7 @@ describe('student deck tools', () => {
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome' } }, { id: 'rel-2', requester_id: 'tutor-1', recipient_id: 'student-2', requester_role: 'tutor', status: 'active', recipient: { name: 'Mei' } }], tutors: [] }),
       'GET /api/relationships/rel-1/shared-decks': () => [{ id: 'share-1', source_deck_id: 'src', target_deck_id: 'tgt', source_deck_name: 'Weather' }],
-      'POST /api/decks/src/notes/batch': () => ({ created: [{ id: 'n9', hanzi: '雾', audio_url: null }], failed: [] }),
+      'POST /api/decks/src/notes/batch?check=sync': () => ({ created: [{ id: 'n9', hanzi: '雾', audio_url: null }], failed: [] }),
       'GET /api/decks/src': () => ({ id: 'src', notes: [{ id: 'n9', audio_url: 'c.mp3' }] }),
       'POST /api/relationships/rel-1/shared-decks/share-1/update': () => ({ shared_deck_id: 'share-1', target_deck_id: 'tgt', added: 1, kept: 3, audio_filled: 0 }),
     });
@@ -456,7 +456,7 @@ describe('student deck tools', () => {
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
       'GET /api/relationships',
       'GET /api/relationships/rel-1/shared-decks',
-      'POST /api/decks/src/notes/batch',
+      'POST /api/decks/src/notes/batch?check=sync',
       'GET /api/decks/src',
       'POST /api/relationships/rel-1/shared-decks/share-1/update',
     ]);

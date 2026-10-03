@@ -61,6 +61,11 @@ data class NoteEntity(
      * 1 in, 0 out, null = follow the deck. v3.
      */
     val longTerm: Int? = null,
+    /**
+     * Word checks (notes.check_issues): the JSON array of possible issues — "⚠ Possible issue"
+     * on the deck page (core CardCheck.parseCheckIssues / liveCheckIssues). v4.
+     */
+    val checkIssues: String? = null,
 )
 
 @Entity(tableName = "cards", indices = [Index("noteId"), Index("deckId")])
@@ -225,7 +230,7 @@ interface LabDao {
         // v2: generic feature tables (data/platform/) — features use these instead of new schema.
         JsonCacheEntity::class, OutboxEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

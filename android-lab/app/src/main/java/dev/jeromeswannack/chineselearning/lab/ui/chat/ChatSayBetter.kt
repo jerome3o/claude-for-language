@@ -35,7 +35,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
-import dev.jeromeswannack.chineselearning.lab.core.Pinyin
 import dev.jeromeswannack.chineselearning.lab.core.SayBetter
 import dev.jeromeswannack.chineselearning.lab.data.api.AutoCheckCardDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
@@ -92,7 +91,7 @@ data class SayBetterView(
          * mistakes / alternative are shown whenever the check is about the current text and (with a
          * correction) reached the same sentence — so the rows never contradict the tutor.
          */
-        fun of(m: ChatMessageDto, myId: String?, tutorName: String?, pinyinOf: (String) -> String = { Pinyin.toPinyin(it) }): SayBetterView? {
+        fun of(m: ChatMessageDto, myId: String?, tutorName: String?, pinyinOf: (String) -> String = { dev.jeromeswannack.chineselearning.lab.core.ToneChange.autoPinyin(it) }): SayBetterView? {
             val state = SayBetter.state(
                 m.sender_id, m.content, m.deleted_at, m.attachment?.kind, m.correction != null, m.correction?.text,
                 m.auto_check?.status, m.auto_check?.text, myId ?: "",

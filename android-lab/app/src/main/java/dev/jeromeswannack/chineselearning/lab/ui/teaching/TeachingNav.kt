@@ -277,6 +277,7 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
     var profileEditor by remember { mutableStateOf<StudentProfileFields?>(null) }
     val budget by vm.budget.resource.state.collectAsStateWithLifecycle()
     var budgetEditor by remember { mutableStateOf(false) }
+    var checkDeck by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto?>(null) }
     val student = rel.studentUser()
     val name = overview.data?.let { studentName(it) } ?: student?.name ?: student?.email ?: "Student"
 
@@ -357,8 +358,14 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             refresh = vm::refresh,
             removeHomework = { target -> vm.removal.start(target, name) },
             removalSheet = vm.removal.actions,
+            checkDeck = { checkDeck = it },
         ),
     )
+    checkDeck?.let { d ->
+        dev.jeromeswannack.chineselearning.lab.ui.checks.DeckCheckSheetRoute(
+            app, dev.jeromeswannack.chineselearning.lab.data.api.DeckCheckScope.Student(relId, d.shared_deck_id),
+        ) { checkDeck = null; vm.refresh() }
+    }
     if (showSend) SendHomeworkFor(nav, vm.send, relId, name, overview.data) { showSend = false }
     profileEditor?.let { start ->
         StudentProfileSheet(

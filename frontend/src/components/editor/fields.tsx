@@ -5,13 +5,13 @@
  */
 
 import { ReactNode } from 'react';
-import { pinyin } from 'pinyin-pro';
+import { autoPinyin } from '../../utils/autoPinyin';
 import type { LessonSentence } from '@shared/lesson';
 
 export type Speak = (text: string) => void;
 
 export function toPinyin(hanzi: string): string {
-  return pinyin(hanzi, { toneType: 'symbol', type: 'string' });
+  return autoPinyin(hanzi);
 }
 
 export function Field({ label, hint, children, inline }: { label: string; hint?: string; children: ReactNode; inline?: boolean }) {

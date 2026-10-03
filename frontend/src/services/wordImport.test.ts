@@ -23,7 +23,7 @@ describe('runImport', () => {
     const progress: number[] = [];
     const out = await runImport('deck-1', plan, p => progress.push(p.done));
     expect(out).toEqual({ added: 1, updated: 1, failed: [] });
-    expect(createNote).toHaveBeenCalledWith('deck-1', { hanzi: '苹果', pinyin: 'píng guǒ', english: 'apple', fun_facts: undefined, sentence_clue: '我吃苹果。' });
+    expect(createNote).toHaveBeenCalledWith('deck-1', { hanzi: '苹果', pinyin: 'píng guǒ', english: 'apple', fun_facts: undefined, sentence_clue: '我吃苹果。' }, { skipCheck: false });
     expect(updateNote).not.toHaveBeenCalledWith('new-苹果', expect.anything());
     expect(updateNote).toHaveBeenCalledWith('n1', { english: 'banana (fruit)' });
     expect(progress[progress.length - 1]).toBe(2);

@@ -53,6 +53,9 @@ export interface AuthUser {
   email_chat_messages?: boolean;
   /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account). */
   chat_auto_check?: boolean | null;
+  /** "Check new words for mistakes" (worker services/card-check.ts): what applies now (default on for tutors) and the stored choice (null = default). */
+  card_check?: boolean;
+  card_check_setting?: boolean | null;
   /** Settings → Advanced → "Share usage data" (docs/ANALYTICS.md); absent on old servers = on. */
   share_usage?: boolean;
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
@@ -135,6 +138,8 @@ export interface Note {
   alternatives: string | null;  // JSON array of acceptable alternative hanzi answers
   /** The learner's "long-term review" choice for this word: 1 in, 0 out, null = follow the deck (migration 0096). */
   long_term?: 0 | 1 | null;
+  /** Open word-check issues, JSON NoteCheckIssue[] (shared/cards/check.ts) — "⚠ Possible issue". */
+  check_issues?: string | null;
   created_at: string;
   updated_at: string;
 }

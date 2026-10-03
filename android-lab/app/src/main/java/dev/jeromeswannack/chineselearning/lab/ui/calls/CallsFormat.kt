@@ -1,7 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
 import dev.jeromeswannack.chineselearning.lab.core.Js
-import dev.jeromeswannack.chineselearning.lab.core.Pinyin
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallLessons
 import dev.jeromeswannack.chineselearning.lab.data.api.CallDetailDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CallListItemDto
@@ -137,7 +136,7 @@ object CallsFormat {
         if (!HAN.containsMatchIn(text)) return null
         // Like pinyin-pro's `nonZh: 'consecutive'`: only the Han runs become pinyin, the rest stays as written.
         return runCatching {
-            HAN_RUN.replace(text) { m -> " " + Pinyin.toPinyin(m.value).trim() + " " }.replace(Regex(" {2,}"), " ").trim()
+            HAN_RUN.replace(text) { m -> " " + dev.jeromeswannack.chineselearning.lab.core.ToneChange.autoPinyin(m.value).trim() + " " }.replace(Regex(" {2,}"), " ").trim()
         }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 

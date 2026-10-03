@@ -5,6 +5,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.core.ImportPlanner
 import dev.jeromeswannack.chineselearning.lab.core.WordListParser
+import dev.jeromeswannack.chineselearning.lab.core.spec.JsJson
+import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
+import dev.jeromeswannack.chineselearning.lab.data.api.CheckWordDto
+import dev.jeromeswannack.chineselearning.lab.data.api.checkWords
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import dev.jeromeswannack.chineselearning.lab.data.HttpException
 import dev.jeromeswannack.chineselearning.lab.data.api.EnrichWordIn
 import dev.jeromeswannack.chineselearning.lab.data.api.GlossWordIn
@@ -36,6 +42,9 @@ data class ImportOutcome(val added: Int, val updated: Int, val failed: List<Pair
 
 data class ShareState(val busy: Boolean = false, val note: String? = null)
 
+/** A word-check issue on a preview row (POST /api/ai/check-words). */
+data class PasteIssue(val id: String, val field: String, val kind: String, val current: String, val proposed: String, val reason: String)
+
 data class PasteUi(
     val inputs: PasteInputs = PasteInputs(),
     val derived: PasteDerived? = null,
@@ -57,7 +66,19 @@ data class PasteUi(
     val shareState: Map<String, ShareState> = emptyMap(),
     val online: Boolean = true,
     val deckName: String = "",
+    /** Settings → "Check new words for mistakes" (users.card_check). */
+    val cardCheck: Boolean = false,
+    /** Row key → what the word check found for it. */
+    val issues: Map<String, List<PasteIssue>> = emptyMap(),
+    val dismissedIssues: Set<String> = emptySet(),
+    /** hanzi · pinyin · english the check has seen — saved with `?check=none`. */
+    val checked: Set<String> = emptySet(),
 ) {
+    /** The row's issues still about its current values (an edited field makes its issue stale). */
+    fun liveIssues(x: EffectiveRow): List<PasteIssue> = issues[x.key].orEmpty().filter { i ->
+        i.id !in dismissedIssues && JsJson.trim(if (i.field == "pinyin") x.row.pinyin else x.row.english) == JsJson.trim(i.current)
+    }
+
     val canSave: Boolean get() = stage == PasteStage.EDIT && online && (derived?.summary?.let { it.add > 0 || it.update > 0 } == true)
 }
 
@@ -75,8 +96,10 @@ class PasteWordsViewModel(
     private val _ui = MutableStateFlow(PasteUi())
     val ui: StateFlow<PasteUi> = _ui
     private var existing: List<ImportPlanner.Existing> = emptyList()
+    private var checkJob: Job? = null
 
     init {
+        _ui.update { it.copy(cardCheck = env.cardCheck()) }
         viewModelScope.launch { env.online.collect { on -> _ui.update { it.copy(online = on) } } }
         viewModelScope.launch {
             val (notes, name) = withContext(Dispatchers.IO) {
@@ -92,6 +115,69 @@ class PasteWordsViewModel(
     private fun recompute() {
         val inputs = _ui.value.inputs
         _ui.update { it.copy(derived = PasteWordsModel.derive(inputs, existing, autoPinyin)) }
+        scheduleCheck()
+    }
+
+    // ---------------- word check ----------------
+
+    /**
+     * When word checks are on: once the rows to save have hanzi + pinyin + english, ask
+     * POST /api/ai/check-words (≤ 60 rows, each distinct hanzi · pinyin · english once) and show
+     * "⚠ Possible issue" on the rows it flags. Offline / an error: no warnings, saving never waits.
+     */
+    private fun scheduleCheck() {
+        val s = _ui.value
+        if (!s.cardCheck || s.stage != PasteStage.EDIT) return
+        val d = s.derived ?: return
+        val todo = d.plan
+            .filter { it.action == ImportPlanner.Action.ADD || it.action == ImportPlanner.Action.UPDATE }
+            .map { it.row }
+            .filter { it.hanzi.isNotBlank() && it.pinyin.isNotBlank() && it.english.isNotBlank() && checkKey(it.hanzi, it.pinyin, it.english) !in s.checked }
+            .take(CHECK_MAX)
+        checkJob?.cancel()
+        if (todo.isEmpty()) return
+        checkJob = viewModelScope.launch {
+            delay(CHECK_DEBOUNCE_MS)
+            if (!env.online.value) return@launch
+            val result = try {
+                env.api.checkWords(todo.map { CheckWordDto(JsJson.trim(it.hanzi), JsJson.trim(it.pinyin), JsJson.trim(it.english)) })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            val derived = _ui.value.derived ?: return@launch
+            val found = HashMap<String, MutableList<PasteIssue>>()
+            for (i in result.issues) {
+                val row = todo.getOrNull(i.index) ?: continue
+                val key = derived.byIndex(row.index)?.key ?: continue
+                found.getOrPut(key) { ArrayList() } += PasteIssue("${key}#${i.field}#${i.proposed}", i.field, i.kind, i.current.ifEmpty { if (i.field == "pinyin") row.pinyin else row.english }, i.proposed, i.reason)
+            }
+            val checkedKeys = todo.map { derived.byIndex(it.index)?.key }.toSet()
+            _ui.update { u ->
+                u.copy(
+                    checked = u.checked + todo.map { checkKey(it.hanzi, it.pinyin, it.english) },
+                    issues = u.issues.filterKeys { it !in checkedKeys } + found,
+                )
+            }
+        }
+    }
+
+    /** "Apply fix": the row's field becomes the proposal (an edit of the tutor's), already checked. */
+    fun applyIssue(key: String, issue: PasteIssue) {
+        val row = _ui.value.derived?.rows?.firstOrNull { it.key == key }?.row ?: return
+        val pinyin = if (issue.field == "pinyin") issue.proposed else row.pinyin
+        val english = if (issue.field == "english") issue.proposed else row.english
+        _ui.update { it.copy(checked = it.checked + checkKey(row.hanzi, pinyin, english), dismissedIssues = it.dismissedIssues + issue.id) }
+        Analytics.track("deck.check_issue_applied", mapOf("field" to issue.field, "kind" to issue.kind, "where" to "paste"))
+        env.fx.success()
+        edit(key) { if (issue.field == "pinyin") it.copy(pinyin = issue.proposed) else it.copy(english = issue.proposed) }
+    }
+
+    fun dismissIssue(key: String, issue: PasteIssue) {
+        _ui.update { it.copy(dismissedIssues = it.dismissedIssues + issue.id) }
+        Analytics.track("deck.check_issue_dismissed", mapOf("field" to issue.field, "kind" to issue.kind, "where" to "paste"))
+        env.fx.tick()
     }
 
     private fun setInputs(transform: (PasteInputs) -> PasteInputs) {
@@ -211,6 +297,7 @@ class PasteWordsViewModel(
         if (!_ui.value.canSave) return
         val work = d.plan.filter { it.action == ImportPlanner.Action.ADD || it.action == ImportPlanner.Action.UPDATE }
         val bare = work.count { it.row.notes.isEmpty() && it.existing?.funFacts.isNullOrEmpty() }
+        checkJob?.cancel()
         _ui.update { it.copy(stage = PasteStage.RUNNING, progressDone = 0, progressTotal = work.size, savedBare = bare) }
         viewModelScope.launch {
             val done = AtomicInteger()
@@ -223,6 +310,7 @@ class PasteWordsViewModel(
                     gate.withPermit {
                         _ui.update { it.copy(current = p.row.hanzi) }
                         val r = p.row
+                        val checked = checkKey(r.hanzi, r.pinyin, r.english) in _ui.value.checked
                         val result = if (p.action == ImportPlanner.Action.ADD) {
                             env.writes.createNote(
                                 deckId,
@@ -231,6 +319,7 @@ class PasteWordsViewModel(
                                     sentenceCluePinyin = if (r.sentence.isNotEmpty()) r.sentencePinyin.orEmpty() else "",
                                     sentenceClueTranslation = if (r.sentence.isNotEmpty()) r.sentenceTranslation.orEmpty() else "",
                                 ),
+                                skipCheck = checked,
                             ).map { added.incrementAndGet() }
                         } else {
                             env.writes.patchNote(p.existing!!.id, PasteWordsModel.patchFor(p)).map { updated.incrementAndGet() }
@@ -288,5 +377,10 @@ class PasteWordsViewModel(
         const val ENRICH_CHUNK = 15
         const val ENRICH_MAX = 150
         const val CONCURRENCY = 3
+        /** Rows per word check (the endpoint's limit). */
+        const val CHECK_MAX = 60
+        const val CHECK_DEBOUNCE_MS = 1_200L
+
+        fun checkKey(hanzi: String, pinyin: String, english: String) = "${JsJson.trim(hanzi)}\u0000${JsJson.trim(pinyin)}\u0000${JsJson.trim(english)}"
     }
 }

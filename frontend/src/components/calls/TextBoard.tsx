@@ -101,8 +101,8 @@ function SelectionHelper({ text }: { text: string }) {
     let alive = true;
     setExplained(null);
     setError(null);
-    void import('pinyin-pro').then(({ pinyin }) => {
-      if (alive) setPy(pinyin(text, { toneType: 'symbol', type: 'string', nonZh: 'consecutive' }));
+    void import('../../utils/autoPinyin').then(({ autoPinyin }) => {
+      if (alive) setPy(autoPinyin(text, { nonZh: 'consecutive' }));
     });
     return () => {
       alive = false;

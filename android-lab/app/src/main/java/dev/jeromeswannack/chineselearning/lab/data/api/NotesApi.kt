@@ -117,7 +117,8 @@ data class NewCardFlagBody(
     val created_at: String,
 )
 
-suspend fun Api.addNoteToDeck(deckId: String, body: DeckNoteBody): NoteDto = post("/api/decks/${enc(deckId)}/notes", body)
+suspend fun Api.addNoteToDeck(deckId: String, body: DeckNoteBody, skipCheck: Boolean = false): NoteDto =
+    post("/api/decks/${enc(deckId)}/notes" + (if (skipCheck) "?check=none" else ""), body)
 
 /** PUT /api/notes/:id with an explicit patch (explicit nulls clear a field). */
 suspend fun Api.putNote(id: String, patch: JsonObject): NoteDto = exchange("PUT", NotePaths.note(id), patch.toString(), NoteDto.serializer())

@@ -1,5 +1,5 @@
 /**
- * E2E_TEST_MODE only (no ANTHROPIC_API_KEY): a stand-in for Haiku in the word
+ * E2E_TEST_MODE only: a stand-in for Haiku in the word
  * check, so the end-to-end tests and screenshots exercise the whole flow. It
  * knows a handful of classic mistakes and reports them the way the model's
  * report_issues tool would; the 一 / 不 rule runs for real on top.

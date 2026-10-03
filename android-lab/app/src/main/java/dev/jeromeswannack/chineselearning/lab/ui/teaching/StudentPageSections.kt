@@ -472,6 +472,8 @@ fun HomeworkDeckRow(
     /** "Remove from Jerome's decks" (HomeworkRemoval.removalMenuLabel) — in the queue menu, or behind ⋯ when there is none. */
     removeLabel: String? = null,
     onRemove: () -> Unit = {},
+    /** "🔎 Check for errors" on the student's copy (word checks); null hides it. */
+    onCheck: (() -> Unit)? = null,
     initialMenu: Boolean = false,
 ) {
     var menu by remember { mutableStateOf(initialMenu) }
@@ -512,6 +514,7 @@ fun HomeworkDeckRow(
                 val disabled = if (to == "top" || to == "up") pos == 1 else pos == d.queue_total
                 NavRow(text.take(1), text.drop(2), enabled = !disabled, trailing = {}, onClick = { menu = false; onMove(to) })
             }
+            if (onCheck != null) NavRow("🔎", "Check for errors", trailing = {}, onClick = { menu = false; onCheck() })
             if (removeLabel != null) NavRow("🗑️", removeLabel, danger = true, trailing = {}, onClick = { menu = false; onRemove() })
         }
     }

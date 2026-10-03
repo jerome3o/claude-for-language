@@ -286,10 +286,12 @@ export async function createNote(
     sentence_clue?: string;
     sentence_clue_pinyin?: string;
     sentence_clue_translation?: string;
-  }
+  },
+  options: { skipCheck?: boolean } = {}
 ): Promise<NoteWithCards> {
-  // The server makes the cards, the word and sentence clips, and queues the sentence set.
-  return fetchJSON<NoteWithCards>(`/decks/${deckId}/notes`, {
+  // The server makes the cards, the word and sentence clips, and queues the sentence set
+  // (and a word check, unless the caller already checked the row — Paste a list's preview).
+  return fetchJSON<NoteWithCards>(`/decks/${deckId}/notes${options.skipCheck ? '?check=none' : ''}`, {
     method: 'POST',
     body: JSON.stringify(data),
   });

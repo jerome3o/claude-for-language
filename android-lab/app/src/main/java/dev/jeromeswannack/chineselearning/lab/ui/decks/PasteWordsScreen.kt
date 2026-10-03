@@ -69,6 +69,9 @@ data class PasteActions(
     val onToggleUnchanged: () -> Unit = {},
     val onSave: () -> Unit = {},
     val onUpdateShare: (StudentShareDto) -> Unit = {},
+    /** Word check on a preview row: Apply fix (sets the field, as an edit) / Dismiss. */
+    val onApplyIssue: (String, PasteIssue) -> Unit = { _, _ -> },
+    val onDismissIssue: (String, PasteIssue) -> Unit = { _, _ -> },
 )
 
 private const val PLACEHOLDER = "苹果\tpíng guǒ\tapple\n香蕉\txiāng jiāo\tbanana\n葡萄\n\nOne word per line — columns from a spreadsheet, \"苹果 apple\", or just the characters. Pinyin and English are filled in for you."
@@ -286,6 +289,17 @@ private fun PlanRow(p: ImportPlanner.Planned, ui: PasteUi, d: PasteDerived, a: P
             }
             Spacer(Modifier.width(8.dp))
             Text(chip, color = color, style = MaterialTheme.typography.labelMedium, modifier = Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 4.dp))
+        }
+        if (p.action == ImportPlanner.Action.ADD || p.action == ImportPlanner.Action.UPDATE) for (issue in ui.liveIssues(x)) {
+            dev.jeromeswannack.chineselearning.lab.ui.checks.CheckIssueBlock(
+                kind = issue.kind,
+                current = issue.current,
+                proposed = issue.proposed,
+                reason = issue.reason,
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                onApply = { a.onApplyIssue(x.key, issue) },
+                onDismiss = { a.onDismissIssue(x.key, issue) },
+            )
         }
         AnimatedVisibility(editing) {
             Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

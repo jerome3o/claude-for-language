@@ -16,8 +16,8 @@ const online = () => typeof navigator === 'undefined' || navigator.onLine;
 /** Fill pinyin the segmenter left blank (a per-character fallback stretch) on the device. */
 async function devicePinyin(text: string): Promise<string> {
   try {
-    const { pinyin } = await import('pinyin-pro');
-    return pinyin(text, { toneType: 'symbol' });
+    const { autoPinyin } = await import('../../utils/autoPinyin');
+    return autoPinyin(text);
   } catch {
     return '';
   }

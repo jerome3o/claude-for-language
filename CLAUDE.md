@@ -123,6 +123,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP); inbox.ts = the Chats tab rules (sort, preview, relative time, search, badge, live updates) — parity-tested by the Lab app
 │   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts) — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
+│   ├── pinyin/            # applyYiBuToneChanges: the 一 / 不 tone changes every automatic pinyin goes through (Lab ToneChange.kt, parity-tested)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts (new characters first); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
@@ -312,6 +313,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `deleted_items` - Tombstones (`kind` deck|note, `item_id`, `deleted_at`) written whenever a deck or note is deleted (API routes, Ask Claude's delete_current_card, the MCP server's delete_deck/delete_note); `GET /api/sync/changes` returns them as `deleted.deck_ids` / `note_ids` so offline clients drop the rows (with their cards) on the next sync
 - `reader_pages.words` / `reader_word_explanations` - Reader word chips (migration 0087): the page split into `{ text, pinyin, gloss }` segments (JSON), and Haiku's cached "More about this word" answers keyed by a hash of word + sentence. See "Reader word chips"
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
+- `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0103): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
@@ -403,7 +405,39 @@ card that breaks them is refused with a message saying where the content belongs
   every character of a word then its usage; then the common mistake / contrast / register. No trivia.
 - **sentence_clue** is one short real sentence containing the word exactly; prefer a single clause;
   no brackets, slashes, ellipses or blanks.
+- **一 / 不 tone changes** are written (yí gè, yì tiān, bú shì, bù hǎo; neutral yi / bu in 看一看 / 要不要);
+  no other tone sandhi (nǐ hǎo stays). ONE function applies it: `applyYiBuToneChanges(hanzi, pinyin)`
+  (`shared/pinyin/toneChange.ts`, Lab `core/…/ToneChange.kt`, parity-tested) — every automatic pinyin
+  goes through it: the web's `utils/autoPinyin.ts` (pinyin-pro, whose own `toneSandhi` is close but not
+  ours), the Lab's `ToneChange.autoPinyin`, and Claude's pinyin in Generate / gloss / enrich (worker).
+  Existing notes are never mass-rewritten; the word check proposes fixes instead.
 Change the rules in `shared/cards/standard.ts` only; everything else reads from it.
+
+### Word checks — "⚠ Possible issue" (`worker/src/services/card-check.ts`, `routes/card-checks.ts`, `shared/cards/check.ts`)
+A cheap batched Haiku check (`structuredCall`, `CHECK_BATCH_SIZE` 40 words per call, forced `report_issues`
+tool) for likely-wrong pinyin (wrong tones, a missing 一/不 tone change, the wrong reading of a multi-reading
+character) or a wrong / misleading English gloss, plus the deterministic 一/不 rule (`mergeCheckIssues`).
+**Never applied automatically**: results are stored, shown, and only an explicit Apply goes through
+`content.updateNote` (`{ check: false }`, so a fix doesn't re-check itself).
+- New / edited words: the content service calls `queueNoteCheck` (create / batch / an edit of hanzi, pinyin or
+  english) when the account's switch is on — `users.card_check`, NULL = default ON for tutors (role tutor or
+  tutoring someone), Settings → Cards "Check new words for mistakes" (`PUT /api/profile/card-check`, `card_check` /
+  `card_check_setting` on `/api/auth/me`). Runs on **`card-check-queue`**; issues land in `notes.check_issues`
+  (JSON `NoteCheckIssue[]`) with `notes.check_at` (migration 0103) — `/api/sync/changes` also returns notes by
+  `check_at`, so `updated_at` (which the tutor→student copy rules compare) is never touched by a check. Deck page
+  note rows show each live issue (`liveCheckIssues`: stale once the field changed) with Apply fix / Dismiss
+  (`components/cardCheck/NoteCheckIssues.tsx`; Lab deck detail). Copies, the starter deck and `?check=none` skip it.
+- Paste a list: the preview calls `POST /api/ai/check-words` (≤ 60 rows, nothing stored) and shows ⚠ per row;
+  checked rows are saved with `?check=none`.
+- **Per-deck "Check for errors"** (deck ⋯ menu; the tutor's student page → homework row menu, on the STUDENT's
+  copy): `components/cardCheck/DeckCheckSheet.tsx` (Lab: same sheet) — cost estimate first (`estimateCheckCost`,
+  "~319 words · about $0.02"), then a `deck_check_jobs` row run on the queue in batches with progress saved per
+  batch (a redelivery resumes), then the review list (current → proposed, reason, checkboxes) and **Apply selected**
+  (`applyDeckCheck`: a word edited since is skipped; "Also fix my source deck" when the tutor owns the source,
+  matched by hanzi). Real token usage → `cost_usd` (`structuredCall`'s `onUsage`).
+- E2E_TEST_MODE uses a fake model (`services/card-check-fake.ts`: 银行 yínxíng, 苹果 "banana", 长大, 妈妈).
+- MCP: `check_deck_for_errors`, `apply_note_fixes` (`mcp-server/src/tools/checks.ts`); `add_note`, `batch_add_notes`,
+  `create_homework_deck`, `add_words_to_student_deck` create with `?check=sync` and return `check_warnings`.
 
 ### Reader page standard
 `shared/reader/standard.ts` — `READER_STANDARD`: a page is one picture and one moment, 1–2 sentences
@@ -757,6 +791,11 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `POST /api/decks/:deckId/notes` - Create note (`hanzi`, `pinyin`, `english`, `fun_facts?`, `context?`, `sentence_clue?` + pinyin / translation, `alternatives?`); cards made, word + sentence TTS in the background, sentence set queued
 - `POST /api/decks/:deckId/notes/batch` - `{ notes: [...] }` (≤500) → `{ created, failed: [{ index, hanzi, error }] }`; audio queued
 - `PUT /api/notes/:id` - Update note (a changed hanzi gets a new word clip, a changed clue a new sentence clip)
+- `POST /api/notes/:id/check-issues/:issueId/apply` | `/dismiss` - a word check's "⚠ Possible issue" → `{ note }` (apply = the fix through updateNote)
+- `POST /api/notes/check` - `{ note_ids }` (≤ 100) run the word check now and store it → `{ issues: { [noteId]: NoteCheckIssue[] } }`
+- `POST /api/ai/check-words` - `{ words: [{ hanzi, pinyin, english }] }` (≤ 60) → `{ issues: [{ index, field, kind, current, proposed, reason }] }`, nothing stored (Paste a list's preview)
+- `GET|POST /api/decks/:id/check` - per-deck "Check for errors": `{ estimate, job }` / start → 202 `{ job }`; `GET|POST /api/relationships/:relId/shared-decks/:id/check` the same on the student's copy (tutor; `can_fix_source`); `GET /api/deck-checks/:jobId`; `POST /api/deck-checks/:jobId/apply` `{ proposal_ids, also_source? }` → `{ applied, source_applied, failed, job }`
+- `PUT /api/profile/card-check` - `{ card_check: boolean | null }` "Check new words for mistakes"
 - `PUT /api/notes/:id/long-term` - `{ long_term: true | false | null }` the learner's "Add to my long-term review" choice (idempotent; `long_term_at`, not `updated_at`)
 - `DELETE /api/notes/:id` - Delete note (tombstone; clips removed only if no copy references them)
 - `POST /api/notes/move` - `{ note_ids, deck_id }` move notes between your decks, cards and history kept
@@ -914,7 +953,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`.
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `card-check-queue`.
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -1660,6 +1699,8 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `update_card_settings` | Fine-grained control over card scheduling |
 | `batch_set_familiarity` | Set familiarity for multiple notes at once |
 | `get_note_history` | Get review history and Q&A for a note |
+| `check_deck_for_errors` | Word check of a whole deck (yours, or a student's copy with `relationship_id` + `shared_deck_id`): waits for the run, returns proposals (current → proposed + reason) and the cost; changes nothing |
+| `apply_note_fixes` | Apply ONLY the fixes the user approved: `job_id` + `proposal_ids` (+ `also_source`), or `fixes: [{ note_id, issue_id }]` from a create tool's `check_warnings` |
 | `create_custom_lesson` | Author a custom mini lesson (sections of exercises) for the user's next study session |
 | `list_custom_lessons` | List custom mini lessons (pending and completed) |
 | `get_custom_lesson` | Get one lesson with its full spec (fetch before editing) |

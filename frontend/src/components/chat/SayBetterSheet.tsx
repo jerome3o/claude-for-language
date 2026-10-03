@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { pinyin as toPinyin } from 'pinyin-pro';
+import { autoPinyin } from '../../utils/autoPinyin';
 import { sayBetterState, type AutoCheckCard } from '@shared/chats/autoCheck';
 import type { MessageWithSender } from '../../types';
 import { AddChunkModal, type Chunk } from '../AddChunkModal';
 import { CorrectionDiffLine } from './ChatCorrection';
 
-const devicePinyin = (text: string) => toPinyin(text, { type: 'string', nonZh: 'consecutive' }).replace(/\s+/g, ' ').trim();
+const devicePinyin = (text: string) => autoPinyin(text, { nonZh: 'consecutive' }).replace(/\s+/g, ' ').trim();
 
 const cardChunk = (card: AutoCheckCard): Chunk => ({ hanzi: card.hanzi, pinyin: card.pinyin, english: card.english, fun_facts: card.fun_facts || undefined });
 

@@ -174,6 +174,10 @@ export const ANALYTICS_EVENTS = {
   'deck.export_anki': e('decks', 'Exported to Anki.', ['kind']),
   'deck.search': e('decks', 'Searched cards on the Decks tab.', ['results', 'server']),
   'deck.share': e('decks', 'Shared / updated a deck copy for a student.', ['update']),
+  'deck.check_issue_applied': e('decks', 'Applied a word check fix ("⚠ Possible issue" → Apply fix).', ['field', 'kind', 'where']),
+  'deck.check_issue_dismissed': e('decks', 'Dismissed a word check issue.', ['field', 'kind', 'where']),
+  'deck.check_started': e('decks', 'Started "Check for errors" on a deck.', ['words', 'scope']),
+  'deck.check_applied': e('decks', 'Applied fixes from a deck check.', ['count', 'source', 'scope']),
 
   // ── settings ───────────────────────────────────────────────────────────
   'settings.change': e('settings', 'Changed a setting (`setting` names it, `value` an enum).', ['setting', 'value']),

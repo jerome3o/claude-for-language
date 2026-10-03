@@ -115,10 +115,14 @@ export function batchPrompt(words: CheckWord[]): string {
   return `Cards (number. hanzi | pinyin | english):\n${lines.join('\n')}`;
 }
 
-/** The client to use: the test seam, the E2E fake (no key in E2E mode), else undefined = structuredCall's real one. */
+/**
+ * The client to use: the test seam, the E2E fake (E2E_TEST_MODE, so the
+ * end-to-end tests are deterministic even where a real key is set), else
+ * undefined = structuredCall's real one.
+ */
 function modelClient(env: Env, deps: CheckDeps): Pick<Anthropic, 'messages'> | undefined {
   if (deps.client) return deps.client;
-  if (!env.ANTHROPIC_API_KEY && env.E2E_TEST_MODE === 'true') return fakeCheckClient();
+  if (env.E2E_TEST_MODE === 'true') return fakeCheckClient();
   return undefined;
 }
 

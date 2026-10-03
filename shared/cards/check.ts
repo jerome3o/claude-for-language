@@ -46,7 +46,7 @@ export const CHECK_MODEL = 'claude-haiku-4-5';
  * issues come back, ~1 word in 8 has one). Haiku 4.5: $1 / M input, $5 / M output.
  */
 export const CHECK_COST = {
-  promptTokens: 900,
+  promptTokens: 1100,
   inputTokensPerWord: 30,
   outputTokensPerWord: 12,
   outputTokensPerBatch: 20,

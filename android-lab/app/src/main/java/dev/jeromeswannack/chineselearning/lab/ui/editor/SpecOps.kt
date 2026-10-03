@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.ui.editor
 
-import dev.jeromeswannack.chineselearning.lab.core.Pinyin
 import dev.jeromeswannack.chineselearning.lab.core.spec.JsJson
 import dev.jeromeswannack.chineselearning.lab.core.spec.str
 import dev.jeromeswannack.chineselearning.lab.core.spec.with
@@ -47,8 +46,11 @@ fun <T> List<T>.removeAtIndex(i: Int): List<T> = filterIndexed { j, _ -> j != i 
 
 fun <T> List<T>.insertAt(i: Int, value: T): List<T> = toMutableList().also { it.add(i.coerceIn(0, size), value) }
 
-/** Tone-marked pinyin for hanzi (pinyin-pro on the web, its Kotlin port here — works offline). */
-fun toPinyin(hanzi: String): String = Pinyin.toPinyin(hanzi)
+/**
+ * Tone-marked pinyin for hanzi (the web's `autoPinyin`: pinyin-pro — its Kotlin port here, works
+ * offline — then the 一 / 不 tone changes, core ToneChange.kt).
+ */
+fun toPinyin(hanzi: String): String = dev.jeromeswannack.chineselearning.lab.core.ToneChange.autoPinyin(hanzi)
 
 /** Whole-page pinyin for a reader page: no stray spaces around Chinese punctuation (ReaderForm `toPagePinyin`). */
 fun toPagePinyin(chinese: String): String {
