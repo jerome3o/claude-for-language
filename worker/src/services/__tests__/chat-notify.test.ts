@@ -74,7 +74,7 @@ describe('chat notifications', () => {
   });
 
   function env(hubs = fakeHubs()): Env {
-    return { DB: db, CHAT_HUB: hubs.ns, FCM_SERVICE_ACCOUNT_JSON: saJson, SENDGRID_API_KEY: 'sg', NTFY_TOPIC: 'topic' } as unknown as Env;
+    return { DB: db, CHAT_HUB: hubs.ns, FCM_SERVICE_ACCOUNT_JSON: saJson, SENDGRID_API_KEY: 'sg', NTFY_TOPIC: 'topic', SESSION_SECRET: 'test-secret' } as unknown as Env;
   }
 
   it('a new message: live to both, FCM + Web Push to the recipient only, and the old channels as before', async () => {
