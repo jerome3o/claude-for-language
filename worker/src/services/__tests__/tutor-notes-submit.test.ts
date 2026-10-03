@@ -1,3 +1,5 @@
+import { activitySummary, findActivity, reduceActivity, startActivity, type ActivityAction } from '@shared/call-activities';
+import { activitiesNotes } from '../calls/activities';
 import { describe, it, expect } from 'vitest';
 import { composeCallNotes } from '../tutor-notes-submit';
 
@@ -11,6 +13,12 @@ const names = { t1: 'Li (tutor)', s1: 'Jerome (student)' };
 
 function seg(id: string, user_id: string, start: number, text: string, translation: string | null = null) {
   return { id, user_id, start_ms: 1_000_000 + start * 1000, end_ms: 1_000_000 + start * 1000 + 900, text, translation };
+}
+
+function play() {
+  let s = startActivity(findActivity('dictation-everyday-1')!, { sessionId: 'x', starter: 't', tutor: 't', present: ['t', 's'], names: { t: 'Minghui', s: 'Jerome' }, now: 1 });
+  for (const [who, a] of [['t', { type: 'ask' }], ['s', { type: 'draft', text: '你号' }], ['t', { type: 'reveal' }]] as const) s = reduceActivity(s, a as ActivityAction, who, 2)!;
+  return s;
 }
 
 describe('composeCallNotes', () => {
@@ -30,6 +38,16 @@ describe('composeCallNotes', () => {
     expect(notes).toContain('我把作业做完了。');
     // Materials alone are enough to work from.
     expect(composeCallNotes({ title: null, startedAt: 0, names, transcript: [], board: [], chat: [], report: null, materials: [] })).toBe('');
+  });
+
+  it('includes the in-call activities played, from their summaries', () => {
+    const session = play();
+    const text = activitiesNotes([{ summary: activitySummary(session) }]);
+    expect(text).toContain('"Dictation: everyday words" (dictation; 1 of 8 rounds played — 0/1 right, not finished)');
+    expect(text).toContain('- 你好 (nǐ hǎo, hello) — wrote 你号 ✗');
+    const notes = composeCallNotes({ title: null, startedAt: 0, names, transcript: [], board: [], chat: [], report: null, activities: text });
+    expect(notes).toContain('IN-CALL ACTIVITIES');
+    expect(notes).toContain('wrote 你号 ✗');
   });
 
   it('lays out report, whiteboard, chat and transcript with roles and times', () => {

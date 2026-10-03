@@ -125,7 +125,10 @@ fun CallTiles(
             val r = rects.tiles.getValue(id)
             if (r.role == Role.HIDDEN) continue
             key(id) {
-                CompositionLocalProvider(LocalTextInsetTop provides if (id == TileId.TEXT) rects.textInsetTop.dp else 0.dp) {
+                CompositionLocalProvider(
+                    LocalTextInsetTop provides if (id == TileId.TEXT) rects.textInsetTop.dp else 0.dp,
+                    LocalActivityInsetTop provides if (id == TileId.ACTIVITY) headerInsetTop(rects, TileId.ACTIVITY).dp else 0.dp,
+                ) {
                 TileFrame(
                     id, spec, r, rects.stage, focused = focusedTile == id, narrow = narrow, layout = layout, available = available,
                     onAction = onAction, onReplace = onReplace, onTick = onTick, onSnap = onSnap,
@@ -383,9 +386,24 @@ private fun ResizeHandle(
     )
 }
 
+/**
+ * In-call activities (render-only, like the web's CallTiles.tsx): the room a stage tile's content
+ * leaves below its own header so the faces box in a top corner never covers it — the board's
+ * `textInsetTop` formula for any tile with a TILE_HEADER.
+ */
+internal fun headerInsetTop(rects: CallLayout.Rects, id: TileId): Double {
+    val p = rects.pair ?: return 0.0
+    val t = rects.tiles[id] ?: return 0.0
+    if ((p.corner != CallLayout.Corner.TL && p.corner != CallLayout.Corner.TR) || t.role != Role.STAGE) return 0.0
+    val overlapsX = p.x < t.x + t.w && p.x + p.w > t.x
+    val overlapsY = p.y < t.y + t.h && p.y + p.h > t.y
+    if (!overlapsX || !overlapsY) return 0.0
+    return Math.max(0.0, Math.round(p.y + p.h + 4 - t.y - (CallLayout.TILE_HEADER[id] ?: 0.0)).toDouble())
+}
+
 @Composable
 private fun TileChrome(spec: TileSpec, role: Role, focused: Boolean, id: TileId, onAction: (Action) -> Unit, onTick: () -> Unit, modifier: Modifier) {
-    val paper = id == TileId.TEXT || id == TileId.DRAW || id == TileId.CHAT
+    val paper = id == TileId.TEXT || id == TileId.DRAW || id == TileId.CHAT || id == TileId.ACTIVITY
     val bg = if (paper) Color(0xFFF3F4F6) else Color(0xB3111827)
     val fg = if (paper) Color(0xFF374151) else Color.White
     Row(modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {

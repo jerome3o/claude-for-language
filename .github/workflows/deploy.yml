@@ -20,10 +20,25 @@ on:
 # 4. Run initial migration:
 #    cd worker && wrangler d1 migrations apply chinese-learning-db
 
+# Never cancelled: every deploy runs (no concurrency group).
 jobs:
-  deploy:
+  # Type check, tests and the frontend build run side by side; the deploy starts once all pass
+  # (as before, nothing is deployed when any of them fails). Same commands as PR Checks.
+  check:
     runs-on: ubuntu-latest
-    name: Deploy
+    name: ${{ matrix.name }}
+    strategy:
+      matrix:
+        include:
+          - name: Type check
+            run: npm run typecheck
+          - name: Tests (frontend)
+            run: npm run test -w frontend
+          - name: Tests (worker, mcp-server)
+            run: npm run test -w worker && npm run test -w mcp-server
+          - name: Build frontend
+            run: npm run build:frontend
+            dist: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,16 +52,43 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build frontend
-        run: npm run build:frontend
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.run }}
         env:
           VITE_API_URL: https://chinese-learning-api.jeromeswannack.workers.dev
+
+      - name: Hand the built frontend to the deploy job
+        if: matrix.dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          include-hidden-files: true
+          retention-days: 3
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # wrangler (and the worker / MCP server builds it runs) come from node_modules.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download the built frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
 
       - name: Apply D1 Migrations
         uses: cloudflare/wrangler-action@v3

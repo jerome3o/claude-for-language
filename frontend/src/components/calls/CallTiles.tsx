@@ -28,6 +28,7 @@ import {
   DROP_ZONE_LABELS,
   type DropZone,
   layoutRects,
+  TILE_HEADER,
   snapCorner,
   swipeFocus,
   type CallLayout,
@@ -44,6 +45,17 @@ export interface TileSpec {
   content: ReactNode;
   /** Small overlay in the tile's corner (status badges etc). */
   closable?: boolean;
+}
+
+/**
+ * An activity on the stage leaves room at its top for the faces box floating in
+ * a top corner over it (like the board's textInsetTop): px below its header bar.
+ */
+function activityInset(rects: ReturnType<typeof layoutRects>, r: { x: number; y: number; w: number; h: number; role: string }): number {
+  const pair = rects.pair;
+  if (!pair || (pair.corner !== 'tl' && pair.corner !== 'tr') || r.role !== 'stage') return 0;
+  const overlaps = pair.x < r.x + r.w && pair.x + pair.w > r.x && pair.y < r.y + r.h && pair.y + pair.h > r.y;
+  return overlaps ? Math.max(0, Math.round(pair.y + pair.h + 4 - r.y - (TILE_HEADER.activity ?? 0))) : 0;
 }
 
 export function CallTiles({
@@ -323,7 +335,7 @@ export function CallTiles({
     if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6 && Date.now() - s.at < 1200) replace(swipeFocus(layout, available, dx < 0 ? 1 : -1));
   };
 
-  const order: TileId[] = ['remote', 'screen', 'material', 'text', 'draw', 'chat', 'self'];
+  const order: TileId[] = ['remote', 'screen', 'material', 'activity', 'text', 'draw', 'chat', 'self'];
   return (
     <div className="call-tiles" ref={setRef} data-testid="call-tiles" data-mode={arr.mode} data-stage={arr.stage.join(',')}>
       {rects &&
@@ -340,6 +352,7 @@ export function CallTiles({
                   height: r.h,
                   zIndex: r.z,
                   ...(id === 'text' && rects.textInsetTop > 0 ? { '--text-inset-top': `${rects.textInsetTop}px` } : {}),
+                  ...(id === 'activity' && activityInset(rects, r) > 0 ? { '--tile-inset-top': `${activityInset(rects, r)}px` } : {}),
                 } as CSSProperties);
           const focused = arr.mode === 'focus' && arr.stage[0] === id;
           return (

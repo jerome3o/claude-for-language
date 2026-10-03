@@ -30,6 +30,7 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
     private var key: String? = null
     private var remoteSharing = false
     private var presentingId: String? = null
+    private var activityId: String? = null
 
     /** Loads this user's last layout (web loadLayout); anything odd falls back to the default. */
     fun bind(userId: String) {
@@ -42,6 +43,7 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
         // Already sharing when the layout arrived: their screen goes on the stage.
         if (remoteSharing) set(CallLayout.reduce(_layout.value, CallLayout.Action.ShareStarted))
         if (presentingId != null) set(CallLayout.reduce(_layout.value, CallLayout.Action.MaterialStarted))
+        if (activityId != null) set(CallLayout.reduce(_layout.value, CallLayout.Action.ActivityStarted))
     }
 
     fun dispatch(action: CallLayout.Action) = set(CallLayout.reduce(_layout.value, action))
@@ -78,6 +80,16 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
         val was = presentingId
         presentingId = materialId
         if (materialId != null && materialId != was) dispatch(CallLayout.Action.MaterialStarted)
+    }
+
+    /**
+     * In-call activities (web CallPage's effect on `activity.session_id`): a new session — started by
+     * either person, or one already running when I join — comes onto the stage; its rounds change nothing.
+     */
+    fun setActivity(sessionId: String?) {
+        val was = activityId
+        activityId = sessionId
+        if (sessionId != null && sessionId != was) dispatch(CallLayout.Action.ActivityStarted)
     }
 
     private fun set(l: CallLayout.Layout) {

@@ -44,8 +44,11 @@ first upload, and why a Play install can't update an Obtainium install (Google r
 setup — two GitHub secrets: [PUSH.md](PUSH.md). Without it the app still notifies while open
 (live socket) and every ~15 minutes in the background.
 
-Branch / PR builds upload a debug APK as the `chinese-learning-lab-debug-apk` workflow
-artifact (debug-signed: uninstall before switching between debug and release).
+PR builds upload a debug APK as the `chinese-learning-lab-debug-apk` workflow
+artifact (debug-signed: uninstall before switching between debug and release). Pushes build
+only on `main`; a branch builds through its PR, or with Actions → Android Lab Build → "Run
+workflow" when it has none. Core parity tests, app unit tests, the debug APK and the release
+build are parallel jobs; on `main` the publish job waits for all of them.
 
 Sign-in opens Google in a Chrome Custom Tab. The worker's `/api/auth/login?client=lab&nonce=…`
 carries the app in the OAuth state and the callback redirects to

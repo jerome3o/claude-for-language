@@ -96,6 +96,8 @@ export interface CallDetail {
   board: BoardItem[];
   /** What was typed on the shared text board. */
   board_text?: string;
+  /** In-call activities played in the lesson (shared/call-activities), oldest first. */
+  activities?: CallActivityResult[];
   /** The connection log both sides reported (shared/calls/connection.ts). */
   diagnostics?: CallDiagEntry[];
   chat: CallChatMessage[];
@@ -110,4 +112,17 @@ export interface CallJoinInfo {
   ws_path: string;
   ice_servers: RTCIceServer[];
   turn: boolean;
+}
+
+/** One in-call activity session kept with the lesson (`call_activities`). */
+export interface CallActivityResult {
+  id: string;
+  call_id: string;
+  activity_id: string;
+  kind: string;
+  title: string;
+  started_by: string | null;
+  started_at: number;
+  updated_at: number;
+  summary: import('@shared/call-activities').ActivitySummary;
 }
