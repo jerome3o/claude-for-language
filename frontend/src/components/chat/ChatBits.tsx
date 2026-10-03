@@ -54,11 +54,18 @@ export function OutboxState({
   );
 }
 
-/** "↓ 3 new" — new messages arrived while scrolled up. */
+/** The round ↓ "jump to latest" button, with a badge when new messages arrived while scrolled up. */
 export function NewMessagesPill({ count, onClick }: { count: number; onClick: () => void }) {
   return (
-    <button type="button" className="chat-new-pill" onClick={onClick} data-testid="chat-new-pill">
-      ↓ {count} new
+    <button
+      type="button"
+      className="chat-new-pill"
+      onClick={onClick}
+      data-testid="chat-new-pill"
+      aria-label={count > 0 ? `${count} new message${count === 1 ? '' : 's'} — jump to latest` : 'Jump to latest'}
+    >
+      <span aria-hidden="true">↓</span>
+      {count > 0 && <span className="chat-new-pill-badge">{count > 99 ? '99+' : count}</span>}
     </button>
   );
 }
