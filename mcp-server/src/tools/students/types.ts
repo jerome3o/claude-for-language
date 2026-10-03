@@ -455,6 +455,8 @@ export interface SessionNotesJobRow {
   lesson_at: string | null;
   priority: 'core' | 'non_urgent';
   auto_share: boolean;
+  /** 1 = a homework draft (reviewed, then assigned). */
+  review?: number | boolean;
   status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
   progress: string | null;
   steps: SessionNotesStep[];

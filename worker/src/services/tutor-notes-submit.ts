@@ -25,6 +25,15 @@ export class SubmitError extends Error {
   }
 }
 
+/**
+ * Whether a request asked for the job's results to be sent automatically.
+ * Only an explicit `auto_share: true` does — anything else (missing, false,
+ * "yes") keeps everything in the tutor's account until they press Send.
+ */
+export function wantsAutoShare(body: { auto_share?: unknown } | null | undefined): boolean {
+  return body?.auto_share === true;
+}
+
 /** At most this many jobs may be queued or running per student at once. */
 export const MAX_ACTIVE_JOBS = 2;
 
@@ -37,7 +46,8 @@ export interface SubmitInput {
   /** ISO timestamp, or null for "now". */
   lessonAt: string | null;
   priority: jobs.TutorNotesPriority;
-  autoShare: boolean;
+  /** Send what the job makes to the student when it finishes. Default FALSE: content is made in the tutor's account and sent with an explicit "Send to <student>". */
+  autoShare?: boolean;
   logLesson: boolean;
   sourceCallId?: string | null;
   /** A DRAFT the tutor reviews before anything is sent (docs/HOMEWORK.md). */
@@ -84,7 +94,7 @@ export async function submitSessionNotes(env: Env, input: SubmitInput): Promise<
     notes,
     lesson_at: input.lessonAt,
     priority: input.priority,
-    auto_share: input.autoShare,
+    auto_share: input.autoShare === true,
     lesson_log_id: lessonLogId,
     source_call_id: input.sourceCallId ?? null,
     review: input.review ?? false,
