@@ -76,3 +76,12 @@ describe('time zone helpers', () => {
     expect(normalizeName('A\u0000B\nC')).toBe('AB C');
   });
 });
+
+describe('pickProfileUpdate voice_gender', () => {
+  it('accepts male / female / other / null and refuses anything else', () => {
+    expect(pickProfileUpdate({ voice_gender: 'female' }).update.voice_gender).toBe('female');
+    expect(pickProfileUpdate({ voice_gender: null }).update.voice_gender).toBeNull();
+    expect('voice_gender' in pickProfileUpdate({ bio: 'x' }).update).toBe(false);
+    expect(pickProfileUpdate({ voice_gender: 'robot' }).problems[0]).toMatch(/voice_gender/);
+  });
+});

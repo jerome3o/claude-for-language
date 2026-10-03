@@ -2,7 +2,10 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LiveCallBanner } from '../components/calls/CallBanner';
 import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { chatBackTarget } from '../components/chat/chatBack';
-import { base64ToBlob } from '../services/ttsCache';
+import { base64ToBlob, getTTSWithCache } from '../services/ttsCache';
+import { speakWithBrowserTTS } from '../services/audioCache';
+import { readConversationVoices } from '../services/conversationVoices';
+import { chatReadAloudSpeed, chatReadAloudVoice, parseVoiceGender } from '@shared/chats/voice';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -11,7 +14,6 @@ import {
   createNote,
   createConversation,
   getAIResponse,
-  generateConversationTTS,
   checkMessage,
   updateConversationVoiceSettings,
   updateConversationTitle,
@@ -29,6 +31,7 @@ import {
   MINIMAX_VOICES,
   GeneratedNoteWithContext,
   CheckMessageResponse,
+  CLAUDE_AI_USER_ID,
 } from '../types';
 import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
@@ -656,10 +659,13 @@ export function ChatPage() {
     });
   };
 
-  const handlePlayMessageAudio = (msg: MessageWithSender) => playTextAudio(msg.id, msg.content);
+  const handlePlayMessageAudio = (msg: MessageWithSender) => playTextAudio(msg.id, msg.content, msg.sender_id);
 
-  /** Read `text` aloud in the conversation's voice; `key` marks what is playing (a tap again stops it). */
-  const playTextAudio = async (key: string, text: string) => {
+  /**
+   * Read `text` aloud in the voice of `senderId` (a message, or the better sentence of
+   * "How to say it better" in my own voice); `key` marks what is playing (a tap again stops it).
+   */
+  const playTextAudio = async (key: string, text: string, senderId: string) => {
     if (playingAudioMessageId === key) {
       // Stop playing
       playerRef.current.stop();
@@ -668,14 +674,28 @@ export function ChatPage() {
     }
 
     setPlayingAudioMessageId(key);
+    // The sender's voice (shared/chats/voice.ts): their voice_gender over MY
+    // conversation voices; Claude's lines in a role-play keep the persona voice.
+    // Cache-first by (text, voice, speed), so a message plays offline once heard.
+    const fromAi = isAIConversation && senderId === CLAUDE_AI_USER_ID;
+    const rel = relationshipQuery.data;
+    const sender = senderId === user?.id ? user : rel && user ? getOtherUserInRelationship(rel, user.id) : null;
+    const senderGender = fromAi ? null : parseVoiceGender(sender && sender.id === senderId ? sender.voice_gender : null);
+    const voice = chatReadAloudVoice({ senderGender, enabled: readConversationVoices(), fromAi, personaVoice: conversation?.voice_id });
+    const speed = chatReadAloudSpeed({ fromAi, personaSpeed: conversation?.voice_speed });
     try {
-      const result = await generateConversationTTS(
-        convId!,
-        text,
-        conversation?.voice_id || undefined,
-        conversation?.voice_speed || undefined
-      );
-      playBase64Audio(result.audio_base64, result.content_type, key);
+      const blob = await getTTSWithCache(text, speed, voice);
+      if (blob) {
+        playerRef.current.play(blob, {
+          onEnded: () => setPlayingAudioMessageId(null),
+          onError: () => setPlayingAudioMessageId(null),
+        });
+        return;
+      }
+      if (navigator.onLine) throw new Error('No audio came back');
+      // Offline and never fetched: a Mandarin device voice of the sender's gender.
+      await speakWithBrowserTTS(text, senderGender === 'other' ? null : senderGender);
+      setPlayingAudioMessageId(null);
     } catch (error) {
       console.error('Failed to generate TTS:', error);
       setPlayingAudioMessageId(null);
@@ -2439,7 +2459,7 @@ export function ChatPage() {
           viewerId={myId}
           tutorName={otherUser.name || 'Your tutor'}
           playing={playingAudioMessageId === `better:${sayBetterFor.id}`}
-          onPlay={(text) => void playTextAudio(`better:${sayBetterFor.id}`, text)}
+          onPlay={(text) => void playTextAudio(`better:${sayBetterFor.id}`, text, myId)}
           onDiscuss={() => {
             const msg = sayBetterFor;
             setSayBetterFor(null);

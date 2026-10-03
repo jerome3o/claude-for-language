@@ -114,10 +114,7 @@ private fun coachCardActions(app: LabApp): SentenceActions {
     val tools = CardTools(app)
     return SentenceActions(
         decks = {
-            withContext(Dispatchers.IO) {
-                app.repo.dao.decks().sortedWith(compareByDescending<dev.jeromeswannack.chineselearning.lab.data.DeckEntity> { it.studyPriority }.thenByDescending { it.createdAt })
-                    .map { it.id to it.name }
-            }
+            withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { it.id to it.name } }
         },
         deckHas = tools::deckHas,
         addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english, c.funFacts)) },

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PROFILE_LIMITS, charCount, pickProfileUpdate, timeZoneCity, type Profile } from '@shared/profile';
+import { VOICE_GENDER_HINT, VOICE_GENDER_OPTIONS, VOICE_GENDER_TITLE } from '@shared/chats/voice';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavRole } from '../components/nav/useNavRole';
 import { getProfile, updateProfile, uploadProfilePicture, removeProfilePicture, ProfileError } from '../api/profile';
@@ -329,6 +330,30 @@ export function ProfilePage() {
                   Use this device’s: {timeZoneCity(deviceTz)}
                 </button>
               )}
+            </section>
+
+            {/* ---------- Read-aloud voice (shared/chats/voice.ts) ---------- */}
+            <section className="pf-card" data-testid="voice-gender">
+              <span className="pf-label" id="pf-voice-label">{VOICE_GENDER_TITLE}</span>
+              <p className="pf-desc">{VOICE_GENDER_HINT}</p>
+              <div className="pf-seg" role="radiogroup" aria-labelledby="pf-voice-label">
+                {VOICE_GENDER_OPTIONS.map((o) => {
+                  const value = o.value ?? '';
+                  const on = draft.voice_gender === value;
+                  return (
+                    <button
+                      key={o.label}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      className={`pf-seg-btn${on ? ' pf-seg-on' : ''}`}
+                      onClick={() => setDraft({ ...draft, voice_gender: value })}
+                    >
+                      {o.label}
+                    </button>
+                  );
+                })}
+              </div>
             </section>
 
             {/* ---------- Bio (private) ---------- */}

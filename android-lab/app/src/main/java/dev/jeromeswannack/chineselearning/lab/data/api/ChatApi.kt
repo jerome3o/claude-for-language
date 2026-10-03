@@ -115,13 +115,17 @@ data class AIRespondDto(val message: ChatMessageDto, val audio_base64: String? =
 suspend fun Api.aiRespond(conversationId: String): AIRespondDto = exchange("POST", "/api/conversations/${enc(conversationId)}/ai-respond", "{}", AIRespondDto.serializer())
 
 @Serializable
-data class ConversationTtsBody(val text: String, val voice_id: String? = null, val voice_speed: Double? = null)
+data class ConversationTtsBody(val text: String, val voice_id: String? = null, val voice_speed: Double? = null, val message_id: String? = null)
 
 @Serializable
 data class ConversationTtsDto(val audio_base64: String, val content_type: String = "audio/mpeg")
 
-suspend fun Api.conversationTts(conversationId: String, text: String, voiceId: String?, speed: Double?): ConversationTtsDto =
-    post("/api/conversations/${enc(conversationId)}/tts", ConversationTtsBody(text, voiceId, speed))
+/**
+ * The fallback read-aloud: with [messageId] the server resolves the voice itself (shared/chats/voice.ts);
+ * chat read-aloud normally goes through `/api/practice/tts` with the voice resolved on the phone.
+ */
+suspend fun Api.conversationTts(conversationId: String, text: String, voiceId: String?, speed: Double?, messageId: String? = null): ConversationTtsDto =
+    post("/api/conversations/${enc(conversationId)}/tts", ConversationTtsBody(text, voiceId, speed, messageId))
 
 /** A card Claude suggests (GeneratedNoteWithContext). */
 @Serializable

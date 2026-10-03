@@ -97,7 +97,8 @@ import java.io.File
 
 data class Notice(val text: String, val error: Boolean)
 
-data class DeckChoice(val id: String, val name: String, val pinned: Boolean)
+/** A deck in the chat's add-card pickers, listed in study-queue order (the top deck first). */
+data class DeckChoice(val id: String, val name: String)
 
 /** A bottom sheet the chat has open (web: the page's modals + the per-message sheet). */
 sealed interface ChatSheet {
@@ -368,6 +369,12 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private var pollJob: Job? = null
     private var player: MediaPlayer? = null
     private var progressJob: Job? = null
+    /** Read-aloud clips: the lessons' cache-first TTS (`/api/practice/tts`, files keyed by text + voice + speed). */
+    private val ttsClips get() = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).media
+    /** Offline with no clip on the phone: the phone's own zh-CN voice of the sender's gender. */
+    private val deviceVoice by lazy { dev.jeromeswannack.chineselearning.lab.fx.DeviceChineseVoice(app) }
+    /** The other person's users.voice_gender (from the relationship, cached with it). */
+    private var otherVoiceGender: String? = null
     private val checkResults = HashMap<String, CheckResultDto>()
     private val typingIn = TypingIndicator()
     private val typingOut = TypingThrottle()
@@ -504,6 +511,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private fun applyHeader(rel: RelationshipDto?, convs: List<ChatConversationDto>?, me: String?) {
         rel ?: return
         val other = rel.other(me)
+        otherVoiceGender = other?.voice_gender
         val tutorId = if (rel.requester_role == "tutor") rel.requester_id else rel.recipient_id
         _ui.update {
             it.copy(
@@ -628,10 +636,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     private suspend fun loadDecks() {
-        val pinned = app.cache.get<List<String>>(PINNED_KEY).orEmpty()
-        val decks = withContext(Dispatchers.IO) { app.repo.dao.decks() }
-            .sortedWith(compareByDescending<dev.jeromeswannack.chineselearning.lab.data.DeckEntity> { it.id in pinned }.thenBy { it.name.lowercase() })
-            .map { DeckChoice(it.id, it.name, it.id in pinned) }
+        // Queue order (the web's decksInQueueOrder): the top deck first, and the pickers' default.
+        val decks = dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(withContext(Dispatchers.IO) { app.repo.dao.decks() }, { it.studyPriority }, { it.createdAt })
+            .map { DeckChoice(it.id, it.name) }
         _ui.update { it.copy(decks = decks) }
     }
 
@@ -1424,33 +1431,68 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
-    fun play(m: ChatMessageDto) = playText(m.id, m.content)
+    /**
+     * The voice + speed one message is read in (shared/chats/voice.ts via core ChatVoice): the
+     * sender's voice gender → the first voice of that gender in MY conversation voices; Claude's
+     * lines in a role-play chat keep the chat's persona voice. Never the legacy conversations.voice_id.
+     */
+    private suspend fun readAloudVoice(senderId: String): Pair<String, Double> {
+        val s = _ui.value
+        val fromAi = s.isAi && senderId == CLAUDE_USER_ID
+        val gender = if (senderId.isNotEmpty() && senderId == s.myId) app.prefs.voiceGender else otherVoiceGender
+        val enabled = dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.get(app.cache)
+        val c = s.conversation
+        return dev.jeromeswannack.chineselearning.lab.core.ChatVoice.voice(gender, enabled, fromAi, c?.voice_id) to
+            dev.jeromeswannack.chineselearning.lab.core.ChatVoice.speed(fromAi, c?.voice_speed)
+    }
 
     /**
-     * Read aloud [text] through the chat's TTS (the conversation's voice), [id] = what shows as playing
-     * (a message id, or "say-better-<id>" for the corrected sentence in "How to say it better").
+     * Message menu → Read aloud: a cached clip for (text, voice, speed) plays at once, offline too;
+     * else it is made by `/api/practice/tts` and kept. Online failure → the server's own resolution
+     * (`/tts` with message_id); offline with nothing cached → the phone's zh-CN voice of that gender.
      */
-    fun playText(id: String, text: String) {
+    fun play(m: ChatMessageDto) = speak(m.id, m.sender_id, m.content, m.id)
+
+    /**
+     * Read aloud [text] in MY voice (the corrected sentence of "How to say it better" — always my own
+     * message); [id] = what shows as playing ("say-better-<messageId>").
+     */
+    fun playText(id: String, text: String) = speak(id, _ui.value.myId, text, null)
+
+    private fun speak(id: String, senderId: String, text: String, messageId: String?) {
         if (_ui.value.playingId == id) { stopAudio(); return }
         if (text.isBlank()) return
         _ui.update { it.copy(playingId = id) }
         viewModelScope.launch {
-            try {
-                val c = _ui.value.conversation
-                val r = api.conversationTts(convId, text, c?.voice_id, c?.voice_speed)
-                playBase64(r.audio_base64, id)
-            } catch (e: Exception) {
-                _ui.update { it.copy(playingId = null) }
-                error("Couldn't play that message.")
+            val (voice, speed) = readAloudVoice(senderId)
+            val online = app.online.value
+            val file = ttsClips.tts(text, voice, speed = speed, online = online)
+            if (_ui.value.playingId != id) return@launch
+            if (file != null) { playFile(file, id); return@launch }
+            if (online && messageId != null) {
+                try {
+                    val r = api.conversationTts(convId, text, null, null, messageId = messageId)
+                    if (_ui.value.playingId == id) playBase64(r.audio_base64, id)
+                    return@launch
+                } catch (e: Exception) {
+                    // the phone's own voice below
+                }
+            }
+            deviceVoice.speak(text, dev.jeromeswannack.chineselearning.lab.core.ChatVoice.deviceGender(voice)) {
+                _ui.update { u -> if (u.playingId == id) u.copy(playingId = null) else u }
             }
         }
     }
 
     private suspend fun playBase64(base64: String, messageId: String) {
-        stopAudio()
         val file = withContext(Dispatchers.IO) {
             File(app.cacheDir, "chat-tts.mp3").apply { writeBytes(Base64.decode(base64, Base64.DEFAULT)) }
         }
+        playFile(file, messageId)
+    }
+
+    private fun playFile(file: File, messageId: String) {
+        stopAudio()
         _ui.update { it.copy(playingId = messageId) }
         val mp = MediaPlayer()
         player = mp
@@ -1466,6 +1508,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun stopAudio() {
         progressJob?.cancel()
+        deviceVoice.stop()
         player?.runCatching { release() }
         player = null
         _ui.update { it.copy(playingId = null, voice = null) }
@@ -1615,14 +1658,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             } catch (e: Exception) {
                 _ui.update { it.copy(saving = false, modalNotice = Notice(e.userMessage(), true)) }
             }
-        }
-    }
-
-    fun togglePin(deckId: String) {
-        viewModelScope.launch {
-            val pinned = app.cache.get<List<String>>(PINNED_KEY).orEmpty()
-            app.cache.put(PINNED_KEY, KIND, if (deckId in pinned) pinned - deckId else pinned + deckId)
-            loadDecks()
         }
     }
 
@@ -1804,9 +1839,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 val cards = r.cards.map(::proposed)
                 val byId = _ui.value.messages.associateBy { it.id }
                 val sources = cards.mapNotNull { it.sourceMessageId }.distinct().mapNotNull { id -> byId[id]?.let { id to sourcePreview(it) } }.toMap()
-                val last = app.cache.get<String>(LAST_DECK_KEY)
+                // The top deck of the study queue every time (decks are in queue order); nothing remembered.
                 val decks = _ui.value.decks
-                val deckId = last?.takeIf { id -> decks.any { it.id == id } } ?: decks.firstOrNull()?.id
+                val deckId = decks.firstOrNull()?.id
                 app.haptics.tick()
                 app.sounds.play(Sounds.Sfx.FLIP, 0.5f)
                 _ui.update {
@@ -1869,7 +1904,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                     deckId = r.deckId!!
                     deckName = _ui.value.decks.firstOrNull { it.id == deckId }?.name ?: "your deck"
                 }
-                app.cache.put(LAST_DECK_KEY, KIND, deckId)
                 val res = api.addNotesBatch(deckId, chosen.map { noteOf(it.second) })
                 val failed = res.failed.associate { it.index to it.error.ifBlank { "Couldn't add this card." } }
                 val added = res.created.size
@@ -1968,17 +2002,15 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         stopAudio()
         recordJob?.cancel()
         recorder?.cancel()
+        deviceVoice.shutdown()
         super.onCleared()
     }
 
     companion object {
         const val KIND = "chat"
-        const val PINNED_KEY = "chat/pinned-decks"
         const val RECENT_KEY = "chat/recent-emojis"
         /** The voice-message speed chip (1 / 1.5 / 2). */
         const val SPEED_KEY = "chat/voice-speed"
-        /** The deck the last "Make flashcards" went to (preselected next time). */
-        const val LAST_DECK_KEY = "chat/last-deck"
 
         fun proposed(c: ProposedCardDto) = dev.jeromeswannack.chineselearning.lab.core.ProposedCard(
             hanzi = c.hanzi, pinyin = c.pinyin, english = c.english, funFacts = c.fun_facts,

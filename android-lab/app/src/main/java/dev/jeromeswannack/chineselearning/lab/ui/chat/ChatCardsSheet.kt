@@ -40,7 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.ProposedCard
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
-import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
+import dev.jeromeswannack.chineselearning.lab.ui.kit.DeckChipList
+import dev.jeromeswannack.chineselearning.lab.ui.kit.PinnedFooterColumn
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
@@ -65,48 +66,62 @@ class ReviewActions(
 /**
  * "Make flashcards" review (docs/CHAT.md PR 3): Claude's cards, each checkable (one already in
  * the decks starts unchecked) and editable (✎ opens its fields), with the message it came from;
- * the deck (the last one used is preselected, or a new deck); "Add N cards" in one batch.
+ * the deck (chips in study-queue order, the top deck preselected — nothing remembered — or a new
+ * deck); "Add N cards" in one batch. The cards and deck chips scroll; "Add N cards" stays pinned.
  */
 @Composable
 fun ReviewPanel(r: ReviewUi, decks: List<DeckChoice>, online: Boolean, actions: ReviewActions) {
     val review = r.review
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).testTag("chat-review"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Column {
-            Text(r.title, style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink)
-            Text(
-                "${review.count} of ${review.cards.size} checked · tap ✎ to change a card",
-                style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
-            )
-        }
-        review.cards.forEachIndexed { i, c ->
-            ProposedCardRow(
-                c, checked = i in review.checked, editing = r.editing == i, problem = review.problems[i],
-                source = c.sourceMessageId?.let { r.sources[it] },
-                onToggle = { actions.onToggle(i) },
-                onOpenEdit = { actions.onOpenEdit(i) },
-                onEdit = { actions.onEdit(i, it) },
-            )
-        }
-        Text("Add to", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.padding(top = 4.dp))
-        ChipRow(Modifier.fillMaxWidth().testTag("chat-review-decks")) {
-            for (d in decks) LabChip((if (d.pinned) "📌 " else "") + d.name, selected = r.newDeck == null && d.id == r.deckId) { actions.onPickDeck(d.id) }
-            LabChip("+ New deck", selected = r.newDeck != null) { actions.onNewDeck(if (r.newDeck == null) "" else null) }
-        }
-        AnimatedVisibility(r.newDeck != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            OutlinedTextField(r.newDeck.orEmpty(), { actions.onNewDeck(it) }, label = { Text("New deck name") }, placeholder = { Text("e.g. From my chats") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("chat-review-new-deck"))
-        }
-        r.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        if (!online) InlineNotice("You're offline — adding cards needs a connection. Your picks stay here.", kind = NoticeKind.Offline)
-        val n = review.count
-        PrimaryPill(
-            if (r.saving) "Adding…" else if (n == 0) "Check the cards to add" else "Add $n card${if (n == 1) "" else "s"}",
-            Modifier.fillMaxWidth().height(56.dp).testTag("chat-review-add"),
-            enabled = n > 0 && !r.saving && online && (r.deckId != null || !r.newDeck.isNullOrBlank()),
-            onClick = actions.onSave,
-        )
-        SecondaryPill("Not now", Modifier.fillMaxWidth(), onClick = actions.onClose)
-        Spacer(Modifier.height(4.dp))
-    }
+    PinnedFooterColumn(
+        Modifier.testTag("chat-review"),
+        body = {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column {
+                    Text(r.title, style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink)
+                    Text(
+                        "${review.count} of ${review.cards.size} checked · tap ✎ to change a card",
+                        style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
+                    )
+                }
+                review.cards.forEachIndexed { i, c ->
+                    ProposedCardRow(
+                        c, checked = i in review.checked, editing = r.editing == i, problem = review.problems[i],
+                        source = c.sourceMessageId?.let { r.sources[it] },
+                        onToggle = { actions.onToggle(i) },
+                        onOpenEdit = { actions.onOpenEdit(i) },
+                        onEdit = { actions.onEdit(i, it) },
+                    )
+                }
+                Text("Add to", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.padding(top = 4.dp))
+                DeckChipList(Modifier.testTag("chat-review-decks")) {
+                    for (d in decks) LabChip(d.name, selected = r.newDeck == null && d.id == r.deckId) { actions.onPickDeck(d.id) }
+                    LabChip("+ New deck", selected = r.newDeck != null) { actions.onNewDeck(if (r.newDeck == null) "" else null) }
+                }
+                AnimatedVisibility(r.newDeck != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    OutlinedTextField(r.newDeck.orEmpty(), { actions.onNewDeck(it) }, label = { Text("New deck name") }, placeholder = { Text("e.g. From my chats") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("chat-review-new-deck"))
+                }
+                r.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                if (!online) InlineNotice("You're offline — adding cards needs a connection. Your picks stay here.", kind = NoticeKind.Offline)
+            }
+        },
+        footer = {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val n = review.count
+                // The deck stays named next to the pinned button even when its chip is scrolled away.
+                val target = if (r.newDeck != null) r.newDeck.ifBlank { "a new deck" } else decks.firstOrNull { it.id == r.deckId }?.name
+                target?.let {
+                    Text("To: $it", style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted, maxLines = 1, modifier = Modifier.testTag("chat-review-target"))
+                }
+                PrimaryPill(
+                    if (r.saving) "Adding…" else if (n == 0) "Check the cards to add" else "Add $n card${if (n == 1) "" else "s"}",
+                    Modifier.fillMaxWidth().height(56.dp).testTag("chat-review-add"),
+                    enabled = n > 0 && !r.saving && online && (r.deckId != null || !r.newDeck.isNullOrBlank()),
+                    onClick = actions.onSave,
+                )
+                SecondaryPill("Not now", Modifier.fillMaxWidth(), onClick = actions.onClose)
+            }
+        },
+    )
 }
 
 @Composable

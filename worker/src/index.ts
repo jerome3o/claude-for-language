@@ -6,6 +6,8 @@ import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
 import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, daysToIntroduce } from '@shared/decks';
+import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
+import { cachedConversationTTS } from './services/tts-cache';
 import { calculateSM2 } from './services/sm2';
 import {
   scheduleCard,
@@ -447,6 +449,8 @@ app.get('/api/auth/me', async (c) => {
     // Profile screen fields (routes/profile.ts); name / picture_url above are already the edited ones.
     about: user.about || null,
     time_zone: user.time_zone || null,
+    // Whose voice reads my chat messages aloud (shared/chats/voice.ts).
+    voice_gender: parseVoiceGender(user.voice_gender),
     picture_source: user.picture_source || 'google',
     landing_page: user.landing_page || null,
     // Video-call alerts: 'ring' (ring in the app + push) or 'silent' (banner only).
@@ -4089,7 +4093,7 @@ app.post('/api/conversations/:id/ai-initiate', async (c) => {
 app.post('/api/conversations/:id/tts', async (c) => {
   const userId = c.get('user').id;
   const convId = c.req.param('id');
-  const { text, voice_id, voice_speed } = await c.req.json<ConversationTTSRequest>();
+  const { text, voice_id, voice_speed, message_id } = await c.req.json<ConversationTTSRequest & { message_id?: string }>();
 
   if (!text) {
     return c.json({ error: 'Text is required' }, 400);
@@ -4102,20 +4106,37 @@ app.post('/api/conversations/:id/tts', async (c) => {
       return c.json({ error: 'Conversation not found' }, 404);
     }
 
-    // Generate TTS
-    const ttsResult = await generateConversationTTS(c.env, text, {
-      voiceId: voice_id || conv.voice_id || DEFAULT_MINIMAX_VOICE,
-      speed: voice_speed ?? conv.voice_speed ?? DEFAULT_TTS_SPEED,
-    });
+    // The voice follows the sender's voice_gender and the caller's conversation
+    // voices (shared/chats/voice.ts). conversations.voice_id is only the persona
+    // voice of a role-play chat: its column DEFAULT ('female-yujie') used to read
+    // every human chat in a role-play voice, so older clients' voice_id is ignored
+    // outside role-play chats.
+    const isAi = !!conv.is_ai_conversation;
+    let fromAi = isAi && !message_id;
+    let senderGender: string | null = null;
+    if (message_id) {
+      const sender = await c.env.DB
+        .prepare('SELECT m.sender_id, u.voice_gender FROM messages m LEFT JOIN users u ON u.id = m.sender_id WHERE m.id = ? AND m.conversation_id = ?')
+        .bind(message_id, convId)
+        .first<{ sender_id: string; voice_gender: string | null }>();
+      fromAi = isAi && sender?.sender_id === CLAUDE_AI_USER_ID;
+      senderGender = sender?.voice_gender ?? null;
+    }
+    const enabled = (await getConversationVoiceSettings(c.env.DB, userId).catch(() => null))?.enabled ?? null;
+    const personaVoice = isAi ? (voice_id || conv.voice_id) : null;
+    const voiceId = chatReadAloudVoice({ senderGender: parseVoiceGender(senderGender), enabled, fromAi, personaVoice });
+    const speed = chatReadAloudSpeed({ fromAi, personaSpeed: voice_speed ?? conv.voice_speed });
+    const ttsResult = await cachedConversationTTS(c.env, text, { voiceId, speed });
 
     if (!ttsResult) {
       return c.json({ error: 'Failed to generate audio' }, 500);
     }
 
-    const response: ConversationTTSResponse = {
+    const response: ConversationTTSResponse & { voice_id: string } = {
       audio_base64: ttsResult.audioBase64,
       content_type: ttsResult.contentType,
       provider: ttsResult.provider,
+      voice_id: ttsResult.voiceId,
     };
 
     return c.json(response);
@@ -6094,7 +6115,7 @@ app.post('/api/practice/tts', async (c) => {
   if (voice_id !== undefined && !LESSON_VOICE_IDS.has(voice_id)) {
     return c.json({ error: 'Unknown voice' }, 400);
   }
-  const result = await generateConversationTTS(c.env, text, { speed: clampedSpeed, voiceId: voice_id });
+  const result = await cachedConversationTTS(c.env, text, { speed: clampedSpeed, voiceId: voice_id });
   if (!result) return c.json({ error: 'TTS failed' }, 502);
   return c.json({ audio_base64: result.audioBase64, content_type: result.contentType });
 });

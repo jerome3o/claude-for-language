@@ -67,7 +67,6 @@ class ChatSheetActions(
     val onTool: (id: String, ChatMessageDto) -> Unit = { _, _ -> },
     val onReact: (ChatMessageDto, String) -> Unit = { _, _ -> },
     val onSaveCards: (cards: List<SuggestedCard>, deckId: String?, newDeck: String?) -> Unit = { _, _, _ -> },
-    val onTogglePin: (String) -> Unit = {},
     val onHelpMeSayIt: (intended: String, guess: String) -> Unit = { _, _ -> },
     val onToggleOption: (Int) -> Unit = {},
     val onRename: (String) -> Unit = {},
@@ -156,7 +155,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             }
         }
         is ChatSheet.Explain -> ui.explain?.let { e ->
-            LabBottomSheet(onDismiss = actions.onCloseExplain) {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet(onDismiss = actions.onCloseExplain) {
                 ExplainContent(e, s.saveCard, ui.online, actions.cards, onRetry = actions.onRetryExplain, onClose = actions.onCloseExplain)
             }
         }
@@ -243,7 +242,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             onDismiss = actions.onDismiss, onAdded = actions.onWordAdded,
         )
         ChatSheet.Review -> ui.review?.let { r ->
-            LabBottomSheet(onDismiss = actions.review.onClose) { ReviewPanel(r, ui.decks, ui.online, actions.review) }
+            dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet(onDismiss = actions.review.onClose) { ReviewPanel(r, ui.decks, ui.online, actions.review) }
         }
         is ChatSheet.Correct -> LabBottomSheet(onDismiss = actions.onDismiss, title = if (s.message.correction == null) "Correct this" else "Edit correction") {
             CorrectPanel(ui.messages.firstOrNull { it.id == s.message.id } ?: s.message, ui, actions)
@@ -309,7 +308,11 @@ private fun SelectableCard(c: SuggestedCard, selected: Boolean, onToggle: () -> 
     }
 }
 
-/** "Save N cards to:" — pinned decks first (📌), then + Create new deck (web: DeckSelectorWithCreate). */
+/**
+ * "Save N cards to:" — tap a deck to save there, decks in study-queue order (the top deck first),
+ * then + Create new deck (web: DeckSelectorWithCreate). The deck rows scroll on their own (at most
+ * ~5½ rows) so + Create new deck and the sheet's own buttons stay on screen with many decks.
+ */
 @Composable
 fun DeckPicker(ui: ChatUi, count: Int, actions: ChatSheetActions, onPick: (deckId: String?, newDeck: String?) -> Unit) {
     var creating by rememberSaveable { mutableStateOf(false) }
@@ -317,15 +320,19 @@ fun DeckPicker(ui: ChatUi, count: Int, actions: ChatSheetActions, onPick: (deckI
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.testTag("deck-picker")) {
         Text("Save $count card${if (count != 1) "s" else ""} to:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         if (ui.decks.isEmpty() && !creating) Text("No decks yet — create one below.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-        ui.decks.forEach { d ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    (if (d.pinned) "📌 " else "") + d.name,
-                    style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.background)
-                        .bouncyClickable(enabled = !ui.saving) { onPick(d.id, null) }.padding(horizontal = 14.dp, vertical = 13.dp),
-                )
-                Box(Modifier.size(44.dp).clip(CircleShape).clickable { actions.onTogglePin(d.id) }.alpha(if (d.pinned) 1f else 0.35f), contentAlignment = Alignment.Center) { Text("📌") }
+        if (ui.decks.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).testTag("deck-picker-list"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ui.decks.forEach { d ->
+                    Text(
+                        d.name,
+                        style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.background)
+                            .bouncyClickable(enabled = !ui.saving) { onPick(d.id, null) }.padding(horizontal = 14.dp, vertical = 13.dp),
+                    )
+                }
             }
         }
         if (creating) {

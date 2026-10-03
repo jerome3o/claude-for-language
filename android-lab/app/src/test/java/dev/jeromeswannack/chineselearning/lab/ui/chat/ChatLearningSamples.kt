@@ -47,7 +47,7 @@ object ChatLearningSamples {
     )
     val thread = listOf(m1, m2, v1, m4, m5)
 
-    val decks = listOf(DeckChoice("d1", "From my chats", pinned = true), DeckChoice("d2", "HSK 3", false), DeckChoice("d3", "Weekend words", false))
+    val decks = listOf(DeckChoice("d1", "From my chats"), DeckChoice("d2", "HSK 3"), DeckChoice("d3", "Weekend words"))
 
     /** The student (Jerome) with Minghui; some words already in his decks. */
     val student = ChatUi(
