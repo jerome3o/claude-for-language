@@ -309,6 +309,7 @@
 
 .sn-sheet {
   max-height: 94vh;
+  max-height: 94dvh;
 }
 
 .sn-form {
@@ -456,7 +457,6 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
-  padding-top: 0.25rem;
 }
 
 .sn-actions .btn {

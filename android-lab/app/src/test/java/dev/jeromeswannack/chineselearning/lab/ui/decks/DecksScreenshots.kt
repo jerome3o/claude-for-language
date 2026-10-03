@@ -29,7 +29,7 @@ class DecksScreenshots : LabScreenshotTest() {
     @Composable
     private fun Sheet(content: @Composable () -> Unit) {
         Column(Modifier.fillMaxSize().background(Lab.colors.background).padding(top = 80.dp)) {
-            Column(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(top = 20.dp)) { content() }
+            Column(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Lab.colors.card).padding(top = 20.dp)) { content() }
         }
     }
 

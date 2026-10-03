@@ -48,13 +48,12 @@ class TutorBudgetScreenshots : LabScreenshotTest() {
     }
 
     @Test fun sheet() = shoot("tutor-budget-02-sheet") {
-        Box(Modifier.fillMaxSize().background(Lab.colors.card).padding(20.dp)) {
+        Box(Modifier.fillMaxSize().background(Lab.colors.card).padding(top = 20.dp)) {
             Column {
-                Text("Daily new cards", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.padding(bottom = 16.dp))
                 var draft by remember { mutableStateOf(StudyBudget(5, 10)) }
                 DailyBudgetForm(
                     StudentStudyBudgetDto(budget = defaultBudget, top_deck = BudgetTopDeckDto("d1", "Lesson vocab – 2 Oct", 41)),
-                    draft, { draft = it }, busy = false, error = null, online = true, onReset = {}, onSave = {},
+                    draft, { draft = it }, busy = false, error = null, online = true, onReset = {}, onSave = {}, title = "Daily new cards",
                 )
             }
         }

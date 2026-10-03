@@ -199,7 +199,7 @@ class TeachingScreenshots : LabScreenshotTest() {
 
     @androidx.compose.runtime.Composable
     private fun Sheet(content: @androidx.compose.runtime.Composable () -> Unit) {
-        Box(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) { content() }
+        Box(Modifier.fillMaxSize().background(Lab.colors.card).padding(top = 16.dp)) { content() }
     }
 
     companion object {

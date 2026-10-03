@@ -47,6 +47,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.EmptyState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFormSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
 import dev.jeromeswannack.chineselearning.lab.ui.kit.CountBadge
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
@@ -320,17 +321,21 @@ private fun NewPracticeConversationSheet(onDismiss: () -> Unit, busy: Boolean, o
     var scenario by rememberSaveable { mutableStateOf("") }
     var userRole by rememberSaveable { mutableStateOf("") }
     var aiRole by rememberSaveable { mutableStateOf("") }
-    LabBottomSheet(onDismiss = onDismiss, title = "New Practice Conversation") {
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LabFormSheet(
+        onDismiss = onDismiss,
+        title = "New Practice Conversation",
+        footer = {
+            PrimaryPill(if (busy) "Creating..." else "Start Chat", Modifier.weight(1f).height(52.dp), enabled = !busy) {
+                onStart(PracticeConversationBody(title.trim().ifEmpty { null }, scenario.trim().ifEmpty { null }, userRole.trim().ifEmpty { null }, aiRole.trim().ifEmpty { null }))
+            }
+        },
+    ) {
+        run {
             OutlinedTextField(title, { title = it }, label = { Text("Title (optional)") }, placeholder = { Text("e.g., Restaurant Practice") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(scenario, { scenario = it }, label = { Text("Scenario (optional)") }, placeholder = { Text("You are ordering food at a Chinese restaurant. The waiter only speaks Mandarin.") }, minLines = 3, modifier = Modifier.fillMaxWidth())
             Text("This helps Claude understand the context for the conversation.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
             OutlinedTextField(userRole, { userRole = it }, label = { Text("Your role (optional)") }, placeholder = { Text("e.g., A tourist visiting Beijing") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(aiRole, { aiRole = it }, label = { Text("Claude's role (optional)") }, placeholder = { Text("e.g., A friendly restaurant waiter") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            PrimaryPill(if (busy) "Creating..." else "Start Chat", Modifier.fillMaxWidth().height(52.dp), enabled = !busy) {
-                onStart(PracticeConversationBody(title.trim().ifEmpty { null }, scenario.trim().ifEmpty { null }, userRole.trim().ifEmpty { null }, aiRole.trim().ifEmpty { null }))
-            }
-            Spacer(Modifier.height(12.dp))
         }
     }
 }
