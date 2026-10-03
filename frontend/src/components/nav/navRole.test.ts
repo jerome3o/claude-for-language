@@ -73,19 +73,19 @@ describe('deriveNavRole', () => {
 });
 
 describe('tabsFor', () => {
-  it('student: Study · Decks · Tutor · Progress · More', () => {
+  it('student: Study · Chats · Tutor · Progress · More', () => {
     expect(tabsFor({ hasStudents: false, isTutorOnly: false }).map((t) => t.label))
-      .toEqual(['Study', 'Decks', 'Tutor', 'Progress', 'More']);
+      .toEqual(['Study', 'Chats', 'Tutor', 'Progress', 'More']);
   });
 
-  it('tutor-only: Students · Decks · Study · More', () => {
+  it('tutor-only: Students · Chats · Study · More', () => {
     expect(tabsFor({ hasStudents: true, isTutorOnly: true }).map((t) => t.label))
-      .toEqual(['Students', 'Decks', 'Study', 'More']);
+      .toEqual(['Students', 'Chats', 'Study', 'More']);
   });
 
   it('tutor who also studies gets Progress back', () => {
     expect(tabsFor({ hasStudents: true, isTutorOnly: false }).map((t) => t.label))
-      .toEqual(['Students', 'Decks', 'Study', 'Progress', 'More']);
+      .toEqual(['Students', 'Chats', 'Study', 'Progress', 'More']);
   });
 });
 
@@ -94,9 +94,11 @@ describe('activeTab', () => {
   it.each([
     ['/', 'study'],
     ['/study/review/abc', 'study'],
-    ['/decks', 'decks'],
-    ['/decks/123', 'decks'],
-    ['/generate', 'decks'],
+    ['/chats', 'chats'],
+    ['/decks', 'more'],
+    ['/decks/123', 'more'],
+    ['/generate', 'more'],
+    ['/search', 'more'],
     ['/connections/1/insights', 'tutor'],
     ['/progress/day/2026-01-01', 'progress'],
     ['/more', 'more'],
@@ -114,11 +116,11 @@ describe('activeTab', () => {
 
 describe('isImmersiveRoute', () => {
   it.each(['/study', '/study/', '/quests/abc', '/picture-hunt/h1', '/readers/r1', '/readers/r1/edit', '/readers/r1/print',
-    '/library/l1/edit', '/lessons/l1/print', '/library/catalogue/conversation', '/connections/1/chat/2', '/join/token', '/calls/c1', '/homework/a1', '/tutor-notes/practice'])(
+    '/library/l1/edit', '/lessons/l1/print', '/library/catalogue/conversation', '/connections/1/chat/2', '/connections/1/chat/new', '/join/token', '/calls/c1', '/homework/a1', '/tutor-notes/practice'])(
     '%s hides the bar', (p) => expect(isImmersiveRoute(p)).toBe(true),
   );
   it.each(['/', '/study/review/abc', '/quests', '/picture-hunt', '/readers', '/readers/generate', '/library', '/library/l1', '/library/catalogue',
-    '/lessons', '/connections/1', '/decks', '/more', '/settings', '/calls', '/calls/c1/review', '/homework', '/tutor-notes'])(
+    '/lessons', '/connections/1', '/decks', '/chats', '/more', '/settings', '/calls', '/calls/c1/review', '/homework', '/tutor-notes'])(
     '%s keeps the bar', (p) => expect(isImmersiveRoute(p)).toBe(false),
   );
 });
@@ -130,15 +132,15 @@ describe('tutor account (users.role = tutor)', () => {
     expect(role).toMatchObject({ isTutorAccount: true, isTutorOnly: true, hasStudents: false });
   });
 
-  it('gets Students · Decks · Library · More, with no Study or Progress tab', () => {
+  it('gets Students · Chats · Library · More, with no Study or Progress tab', () => {
     const role = deriveNavRole({ relationships: relationships({ students: [rel('active')] }), deckCount: 2, dueCount: 5, accountRole: 'tutor' });
-    expect(tabsFor(role).map((t) => t.id)).toEqual(['students', 'decks', 'library', 'more']);
+    expect(tabsFor(role).map((t) => t.id)).toEqual(['students', 'chats', 'library', 'more']);
     expect(activeTab(tabsFor(role), '/library/abc')).toBe('library');
   });
 
   it('a student account is unchanged', () => {
     const role = deriveNavRole({ relationships: relationships(), deckCount: 2, dueCount: 5, accountRole: 'student' });
-    expect(tabsFor(role).map((t) => t.id)).toEqual(['study', 'decks', 'tutor', 'progress', 'more']);
+    expect(tabsFor(role).map((t) => t.id)).toEqual(['study', 'chats', 'tutor', 'progress', 'more']);
   });
 
   it('try pages are immersive', () => {

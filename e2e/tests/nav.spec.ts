@@ -162,9 +162,11 @@ test.describe('bottom tab bar', () => {
       await expectBarAnchored(page, 'after load');
       await expectTargets(page);
 
-      // Long page: the deck list with 30 decks
-      await page.getByTestId('tab-bar').locator('[data-tab="decks"]').click();
+      // Long page: the deck list with 30 decks (More → Decks; Decks left the bar for Chats)
+      await page.getByTestId('tab-bar').locator('[data-tab="more"]').click();
+      await page.getByRole('link', { name: /^Decks/ }).click();
       await expect(page).toHaveURL(/\/decks$/);
+      await expect(bar(page).locator('[data-tab="more"]')).toHaveAttribute('aria-current', 'page');
       await expect(page.getByTestId('deck-card').first()).toBeVisible();
       await expect(page.getByTestId('deck-card')).toHaveCount(30);
       await expectBarAnchored(page, 'decks page');
@@ -187,7 +189,7 @@ test.describe('bottom tab bar', () => {
       expect(sb!.y + sb!.height).toBeLessThanOrEqual(bb!.y);
 
       // Navigating between tabs
-      for (const tab of ['progress', 'more', 'tutor', 'study']) {
+      for (const tab of ['progress', 'chats', 'more', 'tutor', 'study']) {
         await bar(page).locator(`[data-tab="${tab}"]`).click();
         await page.waitForLoadState('networkidle');
         await expect(bar(page).locator(`[data-tab="${tab}"]`)).toHaveAttribute('aria-current', 'page');
@@ -239,7 +241,7 @@ test.describe('bottom tab bar', () => {
 });
 
 test.describe('role-aware tabs and More page', () => {
-  test('student account: Study · Decks · Tutor · Progress · More', async ({ page, request }) => {
+  test('student account: Study · Chats · Tutor · Progress · More', async ({ page, request }) => {
     const student = await seedUser(request, 'student2');
     const tutor = await seedUser(request, 'tutor2');
     await pair(request, tutor, student);
@@ -247,7 +249,7 @@ test.describe('role-aware tabs and More page', () => {
 
     await page.setViewportSize({ width: 412, height: 915 });
     await login(page, student, '/');
-    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Study', 'Decks', 'Tutor', 'Progress', 'More']);
+    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Study', 'Chats', 'Tutor', 'Progress', 'More']);
 
     await page.goto(`/more?session_token=${student.token}`);
     await expect(page.getByRole('heading', { name: 'More' })).toBeVisible();
@@ -274,7 +276,7 @@ test.describe('role-aware tabs and More page', () => {
     await expect(page.getByTestId('personal-bio')).toBeVisible();
   });
 
-  test('tutor-only account: Students · Decks · Study · More, no study extras', async ({ page, request }) => {
+  test('tutor-only account: Students · Chats · Study · More, no study extras', async ({ page, request }) => {
     const student = await seedUser(request, 'student3');
     const tutor = await seedUser(request, 'tutor3');
     await pair(request, tutor, student);
@@ -283,7 +285,7 @@ test.describe('role-aware tabs and More page', () => {
     // Explicit landing so we can look at the tabs on the study home first
     await api(request, '/api/profile/landing-page', { method: 'PUT', token: tutor.token, data: { landing_page: 'study' } });
     await login(page, tutor, '/');
-    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Students', 'Decks', 'Study', 'More']);
+    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Students', 'Chats', 'Study', 'More']);
 
     await page.goto(`/more?session_token=${tutor.token}`);
     await expect(page.getByRole('link', { name: /Lesson Library/ })).toBeVisible();
@@ -306,7 +308,7 @@ test.describe('role-aware tabs and More page', () => {
 
     await page.setViewportSize({ width: 412, height: 915 });
     await login(page, tutor, '/');
-    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Students', 'Decks', 'Study', 'Progress', 'More']);
+    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Students', 'Chats', 'Study', 'Progress', 'More']);
   });
 });
 
@@ -353,7 +355,8 @@ test.describe('landing page', () => {
     await api(request, '/api/profile/landing-page', { method: 'PUT', token: student.token, data: { landing_page: 'decks' } });
     await login(page, student, '/');
     await expect(page).toHaveURL(/\/decks$/);
-    await expect(bar(page).locator('[data-tab="decks"]')).toHaveAttribute('aria-current', 'page');
+    // Decks is reached from More now, so a deck page lights More up.
+    await expect(bar(page).locator('[data-tab="more"]')).toHaveAttribute('aria-current', 'page');
 
     // Settings shows the choice and it round-trips through /api/auth/me
     await page.goto(`/settings?session_token=${student.token}`);

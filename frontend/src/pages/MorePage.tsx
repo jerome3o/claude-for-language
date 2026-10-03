@@ -106,6 +106,16 @@ export function MorePage() {
           </Link>
         )}
 
+        {/* Decks left the tab bar for Chats (docs/CHAT.md "Chats tab"): first row here. */}
+        <NavSection title="Decks">
+          <NavRow
+            icon="🗃️"
+            label="Decks"
+            desc={role.isTutorAccount || role.isTutorOnly ? 'Homework decks you write · search every card' : 'Your decks, the study queue · search every card'}
+            to="/decks"
+          />
+        </NavSection>
+
         {role.isTutorAccount ? (
           <>
             <NavSection title="Teaching">

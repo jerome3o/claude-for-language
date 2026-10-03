@@ -1,6 +1,6 @@
 import type { NavRole } from './navRole';
 
-export type TabId = 'study' | 'decks' | 'tutor' | 'students' | 'library' | 'progress' | 'more';
+export type TabId = 'study' | 'chats' | 'tutor' | 'students' | 'library' | 'progress' | 'more';
 
 export interface TabSpec {
   id: TabId;
@@ -11,7 +11,7 @@ export interface TabSpec {
 }
 
 const STUDY: TabSpec = { id: 'study', label: 'Study', to: '/', match: ['/', '/study'] };
-const DECKS: TabSpec = { id: 'decks', label: 'Decks', to: '/decks', match: ['/decks', '/generate', '/search'] };
+const CHATS: TabSpec = { id: 'chats', label: 'Chats', to: '/chats', match: ['/chats'] };
 const TUTOR: TabSpec = { id: 'tutor', label: 'Tutor', to: '/connections', match: ['/connections'] };
 const STUDENTS: TabSpec = { id: 'students', label: 'Students', to: '/connections', match: ['/connections'] };
 const LIBRARY: TabSpec = { id: 'library', label: 'Library', to: '/library', match: ['/library'] };
@@ -21,22 +21,24 @@ const MORE: TabSpec = {
   label: 'More',
   to: '/more',
   match: [
-    '/more', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
+    // Decks moved from the tab bar into More (its first row), so a deck page lights More up.
+    '/more', '/decks', '/generate', '/search', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
     '/quests', '/picture-hunt', '/library', '/duplicate-finder', '/admin',
   ],
 };
 
 /**
- * Tutor account (role):   Students · Decks · Library · More — no Study tab, whatever its decks
- * Student account:        Study · Decks · Tutor · Progress · More
- * Account with students:  Students · Decks · Study · More (+ Progress if they also study)
+ * Tutor account (role):   Students · Chats · Library · More — no Study tab, whatever its decks
+ * Student account:        Study · Chats · Tutor · Progress · More
+ * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
+ * Decks live at the top of More (and Home's "See all").
  */
 export function tabsFor(role: Pick<NavRole, 'hasStudents' | 'isTutorOnly'> & { isTutorAccount?: boolean }): TabSpec[] {
-  if (role.isTutorAccount) return [STUDENTS, DECKS, LIBRARY, MORE];
-  if (!role.hasStudents) return [STUDY, DECKS, TUTOR, PROGRESS, MORE];
+  if (role.isTutorAccount) return [STUDENTS, CHATS, LIBRARY, MORE];
+  if (!role.hasStudents) return [STUDY, CHATS, TUTOR, PROGRESS, MORE];
   return role.isTutorOnly
-    ? [STUDENTS, DECKS, STUDY, MORE]
-    : [STUDENTS, DECKS, STUDY, PROGRESS, MORE];
+    ? [STUDENTS, CHATS, STUDY, MORE]
+    : [STUDENTS, CHATS, STUDY, PROGRESS, MORE];
 }
 
 /** Which tab is active for a pathname (the longest matching prefix wins). */

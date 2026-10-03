@@ -130,3 +130,8 @@ export function setMessageCorrection(messageId: string, text: string, note?: str
 export function clearMessageCorrection(messageId: string): Promise<MessageWithSender> {
   return request(`/messages/${messageId}/correction`, { method: 'DELETE' });
 }
+
+/** The Chats tab: every conversation with its last message and my unread count (`GET /api/me/chats`). */
+export function getChatList(): Promise<import('@shared/chats/inbox').ChatListResponse> {
+  return request('/me/chats');
+}

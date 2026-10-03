@@ -92,3 +92,26 @@ html.tab-bar-keyboard .tab-bar {
     height: var(--tab-bar-height, 48px);
   }
 }
+
+/* Icon wrapper so the Chats tab can carry an unread badge. */
+.tab-bar-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.tab-bar-badge {
+  position: absolute;
+  top: -5px;
+  left: 14px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #2c6bed;
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--color-surface);
+}

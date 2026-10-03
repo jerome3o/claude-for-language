@@ -260,3 +260,29 @@ ALTER TABLE users ADD COLUMN email_chat_messages INTEGER NOT NULL DEFAULT 1;  --
   → `{ email_chat_messages }` with `Accept: application/json`, else the page. 400 bad token, 404 unknown account.
 - Signed in: `PUT /api/profile/email-prefs { email_chat_messages: boolean }`; the value is on `/api/auth/me`.
   Web: Settings → Notifications → **Chat e-mails** checkbox. Lab: Settings → **Chat e-mails** toggle (cached on the device).
+
+## Chats tab (the inbox)
+
+The bottom tab bar's **Chats** tab (it replaced Decks; Decks is now the first row of More, Home's
+"All decks →" and `/decks` as before) opens `/chats` (web `pages/ChatsPage.tsx`, Lab `ui/chats/`):
+one row per conversation across every active relationship — round avatar (picture, else an initial
+on a colour), the person's name (+ the conversation title only when there are several chats with
+that person), the last message preview ("You: …", 📷 Photo, 🎤 Voice message, Message deleted),
+a relative time (14:32 / Yesterday / Mon / 28 Sep / 28 Sep 2025) and a bold unread count. Newest
+activity first; Claude role-play chats (the same `conversations` rows) in their own "Practice with
+Claude" section. Search filters by name, title and last message. ✏️ → the person picker (when
+there's more than one) → `/connections/:relId/chat/new`. A row opens the chat with router state
+`{ from: '/chats' }`, so ← returns to the inbox (`chatBackTarget`).
+
+- `GET /api/me/chats` → `{ server_time, conversations: ChatListRow[] }` — ONE query
+  (`getChatList`, `services/chat/reads.ts`): conversation + relationship + the other user + the last
+  message (correlated subquery on `messages(conversation_id, created_at)`) + my unread count.
+- The rules (sorting, title, preview, relative time with an explicit UTC offset, search, the badge
+  count, live updates) are `shared/chats/inbox.ts`; the Lab's `core/…/chat/ChatInbox.kt` is
+  parity-tested against it. `chatMessagePreview` is also the server's `messagePreviewText`.
+- Offline: the list is cached (web localStorage `chat-list-v1:<user>`, `hooks/useChatList.ts`; Lab
+  JsonCache) and renders instantly; refreshed on open, focus and every minute. While the inbox is
+  open it holds the ChatHub socket: `message` / `message_updated` / `read` events update the cached
+  list (`applyIncomingMessage` / `applyReadMarker`; an unknown conversation → refetch).
+- The tab badge = conversations with people (not Claude) that have unread messages
+  (`unreadConversationCount`).

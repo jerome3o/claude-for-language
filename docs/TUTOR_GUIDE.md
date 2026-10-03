@@ -26,8 +26,9 @@ If you have read this guide before, these are the sections that changed:
 
 **New look**
 
-- A **bottom tab bar** replaces the old avatar menu — Study · Decks · Tutor · Progress ·
-  More for students, Students · Decks · Study · More for tutors. Everything that used to
+- A **bottom tab bar** replaces the old avatar menu — Study · Chats · Tutor · Progress ·
+  More for students, Students · Chats · Study · More for tutors (Decks is the first row of
+  **More**). Everything that used to
   hide in the dropdown is on the **More** page — [section 3](#3-the-home-screen).
 - A **new home screen**: one *Study today's cards* button, a *From your tutor* homework
   card, and a short deck list — [section 3](#3-the-home-screen).
@@ -207,7 +208,7 @@ notifications. See [native/README.md](../native/README.md) for how to get it.
 6. **Your decks** — the five decks with the most cards due, each with a thin progress
    bar (green = mastered, blue = seen), the word count and a **pin** to keep a deck at
    the top.
-7. **All decks →** — the full list, on the Decks tab.
+7. **All decks →** — the full list (also **More → Decks**).
 8. **+ Add a deck** — create an empty deck or let Claude generate one (section 6).
 9. The **tab bar**, present on every normal page (it disappears during a study session,
    in the reader and in chat, so the screen is free for the task).
@@ -220,12 +221,12 @@ of the last month.
 | Tab | What it opens |
 |-----|---------------|
 | **Study** | the home screen above |
-| **Decks** | every deck, plus a search box that finds any word across all decks (section 6) |
+| **Chats** | every conversation with your tutor(s) and students in one list, newest first, with unread counts — tap one to open it, ✏️ for a new chat, search at the top |
 | **Tutor** | your tutor(s), homework and conversations (section 8) |
 | **Progress** | 30-day statistics and daily history (section 11) |
 | **More** | everything else — below |
 
-A tutor's tab bar reads **Students · Decks · Study · More** (plus **Progress** if the
+A tutor's tab bar reads **Students · Chats · Study · More** (plus **Progress** if the
 tutor also studies). Their **Students** tab is the dashboard in section 7. Under
 **Settings → Start on** anyone can choose which tab the app opens on.
 
@@ -433,7 +434,9 @@ Sessions save every review locally first, so nothing is lost if the connection d
 
 ## 6. Managing vocabulary
 
-### The Decks tab
+### The Decks page
+
+Open it from **More → Decks** (the first row) or **All decks →** on the home screen.
 
 <img src="guide-images/decks.png" width="300">
 
@@ -563,7 +566,7 @@ Deck page → ⋯ → **Settings**:
 Describe what to learn (1) — "Vocabulary for taking the bus in Changchun", "HSK 2 verbs
 about daily routine" — and Claude generates 8–12 words with pinyin, meaning, fun facts
 and audio. Review the words afterwards and delete any you don't want. The same page is
-behind **Generate** on the Decks tab.
+behind **Generate** on the Decks page.
 
 ### Search, duplicates and moving words
 
@@ -1070,7 +1073,7 @@ text anywhere and choose **Sentence Coach**.
 
 <img src="guide-images/analyze.png" width="300">
 
-**More → Sentence Breakdown** (also **Analyze** on the Decks tab). Enter a Chinese (or
+**More → Sentence Breakdown** (also **Analyze** on the Decks page). Enter a Chinese (or
 English) sentence (1) to see it split into aligned chunks — hanzi, pinyin and English
 side by side — with grammar notes on particles and constructions. Any chunk can be
 added as a card.
