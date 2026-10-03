@@ -37,6 +37,30 @@ object ChatMediaSizing {
         return maxOf(1, Math.round(width * scale).toInt()) to maxOf(1, Math.round(height * scale).toInt())
     }
 
+    /**
+     * A file name safe to write on the phone: no path, no control characters, no characters the
+     * filesystem refuses, ≤ 120 characters with the extension kept ("file" when nothing is left).
+     */
+    fun safeFileName(name: String): String {
+        var n = name.substringAfterLast('/').substringAfterLast('\\').filter { it >= ' ' && it != '\u007f' && it !in "<>:\"|?*" }.trim()
+        if (n.isEmpty() || n == "." || n == "..") return "file"
+        if (n.length > 120) {
+            val dot = n.lastIndexOf('.')
+            val ext = if (dot > 0 && n.length - dot <= 10) n.substring(dot) else ""
+            n = n.take(120 - ext.length) + ext
+        }
+        return n
+    }
+
+    /** A video bubble's size: like a photo, the shape clamped to 1:2 … 2:1 (the web's aspect-ratio clamp); 16:9 when unknown. */
+    fun videoSize(width: Int, height: Int, maxW: Float = 260f): Pair<Float, Float> {
+        val ratio = if (width > 0 && height > 0) (width.toFloat() / height).coerceIn(0.5f, 2f) else 16f / 9f
+        var w = maxW
+        var h = w / ratio
+        if (h > 300f) { h = 300f; w = h * ratio }
+        return w to h
+    }
+
     /** Largest power-of-two sample that still decodes at least [max] on the long side. */
     fun sampleSize(width: Int, height: Int, max: Int = MAX_SIDE): Int {
         var sample = 1
@@ -72,7 +96,7 @@ class ChatMediaStore(private val app: LabApp) {
         override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
     }
 
-    private fun ext(m: ChatMessageDto) = if (m.isVoice) "m4a" else "jpg"
+    private fun ext(m: ChatMessageDto) = extFor(m.attachment?.kind, m.attachment?.name, m.attachment?.mime)
     private fun fileFor(m: ChatMessageDto) = File(dir, "${safe(m.id)}.${ext(m)}")
     private fun adoptedFor(clientId: String, ext: String) = File(dir, "c-${safe(clientId)}.$ext")
 
@@ -122,14 +146,68 @@ class ChatMediaStore(private val app: LabApp) {
 
     private fun safe(id: String) = id.replace(Regex("[^A-Za-z0-9_-]"), "_")
 
+    /**
+     * A file attachment ready to hand to another app (round 2 PR 3): the bytes (cached / downloaded
+     * with the session's auth) copied under the file's own name into `cache/shared/chat-files/`,
+     * the only folder the FileProvider serves. Null offline / when the download failed.
+     */
+    suspend fun openable(m: ChatMessageDto): File? {
+        val src = file(m) ?: return null
+        return shareCopy(src, m.id, m.attachment?.name ?: "file")
+    }
+
+    /** The same for my pending upload (its staged file). */
+    suspend fun openableLocal(path: String, key: String, name: String): File? {
+        val src = File(path).takeIf { it.exists() } ?: return null
+        return shareCopy(src, key, name)
+    }
+
+    private suspend fun shareCopy(src: File, key: String, name: String): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            val folder = File(app.cacheDir, "shared/chat-files/${safe(key)}").apply { mkdirs() }
+            val dest = File(folder, ChatMediaSizing.safeFileName(name))
+            if (!dest.exists() || dest.length() != src.length()) src.copyTo(dest, overwrite = true)
+            dest
+        }.getOrNull()
+    }
+
+    /** A video's first frame for its bubble ([maxSide] px); null until its bytes are on the phone. */
+    suspend fun poster(f: File, key: String, maxSide: Int): ImageBitmap? {
+        val k = "poster:$key@$maxSide"
+        bitmaps.get(k)?.let { return it }
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val r = android.media.MediaMetadataRetriever()
+                try {
+                    r.setDataSource(f.absolutePath)
+                    val frame = r.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: return@runCatching null
+                    val (w, h) = ChatMediaSizing.targetSize(frame.width, frame.height, maxSide)
+                    (if (w != frame.width) Bitmap.createScaledBitmap(frame, w, h, true) else frame).asImageBitmap()
+                } finally { runCatching { r.release() } }
+            }.getOrNull()
+        }?.also { bitmaps.put(k, it) }
+    }
+
     /** Sign-out. */
-    fun clear() { dir.listFiles()?.forEach { it.delete() }; bitmaps.evictAll() }
+    fun clear() {
+        dir.listFiles()?.forEach { it.delete() }
+        File(app.cacheDir, "shared/chat-files").deleteRecursively()
+        bitmaps.evictAll()
+    }
 
     companion object {
         @Volatile private var shared: ChatMediaStore? = null
 
         /** One store per process (the bitmap cache outlives a chat screen). */
         fun of(app: LabApp): ChatMediaStore = shared ?: synchronized(this) { shared ?: ChatMediaStore(app).also { shared = it } }
+
+        /** The file extension a message's bytes are kept under: m4a / jpg / the file's own / mp4 · webm · mov. */
+        fun extFor(kind: String?, name: String?, mime: String?): String = when (kind) {
+            "voice" -> "m4a"
+            "file" -> name?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotEmpty() && it.length <= 10 && it.all { c -> c.isLetterOrDigit() } } ?: "bin"
+            "video" -> when (mime) { "video/webm" -> "webm"; "video/quicktime" -> "mov"; else -> "mp4" }
+            else -> "jpg"
+        }
 
         /** Bounds of a JPEG on disk (pending photo bubbles). */
         fun dims(path: String): Pair<Int, Int>? = runCatching {
@@ -146,6 +224,9 @@ class ChatMediaStore(private val app: LabApp) {
  * leaves the phone). Returns the written size.
  */
 object ChatPhoto {
+    /** Up to this many photos at once (round 2 PR 3). */
+    const val MAX_PHOTOS = 10
+
     fun prepare(context: Context, uri: Uri, dest: File): Pair<Int, Int> {
         val bitmap = decode(context, uri) ?: throw IllegalArgumentException("This photo couldn't be opened. Try a JPEG or PNG.")
         val (w, h) = ChatMediaSizing.targetSize(bitmap.width, bitmap.height)
@@ -190,6 +271,49 @@ object ChatPhoto {
         if (degrees == 0) return raw
         return Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, Matrix().apply { postRotate(degrees.toFloat()) }, true)
     }
+}
+
+/** What the system pickers hand over (round 2 PR 3): a document's name and size, a video's length and shape. */
+object ChatPicked {
+    data class Meta(val name: String, val size: Long, val mime: String?)
+    data class VideoInfo(val durationMs: Long?, val width: Int?, val height: Int?)
+
+    fun meta(context: Context, uri: Uri): Meta {
+        var name: String? = null
+        var size = -1L
+        runCatching {
+            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val si = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (ni >= 0 && !c.isNull(ni)) name = c.getString(ni)
+                    if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
+                }
+            }
+        }
+        if (size < 0) size = runCatching { context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull() ?: -1L
+        return Meta(name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "file", size, runCatching { context.contentResolver.getType(uri) }.getOrNull())
+    }
+
+    /** Copies the picked bytes into [dest]. */
+    fun copy(context: Context, uri: Uri, dest: File) {
+        val input = context.contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("That file couldn't be opened.")
+        input.use { i -> FileOutputStream(dest).use { i.copyTo(it) } }
+    }
+
+    /** Length and shape as shown (a 90° / 270° clip swaps them, like the browser's videoWidth). */
+    fun videoInfo(path: String): VideoInfo = runCatching {
+        val r = android.media.MediaMetadataRetriever()
+        try {
+            r.setDataSource(path)
+            val dur = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+            var w = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+            var h = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+            val rot = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            if (rot == 90 || rot == 270) { val t = w; w = h; h = t }
+            VideoInfo(dur?.takeIf { it > 0 }, w?.takeIf { it > 0 }, h?.takeIf { it > 0 })
+        } finally { runCatching { r.release() } }
+    }.getOrDefault(VideoInfo(null, null, null))
 }
 
 /** Voice messages: AAC in MP4 (`audio/mp4`, .m4a), mono 44.1 kHz, with a 0..1 level for the meter. */

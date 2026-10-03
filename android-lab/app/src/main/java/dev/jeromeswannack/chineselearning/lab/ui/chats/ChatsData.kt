@@ -73,7 +73,7 @@ object Chats {
 
     /** The one-line preview the server would give this message (`messagePreviewText`). */
     fun previewOf(m: ChatMessageDto): String =
-        ChatInbox.messagePreview(m.content, m.attachment?.kind?.takeIf { it == "image" || it == "voice" }, m.isDeleted)
+        ChatInbox.messagePreview(m.content, m.attachment?.kind?.takeIf { it.isNotEmpty() }, m.isDeleted, m.attachment?.name)
 
     /** A live event → the cached list. */
     suspend fun onLive(app: LabApp, event: LiveEvent) {

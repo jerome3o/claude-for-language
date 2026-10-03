@@ -43,23 +43,29 @@ export interface ChatListResponse {
   conversations: ChatListRow[];
 }
 
-const PREVIEW_LABEL: Record<'image' | 'voice', string> = { image: '📷 Photo', voice: '🎤 Voice message' };
+export type ChatPreviewKind = 'image' | 'voice' | 'file' | 'video';
+
+const PREVIEW_LABEL: Record<ChatPreviewKind, string> = { image: '📷 Photo', voice: '🎤 Voice message', file: '📄 File', video: '🎬 Video' };
 
 /**
  * The one-line text for a message — notifications, the inbox, the live update
- * of a row: the text, "📷 Photo" / "🎤 Voice message" (+ ": caption"), or
+ * of a row: the text, "📷 Photo" / "🎤 Voice message" / "📄 <file name>" /
+ * "🎬 Video" (+ ": caption"), or
  * "Message deleted". The server's `messagePreviewText` is this function.
  */
 export function chatMessagePreview(message: {
   content: string;
-  attachment_kind?: 'image' | 'voice' | null;
+  attachment_kind?: ChatPreviewKind | null;
+  /** A file's name (kind 'file'). */
+  attachment_name?: string | null;
   deleted?: boolean;
 }): string {
   if (message.deleted) return 'Message deleted';
   const kind = message.attachment_kind;
-  if (!kind) return message.content;
+  if (!kind || !(kind in PREVIEW_LABEL)) return message.content;
   const caption = message.content.trim();
-  return caption ? `${PREVIEW_LABEL[kind]}: ${caption}` : PREVIEW_LABEL[kind];
+  const label = kind === 'file' && message.attachment_name ? `📄 ${message.attachment_name}` : PREVIEW_LABEL[kind];
+  return caption ? `${label}: ${caption}` : label;
 }
 
 /** Newest activity first; ties by conversation id so the order is stable. */

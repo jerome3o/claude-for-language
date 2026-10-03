@@ -46,9 +46,8 @@ class ChatMenuWiringAppTest {
         correction = ChatCorrectionDto("我去了商店。", null, "t1", "2026-10-02T09:05:00.000Z"),
     )
 
-    // Up to ~15 s: on a loaded machine (the whole suite in parallel) a disk-backed write can take > 5 s.
     private fun idle(what: String = "", check: () -> Boolean = { true }) {
-        repeat(1500) {
+        repeat(500) {
             shadowOf(Looper.getMainLooper()).idle()
             if (check()) return
             Thread.sleep(10)

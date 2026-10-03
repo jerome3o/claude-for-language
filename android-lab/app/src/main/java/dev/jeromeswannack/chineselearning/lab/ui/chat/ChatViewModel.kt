@@ -47,6 +47,15 @@ import dev.jeromeswannack.chineselearning.lab.data.api.startCall
 import dev.jeromeswannack.chineselearning.lab.core.ChatSearch
 import dev.jeromeswannack.chineselearning.lab.data.api.SendMessageBody
 import dev.jeromeswannack.chineselearning.lab.data.api.chatMediaUploadPath
+import dev.jeromeswannack.chineselearning.lab.data.api.chatForwardPath
+import dev.jeromeswannack.chineselearning.lab.data.api.ForwardBody
+import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.myRelationships
+import dev.jeromeswannack.chineselearning.lab.core.ChatDrafts
+import dev.jeromeswannack.chineselearning.lab.core.ChatFiles
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPicked
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaSizing
+import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import dev.jeromeswannack.chineselearning.lab.data.api.chatMessagesPath
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteChatMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.editChatMessage
@@ -61,6 +70,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.messageWords
 import dev.jeromeswannack.chineselearning.lab.data.api.proposeChatFlashcards
 import dev.jeromeswannack.chineselearning.lab.data.api.setMessageCorrection
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.async
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatActions as ChatWrites
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaStore
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatWaveforms
@@ -101,10 +112,10 @@ sealed interface ChatSheet {
     data object Voice : ChatSheet
     data class Discuss(val message: ChatMessageDto) : ChatSheet
     // ---- PR 2 ----
-    /** 📎 → Take a photo / Choose from gallery. */
+    /** + → Camera / Photos / Video / File / Help me say it. */
     data object Attach : ChatSheet
-    /** A prepared photo with an optional caption, before it goes. */
-    data class Photo(val path: String, val width: Int, val height: Int) : ChatSheet
+    /** Prepared photos (up to 10, round 2 PR 3) with an optional caption for the first, before they go. */
+    data class Photos(val photos: List<StagedPhoto>) : ChatSheet
     /** ⋯ on the pinned bar: every pinned message. */
     data object Pins : ChatSheet
     data class ConfirmDelete(val message: ChatMessageDto) : ChatSheet
@@ -118,7 +129,17 @@ sealed interface ChatSheet {
     // ---- round 2: the long-press menu's sheets ----
     /** Explain (the breakdown, words → cards) or, [saveCard], the whole message as one card (docs/CHAT.md "Round 2"). */
     data class Explain(val message: ChatMessageDto, val saveCard: Boolean = false) : ChatSheet
+    // ---- round 2 PR 3 ----
+    /** "Forward to…" (its state is [ChatUi.forward]). */
+    data object Forward : ChatSheet
+    /** Message info: sent, read, edited, forwarded, the attachment… */
+    data class Info(val message: ChatMessageDto) : ChatSheet
+    /** No app on the phone opens this file: Share… / Save to Downloads. */
+    data class FileFallback(val path: String, val name: String, val mime: String) : ChatSheet
 }
+
+/** A photo shrunk on the phone, waiting in the compose sheet. */
+data class StagedPhoto(val path: String, val width: Int, val height: Int)
 
 /** The Explain / Save-as-flashcard sheet's data: `POST /api/sentences/explain-text`, cached by text. */
 data class ExplainUi(
@@ -264,7 +285,18 @@ data class ChatUi(
     val voiceSpeed: Float = 1f,
     /** 📹 in the header is starting / finding the call. */
     val callBusy: Boolean = false,
+    // ---- round 2 PR 3 ----
+    val forward: ForwardUi? = null,
+    /** A file being downloaded to open (its message / pending key). */
+    val openingFile: String? = null,
+    /** Files whose download failed ("couldn't download, tap to retry"). */
+    val fileErrors: Set<String> = emptySet(),
+    /** The video bubble playing in place (message id, or "p-<clientId>"). */
+    val playingVideo: String? = null,
 ) {
+    /** "🕓 1 message waiting for a connection" / "🕓 Sending 2 messages…" while this chat's outbox holds sends. */
+    val queueLabel: String? get() = ChatRound3.queueLabel(pending, online)
+
     val pinned: List<ChatMessageDto> get() = ChatRich.pinned(messages)
 
     fun rows(): List<ChatRow> = ChatRows.build(messages, pending, unreadId, myId, otherReadAt)
@@ -342,6 +374,11 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private val discarded = HashSet<String>()
 
     private val messagesKey = "chat/$convId/messages"
+    /** Forwards queued from this screen (their failures come back as a notice). */
+    private val forwards = HashSet<String>()
+    /** The draft is kept per conversation only after the stored one was restored (round 2 PR 3). */
+    private var draftsReady = false
+    private var draftJob: Job? = null
 
     init {
         viewModelScope.launch { app.online.collect { o -> _ui.update { it.copy(online = o) }; if (o) flushOutbox() } }
@@ -366,6 +403,12 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         // Pending bubbles are the outbox (survive process death), delivered ones until the server copy shows.
         viewModelScope.launch {
             app.outbox.observe().collect { items ->
+                // A forward the server refused (deleted / gone / not a member): say so, drop the row.
+                items.filter { it.id in forwards && it.state == dev.jeromeswannack.chineselearning.lab.data.platform.Outbox.FAILED }.forEach { f ->
+                    forwards -= f.id
+                    error("Couldn't forward that. ${ChatRound3.forwardError(f.lastError)}")
+                    app.scope.launch { app.outbox.discard(f.id) }
+                }
                 val now = ChatRich.pendingFromOutbox(items, convId, api.json, ChatMediaStore::dims)
                 val ids = now.mapTo(HashSet()) { it.clientId }
                 for (p in outboxPending) if (p.clientId !in ids && p.clientId !in discarded && !p.failed) delivered[p.clientId] = p.copy(delivered = true)
@@ -374,7 +417,13 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 if (delivered.isNotEmpty()) fetchNew()
             }
         }
-        viewModelScope.launch { app.outbox.completed.collect { item -> if (item.kind == ChatWrites.KIND_SEND || item.kind == ChatWrites.KIND_MEDIA) fetchNew() } }
+        viewModelScope.launch {
+            app.outbox.completed.collect { item ->
+                forwards -= item.id
+                if (item.kind == ChatWrites.KIND_SEND || item.kind == ChatWrites.KIND_MEDIA || item.kind == ChatWrites.KIND_FORWARD) fetchNew()
+            }
+        }
+        viewModelScope.launch { restoreDraft() }
         // Pending sends retry while the chat is open (the outbox stops at the first network error).
         viewModelScope.launch {
             while (isActive) {
@@ -578,8 +627,26 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     // ---------------- composer ----------------
 
+    /** The draft this chat had when it was left (JsonCache `chat/drafts`, the web's chatDrafts rule). */
+    private suspend fun restoreDraft() {
+        val saved = runCatching { ChatDrafts.load(loadDrafts(app), convId) }.getOrDefault("")
+        _ui.update { if (it.draft.isEmpty() && it.editing == null && saved.isNotEmpty()) it.copy(draft = saved) else it }
+        draftsReady = true
+    }
+
+    /** Keeps the box's text for this chat (not while editing a message — that text is the message's). */
+    private fun persistDraft(text: String, now: Boolean = false) {
+        if (!draftsReady || _ui.value.editing != null) return
+        draftJob?.cancel()
+        draftJob = app.scope.launch {
+            if (!now) delay(DRAFT_SAVE_MS)
+            saveDraft(app, convId, text)
+        }
+    }
+
     fun setDraft(text: String) {
         _ui.update { it.copy(draft = text, draftCheck = it.draftCheck?.takeIf { c -> c.draft == text.trim() }) }
+        persistDraft(text)
         val s = _ui.value
         if (!s.isAi && s.editing == null && typingOut.shouldSend(text, System.currentTimeMillis())) app.chatLive.sendTyping(convId)
     }
@@ -598,6 +665,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         // Optimistic: the bubble is the outbox row (it shows at once, offline too, and survives a restart).
         val clientId = java.util.UUID.randomUUID().toString()
         _ui.update { it.copy(draft = "", replyingTo = null, notice = null) }
+        persistDraft("", now = true)
         typingOut.reset()
         app.sounds.play(Sounds.Sfx.POP, 0.5f)
         app.haptics.tick()
@@ -642,6 +710,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 addMessages(listOf(msg))
                 lastTimestamp = ChatRich.nextCursor(lastTimestamp, msg.created_at)
                 _ui.update { it.copy(sending = false, draft = "", replyingTo = null) }
+                persistDraft("", now = true)
                 aiReply()
             } catch (e: Exception) {
                 _ui.update { it.copy(sending = false) }
@@ -722,20 +791,31 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     // ---------------- edit / delete / pin ----------------
 
-    fun startEdit(m: ChatMessageDto) = _ui.update { it.copy(sheet = null, editing = m, draft = m.content, replyingTo = null) }
+    fun startEdit(m: ChatMessageDto) {
+        draftJob?.cancel()
+        // Keep what was typed (it comes back after the edit), then the box holds the message.
+        val typed = _ui.value.draft
+        if (_ui.value.editing == null && draftsReady) app.scope.launch { saveDraft(app, convId, typed) }
+        _ui.update { it.copy(sheet = null, editing = m, draft = m.content, replyingTo = null) }
+    }
 
-    fun cancelEdit() = _ui.update { it.copy(editing = null, draft = "") }
+    fun cancelEdit() {
+        _ui.update { it.copy(editing = null, draft = "") }
+        // What was typed before the edit is still in the stored draft.
+        viewModelScope.launch { restoreDraft() }
+    }
 
     private fun saveEdit() {
         val s = _ui.value
         val m = s.editing ?: return
         val content = s.draft.trim()
         if (content == m.content.trim()) { cancelEdit(); return }
-        if (content.isEmpty() && !m.isImage) return
+        if (content.isEmpty() && m.attachment == null) return
         if (!s.online) { error("You're offline — edits need a connection."); return }
         val now = java.time.Instant.now().toString()
         replaceLocal(m.id) { it.copy(content = content, edited_at = now, translation = null) }
         _ui.update { it.copy(editing = null, draft = "") }
+        viewModelScope.launch { restoreDraft() }
         viewModelScope.launch {
             runCatching { api.editChatMessage(m.id, content) }
                 .onSuccess { addMessages(listOf(it)) }
@@ -771,43 +851,237 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         viewModelScope.launch { app.cache.put(messagesKey, KIND, _ui.value.messages.takeLast(CACHE_LIMIT)) }
     }
 
-    // ---------------- photos ----------------
+    // ---------------- photos, files, video clips ----------------
 
-    /** A photo from the camera / picker: shrunk on the phone, then the caption sheet. */
-    fun preparePhoto(context: android.content.Context, uri: android.net.Uri) {
-        _ui.update { it.copy(sheet = null, preparingPhoto = true) }
+    /**
+     * Photos from the camera / picker (up to [ChatPhoto.MAX_PHOTOS], round 2 PR 3): each shrunk on
+     * the phone, then the compose sheet (a grid with ✕ when there are several).
+     */
+    fun preparePhotos(context: android.content.Context, uris: List<android.net.Uri>) {
+        val list = uris.take(dev.jeromeswannack.chineselearning.lab.data.chat.ChatPhoto.MAX_PHOTOS)
+        if (list.isEmpty()) return
+        _ui.update { it.copy(sheet = null, preparingPhoto = true, notice = null) }
         viewModelScope.launch {
+            val done = ArrayList<StagedPhoto>()
             try {
-                val file = app.outbox.stageFile("chat-photo.jpg")
-                val (w, h) = withContext(Dispatchers.IO) { ChatPhoto.prepare(context, uri, file) }
-                _ui.update { it.copy(preparingPhoto = false, sheet = ChatSheet.Photo(file.absolutePath, w, h)) }
+                for (uri in list) {
+                    val file = app.outbox.stageFile("chat-photo.jpg")
+                    val (w, h) = withContext(Dispatchers.IO) { ChatPhoto.prepare(context, uri, file) }
+                    done += StagedPhoto(file.absolutePath, w, h)
+                }
+                _ui.update { it.copy(preparingPhoto = false, sheet = ChatSheet.Photos(done)) }
+                if (uris.size > list.size) _ui.update { it.copy(notice = Notice("Up to 10 photos at a time — the first 10 are ready to send.", false)) }
             } catch (e: Exception) {
+                done.forEach { java.io.File(it.path).delete() }
                 _ui.update { it.copy(preparingPhoto = false) }
                 error(e.message ?: "This photo couldn't be opened.")
             }
         }
     }
 
+    fun preparePhoto(context: android.content.Context, uri: android.net.Uri) = preparePhotos(context, listOf(uri))
+
+    /** ✕ on one photo of several (the last one closes the sheet). */
+    fun removePhoto(index: Int) {
+        val sheet = _ui.value.sheet as? ChatSheet.Photos ?: return
+        sheet.photos.getOrNull(index)?.let { java.io.File(it.path).delete() }
+        val rest = sheet.photos.filterIndexed { i, _ -> i != index }
+        app.haptics.tick()
+        _ui.update { it.copy(sheet = if (rest.isEmpty()) null else ChatSheet.Photos(rest)) }
+    }
+
+    /** Send: one message per photo (own client id, own outbox row), the caption and the reply with the first. */
     fun sendPhoto(caption: String) {
-        val sheet = _ui.value.sheet as? ChatSheet.Photo ?: return
-        val clientId = java.util.UUID.randomUUID().toString()
+        val sheet = _ui.value.sheet as? ChatSheet.Photos ?: return
         val replyTo = _ui.value.replyingTo?.id
         _ui.update { it.copy(sheet = null, replyingTo = null) }
         app.sounds.play(Sounds.Sfx.POP, 0.5f)
         app.haptics.tick()
         app.scope.launch {
-            val file = java.io.File(sheet.path)
-            media.adopt(clientId, file, "jpg")
-            app.outbox.enqueueRaw(ChatWrites.KIND_MEDIA, "POST", chatMediaUploadPath(convId, "image", clientId, caption.trim().ifEmpty { null }, replyTo), file, "image/jpeg", id = clientId)
+            sheet.photos.forEachIndexed { i, p ->
+                val clientId = java.util.UUID.randomUUID().toString()
+                val file = java.io.File(p.path)
+                media.adopt(clientId, file, "jpg")
+                val cap = if (i == 0) caption.trim().ifEmpty { null } else null
+                app.outbox.enqueueRaw(ChatWrites.KIND_MEDIA, "POST", chatMediaUploadPath(convId, "image", clientId, cap, if (i == 0) replyTo else null), file, "image/jpeg", id = clientId)
+            }
             flushOutbox()
         }
         requestScrollToEnd()
     }
 
     fun discardPhoto() {
-        (_ui.value.sheet as? ChatSheet.Photo)?.let { java.io.File(it.path).delete() }
+        (_ui.value.sheet as? ChatSheet.Photos)?.photos?.forEach { java.io.File(it.path).delete() }
         _ui.update { it.copy(sheet = null) }
     }
+
+    /**
+     * A document from the system picker: checked like the web (`fileProblem`: the server's
+     * extensions, ≤ 20 MB, not empty), copied into the outbox and sent as `kind=file&name=`.
+     */
+    fun sendFile(context: android.content.Context, uri: android.net.Uri) {
+        _ui.update { it.copy(sheet = null, notice = null) }
+        val replyTo = _ui.value.replyingTo
+        viewModelScope.launch {
+            try {
+                val meta = withContext(Dispatchers.IO) { ChatPicked.meta(context, uri) }
+                val name = ChatMediaSizing.safeFileName(meta.name)
+                ChatFiles.fileProblem(name, meta.size.coerceAtLeast(0))?.let { error(it); return@launch }
+                val clientId = java.util.UUID.randomUUID().toString()
+                val ext = ChatMediaStore.extFor("file", name, null)
+                val staged = app.outbox.stageFile("chat-file.$ext")
+                withContext(Dispatchers.IO) { ChatPicked.copy(context, uri, staged) }
+                ChatFiles.fileProblem(name, staged.length())?.let { staged.delete(); error(it); return@launch }
+                _ui.update { it.copy(replyingTo = null) }
+                app.sounds.play(Sounds.Sfx.POP, 0.5f)
+                app.haptics.tick()
+                media.adopt(clientId, staged, ext)
+                val mime = ChatFiles.FILE_TYPES[ext] ?: "application/octet-stream"
+                app.outbox.enqueueRaw(ChatWrites.KIND_MEDIA, "POST", chatMediaUploadPath(convId, "file", clientId, null, replyTo?.id, name = name), staged, mime, id = clientId)
+                flushOutbox()
+                requestScrollToEnd()
+            } catch (e: Exception) {
+                error("Couldn't queue the file. ${e.message ?: ""}".trim())
+            }
+        }
+    }
+
+    /** A video clip (≤ 25 MB): its length and shape read on the phone, sent as `kind=video&duration_ms=&width=&height=`. */
+    fun sendVideo(context: android.content.Context, uri: android.net.Uri) {
+        _ui.update { it.copy(sheet = null, notice = null) }
+        val replyTo = _ui.value.replyingTo
+        viewModelScope.launch {
+            try {
+                val meta = withContext(Dispatchers.IO) { ChatPicked.meta(context, uri) }
+                ChatFiles.videoProblem(meta.size)?.let { error(it); return@launch }
+                val ext = ChatMediaStore.extFor("video", null, meta.mime)
+                val staged = app.outbox.stageFile("chat-video.$ext")
+                withContext(Dispatchers.IO) { ChatPicked.copy(context, uri, staged) }
+                ChatFiles.videoProblem(staged.length())?.let { staged.delete(); error(it); return@launch }
+                val info = withContext(Dispatchers.IO) { ChatPicked.videoInfo(staged.absolutePath) }
+                val clientId = java.util.UUID.randomUUID().toString()
+                _ui.update { it.copy(replyingTo = null) }
+                app.sounds.play(Sounds.Sfx.POP, 0.5f)
+                app.haptics.tick()
+                media.adopt(clientId, staged, ext)
+                val mime = when (ext) { "webm" -> "video/webm"; "mov" -> "video/quicktime"; else -> "video/mp4" }
+                app.outbox.enqueueRaw(
+                    ChatWrites.KIND_MEDIA, "POST",
+                    chatMediaUploadPath(convId, "video", clientId, null, replyTo?.id, info.durationMs, width = info.width, height = info.height),
+                    staged, mime, id = clientId,
+                )
+                flushOutbox()
+                requestScrollToEnd()
+            } catch (e: Exception) {
+                error("Couldn't queue the video. ${e.message ?: ""}".trim())
+            }
+        }
+    }
+
+    /**
+     * A tap on a file bubble: download it (with the session's auth) the first time, then hand it to
+     * [open] (an ACTION_VIEW through the FileProvider). Fails → "couldn't download, tap to retry".
+     */
+    fun openFile(m: ChatMessageDto, open: (java.io.File, String) -> Unit) {
+        if (_ui.value.openingFile == m.id) return
+        _ui.update { it.copy(openingFile = m.id, fileErrors = it.fileErrors - m.id) }
+        viewModelScope.launch {
+            val f = media.openable(m)
+            _ui.update { it.copy(openingFile = null, fileErrors = if (f == null) it.fileErrors + m.id else it.fileErrors) }
+            if (f != null) open(f, m.attachment?.mime?.takeIf { it.isNotEmpty() } ?: "application/octet-stream")
+            else error(if (_ui.value.online) "Couldn't download that file." else "You're offline — the file opens once it has downloaded.")
+        }
+    }
+
+    /** My pending file, opened from its staged copy. */
+    fun openPendingFile(p: PendingBubble, open: (java.io.File, String) -> Unit) {
+        val path = p.filePath ?: return
+        val name = p.name ?: "file"
+        viewModelScope.launch {
+            media.openableLocal(path, "p-" + p.clientId, name)?.let { open(it, ChatFiles.FILE_TYPES[ChatMediaStore.extFor("file", name, null)] ?: "application/octet-stream") }
+        }
+    }
+
+    /** A tap on a video bubble: play it in place / back to its first frame. */
+    fun toggleVideo(id: String) {
+        stopAudio()
+        app.haptics.tick()
+        _ui.update { it.copy(playingVideo = if (it.playingVideo == id) null else id) }
+    }
+
+    /** A video's bytes (cached / adopted / downloaded) for its bubble. */
+    suspend fun videoFile(m: ChatMessageDto): java.io.File? = media.file(m)
+
+    suspend fun poster(path: String, key: String, maxSide: Int) = media.poster(java.io.File(path), key, maxSide)
+
+    // ---------------- forward / info ----------------
+
+    /** Menu → Forward, or the selection bar's Forward: "Forward to…" for these messages (oldest first). */
+    fun startForward(ids: List<String>) {
+        val order = _ui.value.messages.map { it.id }
+        val sorted = ids.distinct().sortedBy { order.indexOf(it) }
+        if (sorted.isEmpty()) return
+        _ui.update { it.copy(sheet = ChatSheet.Forward, forward = ForwardUi(sorted)) }
+        viewModelScope.launch { loadForwardTargets() }
+    }
+
+    fun forwardSelection() {
+        val sel = _ui.value.selection?.selected ?: return
+        startForward(sel.toList())
+    }
+
+    /** Cached relationships + conversations first (instant, offline), then the network's. */
+    private suspend fun loadForwardTargets() {
+        val me = _ui.value.myId ?: Connections.myId(app.cache)
+        suspend fun cached(): List<ForwardTarget>? {
+            val rels = app.cache.get<MyRelationshipsDto>(NavKeys.RELATIONSHIPS) ?: return null
+            val convs = (rels.tutors + rels.students).associate { r -> r.id to app.cache.get<List<ChatConversationDto>>(ConnectionsKeys.conversations(r.id)).orEmpty() }
+            return ChatRound3.forwardTargets(rels, convs, me)
+        }
+        runCatching { cached() }.getOrNull()?.let { t -> _ui.update { s -> s.forward?.let { s.copy(forward = it.copy(targets = t)) } ?: s } }
+        if (!app.online.value) {
+            _ui.update { s -> s.forward?.let { f -> s.copy(forward = if (f.targets == null) f.copy(error = "You're offline — forwarding needs a connection.") else f) } ?: s }
+            return
+        }
+        try {
+            val rels = api.myRelationships().also { app.cache.put(NavKeys.RELATIONSHIPS, NavKeys.KIND, it) }
+            val convs = kotlinx.coroutines.coroutineScope {
+                (rels.tutors + rels.students).map { r ->
+                    async {
+                        r.id to (runCatching { api.chatConversations(r.id).also { app.cache.put(ConnectionsKeys.conversations(r.id), ConnectionsKeys.KIND, it) } }.getOrNull()
+                            ?: app.cache.get<List<ChatConversationDto>>(ConnectionsKeys.conversations(r.id)).orEmpty())
+                    }
+                }.map { it.await() }.toMap()
+            }
+            val t = ChatRound3.forwardTargets(rels, convs, me)
+            _ui.update { s -> s.forward?.let { s.copy(forward = it.copy(targets = t, error = null)) } ?: s }
+        } catch (e: Exception) {
+            _ui.update { s -> s.forward?.let { f -> s.copy(forward = if (f.targets == null) f.copy(error = "Couldn't load your conversations. ${e.userMessage()}") else f) } ?: s }
+        }
+    }
+
+    /**
+     * Picked a conversation: one `POST /api/messages/:id/forward` per message, oldest first, through
+     * the Outbox (idempotent by client_id, so a retry never doubles it).
+     */
+    fun forwardTo(target: ForwardTarget) {
+        val f = _ui.value.forward ?: return
+        _ui.update { it.copy(sheet = null, forward = null, selection = null) }
+        app.haptics.tick()
+        app.sounds.play(Sounds.Sfx.POP, 0.5f)
+        val ids = f.messageIds
+        app.scope.launch {
+            for (id in ids) {
+                val clientId = java.util.UUID.randomUUID().toString()
+                forwards += clientId
+                app.outbox.enqueueJson(ChatWrites.KIND_FORWARD, "POST", chatForwardPath(id), ForwardBody(target.conversationId, clientId), id = clientId)
+            }
+            flushOutbox()
+        }
+        success(if (_ui.value.online) ChatRound3.forwardedNotice(ids.size, target) else "You're offline — ${if (ids.size == 1) "it forwards" else "they forward"} to ${target.label} once you're back online.")
+    }
+
+    fun closeForward() = _ui.update { it.copy(sheet = if (it.sheet == ChatSheet.Forward) null else it.sheet, forward = null) }
 
     suspend fun image(m: ChatMessageDto, maxSide: Int) = media.image(m, maxSide)
     suspend fun localImage(path: String, maxSide: Int) = media.localImage(path, maxSide)
@@ -982,6 +1256,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             MessageMenu.DISCUSS -> openDiscussion(m)
             MessageMenu.PIN -> setPinned(m, true)
             MessageMenu.UNPIN -> setPinned(m, false)
+            MessageMenu.FORWARD -> startForward(listOf(m.id))
+            MessageMenu.INFO -> openSheet(ChatSheet.Info(m))
             MessageMenu.EDIT -> startEdit(m)
             MessageMenu.DELETE -> askDelete(m)
         }
@@ -1099,8 +1375,12 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         app.haptics.tick()
         _ui.update { it.copy(voiceSpeed = next) }
         player?.let { mp -> if (_ui.value.voice?.playing == true) runCatching { mp.playbackParams = mp.playbackParams.setSpeed(next) } }
-        viewModelScope.launch { runCatching { app.cache.put(SPEED_KEY, KIND, next) } }
+        // Taps save in their own coroutines; under the lock each writes the CURRENT speed, so two quick
+        // taps can't land out of order and leave the older value stored.
+        viewModelScope.launch { speedSave.withLock { runCatching { app.cache.put(SPEED_KEY, KIND, _ui.value.voiceSpeed) } } }
     }
+
+    private val speedSave = kotlinx.coroutines.sync.Mutex()
 
     /** 📹 in the header: join the live call of this relationship, else start one (web: handleVideoCall). */
     fun videoCall(go: (String) -> Unit) {
@@ -1665,6 +1945,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     // ---------------- new conversation ----------------
 
     override fun onCleared() {
+        // The last keystrokes are kept even when the chat closes within the debounce.
+        if (draftsReady && _ui.value.editing == null) { draftJob?.cancel(); val d = _ui.value.draft; app.scope.launch { saveDraft(app, convId, d) } }
         stopAudio()
         recordJob?.cancel()
         recorder?.cancel()
@@ -1702,11 +1984,28 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         const val END = "\u0000end"
         const val RETRY_MS = 5_000L
         const val HIGHLIGHT_MS = 2_500L
+        /** Drafts per conversation (round 2 PR 3): JsonCache, the web's chatDrafts rule (newest 50). */
+        const val DRAFTS_KEY = "chat/drafts"
+        const val DRAFT_SAVE_MS = 400L
+        private val draftsLock = kotlinx.coroutines.sync.Mutex()
+
+        suspend fun loadDrafts(app: LabApp): List<ChatDrafts.Draft> =
+            app.cache.get<List<ChatDraftDto>>(DRAFTS_KEY).orEmpty().map { ChatDrafts.Draft(it.conversation_id, it.text, it.at) }
+
+        suspend fun saveDraft(app: LabApp, conversationId: String, text: String) = draftsLock.withLock {
+            val before = loadDrafts(app)
+            val after = ChatDrafts.save(before, conversationId, text, System.currentTimeMillis())
+            if (after != before) app.cache.put(DRAFTS_KEY, KIND, after.map { ChatDraftDto(it.conversationId, it.text, it.at) })
+        }
 
         /** `?new=1` / `chat/new`: a fresh untitled conversation; returns its id. */
         suspend fun newConversation(app: LabApp, relId: String): String = app.repo.api.startConversation(relId, PracticeConversationBody()).id
     }
 }
+
+/** One kept draft (JsonCache `chat/drafts`, newest first). */
+@kotlinx.serialization.Serializable
+data class ChatDraftDto(val conversation_id: String, val text: String, val at: Long)
 
 /** The toggles as stored on the phone (JsonCache `chat/<conv>/aids`). */
 @kotlinx.serialization.Serializable

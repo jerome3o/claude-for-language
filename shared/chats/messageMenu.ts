@@ -6,10 +6,10 @@ import { looksLikeChinese } from './messageTools';
  * (components/chat/MessageMenu.tsx) and the Lab app (core `MessageMenu.kt`,
  * parity-tested). Bubbles carry no buttons any more: every tool lives here.
  *
- * Order (what someone reaches for first): Reply, Copy, Translate, Pinyin,
- * Explain, Save as flashcard, Make flashcards from selection, Check my Chinese,
- * Correct, Read aloud, Word by word (Claude practice chat), Discuss with Claude,
- * Pin, Edit, Delete, Select. A reaction bar sits on top (`reactions`).
+ * Order (what someone reaches for first): Reply, Copy, Forward, Translate,
+ * Pinyin, Explain, Save as flashcard, Make flashcards from selection, Check my
+ * Chinese, Correct, Read aloud, Word by word (Claude practice chat), Discuss with
+ * Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top (`reactions`).
  */
 
 type RelationshipRole = 'tutor' | 'student';
@@ -17,6 +17,7 @@ type RelationshipRole = 'tutor' | 'student';
 export type MenuActionId =
   | 'reply'
   | 'copy'
+  | 'forward'
   | 'translate'
   | 'pinyin'
   | 'explain'
@@ -32,6 +33,7 @@ export type MenuActionId =
   | 'discuss'
   | 'pin'
   | 'unpin'
+  | 'info'
   | 'edit'
   | 'delete'
   | 'select';
@@ -99,6 +101,7 @@ export function messageMenu(
   const translated = kind === 'voice' ? !!msg.attachment?.translation : !!msg.translation;
   const items: MenuItem[] = [{ id: 'reply', label: 'Reply', icon: '↩️', needsInternet: false }];
   if (text) items.push({ id: 'copy', label: 'Copy', icon: '📋', needsInternet: false });
+  if (!isAiConversation) items.push({ id: 'forward', label: 'Forward', icon: '↪️', needsInternet: true });
   if (zh && (kind !== 'voice' || translated)) {
     items.push({
       id: 'translate',
@@ -139,6 +142,7 @@ export function messageMenu(
   }
   if (!isAiConversation) {
     items.push(msg.pinned_at ? { id: 'unpin', label: 'Unpin', icon: '📌', needsInternet: true } : { id: 'pin', label: 'Pin', icon: '📌', needsInternet: true });
+    items.push({ id: 'info', label: 'Info', icon: 'ℹ️', needsInternet: false });
     if (isMine && kind !== 'voice') items.push({ id: 'edit', label: kind === 'image' ? 'Edit caption' : 'Edit', icon: '✏️', needsInternet: true });
     if (isMine) items.push({ id: 'delete', label: 'Delete', icon: '🗑️', needsInternet: true, danger: true });
   }

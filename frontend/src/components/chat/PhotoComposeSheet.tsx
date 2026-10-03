@@ -1,26 +1,29 @@
 import { useEffect, useState } from 'react';
 
 /**
- * A picked photo before it goes: the (already compressed) picture, an optional
- * caption, Send / Cancel. Enter sends.
+ * Picked photos before they go: the (already compressed) pictures — one large,
+ * several as a strip with ✕ to drop one — an optional caption (sent with the
+ * first), Send / Cancel. Enter sends. Each photo goes as its own message.
  */
 export function PhotoComposeSheet({
-  blob,
+  blobs,
   onSend,
+  onRemove,
   onCancel,
 }: {
-  blob: Blob;
+  blobs: Blob[];
   onSend: (caption: string) => void;
+  onRemove?: (index: number) => void;
   onCancel: () => void;
 }) {
   const [caption, setCaption] = useState('');
-  const [url, setUrl] = useState<string | null>(null);
+  const [urls, setUrls] = useState<string[]>([]);
 
   useEffect(() => {
-    const u = URL.createObjectURL(blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [blob]);
+    const u = blobs.map((b) => URL.createObjectURL(b));
+    setUrls(u);
+    return () => u.forEach((x) => URL.revokeObjectURL(x));
+  }, [blobs]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -32,8 +35,23 @@ export function PhotoComposeSheet({
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal chat-photo-compose" role="dialog" aria-label="Send a photo" onClick={(e) => e.stopPropagation()}>
-        <div className="chat-photo-compose-img">{url && <img src={url} alt="Photo to send" />}</div>
+      <div className="modal chat-photo-compose" role="dialog" aria-label={blobs.length > 1 ? `Send ${blobs.length} photos` : 'Send a photo'} onClick={(e) => e.stopPropagation()}>
+        {blobs.length === 1 ? (
+          <div className="chat-photo-compose-img">{urls[0] && <img src={urls[0]} alt="Photo to send" />}</div>
+        ) : (
+          <div className="chat-photo-compose-strip" data-testid="photo-compose-strip">
+            {urls.map((u, i) => (
+              <div key={u} className="chat-photo-compose-thumb">
+                <img src={u} alt={`Photo ${i + 1} of ${urls.length}`} />
+                {onRemove && (
+                  <button type="button" className="chat-photo-compose-remove" onClick={() => onRemove(i)} aria-label={`Remove photo ${i + 1}`}>
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         <form
           className="chat-photo-compose-row"
           onSubmit={(e) => {
@@ -52,7 +70,7 @@ export function PhotoComposeSheet({
             autoFocus
           />
           <button type="submit" className="btn btn-primary chat-send" data-testid="photo-send">
-            Send
+            {blobs.length > 1 ? `Send ${blobs.length}` : 'Send'}
           </button>
         </form>
         <button type="button" className="btn btn-secondary chat-photo-compose-cancel" onClick={onCancel}>

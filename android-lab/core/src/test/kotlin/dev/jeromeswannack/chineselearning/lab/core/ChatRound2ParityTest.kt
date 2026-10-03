@@ -118,11 +118,40 @@ class ChatRound2ParityTest {
     }
 
     @Test
+    fun queueLabelsMatchTypeScript() {
+        val cases = f["queueLabels"]!!.jsonArray
+        assertTrue(cases.size >= 10)
+        for (c in cases) {
+            val o = c.jsonObject
+            assertEquals(o.str("label"), ChatDrafts.queueLabel(o["waiting"]!!.jsonPrimitive.int, o.bool("online")), "queueLabel $o")
+        }
+    }
+
+    @Test
+    fun draftsMatchTypeScript() {
+        var drafts: List<ChatDrafts.Draft> = emptyList()
+        val ops = f["draftOps"]!!.jsonArray
+        assertTrue(ops.size >= 300)
+        for (c in ops) {
+            val o = c.jsonObject
+            drafts = ChatDrafts.save(drafts, o.str("conv"), o.str("text")!!, o["now"]!!.jsonPrimitive.long)
+            assertTrue(drafts.size <= ChatDrafts.MAX)
+            for (l in o["loads"]!!.jsonArray) {
+                val lo = l.jsonObject
+                assertEquals(lo.str("text"), ChatDrafts.load(drafts, lo.str("conv")), "loadDraft after $o")
+            }
+        }
+        val final = f["finalDrafts"]!!.jsonArray
+        assertEquals(ChatDrafts.MAX, final.count { it.jsonObject.str("text")!!.isNotEmpty() }, "the vectors reach the cap")
+        for (l in final) assertEquals(l.jsonObject.str("text"), ChatDrafts.load(drafts, l.jsonObject.str("conv")))
+    }
+
+    @Test
     fun theTsTestsExamples() {
         // A couple of the vitest cases, readable here.
         val base = MessageMenu.Message("them", "你好，今天怎么样？")
         assertEquals(
-            listOf("reply", "copy", "translate", "pinyin", "explain", "save_card", "select_cards", "play", "discuss", "pin", "select"),
+            listOf("reply", "copy", "forward", "translate", "pinyin", "explain", "save_card", "select_cards", "play", "discuss", "pin", "info", "select"),
             MessageMenu.messageMenu(base, "student", false, "me").items.map { it.id },
         )
         assertEquals("https://example.com", ChatBubbles.firstLink("see https://example.com."))

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +45,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NeedsAttentionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipHomeworkDto
+import dev.jeromeswannack.chineselearning.lab.data.api.SharedReaderDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentLessonDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentOverviewDto
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
@@ -464,8 +468,12 @@ fun HomeworkDeckRow(
     onUpdate: () -> Unit,
     open: (String) -> Unit,
     now: Instant = Instant.now(),
+    /** "Remove from Jerome's decks" (HomeworkRemoval.removalMenuLabel) — in the queue menu, or behind ⋯ when there is none. */
+    removeLabel: String? = null,
+    onRemove: () -> Unit = {},
+    initialMenu: Boolean = false,
 ) {
-    var menu by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(initialMenu) }
     TeachCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(
@@ -490,17 +498,19 @@ fun HomeworkDeckRow(
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (d.target_deck_name != null && d.queue_position != null) QueueBadge(d.queue_position) { menu = true }
+                else if (removeLabel != null) OverflowButton("More for ${d.source_deck_name}") { menu = true }
                 if (d.notes_missing > 0 && d.target_deck_name != null) InlineButton(if (updating) "Updating…" else "Update", enabled = !updating, onClick = onUpdate)
             }
         }
     }
-    if (menu && d.queue_position != null) {
-        val pos = d.queue_position
-        LabBottomSheet(onDismiss = { menu = false }, title = "${d.source_deck_name} · #$pos of ${d.queue_total} in their queue") {
-            listOf("top" to "⤒ Move to top", "up" to "↑ Move up", "down" to "↓ Move down", "bottom" to "⤓ Move to bottom").forEach { (to, text) ->
+    val pos = d.queue_position?.takeIf { d.target_deck_name != null }
+    if (menu && (pos != null || removeLabel != null)) {
+        LabBottomSheet(onDismiss = { menu = false }, title = if (pos != null) "${d.source_deck_name} · #$pos of ${d.queue_total} in their queue" else d.source_deck_name) {
+            if (pos != null) listOf("top" to "⤒ Move to top", "up" to "↑ Move up", "down" to "↓ Move down", "bottom" to "⤓ Move to bottom").forEach { (to, text) ->
                 val disabled = if (to == "top" || to == "up") pos == 1 else pos == d.queue_total
                 NavRow(text.take(1), text.drop(2), enabled = !disabled, trailing = {}, onClick = { menu = false; onMove(to) })
             }
+            if (removeLabel != null) NavRow("🗑️", removeLabel, danger = true, trailing = {}, onClick = { menu = false; onRemove() })
         }
     }
 }
@@ -509,7 +519,17 @@ private val RATING_LABELS = mapOf(0 to "Again", 1 to "Hard", 2 to "Good", 3 to "
 
 /** "Mini Lessons": the student's lessons with completions, Answers / Edit (web: StudentLessonsSection). */
 @Composable
-fun StudentLessonsCard(relId: String, lessons: List<StudentLessonDto>?, error: String?, open: (String) -> Unit, now: Instant = Instant.now()) {
+fun StudentLessonsCard(
+    relId: String,
+    lessons: List<StudentLessonDto>?,
+    error: String?,
+    open: (String) -> Unit,
+    now: Instant = Instant.now(),
+    /** "Remove from Jerome's lessons" on lessons I assigned; null hides it. */
+    removeLabel: String? = null,
+    onRemove: (StudentLessonDto) -> Unit = {},
+) {
+    var menuFor by remember { mutableStateOf<StudentLessonDto?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         TeachSectionTitle("Mini Lessons") {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -534,10 +554,58 @@ fun StudentLessonsCard(relId: String, lessons: List<StudentLessonDto>?, error: S
                         }
                         if (l.last_attempt_id != null) InlineButton("📝 Answers") { open(Routes.studentLessonAttempts(relId, l.last_attempt_id)) }
                         if (l.assigned_by_me) InlineButton("✏️ Edit") { open(Routes.lessonEdit(l.id)) }
+                        if (l.assigned_by_me && removeLabel != null) OverflowButton("More for ${l.title}") { menuFor = l }
                     }
                 }
             }
         }
+    }
+    menuFor?.let { l ->
+        LabBottomSheet(onDismiss = { menuFor = null }, title = l.title) {
+            NavRow("🗑️", removeLabel ?: "", danger = true, trailing = {}, onClick = { menuFor = null; onRemove(l) })
+        }
+    }
+}
+
+/** "Readers": the graded readers I sent this student, read or not, with ⋯ → remove (web: SharedReadersSection). Nothing while there are none. */
+@Composable
+fun SharedReadersCard(readers: List<SharedReaderDto>?, removeLabel: String, onRemove: (SharedReaderDto) -> Unit, now: Instant = Instant.now()) {
+    if (readers.isNullOrEmpty()) return
+    var menuFor by remember { mutableStateOf<SharedReaderDto?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TeachSectionTitle("Readers")
+        TeachCard {
+            readers.forEach { r ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("📖 ${r.title}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink)
+                        MutedLine(
+                            "sent ${TeachingFormat.shortDate(r.shared_at, now)} · " +
+                                if (r.target_deleted) "they deleted their copy"
+                                else "${TeachingFormat.plural(r.page_count, "page")} · ${if (r.read_count == 0) "not read yet" else "read ${r.read_count}×"}",
+                        )
+                    }
+                    OverflowButton("More for ${r.title}") { menuFor = r }
+                }
+            }
+        }
+    }
+    menuFor?.let { r ->
+        LabBottomSheet(onDismiss = { menuFor = null }, title = r.title) {
+            NavRow("🗑️", removeLabel, danger = true, trailing = {}, onClick = { menuFor = null; onRemove(r) })
+        }
+    }
+}
+
+/** A 44dp "⋯" that opens a row's menu (the web's OverflowMenu trigger). */
+@Composable
+fun OverflowButton(contentDescription: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(RoundedCornerShape(50)).bouncyClickable(pressedScale = 0.9f, onClick = onClick)
+            .semantics { this.contentDescription = contentDescription },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("⋯", fontSize = 22.sp, color = Lab.colors.muted, fontWeight = FontWeight.Bold)
     }
 }
 

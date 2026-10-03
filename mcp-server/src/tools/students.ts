@@ -27,6 +27,7 @@ import type {
   SessionNotesJobRow,
   SharedDeckProgress,
   SharedDeckRow,
+  SharedReaderListRow,
   StudentLessonRow,
   StudentOverview,
   StudentSummaryRow,
@@ -553,13 +554,14 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'list_student_homework',
-    `What the tutor has sent this student and how far they have got: \`decks\` shared with them (each with completion: total cards, seen, mastered and percentages, last studied, reviews in the last 7 days — call get_shared_deck_progress for the per-word view) and their mini \`lessons\` (title, exercise count, completions, last rating/score; \`assigned_by_me\` tells the tutor's own from the student's).`,
+    `What the tutor has sent this student and how far they have got: \`decks\` shared with them (each with completion: total cards, seen, mastered and percentages, last studied, reviews in the last 7 days — call get_shared_deck_progress for the per-word view), their mini \`lessons\` (title, exercise count, completions, last rating/score; \`assigned_by_me\` tells the tutor's own from the student's) and the graded \`readers\` the tutor shared (read count). To TAKE HOMEWORK BACK (sent by mistake, e.g. an agent sent the wrong deck): remove_student_deck (shared_deck_id), remove_student_lesson (lesson_id, assigned_by_me only), remove_student_reader (shared_reader_id) — each deletes only the student's copy, never their own decks.`,
     { relationship_id: RELATIONSHIP_ID },
     async ({ relationship_id }) =>
       guard(async () => {
-        const [shared, lessons] = await Promise.all([
+        const [shared, lessons, readers] = await Promise.all([
           api.get<SharedDeckRow[]>(`${rel(relationship_id)}/shared-decks`),
           api.get<{ lessons: StudentLessonRow[] }>(`${rel(relationship_id)}/student-lessons`),
+          api.get<SharedReaderListRow[]>(`${rel(relationship_id)}/shared-readers`).catch(() => [] as SharedReaderListRow[]),
         ]);
         const progress = await Promise.all(
           shared.map((d) =>
@@ -592,6 +594,17 @@ export function registerStudentTools(ctx: ToolContext): void {
             last_completed_at: l.last_completed_at,
             last_rating: l.last_rating,
             last_score: l.last_score,
+          })),
+          readers: readers.map((r) => ({
+            shared_reader_id: r.id,
+            title: r.source_title_chinese || r.target_title_chinese,
+            title_english: r.source_title_english || r.target_title_english,
+            student_reader_id: r.target_reader_id,
+            student_deleted_copy: !!r.target_deleted,
+            shared_at: r.shared_at,
+            page_count: r.page_count,
+            read_count: r.read_count,
+            last_read_at: r.last_read_at,
           })),
         });
       })
@@ -660,6 +673,68 @@ export function registerStudentTools(ctx: ToolContext): void {
           { to }
         );
         return jsonResult(r);
+      })
+  );
+
+  // ============ Take homework back (worker routes/homework-removal.ts) ============
+
+  const DRY_RUN = z
+    .boolean()
+    .optional()
+    .describe('true = only report what the student would lose (nothing is deleted). Do this first and tell the tutor.');
+
+  server.tool(
+    'remove_student_deck',
+    "Take back a homework deck the tutor sent (e.g. an agent sent the wrong deck by accident): deletes the STUDENT's copy from their account — gone from every device of theirs on the next sync, their progress on it deleted — and drops it from the tutor's Homework list and the student's homework. It can only reach a copy of a deck this tutor shared in this relationship, never the student's own decks. Pass `shared_deck_id` (from list_student_homework) or `deck_id` (the student's copy id, `student_deck_id`). Call with `dry_run: true` first and tell the tutor what would be lost (`words_met` of `words_total`, `reviews`); then call again without it. `delete_source: true` also deletes the tutor's own source deck, only when no other student still has a copy (`can_delete_source` in the dry run). Returns `{ removed, words_met, reviews, source_deleted }`.",
+    {
+      relationship_id: RELATIONSHIP_ID,
+      shared_deck_id: z.string().optional().describe('The `shared_deck_id` from list_student_homework.'),
+      deck_id: z.string().optional().describe("Or the student's copy id (`student_deck_id` in list_student_homework, `target_deck_id` in a session-notes job result)."),
+      delete_source: z.boolean().optional().describe("Also delete the tutor's source deck (only if no other student has a copy). Default false."),
+      dry_run: DRY_RUN,
+    },
+    async ({ relationship_id, shared_deck_id, deck_id, delete_source, dry_run }) =>
+      guard(async () => {
+        const id = shared_deck_id || deck_id;
+        if (!id) throw new Error('Pass shared_deck_id or deck_id (from list_student_homework).');
+        const path = `${rel(relationship_id)}/shared-decks/${encodeURIComponent(id)}`;
+        if (dry_run) return jsonResult({ dry_run: true, ...(await api.get<Record<string, unknown>>(`${path}/removal`)) });
+        return jsonResult(await api.delete<Record<string, unknown>>(delete_source ? `${path}?delete_source=1` : path));
+      })
+  );
+
+  server.tool(
+    'remove_student_lesson',
+    "Take back a mini lesson the tutor assigned: deletes the STUDENT's copy (and its completion history) from their account; the tutor's library item stays. Only lessons this tutor assigned (`assigned_by_me` in list_student_homework) — never lessons the student made or another tutor assigned. `dry_run: true` first reports `completions` (times the student did it); tell the tutor, then call without it.",
+    {
+      relationship_id: RELATIONSHIP_ID,
+      lesson_id: z.string().describe("The student's lesson id (`lesson_id` in list_student_homework / a session-notes job result)."),
+      dry_run: DRY_RUN,
+    },
+    async ({ relationship_id, lesson_id, dry_run }) =>
+      guard(async () => {
+        const path = `${rel(relationship_id)}/student-lessons/${encodeURIComponent(lesson_id)}`;
+        if (dry_run) return jsonResult({ dry_run: true, ...(await api.get<Record<string, unknown>>(`${path}/removal`)) });
+        return jsonResult(await api.delete<Record<string, unknown>>(path));
+      })
+  );
+
+  server.tool(
+    'remove_student_reader',
+    "Take back a graded reader the tutor shared: deletes the STUDENT's copy (pictures the tutor's reader still uses are kept); the tutor's reader stays. Pass `shared_reader_id` (from list_student_homework `readers`) or `reader_id` (the student's copy, `student_reader_id` / a job result's `target_reader_id`). `dry_run: true` first reports `readings`; tell the tutor, then call without it.",
+    {
+      relationship_id: RELATIONSHIP_ID,
+      shared_reader_id: z.string().optional().describe('The `shared_reader_id` from list_student_homework.'),
+      reader_id: z.string().optional().describe("Or the student's copy id."),
+      dry_run: DRY_RUN,
+    },
+    async ({ relationship_id, shared_reader_id, reader_id, dry_run }) =>
+      guard(async () => {
+        const id = shared_reader_id || reader_id;
+        if (!id) throw new Error('Pass shared_reader_id or reader_id (from list_student_homework).');
+        const path = `${rel(relationship_id)}/shared-readers/${encodeURIComponent(id)}`;
+        if (dry_run) return jsonResult({ dry_run: true, ...(await api.get<Record<string, unknown>>(`${path}/removal`)) });
+        return jsonResult(await api.delete<Record<string, unknown>>(path));
       })
   );
 

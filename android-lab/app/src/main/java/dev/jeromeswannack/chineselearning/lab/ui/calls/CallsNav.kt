@@ -46,8 +46,10 @@ fun NavGraphBuilder.callsGraph(nav: LabNav) {
 private fun CallReviewRoute(nav: LabNav, id: String) {
     val vm: CallReviewViewModel = viewModel(key = "call-review-$id", factory = CallReviewViewModel.Factory(nav.app, id))
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val removal by vm.removal.sheet.collectAsStateWithLifecycle()
+    val toast by vm.removal.toast.collectAsStateWithLifecycle()
     CallReviewScreen(
-        ui,
+        ui.copy(removal = removal, toast = toast),
         CallReviewActions(
             onBack = nav::back,
             onJoin = { nav.open(Routes.call(id)) },
@@ -59,7 +61,11 @@ private fun CallReviewRoute(nav: LabNav, id: String) {
             onReprocess = vm::reprocess,
             onDelete = { vm.delete { nav.back() } },
             onMakeHomework = vm::makeHomework,
-            jobs = JobActions(retry = vm::retryJob, cancel = vm::cancelJob, delete = vm::deleteJob, open = { nav.open(it) }),
+            jobs = JobActions(
+                retry = vm::retryJob, cancel = vm::cancelJob, delete = vm::deleteJob, open = { nav.open(it) },
+                remove = { target -> vm.removal.start(target, ui.homework?.studentName ?: "") },
+            ),
+            removalSheet = vm.removal.actions,
             onAllSessionNotes = { nav.open(Routes.sessionNotes(it)) },
         ),
     )

@@ -66,14 +66,18 @@ object ChatInbox {
     /** `Date.parse` → null where JS gives NaN. */
     internal fun parse(iso: String): Long? = try { Js.parseDate(iso) } catch (_: Exception) { null }
 
-    /** Port of chatMessagePreview() in shared/chats/inbox.ts. [attachmentKind]: "image" | "voice" | null. */
-    fun messagePreview(content: String, attachmentKind: String? = null, deleted: Boolean = false): String {
+    /**
+     * Port of chatMessagePreview() in shared/chats/inbox.ts. [attachmentKind]: "image" | "voice" | "file" |
+     * "video" | null; [attachmentName] = a file's name ("📄 <name>", else "📄 File").
+     */
+    fun messagePreview(content: String, attachmentKind: String? = null, deleted: Boolean = false, attachmentName: String? = null): String {
         if (deleted) return "Message deleted"
         val label = when (attachmentKind) {
             "image" -> "📷 Photo"
             "voice" -> "🎤 Voice message"
-            null, "" -> return content
-            else -> return content // unknown kinds: the JS record lookup would give `undefined: …`; never sent
+            "file" -> if (!attachmentName.isNullOrEmpty()) "📄 $attachmentName" else "📄 File"
+            "video" -> "🎬 Video"
+            else -> return content // none / unknown kinds: the text
         }
         val caption = NoteSearch.jsTrim(content)
         return if (caption.isNotEmpty()) "$label: $caption" else label

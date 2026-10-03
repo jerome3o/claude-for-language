@@ -298,7 +298,12 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
       ? {
           id: r.last_id,
           sender_id: r.last_sender_id,
-          preview: chatMessagePreview({ content: r.last_content ?? '', attachment_kind: attachment?.kind ?? null, deleted: !!r.last_deleted_at }),
+          preview: chatMessagePreview({
+            content: r.last_content ?? '',
+            attachment_kind: attachment?.kind ?? null,
+            attachment_name: attachment?.kind === 'file' ? attachment.name : null,
+            deleted: !!r.last_deleted_at,
+          }),
           created_at: r.last_created_at,
         }
       : null;

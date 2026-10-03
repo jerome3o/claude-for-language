@@ -42,10 +42,23 @@ interface Me {
   picture_url: string | null;
 }
 
+/** "📷 Photo" / "🎤 Voice message" / "📄 <name>" / "🎬 Video" — reply previews and the menu. */
+export function attachmentLabel(att: ChatAttachment | null | undefined): string {
+  if (!att) return '';
+  if (att.kind === 'image') return '📷 Photo';
+  if (att.kind === 'voice') return '🎤 Voice message';
+  if (att.kind === 'file') return `📄 ${att.name}`;
+  return '🎬 Video';
+}
+
 function outboxBubble(entry: OutboxEntry, me: Me): ChatMessage {
   let attachment: ChatAttachment | null = null;
   if (entry.kind === 'image') {
     attachment = { kind: 'image', width: entry.width || 0, height: entry.height || 0, bytes: entry.blob?.size || 0, mime: entry.mime || 'image/jpeg' };
+  } else if (entry.kind === 'file') {
+    attachment = { kind: 'file', name: entry.name || 'file', bytes: entry.blob?.size || 0, mime: entry.mime || 'application/octet-stream' };
+  } else if (entry.kind === 'video') {
+    attachment = { kind: 'video', bytes: entry.blob?.size || 0, mime: entry.mime || 'video/mp4', duration_ms: entry.duration_ms, width: entry.width, height: entry.height };
   } else if (entry.kind === 'voice') {
     attachment = {
       kind: 'voice',
@@ -99,9 +112,10 @@ export interface ChatThread {
   liveStatus: ChatLiveStatus;
   sendText: (content: string, replyTo?: MessageWithSender | null) => Promise<void>;
   sendMedia: (input: {
-    kind: 'image' | 'voice';
+    kind: 'image' | 'voice' | 'file' | 'video';
     blob: Blob;
     caption?: string;
+    name?: string;
     width?: number;
     height?: number;
     duration_ms?: number;
@@ -264,7 +278,7 @@ export function useChatThread(
     const off = subscribeOutbox(() => void load());
     const offDelivered = onOutboxDelivered((message, entry) => {
       if (entry.conversation_id !== convRef.current) return;
-      if (entry.blob && (entry.kind === 'image' || entry.kind === 'voice')) void primeChatMedia(message.id, entry.blob);
+      if (entry.blob && entry.kind !== 'text') void primeChatMedia(message.id, entry.blob);
       mergeIn([message]);
       onDeliveredRef.current?.(message);
     });
@@ -284,7 +298,7 @@ export function useChatThread(
   }, [typingUntil]);
 
   const replyPreview = (m: MessageWithSender | null | undefined) =>
-    m ? { content: m.content || (m.attachment?.kind === 'image' ? '📷 Photo' : m.attachment?.kind === 'voice' ? '🎤 Voice message' : ''), sender_name: m.sender.name } : null;
+    m ? { content: m.content || attachmentLabel(m.attachment), sender_name: m.sender.name } : null;
 
   const sendText = useCallback(
     async (content: string, replyTo?: MessageWithSender | null) => {
@@ -312,6 +326,7 @@ export function useChatThread(
         width: input.width ?? null,
         height: input.height ?? null,
         duration_ms: input.duration_ms ?? null,
+        name: input.name ?? null,
         reply_to_message_id: input.replyTo?.id ?? null,
         reply_preview: replyPreview(input.replyTo),
       });

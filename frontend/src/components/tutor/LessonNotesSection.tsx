@@ -63,7 +63,12 @@ function EntryState({ relId, entry }: { relId: string; entry: LessonNotesEntry }
     );
   }
   if (!job.review) {
-    return <div className="hwt-entry-state"><span className="hwt-entry-status">Sent automatically</span></div>;
+    return (
+      <div className="hwt-entry-state">
+        <span className="hwt-entry-status">Sent automatically</span>
+        <Link to={`/connections/${relId}/session-notes`} className="hwt-entry-link">What was sent · undo ›</Link>
+      </div>
+    );
   }
   if (job.assigned_at) {
     return (

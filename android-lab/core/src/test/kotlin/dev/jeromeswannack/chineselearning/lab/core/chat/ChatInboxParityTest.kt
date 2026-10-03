@@ -34,7 +34,7 @@ class ChatInboxParityTest {
         for (c in cases) {
             val input = c.jsonObject["input"]!!.jsonObject
             val deleted = input["deleted"]?.jsonPrimitive?.boolean ?: false
-            val got = ChatInbox.messagePreview(input.str("content")!!, input.str("attachment_kind"), deleted)
+            val got = ChatInbox.messagePreview(input.str("content")!!, input.str("attachment_kind"), deleted, input.str("attachment_name"))
             assertEquals(c.jsonObject.str("result"), got, input.toString())
         }
     }

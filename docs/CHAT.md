@@ -329,6 +329,43 @@ total time, and a **speed chip 1× → 1.5× → 2×** (remembered on the device
   Chinese text would only ever hit a chip.
 - "A quick tap" on the mic = released within 250 ms; the menu is a bottom sheet at every width (the message is shown
   lifted inside it); the voice transcript stays a card under the bubble.
+## Round 2 — PR 3: the rest of a normal chat app (migration 0095_chat_forward.sql)
+
+```sql
+ALTER TABLE messages ADD COLUMN forwarded_from TEXT;   -- the source message of a forward
+```
+```ts
+type ChatAttachment = /* image | voice as before */
+  | { kind: 'file'; name: string; bytes: number; mime: string }                    // ≤ 20 MB
+  | { kind: 'video'; bytes: number; mime: string; duration_ms?: number | null;
+      width?: number | null; height?: number | null };                             // ≤ 25 MB
+```
+- **Files** — `POST /api/conversations/:id/media?kind=file&name=<file name>&client_id=&caption=`. The extension decides
+  (`FILE_TYPES` in `worker/src/services/chat/media.ts`: PDF, Word / Excel / PowerPoint / ODT, txt / csv / md / rtf, zip,
+  .apkg, epub, mp3 / m4a, pictures) — never HTML / SVG / scripts; a `.pdf` must start with `%PDF-`; the name is cleaned
+  (`cleanFileName`: no path, no control characters, ≤ 200). Served by `GET /api/chat-media/:id` with
+  `Content-Disposition` (`inline` for a PDF, else `attachment`, `filename*=` UTF-8), `X-Content-Type-Options: nosniff`
+  and `Content-Security-Policy: sandbox`. Bubble: icon by type, name, size · type; a tap downloads it (with the session's
+  auth) and opens a PDF in a new tab / saves anything else. Clients download a file only when it is opened.
+- **Video clips** — `kind=video&duration_ms=&width=&height=` (the sender's device reads length and shape); MP4 / WebM /
+  MOV by their magic bytes. Bubble: the platform player, sized by the clip's shape.
+- **Several photos at once** — the photo picker takes up to 10; the compose sheet shows them as a grid (✕ drops one),
+  the caption goes with the first; each photo is its own message (own client_id, own outbox row).
+- **Forward** — menu → Forward (or Select → Forward for several, oldest first) → "Forward to…" lists every conversation
+  I have with a person (newest first, "· this chat" marked; not the Claude practice chats) →
+  `POST /api/messages/:id/forward { conversation_id, client_id }` → a new message from ME there, same text / caption,
+  the media copied to its own `chat-media/<conv>/<newId>.<ext>` (a voice message keeps its transcript), `forwarded_from`
+  set, idempotent by client_id; 400 no conversation, 403 not a member of either, 409 deleted, 410 the file is gone.
+  Shown as "↪ Forwarded" on top of the bubble.
+- **Message info** — menu → Info: from, sent, edited, "Read by <name>" (from the read marker: Yes ✓✓ / Not yet),
+  forwarded, pinned, corrected, the attachment (photo size, voice length + transcript state, file name, video length,
+  bytes), characters, reactions with who.
+- **Drafts per conversation** — the compose box keeps what was typed per conversation on the device
+  (web `services/chatDrafts.ts` localStorage, newest 50; Lab JsonCache), restored when the chat opens, cleared on send.
+- **Offline queue indicator** — while this chat's outbox holds sends the header subtitle says
+  "🕓 1 message waiting for a connection" (offline) / "🕓 Sending 2 messages…" (online); each pending bubble keeps its 🕓.
+  (Web: the app-wide "Offline" badge is hidden on the chat page — it covered Send.)
+- The message menu gains **Forward** (after Copy) and **Info** (after Pin) — `messageMenu` in shared/chats/messageMenu.ts.
 
 ## Chats tab (the inbox)
 

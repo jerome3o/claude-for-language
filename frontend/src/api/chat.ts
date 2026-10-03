@@ -59,24 +59,36 @@ export function sendChatText(
 export function sendChatMedia(
   conversationId: string,
   input: {
-    kind: 'image' | 'voice';
+    kind: 'image' | 'voice' | 'file' | 'video';
     blob: Blob;
     client_id: string;
     caption?: string | null;
     reply_to_message_id?: string | null;
     duration_ms?: number | null;
+    /** A file's name (kind file). */
+    name?: string | null;
+    width?: number | null;
+    height?: number | null;
   },
 ): Promise<MessageWithSender> {
   const q = new URLSearchParams({ kind: input.kind, client_id: input.client_id });
   if (input.caption) q.set('caption', input.caption);
   if (input.reply_to_message_id) q.set('reply_to_message_id', input.reply_to_message_id);
   if (input.duration_ms != null) q.set('duration_ms', String(Math.round(input.duration_ms)));
+  if (input.name) q.set('name', input.name);
+  if (input.width) q.set('width', String(Math.round(input.width)));
+  if (input.height) q.set('height', String(Math.round(input.height)));
   return request(`/conversations/${conversationId}/media?${q.toString()}`, {
     method: 'POST',
     rawBody: true,
     headers: { 'Content-Type': input.blob.type || 'application/octet-stream' },
     body: input.blob,
   });
+}
+
+/** Forward a message into another of my conversations (round 2 PR 3); idempotent by client_id. */
+export function forwardChatMessage(messageId: string, conversationId: string, clientId: string): Promise<MessageWithSender> {
+  return request(`/messages/${messageId}/forward`, { method: 'POST', body: JSON.stringify({ conversation_id: conversationId, client_id: clientId }) });
 }
 
 export function editChatMessage(messageId: string, content: string): Promise<MessageWithSender> {

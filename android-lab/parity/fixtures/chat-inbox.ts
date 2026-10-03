@@ -43,6 +43,13 @@ const previewInputs = [
   { content: 'hi', attachment_kind: null },
   { content: 'hi', deleted: false },
   { content: '　全角　', attachment_kind: 'image' as const },
+  { content: '', attachment_kind: 'file' as const, attachment_name: '作业.pdf' },
+  { content: ' p.2 ', attachment_kind: 'file' as const, attachment_name: 'homework.docx' },
+  { content: '', attachment_kind: 'file' as const },
+  { content: '', attachment_kind: 'file' as const, attachment_name: '' },
+  { content: '', attachment_kind: 'video' as const },
+  { content: '看这个', attachment_kind: 'video' as const },
+  { content: 'gone', attachment_kind: 'file' as const, attachment_name: 'a.pdf', deleted: true },
 ];
 const previews = previewInputs.map((input) => ({ input, result: chatMessagePreview(input) }));
 

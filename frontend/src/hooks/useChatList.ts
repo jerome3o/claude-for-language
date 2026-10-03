@@ -94,7 +94,12 @@ export function useChatList({ live = false }: { live?: boolean } = {}) {
             id: m.id,
             conversation_id: m.conversation_id,
             sender_id: m.sender_id,
-            preview: chatMessagePreview({ content: m.content ?? '', attachment_kind: m.attachment?.kind ?? null, deleted: !!m.deleted_at }),
+            preview: chatMessagePreview({
+              content: m.content ?? '',
+              attachment_kind: m.attachment?.kind ?? null,
+              attachment_name: m.attachment?.kind === 'file' ? m.attachment.name : null,
+              deleted: !!m.deleted_at,
+            }),
             created_at: m.created_at,
           },
           userId,

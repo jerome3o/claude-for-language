@@ -36,6 +36,10 @@ describe('chatMessagePreview', () => {
     expect(chatMessagePreview({ content: ' 看! ', attachment_kind: 'image' })).toBe('📷 Photo: 看!');
     expect(chatMessagePreview({ content: '', attachment_kind: 'voice' })).toBe('🎤 Voice message');
     expect(chatMessagePreview({ content: 'x', deleted: true })).toBe('Message deleted');
+    expect(chatMessagePreview({ content: '', attachment_kind: 'file', attachment_name: 'homework.pdf' })).toBe('📄 homework.pdf');
+    expect(chatMessagePreview({ content: 'see p.2', attachment_kind: 'file', attachment_name: 'homework.pdf' })).toBe('📄 homework.pdf: see p.2');
+    expect(chatMessagePreview({ content: '', attachment_kind: 'file' })).toBe('📄 File');
+    expect(chatMessagePreview({ content: '', attachment_kind: 'video' })).toBe('🎬 Video');
   });
 });
 
