@@ -55,7 +55,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.profile.ProfilePhoto
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /** Signal's blue — the inbox's accents (unread badges, times, the new-chat pencil). */
-val SignalBlue = Color(0xFF2C6BED)
+private val SignalBlue: Color
+    @Composable get() = dev.jeromeswannack.chineselearning.lab.ui.chat.chatColors().mine // the chat screens' own blue (#2c6bed light)
 
 /** Someone I can start a new conversation with (the ✏️ picker). */
 data class ChatPerson(val relationshipId: String, val name: String, val pictureUrl: String? = null, val role: String? = null)
@@ -121,7 +122,7 @@ fun ChatsScreen(ui: ChatsUi, actions: ChatsActions) {
                 ui.rows.isEmpty() -> item(key = "empty") {
                     EmptyState(
                         "💬", "No chats yet",
-                        body = "No chats yet — connect with a tutor or student to start chatting.",
+                        body = "Connect with a tutor or student to start chatting.",
                         actionLabel = "Find your tutor or students", onAction = actions.onConnections,
                     )
                 }

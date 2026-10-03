@@ -10,7 +10,7 @@ instant synthesized sound effects, confetti, streaks.
 Status: **v1 = the study loop** — sign in, sync, study all decks or one deck with all
 three card types, example sentences, undo, "Study 10 more", offline study with
 background upload, prefetched audio — inside the **same tab bar as the web app** (Study ·
-Decks · Tutor · Progress · More for a student; Students · Decks · Library · More for a tutor
+Chats · Tutor · Progress · More for a student; Students · Chats · Library · More for a tutor
 account). Every other web screen already has a route: it opens natively once built, and
 until then a placeholder that opens the main app at the same screen. The checklist and the
 work packages are [PARITY.md](PARITY.md); how to add a feature is
