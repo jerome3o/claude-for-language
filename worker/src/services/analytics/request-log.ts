@@ -9,13 +9,20 @@ import type { Context, MiddlewareHandler, Next } from 'hono';
 import { matchedRoutes } from 'hono/route';
 import { currentScope } from './scope';
 
-/** The pattern of the handler that served the request ('unmatched' for a 404). */
+/**
+ * The pattern of the handler that answers the request ('unmatched' for a 404).
+ * `c.req.routeIndex` is the handler running now: after `next()` that is the one
+ * that produced the response; in a middleware it is the middleware itself, so
+ * we take the first real (non-`use`) route from there on. Not simply the last
+ * match — the SPA catch-all `app.get('*')` matches every GET.
+ */
 export function routePattern(c: Context): string {
   try {
     const routes = matchedRoutes(c);
-    for (let i = routes.length - 1; i >= 0; i--) {
+    const start = Math.max(0, c.req.routeIndex ?? 0);
+    for (let i = start; i < routes.length; i++) {
       const r = routes[i];
-      if (r.method !== 'ALL' && r.path && r.path !== '*') return r.path;
+      if (r.method !== 'ALL' && r.path) return r.path === '/*' ? '*' : r.path;
     }
   } catch {
     // no match result (very early failure)

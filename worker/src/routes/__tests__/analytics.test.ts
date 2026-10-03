@@ -243,10 +243,20 @@ describe('request log route pattern', () => {
       await next();
       seen = routePattern(c);
     });
+    let inMiddleware = '';
+    app.use('/api/*', async (c, next) => {
+      inMiddleware = routePattern(c);
+      await next();
+    });
     app.get('/api/decks/:id', (c) => c.text('ok'));
+    app.post('/api/decks', (c) => c.text('ok'));
+    app.get('*', (c) => c.text('spa')); // the SPA catch-all matches every GET too
     await app.request('/api/decks/abc123def456');
     expect(seen).toBe('/api/decks/:id');
-    await app.request('/api/nowhere');
+    expect(inMiddleware).toBe('/api/decks/:id');
+    await app.request('/somewhere');
+    expect(seen).toBe('*');
+    await app.request('/api/nowhere', { method: 'DELETE' });
     expect(seen).toBe('unmatched');
   });
 });
