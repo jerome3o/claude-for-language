@@ -355,6 +355,7 @@ html.has-tab-bar .pf-savebar:not(.pf-savebar-on) {
   background: var(--color-surface);
   border-radius: 16px 16px 0 0;
   padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  --sheet-pad-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
   animation: pf-sheet-up 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.1);
 }
 

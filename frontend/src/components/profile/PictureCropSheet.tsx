@@ -136,7 +136,7 @@ export function PictureCropSheet({ image, busy, error, onCancel, onConfirm }: Pr
 
         {error && <div className="inline-error" role="alert"><span className="inline-error-text">{error}</span></div>}
 
-        <div className="pf-sheet-actions">
+        <div className="pf-sheet-actions sheet-footer">
           <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
           <button
             type="button"

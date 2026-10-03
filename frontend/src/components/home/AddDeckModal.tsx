@@ -78,7 +78,7 @@ export function AddDeckModal({ onClose }: { onClose: () => void }) {
             </p>
           )}
 
-          <div className="modal-actions">
+          <div className="modal-actions sheet-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Cancel
             </button>

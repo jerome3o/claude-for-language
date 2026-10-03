@@ -161,20 +161,22 @@ export function GeneratePage() {
               <OfflineWarning message="You're offline. AI generation requires an internet connection." />
             </div>
 
-            <button
-              type="submit"
-              className="btn btn-primary btn-lg btn-block"
-              disabled={!isOnline || !prompt.trim() || generateMutation.isPending}
-            >
-              {generateMutation.isPending ? (
-                <>
-                  <span className="spinner" style={{ width: '20px', height: '20px' }} />
-                  Generating...
-                </>
-              ) : (
-                'Generate Deck with AI'
-              )}
-            </button>
+            <div className="page-footer">
+              <button
+                type="submit"
+                className="btn btn-primary btn-lg btn-block"
+                disabled={!isOnline || !prompt.trim() || generateMutation.isPending}
+              >
+                {generateMutation.isPending ? (
+                  <>
+                    <span className="spinner" style={{ width: '20px', height: '20px' }} />
+                    Generating...
+                  </>
+                ) : (
+                  'Generate Deck with AI'
+                )}
+              </button>
+            </div>
           </form>
         </div>
 

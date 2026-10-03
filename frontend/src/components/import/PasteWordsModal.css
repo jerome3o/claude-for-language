@@ -260,12 +260,7 @@
 }
 
 .pw-footer {
-  position: sticky;
-  bottom: -1rem;
-  margin: 0.5rem -1rem -1rem;
-  padding: 0.75rem 1rem 1rem;
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-border);
+  margin-top: 0.5rem; /* sticky behaviour: .sheet-footer (index.css) */
 }
 
 .pw-summary {
