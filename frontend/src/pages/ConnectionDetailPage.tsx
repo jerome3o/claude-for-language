@@ -447,7 +447,7 @@ export function ConnectionDetailPage() {
                       <div className="td-hw-meta">
                         {d.target_deck_name == null
                           ? 'The student deleted their copy'
-                          : `${d.notes_introduced ?? 0}/${d.notes_total ?? 0} words met · ${d.cards_mastered} cards mastered · ${(d.words_to_go ?? 0) === 0 ? 'all introduced' : `${d.words_to_go} to go, ~${d.days_to_go} ${d.days_to_go === 1 ? 'day' : 'days'}`}`}
+                          : `${d.notes_introduced ?? 0}/${d.notes_total ?? 0} words met · ${d.cards_mastered} cards mastered · ${(d.words_to_go ?? 0) === 0 ? 'all introduced' : `${d.words_to_go} to go, ~${d.days_to_go} ${d.days_to_go === 1 ? 'day' : 'days'}`}${d.notes_left_out ? ` · ${d.notes_left_out} left out by the student` : ''}`}
                         {d.notes_missing > 0 && <span className="td-pill td-pill-muted">{plural(d.notes_missing, 'new word')} not sent</span>}
                       </div>
                     </Link>

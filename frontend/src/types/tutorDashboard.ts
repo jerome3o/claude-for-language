@@ -44,6 +44,8 @@ export interface HomeworkDeck {
   /** Words in the student's copy and how many they have met; days to go at their daily budget. */
   notes_total: number;
   notes_introduced: number;
+  /** Words the student left out of long-term review in a homework pass (not counted in words_to_go). */
+  notes_left_out?: number;
   words_to_go: number;
   days_to_go: number;
   /** The copy's place in the student's queue (higher = sooner). */

@@ -819,6 +819,43 @@ export async function createNote(db: D1Database, deckId: string, input: NoteRowI
  * fresh cards. The R2 clips are shared between the copies, which is why deletes
  * go through deleteUnreferencedAudio. Used for tutor → student copies.
  */
+/**
+ * Notes changed since a sync cursor (`/api/sync/changes`): edited (updated_at) or given a
+ * long-term choice (long_term_at, which deliberately leaves updated_at alone).
+ */
+export async function getNotesChangedSince(db: D1Database, userId: string, sinceDate: string) {
+  return db
+    .prepare(
+      `SELECT n.* FROM notes n
+        JOIN decks d ON n.deck_id = d.id
+       WHERE d.user_id = ? AND (n.updated_at >= ? OR n.long_term_at >= ?)`
+    )
+    .bind(userId, sinceDate, sinceDate)
+    .all<Record<string, unknown>>();
+}
+
+/**
+ * The learner's "long-term review" choice on one of THEIR notes (migration 0093). Touches
+ * only long_term / long_term_at — never updated_at, so the copy does not look edited to
+ * copyFieldChanges. Returns null when the note is not the user's.
+ */
+export async function setNoteLongTerm(
+  db: D1Database,
+  userId: string,
+  noteId: string,
+  longTerm: 0 | 1 | null
+): Promise<{ id: string; long_term: 0 | 1 | null; long_term_at: string } | null> {
+  const row = await db
+    .prepare(
+      `UPDATE notes SET long_term = ?, long_term_at = datetime('now')
+        WHERE id = ? AND deck_id IN (SELECT id FROM decks WHERE user_id = ?)
+        RETURNING id, long_term, long_term_at`
+    )
+    .bind(longTerm, noteId, userId)
+    .first<{ id: string; long_term: 0 | 1 | null; long_term_at: string }>();
+  return row ?? null;
+}
+
 export async function insertNoteCopy(db: D1Database, targetDeckId: string, note: Record<string, unknown>): Promise<string> {
   const newNoteId = generateId();
   await db

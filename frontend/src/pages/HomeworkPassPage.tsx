@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { dueLabel, localDate, nextPassItem, passItemIds, passProgress, hasFsrs } from '@shared/homework';
-import { DEFAULT_DECK_SETTINGS } from '@shared/decks';
+import { DEFAULT_DECK_SETTINGS, deckInDailyReview, isLongTerm, longTermSummary, prefForToggle, toLongTermPref } from '@shared/decks';
+import { CardQueue } from '../types';
+import { setNoteLongTerm } from '../services/longTerm';
+import { LongTermSwitch, longTermLine } from '../components/homework/LongTermSwitch';
 import { db, type LocalNote } from '../db/database';
 import { recordPassEvent, syncHomework, titleParts } from '../services/homework';
 import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
@@ -106,6 +109,14 @@ function DeckPass({
     const rows = await db.notes.bulkGet(itemIds);
     return new Map(rows.filter((n): n is LocalNote => !!n).map((n) => [n.id, n]));
   }, [itemIds.join(',')]);
+  // "Add to my long-term review": the deck's own default (a one-off copy is 0 + 0) and
+  // the words already started (their switch is fixed — they are in the reviews).
+  const longTerm = useLiveQuery(async () => {
+    const [deck, cards] = await Promise.all([db.decks.get(deckId), db.cards.where('note_id').anyOf(itemIds).toArray()]);
+    const reviewed = new Set(cards.filter((c) => c.queue !== CardQueue.NEW).map((c) => c.note_id));
+    const inReview = deck ? deckInDailyReview(deck.new_cards_per_day, deck.secondary_cards_per_day ?? DEFAULT_DECK_SETTINGS.secondary_cards_per_day) : !oneOffOnly;
+    return { inReview, reviewed };
+  }, [deckId, itemIds.join(','), oneOffOnly]);
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const { play } = useNoteAudio('homework');
@@ -141,7 +152,21 @@ function DeckPass({
     return (
       <div className="study-fullscreen hw-pass">
         <PassTopbar title={title} onClose={onExit} right={counter} />
-        <PassDone title={part ? `${title} · ${part}` : title} words={progress.total} deckId={deckId} oneOffOnly={oneOffOnly} onExit={onExit} />
+        <PassDone
+          title={part ? `${title} · ${part}` : title}
+          words={progress.total}
+          deckId={deckId}
+          oneOffOnly={oneOffOnly}
+          longTerm={
+            notes && longTerm
+              ? {
+                  inReview: longTerm.inReview,
+                  ...longTermSummary(itemIds.map((id) => ({ pref: toLongTermPref(notes.get(id)?.long_term), reviewed: longTerm.reviewed.has(id) })), longTerm.inReview),
+                }
+              : undefined
+          }
+          onExit={onExit}
+        />
       </div>
     );
   }
@@ -172,6 +197,16 @@ function DeckPass({
             <div className="hw-pass-answer" data-testid="hw-pass-answer">
               <div className="hw-pass-pinyin">{note.pinyin}</div>
               <div className="hw-pass-english">{note.english}</div>
+              {longTerm && (
+                <LongTermSwitch
+                  on={isLongTerm(toLongTermPref(note.long_term), longTerm.inReview, longTerm.reviewed.has(note.id))}
+                  started={longTerm.reviewed.has(note.id)}
+                  onChange={(on) => {
+                    try { navigator.vibrate?.(10); } catch { /* no haptics */ }
+                    void setNoteLongTerm(note.id, prefForToggle(on, longTerm.inReview));
+                  }}
+                />
+              )}
               {/* The study card's sentence rows, kept calm: ▶, tap for pinyin then
                   English, "What's going on here?" — nothing here records a review
                   or a homework event. */}
@@ -215,7 +250,21 @@ function DeckPass({
   );
 }
 
-function PassDone({ title, words, deckId, oneOffOnly, onExit }: { title: string; words?: number; deckId?: string; oneOffOnly?: boolean; onExit: () => void }) {
+function PassDone({
+  title,
+  words,
+  deckId,
+  oneOffOnly,
+  longTerm,
+  onExit,
+}: {
+  title: string;
+  words?: number;
+  deckId?: string;
+  oneOffOnly?: boolean;
+  longTerm?: { inReview: boolean; added: number; leftOut: number };
+  onExit: () => void;
+}) {
   const { isOnline } = useNetwork();
   const [added, setAdded] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const addToDaily = async () => {
@@ -239,15 +288,18 @@ function PassDone({ title, words, deckId, oneOffOnly, onExit }: { title: string;
         <span lang="zh">{title}</span>
         {words ? ` · ${words} ${words === 1 ? 'word' : 'words'}` : ''}
       </p>
-      {oneOffOnly && deckId && (
+      {longTerm && (longTerm.inReview || longTerm.added > 0) && added !== 'done' && (
+        <p className="hw-longterm-summary" data-testid="hw-longterm-summary">{longTermLine(longTerm.added, longTerm.leftOut)}</p>
+      )}
+      {oneOffOnly && deckId && (!longTerm || (!longTerm.inReview && longTerm.leftOut > 0)) && (
         <div className="hw-pass-daily">
           {added === 'done' ? (
             <p>Added — these words now come up in your daily review.</p>
           ) : (
             <>
-              <p>These words were a one-off. Want to keep them for good?</p>
+              <p>{longTerm && longTerm.added > 0 ? 'The others were a one-off. Keep them all for good?' : 'These words were a one-off. Want to keep them for good?'}</p>
               <button type="button" className="btn btn-secondary" onClick={() => void addToDaily()} disabled={added === 'busy' || !isOnline}>
-                {added === 'busy' ? 'Adding…' : 'Add to my daily review'}
+                {added === 'busy' ? 'Adding…' : longTerm && longTerm.added > 0 ? 'Add them all to my daily review' : 'Add to my daily review'}
               </button>
               {!isOnline && <p className="hw-muted">Available when you&rsquo;re online.</p>}
               {added === 'error' && <p className="hw-muted">Couldn&rsquo;t add them — try again later.</p>}

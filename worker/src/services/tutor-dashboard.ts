@@ -47,6 +47,8 @@ export interface HomeworkDeckInput {
   /** Words in the student's copy, and how many have been introduced (any card reviewed). */
   notes_total: number;
   notes_introduced: number;
+  /** Words the student switched OFF "long-term review" in a homework pass, not met yet: never introduced. */
+  notes_left_out?: number;
   /** The copy's place in the student's queue (higher = sooner). */
   study_priority?: number;
 }
@@ -327,7 +329,7 @@ export function summarizeHomework(
     percent: homeworkPercent(totals),
     ...totals,
     decks: decks.map((d) => {
-      const words_to_go = Math.max(0, (d.notes_total ?? 0) - (d.notes_introduced ?? 0));
+      const words_to_go = Math.max(0, (d.notes_total ?? 0) - (d.notes_introduced ?? 0) - (d.notes_left_out ?? 0));
       return {
         ...d,
         percent_started: d.cards_total ? Math.round((100 * d.cards_started) / d.cards_total) : 0,

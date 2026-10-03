@@ -219,6 +219,11 @@ describe('homework', () => {
     expect(s.decks.map((d) => [d.queue_position, d.queue_total])).toEqual([[2, 4], [4, 4], [null, 4]]);
   });
 
+  it('words the student left out of long-term review are not "to go"', () => {
+    const s = summarizeHomework([deck({ notes_total: 10, notes_introduced: 2, notes_left_out: 3 })], [], { new_cards_per_day: 3 });
+    expect(s.decks[0]).toMatchObject({ words_to_go: 5, days_to_go: 2, notes_left_out: 3 });
+  });
+
   it('has no queue positions when the queue is not supplied', () => {
     const s = summarizeHomework([deck()], []);
     expect(s.decks[0].queue_position).toBeNull();

@@ -80,6 +80,8 @@ export async function fetchHomeworkDecks(db: D1Database, relationshipId: string)
               (SELECT COUNT(*) FROM notes n WHERE n.deck_id = sd.target_deck_id) AS notes_total,
               (SELECT COUNT(*) FROM notes n WHERE n.deck_id = sd.target_deck_id
                  AND EXISTS (SELECT 1 FROM cards c WHERE c.note_id = n.id AND COALESCE(c.queue, 0) != 0)) AS notes_introduced,
+              (SELECT COUNT(*) FROM notes n WHERE n.deck_id = sd.target_deck_id AND n.long_term = 0
+                 AND NOT EXISTS (SELECT 1 FROM cards c WHERE c.note_id = n.id AND COALESCE(c.queue, 0) != 0)) AS notes_left_out,
               COALESCE(tgt.study_priority, 0) AS study_priority,
               (SELECT COUNT(*) FROM notes s WHERE s.deck_id = sd.source_deck_id
                  AND NOT EXISTS (SELECT 1 FROM notes t WHERE t.deck_id = sd.target_deck_id AND t.hanzi = s.hanzi)) AS notes_missing
@@ -103,7 +105,7 @@ export async function fetchHomeworkDecks(db: D1Database, relationshipId: string)
 export function dropGhostShares(rows: HomeworkDeckInput[]): HomeworkDeckInput[] {
   return rows
     .filter((d) => !(d.target_deck_name == null && d.source_deck_name === '(deleted)'))
-    .map((d) => (d.target_deck_name == null ? { ...d, cards_total: 0, cards_started: 0, cards_mastered: 0, notes_total: 0, notes_introduced: 0 } : d));
+    .map((d) => (d.target_deck_name == null ? { ...d, cards_total: 0, cards_started: 0, cards_mastered: 0, notes_total: 0, notes_introduced: 0, notes_left_out: 0 } : d));
 }
 
 /** The student's whole deck queue (first = studied first), for queue positions on the homework rows. */

@@ -262,6 +262,14 @@ export async function deleteDeck(id: string): Promise<void> {
 
 // ============ Notes ============
 
+/** The learner's "long-term review" choice for one word (1 in, 0 out, null = follow the deck). Idempotent. */
+export async function setNoteLongTermRemote(id: string, longTerm: 0 | 1 | null): Promise<{ id: string; long_term: 0 | 1 | null }> {
+  return fetchJSON(`/notes/${encodeURIComponent(id)}/long-term`, {
+    method: 'PUT',
+    body: JSON.stringify({ long_term: longTerm }),
+  });
+}
+
 export async function getNote(id: string): Promise<NoteWithCards> {
   return fetchJSON<NoteWithCards>(`/notes/${id}`);
 }
