@@ -334,6 +334,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
+- `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
 - `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
 - `shared_decks` - Record of decks shared from tutor to student
@@ -725,6 +726,7 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `PUT /api/decks/:id/settings` - Any subset of the deck settings (validated; 400 with `problems`) — per-deck caps on the global new-card budget
 - `POST /api/decks/:id/move` - `{ to: 'top' | 'bottom' }` move a deck in the study queue (`study_priority`)
 - `PUT /api/decks/reorder` - `{ deck_ids }` the whole queue, first = studied first
+- `PUT /api/profile/email-prefs` - `{ email_chat_messages: boolean }` chat e-mails on / off (on `/api/auth/me`); every chat e-mail also carries a sign-in-free "Turn off chat emails" link + RFC 8058 `List-Unsubscribe` headers → `GET|POST /api/email/unsubscribe?t=`, `POST /api/email/resubscribe?t=` (HMAC token, `services/email-unsubscribe.ts`, `routes/email-prefs.ts`; docs/CHAT.md "E-mail opt-out")
 - `PUT /api/profile/study-budget` - `{ new_cards_per_day?, secondary_cards_per_day? }` the account's global daily new-card budget (0–200; 400 with `problems`); current values on `/api/auth/me`
 - `GET|PUT /api/profile` - The editable profile (`routes/profile.ts`, `services/profile.ts`, validation `shared/profile`): `{ name?, bio?, about?, time_zone? }` (400 + `problems`; `name: null` = back to the Google name) → `{ name, picture_url, picture_source: google|upload|none, name_custom, google_name, google_picture_url, bio, about, time_zone }`
 - `POST /api/profile/picture` (raw image or multipart `picture`; JPEG/PNG/WebP sniffed from the bytes, ≤ 2 MB; the clients crop to a square and send ~512px JPEG) · `DELETE /api/profile/picture?use=google|none`
