@@ -112,6 +112,16 @@ class ChatSheetActions(
     val onCloseExplain: () -> Unit = {},
     val onOpenSearch: () -> Unit = {},
     val onOpenHelp: () -> Unit = {},
+    // ---- round 2 PR 3 ----
+    val onVideo: () -> Unit = {},
+    val onFile: () -> Unit = {},
+    /** ✕ on one photo of several. */
+    val onRemovePhoto: (Int) -> Unit = {},
+    val onForwardTo: (ForwardTarget) -> Unit = {},
+    val onCloseForward: () -> Unit = {},
+    /** No app opens a file: share it / save a copy (path, name, mime). */
+    val onShareFile: (String, String, String) -> Unit = { _, _, _ -> },
+    val onSaveFile: (String, String, String) -> Unit = { _, _, _ -> },
 )
 
 @Composable
@@ -128,27 +138,25 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
                 )
             }
         }
-        ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss) {
-            if (!ui.isAi) {
-                NavRow("📷", "Camera", trailing = {}, onClick = actions.onCamera)
-                RowDivider()
-                NavRow("🖼️", "Photo", desc = "From the gallery", trailing = {}, onClick = actions.onGallery)
-                RowDivider()
-            }
-            val help = ui.online && ui.messages.isNotEmpty() && !ui.generatingOptions
-            NavRow(
-                "💡", "Help me say it",
-                desc = if (!ui.online) "Needs internet" else if (ui.messages.isEmpty()) "After the first message" else "Say what you mean — Claude suggests replies",
-                enabled = help, trailing = {}, onClick = actions.onOpenHelp,
-            )
-            Spacer(Modifier.height(16.dp))
-        }
+        ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss) { AttachContent(ui, actions) }
         is ChatSheet.Explain -> ui.explain?.let { e ->
             LabBottomSheet(onDismiss = actions.onCloseExplain) {
                 ExplainContent(e, s.saveCard, ui.online, actions.cards, onRetry = actions.onRetryExplain, onClose = actions.onCloseExplain)
             }
         }
-        is ChatSheet.Photo -> PhotoSheet(s, ui, actions)
+        is ChatSheet.Photos -> LabBottomSheet(onDismiss = actions.onDiscardPhoto) {
+            PhotosComposeContent(s.photos, ui.online, actions.loadLocalImage, actions.onRemovePhoto, actions.onSendPhoto, actions.onDiscardPhoto)
+        }
+        ChatSheet.Forward -> ui.forward?.let { f ->
+            LabBottomSheet(onDismiss = actions.onCloseForward) { ForwardContent(f, ui.conversation?.id, actions.onForwardTo) }
+        }
+        is ChatSheet.Info -> LabBottomSheet(onDismiss = actions.onDismiss) {
+            val m = ui.messages.firstOrNull { it.id == s.message.id } ?: s.message
+            MessageInfoContent(m, ChatRound3.infoRows(m, ui.myId, ui.otherName.ifEmpty { "Your tutor" }.substringBefore(' '), ui.otherReadAt))
+        }
+        is ChatSheet.FileFallback -> LabBottomSheet(onDismiss = actions.onDismiss, title = s.name) {
+            FileFallbackContent(s.name, onShare = { actions.onShareFile(s.path, s.name, s.mime) }, onSave = { actions.onSaveFile(s.path, s.name, s.mime) })
+        }
         ChatSheet.Pins -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Pinned messages") {
             val pins = ui.pinned
             if (pins.isEmpty()) Text("Nothing pinned.", color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 20.dp))
@@ -224,6 +232,31 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
         is ChatSheet.Correct -> LabBottomSheet(onDismiss = actions.onDismiss, title = if (s.message.correction == null) "Correct this" else "Edit correction") {
             CorrectPanel(ui.messages.firstOrNull { it.id == s.message.id } ?: s.message, ui, actions)
         }
+    }
+}
+
+/** + → Camera · Photos · Video · File (round 2 PR 3) · Help me say it. */
+@Composable
+fun AttachContent(ui: ChatUi, actions: ChatSheetActions) {
+    Column(Modifier.fillMaxWidth().testTag("chat-attach-sheet")) {
+        if (!ui.isAi) {
+            NavRow("📷", "Camera", trailing = {}, onClick = actions.onCamera)
+            RowDivider()
+            NavRow("🖼️", "Photos", desc = "Up to 10 from the gallery", trailing = {}, onClick = actions.onGallery, modifier = Modifier.testTag("chat-attach-photos"))
+            RowDivider()
+            // Round 2 PR 3: a short clip, a document.
+            NavRow("🎬", "Video", desc = "A clip up to 25 MB", trailing = {}, onClick = actions.onVideo, modifier = Modifier.testTag("chat-attach-video"))
+            RowDivider()
+            NavRow("📄", "File", desc = "PDF, Office, text, zip, audio — up to 20 MB", trailing = {}, onClick = actions.onFile, modifier = Modifier.testTag("chat-attach-file"))
+            RowDivider()
+        }
+        val help = ui.online && ui.messages.isNotEmpty() && !ui.generatingOptions
+        NavRow(
+            "💡", "Help me say it",
+            desc = if (!ui.online) "Needs internet" else if (ui.messages.isEmpty()) "After the first message" else "Say what you mean — Claude suggests replies",
+            enabled = help, trailing = {}, onClick = actions.onOpenHelp,
+        )
+        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -427,25 +460,3 @@ private fun WordSheet(hanzi: String, context: String, ui: ChatUi, actions: ChatS
     }
 }
 
-/** The photo about to go: preview at its aspect ratio, an optional caption, Send. */
-@Composable
-private fun PhotoSheet(s: ChatSheet.Photo, ui: ChatUi, actions: ChatSheetActions) {
-    var caption by rememberSaveable { mutableStateOf("") }
-    val bitmap by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, s.path) { value = runCatching { actions.loadLocalImage(s.path, 1080) }.getOrNull() }
-    LabBottomSheet(onDismiss = actions.onDiscardPhoto, title = "Send a photo") {
-        Column(Modifier.padding(horizontal = 20.dp).testTag("chat-photo-sheet"), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            val (w, h) = dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaSizing.bubbleSize(s.width, s.height, maxW = 320f, maxH = 380f)
-            Box(Modifier.size(w.dp, h.dp).clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint), contentAlignment = Alignment.Center) {
-                bitmap?.let { androidx.compose.foundation.Image(it, "Photo", contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.matchParentSize()) }
-                    ?: Text("📷", fontSize = 32.sp)
-            }
-            OutlinedTextField(caption, { caption = it }, placeholder = { Text("Add a caption (optional)") }, maxLines = 3, modifier = Modifier.fillMaxWidth().testTag("chat-photo-caption"))
-            if (!ui.online) Text("You're offline — it sends when you're back online.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryPill("Cancel", Modifier.weight(1f), onClick = actions.onDiscardPhoto)
-                PrimaryPill("Send", Modifier.weight(1f).height(52.dp).testTag("chat-photo-send")) { actions.onSendPhoto(caption) }
-            }
-            Spacer(Modifier.height(12.dp))
-        }
-    }
-}

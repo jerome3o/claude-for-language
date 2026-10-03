@@ -24,6 +24,7 @@ import {
   chatMediaKey,
   inspectUpload,
   maxBytesFor,
+  tooBigMessage,
   parseDurationMs,
   parseMediaKind,
 } from '../services/chat/media';
@@ -55,7 +56,7 @@ chatMessages.post('/conversations/:id/media', async (c) => {
   const userId = c.get('user').id;
   const convId = c.req.param('id');
   const kind = parseMediaKind(c.req.query('kind'));
-  if (!kind) return c.json({ error: 'kind must be image or voice' }, 400);
+  if (!kind) return c.json({ error: 'kind must be image, voice, file or video' }, 400);
 
   const rawClientId = c.req.query('client_id');
   const clientId = normalizeClientId(rawClientId);
@@ -66,7 +67,10 @@ chatMessages.post('/conversations/:id/media', async (c) => {
   if (caption.length > CAPTION_MAX) return c.json({ error: `A caption can be at most ${CAPTION_MAX} characters` }, 400);
   const replyTo = c.req.query('reply_to_message_id') || undefined;
   const rawDuration = c.req.query('duration_ms');
-  const durationMs = kind === 'voice' ? parseDurationMs(rawDuration) : null;
+  const durationMs = kind === 'voice' ? parseDurationMs(rawDuration) : kind === 'video' ? Number(rawDuration) || null : null;
+  const fileName = c.req.query('name') ?? null;
+  const width = Number(c.req.query('width')) || null;
+  const height = Number(c.req.query('height')) || null;
   if (kind === 'voice' && !durationMs) return c.json({ error: 'duration_ms is required for a voice message (1 ms to 5 minutes)' }, 400);
 
   const participants = await getConversationParticipants(c.env.DB, convId);
@@ -80,14 +84,12 @@ chatMessages.post('/conversations/:id/media', async (c) => {
   }
 
   const declaredLength = Number(c.req.header('Content-Length') || 0);
-  if (declaredLength > maxBytesFor(kind)) {
-    return c.json({ error: kind === 'image' ? 'Photos can be at most 8 MB' : 'Voice messages can be at most 10 MB' }, 413);
-  }
+  if (declaredLength > maxBytesFor(kind)) return c.json({ error: tooBigMessage(kind) }, 413);
 
   let bytes: Uint8Array = new Uint8Array(await c.req.arrayBuffer());
   let inspected;
   try {
-    inspected = inspectUpload(kind, bytes, { durationMs, contentType: c.req.header('Content-Type') });
+    inspected = inspectUpload(kind, bytes, { durationMs, contentType: c.req.header('Content-Type'), name: fileName, width, height });
   } catch (err) {
     return fail(c, err, 'Upload failed');
   }
@@ -135,6 +137,69 @@ chatMessages.post('/conversations/:id/media', async (c) => {
   return c.json(message, 201);
 });
 
+// ---------- Forward (round 2 PR 3) ----------
+
+/**
+ * POST /messages/:id/forward { conversation_id, client_id? } — a copy of the message (text, caption,
+ * photo, voice with its transcript, file, video) sent by me into another conversation I am in,
+ * marked as forwarded. The media is copied to the new message's own R2 key. Idempotent by client_id.
+ */
+chatMessages.post('/messages/:id/forward', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ conversation_id?: unknown; client_id?: unknown }>().catch(() => ({} as { conversation_id?: unknown; client_id?: unknown }));
+  const targetId = typeof body.conversation_id === 'string' ? body.conversation_id : '';
+  if (!targetId) return c.json({ error: 'conversation_id is required' }, 400);
+  const clientId = normalizeClientId(body.client_id);
+  if (body.client_id !== undefined && body.client_id !== null && body.client_id !== '' && !clientId) {
+    return c.json({ error: 'client_id must be 1–100 characters of letters, digits, _ . : -' }, 400);
+  }
+  let src;
+  try {
+    src = await loadMessageForMember(c.env.DB, c.req.param('id'), userId);
+  } catch (err) {
+    return fail(c, err, 'Failed to forward the message');
+  }
+  if (src.deleted_at) return c.json({ error: 'That message was deleted' }, 409);
+  const participants = await getConversationParticipants(c.env.DB, targetId);
+  if (!participants) return c.json({ error: 'Conversation not found' }, 404);
+  if (!participants.user_ids.includes(userId) || participants.status !== 'active') return c.json({ error: 'Access denied' }, 403);
+  if (clientId) {
+    const existing = await findMessageByClientId(c.env.DB, userId, clientId);
+    if (existing) return c.json({ ...existing, client_id: clientId }, 200);
+  }
+  const id = generateId();
+  let attachment = null;
+  if (src.attachment) {
+    const ext = src.attachment.key.split('.').pop() || 'bin';
+    const key = chatMediaKey(targetId, id, ext);
+    const object = await c.env.AUDIO_BUCKET.get(src.attachment.key);
+    if (!object) return c.json({ error: 'The file is gone' }, 410);
+    try {
+      await c.env.AUDIO_BUCKET.put(key, await object.arrayBuffer(), { httpMetadata: { contentType: src.attachment.mime } });
+    } catch (err) {
+      console.error('[chat] forward: copying media failed:', err);
+      return c.json({ error: 'Could not copy the file, try again' }, 503);
+    }
+    attachment = { ...src.attachment, key };
+  }
+  let sent;
+  try {
+    sent = await sendMessage(c.env.DB, targetId, userId, src.content, undefined, { clientId, id, attachment, forwardedFrom: src.id });
+  } catch (err) {
+    if (attachment) await c.env.AUDIO_BUCKET.delete(attachment.key).catch(() => undefined);
+    return c.json({ error: err instanceof Error ? err.message : 'Failed to forward the message' }, 400);
+  }
+  const { duplicate, ...message } = sent;
+  if (duplicate) {
+    if (attachment) await c.env.AUDIO_BUCKET.delete(attachment.key).catch(() => undefined);
+    return c.json(message, 200);
+  }
+  const env = c.env;
+  await background(c, deliverSentMessage(env, targetId, userId, message));
+  if (src.content.trim() && attachment?.kind !== 'voice') await background(c, enrichMessageInBackground(env, id, src.content));
+  return c.json(message, 201);
+});
+
 // ---------- Serving media ----------
 
 chatMessages.get('/chat-media/:messageId', async (c) => {
@@ -147,6 +212,13 @@ chatMessages.get('/chat-media/:messageId', async (c) => {
     const headers = new Headers();
     headers.set('Content-Type', msg.attachment.mime || object.httpMetadata?.contentType || 'application/octet-stream');
     headers.set('Cache-Control', 'private, max-age=31536000, immutable');
+    headers.set('X-Content-Type-Options', 'nosniff');
+    if (msg.attachment.kind === 'file') {
+      // Documents download (a PDF may open inline) under their own name.
+      const disposition = msg.attachment.mime === 'application/pdf' ? 'inline' : 'attachment';
+      headers.set('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(msg.attachment.name)}`);
+      headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
+    }
     if (typeof object.size === 'number') headers.set('Content-Length', String(object.size));
     if (object.httpEtag) headers.set('ETag', object.httpEtag);
     return new Response(object.body, { headers });

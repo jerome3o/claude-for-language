@@ -15,6 +15,9 @@ export const CHAT_MEDIA_PREFIX = 'chat-media/';
 export const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 export const VOICE_MAX_BYTES = 10 * 1024 * 1024;
 export const VOICE_MAX_MS = 5 * 60 * 1000;
+export const FILE_MAX_BYTES = 20 * 1024 * 1024;
+export const VIDEO_MAX_BYTES = 25 * 1024 * 1024;
+export const FILE_NAME_MAX = 200;
 export const CAPTION_MAX = 4000;
 
 export type ChatMediaKind = ChatAttachment['kind'];
@@ -65,11 +68,83 @@ export class ChatMediaError extends Error {
 }
 
 export function maxBytesFor(kind: ChatMediaKind): number {
-  return kind === 'image' ? IMAGE_MAX_BYTES : VOICE_MAX_BYTES;
+  return kind === 'image' ? IMAGE_MAX_BYTES : kind === 'voice' ? VOICE_MAX_BYTES : kind === 'file' ? FILE_MAX_BYTES : VIDEO_MAX_BYTES;
+}
+
+export function tooBigMessage(kind: ChatMediaKind): string {
+  return kind === 'image'
+    ? 'Photos can be at most 8 MB'
+    : kind === 'voice'
+      ? 'Voice messages can be at most 10 MB'
+      : kind === 'file'
+        ? 'Files can be at most 20 MB'
+        : 'Video clips can be at most 25 MB';
 }
 
 export function parseMediaKind(value: unknown): ChatMediaKind | null {
-  return value === 'image' || value === 'voice' ? value : null;
+  return value === 'image' || value === 'voice' || value === 'file' || value === 'video' ? value : null;
+}
+
+/** Documents we accept, by extension → the type they are served as. Never HTML / SVG / scripts. */
+export const FILE_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  odt: 'application/vnd.oasis.opendocument.text',
+  txt: 'text/plain',
+  csv: 'text/csv',
+  md: 'text/markdown',
+  rtf: 'application/rtf',
+  zip: 'application/zip',
+  apkg: 'application/octet-stream',
+  epub: 'application/epub+zip',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  heic: 'image/heic',
+};
+
+/** A file name made safe to store and show: no paths or control characters, ≤ 200 characters, keeps its extension. */
+export function cleanFileName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  // eslint-disable-next-line no-control-regex
+  let name = raw.replace(/[\u0000-\u001f\u007f]/g, '').split(/[\\/]/).pop()!.trim();
+  if (!name || name === '.' || name === '..') return null;
+  if (name.length > FILE_NAME_MAX) {
+    const dot = name.lastIndexOf('.');
+    const ext = dot > 0 && name.length - dot <= 10 ? name.slice(dot) : '';
+    name = name.slice(0, FILE_NAME_MAX - ext.length) + ext;
+  }
+  return name;
+}
+
+export function fileExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
+/** The video container from the first bytes; null when it is not one we take. */
+export function sniffVideo(bytes: Uint8Array): 'video/mp4' | 'video/webm' | 'video/quicktime' | null {
+  if (bytes.length < 12) return null;
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
+  if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return 'video/webm';
+  if (ascii(4, 8) === 'ftyp') return ascii(8, 10) === 'qt' ? 'video/quicktime' : 'video/mp4';
+  if (ascii(4, 8) === 'moov' || ascii(4, 8) === 'mdat' || ascii(4, 8) === 'wide') return 'video/quicktime';
+  return null;
+}
+
+const VIDEO_EXT = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' } as const;
+
+function positiveInt(value: number | null | undefined, max: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= max ? Math.round(value) : null;
 }
 
 /** `duration_ms` from the query string: 1 ms … 5 min, else null. */
@@ -86,13 +161,36 @@ export function parseDurationMs(value: unknown): number | null {
 export function inspectUpload(
   kind: ChatMediaKind,
   bytes: Uint8Array,
-  opts: { durationMs?: number | null; contentType?: string | null } = {},
+  opts: { durationMs?: number | null; contentType?: string | null; name?: string | null; width?: number | null; height?: number | null } = {},
 ): { attachment: ChatAttachment; ext: string } {
   if (bytes.length === 0) throw new ChatMediaError('The upload is empty', 400);
-  if (bytes.length > maxBytesFor(kind)) {
-    throw new ChatMediaError(kind === 'image' ? 'Photos can be at most 8 MB' : 'Voice messages can be at most 10 MB', 413);
-  }
+  if (bytes.length > maxBytesFor(kind)) throw new ChatMediaError(tooBigMessage(kind), 413);
   const declared = (opts.contentType || '').split(';')[0].trim().toLowerCase();
+  if (kind === 'file') {
+    const name = cleanFileName(opts.name);
+    if (!name) throw new ChatMediaError('A file needs its name (name=…)', 400);
+    const ext = fileExtension(name);
+    const mime = FILE_TYPES[ext];
+    if (!mime) throw new ChatMediaError('That kind of file can’t be sent — PDF, Office documents, text, zip, audio or pictures', 415);
+    // A PDF must really be one (it is shown inline).
+    if (ext === 'pdf' && String.fromCharCode(...bytes.subarray(0, 5)) !== '%PDF-') throw new ChatMediaError('That PDF looks damaged', 415);
+    return { attachment: { kind: 'file', name, bytes: bytes.length, mime }, ext };
+  }
+  if (kind === 'video') {
+    const mime = sniffVideo(bytes);
+    if (!mime) throw new ChatMediaError('A video must be MP4, WebM or MOV', 415);
+    return {
+      attachment: {
+        kind: 'video',
+        bytes: bytes.length,
+        mime,
+        duration_ms: positiveInt(opts.durationMs, 30 * 60 * 1000),
+        width: positiveInt(opts.width, 10000),
+        height: positiveInt(opts.height, 10000),
+      },
+      ext: VIDEO_EXT[mime],
+    };
+  }
   if (kind === 'image') {
     if (declared && declared !== 'application/octet-stream' && !declared.startsWith('image/')) {
       throw new ChatMediaError('A photo must be a JPEG, PNG or WebP image', 415);
@@ -122,7 +220,7 @@ export function parseStoredAttachment(raw: string | null | undefined): StoredAtt
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as StoredAttachment;
-    return v && (v.kind === 'image' || v.kind === 'voice') ? v : null;
+    return v && (v.kind === 'image' || v.kind === 'voice' || v.kind === 'file' || v.kind === 'video') ? v : null;
   } catch {
     return null;
   }
@@ -136,7 +234,7 @@ export function publicAttachment(stored: StoredAttachment | null): ChatAttachmen
   return rest as ChatAttachment;
 }
 
-const PREVIEW_LABEL: Record<ChatMediaKind, string> = { image: '📷 Photo', voice: '🎤 Voice message' };
+const PREVIEW_LABEL: Record<ChatMediaKind, string> = { image: '📷 Photo', voice: '🎤 Voice message', file: '📄 File', video: '🎬 Video' };
 
 /** The one-line text a notification shows for a message (photo / voice label + caption). */
 export function messagePreviewText(message: Pick<MessageWithSender, 'content' | 'attachment' | 'deleted_at'>): string {
@@ -144,5 +242,6 @@ export function messagePreviewText(message: Pick<MessageWithSender, 'content' | 
   const kind = message.attachment?.kind;
   if (!kind) return message.content;
   const caption = message.content.trim();
-  return caption ? `${PREVIEW_LABEL[kind]}: ${caption}` : PREVIEW_LABEL[kind];
+  const label = message.attachment?.kind === 'file' ? `📄 ${message.attachment.name}` : PREVIEW_LABEL[kind];
+  return caption ? `${label}: ${caption}` : label;
 }

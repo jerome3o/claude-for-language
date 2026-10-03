@@ -56,13 +56,23 @@ data class ChatMessageDto(
     val words_source: String? = null,
     /** The tutor's correction of this (the student's text) message. */
     val correction: ChatCorrectionDto? = null,
+    // ---- round 2 PR 3 ----
+    /** The message this one was forwarded from — shown as "↪ Forwarded". */
+    val forwarded_from: String? = null,
 ) {
     val isDeleted: Boolean get() = !deleted_at.isNullOrEmpty()
     val isImage: Boolean get() = !isDeleted && attachment?.kind == "image"
     val isVoice: Boolean get() = !isDeleted && attachment?.kind == "voice"
+    val isFile: Boolean get() = !isDeleted && attachment?.kind == "file"
+    val isVideo: Boolean get() = !isDeleted && attachment?.kind == "video"
+    val isForwarded: Boolean get() = !forwarded_from.isNullOrEmpty() && !isDeleted
 }
 
-/** `ChatAttachment` (docs/CHAT.md PR 2): a photo or a voice message. */
+/**
+ * `ChatAttachment` (docs/CHAT.md PR 2): a photo or a voice message; round 2 PR 3 adds `file`
+ * ([name], ≤ 20 MB) and `video` (duration / width / height as the sender's device measured them,
+ * 0 = unknown).
+ */
 @Serializable
 data class ChatAttachmentDto(
     val kind: String = "",
@@ -75,6 +85,8 @@ data class ChatAttachmentDto(
     val transcript_status: String? = null,
     val transcript: String? = null,
     val translation: String? = null,
+    /** A file's name (kind file; round 2 PR 3). */
+    val name: String? = null,
 )
 
 /** How far each side has read (`last_read_at`, ISO); `other` drives "Seen". */
@@ -224,13 +236,34 @@ suspend fun Api.pinChatMessage(messageId: String, pinned: Boolean): ChatMessageD
  * `POST /api/conversations/:id/media?kind=image|voice&client_id=&caption=&reply_to_message_id=&duration_ms=` —
  * the raw body is the photo / recording. Queued through the outbox (enqueueRaw), so the path carries everything.
  */
-fun chatMediaUploadPath(conversationId: String, kind: String, clientId: String, caption: String? = null, replyTo: String? = null, durationMs: Long? = null): String =
+fun chatMediaUploadPath(
+    conversationId: String,
+    kind: String,
+    clientId: String,
+    caption: String? = null,
+    replyTo: String? = null,
+    durationMs: Long? = null,
+    /** A file's name (kind file). */
+    name: String? = null,
+    /** A video's shape (kind video; 0 / null = unknown). */
+    width: Int? = null,
+    height: Int? = null,
+): String =
     buildString {
         append("/api/conversations/${enc(conversationId)}/media?kind=${enc(kind)}&client_id=${enc(clientId)}")
         if (!caption.isNullOrBlank()) append("&caption=${enc(caption)}")
         if (replyTo != null) append("&reply_to_message_id=${enc(replyTo)}")
         if (durationMs != null) append("&duration_ms=$durationMs")
+        if (!name.isNullOrEmpty()) append("&name=${enc(name)}")
+        if (width != null && width > 0) append("&width=$width")
+        if (height != null && height > 0) append("&height=$height")
     }
+
+/** `POST /api/messages/:id/forward` (round 2 PR 3): idempotent by [client_id]. */
+@Serializable
+data class ForwardBody(val conversation_id: String, val client_id: String)
+
+fun chatForwardPath(messageId: String): String = "/api/messages/${enc(messageId)}/forward"
 
 /** Downloads `GET /api/chat-media/:id` (or the message's [mediaUrl]) into [dest] with the session's auth. */
 suspend fun Api.downloadChatMedia(mediaUrl: String, dest: java.io.File): Unit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {

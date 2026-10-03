@@ -328,15 +328,20 @@ fun SelectionFooter(ui: ChatUi, actions: ChatActions) {
         ui.notice?.let { InlineNotice(it.text, kind = if (it.error) NoticeKind.Error else NoticeKind.Success, actionLabel = "×", onAction = actions.onDismissNotice) }
         if (!ui.online) InlineNotice("You're offline — making cards needs a connection.", kind = NoticeKind.Offline)
         if (ui.proposingCards) ProposingRow()
-        else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (n == 0) "Tap messages" else "$n selected", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.weight(1f).testTag("chat-select-count"))
-            SecondaryPill("Copy", Modifier.height(48.dp).testTag("chat-select-copy"), enabled = n > 0, onClick = actions.onCopySelection)
-            PrimaryPill(
-                "🃏 Make flashcards",
-                Modifier.height(48.dp).testTag("chat-propose"),
-                enabled = n > 0 && ui.online,
-                onClick = actions.onPropose,
-            )
+        else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(if (n == 0) "Tap messages" else "$n selected", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.testTag("chat-select-count"))
+            // Copy · Forward · Make flashcards (round 2 PR 3; no Forward in the Claude practice chat).
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryPill("Copy", Modifier.weight(0.8f).height(48.dp).testTag("chat-select-copy"), enabled = n > 0, onClick = actions.onCopySelection)
+                if (!ui.isAi) SecondaryPill("Forward", Modifier.weight(1f).height(48.dp).testTag("chat-select-forward"), enabled = n > 0 && ui.online, onClick = actions.onForwardSelection)
+                PrimaryPill(
+                    // With Forward beside it the label shortens, so it stays on one line at 412 dp.
+                    if (ui.isAi) "🃏 Make flashcards" else "🃏 Flashcards",
+                    Modifier.weight(1.4f).height(48.dp).testTag("chat-propose"),
+                    enabled = n > 0 && ui.online,
+                    onClick = actions.onPropose,
+                )
+            }
         }
     }
 }

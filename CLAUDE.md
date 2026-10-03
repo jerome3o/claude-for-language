@@ -335,6 +335,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
+- `messages.forwarded_from` - the source message of a forward (migration 0095)
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
 - `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
@@ -1980,6 +1981,13 @@ The app supports many-to-many tutor-student relationships where users can be tut
   locks; `VoiceComposer` `mode` held / locked). Voice bubbles: real waveform (`services/voiceWaveform.ts`) + 1× / 1.5× / 2×.
   Link previews: `GET /api/link-preview?url=` (`services/link-preview.ts`: public http(s) only, ≤ 512 KB, cached a day;
   client `services/linkPreview.ts`). Styles: `components/chat/chat-signal.css`.
+- **Chat round 2 PR 3** (docs/CHAT.md "Round 2 — PR 3", migration 0095 `messages.forwarded_from`): files / PDFs
+  (`kind=file&name=`, ≤ 20 MB, extension whitelist `FILE_TYPES`, served with Content-Disposition + `sandbox` CSP) and video
+  clips (`kind=video`, ≤ 25 MB) on `POST /api/conversations/:id/media`; several photos at once (one message each); **Forward**
+  (`POST /api/messages/:id/forward { conversation_id, client_id }`, media copied to its own key, "↪ Forwarded"); **Info**
+  sheet; drafts per conversation (`services/chatDrafts.ts`, Lab `core/…/ChatDrafts.kt` parity-tested) and the header's
+  "🕓 N waiting for a connection" (`queueLabel`). Web: `FileBubble`, `VideoBubble`, `ForwardSheet`, `MessageInfoSheet`;
+  Lab: `ui/chat/ChatForward.kt`, `ChatRound3Views.kt`, `core/…/ChatFiles.kt`.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics

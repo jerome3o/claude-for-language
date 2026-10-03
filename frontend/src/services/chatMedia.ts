@@ -161,6 +161,8 @@ export function useChatMedia(
   messageId: string,
   mediaUrl: string | null | undefined,
   localBlob?: Blob | null,
+  /** False = don't download yet (a file is fetched when it is opened). */
+  enabled = true,
 ): { url: string | null; error: boolean; retry: () => void } {
   const [url, setUrl] = useState<string | null>(() => (localBlob ? null : urls.get(messageId) ?? null));
   const [error, setError] = useState(false);
@@ -174,7 +176,7 @@ export function useChatMedia(
   }, [localBlob]);
 
   useEffect(() => {
-    if (localBlob || !mediaUrl) return;
+    if (localBlob || !mediaUrl || !enabled) return;
     let alive = true;
     setError(false);
     chatMediaUrl(messageId, mediaUrl).then(
@@ -184,7 +186,51 @@ export function useChatMedia(
     return () => {
       alive = false;
     };
-  }, [messageId, mediaUrl, localBlob, attempt]);
+  }, [messageId, mediaUrl, localBlob, attempt, enabled]);
 
   return { url, error, retry: () => setAttempt((n) => n + 1) };
+}
+
+// ---------- Files and video clips (round 2 PR 3) ----------
+
+export const FILE_MAX_BYTES = 20 * 1024 * 1024;
+export const VIDEO_MAX_BYTES = 25 * 1024 * 1024;
+/** The extensions the server takes as a file (worker services/chat/media.ts FILE_TYPES). */
+export const FILE_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'txt', 'csv', 'md', 'rtf', 'zip', 'apkg', 'epub', 'mp3', 'm4a', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'];
+
+/** Why a picked file can't be sent, or null. */
+export function fileProblem(file: { name: string; size: number }): string | null {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (!FILE_EXTENSIONS.includes(ext)) return 'That kind of file can’t be sent — PDF, Office documents, text, zip, audio or pictures.';
+  if (file.size > FILE_MAX_BYTES) return 'Files can be at most 20 MB.';
+  if (file.size === 0) return 'That file is empty.';
+  return null;
+}
+
+/** A video's length and shape, read by the browser (null fields when it can't tell). */
+export function videoInfo(file: Blob): Promise<{ duration_ms: number | null; width: number | null; height: number | null }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    const done = (r: { duration_ms: number | null; width: number | null; height: number | null }) => {
+      URL.revokeObjectURL(url);
+      resolve(r);
+    };
+    const timer = setTimeout(() => done({ duration_ms: null, width: null, height: null }), 5000);
+    v.onloadedmetadata = () => {
+      clearTimeout(timer);
+      done({
+        duration_ms: Number.isFinite(v.duration) ? Math.round(v.duration * 1000) : null,
+        width: v.videoWidth || null,
+        height: v.videoHeight || null,
+      });
+    };
+    v.onerror = () => {
+      clearTimeout(timer);
+      done({ duration_ms: null, width: null, height: null });
+    };
+    v.src = url;
+  });
 }

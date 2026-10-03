@@ -211,6 +211,7 @@ type MessageRow = {
   attachment: string | null;
   pinned_at: string | null;
   pinned_by: string | null;
+  forwarded_from: string | null;
   words: string | null;
   correction: string | null;
   u_id: string;
@@ -237,7 +238,7 @@ async function queryMessages(
            m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
            m.translation, m.segmentation, m.client_id,
            m.updated_at, m.edited_at, m.deleted_at, m.attachment, m.pinned_at, m.pinned_by,
-           m.words, m.correction,
+           m.words, m.correction, m.forwarded_from,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
            rm.id as reply_id, rm.content as reply_content, rm.deleted_at as reply_deleted_at, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
@@ -282,6 +283,7 @@ async function queryMessages(
       media_url: attachment ? chatMediaUrl(row.id) : null,
       pinned_at: row.pinned_at ?? null,
       pinned_by: row.pinned_by ?? null,
+      forwarded_from: row.forwarded_from ?? null,
       words: words?.words ?? null,
       words_source: words?.source ?? null,
       correction: deleted ? null : parseCorrection(row.correction),
@@ -402,6 +404,8 @@ export async function sendMessage(
     id?: string;
     /** Photo / voice attachment incl. its R2 key (docs/CHAT.md PR 2). */
     attachment?: StoredAttachment | null;
+    /** The source message of a forward (round 2 PR 3). */
+    forwardedFrom?: string | null;
   } = {}
 ): Promise<SentMessage> {
   // Verify access
@@ -422,10 +426,10 @@ export async function sendMessage(
   try {
     await db
       .prepare(`
-        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id, attachment)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id, attachment, forwarded_from)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .bind(id, conversationId, userId, content, now, replyToMessageId || null, clientId, opts.attachment ? JSON.stringify(opts.attachment) : null)
+      .bind(id, conversationId, userId, content, now, replyToMessageId || null, clientId, opts.attachment ? JSON.stringify(opts.attachment) : null, opts.forwardedFrom ?? null)
       .run();
   } catch (err) {
     // Two sends with the same key at once: the other one won the unique index.
@@ -465,6 +469,7 @@ export async function sendMessage(
     media_url: opts.attachment ? chatMediaUrl(id) : null,
     pinned_at: null,
     pinned_by: null,
+    forwarded_from: opts.forwardedFrom ?? null,
     words: null,
     words_source: null,
     correction: null,
