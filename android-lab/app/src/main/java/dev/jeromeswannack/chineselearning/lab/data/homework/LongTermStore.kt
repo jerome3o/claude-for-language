@@ -30,6 +30,7 @@ object LongTermStore {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = true; encodeDefaults = true }
 
     suspend fun set(app: LabApp, noteId: String, pref: Int?) {
+        app.analytics.track("study.long_term_toggle", mapOf("value" to when (pref) { 1 -> "on"; 0 -> "off"; else -> "default" }))
         withContext(Dispatchers.IO) {
             app.repo.dao.setNoteLongTerm(noteId, pref)
             // A fresh id per choice: the Outbox ignores a duplicate id, and items drain in order,

@@ -12,6 +12,7 @@ import { getMyRelationships } from '../api/client';
 import { CLAUDE_AI_USER_ID, getOtherUserInRelationship } from '../types';
 import type { CallListItem } from '../types/calls';
 import { groupCallsByLesson } from '@shared/calls';
+import { track, trackError } from '../services/analytics';
 import './CallPage.css';
 import './CallReviewPage.css';
 
@@ -55,8 +56,10 @@ export function CallsListPage() {
     setError(null);
     try {
       const { call } = await createCall({ relationship_id: relationshipId });
+      track('call.start', { solo: !relationshipId });
       navigate(`/calls/${call.id}`);
     } catch (err) {
+      trackError('call_start', err);
       setError(err instanceof Error ? err.message : 'Could not start the call');
       setStarting(null);
     }

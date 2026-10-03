@@ -103,6 +103,11 @@ class MainActivity : ComponentActivity() {
         // "Go study" entries (the widget, reminder notifications) leave a homework pass, a reader,
         // a lesson… on screen; explicit links (a chat, a call) always open (ui/nav/NavResume.kt).
         val soft = intent?.getBooleanExtra(ShellLinks.EXTRA_SOFT, false) == true
+        // Usage analytics: opened from one of our notifications (its kind only).
+        intent?.getStringExtra(ShellLinks.EXTRA_NOTIFICATION)?.let { kind ->
+            app.analytics.track("notification.tapped", mapOf("kind" to kind))
+            intent.removeExtra(ShellLinks.EXTRA_NOTIFICATION) // once, not again on a configuration change
+        }
         // The hybrid app's `route` extra ("/coach?text=…") works here too.
         ShellLinks.routeExtra(intent)?.let { pending = NavRequest(it, soft); return }
         val data = intent?.data ?: return

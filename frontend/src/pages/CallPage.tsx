@@ -10,6 +10,8 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { getCall } from '../api/calls';
+import { track, trackError } from '../services/analytics';
+import { ACTIVITY_CATALOGUE } from '@shared/call-activities';
 import { useCall, canShareScreen } from '../hooks/useCall';
 import { CallRecorder } from '../services/calls/recorder';
 import { Whiteboard } from '../components/calls/Whiteboard';
@@ -124,6 +126,15 @@ export function CallPage() {
     }
   }, [layout, user]);
   const [layoutOpen, setLayoutOpen] = useState(false);
+  // Analytics: when I joined (call.leave / call.end carry the time in the call).
+  const joinedAtRef = useRef<number | null>(null);
+  const trackLeft = (event: 'call.leave' | 'call.end') => {
+    track(event, { duration_ms: joinedAtRef.current ? Date.now() - joinedAtRef.current : null });
+    joinedAtRef.current = null;
+  };
+  useEffect(() => {
+    if (call.phase === 'error') trackError('call', call.error ?? 'error');
+  }, [call.phase, call.error]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [endConfirm, setEndConfirm] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
@@ -255,7 +266,7 @@ export function CallPage() {
             It goes on for {detail.participants.find((p) => p.id !== call.myUserId)?.name?.split(' ')[0] ?? 'the other person'} — rejoin from here or from another device. A call nobody is in ends by itself after 10 minutes.
           </p>
           <div className="call-ended-actions">
-            <button type="button" className="btn btn-primary" onClick={() => void call.rejoin()} data-testid="rejoin-call">Rejoin</button>
+            <button type="button" className="btn btn-primary" onClick={() => { joinedAtRef.current = Date.now(); track('call.join', { role: 'rejoin' }); void call.rejoin(); }} data-testid="rejoin-call">Rejoin</button>
             <Link to="/calls" className="btn btn-secondary">All calls</Link>
           </div>
         </div>
@@ -316,7 +327,12 @@ export function CallPage() {
           <button
             type="button"
             className="btn btn-primary call-join-btn"
-            onClick={() => void call.join({ record })}
+            onClick={() => {
+              joinedAtRef.current = Date.now();
+              const c = callQuery.data?.call;
+              track('call.join', { role: !c?.relationship_id ? 'solo' : c.created_by === user!.id ? 'host' : 'guest' });
+              void call.join({ record });
+            }}
             disabled={call.phase === 'joining'}
             data-testid="join-call"
           >
@@ -356,7 +372,7 @@ export function CallPage() {
   const boardSwitch = (current: 'text' | 'draw') => (
     <div className="call-board-switch" role="tablist">
       <button type="button" role="tab" aria-selected={current === 'text'} className={current === 'text' ? 'active' : ''} onClick={() => dispatch({ type: 'swap', from: 'draw', to: 'text' })} data-testid={current === 'draw' ? 'board-tab-text' : undefined}>Board</button>
-      <button type="button" role="tab" aria-selected={current === 'draw'} className={current === 'draw' ? 'active' : ''} onClick={() => dispatch({ type: 'swap', from: 'text', to: 'draw' })} data-testid={current === 'text' ? 'board-tab-draw' : undefined}>Draw</button>
+      <button type="button" role="tab" aria-selected={current === 'draw'} className={current === 'draw' ? 'active' : ''} onClick={() => { if (current !== 'draw') track('call.board', { tile: 'draw' }); dispatch({ type: 'swap', from: 'text', to: 'draw' }); }} data-testid={current === 'text' ? 'board-tab-draw' : undefined}>Draw</button>
     </div>
   );
 
@@ -568,6 +584,7 @@ export function CallPage() {
           running={call.activity && call.activity.phase !== 'done' ? call.activity.spec.title : null}
           onPick={(id) => {
             call.startActivity(id);
+            track('call.activity_start', { activity_kind: ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null });
             setActivitiesOpen(false);
           }}
           onClose={() => setActivitiesOpen(false)}
@@ -590,14 +607,17 @@ export function CallPage() {
         <button
           type="button"
           className={`call-btn${boardOnStage ? ' active' : ''}`}
-          onClick={() => dispatch(boardButton(layout, typeof window !== 'undefined' && window.innerWidth < 640))}
+          onClick={() => {
+            if (!boardOnStage) track('call.board', { tile: 'text' });
+            dispatch(boardButton(layout, typeof window !== 'undefined' && window.innerWidth < 640));
+          }}
           aria-label="Board"
           title="Board — type together, or draw (B)"
           data-testid="open-board"
         >
           📝
         </button>
-        <button type="button" className={`call-btn${chatOnStage ? ' active' : ''}`} onClick={() => dispatch({ type: 'focus', tile: chatOnStage ? 'remote' : 'chat' })} aria-label="Chat" title="Chat (C)" data-testid="open-chat">
+        <button type="button" className={`call-btn${chatOnStage ? ' active' : ''}`} onClick={() => { if (!chatOnStage) track('call.board', { tile: 'chat' }); dispatch({ type: 'focus', tile: chatOnStage ? 'remote' : 'chat' }); }} aria-label="Chat" title="Chat (C)" data-testid="open-chat">
           💬{unread > 0 && !chatOnStage && <span className="call-badge">{unread}</span>}
         </button>
         {canShareScreen() && (
@@ -609,7 +629,7 @@ export function CallPage() {
             <div className="call-more-menu call-layout-menu" role="menu" data-testid="layout-menu">
               <div className="call-layout-presets">
                 {PRESETS.filter((p) => p.id !== 'screen' || available.screen).map((p) => (
-                  <button key={p.id} type="button" role="menuitem" onClick={() => { dispatch({ type: 'preset', preset: p.id }); setLayoutOpen(false); }} data-testid={`preset-${p.id}`}>
+                  <button key={p.id} type="button" role="menuitem" onClick={() => { track('call.layout', { preset: p.id }); dispatch({ type: 'preset', preset: p.id }); setLayoutOpen(false); }} data-testid={`preset-${p.id}`}>
                     <span className={`call-preset-icon preset-${p.id}`} aria-hidden="true" />
                     <span>{p.label}</span>
                     <kbd>{p.key}</kbd>
@@ -646,7 +666,7 @@ export function CallPage() {
               <button type="button" role="menuitem" onClick={() => setPresentOpen(true)} data-testid="menu-present-material">📑 Present material</button>
               <button type="button" role="menuitem" onClick={() => setActivitiesOpen(true)} data-testid="menu-activities">🎲 Activities</button>
               <button type="button" role="menuitem" onClick={() => setDevicesOpen(true)} data-testid="menu-devices">🎛️ Camera, mic &amp; speaker</button>
-              <button type="button" role="menuitem" onClick={() => void call.leave()} data-testid="menu-leave">🚪 Leave — the call goes on</button>
+              <button type="button" role="menuitem" onClick={() => { trackLeft('call.leave'); void call.leave(); }} data-testid="menu-leave">🚪 Leave — the call goes on</button>
               {call.hasCamera && <button type="button" role="menuitem" onClick={() => void call.flipCamera()}>🔄 Flip camera</button>}
               {CallRecorder.supported() && (
                 <button type="button" role="menuitem" onClick={() => void (call.recording ? call.stopRecording() : call.startRecording())}>
@@ -660,7 +680,7 @@ export function CallPage() {
         <button
           type="button"
           className="call-btn leave"
-          onClick={() => void call.leave()}
+          onClick={() => { trackLeft('call.leave'); void call.leave(); }}
           aria-label="Leave — the call continues"
           title="Leave — the call continues (rejoin any time, e.g. from another device)"
           data-testid="leave-call"
@@ -686,8 +706,8 @@ export function CallPage() {
               To switch device or step away, <em>Leave</em> instead — the call goes on.
             </p>
             <div className="call-end-confirm-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => { setEndConfirm(false); void call.leave(); }} data-testid="end-confirm-leave">Just leave</button>
-              <button type="button" className="btn btn-danger" onClick={() => { setEndConfirm(false); void call.endForEveryone(); }} data-testid="end-confirm-end">End for everyone</button>
+              <button type="button" className="btn btn-secondary" onClick={() => { setEndConfirm(false); trackLeft('call.leave'); void call.leave(); }} data-testid="end-confirm-leave">Just leave</button>
+              <button type="button" className="btn btn-danger" onClick={() => { setEndConfirm(false); trackLeft('call.end'); void call.endForEveryone(); }} data-testid="end-confirm-end">End for everyone</button>
               <button type="button" className="btn btn-link" onClick={() => setEndConfirm(false)}>Cancel</button>
             </div>
           </div>

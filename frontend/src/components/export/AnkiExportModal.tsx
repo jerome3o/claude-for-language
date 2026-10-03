@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CustomLessonSpec } from '@shared/lesson';
 import type { AnkiExportProgress, AnkiExportResult } from '../../services/anki';
+import { track } from '../../services/analytics';
 import './AnkiExport.css';
 
 export type AnkiExportTarget =
@@ -80,6 +81,7 @@ export function AnkiExportModal({ target, onClose }: { target: AnkiExportTarget;
         result = await anki.exportReaderToAnki(target.readerId, { includeAudio, onProgress });
       }
       anki.saveAnkiExport(result);
+      track('deck.export_anki', { kind: target.kind });
       if (mounted.current) setPhase({ status: 'done', result });
     } catch (err) {
       if (mounted.current) setPhase({ status: 'error', message: err instanceof Error ? err.message : 'Export failed' });

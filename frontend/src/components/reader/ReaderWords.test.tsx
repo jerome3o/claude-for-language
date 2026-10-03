@@ -20,6 +20,7 @@ const api = vi.hoisted(() => ({
   generatePracticeTTS: vi.fn(),
 }));
 vi.mock('../../api/client', () => api);
+vi.mock('../../services/analytics', () => ({ track: vi.fn(), trackError: vi.fn() }));
 
 import { db } from '../../db/database';
 import { ReaderWordsText } from './ReaderWords';

@@ -95,6 +95,7 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
      * Returns the new state (a reader rated back into learning stays in the session).
      */
     suspend fun rate(readerId: String, rating: Int, timeSpentMs: Long, nowMs: Long = System.currentTimeMillis()): ComputedCardState = lock.withLock {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("reader.finish", mapOf("rating" to listOf("again", "hard", "good", "easy").getOrNull(rating)))
         val now = Js.toIsoString(nowMs)
         val before = events().filter { it.readerId == readerId }.map { ItemEvent(it.id, it.readerId, it.rating, it.reviewedAt) }
         val state = ItemSchedule.afterRating(before, rating, now)

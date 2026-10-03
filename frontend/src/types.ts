@@ -53,6 +53,8 @@ export interface AuthUser {
   email_chat_messages?: boolean;
   /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account). */
   chat_auto_check?: boolean | null;
+  /** Settings → Advanced → "Share usage data" (docs/ANALYTICS.md); absent on old servers = on. */
+  share_usage?: boolean;
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;

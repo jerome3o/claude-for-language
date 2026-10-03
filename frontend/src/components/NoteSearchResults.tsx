@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, LocalNote, LocalCard, removeNotesLocally } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { syncService } from '../services/sync';
 import { useNetwork } from '../contexts/NetworkContext';
 import { noteMatches, stripTones } from '../services/noteSearch';
+import { track } from '../services/analytics';
 
 /** Render at most this many matches (a one-character query can match thousands). */
 const MAX_RESULTS = 200;
@@ -105,6 +106,18 @@ export function NoteSearchResults({ query }: { query: string }) {
     retry: false,
   });
   const serverHits = serverQuery.data?.notes ?? [];
+
+  // Analytics: one deck.search per settled query (after a pause in typing, once the answer is in).
+  const trackedQueryRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!q || !localDone || serverQuery.isFetching || trackedQueryRef.current === q) return;
+    const t = setTimeout(() => {
+      trackedQueryRef.current = q;
+      const server = totalMatches === 0 && !!serverQuery.data;
+      track('deck.search', { results: server ? serverHits.length : totalMatches, server });
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [q, localDone, totalMatches, serverQuery.isFetching, serverQuery.data, serverHits.length]);
 
   const handleNoteClick = useCallback((note: LocalNote) => {
     const cards = cardsByNoteId.get(note.id) || [];
@@ -317,6 +330,7 @@ export function NoteSearchResults({ query }: { query: string }) {
           card={editCard}
           onClose={() => setEditCard(null)}
           onSave={() => {
+            track('deck.note_edit', { where: 'search' });
             setEditCard(null);
             syncService.incrementalSync();
           }}

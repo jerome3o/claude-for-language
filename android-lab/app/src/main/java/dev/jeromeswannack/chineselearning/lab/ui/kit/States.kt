@@ -49,6 +49,14 @@ fun InlineNotice(
         NoticeKind.Error -> "⚠️" to Palette.Again
         NoticeKind.Offline -> "📴" to Lab.colors.muted
     }
+    // Usage analytics: an error shown to the user (a code + status, never the sentence).
+    if (kind == NoticeKind.Error) {
+        androidx.compose.runtime.LaunchedEffect(text) {
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
+                "error.shown", dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.errorProps(text, "inline_notice"),
+            )
+        }
+    }
     Row(
         modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(tint.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

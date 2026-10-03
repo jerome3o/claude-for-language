@@ -73,6 +73,8 @@ class GenerateDeckViewModel(private val env: DecksEnv) : ViewModel() {
         viewModelScope.launch {
             env.writes.generateDeck(s.prompt, s.deckName).fold(
                 onSuccess = { r ->
+                    dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("deck.generate")
+                    dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("deck.create", mapOf("source" to "generate"))
                     env.fx.success()
                     _ui.update { it.copy(busy = false, result = GeneratedUi(r.deck.id, r.deck.name, r.notes)) }
                 },

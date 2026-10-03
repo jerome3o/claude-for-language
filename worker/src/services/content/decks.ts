@@ -6,6 +6,7 @@
  */
 import type { Env, Deck } from '../../types';
 import * as db from '../../db/queries';
+import { trackServer } from '../analytics/server-events';
 import { newDeckSettings, pickDeckSettings, type DeckSettings, type DeckSettingsProblem, type QueueMove } from '@shared/decks';
 import { deleteUnreferencedAudio } from './audio';
 import type { Background } from './types';
@@ -29,6 +30,7 @@ export async function createDeck(d1: D1Database, userId: string, input: CreateDe
   const name = input.name?.trim();
   if (!name) throw new ContentError('Name is required');
   const range = await db.getDeckPriorityRange(d1, userId);
+  void trackServer('server.content_created', { kind: 'deck', count: 1 }, { userId });
   return db.createDeck(d1, userId, {
     name,
     description: input.description?.trim() || null,

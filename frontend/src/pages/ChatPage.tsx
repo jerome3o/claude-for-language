@@ -103,6 +103,7 @@ import { VoiceComposer, type VoiceCommand } from '../components/chat/VoiceCompos
 import { PhotoComposeSheet } from '../components/chat/PhotoComposeSheet';
 import { PinnedBar } from '../components/chat/PinnedBar';
 import { ChatSearchBar } from '../components/chat/ChatSearchBar';
+import { track, trackError } from '../services/analytics';
 import {
   ConfirmDeleteSheet,
   EditMessageSheet,
@@ -203,8 +204,10 @@ export function ChatPage() {
   const [modalNotice, setModalNotice] = useState<Notice | null>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
   const clearModalNotice = useCallback(() => setModalNotice(null), []);
-  const showError = (fallback: string, error: unknown) =>
+  const showError = (fallback: string, error: unknown) => {
+    trackError('chat', error);
     setNotice({ kind: 'error', text: describeError(error, fallback) });
+  };
   const showModalError = (fallback: string, error: unknown) =>
     setModalNotice({ kind: 'error', text: describeError(error, fallback) });
   const showSuccess = (text: string) => setNotice({ kind: 'success', text });
@@ -440,6 +443,19 @@ export function ChatPage() {
   };
 
   const showTyping = thread.otherTyping && !isAIConversation;
+
+  // Analytics: chat.open once per conversation, when the first load has the read marker.
+  const openTrackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!convId || thread.openedAt === null || !conversation || openTrackedRef.current === convId) return;
+    openTrackedRef.current = convId;
+    const marker = thread.readMarkerAtOpen;
+    const unread = serverMessages.filter((m) => m.sender_id !== myId && (!marker || m.created_at > marker)).length;
+    track('chat.open', { is_ai: isAIConversation, unread });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId, thread.openedAt, conversation]);
+  const trackSend = (kind: 'text' | 'image' | 'voice' | 'file' | 'video') =>
+    track('chat.send', { kind, is_ai: isAIConversation, reply: !!replyingTo, offline: !isOnline });
   const scroll = useChatScroll({
     messages,
     myId,
@@ -547,6 +563,7 @@ export function ChatPage() {
     if (!text || isWaitingForAI || !convId) return;
     setNotice(null);
     setDraftCheck(null);
+    trackSend('text');
     void thread.sendText(text, replyingTo).catch((error) => showError("Couldn't queue your message.", error));
     setNewMessage('');
     setReplyingTo(null);
@@ -576,6 +593,7 @@ export function ChatPage() {
 
   const sendPhoto = (caption: string) => {
     if (!pendingPhotos?.length) return;
+    trackSend('image');
     pendingPhotos.forEach((p, i) => {
       void thread
         .sendMedia({ kind: 'image', blob: p.blob, width: p.width, height: p.height, caption: i === 0 ? caption : '', replyTo: i === 0 ? replyingTo : null })
@@ -595,6 +613,7 @@ export function ChatPage() {
       return;
     }
     setNotice(null);
+    trackSend('file');
     void thread
       .sendMedia({ kind: 'file', blob: file, name: file.name, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the file.", error));
@@ -611,6 +630,7 @@ export function ChatPage() {
     }
     setNotice(null);
     const info = await videoInfo(file);
+    trackSend('video');
     void thread
       .sendMedia({ kind: 'video', blob: file, width: info.width ?? undefined, height: info.height ?? undefined, duration_ms: info.duration_ms ?? undefined, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the video.", error));
@@ -632,11 +652,13 @@ export function ChatPage() {
       }
     }
     if (target.conversationId === convId) void thread.pollNow();
+    track('chat.forward', { kind: serverMessages.find((m) => m.id === ids[0])?.attachment?.kind ?? 'text' });
     showSuccess(`Forwarded ${sent === 1 ? 'the message' : `${sent} messages`} to ${target.label}${target.sub ? ` · ${target.sub}` : ''}.`);
   };
 
   const sendVoice = (blob: Blob, durationMs: number) => {
     setRecording(false);
+    trackSend('voice');
     void thread
       .sendMedia({ kind: 'voice', blob, duration_ms: durationMs, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the voice message.", error));
@@ -702,6 +724,7 @@ export function ChatPage() {
     saveRecentEmoji(emoji);
     try {
       await toggleMessageReaction(messageId, emoji);
+      track('chat.reaction');
       queryClient.invalidateQueries({ queryKey: ['messages', convId] });
     } catch (error) {
       console.error('Failed to toggle reaction:', error);
@@ -856,8 +879,10 @@ export function ChatPage() {
           : { ...msg, correction: { text, note: note || null, by: myId, at: new Date().toISOString() } },
       );
       setCorrecting(null);
+      track('chat.correction');
       void thread.pollNow();
     } catch (error) {
+      trackError('chat_correction', error);
       setCorrectError(describeError(error, "Couldn't save the correction."));
     } finally {
       setCorrectBusy(false);
@@ -881,6 +906,7 @@ export function ChatPage() {
       return;
     }
     setDraftCheck({ kind: 'loading', draft });
+    track('chat.check_draft');
     try {
       const result = await coachSentence(draft);
       setDraftCheck((cur) => (cur && cur.draft === draft ? { kind: 'ready', draft, result } : cur));
@@ -1147,6 +1173,7 @@ export function ChatPage() {
     if (!sheet) return;
     const msg = sheet.message;
     setSheet(null);
+    track('chat.menu_action', { action: id, kind: msg.attachment?.kind ?? 'text' });
     switch (id) {
       case 'say_better':
         setSayBetterFor(msg);
@@ -1198,6 +1225,7 @@ export function ChatPage() {
         });
         break;
       case 'discuss':
+        track('chat.discuss');
         setDiscussingMessage(msg);
         break;
       case 'pin':
@@ -1245,6 +1273,7 @@ export function ChatPage() {
     setCallBusy(true);
     try {
       const { call } = await createCall({ relationship_id: relId });
+      track('call.start', { solo: false });
       navigate(`/calls/${call.id}`);
     } catch (error) {
       showError("Couldn't start the call.", error);
@@ -1901,6 +1930,7 @@ export function ChatPage() {
           onOlder={() => setSearchIndex((i) => Math.min(i + 1, Math.max(0, searchHits.length - 1)))}
           onNewer={() => setSearchIndex((i) => Math.max(0, i - 1))}
           onClose={() => {
+            if (searchQuery.trim()) track('chat.search', { results: searchHits.length });
             setSearchOpen(false);
             setSearchQuery('');
           }}
@@ -2000,6 +2030,7 @@ export function ChatPage() {
               className="chat-header-menu-item"
               onClick={() => {
                 setShowHeaderMenu(false);
+                track('chat.pinyin_toggle', { aid: 'pinyin', on: !displayPrefs.pinyinAll });
                 setDisplayForAll('pinyin', !displayPrefs.pinyinAll);
               }}
             >
@@ -2012,6 +2043,7 @@ export function ChatPage() {
               className="chat-header-menu-item"
               onClick={() => {
                 setShowHeaderMenu(false);
+                track('chat.pinyin_toggle', { aid: 'translate', on: !displayPrefs.translateAll });
                 setDisplayForAll('translate', !displayPrefs.translateAll);
               }}
             >

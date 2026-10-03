@@ -3,6 +3,7 @@
  * bars, the length and "Tap to listen · hold to reveal" in place of the text.
  * The bubble around it (and its tap / long-press) belongs to ChatPage.
  */
+import { track } from '../../services/analytics';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { estimateSpeechSeconds, formatListeningDuration, listeningBars } from '@shared/chats/listening';
 import { getMessageClip, loadSlowPlayback, saveSlowPlayback, type ReadAloudParams } from '../../services/chatListening';
@@ -111,6 +112,7 @@ export function useListeningPlayer(onError?: (message: string) => void): Listeni
   const play = useCallback(
     (msg: { id: string; content: string }, params: ReadAloudParams) => {
       const mine = ++token.current;
+      track('chat.listening_play');
       release();
       setPlayingId(null);
       setProgress(0);

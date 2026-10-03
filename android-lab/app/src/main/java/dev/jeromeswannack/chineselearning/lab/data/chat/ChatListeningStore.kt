@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.data.chat
 
+import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListening
@@ -77,6 +78,7 @@ object ChatListeningStore {
 
     /** Sets one conversation's mode: cached now, sent through the outbox (offline-safe). */
     suspend fun setConversation(app: LabApp, conversationId: String, on: Boolean, since: String?) {
+        Analytics.track("chat.listening_mode", mapOf("scope" to "conversation", "on" to on))
         lock.withLock {
             val next = withRow(state(app.cache), conversationId, on, since, Js.toIsoString(System.currentTimeMillis()))
             app.cache.put(STATE, KIND, next)
@@ -87,6 +89,7 @@ object ChatListeningStore {
 
     /** Settings → "Listening mode in new chats". */
     suspend fun setDefault(app: LabApp, on: Boolean) {
+        Analytics.track("chat.listening_mode", mapOf("scope" to "default", "on" to on))
         lock.withLock { app.cache.put(STATE, KIND, state(app.cache).copy(default_on = on)) }
         app.outbox.enqueueJson(KIND_DEFAULT, "PUT", CHAT_LISTENING_DEFAULT_PATH, ListeningDefaultBody(on), id = "listening-default-${UUID.randomUUID()}")
         flush(app)
@@ -109,6 +112,7 @@ object ChatListeningStore {
         runCatching { cache.get<List<String>>(revealedKey(conversationId)) }.getOrNull().orEmpty()
 
     suspend fun reveal(cache: JsonCache, conversationId: String, messageId: String): List<String> = lock.withLock {
+        Analytics.track("chat.listening_reveal")
         val next = ChatListening.addRevealed(revealed(cache, conversationId), messageId)
         cache.put(revealedKey(conversationId), REVEALED_KIND, next)
         next

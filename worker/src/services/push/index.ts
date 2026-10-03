@@ -8,6 +8,7 @@
  */
 
 import type { Env } from '../../types';
+import { trackServer } from '../analytics/server-events';
 import { generateId } from '../cards';
 import { generateVapidKeys, sendWebPush, type PushOptions, type VapidKeys } from './webpush';
 
@@ -92,14 +93,20 @@ export interface PushSummary {
  * Send `data` to every subscription of these users. Dead subscriptions are
  * deleted; one made with an old key is dropped (the device re-subscribes).
  */
+/** The `type` of a push payload, for analytics (an enum, never content). */
+export function pushKind(data: unknown): string {
+  const t = data && typeof data === 'object' ? (data as { type?: unknown }).type : null;
+  return typeof t === 'string' ? t : 'other';
+}
+
 export async function pushToUsers(env: Env, userIds: string[], data: unknown, opts: PushOptions = {}, fetcher?: typeof fetch): Promise<PushSummary> {
   const summary: PushSummary = { sent: 0, failed: 0, removed: 0 };
   const ids = [...new Set(userIds)].filter(Boolean);
   if (ids.length === 0) return summary;
   const rows = await env.DB
-    .prepare(`SELECT id, endpoint, p256dh, auth, vapid_key, failure_count FROM push_subscriptions WHERE user_id IN (${ids.map(() => '?').join(',')})`)
+    .prepare(`SELECT id, user_id, endpoint, p256dh, auth, vapid_key, failure_count FROM push_subscriptions WHERE user_id IN (${ids.map(() => '?').join(',')})`)
     .bind(...ids)
-    .all<{ id: string; endpoint: string; p256dh: string; auth: string; vapid_key: string; failure_count: number }>();
+    .all<{ id: string; user_id: string; endpoint: string; p256dh: string; auth: string; vapid_key: string; failure_count: number }>();
   const subs = rows.results ?? [];
   if (subs.length === 0) return summary;
   const keys = await getVapidKeys(env);
@@ -111,6 +118,7 @@ export async function pushToUsers(env: Env, userIds: string[], data: unknown, op
         return;
       }
       const r = await sendWebPush(sub, data, keys, opts, fetcher);
+      void trackServer('server.push_sent', { channel: 'web', kind: pushKind(data), ok: r.ok }, { env, userId: sub.user_id });
       if (r.ok) {
         summary.sent++;
         await env.DB.prepare("UPDATE push_subscriptions SET last_success_at = datetime('now'), failure_count = 0 WHERE id = ?").bind(sub.id).run();

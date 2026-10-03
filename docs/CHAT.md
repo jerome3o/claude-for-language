@@ -459,7 +459,7 @@ cache by the same triple (`getTTSWithCache`; Lab the same cache as Read aloud).
   "Audio not downloaded yet" notice.
 ---
 
-# Auto-check — "How to say it better" (migration 0100_chat_auto_check.sql)
+# Auto-check — "How to say it better" (migration 0101_chat_auto_check.sql)
 
 Jerome: "When a student sends a message, automatically check if there can be improvements. If so, show a slight visual
 indicator… When they long-press the message, the top option should be 'understand how to make it better'."
