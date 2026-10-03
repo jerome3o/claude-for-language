@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -37,7 +38,9 @@ import dev.jeromeswannack.chineselearning.lab.core.StudentProfileFields
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentProfileDto
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
@@ -207,8 +210,8 @@ fun StudentProfileSheet(
     var draft by remember { mutableStateOf(initial) }
     val dirty = !StudentProfile.same(draft, saved)
     val close = { if (dirty) confirmDiscard = true else onDismiss() }
-    LabBottomSheet(onDismiss = close, title = "Student profile · $studentName") {
-        StudentProfileForm(studentName, saved, draft, { draft = it }, online, save, close, onDismiss)
+    LabSheetFrame(onDismiss = close) {
+        StudentProfileForm(studentName, saved, draft, { draft = it }, online, save, close, onDismiss, title = "Student profile · $studentName")
     }
     if (confirmDiscard) {
         ConfirmDialog("Discard your changes?", "The profile stays as it was.", "Discard", onConfirm = { confirmDiscard = false; onDismiss() }, onDismiss = { confirmDiscard = false }, danger = true)
@@ -226,6 +229,8 @@ fun StudentProfileForm(
     save: (StudentProfileFields, (String?) -> Unit) -> Unit,
     cancel: () -> Unit,
     done: () -> Unit,
+    title: String? = null,
+    modifier: Modifier = Modifier,
 ) {
     var wordsText by remember { mutableStateOf(draft.wordsPerLesson?.toString() ?: "") }
     var saving by remember { mutableStateOf(false) }
@@ -238,7 +243,32 @@ fun StudentProfileForm(
     val empty = StudentProfile.isEmpty(draft)
     val dirty = !StudentProfile.same(draft, saved)
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // Long (examples + hints): only the middle scrolls, Cancel / Save stay pinned (SheetScaffold).
+    SheetScaffold(
+        modifier,
+        spacing = 12.dp,
+        header = title?.let { t -> { SheetTitle(t) } },
+        footerAbove = if (error == null && online) null else {
+            {
+                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                if (!online) InlineNotice("You're offline — the profile can be saved once you're back online.", kind = NoticeKind.Offline)
+            }
+        },
+        footer = {
+            TeachButton("Cancel", Modifier.weight(1f).height(52.dp), onClick = cancel)
+            val label = when {
+                saving -> "Saving…"
+                empty && !StudentProfile.isEmpty(saved) -> "Clear profile"
+                else -> "Save"
+            }
+            TeachButton(label, Modifier.weight(1.4f).height(52.dp), primary = true, enabled = dirty && !tooLong && !wordsInvalid && !saving && online) {
+                val (value, problems) = StudentProfile.validate(draft)
+                if (value == null) { error = problems.joinToString(" · "); return@TeachButton }
+                saving = true; error = null
+                save(value) { e -> saving = false; error = e; if (e == null) done() }
+            }
+        },
+    ) {
         Text(
             "🔒 Only you can see this — $studentName never does. Claude follows it whenever it makes homework, mini lessons, readers or cards for $studentName.",
             style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted,
@@ -314,21 +344,5 @@ fun StudentProfileForm(
         Text("Useful to include", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         StudentProfile.HINTS.forEach { MutedLine("•  $it") }
 
-        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        if (!online) InlineNotice("You're offline — the profile can be saved once you're back online.", kind = NoticeKind.Offline)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TeachButton("Cancel", Modifier.weight(1f), onClick = cancel)
-            val label = when {
-                saving -> "Saving…"
-                empty && !StudentProfile.isEmpty(saved) -> "Clear profile"
-                else -> "Save"
-            }
-            TeachButton(label, Modifier.weight(1.4f), primary = true, enabled = dirty && !tooLong && !wordsInvalid && !saving && online) {
-                val (value, problems) = StudentProfile.validate(draft)
-                if (value == null) { error = problems.joinToString(" · "); return@TeachButton }
-                saving = true; error = null
-                save(value) { e -> saving = false; error = e; if (e == null) done() }
-            }
-        }
     }
 }

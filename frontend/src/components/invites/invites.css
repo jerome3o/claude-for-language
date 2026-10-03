@@ -13,6 +13,7 @@
 .invite-sheet {
   width: 100%;
   max-height: 92vh;
+  max-height: 92dvh;
   overflow-y: auto;
   background: var(--color-surface);
   color: var(--color-text);
@@ -20,6 +21,8 @@
   box-shadow: var(--shadow-lg);
   padding: 0 1rem 1.25rem;
   padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0));
+  --sheet-pad: 1rem;
+  --sheet-pad-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
 }
 
 .invite-sheet-header {

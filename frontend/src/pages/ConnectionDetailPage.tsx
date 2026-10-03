@@ -718,7 +718,7 @@ export function ConnectionDetailPage() {
       {/* New Conversation Modal — kept for Claude practice conversations (scenario + roles) */}
       {showNewConvModal && (
         <div className="modal-overlay" onClick={() => setShowNewConvModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal connection-modal" onClick={(e) => e.stopPropagation()}>
             <h3>New Practice Conversation</h3>
             <form onSubmit={handleCreateConversation}>
               <div className="form-group">
@@ -766,7 +766,7 @@ export function ConnectionDetailPage() {
                   </div>
                 </>
               )}
-              <div className="modal-actions">
+              <div className="modal-actions sheet-footer">
                 <button type="submit" className="btn btn-primary" disabled={createConvMutation.isPending}>
                   {createConvMutation.isPending ? 'Creating...' : 'Start Chat'}
                 </button>

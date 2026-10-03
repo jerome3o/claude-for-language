@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LazyFormScreen
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
@@ -74,7 +75,18 @@ private val DIFFICULTIES = listOf(
 /** `/readers/generate` — the web's GenerateReaderPage. */
 @Composable
 fun GenerateReaderScreen(ui: GenerateUi, actions: GenerateActions) {
-    LabScreen("Generate Graded Reader", onBack = actions.onBack) {
+    // Many decks to pick from: the list scrolls, "Generate Story" stays pinned.
+    LazyFormScreen(
+        "Generate Graded Reader",
+        onBack = actions.onBack,
+        footerAbove = if (ui.online && ui.error == null) null else {
+            {
+                if (!ui.online) InlineNotice("You're offline — stories are written on the server. Try again when you're online.", kind = NoticeKind.Offline)
+                ui.error?.let { e -> InlineNotice(e, kind = NoticeKind.Error) }
+            }
+        },
+        footer = { PrimaryPill(if (ui.submitting) "Starting…" else "Generate Story", Modifier.weight(1f).height(58.dp), enabled = ui.canGenerate, onClick = actions.onGenerate) },
+    ) {
         item {
             Text("Create an AI-generated story using vocabulary from your decks. The story will only use words you've already learned.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
         }
@@ -122,9 +134,6 @@ fun GenerateReaderScreen(ui: GenerateUi, actions: GenerateActions) {
                 for ((value, label, desc) in DIFFICULTIES) OptionRow(label, desc, ui.difficulty == value, radio = true) { actions.onDifficulty(value) }
             }
         }
-        if (!ui.online) item { InlineNotice("You're offline — stories are written on the server. Try again when you're online.", kind = NoticeKind.Offline) }
-        ui.error?.let { e -> item { InlineNotice(e, kind = NoticeKind.Error) } }
-        item { PrimaryPill(if (ui.submitting) "Starting…" else "Generate Story", Modifier.fillMaxWidth().height(58.dp), enabled = ui.canGenerate, onClick = actions.onGenerate) }
     }
 }
 

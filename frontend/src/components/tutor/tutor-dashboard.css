@@ -738,6 +738,7 @@
   background: var(--color-surface, #fff);
   width: 100%;
   max-height: 88vh;
+  max-height: 88dvh;
   border-radius: 16px 16px 0 0;
   display: flex;
   flex-direction: column;
@@ -852,6 +853,20 @@
   margin: 0 0 0.75rem 0;
   color: var(--color-text-light, #6b7280);
   font-size: 0.9375rem;
+}
+
+.td-confirm .sheet-footer {
+  --sheet-footer-bg: #fffbeb; /* the confirm card's tint */
+}
+
+/* Pinned: one row (Back on the left, the action on the right) to stay short. */
+.td-confirm-actions.sheet-footer {
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+}
+
+.td-confirm-actions.sheet-footer .btn {
+  flex: 1 1 auto;
 }
 
 .td-confirm-actions {

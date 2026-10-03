@@ -2289,6 +2289,123 @@ button.queue-counts:active {
   }
 }
 
+/* ============ Sheet footer: the primary action never scrolls away ============
+   ONE pattern for every modal / bottom sheet / form whose Save / Send / Add
+   could otherwise sit below a long body (many decks, a long explanation, the
+   keyboard open). Put `sheet-footer` on the action row, as the LAST child of
+   the sheet's scrolling body (or of a form inside it):
+
+     <div class="modal">            ← scrolls (overflow-y: auto)
+       …fields…
+       <div class="modal-actions sheet-footer">Cancel · Save</div>
+     </div>
+
+   The row sticks to the bottom of the scroll container while the content
+   scrolls under it and settles in place at the end, so it never covers the
+   last field. It bleeds over the container's padding: set `--sheet-pad` on
+   the scroll container when its padding is not 1rem (`--sheet-pad-bottom`
+   when the bottom padding differs). The edge (top border +
+   shadow) shows only while there is more content below it — a scroll-driven
+   animation, so nothing to wire up in JS. A long form on a normal page uses
+   `.page-footer` instead (below). Sheets size with `dvh` so the
+   keyboard (interactive-widget=resizes-content) shrinks them instead of
+   pushing the footer off screen. */
+.sheet-footer {
+  position: sticky;
+  /* Browsers inset the sticky edge by the scroller's padding: undo it so the
+     row sits flush with the sheet's bottom edge. */
+  bottom: calc(-1 * var(--sheet-pad-bottom, var(--sheet-pad, 1rem)));
+  z-index: 3;
+  margin-left: calc(-1 * var(--sheet-pad, 1rem));
+  margin-right: calc(-1 * var(--sheet-pad, 1rem));
+  margin-bottom: calc(-1 * var(--sheet-pad-bottom, var(--sheet-pad, 1rem)));
+  padding: 0.75rem var(--sheet-pad, 1rem) max(var(--sheet-pad, 1rem), env(safe-area-inset-bottom, 0px));
+  background: var(--sheet-footer-bg, var(--color-surface));
+  border-top: 1px solid transparent;
+}
+
+.sheet-footer .btn {
+  min-height: 44px;
+}
+
+/* Cancel sits beside the primary so the pinned row stays one line tall. */
+.modal-actions.sheet-footer,
+.sheet-footer .modal-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 479px) {
+  .modal-actions.sheet-footer > .btn,
+  .sheet-footer .modal-actions > .btn {
+    flex: 1 1 auto;
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .sheet-footer {
+    animation: sheet-footer-edge linear both;
+    animation-timeline: scroll(nearest block);
+  }
+}
+
+@supports not (animation-timeline: scroll()) {
+  .sheet-footer {
+    border-top-color: var(--color-border);
+  }
+}
+
+/* The same for a long form on a normal page: pinned to the window's bottom,
+   above the tab bar (--tab-bar-total is 0 on immersive routes). */
+.page-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 1rem;
+  padding: 0.75rem 0 max(0.75rem, env(safe-area-inset-bottom, 0px));
+  background: var(--color-background);
+  border-top: 1px solid transparent;
+}
+
+.card .page-footer {
+  background: var(--color-surface);
+}
+
+html.has-tab-bar .page-footer {
+  bottom: var(--tab-bar-total);
+  padding-bottom: 0.75rem;
+}
+
+@supports (animation-timeline: scroll()) {
+  .page-footer {
+    animation: sheet-footer-edge linear both;
+    animation-timeline: scroll(nearest block);
+  }
+}
+
+@keyframes sheet-footer-edge {
+  0%, 97% {
+    border-top-color: var(--color-border);
+    box-shadow: 0 -6px 12px -8px rgba(0, 0, 0, 0.25);
+  }
+  100% {
+    border-top-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.modal {
+  --sheet-pad: 1rem;
+  max-height: 90dvh;
+}
+
+@media (min-width: 640px) {
+  .modal {
+    --sheet-pad: 1.5rem;
+  }
+}
+
 /* Mobile-specific utilities */
 @media (max-width: 639px) {
   .hide-mobile {
@@ -2677,6 +2794,9 @@ textarea {
 .card-edit-modal {
   max-height: 95vh;
   height: 85vh;
+  /* dvh: with the keyboard open the sheet shrinks and Save stays on screen */
+  max-height: 95dvh;
+  height: 85dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3332,7 +3452,10 @@ textarea {
   padding: 1.25rem;
   padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
   max-height: 70vh;
+  max-height: 70dvh;
   overflow-y: auto;
+  --sheet-pad: 1.25rem;
+  --sheet-pad-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
 }
 
 .feedback-modal-header {
