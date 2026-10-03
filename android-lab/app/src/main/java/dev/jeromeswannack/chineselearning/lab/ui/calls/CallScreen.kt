@@ -134,6 +134,8 @@ data class CallScreenInfo(
     /** Round 4 PR 5: where a presented material's pages come from (cache-first), and the "📑 Present material" sheet. */
     val materialSource: MaterialPageSource? = null,
     val presentSheet: PresentSheetUi = PresentSheetUi(),
+    /** Screenshots: the activity tile's local state (solo "viewing as", a sheet open). */
+    val activitySeed: ActivityUiSeed = ActivityUiSeed(),
 )
 
 data class CallActions(
@@ -190,6 +192,11 @@ data class CallActions(
     val onOpenPresent: () -> Unit = {},
     val onPresent: (String) -> Unit = {},
     val onAddMaterial: () -> Unit = {},
+    /** In-call activities: ⋯ → 🎲 Activities → start one; the tile's actions. */
+    val onStartActivity: (String) -> Unit = {},
+    /** ⋯ → 🎲 Activities (the screen opens the picker). */
+    val onOpenActivities: () -> Unit = {},
+    val activity: ActivityActions = ActivityActions(),
     /** Haptics: a light tick (focus, preset, swipe) / a snap (a floating camera lands in its corner). */
     val onTick: () -> Unit = {},
     val onSnap: () -> Unit = {},
@@ -481,6 +488,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     var more by remember { mutableStateOf(false) }
     // Round 4 PR 5: ⋯ → 📑 Present material.
     var presentOpen by remember { mutableStateOf(initialPresentSheet) }
+    // ⋯ → 🎲 Activities.
+    var activitiesOpen by remember { mutableStateOf(info.activitySeed.pickerOpen) }
     var layoutSheet by remember { mutableStateOf(false) }
     var confirmEnd by remember { mutableStateOf(initialEndConfirm) }
     // Round 4: the long-press menu on the shared screen / the board ("Show the board beside the screen" …).
@@ -509,7 +518,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     val sharing = remoteSharing || s.sharingScreen
     val pen = annotPen(annotColor, s)
     val presenting = s.presenting
-    val available = CallLayout.Availability(screen = sharing, material = presenting != null)
+    val activity = s.activity
+    val available = CallLayout.Availability(screen = sharing, material = presenting != null, activity = activity != null)
     // Something was presented: the sheet has done its job.
     LaunchedEffect(presenting?.materialId) { if (presenting != null && !initialPresentSheet) presentOpen = false }
 
@@ -521,6 +531,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         LaunchedEffect(remoteSharing) { h.setRemoteSharing(remoteSharing) }
         // A material someone starts presenting comes onto the stage (like a shared screen; web CallPage).
         LaunchedEffect(presenting?.materialId) { h.setPresenting(presenting?.materialId) }
+        // A new activity (either person started it, or it was running when I joined) comes onto the stage.
+        LaunchedEffect(activity?.sessionId) { h.setActivity(activity?.sessionId) }
         LaunchedEffect(sharing) { if (!sharing) annotating = false }
         val arrangement = CallLayout.arrangeTiles(layout, available, maxWidth.value.toDouble())
         val chatVisible = CallLayout.TileId.CHAT in arrangement.stage || (CallLayout.TileId.CHAT in layout.open && layout.mode == CallLayout.Mode.GRID)
@@ -619,6 +631,16 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     onKeep = actions.onAnnotationsKept, onTick = actions.onTick, nowMs = nowMs,
                     endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
                     seed = initialMaterial,
+                )
+            })
+            if (activity != null) put(CallLayout.TileId.ACTIVITY, TileSpec("${dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.KIND_INFO[activity.spec.kind]?.icon ?: "🎲"} ${activity.spec.title}") { role ->
+                val focusedHere = arrangement.mode == CallLayout.Mode.FOCUS && arrangement.stage.firstOrNull() == CallLayout.TileId.ACTIVITY
+                ActivityTile(
+                    activity, s.myUserId, actions.activity,
+                    topInset = LocalActivityInsetTop.current,
+                    endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
+                    compact = role != CallLayout.Role.STAGE,
+                    seed = info.activitySeed,
                 )
             })
             put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true, onLongPress = if (available.screen || available.material) ({ splitMenu = CallLayout.TileId.TEXT }) else null) { _ ->
@@ -763,7 +785,10 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         }
     }
     if (more) LabBottomSheet(onDismiss = { more = false }, title = "Call") {
-        CallMoreMenu(s, info, actions.copy(onOpenPresent = { presentOpen = true; actions.onOpenPresent() }), close = { more = false })
+        CallMoreMenu(s, info, actions.copy(onOpenPresent = { presentOpen = true; actions.onOpenPresent() }, onOpenActivities = { activitiesOpen = true }), close = { more = false })
+    }
+    if (activitiesOpen) LabBottomSheet(onDismiss = { activitiesOpen = false }, title = "Activities") {
+        ActivityPickerSheet(s.activity, onPick = { id -> actions.onStartActivity(id); actions.onTick(); activitiesOpen = false })
     }
     if (presentOpen) LabBottomSheet(onDismiss = { presentOpen = false }, title = "Present a material") {
         PresentMaterialSheet(info.presentSheet, onPick = { id -> actions.onPresent(id); actions.onTick(); presentOpen = false }, onAdd = actions.onAddMaterial)
@@ -926,6 +951,9 @@ fun CallMoreMenu(s: CallState, info: CallScreenInfo, actions: CallActions, close
     val check: @Composable (Boolean) -> Unit = { on -> if (on) Text("✓", color = Lab.colors.accent, fontWeight = FontWeight.Bold) }
     // Round 4 PR 5: a PDF / PowerPoint / picture on the stage for both of you (web: first in the ⋯ menu).
     NavRow("📑", "Present material", desc = if (s.presenting != null) "Now: ${s.presenting.title}" else "A PDF, slides or a picture — you both see it", onClick = { close(); actions.onOpenPresent() })
+    RowDivider()
+    // In-call activities: two-person mini lessons played together.
+    NavRow("🎲", "Activities", desc = s.activity?.let { "Now: ${it.spec.title}" } ?: "Describe & guess, role-play, quiz, dictation… — together", onClick = { close(); actions.onOpenActivities() })
     RowDivider()
     if (s.screenShareSupported) NavRow("🖥️", if (s.sharingScreen) "Stop sharing your screen" else "Share your screen", onClick = { close(); if (s.sharingScreen) actions.onStopShare() else actions.onShareScreen() })
     if (s.recordSupported && s.hasMic) { RowDivider(); NavRow(if (s.recording) "⏹" else "⏺", if (s.recording) "Stop recording my mic" else "Record my mic", onClick = { close(); actions.onToggleRecording() }) }

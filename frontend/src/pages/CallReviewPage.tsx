@@ -440,6 +440,28 @@ export function CallReviewPage() {
           )
         )}
 
+        {(detail.activities ?? []).length > 0 && (
+          <section className="detail-section cr-section" data-testid="review-activities">
+            <h2>Activities</h2>
+            <p className="cr-muted">What you played together in the call.</p>
+            {(detail.activities ?? []).map((a) => (
+              <details key={a.id} className="cr-activity">
+                <summary>
+                  <span className="cr-activity-title">{a.summary.title}</span>
+                  <span className="cr-activity-score">
+                    {a.summary.scored > 0 ? `${a.summary.correct}/${a.summary.scored} right` : `${a.summary.played} of ${a.summary.total_rounds}`}
+                    {a.summary.finished ? '' : ' · not finished'}
+                  </span>
+                </summary>
+                <p className="cr-muted">{a.summary.roles.map((r) => r.replace(/^[ab]: /, '')).join(' · ')}</p>
+                <ul className="cr-activity-lines" lang="zh">
+                  {a.summary.lines.map((l, i) => <li key={i}>{l}</li>)}
+                </ul>
+              </details>
+            ))}
+          </section>
+        )}
+
         {detail.board.length > 0 && (
           <section className="detail-section cr-section">
             <h2>Drawing</h2>

@@ -195,7 +195,7 @@ for (let i = 0; i < 200; i++) {
   pairs.push({ stage, remote: enc(remote), self: enc(self), scale, narrow, size: pairSize(stage, aspects, scale, narrow) });
 }
 const boardButtons = sequences.flatMap((seq) => seq.steps.map((st) => st.layout)).slice(0, 120).flatMap((l) => [false, true].map((narrow) => ({ layout: l, narrow, on_stage: boardOnStage(l), action: boardButton(l, narrow) })));
-const shortcuts = ['1', '2', '3', '4', '5', '6', 'b', 'B', 'd', 'D', 'c', 'v', 'V', 's', 'S', 'm', 'M', 'x', 'Enter', ' '].map((key) => ({ key, action: layoutShortcut(key) }));
+const shortcuts = ['1', '2', '3', '4', '5', '6', 'b', 'B', 'd', 'D', 'c', 'v', 'V', 's', 'S', 'm', 'M', 'a', 'A', 'x', 'Enter', ' '].map((key) => ({ key, action: layoutShortcut(key) }));
 
 const rawLayouts: unknown[] = [
   null,
@@ -339,9 +339,70 @@ for (const script of materialScripts) {
 }
 const materialSplitAllowed = materialSequences.flatMap((seq) => seq.steps.map((st) => ({ layout: st.layout, allowed: narrowSplitAllowed(st.layout) })));
 
+// ---- in-call activities: a running activity (own RNG). Snapshots over screen × material × activity availability.
+const r6 = rng(20261006);
+const pick6 = <T>(xs: readonly T[]): T => xs[Math.floor(r6() * xs.length)];
+const availsA = [
+  { screen: false, material: false, activity: false },
+  { screen: false, material: false, activity: true },
+  { screen: true, material: false, activity: true },
+  { screen: false, material: true, activity: true },
+  { screen: true, material: true, activity: false },
+];
+function snapshotA(l: CallLayout) {
+  const arrangements = availsA.flatMap((a) => widthsM.map((width) => ({ ...a, width, arr: arrangeTiles(l, a, width) })));
+  const rects = availsA
+    .filter((a) => a.activity && !a.screen)
+    .flatMap((a) => boxes.map((box) => ({ ...a, w: box.w, h: box.h, aspects: 1, rects: layoutRects(l, arrangeTiles(l, a, box.w), box, aspectSets[1]) })));
+  return { layout: l, swipe_order: availsA.map((a) => swipeOrder(l, a)), arrangements, rects };
+}
+type StepA = LayoutAction | { type: 'swipe'; delta: 1 | -1; screen: boolean; material: boolean; activity: boolean };
+const activitySequences = [];
+const activityScripts: StepA[][] = [
+  [{ type: 'activityStarted' }],
+  [{ type: 'activityStarted' }, { type: 'drop', tile: 'text', zone: 'bottom' }],
+  [{ type: 'activityStarted' }, { type: 'drop', tile: 'chat', zone: 'right' }, { type: 'ratio', ratio: 0.3 }],
+  [{ type: 'focus', tile: 'text' }, { type: 'activityStarted' }, { type: 'pairTap' }],
+  [{ type: 'pip', pip: 'separate' }, { type: 'activityStarted' }, { type: 'drop', tile: 'activity', zone: 'left' }],
+  [{ type: 'materialStarted' }, { type: 'activityStarted' }, { type: 'swipe', delta: 1, screen: false, material: true, activity: true }, { type: 'swipe', delta: -1, screen: true, material: true, activity: true }],
+  [{ type: 'activityStarted' }, { type: 'close', tile: 'activity' }],
+  [{ type: 'activityStarted' }, { type: 'preset', preset: 'grid' }],
+  [{ type: 'focus', tile: 'activity' }, { type: 'focus', tile: 'activity' }],
+];
+for (let s = 0; s < 24; s++) {
+  const steps: StepA[] = [];
+  const n = 3 + Math.floor(r6() * 5);
+  for (let i = 0; i < n; i++) {
+    const roll = r6();
+    steps.push(
+      roll < 0.25
+        ? { type: 'activityStarted' }
+        : roll < 0.35
+          ? { type: 'materialStarted' }
+          : roll < 0.55
+            ? { type: 'drop', tile: pick6(ALL_TILES), zone: pick6(DROP_ZONES) as DropZone }
+            : roll < 0.65
+              ? { type: 'swipe', delta: r6() < 0.5 ? 1 : -1, screen: r6() < 0.5, material: r6() < 0.5, activity: r6() < 0.7 }
+              : pick6<LayoutAction>([{ type: 'focus', tile: pick6(ALL_TILES) }, { type: 'split', a: pick6(ALL_TILES), b: pick6(ALL_TILES) }, { type: 'close', tile: pick6(ALL_TILES) }, { type: 'shareStarted' }, { type: 'pairCorner', corner: pick6(corners) }, { type: 'preset', preset: pick6(presets) }, { type: 'swap', from: pick6(ALL_TILES), to: pick6(ALL_TILES) }]),
+    );
+  }
+  activityScripts.push(steps);
+}
+for (const script of activityScripts) {
+  let l = DEFAULT_LAYOUT;
+  const steps = [];
+  for (const a of script) {
+    l = a.type === 'swipe' ? swipeFocus(l, { screen: a.screen, material: a.material, activity: a.activity }, a.delta) : layoutReducer(l, a);
+    steps.push({ action: a, ...snapshotA(l) });
+  }
+  activitySequences.push({ steps });
+}
+// Its own file: calls-layout.json is already big.
+writeFileSync(join(OUT, 'calls-layout-activity.json'), JSON.stringify({ activity_sequences: activitySequences, avails: availsA }));
+
 writeFileSync(
   join(OUT, 'calls-layout.json'),
   JSON.stringify({ default: DEFAULT_LAYOUT, presets: PRESETS, all_tiles: ALL_TILES, tile_header: TILE_HEADER, pair_pad: PAIR_PAD, pair_gap: PAIR_GAP, sequences, floating, grid, snaps, others, shortcuts, sanitized, pairs, board_buttons: boardButtons,
     drop_edge: DROP_EDGE, drop_zones: DROP_ZONES, drop_zone_labels: DROP_ZONE_LABELS, drop_zone_ats: dropZoneAts, drop_zone_boxes: dropZoneBoxes, drops, split_allowed: splitAllowed, split_dirs: splitDirs, drop_sequences: dropSequences,
-    material_sequences: materialSequences, material_split_allowed: materialSplitAllowed }),
+    material_sequences: materialSequences, material_split_allowed: materialSplitAllowed}),
 );

@@ -34,6 +34,8 @@ object CallLayout {
         REMOTE("remote"), SELF("self"), SCREEN("screen"),
         /** Round 4: a lesson material being presented — like a shared screen, while one is open. */
         MATERIAL("material"),
+        /** An in-call activity being played (shared/call-activities) — transient the same way. */
+        ACTIVITY("activity"),
         TEXT("text"), DRAW("draw"), CHAT("chat");
 
         companion object {
@@ -87,7 +89,7 @@ object CallLayout {
     }
 
     /** `ALL_TILES` — the order tiles are listed in everywhere. */
-    val ALL_TILES: List<TileId> = listOf(TileId.REMOTE, TileId.SCREEN, TileId.MATERIAL, TileId.TEXT, TileId.DRAW, TileId.CHAT, TileId.SELF)
+    val ALL_TILES: List<TileId> = listOf(TileId.REMOTE, TileId.SCREEN, TileId.MATERIAL, TileId.ACTIVITY, TileId.TEXT, TileId.DRAW, TileId.CHAT, TileId.SELF)
 
     /** `CallLayout` (the interface). */
     data class Layout(
@@ -159,18 +161,19 @@ object CallLayout {
         PresetInfo(PresetId.GRID, "Grid", "5"),
     )
 
-    /** `TileAvailability`: a screen tile only while someone shares; a material tile only while one is presented. */
-    data class Availability(val screen: Boolean, val material: Boolean = false)
+    /** `TileAvailability`: a screen tile only while someone shares; a material tile only while one is presented; an activity tile while one runs. */
+    data class Availability(val screen: Boolean, val material: Boolean = false, val activity: Boolean = false)
 
     /** `isAvailable`. */
     fun isAvailable(t: TileId, a: Availability): Boolean = when (t) {
         TileId.SCREEN -> a.screen
         TileId.MATERIAL -> a.material
+        TileId.ACTIVITY -> a.activity
         else -> true
     }
 
-    /** `isTransient`: tiles that show only while they exist and are always "open" then (a shared screen, a presented material). */
-    private fun isTransient(t: TileId): Boolean = t == TileId.SCREEN || t == TileId.MATERIAL
+    /** `isTransient`: tiles that show only while they exist and are always "open" then (a shared screen, a presented material, an activity). */
+    private fun isTransient(t: TileId): Boolean = t == TileId.SCREEN || t == TileId.MATERIAL || t == TileId.ACTIVITY
 
     private fun clamp(x: Double, lo: Double, hi: Double): Double = Math.min(hi, Math.max(lo, x))
 
@@ -205,6 +208,8 @@ object CallLayout {
         data object ShareStarted : Action
         /** A lesson material is now presented (by either person): it goes on the stage, the cameras float. */
         data object MaterialStarted : Action
+        /** An in-call activity started (by either person): it goes on the stage, the cameras float. */
+        data object ActivityStarted : Action
         /** A tile dragged (or moved from its menu) onto a drop zone of the stage ([layoutForDrop]). */
         data class Drop(val tile: TileId, val zone: DropZone) : Action
     }
@@ -249,6 +254,7 @@ object CallLayout {
         Action.PairTap -> reduce(l, Action.Preset(PresetId.SPEAKER))
         Action.ShareStarted -> reduce(l, Action.Preset(PresetId.SCREEN))
         Action.MaterialStarted -> l.copy(mode = Mode.FOCUS, main = TileId.MATERIAL, remoteFloat = true)
+        Action.ActivityStarted -> l.copy(mode = Mode.FOCUS, main = TileId.ACTIVITY, remoteFloat = true)
         is Action.Drop -> layoutForDrop(l, action.tile, action.zone)
         is Action.Close -> {
             if (action.tile == TileId.REMOTE || action.tile == TileId.SELF) l // cameras can't be closed
@@ -380,6 +386,7 @@ object CallLayout {
             "v" -> Action.Focus(TileId.REMOTE)
             "s" -> Action.Focus(TileId.SCREEN)
             "m" -> Action.Focus(TileId.MATERIAL)
+            "a" -> Action.Focus(TileId.ACTIVITY)
             else -> null
         }
     }
@@ -455,7 +462,7 @@ object CallLayout {
      * drawing also its tool row (+56), on a shared screen the drawing row (56): in a top corner the faces
      * box sits below them.
      */
-    val TILE_HEADER: Map<TileId, Double> = mapOf(TileId.TEXT to 48.0, TileId.DRAW to 104.0, TileId.SCREEN to 56.0, TileId.MATERIAL to 56.0)
+    val TILE_HEADER: Map<TileId, Double> = mapOf(TileId.TEXT to 48.0, TileId.DRAW to 104.0, TileId.SCREEN to 56.0, TileId.MATERIAL to 56.0, TileId.ACTIVITY to 48.0)
 
     /** A face's shape in the pair: the camera's, kept between portrait 3:4 and 16:9. */
     private fun faceAspect(a: Double?): Double = clamp(if (a != null && a > 0 && a.isFinite()) a else 4.0 / 3, 3.0 / 4, 16.0 / 9)

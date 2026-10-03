@@ -260,6 +260,7 @@ export async function deleteCallRows(db: D1Database, callId: string): Promise<st
   const stmts = [
     db.prepare('DELETE FROM call_transcript_segments WHERE call_id = ?').bind(callId),
     db.prepare('DELETE FROM call_recording_pieces WHERE call_id = ?').bind(callId),
+    db.prepare('DELETE FROM call_activities WHERE call_id = ?').bind(callId),
     db.prepare('DELETE FROM calls WHERE id = ?').bind(callId),
   ];
   for (const id of ids) stmts.push(db.prepare('DELETE FROM call_recording_chunks WHERE piece_id = ?').bind(id));

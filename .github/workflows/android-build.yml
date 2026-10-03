@@ -1,10 +1,11 @@
 name: Android App Build
 
+# Each commit builds ONCE: pushes build only on main (the release); a branch builds through its
+# pull request ("Run workflow" builds a branch without one).
 on:
   push:
     branches:
       - main
-      - 'claude/**'
     paths:
       - 'native/**'
       - '.github/workflows/android-build.yml'
@@ -13,6 +14,12 @@ on:
       - 'native/**'
       - '.github/workflows/android-build.yml'
   workflow_dispatch:
+
+# A newer push to the same PR / branch cancels the run it supersedes; main runs are never
+# cancelled (each gets its own group).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build-apk:

@@ -177,3 +177,10 @@
 .cr-lesson-calls { margin: 0.5rem 0 0.75rem; padding: 0.6rem 0.8rem; border-radius: 10px; background: var(--color-surface-alt, #f3f4f6); font-size: 0.9rem; }
 .cr-lesson-call.is-current { font-weight: 600; }
 .cr-lesson-note { margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-text-muted, #6b7280); }
+
+/* In-call activities played in the lesson */
+.cr-activity { border: 1px solid var(--color-border, #e5e7eb); border-radius: 10px; padding: 0.5rem 0.75rem; margin-top: 0.5rem; background: #fff; }
+.cr-activity summary { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 32px; cursor: pointer; }
+.cr-activity-title { font-weight: 600; }
+.cr-activity-score { font-size: 0.85rem; color: #166534; white-space: nowrap; }
+.cr-activity-lines { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.2rem; }

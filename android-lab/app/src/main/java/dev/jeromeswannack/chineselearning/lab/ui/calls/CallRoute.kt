@@ -72,6 +72,8 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
     val myId: StateFlow<String> = _myId.asStateFlow()
     /** The tile layout, remembered per user on this phone (web localStorage `call-layout-v1:<userId>`). */
     val layout = CallLayoutHolder(PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)))
+    /** In-call activities: Chinese said on this phone (cache-first `/api/practice/tts`, the device voice offline). */
+    val speaker = dev.jeromeswannack.chineselearning.lab.ui.editor.LessonSpeaker(app, viewModelScope)
 
     val controller: CallController = CallController(
         callId, "",
@@ -91,6 +93,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             userId = { _myId.value },
             devicePrefs = dev.jeromeswannack.chineselearning.lab.data.calls.CallDevicePrefsStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
             device = "Android ${Build.VERSION.RELEASE}; ${Build.MANUFACTURER} ${Build.MODEL}; Lab app",
+            speak = { text -> speaker.speak(text) },
         ),
         viewModelScope,
     )
@@ -150,6 +153,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
         overlay.hide()
         runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
         controller.dispose()
+        speaker.stop()
     }
 
     class Factory(private val app: LabApp, private val id: String) : ViewModelProvider.Factory {
@@ -358,6 +362,20 @@ fun CallRoute(nav: LabNav, id: String) {
             onOpenPresent = { vm.materials.openSheet() },
             onPresent = { mid -> vm.controller.presentMaterial(mid) },
             onAddMaterial = { runCatching { pickMaterial.launch(dev.jeromeswannack.chineselearning.lab.data.materials.MaterialUploader.ACCEPT) } },
+            onStartActivity = vm.controller::startActivity,
+            activity = ActivityActions(
+                act = vm.controller::act,
+                close = vm.controller::closeActivity,
+                speak = { text -> vm.speaker.speak(text) },
+                feel = { f ->
+                    when (f) {
+                        ActivityFeel.TICK -> nav.app.haptics.tick()
+                        ActivityFeel.CORRECT -> { nav.app.haptics.correct(); nav.app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.CORRECT) }
+                        ActivityFeel.WRONG -> { nav.app.haptics.wrong(); nav.app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.WRONG) }
+                        ActivityFeel.DONE -> { nav.app.haptics.celebrate(); nav.app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.FANFARE) }
+                    }
+                },
+            ),
         ),
         video = { handle, mirror, contain, overlay, onFrameSize, modifier -> RtcVideo(handle as? VideoTrack, eglContext, mirror, contain, overlay, onFrameSize, modifier) },
         layout = vm.layout,
