@@ -1,6 +1,6 @@
 /**
  * In-call activities' results (shared/call-activities): the CallRoom upserts one
- * row per session in `call_activities` (migration 0093); the review page and the
+ * row per session in `call_activities` (migration 0094); the review page and the
  * homework agent read them per lesson.
  */
 

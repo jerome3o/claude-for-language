@@ -96,7 +96,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'material_annotations', sql: `DELETE FROM material_annotations WHERE material_id IN (SELECT id FROM materials WHERE owner_id = ?1) OR lesson_id IN (SELECT lesson_id FROM calls WHERE id IN ${CALLS})` },
   { label: 'call_materials', sql: `DELETE FROM call_materials WHERE call_id IN ${CALLS} OR material_id IN (SELECT id FROM materials WHERE owner_id = ?1)` },
   { label: 'materials', sql: `DELETE FROM materials WHERE owner_id = ?1` },
-  // In-call activities (migration 0093): results of the user's calls, and any they hosted.
+  // In-call activities (migration 0094): results of the user's calls, and any they hosted.
   { label: 'call_activities', sql: `DELETE FROM call_activities WHERE call_id IN ${CALLS} OR started_by = ?1` },
 
   // Video calls (no foreign keys): segments → chunks → pieces → calls.

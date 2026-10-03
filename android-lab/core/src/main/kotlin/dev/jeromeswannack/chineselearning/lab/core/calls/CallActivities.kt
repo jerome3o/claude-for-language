@@ -468,6 +468,8 @@ object CallActivities {
             else -> Unit
         }
         if (done) return null
+        // A spec without content for this round (a generated one with no lines / items) takes no actions.
+        if (s.round >= totalRounds(spec)) return null
 
         when (spec.kind) {
             ActivityKinds.DESCRIBE -> {

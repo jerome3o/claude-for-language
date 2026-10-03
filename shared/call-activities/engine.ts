@@ -245,10 +245,12 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
       break;
   }
   if (s.phase === 'done') return null;
+  // A spec without content for this round (a generated one with no lines / items) takes no actions.
+  if (s.round >= totalRounds(spec)) return null;
 
   switch (spec.kind) {
     case 'describe': {
-      if (action.type !== 'pick' || !b || s.phase !== 'play') return null;
+      if (action.type !== 'pick' || !b || s.phase !== 'play' || typeof action.option !== 'string') return null;
       if (!(d.options ?? []).includes(action.option)) return null;
       const correct = action.option === spec.items[s.round].hanzi;
       return { ...s, phase: 'reveal', data: { ...d, pick: action.option }, results: withResult(s.results, { round: s.round, correct, answer: action.option }) };
@@ -326,7 +328,7 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
           return { ...s, data: { ...d, play: (d.play ?? 0) + 1 } };
         case 'pick': {
           const i = Number(action.option);
-          if (!b || s.phase !== 'play' || !/^\d+$/.test(action.option) || i >= q.options.length) return null;
+          if (!b || s.phase !== 'play' || typeof action.option !== 'string' || !/^\d+$/.test(action.option) || i >= q.options.length) return null;
           return { ...s, data: { ...d, pick: action.option } };
         }
         case 'reveal': {

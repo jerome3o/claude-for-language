@@ -502,7 +502,7 @@ own side; the tutor runs it; the result is kept with the lesson.
 - **Protocol** (`shared/calls/protocol.ts`): `activity_start { activity_id }` (replaces any running one,
   keeping its result), `activity_action { session_id, action }`, `activity_close { session_id }`; the room
   answers `activity { session | null }`.
-- **Results** — `call_activities` (migration 0093, upsert by session id; `ActivitySummary`: played / scored /
+- **Results** — `call_activities` (migration 0094, upsert by session id; `ActivitySummary`: played / scored /
   correct, roles, one readable line per round like "你好 (nǐ hǎo, hello) — wrote 你号 ✗"). `GET /api/calls/:id`
   returns the lesson's `activities` → the review page's **Activities** section; the homework agent's notes get
   an **IN-CALL ACTIVITIES** block (`activitiesNotes`, `services/calls/activities.ts`), so homework can follow

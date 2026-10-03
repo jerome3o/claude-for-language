@@ -275,9 +275,19 @@ describe('dictation', () => {
 });
 
 describe('robustness', () => {
+  it('a spec with no lines takes no actions instead of throwing', () => {
+    const empty = { ...findActivity('roleplay-restaurant-1')!, lines: [] } as ActivitySpec;
+    const s = startActivity(empty, { sessionId: 'x', starter: T, tutor: T, present: [T, S], names, now: 1 });
+    expect(reduceActivity(s, { type: 'line_done' }, T, 1)).toBeNull();
+    expect(reduceActivity(s, { type: 'finish' }, T, 1)?.phase).toBe('done');
+  });
+  it('a numeric quiz pick is refused (options are index strings)', () => {
+    const s = play(start('quiz-tones-1'), [[T, { type: 'ask' }]]);
+    expect(reduceActivity(s, { type: 'pick', option: 1 } as unknown as ActivityAction, S, 1)).toBeNull();
+  });
   it('garbage actions are refused, never thrown', () => {
     const specs: ActivitySpec[] = ACTIVITY_CATALOGUE;
-    const junk = [null, {}, { type: 42 }, { type: 'nope' }, { type: 'place', tile: 'x' }, { type: 'fill', cell: 5 }, { type: 'pick' }, { type: 'draft', text: 7 }];
+    const junk = [null, {}, { type: 'pick', option: 1 }, { type: 42 }, { type: 'nope' }, { type: 'place', tile: 'x' }, { type: 'fill', cell: 5 }, { type: 'pick' }, { type: 'draft', text: 7 }];
     for (const spec of specs) {
       const s = startActivity(spec, { sessionId: 'x', starter: T, tutor: T, present: [T, S], names, now: 1 });
       for (const j of junk) for (const who of [T, S]) expect(() => reduceActivity(s, j as unknown as ActivityAction, who, 1)).not.toThrow();
