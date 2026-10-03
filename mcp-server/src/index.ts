@@ -19,6 +19,7 @@ import { appServer } from "./tools/apps.js";
 import type { Env, Props } from './types.js';
 import { ApiClient, ApiError } from './api.js';
 import { errorResult, guard, textResult, type ToolContext } from './tools/context.js';
+import { CREATE_THEN_SEND, NOT_SENT } from './tools/homework-send.js';
 import { registerStudentTools } from './tools/students.js';
 import { registerContentTools } from './tools/content.js';
 import { registerHomeworkTools } from './tools/homework.js';
@@ -27,6 +28,7 @@ import { registerNoteUpdateTool } from './tools/notes.js';
 import { UPDATE_STUDENT_COPIES, updateStudentCopies } from './tools/student-copies.js';
 import { registerAdminTools } from './tools/admin.js';
 import { registerDebugTools } from './tools/debug.js';
+import { registerUsageTools } from './tools/usage.js';
 import { registerPictureHuntTools } from './tools/picture-hunts.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerTutorApps } from './tools/apps.js';
@@ -111,7 +113,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     {
       // Every Claude that makes cards through this server sees the house style
       // (shared/cards/standard.ts); the API enforces the HARD rules.
-      instructions: `This server manages a Chinese learner's flashcards, homework decks, readers and lessons.\n\nFor a tutor making anything for one of their students (homework, decks, cards, mini lessons, readers): read the tutor's private profile of that student first (get_student_profile, also in get_student_overview) and follow it — what kind of learner they are, how much, which formats, level, interests. It is private: never quote it to the student.\n\n${CARD_STANDARD}`,
+      instructions: `This server manages a Chinese learner's flashcards, homework decks, readers and lessons.\n\n${CREATE_THEN_SEND}\n\nFor a tutor making anything for one of their students (homework, decks, cards, mini lessons, readers): read the tutor's private profile of that student first (get_student_profile, also in get_student_overview) and follow it — what kind of learner they are, how much, which formats, level, interests. It is private: never quote it to the student.\n\n${CARD_STANDARD}`,
     }
   );
 
@@ -302,14 +304,14 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "create_deck",
-      `Create a new vocabulary deck. New decks default to ${NEW_DECK_DEFAULTS.new_cards_per_day} new cards + ${NEW_DECK_DEFAULTS.secondary_cards_per_day} secondary cards a day (change them with update_deck).`,
+      `Create a new vocabulary deck in the signed-in user's own account (nothing is sent to anyone). New decks default to ${NEW_DECK_DEFAULTS.new_cards_per_day} new cards + ${NEW_DECK_DEFAULTS.secondary_cards_per_day} secondary cards a day (change them with update_deck).`,
       {
         name: z.string().describe("Name of the deck"),
         description: z.string().optional().describe("Description of the deck"),
       },
       async ({ name, description }) => guard(async () => {
         const deck = await api.post<Deck>('/api/decks', { name, description });
-        return textResult(`Created deck: ${JSON.stringify(deck, null, 2)}`);
+        return textResult(`Created deck in your account: ${JSON.stringify(deck, null, 2)}\n${NOT_SENT}`);
       })
     );
 
@@ -440,7 +442,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "create_custom_lesson",
-      `Create a custom mini lesson that appears in the user's next study session (fully offline). A lesson is ordered sections, each holding any number of exercises of any type in any order. Exercise objects (each needs a "type"):
+      `Create a custom mini lesson for the SIGNED-IN USER THEMSELVES — it appears in their own next study session (fully offline). A tutor making a lesson for a student uses create_library_lesson instead (it waits in their library; nothing is sent). A lesson is ordered sections, each holding any number of exercises of any type in any order. Exercise objects (each needs a "type"):
 ${LESSON_EXERCISE_DOC}
 ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems — fix them and retry.`,
       {
@@ -561,7 +563,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
 
     this.server.tool(
       "add_note",
-      `Add a vocabulary note to a deck (creates 3 cards automatically). TTS audio for the word and its example sentence is generated in the background — the note is usable at once and audio_url fills in shortly after. When the deck was sent to students, their copies get the new word too (update_student_copies, default true; progress kept). ${CARD_STANDARD_SHORT}`,
+      `Add a vocabulary note to a deck (creates 3 cards automatically). TTS audio for the word and its example sentence is generated in the background — the note is usable at once and audio_url fills in shortly after. When the deck was sent to students, their copies can get the new word too (only with update_student_copies: true, when the tutor asked; progress kept). ${CARD_STANDARD_SHORT}`,
       {
         deck_id: z.string().describe("The deck ID"),
         hanzi: z.string().describe("Chinese characters (simplified)"),
@@ -605,7 +607,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
 
     this.server.tool(
       "batch_add_notes",
-      `Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly; up to 500 per call). Each note gets 3 cards; TTS audio is queued server-side and fills in shortly after, so the call returns without waiting. Hanzi already in any of your decks (or repeated in the request) are skipped; a note the API rejects (missing field, tone-number pinyin, symbols on the card) is listed under failed while the rest are created. When the deck was sent to students, their copies get the new words too (update_student_copies, default true; progress kept). ${CARD_STANDARD_SHORT}`,
+      `Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly; up to 500 per call). Each note gets 3 cards; TTS audio is queued server-side and fills in shortly after, so the call returns without waiting. Hanzi already in any of your decks (or repeated in the request) are skipped; a note the API rejects (missing field, tone-number pinyin, symbols on the card) is listed under failed while the rest are created. When the deck was sent to students, their copies can get the new words too (only with update_student_copies: true, when the tutor asked; progress kept). ${CARD_STANDARD_SHORT}`,
       {
         deck_id: z.string().describe("The deck ID"),
         notes: z.array(z.object({
@@ -1910,6 +1912,8 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     registerAdminTools(ctx);
     // Study-state debug reports from the web + Lab apps and their server-side diff.
     registerDebugTools(ctx);
+    // Usage analytics: who used which feature, timelines, errors, AI cost (admin only; docs/ANALYTICS.md).
+    registerUsageTools(ctx);
     registerPictureHuntTools(ctx);
     registerMaterialTools(ctx);
   }

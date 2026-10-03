@@ -5,6 +5,7 @@ import { replyToCardFlag, resolveCardFlag, reopenCardFlag, deleteCardFlag } from
 import type { CardFlag } from '../../types/cardFlags';
 import { relativeDay } from '../tutor/format';
 import { cardHubPath } from './paths';
+import { track } from '../../services/analytics';
 import './cardFlags.css';
 
 /**
@@ -70,6 +71,7 @@ function CardFlagRow({
   const replyMutation = useMutation({
     mutationFn: () => replyToCardFlag(flag.id, reply),
     onSuccess: () => {
+      track('tutor.flag_reply');
       setReply('');
       setReplying(false);
       done();

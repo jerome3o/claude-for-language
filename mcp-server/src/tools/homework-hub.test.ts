@@ -74,31 +74,32 @@ describe('link homework tools', () => {
       },
     });
     registerHomeworkHubTools(ctx);
-    const out = JSON.parse(text(await tools.get('assign_link_homework')!({ link_id: 'link-1', relationship_ids: ['rel-1'], relationship_id: 'rel-2', due_date: '2026-10-08', today: '2026-10-03' })));
+    const out = JSON.parse(text(await tools.get('assign_link_homework')!({ link_id: 'link-1', relationship_ids: ['rel-1'], relationship_id: 'rel-2', due_date: '2026-10-08', today: '2026-10-03', confirm: true })));
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /api/relationships/rel-1/homework', 'POST /api/relationships/rel-2/homework']);
     expect(calls[0].body).toEqual({ items: [{ kind: 'link', source_id: 'link-1', mode: 'one_off', due_date: '2026-10-08' }], today: '2026-10-03' });
     expect(out.sent).toEqual([{ relationship_id: 'rel-1', assignment_id: 'a1', title: '晴天', due_date: '2026-10-08' }]);
     expect(out.errors).toEqual([{ relationship_id: 'rel-2', error: 'Not your student' }]);
-    expect(out.message).toBe('Sent to 1 student(s) due Thu 8 Oct; 1 failed.');
+    expect(out.message).toBe('SENT: 1 student(s) due Thu 8 Oct; 1 failed.');
   });
 
   it('assign_link_homework sends due_date null when there is none, and needs a student', async () => {
     const { ctx, tools, calls } = fakeContext({ 'POST /api/relationships/rel-1/homework': () => ({ assignments: [{ id: 'a1', title: '晴天', due_date: null }] }) });
     registerHomeworkHubTools(ctx);
-    expect((await tools.get('assign_link_homework')!({ link_id: 'link-1' })).isError).toBe(true);
-    expect((await tools.get('assign_link_homework')!({ link_id: 'link-1', relationship_id: 'rel-1', due_date: 'next week' })).isError).toBe(true);
+    expect((await tools.get('assign_link_homework')!({ link_id: 'link-1', relationship_id: 'rel-1' })).isError).toBe(true); // no confirm: nothing sent
+    expect((await tools.get('assign_link_homework')!({ link_id: 'link-1', confirm: true })).isError).toBe(true);
+    expect((await tools.get('assign_link_homework')!({ link_id: 'link-1', relationship_id: 'rel-1', due_date: 'next week', confirm: true })).isError).toBe(true);
     expect(calls).toEqual([]);
-    await tools.get('assign_link_homework')!({ link_id: 'link-1', relationship_id: 'rel-1', today: '2026-10-03' });
+    await tools.get('assign_link_homework')!({ link_id: 'link-1', relationship_id: 'rel-1', today: '2026-10-03', confirm: true });
     expect((calls[0].body as { items: Array<{ due_date: unknown }> }).items[0].due_date).toBeNull();
   });
 
-  it('update_link_homework sends only the changed fields and update_student_copies (default true)', async () => {
+  it('update_link_homework sends only the changed fields and update_student_copies only when asked', async () => {
     const { ctx, tools, calls } = fakeContext({
       'PUT /api/homework-links/link-1': () => ({ link: { ...LINK, title: '晴天 (live)' }, updated: 1, results: [{ relationship_id: 'rel-1', student_name: 'Anna', ok: true }] }),
       'GET /api/homework-links': () => ({ links: [LINK] }),
     });
     registerHomeworkHubTools(ctx);
-    const out = JSON.parse(text(await tools.get('update_link_homework')!({ link_id: 'link-1', title: '晴天 (live)' })));
+    const out = JSON.parse(text(await tools.get('update_link_homework')!({ link_id: 'link-1', title: '晴天 (live)', update_student_copies: true })));
     expect(calls[0].body).toEqual({ title: '晴天 (live)', update_student_copies: true });
     expect(out.message).toBe("Updated \"晴天 (live)\". Also updated Anna's copy.");
     await tools.get('update_link_homework')!({ link_id: 'link-1', instructions: '', update_student_copies: false });
@@ -164,10 +165,10 @@ describe('update_student_copies on update_note', () => {
     'POST /api/student-copies/update': () => ({ updated: 2, results: [{ relationship_id: 'rel-1', student_name: 'Anna', ok: true }, { relationship_id: 'rel-2', student_name: 'Ben', ok: true }] }),
   };
 
-  it('true (default) updates the copies of the note\'s deck and says so', async () => {
+  it('true (the tutor asked) updates the copies of the note\'s deck and says so', async () => {
     const { ctx, tools, calls } = fakeContext(routes);
     registerNoteUpdateTool(ctx);
-    const r = await tools.get('update_note')!({ note_id: 'n1', english: 'menu' });
+    const r = await tools.get('update_note')!({ note_id: 'n1', english: 'menu', update_student_copies: true });
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['PUT /api/notes/n1', 'POST /api/student-copies/update']);
     expect(calls[0].body).toEqual({ english: 'menu' });
     expect(calls[1].body).toEqual({ kind: 'deck', source_id: 'deck-1' });
@@ -185,7 +186,7 @@ describe('update_student_copies on update_note', () => {
   it('a failing copies update never fails the edit', async () => {
     const { ctx, tools } = fakeContext({ 'PUT /api/notes/n1': routes['PUT /api/notes/n1'] });
     registerNoteUpdateTool(ctx);
-    const r = await tools.get('update_note')!({ note_id: 'n1', english: 'menu' });
+    const r = await tools.get('update_note')!({ note_id: 'n1', english: 'menu', update_student_copies: true });
     expect(r.isError).toBeFalsy();
     expect(text(r)).toContain("the students' copies could not be updated");
   });

@@ -36,12 +36,15 @@ export function ReaderWordSheet({
   known,
   onClose,
   onAdded,
+  onMore,
 }: {
   word: ReaderWord;
   sentence: string;
   known: boolean;
   onClose: () => void;
   onAdded?: () => void;
+  /** "More about this word" was pressed (analytics). */
+  onMore?: () => void;
 }) {
   const [pinyin, setPinyin] = useState(word.pinyin);
   const [explain, setExplain] = useState<ExplainState>({ kind: 'idle' });
@@ -195,7 +198,7 @@ export function ReaderWordSheet({
           ) : (
             <>
               {explain.kind === 'error' && <div className="rw-notice">{explain.message}</div>}
-              <button type="button" className="rw-more" onClick={() => void loadExplanation()}>
+              <button type="button" className="rw-more" onClick={() => { onMore?.(); void loadExplanation(); }}>
                 ✨ More about this word
               </button>
             </>

@@ -13,6 +13,7 @@
 import { db, type LocalPendingNotePref } from '../db/database';
 import { apiErrorStatus, setNoteLongTermRemote } from '../api/client';
 import type { LongTermPref } from '@shared/decks';
+import { track } from './analytics';
 
 async function upload(p: LocalPendingNotePref): Promise<void> {
   try {
@@ -35,6 +36,7 @@ export async function setNoteLongTerm(noteId: string, longTerm: LongTermPref): P
     await db.notes.update(noteId, { long_term: longTerm });
     await db.pendingNotePrefs.put(pending);
   });
+  track('study.long_term_toggle', { value: longTerm === null ? 'default' : longTerm ? 'on' : 'off' });
   if (typeof navigator !== 'undefined' && navigator.onLine) {
     upload(pending).catch(() => undefined); // stays queued for the sync
   }

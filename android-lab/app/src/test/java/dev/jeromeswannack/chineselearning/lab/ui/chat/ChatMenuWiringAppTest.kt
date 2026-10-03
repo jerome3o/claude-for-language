@@ -134,6 +134,19 @@ class ChatMenuWiringAppTest {
         assertEquals("周末你做了什么？", clip?.getItemAt(0)?.text?.toString())
     }
 
+    @Test fun sayBetterIsFirstAndOpensTheSheet() {
+        // m2 is mine and Minghui corrected it: "✨ How to say it better" leads the menu.
+        assertEquals(MessageMenu.SAY_BETTER, ui.menu(m2).items.first().id)
+        assertEquals("corrected", ui.sayBetter(m2))
+        vm.onMenuAction(MessageMenu.SAY_BETTER, m2)
+        assertEquals(ChatSheet.SayBetter(m2), ui.sheet)
+        val v = assertNotNull(SayBetterView.of(m2, ui.myId, ui.otherName.ifEmpty { "Minghui" }))
+        assertEquals("我去了商店。", v.corrected)
+        assertTrue(v.pinyin.isNotBlank(), "pinyin made on the phone for the tutor's correction")
+        // Not on the tutor's message.
+        assertEquals(MessageMenu.REPLY, ui.menu(m1).items.first().id)
+    }
+
     @Test fun tapShowsTheTime_speedIsRemembered() {
         vm.toggleTime("m1")
         assertEquals(setOf("m1"), ui.timeShown)

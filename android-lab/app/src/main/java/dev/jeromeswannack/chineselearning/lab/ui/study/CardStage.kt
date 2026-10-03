@@ -331,7 +331,7 @@ fun CardStage(
                 StudyActionRow(
                     aiAvailable = ui.aiAvailable,
                     onAskClaude = { sheet = CardSheet.Ask },
-                    onEditCard = { sheet = CardSheet.Edit },
+                    onEditCard = { sheet = CardSheet.Edit; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.edit_card") },
                     onMore = { sheet = CardSheet.More },
                 )
                 Spacer(Modifier.height(10.dp))
@@ -347,7 +347,7 @@ fun CardStage(
     when (val s = sheet) {
         null -> Unit
         CardSheet.More -> StudyMoreSheet(
-            items = studyMenuItems(view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag }, onWrite = { sheet = CardSheet.Write }),
+            items = studyMenuItems(view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag }, onWrite = { sheet = CardSheet.Write; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.write_it") }),
             footer = CardExtrasLogic.formatAddedDate(note.createdAt),
             onDismiss = { if (sheet == CardSheet.More) sheet = null },
         )

@@ -13,6 +13,7 @@
  * Every change → `message_updated` on both people's ChatHubs.
  */
 
+import { autoCheckMessageInBackground } from '../services/chat/auto-check';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { findMessageByClientId, normalizeClientId, sendMessage, toggleReaction } from '../services/conversations';
@@ -40,6 +41,7 @@ import {
   transcribeVoiceMessage,
 } from '../services/chat/messages';
 import { background, deliverSentMessage } from './chat-live';
+import { pregenerateMessageClip } from '../services/chat/message-audio';
 import { stripJpegMetadata } from './picture-hunts';
 
 const chatMessages = new Hono<{ Bindings: Env }>();
@@ -197,6 +199,7 @@ chatMessages.post('/messages/:id/forward', async (c) => {
   const env = c.env;
   await background(c, deliverSentMessage(env, targetId, userId, message));
   if (src.content.trim() && attachment?.kind !== 'voice') await background(c, enrichMessageInBackground(env, id, src.content));
+  await background(c, pregenerateMessageClip(env, message));
   return c.json(message, 201);
 });
 
@@ -238,7 +241,13 @@ chatMessages.patch('/messages/:id', async (c) => {
     await background(c, (async () => {
       await broadcastMessageUpdated(env, message.id);
       // Re-translated and re-split into words (the old ones were cleared with the edit).
-      await enrichMessageInBackground(env, message.id, message.content);
+      await Promise.all([
+        enrichMessageInBackground(env, message.id, message.content),
+        // An edit clears the auto-check; the new text is checked again.
+        autoCheckMessageInBackground(env, message.id),
+      ]);
+      // The edited text gets its own clip (the key's hash covers the text).
+      await pregenerateMessageClip(env, message);
     })());
     return c.json(message);
   } catch (err) {

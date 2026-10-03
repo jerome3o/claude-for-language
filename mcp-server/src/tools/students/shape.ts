@@ -3,6 +3,7 @@
  * what Claude needs in a chat, defaults for dates, audio URLs. No I/O, so
  * everything here is unit-tested in ../students.test.ts.
  */
+import { unsentJobItems } from '../../../../shared/homework/send';
 import { groupQuestionThreads } from '../../../../shared/chats/threads';
 import type { StudentProfileFields } from '../../../../shared/students/profile';
 import type { StudyBudgetInfo } from '../../../../shared/decks/tutor-budget';
@@ -414,6 +415,16 @@ export function compactClaudeThreads(rows: ClaudeChatQuestionRow[], answerChars:
 // ---------- Session notes jobs ----------
 
 /** A job as a chat needs it: status, progress, what was made and whether it reached the student. Steps only on request. */
+/**
+ * What a finished job made that is still only in the tutor's account: the keys
+ * send_session_notes_items takes (same rule as the worker's unsentJobItems). Pure.
+ */
+function notSent(r: SessionNotesJobRow['result']): { not_sent?: Array<{ key: string; title: string }>; hint?: string } {
+  const out = unsentJobItems(r).map((i) => ({ key: i.key, title: i.title }));
+  if (out.length === 0) return {};
+  return { not_sent: out, hint: 'Saved in the tutor\'s account (not sent). When the tutor says "send it to <student>", call send_session_notes_items with confirm: true.' };
+}
+
 export function compactSessionNotesJob(job: SessionNotesJobRow, opts: { steps?: boolean } = {}): Record<string, unknown> {
   const r = job.result ?? {};
   return {
@@ -435,6 +446,7 @@ export function compactSessionNotesJob(job: SessionNotesJobRow, opts: { steps?: 
       lessons: (r.lessons ?? []).map((l) => ({ library_item_id: l.library_item_id, title: l.title, exercises: l.exercise_count, assigned: !!l.lesson_id })),
       reader: r.reader ? { reader_id: r.reader.id, title: r.reader.title_english, pages: r.reader.page_count, sent_to_student: !!r.reader.target_reader_id } : null,
     },
+    ...(job.status === 'done' && !job.review ? notSent(r) : {}),
     ...(r.summary ? { summary: r.summary } : {}),
     ...(r.skipped?.length ? { skipped: r.skipped } : {}),
   };

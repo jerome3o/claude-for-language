@@ -303,7 +303,7 @@ parity-tested).
 
 Editing something already sent offers **Also update <student>'s copy** per student, default on — the web deck page
 (after a word is added / edited), the lesson editor and reader editor (after Save), the link editor, the Lab's
-equivalents and the MCP update tools (`update_student_copies`, default true). One API for all of them:
+equivalents and the MCP update tools (`update_student_copies: true`, set only when the tutor asked — it is a send). One API for all of them:
 
 - `GET /api/student-copies?kind=deck|lesson|reader|link&source_id=` → `{ copies: [{ relationship_id, student_id,
   student_name, target_id, share_id, behind }] }` (the caller's own sources only; active relationships).

@@ -2,7 +2,7 @@
  * Updating students' copies when the tutor edits something she already sent
  * (docs/HOMEWORK.md §10). The MCP update tools (update_note, add_note,
  * batch_add_notes, update_library_lesson, update_reader) take
- * `update_student_copies` (default true) and, after their own edit succeeded,
+ * `update_student_copies` (default false — it SENDS to students) and, after their own edit succeeded,
  * call `POST /api/student-copies/update` once — a source with no copies comes
  * back `updated: 0` with no results, so no pre-check is needed.
  *
@@ -17,7 +17,7 @@ export type CopyKind = 'deck' | 'lesson' | 'reader' | 'link';
 export const UPDATE_STUDENT_COPIES = z
   .boolean()
   .optional()
-  .describe('Also bring the copies already sent to students up to date (default true): a deck gets the new / edited words with their progress kept, a lesson / reader is overwritten in place with history and schedule kept. false = only your own copy changes.');
+  .describe('SENDS to students: set true ONLY when the tutor explicitly asked, in this conversation, to update the copies already sent to her students too. Then a deck copy gets the new / edited words (progress kept), a lesson / reader copy is overwritten in place (history and schedule kept). Default false = only her own copy changes; say which students have a copy and ask.');
 
 export interface CopyResult {
   relationship_id: string;
@@ -57,7 +57,7 @@ export function describeCopyResults(results: CopyResult[]): string {
  * `enabled` is false (nothing called). Never throws.
  */
 export async function updateStudentCopies(api: ApiClient, kind: CopyKind, sourceId: string, enabled: boolean | undefined): Promise<CopiesOutcome | null> {
-  if (enabled === false) return null;
+  if (enabled !== true) return null;
   try {
     const r = await api.post<{ updated?: number; results?: CopyResult[] }>('/api/student-copies/update', { kind, source_id: sourceId });
     const results = r.results ?? [];

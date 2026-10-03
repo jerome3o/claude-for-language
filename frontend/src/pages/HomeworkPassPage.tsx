@@ -8,6 +8,7 @@ import { setNoteLongTerm } from '../services/longTerm';
 import { LongTermSwitch, longTermLine } from '../components/homework/LongTermSwitch';
 import { db, type LocalNote } from '../db/database';
 import { recordPassEvent, syncHomework, titleParts } from '../services/homework';
+import { track } from '../services/analytics';
 import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
 import { recordReaderReview, getReaderIntervalPreviews } from '../services/reader-study';
 import { StudyCustomLesson } from '../components/StudyCustomLesson';
@@ -48,6 +49,22 @@ function HomeworkPass() {
     return { assignment, events } as const;
   }, [id]);
   const exit = () => navigate(-1);
+
+  // Analytics: the pass opened (once), and finished while open (complete went false → true).
+  const passTrack = useRef<{ id: string; wasComplete: boolean; done: boolean } | null>(null);
+  useEffect(() => {
+    const a = data?.assignment;
+    if (!a) return;
+    const items = passItemIds(a).length;
+    const complete = passProgress(passItemIds(a), data.events).complete;
+    if (passTrack.current?.id !== a.id) {
+      passTrack.current = { id: a.id, wasComplete: complete, done: false };
+      track('homework.pass_start', { kind: a.kind, items });
+    } else if (complete && !passTrack.current.wasComplete && !passTrack.current.done) {
+      passTrack.current.done = true;
+      track('homework.pass_done', { kind: a.kind, items });
+    }
+  }, [data]);
 
   if (data === undefined) return <div className="study-fullscreen" />;
   if (!data.assignment) {
@@ -150,6 +167,7 @@ function DeckPass({
     setBusy(true);
     try {
       await recordPassEvent(assignmentId, currentId, right ? 'right' : 'wrong');
+      track('homework.pass_item', { result: right ? 'right' : 'wrong' });
     } finally {
       setBusy(false);
     }

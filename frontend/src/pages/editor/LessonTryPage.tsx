@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { track } from '../../services/analytics';
 import { useQuery } from '@tanstack/react-query';
 import { getLibraryItem } from '../../api/lessonEditor';
 import { StudyCustomLesson } from '../../components/StudyCustomLesson';
@@ -18,6 +19,7 @@ const NO_COUNTS = { new: 0, secondaryNew: 0, learning: 0, review: 0 };
  */
 export function LessonTryPage() {
   const { id } = useParams<{ id: string }>();
+  useEffect(() => { track('tutor.try_as_student', { kind: 'lesson' }); }, [id]);
   const navigate = useNavigate();
   const item = useQuery({ queryKey: ['library-item', id], queryFn: () => getLibraryItem(id!), enabled: !!id, retry: false });
   const back = () => navigate(id ? `/library/${id}` : '/library');

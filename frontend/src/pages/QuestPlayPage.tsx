@@ -30,6 +30,7 @@ import { completeQuest, getQuest, retryQuest } from '../api/client';
 import { Confetti } from '../components/Confetti';
 import { getTTSWithCache } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
+import { track } from '../services/analytics';
 import './QuestPage.css';
 
 /** Chinese nudges for a move the world refused — the game speaks Chinese too. */
@@ -193,6 +194,7 @@ export function QuestPlayPage() {
 export function QuestGame({ questId, world }: { questId: string; world: QuestWorld }) {
   const navigate = useNavigate();
   const [state, setState] = useState<QuestState>(() => createQuestState(world));
+  useEffect(() => { track('quest.play'); }, [questId]);
   const [toast, setToast] = useState<Toast | null>(null);
   const [showHint, setShowHint] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -279,6 +281,7 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
   useEffect(() => {
     if (!state.finished || reportedRef.current) return;
     reportedRef.current = true;
+    track('quest.complete', { moves: state.moves });
     void completeQuest(questId, state.moves).catch(() => {
       // Best effort — the level is finished whether or not the server hears.
     });

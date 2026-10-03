@@ -27,6 +27,7 @@ import {
   type LibraryKind,
   type LibraryStatus,
 } from '../../../shared/homework';
+import { CONFIRM_SEND, NEEDS_CONFIRM, SEND_RULE } from './homework-send.js';
 import { describeCopyResults, UPDATE_STUDENT_COPIES, type CopyResult } from './student-copies.js';
 
 const LINK_ID = z.string().describe('The link id (`id` from create_link_homework / list_link_homework).');
@@ -115,16 +116,18 @@ export function registerHomeworkHubTools(ctx: ToolContext): void {
 
   server.tool(
     'assign_link_homework',
-    'Send a saved link (create_link_homework) to one or more students as one-off homework: it appears on their Home "From <tutor>" card and Homework list with an Open link button and Mark as done (with an optional note back, shown in get_homework_library). due_date optional (null / omitted = no due date). Each student gets their own snapshot, so later edits only reach them via update_link_homework with update_student_copies.',
+    `${SEND_RULE} Send a saved link (create_link_homework) to one or more students as one-off homework: it appears on their Home "From <tutor>" card and Homework list with an Open link button and Mark as done (with an optional note back, shown in get_homework_library). due_date optional (null / omitted = no due date). Each student gets their own snapshot, so later edits only reach them via update_link_homework with update_student_copies.`,
     {
       link_id: LINK_ID,
+      confirm: CONFIRM_SEND,
       relationship_ids: z.array(z.string()).optional().describe('Relationship ids (`relationship_id` from list_students) of the students to send to.'),
       relationship_id: z.string().optional().describe('One student\'s relationship id (instead of relationship_ids).'),
       due_date: z.string().nullable().optional().describe('YYYY-MM-DD the student should have done it by; null / omitted = no due date.'),
       today: TODAY,
     },
-    async ({ link_id, relationship_ids, relationship_id, due_date, today }) =>
+    async ({ link_id, relationship_ids, relationship_id, due_date, today, confirm }) =>
       guard(async () => {
+        if (confirm !== true) return errorResult(NEEDS_CONFIRM);
         const ids = [...new Set([...(relationship_ids ?? []), ...(relationship_id ? [relationship_id] : [])])];
         if (ids.length === 0) return errorResult('Pass relationship_ids (or relationship_id) — who to send the link to.');
         if (due_date != null && !isDateString(due_date)) return errorResult(`due_date must be YYYY-MM-DD (got "${due_date}")`);
@@ -148,7 +151,7 @@ export function registerHomeworkHubTools(ctx: ToolContext): void {
         return jsonResult({
           sent,
           errors,
-          message: `Sent to ${sent.length} student(s)${sent.length ? due : ''}${errors.length ? `; ${errors.length} failed` : ''}.`,
+          message: `${sent.length ? 'SENT' : 'Nothing was sent'}: ${sent.length} student(s)${sent.length ? due : ''}${errors.length ? `; ${errors.length} failed` : ''}.`,
         });
       })
   );
@@ -167,7 +170,7 @@ export function registerHomeworkHubTools(ctx: ToolContext): void {
 
   server.tool(
     'update_link_homework',
-    'Edit a saved link (only the fields given change). With update_student_copies (default true) the students it was already sent to see the new title / link / instructions too; their done status and notes stay.',
+    'Edit a saved link (only the fields given change). With update_student_copies: true (only when the tutor asked) the students it was already sent to see the new title / link / instructions too; their done status and notes stay.',
     {
       link_id: LINK_ID,
       title: z.string().optional(),
@@ -185,7 +188,7 @@ export function registerHomeworkHubTools(ctx: ToolContext): void {
         if (url !== undefined) patch.url = value.url;
         if (instructions !== undefined) patch.instructions = value.instructions ?? null;
         if (Object.keys(patch).length === 0) return errorResult('No updates provided');
-        const updateCopies = update_student_copies ?? true;
+        const updateCopies = update_student_copies === true;
         const r = await api.put<{ link: LinkRow; updated?: number; results?: CopyResult[]; copies?: { updated?: number; results?: CopyResult[] } }>(
           `/api/homework-links/${encodeURIComponent(link_id)}`,
           { ...patch, update_student_copies: updateCopies }

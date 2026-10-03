@@ -11,6 +11,7 @@ import { useIsWide } from '../../components/editor/EditorShell';
 import { Loading } from '../../components/Loading';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { plural, shortDate } from '../../components/tutor/format';
+import { track, trackError } from '../../services/analytics';
 import '../../components/tutor/tutor-dashboard.css';
 import '../../components/tutor/session-notes.css';
 import '../../components/tutor/homework-tutor.css';
@@ -52,6 +53,7 @@ export function HomeworkDraftPage() {
   const assign = useMutation({
     mutationFn: () => assignHomeworkDraft(relId!, jobId!),
     onSuccess: (r) => {
+      track('tutor.homework_draft_assign', { items: r.assignments.length });
       const skipped = r.skipped.reduce((n, s) => n + s.hanzi.length, 0);
       setAssignedNote(`Assigned ${plural(r.assignments.length, 'item')}${skipped ? ` · left out ${plural(skipped, 'word')} they already have` : ''}${r.errors.length ? ` · ${r.errors.length} failed: ${r.errors[0].error}` : ''}.`);
       queryClient.invalidateQueries({ queryKey: key });
@@ -59,7 +61,10 @@ export function HomeworkDraftPage() {
       queryClient.invalidateQueries({ queryKey: ['relationship-homework', relId] });
       queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
     },
-    onError: (e) => setError(e instanceof Error ? e.message : 'Could not assign'),
+    onError: (e) => {
+      trackError('homework_draft_assign', e);
+      setError(e instanceof Error ? e.message : 'Could not assign');
+    },
   });
   const removeWord = useMutation({
     mutationFn: (w: DraftWord) => deleteNote(w.id),
@@ -258,6 +263,7 @@ function DraftChat({ relId, view, onSent }: { relId: string; view: DraftView; on
   const send = useMutation({
     mutationFn: (message: string) => sendDraftMessage(relId, view.job.id, message),
     onSuccess: () => {
+      track('tutor.homework_draft_message');
       setText('');
       setError(null);
       onSent();

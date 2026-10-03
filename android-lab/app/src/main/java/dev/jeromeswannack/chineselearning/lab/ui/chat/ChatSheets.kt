@@ -121,6 +121,14 @@ class ChatSheetActions(
     /** No app opens a file: share it / save a copy (path, name, mime). */
     val onShareFile: (String, String, String) -> Unit = { _, _, _ -> },
     val onSaveFile: (String, String, String) -> Unit = { _, _, _ -> },
+    // ---- listening mode ----
+    /** ⋯ → 🎧 Listening mode (on ↔ off). */
+    val onToggleListening: () -> Unit = {},
+    /** ⋯ → 🙈 Hide all messages. */
+    val onHideAll: () -> Unit = {},
+    // ---- auto-check ----
+    /** ▶ in "How to say it better": read (playing id, text) aloud with the chat's TTS. */
+    val onPlayText: (String, String) -> Unit = { _, _ -> },
 )
 
 @Composable
@@ -138,6 +146,19 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             }
         }
         ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss) { AttachContent(ui, actions) }
+        is ChatSheet.SayBetter -> {
+            val m = ui.messages.firstOrNull { it.id == s.message.id } ?: s.message
+            val v = remember(m, ui.myId, ui.otherName) { SayBetterView.of(m, ui.myId, ui.otherName) }
+            if (v != null) LabBottomSheet(onDismiss = actions.onDismiss) {
+                val playId = "say-better-${m.id}"
+                SayBetterContent(
+                    v, ui.online, playing = ui.playingId == playId, cards = actions.cards,
+                    onPlay = { actions.onPlayText(playId, v.corrected) },
+                    onAsk = { actions.onMenuAction(dev.jeromeswannack.chineselearning.lab.core.MessageMenu.DISCUSS, m) },
+                    onClose = actions.onDismiss,
+                )
+            }
+        }
         is ChatSheet.Explain -> ui.explain?.let { e ->
             dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet(onDismiss = actions.onCloseExplain) {
                 ExplainContent(e, s.saveCard, ui.online, actions.cards, onRetry = actions.onRetryExplain, onClose = actions.onCloseExplain)
@@ -173,24 +194,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             onDismiss = actions.onDismiss,
             danger = true,
         )
-        ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) {
-            NavRow("🔍", "Search", desc = "Find a message in this chat", onClick = actions.onOpenSearch)
-            RowDivider()
-            // PR 3: make cards from the chat; pinyin / translations for every message.
-            NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
-            RowDivider()
-            ToggleRow("拼", "Show pinyin for all", ui.aids.pinyinAll) { actions.onPinyinAll(it) }
-            RowDivider()
-            ToggleRow("EN", "Show translations for all", ui.aids.translationAll) { actions.onTranslationAll(it) }
-            RowDivider()
-            NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
-            RowDivider()
-            NavRow("✏️", if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation", enabled = ui.online, onClick = actions.onOpenRename)
-            if (ui.isAi) { RowDivider(); NavRow("🔊", "Voice settings", onClick = actions.onOpenVoice) }
-            RowDivider()
-            NavRow("☰", "All conversations", onClick = actions.onAllConversations)
-            Spacer(Modifier.height(16.dp))
-        }
+        ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) { ConversationMenuContent(ui, actions) }
         is ChatSheet.Translate -> CardSheet("Translation", listOf(s.result.flashcard), ui, actions, s.result.translation)
         is ChatSheet.Check -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Check Result") {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -467,3 +471,35 @@ private fun WordSheet(hanzi: String, context: String, ui: ChatUi, actions: ChatS
     }
 }
 
+
+/** The header ⋯ (search, listening mode, make flashcards, pinyin / translations for all, …). */
+@Composable
+fun ConversationMenuContent(ui: ChatUi, actions: ChatSheetActions) {
+    Column {
+        NavRow("🔍", "Search", desc = "Find a message in this chat", onClick = actions.onOpenSearch)
+        RowDivider()
+        // Listening mode (docs/CHAT.md "Listening mode"): new messages arrive hidden — listen first.
+        if (ui.listeningAvailable) {
+            Box(Modifier.testTag("chat-menu-listening")) { ToggleRow("🎧", "Listening mode", ui.listening.setting.on, desc = "New messages arrive hidden — tap to listen, hold to reveal") { actions.onToggleListening() } }
+            RowDivider()
+            if (ui.listening.setting.on) {
+                NavRow("🙈", "Hide all messages", desc = "Every message from ${ui.otherName.ifEmpty { "them" }.substringBefore(' ')} becomes a listening exercise", onClick = actions.onHideAll)
+                RowDivider()
+            }
+        }
+        // PR 3: make cards from the chat; pinyin / translations for every message.
+        NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
+        RowDivider()
+        ToggleRow("拼", "Show pinyin for all", ui.aids.pinyinAll) { actions.onPinyinAll(it) }
+        RowDivider()
+        ToggleRow("EN", "Show translations for all", ui.aids.translationAll) { actions.onTranslationAll(it) }
+        RowDivider()
+        NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
+        RowDivider()
+        NavRow("✏️", if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation", enabled = ui.online, onClick = actions.onOpenRename)
+        if (ui.isAi) { RowDivider(); NavRow("🔊", "Voice settings", onClick = actions.onOpenVoice) }
+        RowDivider()
+        NavRow("☰", "All conversations", onClick = actions.onAllConversations)
+        Spacer(Modifier.height(16.dp))
+    }
+}

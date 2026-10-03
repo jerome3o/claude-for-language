@@ -83,13 +83,17 @@ update the PARITY.md row (⬜/🟡 with what's missing) — never leave it silen
    targets. Feedback matters — springs for motion, `Haptics` and `Sounds` for moments that
    should feel good. Keep the feel Jerome likes: instant, cached-first, no spinners when
    something is cached.
-6. **Screenshots**: a test class extending `testing/LabScreenshotTest` in your own test
+6. **Usage analytics**: a new user-facing action emits the same catalogue event as the web
+   (`shared/analytics/events.ts` ↔ `core/…/analytics/AnalyticsEvents.kt`, parity-tested) via
+   `app.analytics.track("area.event", mapOf(…))` — ids / enums / counts only, never content
+   (docs/ANALYTICS.md). Screen views are automatic from the nav listener.
+7. **Screenshots**: a test class extending `testing/LabScreenshotTest` in your own test
    folder — `@Test fun list() = shoot("<feature>-01-list") { FooScreen(sample, FooActions()) }`
    (`shootInShell(…)` adds the tab bar; `@Config(qualifiers = LabScreenshotTest.UNFOLDED)`).
-7. **Parity vectors for a new `shared/` port**: `parity/fixtures/<feature>.ts` +
+8. **Parity vectors for a new `shared/` port**: `parity/fixtures/<feature>.ts` +
    `core/src/test/…/<Feature>ParityTest.kt` (see `parity/fixtures/README.md`) — never edit
    another package's generator.
-8. **Things the Lab app doesn't have yet** stay reachable: `nav.open(path)` shows the
+9. **Things the Lab app doesn't have yet** stay reachable: `nav.open(path)` shows the
    placeholder, `nav.openOrHandoff(path)` goes straight to the main app for inline links.
 
 ### Shared files — minimal, append-only edits

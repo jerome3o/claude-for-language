@@ -71,6 +71,7 @@ class StudentBudgetController(private val app: LabApp, private val vm: ViewModel
     fun save(newPerDay: Int?, secondaryPerDay: Int?, done: (String?) -> Unit) = vm.viewModelScope.launch {
         attempt { app.repo.api.saveStudentStudyBudget(relId, newPerDay, secondaryPerDay) }
             .onSuccess { r ->
+                app.analytics.track("tutor.budget_change", mapOf("new_cards" to newPerDay, "secondary_cards" to secondaryPerDay, "reset" to (newPerDay == null && secondaryPerDay == null)))
                 resource.update { (it ?: StudentStudyBudgetDto()).copy(budget = r.budget) }
                 app.haptics.correct()
                 app.sounds.play(Sounds.Sfx.POP)

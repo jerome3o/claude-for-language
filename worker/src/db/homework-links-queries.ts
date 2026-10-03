@@ -1,5 +1,5 @@
 /**
- * A tutor's links for link homework (migration 0099, docs/HOMEWORK.md §8).
+ * A tutor's links for link homework (migration 0102, docs/HOMEWORK.md §8).
  * Made in the tutor's own account; sending one is an assignment (kind 'link').
  */
 

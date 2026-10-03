@@ -91,6 +91,7 @@ private fun QuestGameRoute(app: LabApp, questId: String, world: QuestWorld, onEx
     val speech = remember { QuestSpeech(app) }
     DisposableEffect(Unit) { onDispose { speech.release() } }
     var reveal by remember { mutableStateOf(QuestPrefs.reveal(context)) }
+    androidx.compose.runtime.LaunchedEffect(questId) { app.analytics.track("quest.play") }
     val controller = remember(questId, world) {
         QuestGameController(
             world,
@@ -132,6 +133,7 @@ class QuestsViewModel(private val app: LabApp) : ViewModel() {
     fun generate(topic: String, difficulty: String, goals: Int, onCreated: (String) -> Unit) {
         if (extra.value.generating) return
         extra.update { it.copy(generating = true, generateError = null) }
+        app.analytics.track("quest.generate", mapOf("difficulty" to difficulty))
         viewModelScope.launch {
             try {
                 val created = app.repo.api.createQuest(NewQuestBody(topic.ifBlank { null }, difficulty, goals))
@@ -207,6 +209,7 @@ class QuestPlayViewModel(private val app: LabApp, private val id: String) : View
 
     /** Report the finish once per play-through (best moves on the list); queued when offline. */
     fun complete(moves: Int) {
+        app.analytics.track("quest.complete", mapOf("moves" to moves))
         app.scope.launch {
             runCatching {
                 app.outbox.enqueueJson("quest-complete", "POST", "/api/quests/${enc(id)}/complete", QuestCompleteBody(moves))

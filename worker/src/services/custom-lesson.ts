@@ -8,6 +8,7 @@
  * these same REST routes.
  */
 
+import { trackServer } from './analytics/server-events';
 import { CustomLessonSpec, validateLessonSpec, LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '@shared/lesson';
 import { Env } from '../types';
 import * as db from '../db/queries';
@@ -69,6 +70,7 @@ export async function createCustomLessonFromSpec(
   });
 
   const imageJobs = await queueLessonImages(env, lesson.id, spec);
+  void trackServer('server.content_created', { kind: 'lesson', count: 1, via: source }, { env, userId });
   return { ok: true, lesson, imageJobs };
 }
 

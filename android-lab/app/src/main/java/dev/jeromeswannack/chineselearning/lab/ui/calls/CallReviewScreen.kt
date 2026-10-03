@@ -548,7 +548,7 @@ private fun HomeworkSection(hw: CallHomeworkUi, ready: Boolean, online: Boolean,
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader("Homework")
         if (hw.jobs.isEmpty()) Text(
-            "Turn this lesson into homework for ${hw.studentName}: the assistant reads the transcript, the whiteboard and the report, makes a deck of cards for what you taught (skipping words they already know) and a mini lesson when a grammar point was taught, and sends them to the student. Same as pasting notes on their page." +
+            "Turn this lesson into homework for ${hw.studentName}: the assistant reads the transcript, the whiteboard and the report, makes a deck of cards for what you taught (skipping words they already know) and a mini lesson when a grammar point was taught — all in your account. Nothing reaches ${hw.studentName} until you press Send. Same as pasting notes on their page." +
                 if (callCount > 1) " This lesson was $callCount calls in a row — it reads all of them, and the homework is made once." else "",
             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
         )

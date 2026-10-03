@@ -21,7 +21,7 @@ export function registerNoteUpdateTool(ctx: ToolContext): void {
 
   server.tool(
     'update_note',
-    `Update an existing note. Only the fields given change. A changed hanzi gets a new word clip and a changed sentence_clue a new sentence clip, both generated in the background. When the note's deck was sent to students, their copies are updated too (update_student_copies, default true; progress kept). ${CARD_STANDARD_SHORT}`,
+    `Update an existing note. Only the fields given change. A changed hanzi gets a new word clip and a changed sentence_clue a new sentence clip, both generated in the background. When the note's deck was sent to students, their copies can be updated too (only with update_student_copies: true, when the tutor asked; progress kept). ${CARD_STANDARD_SHORT}`,
     {
       note_id: z.string().describe('The note ID'),
       hanzi: z.string().optional().describe('New Chinese characters'),

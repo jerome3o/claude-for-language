@@ -4,7 +4,8 @@ package dev.jeromeswannack.chineselearning.lab.core
  * The long-press menu of one chat message — chat round 2 (docs/CHAT.md "Round 2"). Port of
  * `messageMenu` / `menuText` in shared/chats/messageMenu.ts, parity-tested
  * (parity/fixtures/chat-round2.ts → ChatRound2ParityTest). Bubbles carry no buttons: every tool
- * lives here, in this order: Reply, Copy, Forward, Translate, Pinyin, Explain, Save as flashcard, Make
+ * lives here, in this order: How to say it better (first, on my own message the auto-check flagged
+ * or the tutor corrected — [SayBetter]), Reply, Copy, Forward, Translate, Pinyin, Explain, Save as flashcard, Make
  * flashcards from selection, Check my Chinese, Correct, Read aloud, Word by word (Claude practice
  * chat), Discuss with Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top ([Menu.reactions]).
  */
@@ -23,8 +24,13 @@ object MessageMenu {
         /** Machine translation already on the message (text messages). */
         val translation: String? = null,
         val hasCorrection: Boolean = false,
+        /** The correction's text, when known (an empty one is no correction for "How to say it better"). */
+        val correctionText: String? = null,
         /** 'correct' | 'needs_improvement' | null. */
         val checkStatus: String? = null,
+        /** The background check: 'ok' | 'improvable' and the text it was about (only the sender has it). */
+        val autoCheckStatus: String? = null,
+        val autoCheckText: String? = null,
         val hasDiscussion: Boolean = false,
         val pinnedAt: String? = null,
     )
@@ -43,6 +49,7 @@ object MessageMenu {
     data class Menu(val reactions: Boolean, val items: List<Item>)
 
     // Action ids (`MenuActionId`).
+    const val SAY_BETTER = "say_better"
     const val REPLY = "reply"
     const val COPY = "copy"
     const val FORWARD = "forward"
@@ -95,7 +102,16 @@ object MessageMenu {
         val isLearner = viewerRole == "student" || isAiConversation
         val zh = text.isNotEmpty() && MessageTools.looksLikeChinese(text)
         val translated = if (kind == "voice") truthy(msg.attachmentTranslation) else truthy(msg.translation)
-        val items = mutableListOf(Item(REPLY, "Reply", "↩️", false))
+        val items = mutableListOf<Item>()
+        // Auto-check found something, or the tutor corrected it: the first thing to reach for.
+        val better = SayBetter.state(
+            msg.senderId, msg.content, msg.deletedAt, kind, msg.hasCorrection, msg.correctionText,
+            msg.autoCheckStatus, msg.autoCheckText, viewerId,
+        )
+        if (better != null) items += Item(SAY_BETTER, "How to say it better", "✨", false)
+        // A current auto-check answers "Check my Chinese" already.
+        val autoChecked = msg.autoCheckStatus != null && msg.autoCheckText == msg.content
+        items += Item(REPLY, "Reply", "↩️", false)
         if (text.isNotEmpty()) items += Item(COPY, "Copy", "📋", false)
         if (!isAiConversation) items += Item(FORWARD, "Forward", "↪️", true)
         if (zh && (kind != "voice" || translated)) {
@@ -107,7 +123,7 @@ object MessageMenu {
             items += Item(SAVE_CARD, "Save as flashcard", "🃏", true)
         }
         if (text.isNotEmpty()) items += Item(SELECT_CARDS, "Make flashcards from selection", "🗂️", true)
-        if (isMine && zh && isLearner && noKind) {
+        if (isMine && zh && isLearner && noKind && !autoChecked) {
             if (msg.checkStatus == "needs_improvement") items += Item(VIEW_CORRECTIONS, "View corrections", "📝", false)
             else if (msg.checkStatus != "correct") items += Item(CHECK, "Check my Chinese", "✅", true)
         }

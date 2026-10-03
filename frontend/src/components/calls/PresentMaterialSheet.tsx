@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { listMaterials, type MaterialInfo } from '../../api/materials';
 import { addMaterial, type UploadStage } from '../../services/materials/upload';
+import { track } from '../../services/analytics';
 
 const KIND_ICON: Record<string, string> = { pdf: '📄', pptx: '📊', image: '🖼️' };
 
@@ -26,6 +27,7 @@ export function PresentMaterialSheet({ onPick, onClose }: { onPick: (id: string)
     setError(null);
     try {
       const m = await addMaterial(file, { onProgress: setStage });
+      track('call.material_present', { material_kind: m.kind, pages: m.page_count });
       onPick(m.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed');
@@ -46,7 +48,7 @@ export function PresentMaterialSheet({ onPick, onClose }: { onPick: (id: string)
         {list && list.length === 0 && <p className="call-muted">No materials yet — add one below.</p>}
         <div className="pm-list">
           {(list ?? []).map((m) => (
-            <button key={m.id} type="button" className="pm-row" onClick={() => onPick(m.id)} data-testid="present-material-row">
+            <button key={m.id} type="button" className="pm-row" onClick={() => { track('call.material_present', { material_kind: m.kind, pages: m.page_count }); onPick(m.id); }} data-testid="present-material-row">
               <span className="pm-icon" aria-hidden="true">{KIND_ICON[m.kind] ?? '📑'}</span>
               <span className="pm-main">
                 <span className="pm-title">{m.title}</span>

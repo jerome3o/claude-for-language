@@ -7,6 +7,7 @@
  */
 import type { Env, Note, NoteWithCards } from '../../types';
 import * as db from '../../db/queries';
+import { trackServer } from '../analytics/server-events';
 import { ContentError } from './decks';
 import {
   deleteUnreferencedAudio,
@@ -85,6 +86,7 @@ export async function createNote(
   const clean = cleanInput(input);
   const note = await db.createNote(env.DB, deckId, clean);
   await runNoteEffects(env, note.id, !!clean.sentence_clue, options);
+  void trackServer('server.content_created', { kind: 'note', count: 1 }, { env, userId });
   return note;
 }
 
@@ -125,6 +127,7 @@ export async function createNotes(
       result.failed.push({ index: i, hanzi: input.hanzi, error: err instanceof Error ? err.message : String(err) });
     }
   }
+  if (result.created.length) void trackServer('server.content_created', { kind: 'note', count: result.created.length }, { env, userId });
   return result;
 }
 

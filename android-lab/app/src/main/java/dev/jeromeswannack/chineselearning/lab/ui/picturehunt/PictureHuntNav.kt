@@ -253,6 +253,7 @@ class PictureHuntsViewModel(private val app: LabApp) : ViewModel() {
                     app.repo.api.uploadPictureHunt(jpeg, f.caption)
                 }
                 store.upsertSummary(hunt)
+                app.analytics.track("picture_hunt.create", mapOf("source" to if (f.mode == HuntSourceMode.GENERATE) "generated" else "upload"))
                 app.haptics.tick()
                 photoUri = null
                 form.update { it.copy(busy = false, prompt = "", photo = null, caption = "") }
@@ -358,6 +359,7 @@ class PictureHuntPlayViewModel(private val app: LabApp, private val id: String) 
     }
 
     private suspend fun recordPlay(play: dev.jeromeswannack.chineselearning.lab.data.api.PictureHuntPlayDto) {
+        app.analytics.track("picture_hunt.play_done", mapOf("found" to play.found_ids.size, "total" to play.total, "gave_up" to play.gave_up))
         runCatching { store.recordPlay(play) }
         app.scheduleBackgroundUpload()
         if (app.online.value) runCatching { app.outbox.drain() }

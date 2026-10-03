@@ -26,6 +26,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { allocateQueueCounts, sumQueueCounts, DeckQueueCounts } from '../db/database';
 import { getDueReaders } from '../services/reader-study';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
+import { track } from '../services/analytics';
 import './HomePage.css';
 
 const COUNTS_CACHE_KEY = 'lastQueueCounts';
@@ -47,7 +48,9 @@ function StudyHome() {
   const [showModal, setShowModal] = useState(false);
 
   const moveTop = (deckId: string) => {
-    moveDeckInQueue(deckId, 'top').catch(err => console.error('[Home] move to top failed', err));
+    moveDeckInQueue(deckId, 'top')
+      .then(() => track('deck.reorder', { how: 'home_top' }))
+      .catch(err => console.error('[Home] move to top failed', err));
   };
 
   const decksQuery = useQuery({
