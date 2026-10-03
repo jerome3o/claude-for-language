@@ -2176,7 +2176,7 @@ export function ChatPage() {
         />
       )}
       {forwarding && user && (
-        <ForwardSheet myId={user.id} count={forwarding.length} onPick={(t) => void doForward(forwarding, t)} onClose={() => setForwarding(null)} />
+        <ForwardSheet myId={user.id} count={forwarding.length} currentConversationId={convId} onPick={(t) => void doForward(forwarding, t)} onClose={() => setForwarding(null)} />
       )}
       {infoFor && (
         <MessageInfoSheet

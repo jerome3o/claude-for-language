@@ -15,7 +15,7 @@ export interface ForwardTarget {
  * or student; not the Claude practice chats), newest first. Picking one sends
  * the message(s) there as forwarded copies.
  */
-export function ForwardSheet({ myId, count, onPick, onClose }: { myId: string; count: number; onPick: (t: ForwardTarget) => void; onClose: () => void }) {
+export function ForwardSheet({ myId, count, currentConversationId, onPick, onClose }: { myId: string; count: number; currentConversationId?: string; onPick: (t: ForwardTarget) => void; onClose: () => void }) {
   const [targets, setTargets] = useState<ForwardTarget[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +71,7 @@ export function ForwardSheet({ myId, count, onPick, onClose }: { myId: string; c
               <span className="msg-sheet-action-label">
                 {t.label}
                 {t.sub && <span className="chat-forward-sub"> · {t.sub}</span>}
+                {t.conversationId === currentConversationId && <span className="chat-forward-sub"> · this chat</span>}
               </span>
             </button>
           ))}

@@ -871,3 +871,16 @@
   color: #fff;
   cursor: pointer;
 }
+
+/* The chat has its own offline line + "waiting to send" header: the global badge would cover Send. */
+body:has(.chat-page) .sync-badge-offline {
+  display: none;
+}
+.chat-photo-compose .chat-send {
+  width: auto;
+  min-width: 88px;
+  border-radius: 22px;
+  padding: 0 1.1rem;
+  white-space: nowrap;
+  font-size: 1rem;
+}
