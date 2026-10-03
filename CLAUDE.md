@@ -332,6 +332,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
+- `usage_events` - Usage analytics (migration 0098, docs/ANALYTICS.md): client + server events (id, user_id, ts, received_at, platform, app_version, session_id, event, screen = route pattern, props JSON of ids / enums / counts only); pruned after 180 days; `users.analytics_opt_out`
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
@@ -1197,6 +1198,27 @@ reports plus the server's own `review_events` (which side is missing events / ho
 - `GET /api/debug/reports/:id?section=overview|decks|cards|events|full&offset&limit&deck_id&queue&in_due_queue&card_id`
 - `GET /api/debug/compare?a=&b=&max_cards=&server=0` - diff; defaults a = newest lab, b = newest web
 
+### Usage analytics (`docs/ANALYTICS.md`; `shared/analytics/`, `routes/analytics.ts`, `services/analytics/`)
+What people do in the apps, so Claude (MCP, admin) can say "Minghui hasn't used X yet" / "she still uses the old Y".
+**Every new user-facing feature must emit its catalogue event(s)**: one line in `shared/analytics/events.ts`
+(+ the Kotlin mirror `android-lab/core/…/analytics/AnalyticsEvents.kt`, parity-tested; `replacedBy` when it
+supersedes an older path) and one call — web `track('area.event', { … })` (`frontend/src/services/analytics.ts`),
+Lab `app.analytics.track(…)` (`data/analytics/`), worker `trackServer(…)`. **Privacy rule: ids, enums, counts,
+durations, booleans only — never message text, card content, answers, recordings, tokens, URLs or e-mails**;
+`sanitizeProps` (`shared/analytics/privacy.ts`) enforces it on the device and again on the server.
+- Clients queue events offline (web: own IndexedDB `usage-analytics`; Lab: own Room db) and upload in sync + every
+  ~60 s: `POST /api/analytics/events { events }` (idempotent by id) → D1 `usage_events` (migration 0098). Screen
+  views (route pattern + time on screen) come from ONE router hook per app.
+- Server: `trackServer` for content created / homework assigned / push / e-mail; every Anthropic + Gemini call's
+  tokens and estimated cost via a `fetch` wrapper (`services/analytics/ai-usage.ts`) and an AsyncLocalStorage
+  request scope (`scope.ts`, compat flag `nodejs_als`); one JSON log line per request with the route pattern
+  (`request-log.ts`, Workers Observability, sampling 1.0).
+- Switches: `ANALYTICS_LEVEL` = off | basic | verbose (default); per user Settings → Advanced → "Share usage data"
+  (`PUT /api/profile/analytics { share_usage }`, `users.analytics_opt_out`, off deletes their rows; `share_usage`
+  on `/api/auth/me`). The daily cron (`[triggers]`, `scheduled()` in index.ts) prunes rows older than 180 days.
+- Admin endpoints `GET /api/admin/usage/summary|adoption|timeline|counts|errors|ai` → MCP tools `usage_summary`,
+  `feature_adoption`, `user_timeline`, `event_counts`, `recent_errors`, `ai_usage` (`mcp-server/src/tools/usage.ts`).
+
 ### Conversation voices (`worker/src/routes/conversation-voices.ts`, `services/conversation-voices.ts`)
 - `GET /api/conversation-voices` - catalogue + `enabled`, `customised`, `default_enabled`, `default_source` (admin | app), `is_admin`, `speed`
 - `PUT /api/conversation-voices` - `{ enabled: string[] }` (known ids, ≥ 1 female and ≥ 1 male; 400 with `problems`) or `{ reset: true }`; an admin's selection is everyone else's default
@@ -1754,6 +1776,19 @@ The signed-in user's own study-state reports (see "Debug reports" above); nothin
 | `list_debug_reports` | Reports newest first (`client` lab / web), each with its summary (home total + counts, queue size, cards, events, unsynced) |
 | `get_debug_report` | One report by id (or `latest_lab` / `latest_web`), a `section` at a time: overview (default), decks, cards (paged, filter by deck / queue / in_due_queue / card), events (paged hashes) |
 | `compare_debug_reports` | Server-side diff, default newest lab (a) vs newest web (b): hints, context, headline numbers, per-deck differences, differing cards with the server's event count, one-sided cards and events |
+
+#### Usage tools (`mcp-server/src/tools/usage.ts`)
+
+Admin only (the API answers 403 otherwise); `user` = id or e-mail; docs/ANALYTICS.md.
+
+| Tool | What it does |
+|------|--------------|
+| `usage_summary` | Active days, sessions, time in app per platform, top screens / events, last seen per platform + app version |
+| `feature_adoption` | Per catalogue event: first / last used + count (one user or everyone); never used, stale, old paths still in use |
+| `user_timeline` | One person's events in order for a day (`tz_offset_minutes`) or a range |
+| `event_counts` | An event or prefix (`chat.*`) by day / user / platform / event |
+| `recent_errors` | Errors shown to users + Lab crash reports |
+| `ai_usage` | Model calls, tokens, estimated cost by model / day / user / route / provider |
 
 ### Study Tool (MCP App)
 
