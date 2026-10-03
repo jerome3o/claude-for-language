@@ -323,3 +323,9 @@ The bubbles carry **no buttons**; every tool is in the message menu. Same rules 
 ## Voice bubble
 ▶/⏸, a real waveform (peaks of the decoded clip, 40 bars, cached per message; seeded bars until decoded), the elapsed /
 total time, and a **speed chip 1× → 1.5× → 2×** (remembered on the device). Transcript + pinyin / translation as in #491/#493.
+
+## Notes from the Lab app (round 2)
+- A long press on a word chip (or on a voice transcript) opens the same menu as the bubble — otherwise a long press on
+  Chinese text would only ever hit a chip.
+- "A quick tap" on the mic = released within 250 ms; the menu is a bottom sheet at every width (the message is shown
+  lifted inside it); the voice transcript stays a card under the bubble.

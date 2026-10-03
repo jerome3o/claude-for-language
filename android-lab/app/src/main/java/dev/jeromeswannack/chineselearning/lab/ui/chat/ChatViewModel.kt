@@ -6,7 +6,7 @@ import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.MessageTools
+import dev.jeromeswannack.chineselearning.lab.core.MessageMenu
 import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
 import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
@@ -42,6 +42,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.translateMessageCard
 import dev.jeromeswannack.chineselearning.lab.data.api.translateSegmented
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.markChatRead
+import dev.jeromeswannack.chineselearning.lab.data.api.liveCalls
+import dev.jeromeswannack.chineselearning.lab.data.api.startCall
 import dev.jeromeswannack.chineselearning.lab.core.ChatSearch
 import dev.jeromeswannack.chineselearning.lab.data.api.SendMessageBody
 import dev.jeromeswannack.chineselearning.lab.data.api.chatMediaUploadPath
@@ -61,6 +63,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.setMessageCorrection
 import kotlinx.coroutines.sync.withPermit
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatActions as ChatWrites
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaStore
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatWaveforms
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPhoto
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatVoiceRecorder
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatNotifier
@@ -112,7 +115,20 @@ sealed interface ChatSheet {
     data object Review : ChatSheet
     /** The tutor's "✏️ Correct this" / "Edit correction". */
     data class Correct(val message: ChatMessageDto) : ChatSheet
+    // ---- round 2: the long-press menu's sheets ----
+    /** Explain (the breakdown, words → cards) or, [saveCard], the whole message as one card (docs/CHAT.md "Round 2"). */
+    data class Explain(val message: ChatMessageDto, val saveCard: Boolean = false) : ChatSheet
 }
+
+/** The Explain / Save-as-flashcard sheet's data: `POST /api/sentences/explain-text`, cached by text. */
+data class ExplainUi(
+    val messageId: String,
+    val text: String,
+    val translation: String? = null,
+    val loading: Boolean = true,
+    val result: dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation? = null,
+    val error: String? = null,
+)
 
 /** "Make flashcards" selection mode: the picked message ids; [proposing] while Claude picks cards. */
 data class SelectionUi(val selected: Set<String> = emptySet())
@@ -236,17 +252,27 @@ data class ChatUi(
     val correcting: String? = null,
     /** Claude is picking cards (from the selection or one message). */
     val proposingCards: Boolean = false,
+    // ---- round 2 (docs/CHAT.md "Round 2") ----
+    /** Bubbles whose time was tapped open (the last of a group always shows it). */
+    val timeShown: Set<String> = emptySet(),
+    val explain: ExplainUi? = null,
+    /** Link previews by URL (absent = not asked / nothing to show). */
+    val linkPreviews: Map<String, dev.jeromeswannack.chineselearning.lab.data.chat.LinkPreviewDto> = emptyMap(),
+    /** Decoded voice waveforms by playback id (message id, or "p-<clientId>"). */
+    val waveforms: Map<String, List<Float>> = emptyMap(),
+    /** Voice playback speed: 1 → 1.5 → 2 (remembered on the phone). */
+    val voiceSpeed: Float = 1f,
+    /** 📹 in the header is starting / finding the call. */
+    val callBusy: Boolean = false,
 ) {
     val pinned: List<ChatMessageDto> get() = ChatRich.pinned(messages)
 
-    fun rows(): List<ChatRow> = ChatRows.build(messages, pending, unreadId, ChatRich.receipt(messages, myId, otherReadAt, pending))
+    fun rows(): List<ChatRow> = ChatRows.build(messages, pending, unreadId, myId, otherReadAt)
 
     val isAi: Boolean get() = conversation?.is_ai_conversation ?: false
 
     /** A message's check status: what we learnt here, else what the server stored. */
     fun checkStatus(m: ChatMessageDto): String? = checkStatuses[m.id] ?: m.check_status
-
-    fun tools(m: ChatMessageDto) = MessageTools.toolsForMessage(m.sender_id, m.content, checkStatus(m), m.has_discussion, viewerRole, isAi, myId ?: "")
 
     /** The message's word chips when they still match its text (stale ones are never shown). */
     fun words(m: ChatMessageDto): List<dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto>? {
@@ -260,30 +286,25 @@ data class ChatUi(
     fun translationOf(m: ChatMessageDto): String? =
         (if (m.isVoice) m.attachment?.translation else m.translation)?.takeIf { it.isNotBlank() }
 
-    /**
-     * The ⋯ sheet's tools: MessageTools' set + PR 3's learning tools (shared
-     * `learningToolsForMessage`, parity-tested) — which, in a tutor–student chat, replace Word by
-     * word and Translate (the chips, 拼 / EN and "Make cards from this message" do that now).
-     */
-    fun menuTools(m: ChatMessageDto): List<dev.jeromeswannack.chineselearning.lab.core.MessageTool> {
-        val l = MessageTools.learningToolsForMessage(
-            m.sender_id, m.content, m.isDeleted, m.attachment?.kind, m.attachment?.transcript, m.correction != null,
-            pending = false, viewerRole = viewerRole, isAiConversation = isAi, viewerId = myId ?: "",
-        )
-        return tools(m).menu.filter { it.id !in l.replaces } + l.menu
-    }
+    /** The long-press menu of [m] (shared `messageMenu`, parity-tested): reactions on top + the actions in order. */
+    fun menu(m: ChatMessageDto): MessageMenu.Menu = MessageMenu.messageMenu(
+        MessageMenu.Message(
+            senderId = m.sender_id, content = m.content, deletedAt = m.deleted_at, pending = false,
+            attachmentKind = m.attachment?.kind, transcript = m.attachment?.transcript, attachmentTranslation = m.attachment?.translation,
+            translation = m.translation, hasCorrection = m.correction != null, checkStatus = checkStatus(m),
+            hasDiscussion = m.has_discussion, pinnedAt = m.pinned_at,
+        ),
+        viewerRole, isAi, myId ?: "", pinyinOn = aids.pinyin(m.id), translateOn = aids.translation(m.id),
+    )
+
+    /** The text the learning tools work on (the voice transcript, else the message / caption). */
+    fun menuText(m: ChatMessageDto): String = MessageMenu.menuText(m.content, m.attachment?.kind, m.attachment?.transcript)
 
     /** The messages as the selection sees them. */
     fun pickable(): List<ChatLearning.Pickable> = messages.map { m ->
         ChatLearning.Pickable(m.id, dev.jeromeswannack.chineselearning.lab.ui.connections.Fmt.parse(m.created_at)?.toEpochMilli() ?: 0, ChatLearning.eligible(m.content, m.attachment?.kind, m.attachment?.transcript_status, m.attachment?.transcript, m.isDeleted))
     }
 
-    companion object {
-        const val TOOL_MAKE_CARDS = "make_cards"
-        const val TOOL_CORRECT = "correct"
-        const val TOOL_REMOVE_CORRECTION = "remove_correction"
-        const val TOOL_CORRECTION_CARD = "correction_card"
-    }
 }
 
 /**
@@ -365,7 +386,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         viewModelScope.launch { loadAids(); loadKnown() }
         viewModelScope.launch {
             val recent = app.cache.get<List<String>>(RECENT_KEY).orEmpty()
-            _ui.update { it.copy(recentEmojis = recent) }
+            val speed = runCatching { app.cache.get<Float>(SPEED_KEY) }.getOrNull()?.takeIf { it in listOf(1f, 1.5f, 2f) } ?: 1f
+            _ui.update { it.copy(recentEmojis = recent, voiceSpeed = speed) }
         }
     }
 
@@ -849,6 +871,12 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         _ui.update { it.copy(recorder = RecorderUi.Preview(result.first.absolutePath, result.second)) }
     }
 
+    /** Released while holding / ➤ while locked: stop and send at once (a too-short take says so). */
+    fun sendRecordingNow() {
+        finishRecording()
+        if (_ui.value.recorder is RecorderUi.Preview) sendRecording()
+    }
+
     fun sendRecording() {
         val p = _ui.value.recorder as? RecorderUi.Preview ?: return
         if (_ui.value.voice?.id == PREVIEW_ID) stopAudio()
@@ -874,7 +902,11 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         if (v != null && v.id == id) {
             val mp = player ?: return
             if (v.playing) { runCatching { mp.pause() }; _ui.update { it.copy(voice = v.copy(playing = false)) } }
-            else { runCatching { mp.start() }; _ui.update { it.copy(voice = v.copy(playing = true)) }; trackProgress(id) }
+            else {
+                runCatching { mp.start(); if (_ui.value.voiceSpeed != 1f) mp.playbackParams = mp.playbackParams.setSpeed(_ui.value.voiceSpeed) }
+                _ui.update { it.copy(voice = v.copy(playing = true)) }
+                trackProgress(id)
+            }
             return
         }
         stopAudio()
@@ -893,6 +925,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 mp.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                 mp.setDataSource(file.absolutePath)
                 mp.setOnPreparedListener {
+                    val speed = _ui.value.voiceSpeed
+                    if (speed != 1f) runCatching { it.playbackParams = it.playbackParams.setSpeed(speed) }
                     it.start()
                     val d = it.duration.toLong().takeIf { d -> d > 0 } ?: durationMs
                     _ui.update { s -> s.copy(voice = VoicePlayback(id, 0, d, playing = true)) }
@@ -924,21 +958,164 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun openSheet(sheet: ChatSheet?) = _ui.update { it.copy(sheet = sheet, modalNotice = null) }
 
-    fun onTool(id: String, m: ChatMessageDto) {
+    /**
+     * The long-press menu (docs/CHAT.md "Round 2", shared `messageMenu`): every action of a bubble.
+     * Ids are MessageMenu's.
+     */
+    fun onMenuAction(id: String, m: ChatMessageDto) {
         _ui.update { it.copy(sheet = null) }
         when (id) {
-            "reply" -> reply(m)
-            "play" -> play(m)
-            "check" -> check(m)
-            "view_corrections" -> viewCheck(m)
-            "translate" -> translate(m)
-            "word_by_word" -> toggleWordByWord(m)
-            "discuss" -> openDiscussion(m)
-            "copy" -> copy(m)
-            ChatUi.TOOL_MAKE_CARDS -> proposeFor(m)
-            ChatUi.TOOL_CORRECT -> openSheet(ChatSheet.Correct(m))
-            ChatUi.TOOL_REMOVE_CORRECTION -> removeCorrection(m)
-            ChatUi.TOOL_CORRECTION_CARD -> proposeCorrection(m)
+            MessageMenu.REPLY -> reply(m)
+            MessageMenu.COPY -> copy(_ui.value.menuText(m))
+            MessageMenu.TRANSLATE -> translateInline(m)
+            MessageMenu.PINYIN -> togglePinyin(m.id)
+            MessageMenu.EXPLAIN -> explain(m, saveCard = false)
+            MessageMenu.SAVE_CARD -> explain(m, saveCard = true)
+            MessageMenu.SELECT_CARDS, MessageMenu.SELECT -> startSelecting(m.id)
+            MessageMenu.CHECK -> check(m)
+            MessageMenu.VIEW_CORRECTIONS -> viewCheck(m)
+            MessageMenu.CORRECT -> openSheet(ChatSheet.Correct(m))
+            MessageMenu.REMOVE_CORRECTION -> removeCorrection(m)
+            MessageMenu.CORRECTION_CARD -> proposeCorrection(m)
+            MessageMenu.PLAY -> play(m)
+            MessageMenu.WORD_BY_WORD -> toggleWordByWord(m)
+            MessageMenu.DISCUSS -> openDiscussion(m)
+            MessageMenu.PIN -> setPinned(m, true)
+            MessageMenu.UNPIN -> setPinned(m, false)
+            MessageMenu.EDIT -> startEdit(m)
+            MessageMenu.DELETE -> askDelete(m)
+        }
+    }
+
+    /** A tap on a bubble shows / hides its time (the last bubble of a group always shows it). */
+    fun toggleTime(id: String) = _ui.update { it.copy(timeShown = if (id in it.timeShown) it.timeShown - id else it.timeShown + id) }
+
+    /**
+     * Translate / Hide translation: the toggle; a text message not translated yet asks the server
+     * first (`translate-segmented`, which stores the translation on the message for both people).
+     */
+    private fun translateInline(m: ChatMessageDto) {
+        val s = _ui.value
+        if (s.aids.translation(m.id) || s.translationOf(m) != null) { toggleTranslation(m.id); return }
+        if (m.isVoice || s.translatingId != null) return
+        if (!s.online) { error("You're offline — translating needs a connection."); return }
+        _ui.update { it.copy(translatingId = m.id) }
+        viewModelScope.launch {
+            try {
+                val r = api.translateSegmented(m.id)
+                val t = r.translation.ifBlank { r.segmentation.english }
+                if (t.isBlank()) { error("Couldn't translate that message."); return@launch }
+                replaceLocal(m.id) { it.copy(translation = t) }
+                _ui.update { it.copy(segmentations = it.segmentations + (m.id to r)) }
+                if (!_ui.value.aids.translation(m.id)) setAids(_ui.value.aids.toggleTranslation(m.id))
+                app.haptics.tick()
+            } catch (e: Exception) {
+                error("Couldn't translate that message.")
+            } finally {
+                _ui.update { it.copy(translatingId = null) }
+            }
+        }
+    }
+
+    // ---- Explain / Save as flashcard (the Coach's breakdown, cached by text) ----
+
+    /**
+     * Explain → the sentence, its translation and the word-by-word breakdown; Save as flashcard →
+     * the same breakdown made into ONE sentence card (`breakdownSentenceCard`) in the add-card
+     * sheet. `POST /api/sentences/explain-text`, cached under the Coach / study key, so a sentence
+     * explained anywhere opens offline here.
+     */
+    fun explain(m: ChatMessageDto, saveCard: Boolean) {
+        val text = _ui.value.menuText(m)
+        if (text.isEmpty()) return
+        val translation = _ui.value.translationOf(m)
+        _ui.update { it.copy(sheet = ChatSheet.Explain(m, saveCard), explain = ExplainUi(m.id, text, translation), modalNotice = null) }
+        loadExplanation(m.id, text, translation)
+    }
+
+    fun retryExplain() {
+        val e = _ui.value.explain ?: return
+        _ui.update { it.copy(explain = e.copy(loading = true, error = null)) }
+        loadExplanation(e.messageId, e.text, e.translation)
+    }
+
+    private fun loadExplanation(id: String, text: String, translation: String?) {
+        viewModelScope.launch {
+            val r = runCatching {
+                cards.cachedTextExplanation(text) ?: run {
+                    if (!app.online.value) throw java.io.IOException("offline")
+                    cards.explain(null, text, null, translation)
+                }
+            }
+            _ui.update { s ->
+                val e = s.explain?.takeIf { it.messageId == id && it.text == text } ?: return@update s
+                r.fold(
+                    onSuccess = { x -> s.copy(explain = e.copy(loading = false, result = x, translation = e.translation ?: x.translation)) },
+                    onFailure = { x -> s.copy(explain = e.copy(loading = false, error = if (!app.online.value) "You're offline — explaining needs a connection the first time." else "Couldn't explain it. ${x.userMessage()}")) },
+                )
+            }
+        }
+    }
+
+    fun closeExplain() = _ui.update { it.copy(sheet = if (it.sheet is ChatSheet.Explain) null else it.sheet, explain = null) }
+
+    // ---- link previews / waveforms / speed ----
+
+    private val linkPreviews = dev.jeromeswannack.chineselearning.lab.data.chat.ChatLinkPreviews(app)
+    private val linksAsked = HashSet<String>()
+    private val wavesAsked = HashSet<String>()
+
+    /** A bubble with a link came on screen: its preview, cache-first (fails quietly). */
+    fun requestLinkPreview(url: String) {
+        if (!linksAsked.add(url)) return
+        viewModelScope.launch {
+            val p = runCatching { linkPreviews.preview(url) }.getOrNull()
+            if (p == null) { if (!app.online.value) linksAsked.remove(url); return@launch }
+            _ui.update { it.copy(linkPreviews = it.linkPreviews + (url to p)) }
+        }
+    }
+
+    suspend fun linkImage(url: String, maxSide: Int) = linkPreviews.image(url, maxSide)
+
+    /** A voice bubble came on screen: its real waveform (decoded once, cached per message). */
+    fun requestWaveform(playId: String, m: ChatMessageDto?, localPath: String?) {
+        if (playId in _ui.value.waveforms || !wavesAsked.add(playId)) return
+        viewModelScope.launch {
+            // Cached for this message: drawn at once, no download.
+            if (m != null) runCatching { app.cache.get(ChatWaveforms.key(m.id), ChatWaveforms.Cached.serializer()) }.getOrNull()?.takeIf { it.bars.size == ChatWaveforms.BARS }?.let { c ->
+                _ui.update { it.copy(waveforms = it.waveforms + (playId to c.bars)) }
+                return@launch
+            }
+            val file = localPath?.let { java.io.File(it) }?.takeIf { it.exists() } ?: m?.let { media.file(it) }
+            if (file == null) { wavesAsked.remove(playId); return@launch }
+            val bars = ChatWaveforms.bars(if (m != null) app.cache else null, m?.id ?: playId, file) ?: return@launch
+            _ui.update { it.copy(waveforms = it.waveforms + (playId to bars)) }
+        }
+    }
+
+    /** The voice speed chip: 1× → 1.5× → 2× → 1×, remembered on the phone; applies to what is playing. */
+    fun cycleSpeed() {
+        val next = when (_ui.value.voiceSpeed) { 1f -> 1.5f; 1.5f -> 2f; else -> 1f }
+        app.haptics.tick()
+        _ui.update { it.copy(voiceSpeed = next) }
+        player?.let { mp -> if (_ui.value.voice?.playing == true) runCatching { mp.playbackParams = mp.playbackParams.setSpeed(next) } }
+        viewModelScope.launch { runCatching { app.cache.put(SPEED_KEY, KIND, next) } }
+    }
+
+    /** 📹 in the header: join the live call of this relationship, else start one (web: handleVideoCall). */
+    fun videoCall(go: (String) -> Unit) {
+        if (_ui.value.callBusy) return
+        if (!app.online.value) { error("You're offline — calls need a connection."); return }
+        _ui.update { it.copy(callBusy = true) }
+        viewModelScope.launch {
+            try {
+                val live = runCatching { api.liveCalls(relId).occupiedCallId() }.getOrNull()
+                go(live ?: api.startCall(relId).call.id)
+            } catch (e: Exception) {
+                error("Couldn't start the call. ${e.userMessage()}")
+            } finally {
+                _ui.update { it.copy(callBusy = false) }
+            }
         }
     }
 
@@ -1058,11 +1235,21 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun openWord(hanzi: String, context: String) = openSheet(ChatSheet.Word(hanzi, context))
 
-    private fun copy(m: ChatMessageDto) {
+    private fun copy(text: String) {
         runCatching {
             val cm = app.getSystemService(android.content.ClipboardManager::class.java)
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("message", m.content))
-        }.onSuccess { success("Copied.") }.onFailure { error("Couldn't copy to the clipboard.") }
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("message", text))
+        }.onSuccess { app.haptics.tick(); success("Copied.") }.onFailure { error("Couldn't copy to the clipboard.") }
+    }
+
+    /** Selection bar → Copy: the picked messages' texts, oldest first. */
+    fun copySelection() {
+        val sel = _ui.value.selection?.selected ?: return
+        val s = _ui.value
+        val text = s.messages.filter { it.id in sel }.map { s.menuText(it) }.filter { it.isNotEmpty() }.joinToString("\n")
+        if (text.isEmpty()) return
+        copy(text)
+        _ui.update { it.copy(selection = null) }
     }
 
     // ---------------- header tools ----------------
@@ -1258,8 +1445,10 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     // ---- "Make flashcards": selection → propose → review → batch ----
 
-    fun startSelecting() {
-        _ui.update { it.copy(sheet = null, search = null, highlightId = null, selection = SelectionUi(), draftCheck = null) }
+    /** Selection mode — from ⋯ → Make flashcards, or the menu's Select / Make flashcards from selection with [first] ticked. */
+    fun startSelecting(first: String? = null) {
+        val picked = first?.let { ChatLearning.toggle(emptySet(), it, _ui.value.pickable()) }.orEmpty()
+        _ui.update { it.copy(sheet = null, search = null, highlightId = null, selection = SelectionUi(picked), draftCheck = null) }
         app.haptics.tick()
     }
 
@@ -1486,6 +1675,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         const val KIND = "chat"
         const val PINNED_KEY = "chat/pinned-decks"
         const val RECENT_KEY = "chat/recent-emojis"
+        /** The voice-message speed chip (1 / 1.5 / 2). */
+        const val SPEED_KEY = "chat/voice-speed"
         /** The deck the last "Make flashcards" went to (preselected next time). */
         const val LAST_DECK_KEY = "chat/last-deck"
 
