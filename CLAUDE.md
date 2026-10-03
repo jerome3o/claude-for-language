@@ -1964,6 +1964,19 @@ The app supports many-to-many tutor-student relationships where users can be tut
   Which ⋯ tools show is `learningToolsForMessage` in `shared/chats/messageTools.ts` (Lab `MessageTools.kt`, parity-tested).
   Web: `components/chat/ChatWords.tsx`, `MakeFlashcardsSheet.tsx`, `ChatCorrection.tsx`, `CheckDraftPanel.tsx`,
   `services/chatLearning.ts`; Lab: `ui/chat/ChatLearningViews.kt`, `ChatCardsSheet.kt`, core `ChatLearning.kt`.
+- **Chat round 2 — a normal chat app** (docs/CHAT.md "Round 2"): Signal-like bubbles with NO buttons on them —
+  groups by sender within 3 min, time + ✓ / ✓✓ ticks inside the last bubble of a group, day pills, reactions pill, reply
+  quote inside the bubble (`layoutBubbles` / `tickFor` / `firstLink` in `shared/chats/bubbles.ts`, Lab `ChatBubbles.kt`
+  parity-tested). Every tool is in the **message menu** — long-press (touch), right-click or the hover 😊 / ⋯ (desktop):
+  a reaction bar + Reply · Copy · Translate · Pinyin · Explain · Save as flashcard · Make flashcards from selection ·
+  Check my Chinese · Correct · Read aloud · Discuss with Claude · Pin · Edit · Delete · Select (`messageMenu` in
+  `shared/chats/messageMenu.ts`, Lab `MessageMenu.kt` parity-tested; web `components/chat/MessageMenu.tsx`).
+  Explain / Save as flashcard = `components/chat/ExplainSheet.tsx` (`/api/sentences/explain-text` cached by text,
+  `SentenceWordBreakdown`, the whole message as one card via `breakdownSentenceCard` → `AddChunkModal`). Swipe right on
+  a bubble = reply. Composer: `[+] [😊 field ✓] [🎤|➤]`, hold the mic to record (slide left 100 px cancels, up 80 px
+  locks; `VoiceComposer` `mode` held / locked). Voice bubbles: real waveform (`services/voiceWaveform.ts`) + 1× / 1.5× / 2×.
+  Link previews: `GET /api/link-preview?url=` (`services/link-preview.ts`: public http(s) only, ≤ 512 KB, cached a day;
+  client `services/linkPreview.ts`). Styles: `components/chat/chat-signal.css`.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics

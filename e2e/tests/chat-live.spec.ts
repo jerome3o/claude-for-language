@@ -111,14 +111,15 @@ test('a message goes out at once, arrives live with typing, and comes back Seen'
   const mine = studentPage.getByTestId('chat-message').filter({ hasText: '我有空，下午三点可以吗？' });
   await expect(mine).toBeVisible({ timeout: 1000 });
   await expect(mine.getByTestId('chat-send-pending')).toHaveCount(0, { timeout: 10000 });
-  await expect(studentPage.getByTestId('chat-receipt')).toBeVisible();
+  await expect(mine.getByTestId('chat-receipt')).toHaveAttribute('data-kind', 'sent');
 
   // Live: the tutor gets it well before a 3 s poll would, without a reload; typing clears.
   await expect(tutorPage.getByText('我有空，下午三点可以吗？')).toBeVisible({ timeout: 2500 });
   await expect(tutorPage.getByTestId('chat-typing')).toHaveCount(0);
 
   // The tutor's open chat marks it read → "Seen" on the student's side.
-  await expect(studentPage.getByTestId('chat-receipt')).toHaveText('Seen', { timeout: 10000 });
+  await expect(mine.getByTestId('chat-receipt')).toHaveAttribute('data-kind', 'read', { timeout: 10000 });
+  await expect(mine.getByTestId('chat-receipt')).toHaveAttribute('aria-label', 'Seen');
 
   await studentPage.context().close();
   await tutorPage.context().close();

@@ -12,6 +12,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +60,9 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
@@ -101,13 +105,19 @@ fun ChineseText(
     ui: ChatUi,
     onChip: (Int) -> Unit,
     fontSize: TextUnit = 17.sp,
-    plain: (@Composable () -> Unit)? = null,
+    /** Room kept free at the end of the last line (round 2: the time + ticks sit there). */
+    reserve: Dp = 0.dp,
+    /** A long press on a word chip opens the message's menu like one anywhere on the bubble. */
+    onLongPress: (() -> Unit)? = null,
+    plain: (@Composable (reserve: Dp) -> Unit)? = null,
 ) {
     val showPinyin = ui.aids.pinyin(m.id) && ui.selection == null
     val pinyinColor = if (isMe) Color.White.copy(alpha = 0.82f) else Lab.colors.accent
     if (words == null || ui.selection != null) {
-        if (plain != null) plain() else Text(text, color = color, fontSize = fontSize, lineHeight = fontSize * 1.42f)
-        if (showPinyin) ChatPinyin.line(text)?.let { Text(it, color = pinyinColor, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 2.dp).testTag("chat-pinyin")) }
+        val line = if (showPinyin) ChatPinyin.line(text) else null
+        val plainReserve = if (line == null) reserve else 0.dp
+        if (plain != null) plain(plainReserve) else ReservedText(AnnotatedString(text), plainReserve, color = color, fontSize = fontSize, lineHeight = fontSize * 1.42f)
+        if (line != null) ReservedText(AnnotatedString(line), reserve, color = pinyinColor, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 2.dp).testTag("chat-pinyin"))
         return
     }
     FlowRow(
@@ -118,14 +128,48 @@ fun ChineseText(
         words.forEachIndexed { i, w ->
             when {
                 w.text.contains('\n') -> Spacer(Modifier.fillMaxWidth())
-                else -> Segment(w, chip = MessageTools.looksLikeChinese(w.text) && ReaderWords.isTappable(w.text), known = w.text.trim() in ui.known, showPinyin, isMe, color, pinyinColor, fontSize) { onChip(i) }
+                else -> Segment(w, chip = MessageTools.looksLikeChinese(w.text) && ReaderWords.isTappable(w.text), known = w.text.trim() in ui.known, showPinyin, isMe, color, pinyinColor, fontSize, onLongPress) { onChip(i) }
             }
         }
+        if (reserve > 0.dp) Spacer(Modifier.width(reserve).height(16.dp))
     }
 }
 
+/**
+ * Text that keeps [reserve] free after its last character (an inline placeholder), so a bubble's
+ * time + ticks can sit at the end of the last line — or wrap onto a line of their own when the
+ * line is full (Signal's look).
+ */
 @Composable
-private fun Segment(w: ReaderWordDto, chip: Boolean, known: Boolean, showPinyin: Boolean, isMe: Boolean, color: Color, pinyinColor: Color, fontSize: TextUnit, onClick: () -> Unit) {
+fun ReservedText(
+    text: AnnotatedString,
+    reserve: Dp,
+    color: Color,
+    fontSize: TextUnit,
+    lineHeight: TextUnit,
+    modifier: Modifier = Modifier,
+    fontStyle: FontStyle? = null,
+) {
+    if (reserve <= 0.dp) {
+        Text(text, color = color, fontSize = fontSize, lineHeight = lineHeight, fontStyle = fontStyle, modifier = modifier)
+        return
+    }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val width = with(density) { reserve.toSp() }
+    val full = remember(text) { buildAnnotatedString { append(text); append(" "); appendInlineContent(RESERVE_ID, " ") } }
+    val inline = remember(width) {
+        mapOf(RESERVE_ID to androidx.compose.foundation.text.InlineTextContent(
+            androidx.compose.ui.text.Placeholder(width, 1.sp, androidx.compose.ui.text.PlaceholderVerticalAlign.TextBottom),
+        ) {})
+    }
+    Text(full, color = color, fontSize = fontSize, lineHeight = lineHeight, fontStyle = fontStyle, modifier = modifier, inlineContent = inline)
+}
+
+private const val RESERVE_ID = "meta-reserve"
+
+@Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun Segment(w: ReaderWordDto, chip: Boolean, known: Boolean, showPinyin: Boolean, isMe: Boolean, color: Color, pinyinColor: Color, fontSize: TextUnit, onLongPress: (() -> Unit)?, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         if (showPinyin) Text(if (chip) w.pinyin else " ", color = pinyinColor, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1)
         if (!chip) {
@@ -140,7 +184,10 @@ private fun Segment(w: ReaderWordDto, chip: Boolean, known: Boolean, showPinyin:
             fontSize = fontSize,
             lineHeight = fontSize * 1.42f,
             modifier = Modifier.clip(RoundedCornerShape(6.dp))
-                .bouncyClickable(pressedScale = 0.88f, onClick = onClick)
+                .then(
+                    if (onLongPress == null) Modifier.bouncyClickable(pressedScale = 0.88f, onClick = onClick)
+                    else Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress),
+                )
                 .then(if (known) Modifier.drawBehind {
                     val h = 1.5.dp.toPx()
                     drawRect(line, topLeft = Offset(2.dp.toPx(), size.height - h - 1.dp.toPx()), size = Size(size.width - 4.dp.toPx(), h))
@@ -154,11 +201,11 @@ private fun Segment(w: ReaderWordDto, chip: Boolean, known: Boolean, showPinyin:
 
 /** The translation under a message (when its EN toggle is on). */
 @Composable
-fun TranslationLine(text: String, isMe: Boolean) {
+fun TranslationLine(text: String, isMe: Boolean, reserve: Dp = 0.dp) {
     Column(Modifier.padding(top = 6.dp).testTag("chat-translation")) {
-        Box(Modifier.width(28.dp).height(1.dp).background(if (isMe) Color.White.copy(alpha = 0.45f) else Lab.colors.cardBorder))
-        Spacer(Modifier.height(4.dp))
-        Text(text, color = if (isMe) Color.White.copy(alpha = 0.88f) else Lab.colors.muted, fontSize = 15.sp, lineHeight = 21.sp)
+        Box(Modifier.width(36.dp).height(1.dp).background(if (isMe) Color.White.copy(alpha = 0.45f) else Lab.colors.ink.copy(alpha = 0.12f)))
+        Spacer(Modifier.height(5.dp))
+        ReservedText(AnnotatedString(text), reserve, color = if (isMe) Color.White.copy(alpha = 0.88f) else Lab.colors.ink.copy(alpha = 0.62f), fontSize = 15.sp, lineHeight = 21.sp)
     }
 }
 
@@ -273,20 +320,24 @@ fun SelectionHeader(ui: ChatUi, actions: ChatActions) {
     }
 }
 
-/** The footer in selection mode: "🃏 Make cards from N messages". */
+/** The bar in selection mode (docs/CHAT.md "Round 2"): "N selected" · Copy · Make flashcards. */
 @Composable
 fun SelectionFooter(ui: ChatUi, actions: ChatActions) {
     val n = ui.selection?.selected?.size ?: 0
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).testTag("chat-select-bar"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ui.notice?.let { InlineNotice(it.text, kind = if (it.error) NoticeKind.Error else NoticeKind.Success, actionLabel = "×", onAction = actions.onDismissNotice) }
         if (!ui.online) InlineNotice("You're offline — making cards needs a connection.", kind = NoticeKind.Offline)
         if (ui.proposingCards) ProposingRow()
-        else PrimaryPill(
-            if (n == 0) "Pick the messages to learn from" else "🃏 Make cards from $n message${if (n == 1) "" else "s"}",
-            Modifier.fillMaxWidth().height(54.dp).testTag("chat-propose"),
-            enabled = n > 0 && ui.online,
-            onClick = actions.onPropose,
-        )
+        else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (n == 0) "Tap messages" else "$n selected", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.weight(1f).testTag("chat-select-count"))
+            SecondaryPill("Copy", Modifier.height(48.dp).testTag("chat-select-copy"), enabled = n > 0, onClick = actions.onCopySelection)
+            PrimaryPill(
+                "🃏 Make flashcards",
+                Modifier.height(48.dp).testTag("chat-propose"),
+                enabled = n > 0 && ui.online,
+                onClick = actions.onPropose,
+            )
+        }
     }
 }
 
