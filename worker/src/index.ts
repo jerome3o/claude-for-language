@@ -107,6 +107,12 @@ import { homeworkRoutes } from './routes/homework';
 import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
 import studyTimeRoutes from './routes/study-time';
+import analyticsRoutes from './routes/analytics';
+import { requestLog, bindAnalyticsScope } from './services/analytics/request-log';
+import { runInScope } from './services/analytics/scope';
+import { installAiUsageCapture } from './services/analytics/ai-usage';
+import { trackServer } from './services/analytics/server-events';
+import { pruneUsageEvents } from './services/analytics/usage';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { deleteReaderWithImages } from './services/shared-readers';
 import {
@@ -163,6 +169,11 @@ declare module 'hono' {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Usage analytics (docs/ANALYTICS.md): every Anthropic / Gemini call's tokens + cost,
+// and one structured log line per request for Workers Observability.
+installAiUsageCapture();
+app.use('*', requestLog);
 
 /** A content-service refusal (bad input, not yours, not found) as an HTTP response. */
 function contentErrorResponse(c: { json: (body: unknown, status: number) => Response }, err: unknown): Response | null {
@@ -453,6 +464,8 @@ app.get('/api/auth/me', async (c) => {
     call_alerts: (user as { call_alerts?: string | null }).call_alerts === 'silent' ? 'silent' : 'ring',
     // A new chat message also sends an e-mail (Settings → Notifications; the e-mail's own "Turn off" link).
     email_chat_messages: (user as { email_chat_messages?: number | null }).email_chat_messages !== 0,
+    // Settings → Advanced → "Share usage data to help improve the app" (docs/ANALYTICS.md).
+    share_usage: Number((user as { analytics_opt_out?: number | null }).analytics_opt_out) !== 1,
     // The learner's daily new-card budget across all decks (NULL = default).
     new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
@@ -476,6 +489,8 @@ mountLiveSocket(app);
 app.route('/api/email', emailPublic);
 
 app.use('/api/*', authMiddleware);
+// Hand the signed-in user + route pattern to analytics (server events, AI calls).
+app.use('/api/*', bindAnalyticsScope);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
 app.route('/api', lessonEditor);
@@ -552,6 +567,8 @@ app.route('/api', conversationVoicesRoutes);
 app.route('/api', pictureHuntRoutes);
 // Active study time per local day and device: PUT|GET /api/me/study-time (routes/study-time.ts)
 app.route('/api', studyTimeRoutes);
+// Usage analytics: event upload, the opt-out, admin usage questions (routes/analytics.ts)
+app.route('/api', analyticsRoutes);
 // Reader word chips: POST /api/reader-words/backfill, /explain (routes/reader-words.ts)
 app.route('/api', readerWordsRoutes);
 // Lesson materials: a tutor's PDFs / PowerPoints / pictures, shared, presented in calls (routes/materials.ts)
@@ -2340,6 +2357,8 @@ app.post('/api/study/sessions', async (c) => {
   const userId = c.get('user').id;
   const { deck_id } = await c.req.json<{ deck_id?: string }>();
   const session = await db.createStudySession(c.env.DB, userId, deck_id);
+  // Nothing current calls this: a row here means an old client is still in use.
+  void trackServer('server.study_session_api');
   return c.json(session, 201);
 });
 
@@ -2964,6 +2983,8 @@ app.post('/api/coach/conversations', async (c) => {
   }
   const input = text.trim();
   const resolved = resolveCoachAction(input, requested);
+  // No action = an old client relying on auto-detect (the Coach page always sends one now).
+  if (requested === undefined || requested === null) void trackServer('server.coach_auto_detect');
   if (!resolved.ok) {
     return c.json({ error: resolved.error }, 400);
   }
@@ -6562,10 +6583,28 @@ export { ChatHub } from './durable/chat-hub';
 
 // Export worker with fetch and queue handlers
 export default {
-  fetch: app.fetch,
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
+    runInScope({ env, userId: null, route: null, waitUntil: (p) => ctx.waitUntil(p) }, () => app.fetch(request, env, ctx)),
+
+  // Daily cron (wrangler.toml [triggers]): prune usage events past retention.
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    await runInScope({ env, userId: null, route: 'cron', waitUntil: (p) => ctx.waitUntil(p) }, async () => {
+      try {
+        const deleted = await pruneUsageEvents(env.DB, Date.now());
+        console.log(JSON.stringify({ type: 'cron', job: 'prune_usage_events', deleted }));
+      } catch (err) {
+        console.error('[cron] prune usage events failed:', err);
+      }
+    });
+  },
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+    return runInScope({ env, userId: null, route: `queue:${batch.queue}`, waitUntil: (p) => ctx.waitUntil(p) }, () => handleQueueBatch(batch, env));
+  },
+};
+
+async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6992,5 +7031,4 @@ export default {
         message.ack();
       }
     }
-  },
-};
+}

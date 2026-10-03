@@ -4,6 +4,7 @@
  */
 
 import type { Env } from '../../types';
+import { trackServer } from '../analytics/server-events';
 import { generateId } from '../cards';
 import { fcmConfigured, sendFcm, type FcmSendOptions } from './fcm';
 
@@ -80,13 +81,14 @@ export async function pushToDevices(
   const ids = [...new Set(userIds)].filter(Boolean);
   if (ids.length === 0 || !fcmConfigured(env)) return summary;
   const rows = await env.DB
-    .prepare(`SELECT id, token, failure_count FROM device_push_tokens WHERE user_id IN (${ids.map(() => '?').join(',')})`)
+    .prepare(`SELECT id, user_id, token, failure_count FROM device_push_tokens WHERE user_id IN (${ids.map(() => '?').join(',')})`)
     .bind(...ids)
-    .all<{ id: string; token: string; failure_count: number }>();
+    .all<{ id: string; user_id: string; token: string; failure_count: number }>();
   const devices = rows.results ?? [];
   await Promise.all(
     devices.map(async (d) => {
       const r = await sendFcm(env, d.token, data, opts, fetcher);
+      void trackServer('server.push_sent', { channel: 'fcm', kind: typeof data.type === 'string' ? data.type : 'other', ok: r.ok }, { userId: d.user_id });
       if (r.ok) {
         summary.sent++;
         await env.DB.prepare("UPDATE device_push_tokens SET last_success_at = datetime('now'), failure_count = 0 WHERE id = ?").bind(d.id).run();
