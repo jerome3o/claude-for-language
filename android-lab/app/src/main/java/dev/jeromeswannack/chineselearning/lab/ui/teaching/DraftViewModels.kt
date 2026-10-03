@@ -170,6 +170,15 @@ class SessionNotesViewModel(private val app: LabApp, private val relId: String) 
         }
     }
 
+    /** Create, then send: "Send to Jerome" on what a job made; the job then shows "sent to Jerome". */
+    val sender = HomeworkSendController(app, viewModelScope, { relId }) {
+        jobs.refresh()
+        app.scope.launch {
+            app.cache.delete(TeachingKeys.DASHBOARD)
+            app.cache.delete(TeachingKeys.overview(relId))
+        }
+    }
+
     init {
         viewModelScope.launch {
             while (isActive) {

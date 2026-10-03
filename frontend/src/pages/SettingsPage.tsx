@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { NotificationsSection } from '../components/NotificationsSection';
+import { ChatListeningSettings } from '../components/chat/ChatListeningSettings';
 import { ChatSettingsSection } from '../components/ChatSettingsSection';
 import { Link } from 'react-router-dom';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget } from '../api/client';
@@ -789,6 +790,7 @@ export function SettingsPage() {
         <StartOnSection hasStudents={role.hasStudents} />
 
         <NotificationsSection />
+        <ChatListeningSettings />
 
         <ChatSettingsSection />
 

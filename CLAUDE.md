@@ -338,8 +338,9 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
+- `chat_listening` / `users.chat_listening_default` - Chat listening mode (migration 0099, docs/CHAT.md "Listening mode"): per person + conversation `{ listening, since }` (messages after `since` arrive hidden) and the Settings default
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
-- `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0099; docs/CHAT.md "Auto-check")
+- `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0100; docs/CHAT.md "Auto-check")
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
 - `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
 - `shared_decks` - Record of decks shared from tutor to student
@@ -1354,9 +1355,15 @@ the prompt says it overrides the defaults: how many words, which exercise types,
 followed by the notes verbatim (cut at `MAX_NOTES_CHARS`).
 Prompt rules: cards only for what the lesson taught, skip words the student has in review, a mini
 lesson ONLY when the notes show a taught structure with example sentences (about that structure),
-a reader only when the notes call for one. On `finish` the job **shares the deck**
-(`shareDeck`, `priority` core / non_urgent), **assigns the lesson** (`createAssignedLesson`) and
-**shares the reader** when `auto_share` is set; an empty deck is deleted.
+a reader only when the notes call for one. **Create, then send**: everything the job makes stays in
+the TUTOR's account — `auto_share` defaults to FALSE on every entry point (UI, API, MCP; only an
+explicit `true` counts, `wantsAutoShare`). The finished job card shows each unsent item with
+**Send to <student>** and, when there are several, **Send all N to <student>** (confirm first;
+`SessionNotesJobCard`, Lab job card) → `POST …/session-notes/:id/send` (`services/tutor-notes-send.ts`
+→ `assignHomework`, the Send-homework path; which items are unsent = `unsentJobItems` in
+`shared/homework/send.ts`, with the button words). Only with `auto_share: true` does `finish` share
+the deck (`shareDeck`), assign the lesson and share the reader itself (jobs made before Oct 2026
+keep what they did). An empty deck is deleted.
 
 **Reliability**: the transcript is checkpointed in the row after every model turn and after every
 batch of tool results, so a redelivery resumes where it stopped (an assistant turn whose tool calls
@@ -1378,11 +1385,12 @@ the lesson report become the job's notes (`composeCallNotes`, pure, unit-tested)
 links the job back to the call, and the briefing tells the agent it is reading speech recognition.
 One active job per call; the job card links back to the review page ("from a video lesson"). The loop is unit-tested with a
 mocked model and stores (`services/__tests__/tutor-notes-agent.test.ts`).
-- `POST /api/relationships/:relId/session-notes` - `{ notes, title?, lesson_at?, priority?, auto_share?, log_lesson? }` → 202 `{ job }` (tutor only; 503 without `ANTHROPIC_API_KEY`; 409 when two jobs are already active)
+- `POST /api/relationships/:relId/session-notes` - `{ notes, title?, lesson_at?, priority?, auto_share? (default false), log_lesson? }` → 202 `{ job }` (tutor only; 503 without `ANTHROPIC_API_KEY`; 409 when two jobs are already active)
 - `GET /api/relationships/:relId/session-notes[?limit]` - `{ jobs }` newest first, no transcripts
 - `GET /api/relationships/:relId/session-notes/:id` - the job with `steps`, `progress`, `result` (`deck`, `lessons`, `reader`, `summary`, `skipped`)
+- `POST …/session-notes/:id/send` - `{ items?: ['deck' | 'lesson:<library_item_id>' | 'reader'], mode?, due_date?, today? }` (none = everything unsent) → `{ job, sent, assignments, skipped, errors, copies }` — the explicit send of a finished (non-draft) job's results as homework; 400 when nothing is left, 409 while running / for a draft
 - `POST …/session-notes/:id/retry` | `/cancel`, `DELETE …/session-notes/:id` (what the job created stays)
-- `POST /api/calls/:id/homework` - `{ priority?, auto_share?, log_lesson? }` → 202 `{ job }` from the call's material (tutor of the call's relationship; 409 while live / still transcribing; 200 `{ job, existing: true }` when one is already running) · `GET /api/calls/:id/homework` → `{ jobs }`
+- `POST /api/calls/:id/homework` - `{ priority?, auto_share? (default false), log_lesson? }` → 202 `{ job }` from the call's material (tutor of the call's relationship; 409 while live / still transcribing; 200 `{ job, existing: true }` when one is already running) · `GET /api/calls/:id/homework` → `{ jobs }`
 
 ### Homework assignments: one-off passes with due dates (`worker/src/routes/homework.ts`, design in docs/HOMEWORK.md)
 Anything a tutor sends is an **assignment** with a `mode`: `one_off` (a single pass by a due date — NOT spaced
@@ -1641,6 +1649,27 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `list_picture_hunts` / `create_picture_hunt` | The user's picture hunts (status, objects, best score) / start one from a scene description (`tools/picture-hunts.ts`) |
 | `list_materials` / `read_material` | Lesson materials the user owns or has been shared (PDFs, slides, pictures: title, pages, has text) / one material's text page by page with speaker notes (`tools/materials.ts`) |
 
+#### Create, then send (every tutor tool)
+
+Minghui (Oct 2026): an agent sent a 319-word deck she never meant to send. The rule, in the server
+`instructions` (`CREATE_THEN_SEND`) and every description: **create content in the tutor's own account;
+never send anything to a student unless the tutor explicitly asks to send that item to that named student
+in this conversation; when in doubt, create it and ask.**
+- **Create tools** (`create_homework_deck`, `create_deck`, `batch_add_notes`, `add_words_to_student_deck`,
+  `create_reader`, `generate_reader`, `create_library_lesson`, `duplicate_library_lesson`,
+  `submit_session_notes`, `add_student_lesson_notes`) never reach a student; replies carry `sent: false` and
+  "Saved in your account (not sent). Say "send it to <student>" to share."
+- **Send tools** (`share_deck_with_student`, `update_student_deck_copy`, `assign_lesson_to_students`,
+  `push_lesson_update`, `share_reader_with_student`, `assign_homework`, `assign_homework_draft`,
+  `send_session_notes_items`) start their description with `SEND_RULE`, require `relationship_id`(s) and
+  `confirm: true` (`CONFIRM_SEND`, a zod literal; the handler also refuses without it, `NEEDS_CONFIRM`),
+  take an optional `student_name` checked against the relationship (`resolveStudent` / `nameMatches`), and
+  reply `sent: true`, `sent_to` and "SENT to <student>: …". All in `mcp-server/src/tools/homework-send.ts`;
+  `tools/create-then-send.test.ts` proves no create tool calls a sending endpoint and every send tool needs
+  the student + confirm. The MCP Apps' Send buttons (an explicit click) are unchanged.
+- Deprecated: `create_deck_for_student` = `create_homework_deck` (its `relationship_id` is only a label now;
+  sends only with `send_now` + `confirm`).
+
 #### Tutor tools — students (`mcp-server/src/tools/students.ts`)
 
 All of these go through the main API as the signed-in user (`ApiClient`), so "is this user the
@@ -1668,14 +1697,15 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `send_install_howto` | Posts the install instructions (Obtainium / Add to Home screen) into the chat |
 | `list_student_homework` | Shared decks with completion + activity, and the student's mini lessons with completions |
 | `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
-| `share_deck_with_student` / `update_student_deck_copy` | Send a tutor deck to the student as a homework assignment (`POST …/homework`; `mode` default `both` = one-off pass by `due_date` — default the next logged lesson, else in two days — then long-term; `priority: core` = top of their study queue, `non_urgent` = bottom; `skip_known`) / add the tutor's newer words to an existing copy (progress kept) |
+| `share_deck_with_student` / `update_student_deck_copy` | **Send tools** (`confirm: true`, optional `student_name`). Send a tutor deck to the student as a homework assignment (`POST …/homework`; `mode` default `both` = one-off pass by `due_date` — default the next logged lesson, else in two days — then long-term; `priority: core` = top of their study queue, `non_urgent` = bottom; `skip_known`) / add the tutor's newer words to an existing copy (progress kept) |
 | `remove_student_deck` / `remove_student_lesson` / `remove_student_reader` | Take homework back (sent by mistake): delete the STUDENT's copy of a deck the tutor shared (`shared_deck_id` or the copy's `deck_id`; `delete_source` also deletes her deck when no one else has a copy), a lesson she assigned, a reader she shared — never the student's own; `dry_run: true` first reports what would be lost. Named in `list_student_homework`'s description, which now also lists shared `readers` |
 | `move_student_deck` | Move a packet within the student's study queue (`to: top | up | down | bottom`); returns `queue_position` of `queue_total` |
 | `list_card_flags` / `reply_to_card_flag` | Cards the student flagged with their note (open by default) / answer one — resolves it, posts the reply into the chat, shown to the student once on that card |
 | `list_student_claude_chats` | What the student has asked Claude about their cards, grouped into per-card conversations (answers trimmed to `answer_chars`) |
-| `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, sent to the student by default) / poll one job's progress, steps and result / list a student's jobs |
-| `list_student_lesson_notes` / `add_student_lesson_notes` / `get_homework_draft` / `update_homework_draft_plan` / `revise_homework_draft` / `assign_homework_draft` (`tools/homework.ts`) | Lesson-notes entries and their homework state / add notes (+ draft by default, nothing sent) / the draft with skipped words, plan and load now → after / change modes, dates, split / ask the assistant to change it (same job) / assign it |
-| `get_student_homework` / `assign_homework` / `update_homework_assignment` (`tools/homework.ts`) | The load gauge + assignments with due labels and progress / assign decks, library lessons and readers as `one_off` (due date, `split_days`, known words left out) / `fsrs` / `both` / move a due date or cancel |
+| `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, all kept in the tutor's account — `auto_share: true` needs `confirm: true`) / poll one job's progress, steps, result and `not_sent` keys / list a student's jobs |
+| `send_session_notes_items` | **Send tool**: a finished job's unsent deck / lessons / reader (`items` keys from `not_sent`, none = all) → `POST …/session-notes/:id/send` |
+| `list_student_lesson_notes` / `add_student_lesson_notes` / `get_homework_draft` / `update_homework_draft_plan` / `revise_homework_draft` / `assign_homework_draft` (`tools/homework.ts`) | Lesson-notes entries and their homework state / add notes (+ draft by default, nothing sent) / the draft with skipped words, plan and load now → after / change modes, dates, split / ask the assistant to change it (same job) / assign it (send tool, `confirm: true`) |
+| `get_student_homework` / `assign_homework` / `update_homework_assignment` (`tools/homework.ts`) | The load gauge + assignments with due labels and progress / assign (send tool, `confirm: true`) decks, library lessons and readers as `one_off` (due date, `split_days`, known words left out) / `fsrs` / `both` / move a due date or cancel |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
 
@@ -1695,20 +1725,21 @@ pasted into the descriptions plus the pure helpers (trimming, note normalisation
 | `update_reader` | Whole-reader replace (`PUT /api/readers/:id/spec`); keeping page `id`s keeps illustrations whose prompt is unchanged |
 | `generate_reader` | Queue a Claude-written story from learned vocabulary of given decks (`POST /api/readers/generate`); returns id + `generating` |
 | `retry_reader` / `delete_reader` | Re-queue a failed reader / delete one (images kept if a shared copy uses them) |
-| `share_reader_with_student` | Send one of the tutor's readers to the student as homework (`POST …/homework`, kind reader; `mode` default `both`, `due_date` default next logged lesson else +2 days) |
+| `share_reader_with_student` | **Send tool** (`confirm: true`). Send one of the tutor's readers to the student as homework (`POST …/homework`, kind reader; `mode` default `both`, `due_date` default next logged lesson else +2 days) |
 | `list_student_readers` | Shares in a relationship with the student's read status (`GET …/shared-readers`) |
 | `export_reader` | Markdown / re-importable JSON / Quizlet CSV as text |
 | `list_lesson_library` / `get_library_lesson` | The tutor's library items / one with its full spec |
 | `create_library_lesson` | From a `spec` or a `generate_prompt` (Claude drafts it server-side), optional `tags` |
 | `update_library_lesson` | Full-spec replace (+ tags); version bumps; reminds to push when copies exist |
 | `duplicate_library_lesson` / `archive_library_lesson` | Copy as "Copy of …" / archive |
-| `assign_lesson_to_students` | A library lesson as homework per relationship (`POST …/homework`, `mode` default `both`, `due_date` default each student's next logged lesson else +2 days); `assigned` / `already_had` (left as is) / `errors` |
+| `assign_lesson_to_students` | **Send tool** (`confirm: true`). A library lesson as homework per relationship (`POST …/homework`, `mode` default `both`, `due_date` default each student's next logged lesson else +2 days); `assigned` / `already_had` (left as is) / `errors` |
 | `get_lesson_assignments` | Per student: completions, last rating/score, `up_to_date` |
-| `push_lesson_update` | Overwrite assigned copies in place (history + FSRS kept), optionally only some relationships |
+| `push_lesson_update` | **Send tool** (`confirm: true`, `relationship_ids` required). Overwrite those students' copies in place (history + FSRS kept) |
 | `export_library_lesson` | Markdown with answer key / JSON / CSV |
 | `list_student_lessons` | Tutor's view of a student's lessons (`GET /api/relationships/:relId/student-lessons`) |
-| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (a few at a time), then send it at once as a homework assignment (`POST …/homework`: `mode` default `both`, `due_date` default next logged lesson else +2 days, `priority` core / non_urgent decides where it lands in the student's queue, `skip_known`) — it never waits for TTS: the worker copies each clip onto the student's copy when it is generated (`propagateNoteAudioToSharedCopies`, called from the note-create TTS callback and `generate-audio`); per-note failures are reported, not fatal |
-| `add_words_to_student_deck` | Add notes to the tutor's source deck, then `POST …/shared-decks/:id/update` so the student's copy gets them (empty list = just re-sync) |
+| `create_homework_deck` | Create deck + notes in the TUTOR's account via the API (one batch); nothing is sent (`for_relationship_id` only labels who it is for). Only `send_now: true` + `relationship_id` + `confirm: true` sends it at once as homework (`POST …/homework`: `mode` default `both`, `due_date` default next logged lesson else +2 days, `priority`, `skip_known`); a failed send keeps the deck. Never waits for TTS: the worker copies each clip onto the student's copy when it is generated (`propagateNoteAudioToSharedCopies`); per-note failures are reported, not fatal |
+| `create_deck_for_student` | **Deprecated** alias of `create_homework_deck`; its `relationship_id` is only a label |
+| `add_words_to_student_deck` | Add notes to the tutor's source deck of a shared deck; the student's copy is untouched unless `update_student_copy: true` + `confirm: true` (then `POST …/shared-decks/:id/update`) |
 | `get_starter_deck` | `POST /api/decks/starter` — the idempotent built-in "Starter Chinese" deck |
 #### Tutor apps (`mcp-server/src/tools/apps.ts`, UIs in `src/ui/apps/`)
 
@@ -2020,6 +2051,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
   and the relationship's requester / recipient. Offline and never fetched → a zh-CN device voice of the sender's gender
   (`pickChineseVoiceFrom`). `/api/practice/tts` and `/api/conversations/:id/tts` (`{ message_id }` → resolved server-side)
   keep MiniMax clips in R2 `tts-cache/` (`services/tts-cache.ts`).
+- **Listening mode** (docs/CHAT.md "Listening mode", `shared/chats/listening.ts`, Lab `ChatListening.kt` parity-tested): chat ⋯ → 🎧 Listening mode (+ 🙈 Hide all), Settings → Chat default; the other person's new Chinese text messages show as a hidden bubble — **tap plays** (0.75× chip), **long-press reveals** (no menu until revealed; 👁 too; revealed ids per device). Inbox / push / e-mail say "🎧 New message" (`notificationPreviewFor`). The tap plays the Read-aloud clip (one TTS path, `shared/chats/voice.ts` + R2 `tts-cache/`), pre-generated for the listener on send / edit (`services/chat/message-audio.ts`, waitUntil) and prefetched on chat open, live updates and sync (`GET /api/me/chat-clips`); web `services/chatListening.ts`, `components/chat/ListeningBubble.tsx`.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics

@@ -89,7 +89,7 @@ class ChatInboxParityTest {
         for (c in f["live"]!!.jsonArray) {
             val o = c.jsonObject
             val m = o["msg"]!!.jsonObject
-            val msg = IncomingChatMessage(m.str("id")!!, m.str("conversation_id")!!, m.str("sender_id")!!, m.str("preview")!!, m.str("created_at")!!)
+            val msg = IncomingChatMessage(m.str("id")!!, m.str("conversation_id")!!, m.str("sender_id")!!, m.str("preview")!!, m.str("created_at")!!, m.str("attachment_kind"))
             val got = ChatInbox.applyIncomingMessage(rows, msg, "me")
             val expected = o["result"]!!
             if (expected is JsonNull) assertNull(got, msg.id) else assertEquals(json.decodeFromJsonElement(listSer, expected), got, msg.id)

@@ -88,6 +88,7 @@ import pushRoutes from './routes/push';
 import { emailPublic, emailPrefs } from './routes/email-prefs';
 import linkPreview from './routes/link-preview';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
+import chatListeningRoutes from './routes/chat-listening';
 import chatMessagesRoutes from './routes/chat-messages';
 import chatLearningRoutes from './routes/chat-learning';
 import profileRoutes from './routes/profile';
@@ -525,6 +526,7 @@ app.route('/api', emailPrefs);
 app.route('/api', linkPreview);
 // Chat: messages, read markers, inbox, native push tokens, live ticket (docs/CHAT.md)
 app.route('/api', chatLiveRoutes);
+app.route('/api', chatListeningRoutes);
 // Rich messages: photo / voice upload + serving, edit, delete, pin, reactions (docs/CHAT.md PR 2)
 app.route('/api', chatMessagesRoutes);
 // Learning tools in the chat (docs/CHAT.md PR 3): word chips, corrections, flashcards from the chat.

@@ -32,6 +32,7 @@ import { notifyChatRead, notifyNewChatMessage } from '../services/chat/notify';
 import { deleteDeviceToken, DeviceTokenError, saveDeviceToken } from '../services/push/devices';
 import { createPurposeTicket, verifyPurposeTicket } from '../services/chat/ticket';
 import { enrichMessageInBackground } from '../services/chat/messages';
+import { pregenerateMessageClip } from '../services/chat/message-audio';
 import { autoCheckMessageInBackground } from '../services/chat/auto-check';
 
 const chat = new Hono<{ Bindings: Env }>();
@@ -90,6 +91,8 @@ chat.post('/conversations/:id/messages', async (c) => {
     await background(c, deliverSentMessage(env, convId, userId, message));
     // Chinese messages: translation + word chips (non-blocking); `message_updated` when they land.
     await background(c, enrichMessageInBackground(env, message.id, content));
+    // Its read-aloud clip, ready before anyone taps (listening mode, Read aloud).
+    await background(c, pregenerateMessageClip(env, message));
     // The learner's message: "check my Chinese" in the background (docs/CHAT.md "Auto-check").
     await background(c, autoCheckMessageInBackground(env, message.id));
 

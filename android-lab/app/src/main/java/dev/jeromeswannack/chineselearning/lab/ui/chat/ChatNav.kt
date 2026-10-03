@@ -168,6 +168,9 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onToggleVideo = vm::toggleVideo,
             loadVideo = vm::videoFile,
             loadPoster = vm::poster,
+            onListen = vm.listening::tap,
+            onReveal = vm.listening::reveal,
+            onListeningSlow = vm.listening::toggleSlow,
         ),
         callBanner = call?.let { b ->
             {
@@ -247,6 +250,8 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onCloseExplain = vm::closeExplain,
                 onOpenSearch = vm::openSearch,
                 onOpenHelp = { vm.openSheet(ChatSheet.HelpMeSayIt) },
+                onToggleListening = vm.listening::toggle,
+                onHideAll = vm.listening::hideAll,
                 onPlayText = vm::playText,
             ),
         )

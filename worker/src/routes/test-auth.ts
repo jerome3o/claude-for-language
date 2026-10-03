@@ -105,6 +105,37 @@ testAuth.post('/auth', async (c) => {
  * Only removes users with emails ending in @test.e2e or with google_id starting with 'test-'.
  */
 /**
+ * POST /api/test/session-notes-job — a FINISHED session-notes job (not a draft)
+ * without running the agent: what the assistant made sits in the tutor's account
+ * and nothing was sent (auto_share off, the default). E2E + screenshots.
+ * Body: { relationship_id, deck_id, deck_name?, library_items?: [{ id, title, exercise_count? }], title?, summary? }
+ */
+testAuth.post('/session-notes-job', async (c) => {
+  const b = await c.req.json<{ relationship_id: string; deck_id?: string; deck_name?: string; library_items?: Array<{ id: string; title: string; exercise_count?: number }>; title?: string; summary?: string }>();
+  const rel = await c.env.DB.prepare('SELECT * FROM tutor_relationships WHERE id = ?').bind(b.relationship_id).first<{ requester_id: string; recipient_id: string; requester_role: string }>();
+  if (!rel) return c.json({ error: 'relationship not found' }, 404);
+  const tutorId = rel.requester_role === 'tutor' ? rel.requester_id : rel.recipient_id;
+  const studentId = rel.requester_role === 'tutor' ? rel.recipient_id : rel.requester_id;
+  const notes = 'Restaurant lesson: 菜单, 服务员, 点菜, 买单. 把 sentences: 把菜单给我。';
+  const job = await tutorJobs.createJob(c.env.DB, { relationship_id: b.relationship_id, tutor_id: tutorId, student_id: studentId, title: b.title ?? null, notes, lesson_at: new Date().toISOString(), priority: 'core', auto_share: false, lesson_log_id: null });
+  const count = b.deck_id ? ((await c.env.DB.prepare('SELECT COUNT(*) AS n FROM notes WHERE deck_id = ?').bind(b.deck_id).first<{ n: number }>())?.n ?? 0) : 0;
+  const at = new Date().toISOString();
+  await tutorJobs.patchJob(c.env.DB, job.id, {
+    status: 'done',
+    progress: 'Done',
+    finished_at: at,
+    result: {
+      ...(b.deck_id ? { deck: { id: b.deck_id, name: b.deck_name ?? 'Lesson deck', note_count: count } } : {}),
+      lessons: (b.library_items ?? []).map((l) => ({ library_item_id: l.id, title: l.title, exercise_count: l.exercise_count ?? 2 })),
+      summary: b.summary ?? 'Made a deck of the words from the lesson.',
+      skipped: [],
+    },
+    steps: [{ at, kind: 'done', text: 'Done' }],
+  });
+  return c.json({ job_id: job.id });
+});
+
+/**
  * POST /api/test/homework-draft — a FINISHED lesson-notes draft without running
  * the agent (E2E + screenshots): a lesson-log entry and a review job whose
  * result points at the tutor's deck (and library lessons) given.
