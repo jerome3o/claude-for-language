@@ -60,6 +60,13 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     collectable: true,
   },
   {
+    prefix: 'chat-tts/',
+    what: 'Read-aloud clips of chat messages (`chat-tts/<conversationId>/<messageId>-<hash>.mp3`; listening mode, Read aloud)',
+    writtenBy: 'services/chat/message-audio.ts ensureMessageClip',
+    referencedBy: ['messages.audio_key'],
+    collectable: true,
+  },
+  {
     prefix: 'reader-images/',
     what: 'Reader page illustrations; also LEGACY lesson pictures (`lesson-<id>-s0e1`) and roleplay pictures (`roleplay-<id>`) from before lesson-images/',
     writtenBy: 'services/graded-reader.ts generatePageImage (default prefix)',
@@ -198,6 +205,7 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'note_audio_recordings.audio_url', sql: 'SELECT audio_url AS v FROM note_audio_recordings WHERE audio_url IS NOT NULL' },
   { source: 'review_events.recording_url', sql: 'SELECT recording_url AS v FROM review_events WHERE recording_url IS NOT NULL' },
   { source: 'messages.recording_url', sql: 'SELECT recording_url AS v FROM messages WHERE recording_url IS NOT NULL' },
+  { source: 'messages.audio_key', sql: 'SELECT audio_key AS v FROM messages WHERE audio_key IS NOT NULL' },
   { source: 'messages.attachment', sql: 'SELECT attachment AS v FROM messages WHERE attachment IS NOT NULL' },
   { source: 'reader_pages.image_url', sql: 'SELECT image_url AS v FROM reader_pages WHERE image_url IS NOT NULL' },
   { source: 'roleplay_messages.image_url', sql: 'SELECT image_url AS v FROM roleplay_messages WHERE image_url IS NOT NULL' },

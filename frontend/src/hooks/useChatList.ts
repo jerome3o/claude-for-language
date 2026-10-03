@@ -101,6 +101,7 @@ export function useChatList({ live = false }: { live?: boolean } = {}) {
               deleted: !!m.deleted_at,
             }),
             created_at: m.created_at,
+            attachment_kind: m.attachment?.kind ?? null,
           },
           userId,
         );
