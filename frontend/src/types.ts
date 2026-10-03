@@ -1,3 +1,4 @@
+import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import type { CoachAction } from '@shared/coach';
 import type { StudyBudgetInfo } from '@shared/decks';
 // Card types
@@ -50,6 +51,8 @@ export interface AuthUser {
   call_alerts?: 'ring' | 'silent';
   /** A new chat message also sends an e-mail (default true; Settings → Notifications, or the e-mail's own link). */
   email_chat_messages?: boolean;
+  /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account). */
+  chat_auto_check?: boolean | null;
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;
@@ -373,6 +376,8 @@ export interface Message {
   words_source?: 'content' | 'transcript' | null;
   /** The tutor's correction of this message. */
   correction?: ChatCorrection | null;
+  /** The background "check my Chinese" — only on my own messages (shared/chats/autoCheck.ts, docs/CHAT.md "Auto-check"). */
+  auto_check?: AutoCheckResult | null;
 }
 
 /** One word chip of a chat message (same shape as a reader page's words). */

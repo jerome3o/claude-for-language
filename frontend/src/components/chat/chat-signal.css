@@ -884,3 +884,185 @@ body:has(.chat-page) .sync-badge-offline {
   white-space: nowrap;
   font-size: 1rem;
 }
+
+/* ---------- Auto-check: the calm ✎ and "How to say it better" (docs/CHAT.md "Auto-check") ---------- */
+.chat-bubble-meta .chat-saybetter-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: rgba(255, 214, 120, 0.9);
+  color: #7a4b00;
+  font-size: 0.68rem;
+  line-height: 1;
+  opacity: 1;
+}
+.chat-bubble-meta .chat-saybetter-mark.corrected {
+  background: rgba(255, 255, 255, 0.92);
+  color: #9a5b00;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 196, 80, 0.95);
+}
+.chat-saybetter-sheet {
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 0 1rem 1rem;
+}
+.chat-saybetter-title {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 1.1rem;
+}
+.chat-saybetter-by {
+  font-size: 0.85rem;
+  color: #92400e;
+  margin-bottom: 0.25rem;
+}
+.chat-saybetter-label {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+.chat-saybetter-original {
+  font-size: 1.15rem;
+  margin-top: 0.2rem;
+}
+.chat-saybetter-better {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.3rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  background: #f0fdf4;
+}
+.chat-saybetter-better-text {
+  flex: 1;
+  min-width: 0;
+}
+.chat-saybetter-hanzi {
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+.chat-saybetter-pinyin {
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+.chat-saybetter-english {
+  color: #374151;
+  font-size: 0.95rem;
+}
+.chat-saybetter-play {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: #16a34a;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.chat-saybetter-play.playing {
+  background: #15803d;
+}
+.chat-saybetter-note {
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  color: #374151;
+}
+.chat-saybetter-mistakes {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+.chat-saybetter-mistake {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.chat-saybetter-mistake-main {
+  flex: 1;
+  min-width: 0;
+}
+.chat-saybetter-fix {
+  font-size: 1.05rem;
+}
+.chat-saybetter-fix del,
+.chat-saybetter-original .chat-diff-del {
+  /* A highlight, not a strike-through: a line through 了 reads as 子. */
+  text-decoration: none;
+  color: #9f1239;
+  background: #ffe4e6;
+  border-radius: 4px;
+  padding: 0 2px;
+  opacity: 1;
+}
+.chat-saybetter-original .chat-diff-ins {
+  text-decoration: none;
+  color: #15803d;
+  background: #dcfce7;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.chat-saybetter-fix ins {
+  text-decoration: none;
+  color: #15803d;
+  font-weight: 600;
+}
+.chat-saybetter-why {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+.chat-saybetter-card-btn {
+  flex: none;
+  min-height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.chat-saybetter-alt {
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.chat-saybetter-alt-hanzi {
+  font-size: 1.15rem;
+}
+.chat-saybetter-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.chat-saybetter-add,
+.chat-saybetter-ask {
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.chat-saybetter-add {
+  border: none;
+  background: #2c6bed;
+  color: #fff;
+  font-weight: 600;
+}
+.chat-saybetter-ask {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #1f2937;
+}
+/* "✨ How to say it better" — first in the message menu, gently set apart. */
+.msg-sheet-action.say-better {
+  background: #fff8e6;
+  font-weight: 600;
+}

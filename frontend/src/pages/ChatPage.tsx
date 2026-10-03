@@ -64,6 +64,8 @@ import { searchMessages } from '@shared/chats/search';
 import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrection, clearMessageCorrection, forwardChatMessage } from '../api/chat';
 import { ChatWordsText, type TappedWord } from '../components/chat/ChatWords';
 import { CorrectionBlock, CorrectMessageSheet } from '../components/chat/ChatCorrection';
+import { SayBetterSheet } from '../components/chat/SayBetterSheet';
+import { sayBetterLabel, sayBetterState } from '@shared/chats/autoCheck';
 import { MakeFlashcardsSheet } from '../components/chat/MakeFlashcardsSheet';
 import { CheckDraftPanel, type DraftCheck } from '../components/chat/CheckDraftPanel';
 import { ReaderWordSheet } from '../components/reader/ReaderWordSheet';
@@ -221,6 +223,8 @@ export function ChatPage() {
 
   // Message discussion state
   const [discussingMessage, setDiscussingMessage] = useState<MessageWithSender | null>(null);
+  // "✨ How to say it better" (docs/CHAT.md "Auto-check").
+  const [sayBetterFor, setSayBetterFor] = useState<MessageWithSender | null>(null);
 
   // Translate + flashcard state
 
@@ -652,23 +656,26 @@ export function ChatPage() {
     });
   };
 
-  const handlePlayMessageAudio = async (msg: MessageWithSender) => {
-    if (playingAudioMessageId === msg.id) {
+  const handlePlayMessageAudio = (msg: MessageWithSender) => playTextAudio(msg.id, msg.content);
+
+  /** Read `text` aloud in the conversation's voice; `key` marks what is playing (a tap again stops it). */
+  const playTextAudio = async (key: string, text: string) => {
+    if (playingAudioMessageId === key) {
       // Stop playing
       playerRef.current.stop();
       setPlayingAudioMessageId(null);
       return;
     }
 
-    setPlayingAudioMessageId(msg.id);
+    setPlayingAudioMessageId(key);
     try {
       const result = await generateConversationTTS(
         convId!,
-        msg.content,
+        text,
         conversation?.voice_id || undefined,
         conversation?.voice_speed || undefined
       );
-      playBase64Audio(result.audio_base64, result.content_type, msg.id);
+      playBase64Audio(result.audio_base64, result.content_type, key);
     } catch (error) {
       console.error('Failed to generate TTS:', error);
       setPlayingAudioMessageId(null);
@@ -1053,6 +1060,9 @@ export function ChatPage() {
     const msg = sheet.message;
     setSheet(null);
     switch (id) {
+      case 'say_better':
+        setSayBetterFor(msg);
+        break;
       case 'reply':
         setReplyingTo(msg);
         inputRef.current?.focus();
@@ -1309,6 +1319,7 @@ export function ChatPage() {
         translation: translationOf(msg),
         correction: msg.correction,
         check_status: msg.check_status,
+        auto_check: msg.auto_check ? { status: msg.auto_check.status, text: msg.auto_check.text } : null,
         has_discussion: msg.has_discussion,
         pinned_at: msg.pinned_at,
       },
@@ -1438,7 +1449,7 @@ export function ChatPage() {
             )}
           </span>
         )}
-        {isMe && checkStatus && (
+        {isMe && checkStatus && !msg.auto_check && (
           <button
             type="button"
             className={`check-status ${checkStatus}`}
@@ -1475,7 +1486,10 @@ export function ChatPage() {
     const translateOn = canTranslate && isShown(displayPrefs, 'translate', msg.id);
     const selectable = selecting && interactive && !!wordsText;
     const selected = selectable && selectedIds.has(msg.id);
-    const showMeta = layout.lastInGroup || shownTimes.has(msg.id) || !!pending;
+    const showTime = layout.lastInGroup || shownTimes.has(msg.id) || !!pending;
+    // My message could be better (auto-check) or was corrected by the tutor: a calm ✎ next to the time.
+    const better = pending ? null : sayBetterState(msg, myId);
+    const showMeta = showTime || !!better;
     const swipeDx = swipeState?.id === msg.id ? swipeState.dx : 0;
     const classes = [
       'chat-message',
@@ -1561,9 +1575,21 @@ export function ChatPage() {
                 {showMeta && (
                   <span className="chat-bubble-meta" data-testid="chat-bubble-meta">
                     {msg.pinned_at && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
-                    {msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
-                    <span className="chat-time">{formatTime(msg.created_at)}</span>
-                    {layout.tick === 'pending' ? (
+                    {better && (
+                      <span
+                        className={`chat-saybetter-mark ${better}`}
+                        data-testid="chat-saybetter-mark"
+                        data-state={better}
+                        role="img"
+                        aria-label={sayBetterLabel(better, otherUser.name)}
+                        title={sayBetterLabel(better, otherUser.name)}
+                      >
+                        ✎
+                      </span>
+                    )}
+                    {showTime && msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
+                    {showTime && <span className="chat-time">{formatTime(msg.created_at)}</span>}
+                    {!showTime ? null : layout.tick === 'pending' ? (
                       <span className="chat-tick pending" data-testid="chat-send-pending" aria-label="Sending" title="Sending…">
                         {tickGlyph('pending')}
                       </span>
@@ -2407,6 +2433,22 @@ export function ChatPage() {
       )}
 
       {/* Message Discussion Modal */}
+      {sayBetterFor && (
+        <SayBetterSheet
+          message={serverMessages.find((m) => m.id === sayBetterFor.id) ?? sayBetterFor}
+          viewerId={myId}
+          tutorName={otherUser.name || 'Your tutor'}
+          playing={playingAudioMessageId === `better:${sayBetterFor.id}`}
+          onPlay={(text) => void playTextAudio(`better:${sayBetterFor.id}`, text)}
+          onDiscuss={() => {
+            const msg = sayBetterFor;
+            setSayBetterFor(null);
+            setDiscussingMessage(msg);
+          }}
+          onClose={() => setSayBetterFor(null)}
+        />
+      )}
+
       {discussingMessage && (
         <MessageDiscussionModal
           message={discussingMessage}
