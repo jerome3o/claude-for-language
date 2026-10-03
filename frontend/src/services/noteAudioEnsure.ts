@@ -43,6 +43,18 @@ export function isPending(outcome: EnsureClipOutcome): boolean {
 
 const attempts = new Map<string, Attempt>();
 const brokenByNote = new Map<string, Set<string>>();
+/** The last answer per note: a card re-rendering inside the throttle window still knows a clip is coming. */
+const lastResponse = new Map<string, EnsureNoteAudioResponse>();
+/** A request already on its way for a note: a re-render shares it instead of losing it. */
+const inFlight = new Map<string, Promise<EnsureResult>>();
+
+/** How long until this note may be asked about again (0 = now; null = never again this page load). */
+export function nextAskInMs(noteId: string, now = Date.now()): number | null {
+  const a = attempts.get(noteId);
+  if (!a) return 0;
+  if (a.count >= ENSURE_MAX_ATTEMPTS) return null;
+  return Math.max(0, a.at + ENSURE_RETRY_MS - now);
+}
 
 /** A stored clip failed to play: remember its key so the next ask reports it. */
 export function reportBrokenClip(noteId: string, audioUrl: string): void {
@@ -62,20 +74,36 @@ export function brokenClips(noteId: string): string[] {
 export function resetEnsureState(): void {
   attempts.clear();
   brokenByNote.clear();
+  lastResponse.clear();
+  inFlight.clear();
 }
 
-export type EnsureResult = { response: EnsureNoteAudioResponse; patch: Partial<Note> } | null;
+/** `cached`: the throttle said not yet, this is the previous answer. */
+export type EnsureResult = { response: EnsureNoteAudioResponse; patch: Partial<Note>; cached?: boolean } | null;
 
 /**
  * Ask the server (when allowed by the throttle) and write what came back into
  * IndexedDB, so the clip is there on the next card / offline. Null = not asked.
  */
 export async function ensureAudioForNote(note: AudioFields & { id: string }, now = Date.now()): Promise<EnsureResult> {
+  const pending = inFlight.get(note.id);
+  if (pending) return pending;
+  const p = askServer(note, now).finally(() => inFlight.delete(note.id));
+  inFlight.set(note.id, p);
+  return p;
+}
+
+async function askServer(note: AudioFields & { id: string }, now: number): Promise<EnsureResult> {
   const broken = brokenClips(note.id);
-  if (!needsAudio(note, broken) || !mayAsk(attempts, note.id, now)) return null;
+  if (!needsAudio(note, broken)) return null;
+  if (!mayAsk(attempts, note.id, now)) {
+    const last = lastResponse.get(note.id);
+    return last ? { response: last, patch: {}, cached: true } : null;
+  }
   const prev = attempts.get(note.id);
   attempts.set(note.id, { at: now, count: (prev?.count ?? 0) + 1 });
   const response = await ensureNoteAudio(note.id, broken);
+  lastResponse.set(note.id, response);
   brokenByNote.delete(note.id);
   const n = response.note;
   if (!n) return { response, patch: {} };

@@ -11,6 +11,7 @@ import {
   isPending,
   mayAsk,
   needsAudio,
+  nextAskInMs,
   reportBrokenClip,
   resetEnsureState,
 } from './noteAudioEnsure';
@@ -56,8 +57,11 @@ describe('web ensure-audio (docs/AUDIO.md)', () => {
     expect(isPending(res!.response.sentence)).toBe(true);
     const stored = await db.notes.get('n1');
     expect(stored?.audio_url).toBe('generated/n1_a.mp3');
-    // throttled straight after
-    expect(await ensureAudioForNote(NOTE, 1)).toBeNull();
+    // throttled straight after: the last answer, no new request (a re-render still knows a clip is coming)
+    const again = await ensureAudioForNote(NOTE, 1);
+    expect(again).toMatchObject({ cached: true, patch: {} });
+    expect(isPending(again!.response.sentence)).toBe(true);
+    expect(nextAskInMs('n1', 1)).toBe(ENSURE_RETRY_MS - 1);
     expect(ensureMock).toHaveBeenCalledTimes(1);
   });
 

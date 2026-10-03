@@ -44,7 +44,7 @@ import {
   Note,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
-import { ensureAudioForNote, isPending, reportBrokenClip, ENSURE_RETRY_MS } from '../services/noteAudioEnsure';
+import { ensureAudioForNote, isPending, nextAskInMs, reportBrokenClip } from '../services/noteAudioEnsure';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
@@ -745,6 +745,8 @@ export function StudyCard({
   // server to make it (interactive priority; queued when MiniMax is busy) and
   // checks back while the card is up. Skipped offline: no network calls then.
   const [audioComing, setAudioComing] = useState(false);
+  const onUpdateNoteRef = useRef(onUpdateNote);
+  onUpdateNoteRef.current = onUpdateNote;
   useEffect(() => {
     setAudioComing(false);
   }, [card.note.id]);
@@ -760,11 +762,16 @@ export function StudyCard({
         sentence_clue: card.note.sentence_clue,
         sentence_clue_audio_url: card.note.sentence_clue_audio_url,
       }).then((res) => {
-        if (cancelled || !res) return;
-        if (Object.keys(res.patch).length > 0) onUpdateNote({ id: noteId, ...res.patch });
+        if (cancelled) return;
+        if (!res) {
+          setAudioComing(false);
+          return;
+        }
+        if (Object.keys(res.patch).length > 0) onUpdateNoteRef.current({ id: noteId, ...res.patch });
         const pending = isPending(res.response.word) || isPending(res.response.sentence);
         setAudioComing(pending);
-        if (pending) timer = setTimeout(ask, ENSURE_RETRY_MS);
+        const wait = nextAskInMs(noteId);
+        if (pending && wait !== null) timer = setTimeout(ask, Math.max(wait, 1000));
       }).catch((err) => {
         if (!cancelled) setAudioComing(false);
         console.error('[StudyCard] ensure-audio failed:', err);
@@ -775,7 +782,7 @@ export function StudyCard({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [card.note.id, card.note.audio_url, card.note.sentence_clue, card.note.sentence_clue_audio_url, aiAvailable, onUpdateNote, brokenTick]);
+  }, [card.note.id, card.note.audio_url, card.note.sentence_clue, card.note.sentence_clue_audio_url, aiAvailable, brokenTick]);
   // The word's own clip is the one we wait for; the sentence row shows its own ▶ when it lands.
   const wordAudioComing = audioComing && !card.note.audio_url;
 
