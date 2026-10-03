@@ -66,6 +66,7 @@ class CallsLayoutParityTest {
         "pairTap" -> Action.PairTap
         "shareStarted" -> Action.ShareStarted
         "materialStarted" -> Action.MaterialStarted
+        "activityStarted" -> Action.ActivityStarted
         "drop" -> Action.Drop(tile(o["tile"]!!), zone(o["zone"]!!))
         else -> fail("action $o")
     }
@@ -151,13 +152,21 @@ class CallsLayoutParityTest {
         }
     }
 
-    private fun avail(o: JsonObject) = Availability(o["screen"]!!.jsonPrimitive.boolean, o["material"]?.jsonPrimitive?.boolean ?: false)
+    /** In-call activities: a running activity — walks snapshotted over every screen × material × activity availability. */
+    @Test fun activitySequencesMatch() {
+        val dir = System.getProperty("parity.dir") ?: fail("parity.dir not set — run through Gradle")
+        val a = Json.parseToJsonElement(File(dir, "calls-layout-activity.json").readText()).jsonObject
+        val avs = a["avails"]!!.jsonArray.map { avail(it.jsonObject) }
+        checkSequences("activity_sequences", 20, 300, a, avs)
+    }
+
+    private fun avail(o: JsonObject) = Availability(o["screen"]!!.jsonPrimitive.boolean, o["material"]?.jsonPrimitive?.boolean ?: false, o["activity"]?.jsonPrimitive?.boolean ?: false)
 
     private val swipeAvails = listOf(Availability(false), Availability(true))
     private val swipeAvailsM = listOf(Availability(false, false), Availability(false, true), Availability(true, false), Availability(true, true))
 
-    private fun checkSequences(key: String, minSeqs: Int, minRects: Int) {
-        val seqs = root[key]!!.jsonArray
+    private fun checkSequences(key: String, minSeqs: Int, minRects: Int, from: JsonObject = root, swipeAvs: List<Availability>? = null) {
+        val seqs = from[key]!!.jsonArray
         assertTrue(seqs.size > minSeqs)
         var checkedRects = 0
         for ((i, seq) in seqs.withIndex()) {
@@ -170,7 +179,7 @@ class CallsLayoutParityTest {
                 val label = "seq $i step $k ($a)"
                 assertEquals(layout(step["layout"]!!.jsonObject), l, "$label layout")
                 val orders = step["swipe_order"]!!.jsonArray
-                val avs = if (orders.size == 4) swipeAvailsM else swipeAvails
+                val avs = swipeAvs ?: if (orders.size == 4) swipeAvailsM else swipeAvails
                 for ((oi, av) in avs.withIndex()) assertEquals(orders[oi].jsonArray.map(::tile), CallLayout.swipeOrder(l, av), "$label swipe order $av")
                 for (arrEl in step["arrangements"]!!.jsonArray) {
                     val o = arrEl.jsonObject

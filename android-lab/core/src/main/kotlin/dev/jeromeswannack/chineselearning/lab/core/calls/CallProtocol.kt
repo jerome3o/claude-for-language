@@ -51,6 +51,8 @@ object CallProtocol {
                 val t = ma.str("target") ?: return@let null
                 MaterialAnnots(t, CallAnnotate.parseKept(ma["annots"]) ?: KeptAnnotations())
             },
+            // In-call activities: the session being played (absent / null = none).
+            activity = CallActivities.parseSession(o["activity"]),
         )
         "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty(), o.str("page")) }
         "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it, o.str("page")) }
@@ -70,6 +72,12 @@ object CallProtocol {
         "annot_ping" -> o.str("from")?.let { from -> CallAnnotate.sanitizePing(o)?.let { (x, y) -> ServerMessage.AnnotPingMsg(from, o.str("name").orEmpty(), x, y, o.target()) } }
         // Lesson materials (round 4 PR 5): what is presented now (null = nothing), and a page's kept drawings.
         "material" -> if (o["presenting"] == null) null else ServerMessage.Material(Materials.sanitizePresented(o["presenting"]), o.str("from"), o.str("name"))
+        // In-call activities: the session after a start / action / close (null = closed). A session that doesn't parse is ignored.
+        "activity" -> when (val se = o["session"]) {
+            null -> null
+            is JsonNull -> ServerMessage.Activity(null, o.str("from"), o.str("name"))
+            else -> CallActivities.parseSession(se)?.let { ServerMessage.Activity(it, o.str("from"), o.str("name")) }
+        }
         "material_annots" -> o.str("target")?.let { ServerMessage.MaterialAnnotsMsg(it, CallAnnotate.parseKept(o["annots"]) ?: KeptAnnotations()) }
         "peer_joined" -> parsePeer(o["peer"])?.let { ServerMessage.PeerJoined(it) }
         "peer_left" -> o.str("client_id")?.let { ServerMessage.PeerLeft(it) }
@@ -142,6 +150,12 @@ object CallProtocol {
     fun materialOpen(materialId: String, page: Int = 0): String = buildJsonObject { put("type", "material_open"); put("material_id", materialId); put("page", page) }.toString()
     fun materialPage(page: Int): String = buildJsonObject { put("type", "material_page"); put("page", page) }.toString()
     fun materialClose(): String = buildJsonObject { put("type", "material_close") }.toString()
+    /** In-call activities: start one from the catalogue (replaces any running one). */
+    fun activityStart(activityId: String): String = buildJsonObject { put("type", "activity_start"); put("activity_id", activityId) }.toString()
+    /** Act in the running activity ([sessionId] must match the room's, else the room resyncs me). */
+    fun activityAction(sessionId: String, action: ActivityAction): String = buildJsonObject { put("type", "activity_action"); put("session_id", sessionId); put("action", action.toJson()) }.toString()
+    /** Close the activity (its result is kept with the lesson). */
+    fun activityClose(sessionId: String? = null): String = buildJsonObject { put("type", "activity_close"); sessionId?.let { put("session_id", it) } }.toString()
     /** Keep drawings on the shared screen (true) or let them fade (false) — one setting for both. */
     fun annotMode(persist: Boolean): String = buildJsonObject { put("type", "annot_mode"); put("persist", persist) }.toString()
     fun annotPing(x: Double, y: Double, target: String? = null): String = buildJsonObject { put("type", "annot_ping"); put("x", x); put("y", y); target?.let { put("target", it) } }.toString()
@@ -206,6 +220,8 @@ sealed interface ServerMessage {
         /** A lesson material being presented (round 4 PR 5), and its current page's kept drawings / text. */
         val material: PresentedMaterial? = null,
         val materialAnnots: MaterialAnnots? = null,
+        /** The in-call activity being played (null = none). */
+        val activity: ActivitySession? = null,
     ) : ServerMessage
     /** [page] = the board page the ops belong to (null from an older room). */
     data class Text(val from: String, val ops: List<TextOp>, val page: String? = null) : ServerMessage
@@ -231,6 +247,8 @@ sealed interface ServerMessage {
     data class Material(val presenting: PresentedMaterial?, val from: String? = null, val name: String? = null) : ServerMessage
     /** The kept drawings / text of a material page (on opening or turning to it). */
     data class MaterialAnnotsMsg(val target: String, val annots: KeptAnnotations) : ServerMessage
+    /** The in-call activity after a start / action / close (null = closed); [from] = the client whose message caused it. */
+    data class Activity(val session: ActivitySession?, val from: String? = null, val name: String? = null) : ServerMessage
     data class PeerJoined(val peer: CallPeer) : ServerMessage
     data class PeerLeft(val clientId: String) : ServerMessage
     data class PeerState(val clientId: String, val state: PeerMediaState) : ServerMessage
