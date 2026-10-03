@@ -1050,12 +1050,13 @@
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
+.call-show-btn.bottom { top: auto; right: auto; bottom: 0.6rem; left: 0.6rem; }
 .call-show-btn.on { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
 .call-tile-body.call-show-host { display: block; }
 .call-stop-their-share {
   position: absolute;
-  top: 0.4rem;
-  left: 0.5rem;
+  bottom: 0.6rem;
+  left: 0.6rem;
   z-index: 6;
   min-height: 40px;
   padding: 0 0.85rem;

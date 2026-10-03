@@ -418,8 +418,10 @@ export function CallPage() {
   const showButton = (tile: TileId, view: ShowView) => {
     if (!iLead || !stageTiles.includes(tile)) return null;
     const on = isShowing(call.shown, call.myUserId, view);
+    // The boards have room in their tab row; elsewhere the top bar is full of controls → the bottom-left corner.
+    const corner = tile === 'text' || tile === 'draw' ? '' : ' bottom';
     return (
-      <button type="button" className={`call-show-btn${on ? ' on' : ''}`} onClick={() => call.show(view)} data-testid={`show-${tile}`} title="Put this on the student's screen">
+      <button type="button" className={`call-show-btn${corner}${on ? ' on' : ''}`} onClick={() => call.show(view)} data-testid={`show-${tile}`} title="Put this on the student's screen">
         {on ? SHOWN_BUTTON_LABEL : `👁 ${SHOW_BUTTON_LABEL}`}
       </button>
     );
