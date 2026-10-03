@@ -3,11 +3,12 @@
  * chat notification — MainActivity's 'native-navigate' event) does to the page on screen.
  * Same rule as the Lab app (android-lab ui/nav/NavResume.kt):
  *
- * - A "go study" route (`/study…`) never stacks a second Study: Study already open stays.
- * - It also leaves a resumable activity in progress on screen — the one-off homework pass, a
- *   reader, a picture hunt, a quest, a lesson try-out, tutor-notes practice — instead of
- *   pulling the learner away from it (Jerome: "if I click the notification but the last thing
- *   I was doing was my one-off homework, it should leave that up on the screen").
+ * - A "go study" route (`/study…`) ALWAYS opens Study (Jerome: "I'd much rather have the bug and
+ *   be able to study"): over a homework pass / reader too, which stays in history (✕ goes back
+ *   to it). Study already on screen stays — it is what was asked for.
+ * - Another shell route (the homework reminder) leaves a resumable activity in progress on
+ *   screen — the one-off homework pass, a reader, a picture hunt, a quest, a lesson try-out,
+ *   tutor-notes practice — instead of pulling the learner away from it.
  * - Any other route is explicit (a chat notification) and opens — unless it is exactly the page
  *   already showing, which would only add a duplicate history entry.
  */
@@ -35,7 +36,8 @@ export function isResumablePath(path: string): boolean {
 
 /** [current] = pathname + search of the page on screen; [route] = what the shell asked for. */
 export function nativeRouteAction(current: string, route: string): NativeRouteAction {
-  if (isStudyPath(route) && (isStudyPath(current) || isResumablePath(current))) return 'stay';
+  if (isStudyPath(route)) return isStudyPath(current) ? 'stay' : 'navigate';
+  if (/^\/homework(\/|$)/.test(pathnameOf(route)) && isResumablePath(current)) return 'stay';
   if (current === route) return 'stay';
   return 'navigate';
 }

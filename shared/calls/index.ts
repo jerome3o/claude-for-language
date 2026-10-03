@@ -11,3 +11,5 @@ export * from './layout';
 export * from './pages';
 export * from './presence';
 export * from './lessons';
+export * from './follow';
+export * from './devices';

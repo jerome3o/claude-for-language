@@ -133,7 +133,7 @@ describe('message clips', () => {
     expect(make).toHaveBeenCalledWith(expect.anything(), '明天见', expected);
     expect(readAloudFor('female', null)).toEqual(expected);
     // The cache key is the read-aloud one: same text + voice + speed → same clip for Read aloud and the tap.
-    expect(await ttsCacheKey('明天见', expected.voiceId, expected.speed)).toMatch(/^tts-cache\/v1\//);
+    expect(await ttsCacheKey('明天见', expected.voiceId, expected.speed)).toMatch(/^tts-cache\/v2\//);
   });
 
   it('skips English, photos, deleted messages, Claude chats; a failing TTS never throws', async () => {

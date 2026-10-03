@@ -671,9 +671,9 @@ export async function deleteDeck(db: D1Database, id: string, userId: string): Pr
  */
 export async function propagateNoteAudioToSharedCopies(db: D1Database, noteId: string): Promise<number> {
   const note = await db
-    .prepare('SELECT id, deck_id, hanzi, audio_url, audio_provider FROM notes WHERE id = ?')
+    .prepare('SELECT id, deck_id, hanzi, audio_url, audio_provider, audio_voice, audio_model, audio_settings FROM notes WHERE id = ?')
     .bind(noteId)
-    .first<{ id: string; deck_id: string; hanzi: string; audio_url: string | null; audio_provider: string | null }>();
+    .first<{ id: string; deck_id: string; hanzi: string; audio_url: string | null; audio_provider: string | null; audio_voice: string | null; audio_model: string | null; audio_settings: string | null }>();
   if (!note?.audio_url) return 0;
   const shares = await db
     .prepare('SELECT target_deck_id FROM shared_decks WHERE source_deck_id = ?')
@@ -682,8 +682,8 @@ export async function propagateNoteAudioToSharedCopies(db: D1Database, noteId: s
   let updated = 0;
   for (const share of shares.results || []) {
     const res = await db
-      .prepare("UPDATE notes SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE deck_id = ? AND hanzi = ? AND audio_url IS NULL")
-      .bind(note.audio_url, note.audio_provider, share.target_deck_id, note.hanzi.trim())
+      .prepare("UPDATE notes SET audio_url = ?, audio_provider = ?, audio_voice = ?, audio_model = ?, audio_settings = ?, updated_at = datetime('now') WHERE deck_id = ? AND hanzi = ? AND audio_url IS NULL")
+      .bind(note.audio_url, note.audio_provider, note.audio_voice, note.audio_model, note.audio_settings, share.target_deck_id, note.hanzi.trim())
       .run();
     updated += res.meta?.changes ?? 0;
   }
@@ -884,6 +884,14 @@ export async function insertNoteCopy(db: D1Database, targetDeckId: string, note:
     )
     .bind(...noteCopyValues(newNoteId, targetDeckId, note))
     .run();
+  // The copy shares the source's clips, so it shares their provenance (docs/AUDIO.md).
+  const prov = ['audio_voice', 'audio_model', 'audio_settings', 'sentence_clue_audio_voice', 'sentence_clue_audio_model', 'sentence_clue_audio_settings'];
+  if (prov.some((k) => note[k] != null)) {
+    await db
+      .prepare(`UPDATE notes SET ${prov.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
+      .bind(...prov.map((k) => (note[k] as string | null | undefined) ?? null), newNoteId)
+      .run();
+  }
   await insertCardsForNote(db, newNoteId);
   return newNoteId;
 }

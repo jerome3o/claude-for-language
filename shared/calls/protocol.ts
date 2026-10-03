@@ -12,6 +12,7 @@ import type { PresentedMaterial } from '../materials';
 import type { ActivityAction, ActivitySession } from '../call-activities/types';
 import type { CallDiagEvent } from './connection';
 import type { BoardPageMeta } from './pages';
+import type { ShowView, ShownState } from './follow';
 
 export interface CallPeer {
   client_id: string;
@@ -109,6 +110,14 @@ export type ClientMessage =
   /** Keep drawings on the shared screen (true) or let them fade (false) — one setting for both. */
   | { type: 'annot_mode'; persist: boolean }
   | { type: 'chat'; text: string }
+  /**
+   * Round 5 (shared/calls/follow.ts), the relationship's tutor only: put `view` on the student's
+   * stage (null = stop showing). `follow` = an automatic follow-up of what is shown (her board page
+   * turned) — the same show, not a new one.
+   */
+  | { type: 'show'; view: ShowView | null; follow?: boolean }
+  /** The tutor stops the other person's screen share (refused for anyone else). */
+  | { type: 'stop_share' }
   | { type: 'state'; state: PeerMediaState }
   | { type: 'ping'; t: number }
   /** I'm leaving (the call goes on for the other person): I stop counting as present at once. */
@@ -148,6 +157,10 @@ export type ServerMessage =
        * sendBeacon on pagehide, which can't carry the session header.
        */
       leave_token?: string;
+      /** The relationship's tutor (null = a solo call; absent from an older room). Leads "Show for student" / "Stop their share". */
+      tutor_id?: string | null;
+      /** What the tutor last showed (shared/calls/follow.ts). */
+      shown?: ShownState | null;
     }
   | { type: 'peer_joined'; peer: CallPeer }
   | { type: 'peer_left'; client_id: string }
@@ -182,6 +195,10 @@ export type ServerMessage =
   /** The in-call activity after a start / action / close (null = closed). `from` = the client whose message caused it. */
   | { type: 'activity'; session: ActivitySession | null; from?: string; name?: string }
   | { type: 'chat'; message: CallChatMessage }
+  /** What the tutor shows now (after a `show`). */
+  | { type: 'shown'; shown: ShownState | null }
+  /** To the person sharing: the tutor stopped your screen share — stop capturing. */
+  | { type: 'share_stopped'; by: string; name: string }
   | { type: 'pong'; t: number; server_time: number }
   | { type: 'ended'; by: string }
   | { type: 'replaced' }

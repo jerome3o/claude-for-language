@@ -12,9 +12,15 @@
  * call is created (`lessonForNewCall` in services/calls/lessons.ts) and the
  * migration back-filled existing calls with the same rule; clients group the
  * Past calls list by the `lesson_id` the server sends (`groupCallsByLesson`).
+ *
+ * The window was 20 minutes until round 5 (3 Oct 2026): a lesson that was left,
+ * interrupted and rejoined later in the same session still split in two. Two hours
+ * covers a lesson with a break; the next day's lesson is still its own. Calls
+ * grouped before the change keep their lesson. (The 10-minute auto-end of an empty
+ * call is unrelated: an ended call simply starts the gap.)
  */
 
-export const LESSON_GAP_MS = 20 * 60_000;
+export const LESSON_GAP_MS = 2 * 60 * 60_000;
 
 export interface LessonCallLike {
   id: string;

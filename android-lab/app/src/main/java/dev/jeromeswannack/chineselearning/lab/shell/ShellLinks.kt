@@ -32,9 +32,9 @@ object ShellLinks {
     private fun Intent.withNotification(kind: String?): Intent = if (kind != null) putExtra(EXTRA_NOTIFICATION, kind) else this
 
     /**
-     * A "go study" entry (the widget, a due-card / homework reminder): opens its path unless a
-     * homework pass, reader, lesson, picture hunt or quest is in progress — then that stays on
-     * screen (ui/nav/NavResume.kt). Study itself is single-instance either way.
+     * A "go study" entry (the widget, a due-card / homework reminder). Study ALWAYS opens (over a
+     * pass, which stays underneath); any other soft path (the homework reminder) is skipped while a
+     * homework pass, reader, lesson, picture hunt or quest is in progress (ui/nav/NavResume.kt).
      */
     const val EXTRA_SOFT = "lab_soft"
 

@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
-import { homeworkRowDetail, type DueLabel } from '@shared/homework';
+import { homeworkRowDetail, itemStatus, localDate, LIBRARY_STATUS_LABELS, statusTone, type DueLabel } from '@shared/homework';
 import { KIND_ICON, titleParts, type HomeworkItem } from '../../services/homework';
 import './homework.css';
+import '../tutor/library/homework-library.css';
 
 /** "overdue" / "due today" / "due in 2 days" as a coloured chip. */
 export function DueChip({ due, done = false }: { due: DueLabel; done?: boolean }) {
@@ -21,6 +22,7 @@ export function HomeworkRow({ item, showTutor = false }: { item: HomeworkItem; s
       <span className="hw-row-main">
         <span className="hw-row-title" lang="zh">{base}</span>
         <span className="hw-row-meta">
+          <StudentStatus item={item} />
           {homeworkRowDetail(item, showTutor)}
         </span>
         {a.kind === 'deck' && !item.done && item.progress.done > 0 && (
@@ -31,5 +33,18 @@ export function HomeworkRow({ item, showTutor = false }: { item: HomeworkItem; s
       </span>
       <DueChip due={item.due} done={item.done} />
     </Link>
+  );
+}
+
+/** Completed / In progress / Overdue / Not started — the same words and colours the tutor's library uses. */
+function StudentStatus({ item }: { item: HomeworkItem }) {
+  const today = localDate();
+  const status = itemStatus(item, today);
+  // Overdue / done already have their chip on the right.
+  if (status === 'overdue' || status === 'completed') return null;
+  return (
+    <span className={`hw-status hl-status hl-tone-${statusTone(status, item.assignment.due_date, today)}`} data-testid="hw-status" data-status={status}>
+      {LIBRARY_STATUS_LABELS[status]}
+    </span>
   );
 }

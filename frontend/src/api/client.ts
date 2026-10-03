@@ -387,6 +387,27 @@ export async function generateNoteAudio(noteId: string, options?: GenerateAudioO
   });
 }
 
+/** What `POST /api/notes/:id/ensure-audio` did with each clip (docs/AUDIO.md). */
+export type EnsureClipOutcome = 'ok' | 'copied' | 'generated' | 'queued' | 'failed' | 'none';
+
+export interface EnsureNoteAudioResponse {
+  note: Note | null;
+  word: EnsureClipOutcome;
+  sentence: EnsureClipOutcome;
+}
+
+/**
+ * Make sure a note's word + example-sentence clips exist (idempotent). `broken`:
+ * clip keys this device got an error for — only really missing ones are remade.
+ * A clip MiniMax can't make right now comes back `queued`: it is coming.
+ */
+export async function ensureNoteAudio(noteId: string, broken: string[] = []): Promise<EnsureNoteAudioResponse> {
+  return fetchJSON<EnsureNoteAudioResponse>(`/notes/${noteId}/ensure-audio`, {
+    method: 'POST',
+    body: JSON.stringify(broken.length ? { broken } : {}),
+  });
+}
+
 export interface AudioQualityCounts {
   minimax: number;
   gtts: number;

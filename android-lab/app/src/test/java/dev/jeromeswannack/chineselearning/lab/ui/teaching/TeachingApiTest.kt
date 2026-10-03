@@ -75,6 +75,8 @@ class TeachingApiTest {
                 "GET /api/tutor/dashboard" to api.json.encodeToString(dash),
                 "GET /api/relationships/rel-jerome/homework" to api.json.encodeToString(TeachingSamples.homework),
                 "GET /api/relationships/rel-lily/homework" to api.json.encodeToString(TeachingSamples.homework.copy(assignments = emptyList())),
+                "GET /api/tutor/homework-library" to
+                    """{"students":[{"relationship_id":"rel-jerome","student_name":"Jerome"},{"relationship_id":"rel-lily","student_name":"Lily"}],"items":[{"key":"deck:t1","kind":"deck","relationship_id":"rel-jerome","title":"HSK 1","sent_at":"2026-10-02T10:00:00Z","status":"in_progress","percent":40}],"counts":{},"today":"2026-10-03"}""",
             ),
         )
         platform.cache.put(NavKeys.RELATIONSHIPS, NavKeys.KIND, MyRelationshipsDto(students = listOf(RelationshipDto("rel-jerome", status = "active"))))
@@ -87,6 +89,9 @@ class TeachingApiTest {
         assertEquals(4, platform.cache.get<RelationshipHomeworkDto>(TeachingKeys.homework("rel-jerome"))!!.assignments.size)
         assertTrue(platform.cache.get<dev.jeromeswannack.chineselearning.lab.data.api.TeachingMeDto>(TeachingKeys.ME)!!.can_invite)
         assertTrue(seen.first { it.path!!.startsWith("/api/tutor/dashboard") }.path!!.contains("tz_offset="))
+        // The homework library, sliced per student for the student page's "Most recent homework".
+        assertEquals("HSK 1", platform.cache.get<dev.jeromeswannack.chineselearning.lab.data.api.HomeworkLibraryDto>(HomeworkLibraryKeys.student("rel-jerome"))!!.items.single().title)
+        assertTrue(platform.cache.get<dev.jeromeswannack.chineselearning.lab.data.api.HomeworkLibraryDto>(HomeworkLibraryKeys.student("rel-lily"))!!.items.isEmpty())
 
         // Fresh within 10 minutes: a second sync fetches nothing.
         val before = seen.size

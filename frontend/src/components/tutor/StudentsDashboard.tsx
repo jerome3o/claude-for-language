@@ -9,6 +9,9 @@ import { PendingInviteRow } from './PendingInviteRow';
 import { HomeworkDecks } from './HomeworkDecks';
 import { SendHomeworkSheet } from './SendHomeworkSheet';
 import { ProfileNudge } from '../profile/ProfileChip';
+import { Link } from 'react-router-dom';
+import { getTutorLibrary } from '../../api/homeworkLibrary';
+import type { LibraryItem } from '@shared/homework';
 import './tutor-dashboard.css';
 
 /**
@@ -25,6 +28,11 @@ export function StudentsDashboard({ canInvite }: { canInvite: boolean }) {
     queryFn: getTutorDashboard,
     staleTime: DASHBOARD_STALE_MS,
   });
+
+  // The newest homework per student, for the compact line on each card.
+  const library = useQuery({ queryKey: ['homework-library', 'all'], queryFn: getTutorLibrary, staleTime: DASHBOARD_STALE_MS, retry: 1 });
+  const newest = new Map<string, LibraryItem>();
+  for (const item of library.data?.items ?? []) if (!newest.has(item.relationship_id)) newest.set(item.relationship_id, item);
 
   const revoke = useMutation({
     mutationFn: revokeInvite,
@@ -46,9 +54,17 @@ export function StudentsDashboard({ canInvite }: { canInvite: boolean }) {
     <>
       <ProfileNudge />
       <section className="td-section" aria-label="Students">
+        <div className="td-library-link">
+          <Link to="/homework-library" data-testid="dashboard-homework-library">✅ Homework library ›</Link>
+        </div>
         <div className="td-list">
           {students.map((s) => (
-            <StudentCard key={s.relationship_id} overview={s} onSendHomework={setHomeworkFor} />
+            <StudentCard
+              key={s.relationship_id}
+              overview={s}
+              onSendHomework={setHomeworkFor}
+              recent={newest.has(s.relationship_id) && library.data ? { item: newest.get(s.relationship_id)!, today: library.data.today } : null}
+            />
           ))}
           {canInvite && invites.map((inv) => (
             <PendingInviteRow key={inv.id} invite={inv} onRevoke={(id) => revoke.mutateAsync(id).then(() => undefined)} />

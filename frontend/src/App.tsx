@@ -21,6 +21,7 @@ import { SplashPage } from './pages/SplashPage';
 // Lazy-loaded pages
 const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ default: m.DeckDetailPage })));
 const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
+const HomeworkLibraryPage = lazy(() => import('./pages/tutor/HomeworkLibraryPage').then(m => ({ default: m.HomeworkLibraryPage })));
 const HomeworkDraftPage = lazy(() => import('./pages/tutor/HomeworkDraftPage').then(m => ({ default: m.HomeworkDraftPage })));
 const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
 const TutorNotesPage = lazy(() => import('./pages/TutorNotesPage').then(m => ({ default: m.TutorNotesPage })));
@@ -393,7 +394,9 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/connections/:relId/homework" element={<ProtectedRoute><Header /><HomeworkLibraryPage /></ProtectedRoute>} />
       <Route path="/connections/:relId/homework/:jobId" element={<ProtectedRoute><Header /><HomeworkDraftPage /></ProtectedRoute>} />
+      <Route path="/homework-library" element={<ProtectedRoute><Header /><HomeworkLibraryPage /></ProtectedRoute>} />
       <Route
         path="/connections/:relId/session-notes"
         element={

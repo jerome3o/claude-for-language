@@ -20,6 +20,14 @@ export interface Env {
   TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
   /** Word checks (services/card-check.ts): new / edited notes and per-deck "Check for errors" runs. */
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
+  /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
+  TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
+  /** One MiniMax rate limiter for every TTS call (docs/AUDIO.md). Optional so tests run without it. */
+  TTS_LIMITER?: DurableObjectNamespace<import('./durable/tts-limiter').TtsLimiter>;
+  /** MiniMax requests per minute we allow ourselves (default 55). */
+  MINIMAX_RPM?: string;
+  /** Match the perceived speed after a model change (0.5–2; default services/tts/settings.ts). */
+  TTS_SPEED_OVERRIDE?: string;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
@@ -291,7 +299,7 @@ export interface Note {
   alternatives: string | null;  // JSON array of acceptable alternative hanzi answers
   /** The learner's "long-term review" choice for this word: 1 in, 0 out, null = follow the deck (migration 0096). */
   long_term?: 0 | 1 | null;
-  /** Open word-check issues, JSON NoteCheckIssue[] (shared/cards/check.ts; migration 0103). */
+  /** Open word-check issues, JSON NoteCheckIssue[] (shared/cards/check.ts; migration 0104). */
   check_issues?: string | null;
   check_at?: string | null;
   created_at: string;

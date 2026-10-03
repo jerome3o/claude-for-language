@@ -78,6 +78,11 @@ import {
   type TextDocSnapshot,
   type TextOp,
   type TextSelection,
+  canShow,
+  canStopShare,
+  nextShown,
+  sanitizeShowView,
+  type ShownState,
 } from '@shared/calls';
 import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
 import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAnnotations, shareMaterial } from '../services/materials';
@@ -740,6 +745,8 @@ export class CallRoom extends DurableObject<Env> {
       page: this.opening,
       page_views: Object.fromEntries(others.map(({ a }) => [a.clientId, this.viewOf(a)])),
       leave_token: attachment.leaveToken,
+      tutor_id: await this.tutor(),
+      shown: (await this.ctx.storage.get<ShownState | null>('shown')) ?? null,
     });
     this.broadcast({ type: 'peer_joined', peer: this.peerOf(attachment) }, server);
     return new Response(null, { status: 101, webSocket: client });
@@ -1029,6 +1036,14 @@ export class CallRoom extends DurableObject<Env> {
         this.markDirty('diag');
         return;
       }
+      case 'show': {
+        await this.showFor(ws, a, msg.view ?? null, msg.follow === true);
+        return;
+      }
+      case 'stop_share': {
+        await this.stopTheirShare(ws, a);
+        return;
+      }
       case 'state': {
         const s = msg.state;
         if (!s || typeof s !== 'object') return;
@@ -1046,6 +1061,49 @@ export class CallRoom extends DurableObject<Env> {
       case 'end':
         await this.endCall(a, 'End for everyone');
         return;
+    }
+  }
+
+  /**
+   * "Show for student" (shared/calls/follow.ts): the relationship's tutor puts a view on the
+   * student's stage. Kept in storage so a reconnect (welcome) gets the latest show; everyone
+   * hears `shown` (the tutor's button reads "Showing ✓").
+   */
+  private async showFor(ws: WebSocket, a: Attachment, rawView: unknown, follow: boolean): Promise<void> {
+    if (!canShow(a.userId, await this.tutor())) {
+      this.send(ws, { type: 'error', message: 'Only the tutor can show things to the student' });
+      return;
+    }
+    const cur = (await this.ctx.storage.get<ShownState | null>('shown')) ?? null;
+    if (rawView === null) {
+      if (!cur) return;
+      await this.ctx.storage.put('shown', null);
+      this.broadcast({ type: 'shown', shown: null });
+      return;
+    }
+    const view = sanitizeShowView(rawView);
+    if (!view) return;
+    const next = nextShown(cur, view, { userId: a.userId, name: a.name }, follow, Date.now(), () => crypto.randomUUID());
+    await this.ctx.storage.put('shown', next);
+    this.broadcast({ type: 'shown', shown: next });
+    if (next.id !== cur?.id) await this.logRoom(`${a.name} showed the ${view.kind === 'text' ? 'board' : view.kind === 'draw' ? 'drawing board' : view.kind} to the student`, a);
+  }
+
+  /** The tutor stops the other person's screen share: their device stops capturing; everyone hears they no longer share. */
+  private async stopTheirShare(ws: WebSocket, a: Attachment): Promise<void> {
+    const tutor = await this.tutor();
+    const targets = this.presentSockets().filter(({ a: t }) => t.userId !== a.userId && t.state.screen);
+    if (!targets.length) return;
+    if (!targets.every(({ a: t }) => canStopShare(a.userId, tutor, t.userId))) {
+      this.send(ws, { type: 'error', message: "Only the tutor can stop the other person's screen share" });
+      return;
+    }
+    for (const { ws: tws, a: t } of targets) {
+      this.send(tws, { type: 'share_stopped', by: a.userId, name: a.name });
+      t.state = { ...t.state, screen: false };
+      tws.serializeAttachment(t);
+      this.broadcast({ type: 'peer_state', client_id: t.clientId, state: t.state }, tws);
+      await this.logRoom(`${a.name} stopped ${t.name}'s screen share`, a);
     }
   }
 

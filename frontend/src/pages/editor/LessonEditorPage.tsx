@@ -7,6 +7,7 @@
  * Routes: /lessons/:id/edit (target "lesson"), /library/:id/edit ("library").
  */
 
+import { UpdateCopiesPrompt } from '../../components/tutor/library/UpdateCopiesSheet';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -88,6 +89,8 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
   const [spec, setSpec] = useState<CustomLessonSpec | null>(null);
   const [saved, setSaved] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  // After saving a library lesson that was sent: "Also update <student>'s copy" (docs/HOMEWORK.md §10).
+  const [copiesPrompt, setCopiesPrompt] = useState(0);
   const [showJson, setShowJson] = useState(false);
   const [showAnki, setShowAnki] = useState(false);
 
@@ -121,6 +124,7 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
         setSaved(canonicalJson(item.spec));
         queryClient.invalidateQueries({ queryKey: ['library-item', id] });
         queryClient.invalidateQueries({ queryKey: ['lesson-library'] });
+        setCopiesPrompt((n) => n + 1);
       } else {
         const lesson = await saveEditableLesson(id, spec);
         track('lesson.editor_save');
@@ -268,6 +272,9 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
       {showJson && <RawJsonModal spec={spec} onApply={next => { setSpec(next); setShowJson(false); }} onClose={() => setShowJson(false)} />}
       {showAnki && <AnkiExportModal target={{ kind: 'lesson', spec, sourceId: id }} onClose={() => setShowAnki(false)} />}
       {toast && <div className="ed-toast" role="status">{toast}</div>}
+      {copiesPrompt > 0 && target === 'library' && (
+        <UpdateCopiesPrompt key={copiesPrompt} kind="lesson" sourceId={id} onDone={() => setCopiesPrompt(0)} />
+      )}
     </>
   );
 }

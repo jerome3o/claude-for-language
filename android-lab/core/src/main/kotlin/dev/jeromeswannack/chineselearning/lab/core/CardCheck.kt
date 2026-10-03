@@ -52,7 +52,7 @@ object CardCheck {
     const val CHECK_BATCH_SIZE = 40
 
     // Port of `CHECK_COST` (Haiku 4.5: $1 / M input, $5 / M output).
-    private const val PROMPT_TOKENS = 900
+    private const val PROMPT_TOKENS = 1100
     private const val INPUT_TOKENS_PER_WORD = 30
     private const val OUTPUT_TOKENS_PER_WORD = 12
     private const val OUTPUT_TOKENS_PER_BATCH = 20

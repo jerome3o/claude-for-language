@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import { ensureNoteClips, audioKeyOf } from '../content/audio';
 import type { Env } from '../../types';
+import type { TtsFn } from '../tts/clips';
 
 const TUTOR = 'tutor-1';
 const STUDENT = 'student-1';
@@ -47,12 +48,12 @@ describe('ensureNoteClips', () => {
   let ttsCalls: Array<{ text: string; id: string }>;
   let ttsWorks: boolean;
   let env: Env;
-  const tts = async (_env: Env, text: string, id: string) => {
+  const tts: TtsFn = async (_env, text, id) => {
     ttsCalls.push({ text, id });
-    if (!ttsWorks) return null;
+    if (!ttsWorks) return { ok: false, permanent: false, rateLimited: false, reason: 'network' };
     const key = `generated/${id}_new.mp3`;
     inBucket.add(key);
-    return { audioKey: key, provider: 'minimax' as const };
+    return { ok: true, result: { audioKey: key, provider: 'minimax', model: 'speech-2.8-hd', voice: 'Chinese (Mandarin)_Radio_Host', speed: 0.6 } };
   };
 
   beforeEach(async () => {
@@ -64,7 +65,10 @@ describe('ensureNoteClips', () => {
     env = {
       DB: db,
       MINIMAX_API_KEY: 'k',
-      AUDIO_BUCKET: { head: async (key: string) => (inBucket.has(key) ? { key } : null) } as unknown as R2Bucket,
+      AUDIO_BUCKET: {
+        head: async (key: string) => (inBucket.has(key) ? { key } : null),
+        delete: async (key: string) => { inBucket.delete(key); },
+      } as unknown as R2Bucket,
     } as unknown as Env;
   });
 
@@ -105,12 +109,23 @@ describe('ensureNoteClips', () => {
     expect(row(db, 's1')).toMatchObject({ audio_url: 'generated/tutor.mp3', sentence_clue_audio_url: 'generated/tutor-s.mp3' });
   });
 
-  it("generates for the copy when the tutor's note has nothing usable (other sentence, clip gone)", async () => {
+  it("makes the TUTOR's clip once when it is gone and shares it; a different sentence gets its own", async () => {
     note(db, 't1', 't-deck', '刮风', 'generated/tutor-gone.mp3', '风很大。', 'generated/tutor-s.mp3');
     note(db, 's1', 's-copy', '刮风', null, '今天刮风了。', null);
     inBucket.add('generated/tutor-s.mp3');
-    expect(await ensureNoteClips(env, 's1', {}, tts)).toEqual({ word: 'generated', sentence: 'generated' });
-    expect(ttsCalls.map((c) => c.id)).toEqual(['s1', 's1-sentence']);
+    expect(await ensureNoteClips(env, 's1', {}, tts)).toEqual({ word: 'copied', sentence: 'generated' });
+    expect(ttsCalls.map((c) => c.id)).toEqual(['t1', 's1-sentence']);
+    expect(row(db, 's1').audio_url).toBe('generated/t1_new.mp3');
+    expect(row(db, 't1').audio_url).toBe('generated/t1_new.mp3');
+  });
+
+  it('queues the clip (interactive) when MiniMax is busy, instead of failing silently', async () => {
+    const sent: unknown[] = [];
+    env = { ...env, TTS_QUEUE: { send: async (body: unknown) => { sent.push(body); } } } as unknown as Env;
+    const busy: TtsFn = async () => ({ ok: false, permanent: false, rateLimited: true, reason: 'base_resp 1002', retryAfterMs: 60_000 });
+    note(db, 'n1', 's-own', '刮风', null, null, null);
+    expect(await ensureNoteClips(env, 'n1', {}, busy)).toEqual({ word: 'queued', sentence: 'none' });
+    expect(sent).toEqual([{ kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'interactive', force: undefined, attempt: undefined }]);
   });
 
   it('reports failed (and writes nothing) when TTS is unavailable', async () => {

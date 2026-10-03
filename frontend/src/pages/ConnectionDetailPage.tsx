@@ -38,6 +38,10 @@ import { LessonNotesSection } from '../components/tutor/LessonNotesSection';
 import { StudentProfileSection } from '../components/tutor/StudentProfileSection';
 import { DailyBudgetSection } from '../components/tutor/DailyBudgetSection';
 import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
+import { HomeworkRow } from '../components/homework/HomeworkRow';
+import { useHomeworkItems } from '../components/homework/useHomeworkItems';
+import { RecentHomeworkCard } from '../components/tutor/library/RecentHomeworkCard';
+import { getRelationshipLibrary } from '../api/homeworkLibrary';
 import { RemoveHomeworkSheet, type RemovalTarget } from '../components/tutor/RemoveHomeworkSheet';
 import { DeckCheckSheet } from '../components/cardCheck/DeckCheckSheet';
 import { SharedReadersSection } from '../components/tutor/SharedReadersSection';
@@ -196,6 +200,12 @@ export function ConnectionDetailPage() {
     queryFn: () => getStudentOverview(relId!),
     enabled: !!relId && tutorView,
     staleTime: 60_000,
+  });
+  const libraryQuery = useQuery({
+    queryKey: ['homework-library', relId],
+    queryFn: () => getRelationshipLibrary(relId!),
+    enabled: !!relId && tutorView,
+    staleTime: 30_000,
   });
 
   const conversationsQuery = useQuery({
@@ -426,6 +436,11 @@ export function ConnectionDetailPage() {
             </div>
           )}
 
+          {/* Most recent homework: %, due date, status colour (docs/HOMEWORK.md §9) */}
+          {libraryQuery.data && (
+            <RecentHomeworkCard items={libraryQuery.data.items} today={libraryQuery.data.today} relId={relId!} onSend={() => setShowHomeworkSheet(true)} />
+          )}
+
           {liveCallBanner}
           <div className="td-actions">
             <button type="button" className="btn btn-primary" onClick={handleMessage} disabled={messageBusy}>💬 Message</button>
@@ -470,6 +485,7 @@ export function ConnectionDetailPage() {
               Recordings{overview && overview.pills.recordings_to_hear > 0 ? ` (${overview.pills.recordings_to_hear})` : ''}
             </Link>
             <Link to={`/connections/${relId}/progress`}>Progress</Link>
+            <Link to={`/connections/${relId}/homework`}>Homework library</Link>
           </nav>
 
           {/* The tutor's private profile of the student: every homework / lesson / reader agent reads it */}
@@ -703,6 +719,8 @@ export function ConnectionDetailPage() {
         {!isClaudeRelationship && (
           <section className="detail-section">
             <h2>Homework from your tutor</h2>
+            {/* The same items and statuses as My homework (/homework), from this tutor */}
+            <TutorHomeworkRows relId={relId!} />
             {sharedDecksQuery.isLoading ? (
               <Loading message="Loading shared decks..." />
             ) : sharedDecks.length === 0 ? (
@@ -800,6 +818,23 @@ export function ConnectionDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The student's homework from this tutor (to do first, the latest done ones), linking to My homework. */
+function TutorHomeworkRows({ relId }: { relId: string }) {
+  const items = useHomeworkItems();
+  if (!items) return null;
+  const todo = items.todo.filter((i) => i.assignment.relationship_id === relId);
+  const done = items.done.filter((i) => i.assignment.relationship_id === relId).slice(0, 3);
+  if (todo.length === 0 && done.length === 0) return null;
+  return (
+    <div className="hw-list" style={{ marginBottom: '0.75rem' }} data-testid="tutor-page-homework">
+      {[...todo, ...done].map((item) => (
+        <HomeworkRow key={item.assignment.id} item={item} />
+      ))}
+      <Link to="/homework" className="btn-link">My homework ›</Link>
     </div>
   );
 }

@@ -6,11 +6,11 @@
  * Processing is per lesson and INCREMENTAL: each call's pieces are transcribed
  * as before; whenever a call of the lesson has ended and all its pieces are
  * done, and no other call of the lesson is live or still transcribing, the
- * lesson report is (re)written over ALL its calls — at once, not 20 minutes
+ * lesson report is (re)written over ALL its calls — at once, not two hours
  * later, so the tutor can make homework right after the lesson. A call that
  * joins the lesson afterwards makes the report stale (`report_call_ids`), and
  * it is rewritten when that call is transcribed. (The alternative — wait until
- * the 20-minute window has passed — would make every report 20 minutes late
+ * the two-hour window has passed — would make every report two hours late
  * for a case that is rare.)
  */
 
