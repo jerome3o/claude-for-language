@@ -31,9 +31,13 @@ bucket_name = "chinese-learning-audio"
 # - SENDGRID_API_KEY: SendGrid API key for email notifications (message alerts, invitations)
 [vars]
 ENVIRONMENT = "production"
-# MiniMax requests per minute we allow ourselves, shared by every TTS call
-# (docs/AUDIO.md). Keep it a few under the plan's RPM.
-MINIMAX_RPM = "55"
+# MiniMax rate (docs/AUDIO.md "Rate limit"): the limiter LEARNS the rate
+# (starts at 8/min, +2 per clean busy minute, halves on a 1002 / 429).
+# MINIMAX_RPM is a HARD cap on what it may learn — 9 = under the Starter plan
+# (10/min). On pay-as-you-go (60/min), delete MINIMAX_RPM and it climbs to
+# MINIMAX_RPM_MAX by itself.
+MINIMAX_RPM = "9"
+MINIMAX_RPM_MAX = "60"
 
 # Local development settings
 [dev]

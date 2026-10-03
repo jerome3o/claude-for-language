@@ -5,6 +5,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  ADAPTIVE_START_RPM,
+  adaptiveBounds,
+  initialAdaptive,
+  noteRateLimited,
+  noteRequest,
+  rollAdaptive,
+  type AdaptiveState,
   DEFAULT_MINIMAX_RPM,
   initialState,
   limiterConfig,
@@ -122,16 +129,154 @@ function fakeDoState() {
   return { storage: { get: async (k: string) => store.get(k), put: async (k: string, v: unknown) => void store.set(k, v) } };
 }
 
+describe('adaptive rate (AIMD)', () => {
+  const MIN = 60_000;
+  const b = adaptiveBounds(undefined, undefined);
+
+  /** One busy minute: somebody was refused a slot; optionally MiniMax said 1002. */
+  function busyMinute(s: AdaptiveState, minute: number, rateLimited = false): AdaptiveState {
+    let st = noteRequest(s, b, minute * MIN + 1_000, true);
+    if (rateLimited) st = noteRateLimited(st, b, minute * MIN + 30_000);
+    return st;
+  }
+
+  it('bounds: floor 2, cap MINIMAX_RPM_MAX (60), MINIMAX_RPM is a hard cap when set', () => {
+    expect(adaptiveBounds(undefined, undefined)).toEqual({ floor: 2, cap: 60 });
+    expect(adaptiveBounds('9', '60')).toEqual({ floor: 2, cap: 9 });
+    expect(adaptiveBounds('100', '60')).toEqual({ floor: 2, cap: 60 });
+    expect(adaptiveBounds(undefined, '30')).toEqual({ floor: 2, cap: 30 });
+    expect(adaptiveBounds('abc', '')).toEqual({ floor: 2, cap: 60 });
+  });
+
+  it('a first run starts at 8', () => {
+    const s = initialAdaptive(b, 0, null);
+    expect(s.rpm).toBe(ADAPTIVE_START_RPM);
+    expect(s.history.at(-1)?.reason).toBe('start');
+  });
+
+  it('ramps +2 per full minute with demand and no 1002, up to the cap', () => {
+    let s = initialAdaptive(b, 0, null);
+    for (let m = 0; m < 3; m++) s = busyMinute(s, m);
+    s = rollAdaptive(s, b, 3 * MIN);
+    expect(s.rpm).toBe(14);
+    for (let m = 3; m < 60; m++) s = busyMinute(s, m);
+    s = rollAdaptive(s, b, 60 * MIN);
+    expect(s.rpm).toBe(60);
+  });
+
+  it('no demand → no ramp (an idle minute proves nothing), and a long gap earns at most one step', () => {
+    let s = initialAdaptive(b, 0, null);
+    s = noteRequest(s, b, 1_000, false); // granted, never refused
+    s = rollAdaptive(s, b, 5 * MIN);
+    expect(s.rpm).toBe(8);
+    s = noteRequest(s, b, 5 * MIN + 1_000, true);
+    s = rollAdaptive(s, b, 50 * MIN);
+    expect(s.rpm).toBe(10);
+  });
+
+  it('halves on a 1002 / 429 and the minute it happened in earns nothing', () => {
+    let s = initialAdaptive(b, 0, { rpm: 20, history: [] });
+    s = busyMinute(s, 0, true);
+    expect(s.rpm).toBe(10);
+    expect(s.lastRateLimitedAt).toBe(30_000);
+    s = noteRequest(s, b, 60_000 + 1_000, true); // still inside the window opened by the 1002
+    s = rollAdaptive(s, b, 90_000 + 1);
+    expect(s.rpm).toBe(10);
+    s = noteRequest(s, b, 100_000, true);
+    s = rollAdaptive(s, b, 150_000 + 1);
+    expect(s.rpm).toBe(12);
+  });
+
+  it('never below the floor', () => {
+    let s = initialAdaptive(b, 0, { rpm: 3, history: [] });
+    for (let i = 0; i < 5; i++) s = noteRateLimited(s, b, i * 1000);
+    expect(s.rpm).toBe(2);
+  });
+
+  it('on Starter (10/min) with no hard cap it settles around the plan: never more than one 1002 per few minutes', () => {
+    // MiniMax refuses above 10/min: a minute run at > 10 ends in a 1002.
+    let s = initialAdaptive(b, 0, null);
+    let limited = 0;
+    for (let m = 0; m < 60; m++) {
+      s = rollAdaptive(s, b, m * MIN);
+      const over = s.rpm > 10;
+      s = busyMinute(s, m, over);
+      if (over) limited++;
+    }
+    expect(s.rpm).toBeLessThanOrEqual(12);
+    expect(limited).toBeLessThanOrEqual(15);
+  });
+
+  it('a restart keeps the learned rate and history; a lowered cap clamps it', () => {
+    let s = initialAdaptive(b, 0, null);
+    for (let m = 0; m < 4; m++) s = busyMinute(s, m);
+    s = rollAdaptive(s, b, 4 * MIN);
+    const saved = JSON.parse(JSON.stringify(s)) as AdaptiveState;
+    const again = initialAdaptive(b, 10 * MIN, saved);
+    expect(again.rpm).toBe(16);
+    expect(again.history.length).toBe(s.history.length);
+    const capped = initialAdaptive(adaptiveBounds('9', '60'), 10 * MIN, saved);
+    expect(capped.rpm).toBe(9);
+    expect(capped.history.at(-1)?.reason).toBe('bounds');
+  });
+});
+
+describe('9 RPM: the backfill never starves a tap', () => {
+  it('batch polling every 100 ms; a tap that waits gets the next token within one token interval', () => {
+    const cfg = limiterConfig(9);
+    let state = initialState(cfg, 0);
+    let batchGrants = 0;
+    let tapAt: number | null = null;
+    let tapGranted: number | null = null;
+    let tapRetryAt = 0;
+    for (let t = 0; t < 10 * 60_000; t += 100) {
+      // A tap at 5 min, which retries when told to.
+      if (t === 5 * 60_000) tapAt = t;
+      if (tapAt !== null && tapGranted === null && t >= tapRetryAt) {
+        const r = tryAcquire(state, cfg, 'interactive', t);
+        state = r.state;
+        if (r.granted) tapGranted = t;
+        else tapRetryAt = t + r.retryAfterMs;
+      }
+      const r = tryAcquire(state, cfg, 'batch', t);
+      state = r.state;
+      if (r.granted) batchGrants++;
+    }
+    expect(tapGranted).not.toBeNull();
+    expect(tapGranted! - tapAt!).toBeLessThanOrEqual(Math.ceil(60_000 / 9) + 200);
+    // …and the backfill still drains at about its share.
+    expect(batchGrants).toBeGreaterThanOrEqual(Math.floor(9 * 0.6 * 10) - 3);
+  });
+});
+
 describe('TtsLimiter Durable Object', () => {
+  it('persists the learned rate across a restart', async () => {
+    const doState = fakeDoState();
+    const one = new TtsLimiter(doState as never, { MINIMAX_RPM: '9' } as Env);
+    expect((await one.snapshot()).learned_rpm).toBe(8);
+    await one.report('rate_limited');
+    const two = new TtsLimiter(doState as never, { MINIMAX_RPM: '9' } as Env);
+    const snap = await two.snapshot();
+    expect(snap.learned_rpm).toBe(4);
+    expect(snap.rpm_cap).toBe(9);
+    expect(snap.last_rate_limited_at).not.toBeNull();
+    expect(snap.rpm_history.map((h) => h.reason)).toEqual(['start', 'rate_limited']);
+  });
+
   it('grants, counts per minute, and backs everyone off after a 1002', async () => {
     const dobj = new TtsLimiter(fakeDoState() as never, { MINIMAX_RPM: '55' } as Env);
+    await dobj.snapshot();
     const first = await dobj.acquire('interactive');
     expect(first.granted).toBe(true);
     await dobj.report('ok');
     await dobj.report('rate_limited');
     expect((await dobj.acquire('interactive')).granted).toBe(false);
     const snap = await dobj.snapshot();
-    expect(snap.rpm).toBe(55);
+    // First run starts at 8 and halves on the 1002.
+    expect(snap.learned_rpm).toBe(4);
+    expect(snap.rpm).toBe(4);
+    expect(snap.rpm_cap).toBe(55);
+    expect(snap.last_rate_limited_at).not.toBeNull();
     expect(snap.blocked_until).not.toBeNull();
     const total = snap.minutes.reduce((n, m) => ({ i: n.i + m.interactive, ok: n.ok + m.ok, rl: n.rl + m.rateLimited, d: n.d + m.denied }), { i: 0, ok: 0, rl: 0, d: 0 });
     expect(total).toEqual({ i: 1, ok: 1, rl: 1, d: 1 });

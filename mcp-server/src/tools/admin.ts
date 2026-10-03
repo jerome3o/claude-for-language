@@ -127,7 +127,7 @@ export function registerAdminTools(ctx: ToolContext): void {
 
   server.tool(
     'audio_backfill_status',
-    'ADMIN ONLY. Read-only state of the TTS audio pipeline: current settings (MiniMax model, voice, speed), the backlog of stored clips by kind (word / card sentence / sentence set) and state (current, missing, Google-made, old voice/model, waiting to retry), clips by provider / model / voice, recent failures, the MiniMax rate limiter (RPM, night mode, tokens, last-hour calls by priority, rate-limited count, whether the backfill pump is running), measured throughput (clips/min) and an ETA for the whole backlog.',
+    'ADMIN ONLY. Read-only state of the TTS audio pipeline: current settings (MiniMax model, voice, speed), the backlog of stored clips by kind (word / card sentence / sentence set) and state (current, missing, Google-made, old voice/model, waiting to retry), clips by provider / model / voice, recent failures, the MiniMax rate limiter (the LEARNED RPM — adaptive, starts at 8/min, +2 per clean busy minute, halves on a 1002 — with its cap, last_rate_limited_at and recent changes; night mode, tokens, last-hour calls by priority, rate-limited count, whether the backfill pump is running), measured throughput (clips/min), an ETA for the whole backlog, and eta_at_learned_rpm (the ETA at the batch share of the learned rate).',
     {},
     async () => guard(async () => jsonResult(await api.get('/api/admin/audio/backfill')))
   );

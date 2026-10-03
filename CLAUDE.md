@@ -363,7 +363,9 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - **TTS is MiniMax only**: `speech-2.8-hd`, voice Radio Host, speed 0.6 — set ONLY in
   `worker/src/services/tts/settings.ts`. No Google fallback for stored clips.
 - **Every MiniMax call goes through `callMiniMaxTTS`** (`services/audio.ts`), which asks the
-  `TtsLimiter` Durable Object for a slot (`MINIMAX_RPM`, default 55; interactive before batch;
+  `TtsLimiter` Durable Object for a slot (a LEARNED rate — AIMD: starts at 8/min, +2 per clean busy
+  minute, ×0.5 on a 1002, floor 2, capped by `MINIMAX_RPM` = 9 (Starter plan) and `MINIMAX_RPM_MAX` = 60;
+  interactive before batch, a waiting tap reserves the next token;
   a 1002 / 429 is requeued 60 s later, never retried in the request). A new TTS path must use it.
 - **Stored clips** (word, card sentence, sentence-set row) are made by `ensureClip`
   (`services/tts/clips.ts`): idempotent by a settings + text signature (`audio_settings`,
@@ -770,7 +772,7 @@ npm run dev
 
 ### Environment Variables / Secrets
 - `ANTHROPIC_API_KEY`: For AI card generation and Ask Claude feature
-- `MINIMAX_API_KEY`: MiniMax TTS (every stored clip; docs/AUDIO.md). `MINIMAX_RPM` (wrangler var) = requests per minute we allow ourselves
+- `MINIMAX_API_KEY`: MiniMax TTS (every stored clip; docs/AUDIO.md). `MINIMAX_RPM` (wrangler var) = hard cap on the learned rate (9 = Starter), `MINIMAX_RPM_MAX` = its ceiling (60)
 - `GOOGLE_TTS_API_KEY`: Google TTS, now only an in-the-moment fallback for ephemeral conversation audio (never stored)
 - D1 and R2 bindings are configured in `wrangler.toml`
 

@@ -31,11 +31,15 @@ routes.get('/admin/audio/backfill', async (c) => {
   const now = Date.now();
   const settings = ttsSettings(c.env);
   const [counts, limiter] = await Promise.all([backfillCounts(c.env.DB, { now, settingsHash: settings.hash }), snapshot(c.env)]);
-  const cfg = limiterConfig(c.env.MINIMAX_RPM, !!limiter?.night_until);
+  // The learned (AIMD) rate, not the env cap: that is what the backlog drains at.
+  const cfg = limiterConfig(limiter?.learned_rpm ?? 8, !!limiter?.night_until);
   const sum = (k: 'interactive' | 'batch' | 'ok' | 'failed' | 'rateLimited' | 'denied') =>
     (limiter?.minutes ?? []).reduce((n, m) => n + m[k], 0);
   const throughput = throughputPerMinute(limiter?.minutes ?? [], now, Math.round(cfg.rpm * cfg.batchShare));
   const eta = etaMinutes(counts.backlog, throughput.per_minute);
+  // What the batch share of the learned rate alone would give (no measurement needed).
+  const learnedBatchPerMinute = Math.round(cfg.rpm * cfg.batchShare * 10) / 10;
+  const etaLearned = etaMinutes(counts.backlog, learnedBatchPerMinute);
   return c.json({
     settings: { model: settings.model, voice: settings.voice, speed: settings.speed, hash: settings.hash },
     backlog: counts.backlog,
@@ -45,6 +49,11 @@ routes.get('/admin/audio/backfill', async (c) => {
     limiter: limiter
       ? {
           rpm: limiter.rpm,
+          learned_rpm: limiter.learned_rpm,
+          rpm_floor: limiter.rpm_floor,
+          rpm_cap: limiter.rpm_cap,
+          last_rate_limited_at: limiter.last_rate_limited_at ? new Date(limiter.last_rate_limited_at).toISOString() : null,
+          rpm_history: limiter.rpm_history.slice(-10).map((h) => ({ ...h, at: new Date(h.at).toISOString() })),
           burst: limiter.burst,
           batch_share: limiter.batch_share,
           night: !!limiter.night_until,
@@ -65,6 +74,11 @@ routes.get('/admin/audio/backfill', async (c) => {
     throughput,
     eta_minutes: eta,
     eta_at: eta === null ? null : new Date(now + eta * 60_000).toISOString(),
+    eta_at_learned_rpm: {
+      batch_per_minute: learnedBatchPerMinute,
+      eta_minutes: etaLearned,
+      eta_at: etaLearned === null ? null : new Date(now + etaLearned * 60_000).toISOString(),
+    },
   });
 });
 

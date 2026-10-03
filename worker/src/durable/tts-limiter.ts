@@ -11,12 +11,19 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from '../types';
 import {
+  adaptiveBounds,
+  initialAdaptive,
+  noteRateLimited,
+  noteRequest,
+  rollAdaptive,
   initialState,
   limiterConfig,
   penalize,
   refill,
   tryAcquire,
+  type AdaptiveState,
   type BucketState,
+  type RateChange,
   type TtsPriority,
 } from '../services/tts/bucket';
 
@@ -32,7 +39,14 @@ export interface MinuteStats {
 }
 
 export interface LimiterSnapshot {
+  /** The rate in force = the learned rate (AIMD). */
   rpm: number;
+  learned_rpm: number;
+  rpm_floor: number;
+  rpm_cap: number;
+  last_rate_limited_at: number | null;
+  /** Recent changes of the learned rate, newest last. */
+  rpm_history: RateChange[];
   burst: number;
   batch_share: number;
   night_until: number | null;
@@ -53,6 +67,7 @@ export class TtsLimiter extends DurableObject<Env> {
   private pumpLeaseUntil = 0;
   private pumpToken = '';
   private minutes: MinuteStats[] = [];
+  private adaptive: AdaptiveState | null = null;
   private loaded = false;
   private lastLog = 0;
 
@@ -64,6 +79,8 @@ export class TtsLimiter extends DurableObject<Env> {
     this.pumpLeaseUntil = saved?.pumpLeaseUntil ?? 0;
     this.pumpToken = saved?.pumpToken ?? '';
     this.minutes = saved?.minutes ?? [];
+    const learned = await storage.get<AdaptiveState>('adaptive');
+    this.adaptive = initialAdaptive(this.bounds(), Date.now(), learned);
     this.loaded = true;
   }
 
@@ -77,8 +94,31 @@ export class TtsLimiter extends DurableObject<Env> {
     });
   }
 
+  private saveAdaptive(): void {
+    const storage = (this.ctx as DurableObjectState).storage;
+    void storage.put('adaptive', this.adaptive);
+  }
+
+  private bounds() {
+    return adaptiveBounds(this.env.MINIMAX_RPM, this.env.MINIMAX_RPM_MAX);
+  }
+
+  /** The learned rate after closing any finished minute (persisted when it changed). */
+  private learned(now: number): AdaptiveState {
+    const prev = this.adaptive ?? initialAdaptive(this.bounds(), now, null);
+    this.adaptive = rollAdaptive(prev, this.bounds(), now);
+    if (this.adaptive.rpm !== prev.rpm) this.logRateChange(prev.rpm);
+    if (this.adaptive !== prev && (this.adaptive.rpm !== prev.rpm || this.adaptive.windowStart !== prev.windowStart)) this.saveAdaptive();
+    return this.adaptive;
+  }
+
+  private logRateChange(from: number): void {
+    const a = this.adaptive!;
+    console.log(JSON.stringify({ type: 'tts_limiter', event: 'rpm_changed', from, rpm: a.rpm, reason: a.history[a.history.length - 1]?.reason }));
+  }
+
   private cfg(now: number) {
-    return limiterConfig(this.env.MINIMAX_RPM, now < this.nightUntil);
+    return limiterConfig(this.learned(now).rpm, now < this.nightUntil);
   }
 
   private bucket(now: number): BucketState {
@@ -120,6 +160,9 @@ export class TtsLimiter extends DurableObject<Env> {
     const cfg = this.cfg(now);
     const result = tryAcquire(this.bucket(now), cfg, priority, now);
     this.state = result.state;
+    const before = this.adaptive!;
+    this.adaptive = noteRequest(before, this.bounds(), now, !result.granted);
+    if (this.adaptive.demand !== before.demand) this.saveAdaptive();
     const s = this.stat(now);
     if (result.granted) s[priority] += 1;
     else s.denied += 1;
@@ -134,8 +177,11 @@ export class TtsLimiter extends DurableObject<Env> {
     const s = this.stat(now);
     if (outcome === 'rate_limited') {
       s.rateLimited += 1;
+      const from = this.learned(now).rpm;
+      this.adaptive = noteRateLimited(this.adaptive!, this.bounds(), now);
+      this.saveAdaptive();
       this.state = penalize(this.bucket(now), this.cfg(now), now);
-      console.warn(JSON.stringify({ type: 'tts_limiter', event: 'minimax_rate_limited', rpm: this.cfg(now).rpm }));
+      console.warn(JSON.stringify({ type: 'tts_limiter', event: 'minimax_rate_limited', from, rpm: this.adaptive.rpm }));
     } else if (outcome === 'ok') s.ok += 1;
     else s.failed += 1;
     this.save();
@@ -172,8 +218,15 @@ export class TtsLimiter extends DurableObject<Env> {
     const cfg = this.cfg(now);
     const bucket = refill(this.bucket(now), cfg, now); // a view; not stored
     const minute = Math.floor(now / 60_000);
+    const learned = this.adaptive!;
+    const bounds = this.bounds();
     return {
       rpm: cfg.rpm,
+      learned_rpm: learned.rpm,
+      rpm_floor: bounds.floor,
+      rpm_cap: bounds.cap,
+      last_rate_limited_at: learned.lastRateLimitedAt,
+      rpm_history: learned.history,
       burst: cfg.burst,
       batch_share: cfg.batchShare,
       night_until: now < this.nightUntil ? this.nightUntil : null,
