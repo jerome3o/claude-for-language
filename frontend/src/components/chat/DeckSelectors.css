@@ -1,0 +1,17 @@
+/* DeckSelectorWithCreate: the decks (queue order) scroll on their own, so "+ Create new deck"
+   and the sheet's own buttons stay on screen with many decks. */
+.deck-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: min(40vh, 18rem);
+  max-height: min(40dvh, 18rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+}
+
+.deck-options-list .deck-option {
+  flex-shrink: 0;
+  min-height: 44px;
+}

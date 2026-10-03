@@ -97,7 +97,8 @@ import java.io.File
 
 data class Notice(val text: String, val error: Boolean)
 
-data class DeckChoice(val id: String, val name: String, val pinned: Boolean)
+/** A deck in the chat's add-card pickers, listed in study-queue order (the top deck first). */
+data class DeckChoice(val id: String, val name: String)
 
 /** A bottom sheet the chat has open (web: the page's modals + the per-message sheet). */
 sealed interface ChatSheet {
@@ -618,10 +619,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     private suspend fun loadDecks() {
-        val pinned = app.cache.get<List<String>>(PINNED_KEY).orEmpty()
-        val decks = withContext(Dispatchers.IO) { app.repo.dao.decks() }
-            .sortedWith(compareByDescending<dev.jeromeswannack.chineselearning.lab.data.DeckEntity> { it.id in pinned }.thenBy { it.name.lowercase() })
-            .map { DeckChoice(it.id, it.name, it.id in pinned) }
+        // Queue order (the web's decksInQueueOrder): the top deck first, and the pickers' default.
+        val decks = dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(withContext(Dispatchers.IO) { app.repo.dao.decks() }, { it.studyPriority }, { it.createdAt })
+            .map { DeckChoice(it.id, it.name) }
         _ui.update { it.copy(decks = decks) }
     }
 
@@ -1600,14 +1600,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
-    fun togglePin(deckId: String) {
-        viewModelScope.launch {
-            val pinned = app.cache.get<List<String>>(PINNED_KEY).orEmpty()
-            app.cache.put(PINNED_KEY, KIND, if (deckId in pinned) pinned - deckId else pinned + deckId)
-            loadDecks()
-        }
-    }
-
     // word definition (reuses the study card's cache-first lookup)
     suspend fun define(hanzi: String, context: String, refresh: Boolean) = cards.define(hanzi, context, refresh)
     suspend fun deckHolding(hanzi: String) = cards.deckHolding(hanzi)
@@ -1786,9 +1778,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 val cards = r.cards.map(::proposed)
                 val byId = _ui.value.messages.associateBy { it.id }
                 val sources = cards.mapNotNull { it.sourceMessageId }.distinct().mapNotNull { id -> byId[id]?.let { id to sourcePreview(it) } }.toMap()
-                val last = app.cache.get<String>(LAST_DECK_KEY)
+                // The top deck of the study queue every time (decks are in queue order); nothing remembered.
                 val decks = _ui.value.decks
-                val deckId = last?.takeIf { id -> decks.any { it.id == id } } ?: decks.firstOrNull()?.id
+                val deckId = decks.firstOrNull()?.id
                 app.haptics.tick()
                 app.sounds.play(Sounds.Sfx.FLIP, 0.5f)
                 _ui.update {
@@ -1851,7 +1843,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                     deckId = r.deckId!!
                     deckName = _ui.value.decks.firstOrNull { it.id == deckId }?.name ?: "your deck"
                 }
-                app.cache.put(LAST_DECK_KEY, KIND, deckId)
                 val res = api.addNotesBatch(deckId, chosen.map { noteOf(it.second) })
                 val failed = res.failed.associate { it.index to it.error.ifBlank { "Couldn't add this card." } }
                 val added = res.created.size
@@ -1955,12 +1946,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     companion object {
         const val KIND = "chat"
-        const val PINNED_KEY = "chat/pinned-decks"
         const val RECENT_KEY = "chat/recent-emojis"
         /** The voice-message speed chip (1 / 1.5 / 2). */
         const val SPEED_KEY = "chat/voice-speed"
-        /** The deck the last "Make flashcards" went to (preselected next time). */
-        const val LAST_DECK_KEY = "chat/last-deck"
 
         fun proposed(c: ProposedCardDto) = dev.jeromeswannack.chineselearning.lab.core.ProposedCard(
             hanzi = c.hanzi, pinyin = c.pinyin, english = c.english, funFacts = c.fun_facts,
