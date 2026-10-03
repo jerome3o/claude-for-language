@@ -9,7 +9,8 @@
  * the socket (re)opens or an event names a conversation we don't have.
  */
 
-import { useEffect } from 'react';
+import { prefetchClipsFromLiveEvents } from '../services/chatListening';
+import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getChatList } from '../api/chat';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,7 +22,7 @@ import {
   type ChatListResponse,
 } from '@shared/chats/inbox';
 
-// v2: one chat per pair (migration 0099) — a v1 list may still hold the merged-away rows.
+// v2: one chat per pair (migration 0102) — a v1 list may still hold the merged-away rows.
 const CACHE_PREFIX = 'chat-list-v2:';
 
 function dropOldCaches(): void {
@@ -65,6 +66,12 @@ export function useChatList({ live = false }: { live?: boolean } = {}) {
   const userId = user?.id;
   const queryClient = useQueryClient();
   const key = chatListKey(userId);
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+  // Listening mode: clips of new messages are fetched as they become ready (once per page).
+  useEffect(() => {
+    if (userId) prefetchClipsFromLiveEvents(() => userIdRef.current ?? null);
+  }, [userId]);
 
   const query = useQuery({
     queryKey: key,
@@ -114,6 +121,7 @@ export function useChatList({ live = false }: { live?: boolean } = {}) {
               deleted: !!m.deleted_at,
             }),
             created_at: m.created_at,
+            attachment_kind: m.attachment?.kind ?? null,
           },
           userId,
         );

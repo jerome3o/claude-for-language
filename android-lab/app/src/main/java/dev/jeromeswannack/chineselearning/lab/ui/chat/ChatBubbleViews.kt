@@ -152,11 +152,32 @@ fun bubbleShape(mine: Boolean, first: Boolean, last: Boolean): RoundedCornerShap
 }
 
 /** What sits in the bubble's bottom-right corner: 📌 · edited · 9:41 · ✓✓. */
-data class BubbleMeta(val time: String, val tick: ChatBubbles.Tick = ChatBubbles.Tick.NONE, val edited: Boolean = false, val pinned: Boolean = false)
+data class BubbleMeta(
+    val time: String,
+    val tick: ChatBubbles.Tick = ChatBubbles.Tick.NONE,
+    val edited: Boolean = false,
+    val pinned: Boolean = false,
+    /** The ✎ "could be better" mark's accessible label ([SayBetter.label]); null = no mark. */
+    val sayBetter: String? = null,
+    /** false = only the ✎ (a bubble that isn't the last of its group, time not tapped open). */
+    val showTime: Boolean = true,
+)
 
 private val META_STYLE = TextStyle(fontSize = 11.sp, lineHeight = 13.sp)
 
+/** The ✎ mark's colour: a soft amber, calm on the blue bubble (not red, not alarming). */
+val SayBetterAmber = Color(0xFFFFD58A)
+
+/** Annotation tag carrying the ✎ mark's label, read back by [MetaLabel] for TalkBack. */
+private const val SAY_BETTER_TAG = "say_better"
+
 fun metaText(meta: BubbleMeta, base: Color, read: Color): AnnotatedString = buildAnnotatedString {
+    meta.sayBetter?.let { label ->
+        pushStringAnnotation(SAY_BETTER_TAG, label)
+        withStyle(SpanStyle(color = SayBetterAmber, fontWeight = FontWeight.Bold)) { append(if (meta.showTime) "✎  " else "✎") }
+        pop()
+    }
+    if (!meta.showTime) return@buildAnnotatedString
     withStyle(SpanStyle(color = base)) {
         if (meta.pinned) append("📌 ")
         if (meta.edited) append("edited  ")
@@ -182,7 +203,15 @@ private fun rememberMetaWidth(text: AnnotatedString?): Dp {
 
 @Composable
 private fun MetaLabel(text: AnnotatedString, modifier: Modifier = Modifier) {
-    Text(text, style = META_STYLE, maxLines = 1, modifier = modifier.testTag("chat-meta"))
+    // With the ✎ mark, TalkBack reads its label first ("Could be better — hold to see"), then the time.
+    val label = text.getStringAnnotations(SAY_BETTER_TAG, 0, text.length).firstOrNull()?.item
+    val rest = if (label == null) "" else text.text.replace("✎", "").trim()
+    Text(
+        text, style = META_STYLE, maxLines = 1,
+        modifier = modifier.testTag("chat-meta").then(
+            if (label == null) Modifier else Modifier.semantics { contentDescription = if (rest.isEmpty()) label else "$label · $rest" },
+        ),
+    )
 }
 
 /** A long press after 450 ms (docs/CHAT.md), not the platform's default. */
@@ -278,20 +307,32 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
     val fg = if (m.isDeleted) Lab.colors.muted else if (mine) c.onMine else c.onTheirs
     val metaColor = if (mine && !m.isDeleted) c.metaMine else c.metaTheirs
     val showMeta = layout.lastInGroup || m.id in ui.timeShown
-    val meta = if (!showMeta) null else metaText(
-        BubbleMeta(ChatLogic.formatTime(m.created_at), layout.tick, edited = !m.edited_at.isNullOrEmpty() && !m.isDeleted, pinned = !m.pinned_at.isNullOrEmpty() && !m.isDeleted),
+    // ✎ on my own message when it could be better (auto-check) or my tutor corrected it — shown even
+    // without the time; the other side never sees it (auto_check only reaches the sender).
+    val better = ui.sayBetter(m)?.let { dev.jeromeswannack.chineselearning.lab.core.SayBetter.label(it, ui.otherName) }
+    val meta = if (!showMeta && better == null) null else metaText(
+        BubbleMeta(
+            ChatLogic.formatTime(m.created_at), layout.tick, edited = !m.edited_at.isNullOrEmpty() && !m.isDeleted, pinned = !m.pinned_at.isNullOrEmpty() && !m.isDeleted,
+            sayBetter = better, showTime = showMeta,
+        ),
         metaColor, if (mine) Color.White else Lab.colors.accent,
     )
     val haptic = LocalHapticFeedback.current
+    // Listening mode: the text is hidden — tap plays it, a long press reveals it (never the menu).
+    val hidden = ui.isHidden(m)
     val openMenu: () -> Unit = {
         if (!m.isDeleted) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            if (selecting) actions.onToggleSelect(m.id) else actions.onOpenSheet(ChatSheet.Actions(m))
+            when {
+                selecting -> actions.onToggleSelect(m.id)
+                hidden -> actions.onReveal(m)
+                else -> actions.onOpenSheet(ChatSheet.Actions(m))
+            }
         }
     }
     RequestWordsOnScreen(m, actions)
     val invite = if (!m.isDeleted && !m.isVoice && !m.isImage) ChatLogic.callInvite(m.content) else null
-    val link = if (!m.isDeleted && !m.isVoice && invite == null) ChatBubbles.firstLink(m.content) else null
+    val link = if (!m.isDeleted && !m.isVoice && invite == null && !hidden) ChatBubbles.firstLink(m.content) else null
     if (link != null) LaunchedEffect(link) { actions.onRequestLinkPreview(link) }
     if (m.isVoice) LaunchedEffect(m.id) { actions.onRequestWaveform(m.id, m, null) }
 
@@ -310,6 +351,7 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
                                     onClick = {
                                         when {
                                             selecting -> actions.onToggleSelect(m.id)
+                                            hidden -> actions.onListen(m)
                                             m.isImage -> onView(ViewerTarget(m, null))
                                             m.isFile -> actions.onOpenFile(m)
                                             m.isVideo -> actions.onToggleVideo(m.id)
@@ -317,20 +359,22 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
                                         }
                                     },
                                     onLongClick = openMenu,
-                                    onLongClickLabel = "Message actions",
+                                    onLongClickLabel = if (hidden) "Reveal message" else "Message actions",
+                                    onClickLabel = if (hidden) "Listen" else null,
                                 )
-                                .testTag("chat-bubble"),
+                                .testTag(if (hidden) "chat-listening-bubble" else "chat-bubble"),
                         ) {
                             Column {
                                 // Round 2 PR 3: "↪ Forwarded" on top of the bubble.
                                 if (m.isForwarded) ForwardedLabel(mine, Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp))
                                 when {
+                                    hidden -> ListeningContent(m, meta, ui, actions)
                                     m.isDeleted -> DeletedContent(fg, meta)
                                     m.isImage -> PhotoContent(m, fg, meta, ui, actions)
                                     m.isVoice -> VoiceContent(m.id, m, null, m.attachment!!.duration_ms, mine, meta, ui, actions)
                                     m.isFile -> FileContent(m, mine, fg, meta, ui, actions)
                                     m.isVideo -> VideoContent(m, fg, meta, ui, actions)
-                                    else -> TextContent(m, mine, fg, meta, invite, link, ui, actions, openMenu)
+                                    else -> RevealIn(m.id, m.id in ui.listening.justRevealed) { TextContent(m, mine, fg, meta, invite, link, ui, actions, openMenu) }
                                 }
                             }
                         }
@@ -369,7 +413,13 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
         Row(rowModifier.testTag("chat-message"), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
             val status = ui.checkStatus(m)
             if (mine && status != null && !m.isDeleted) CheckBadge(status) { actions.onViewCheck(m) }
-            Box(Modifier.fillMaxWidth(BUBBLE_FRACTION).widthIn(max = MAX_BUBBLE), contentAlignment = if (mine) Alignment.TopEnd else Alignment.TopStart) { body() }
+            if (hidden) {
+                // The bubble keeps its own width; 👁 sits right beside it.
+                Row(Modifier.fillMaxWidth(BUBBLE_FRACTION + 0.12f).widthIn(max = MAX_BUBBLE + 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f, fill = false)) { body() }
+                    RevealButton { actions.onReveal(m) }
+                }
+            } else Box(Modifier.fillMaxWidth(BUBBLE_FRACTION).widthIn(max = MAX_BUBBLE), contentAlignment = if (mine) Alignment.TopEnd else Alignment.TopStart) { body() }
         }
     }
 }

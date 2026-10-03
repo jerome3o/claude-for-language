@@ -19,6 +19,7 @@ import {
   formatDateTime,
   toDateInputValue,
 } from './tutor-shared';
+import { track } from '../../services/analytics';
 
 type Filter = 'all' | 'unlistened' | 'needs_work';
 type RangeKey = 'lesson' | '30d' | '90d' | '365d';
@@ -117,7 +118,8 @@ function InboxRow({ relId, rec, onChanged }: { relId: string; rec: InsightRecord
 
   const markMutation = useMutation({
     mutationFn: (input: { status: RecordingMarkStatus; comment?: string | null }) => markRecording(relId, rec.event_id, input),
-    onSuccess: () => {
+    onSuccess: (_res, input) => {
+      track('tutor.recording_mark', { status: input.status });
       setShowComment(false);
       onChanged();
     },

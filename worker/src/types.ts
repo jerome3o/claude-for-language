@@ -1,3 +1,4 @@
+import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import type { ReaderWord } from '@shared/reader/words';
 
 // Cloudflare bindings
@@ -44,6 +45,8 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   SESSION_SECRET: string;
   ADMIN_EMAIL: string;
+  /** Usage analytics kill switch: off | basic | verbose (default). docs/ANALYTICS.md */
+  ANALYTICS_LEVEL?: string;
   NTFY_TOPIC: string;
   /** Public origin of this worker for links in e-mails (default: the workers.dev URL). */
   PUBLIC_API_URL?: string;
@@ -532,7 +535,7 @@ export interface Conversation {
   is_ai_conversation: boolean;
   voice_id: string | null;
   voice_speed: number | null;
-  /** Set on a conversation merged into its pair's one chat (migration 0099); null on live ones. */
+  /** Set on a conversation merged into its pair's one chat (migration 0102); null on live ones. */
   merged_into?: string | null;
 }
 
@@ -554,6 +557,8 @@ export interface Message {
   // Check status for user messages
   check_status: MessageCheckStatus | null;
   check_feedback: string | null;
+  /** The background "check my Chinese" (shared/chats/autoCheck.ts) — only on the sender's own view of a message. */
+  auto_check?: AutoCheckResult | null;
   recording_url: string | null;
   reply_to_message_id: string | null;
   // Interactive translation fields

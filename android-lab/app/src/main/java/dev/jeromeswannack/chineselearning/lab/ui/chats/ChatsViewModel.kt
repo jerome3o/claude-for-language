@@ -9,6 +9,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.other
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.ui.connections.Connections
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.TimeZone
 
@@ -34,11 +36,20 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
 
     init {
         viewModelScope.launch { val me = Connections.myId(app.cache); local.update { it.copy(myId = me) } }
-        viewModelScope.launch { while (true) { delay(30_000); local.update { it.copy(now = System.currentTimeMillis()) } } }
         viewModelScope.launch {
-            combine(Chats.observe(app.cache), app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS), local, app.online) { list, rels, l, online ->
+            val list = runCatching { Chats.observe(app.cache).first() }.getOrNull()
+            app.analytics.track("chat.inbox_open", mapOf("conversations" to list?.conversations?.size, "unread" to list?.conversations?.count { it.unread > 0 }))
+        }
+        viewModelScope.launch { while (true) { delay(30_000); local.update { it.copy(now = System.currentTimeMillis()) } } }
+        // Listening mode: the settings + what was revealed on this phone (the "🎧 New message" previews).
+        val listening = combine(ChatListeningStore.observe(app.cache), ChatListeningStore.observeRevealed(app.cache)) { state, _ -> state }
+        viewModelScope.launch {
+            combine(Chats.observe(app.cache), app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS), local, app.online, listening) { list, rels, l, online, state ->
                 val rows = list?.conversations.orEmpty()
+                val revealed = rows.filter { !it.isAi }.associate { it.conversationId to ChatListeningStore.revealed(app.cache, it.conversationId) }
                 ChatsUi(
+                    listening = state,
+                    revealed = revealed,
                     loaded = list != null,
                     rows = rows,
                     myId = l.myId,

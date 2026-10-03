@@ -47,6 +47,7 @@ import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTi
 import '../components/tutor/tutor-dashboard.css';
 import './ConnectionDetailPage.css';
 import { lastMessagePreview } from '../services/chatThread';
+import { track } from '../services/analytics';
 
 function formatConversationDate(dateStr: string) {
   const date = new Date(dateStr);
@@ -237,6 +238,7 @@ export function ConnectionDetailPage() {
     setPageError(null);
     try {
       const { call } = await createCall({ relationship_id: relId! });
+      track('call.start', { solo: false });
       navigate(`/calls/${call.id}`);
     } catch (err) {
       setPageError(err instanceof Error ? err.message : 'Could not start the call');
@@ -298,6 +300,7 @@ export function ConnectionDetailPage() {
     setUpdateNote(null);
     try {
       const res = await moveSharedDeck(relId!, sharedDeckId, to);
+      track('tutor.queue_move', { to });
       setUpdateNote(
         res.queue_position === 1
           ? `${name} is now first in their queue — the next new words come from it.`
@@ -315,6 +318,7 @@ export function ConnectionDetailPage() {
     setUpdateNote(null);
     try {
       const res = await updateSharedDeckCopy(relId!, sharedDeckId);
+      track('deck.share', { update: true });
       const updated = res.updated ?? 0;
       const parts = [
         res.added > 0 ? `added ${plural(res.added, 'new word')}` : null,

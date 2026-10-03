@@ -196,7 +196,7 @@ export async function fetchRedeemedInvite(
 
 // ---------- Conversations ----------
 
-/** THE conversation of the pair (one chat per pair, migration 0099), or null when none yet. */
+/** THE conversation of the pair (one chat per pair, migration 0102), or null when none yet. */
 export async function fetchLastConversationId(db: D1Database, relationshipId: string): Promise<string | null> {
   const row = await db
     .prepare(

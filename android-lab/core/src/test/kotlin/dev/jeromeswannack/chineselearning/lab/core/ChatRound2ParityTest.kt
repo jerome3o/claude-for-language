@@ -43,7 +43,10 @@ class ChatRound2ParityTest {
             attachmentTranslation = a?.str("translation"),
             translation = o.str("translation"),
             hasCorrection = o.obj("correction") != null,
+            correctionText = o.obj("correction")?.str("text"),
             checkStatus = o.str("check_status"),
+            autoCheckStatus = o.obj("auto_check")?.str("status"),
+            autoCheckText = o.obj("auto_check")?.str("text"),
             hasDiscussion = o.bool("has_discussion"),
             pinnedAt = o.str("pinned_at"),
         )
@@ -144,6 +147,32 @@ class ChatRound2ParityTest {
         val final = f["finalDrafts"]!!.jsonArray
         assertEquals(ChatDrafts.MAX, final.count { it.jsonObject.str("text")!!.isNotEmpty() }, "the vectors reach the cap")
         for (l in final) assertEquals(l.jsonObject.str("text"), ChatDrafts.load(drafts, l.jsonObject.str("conv")))
+    }
+
+    @Test
+    fun sayBetterMatchesTypeScript() {
+        val cases = f["sayBetter"]!!.jsonArray
+        assertTrue(cases.size > 500)
+        for (c in cases) {
+            val o = c.jsonObject
+            val m = o.obj("message")!!
+            val corr = m.obj("correction")
+            val auto = m.obj("auto_check")
+            val got = SayBetter.state(
+                m.str("sender_id")!!, m.str("content")!!, m.str("deleted_at"), m.obj("attachment")?.str("kind"),
+                corr != null, corr?.str("text"), auto?.str("status"), auto?.str("text"), "me",
+            )
+            assertEquals(o.str("result"), got, "sayBetterState $m")
+        }
+        for (c in f["sayBetterLabels"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o.str("label"), SayBetter.label(o.str("state"), o.str("name")), "sayBetterLabel $o")
+        }
+        for (c in f["settingShown"]!!.jsonArray) {
+            val o = c.jsonObject
+            val setting = o["setting"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.boolean
+            assertEquals(o["shown"]!!.jsonPrimitive.boolean, SayBetter.settingShown(setting, o.str("role")), "autoCheckSettingShown $o")
+        }
     }
 
     @Test

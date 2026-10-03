@@ -18,7 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 
 /**
- * `GET /api/conversations/:id` — the conversation; for an id merged away by migration 0099 the
+ * `GET /api/conversations/:id` — the conversation; for an id merged away by migration 0102 the
  * server answers with the chat it was merged into and `merged_from` = the id asked for.
  */
 @Serializable

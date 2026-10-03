@@ -20,6 +20,8 @@ export interface ChatListLastMessage {
   /** The server's one-line preview: the text, "📷 Photo", "🎤 Voice message" (+ caption), "Message deleted". */
   preview: string;
   created_at: string;
+  /** 'image' | 'voice' | 'file' | 'video' when the message has an attachment (listening mode leaves those visible). */
+  attachment_kind?: string | null;
 }
 
 export interface ChatListRow {
@@ -34,6 +36,8 @@ export interface ChatListRow {
   last_message: ChatListLastMessage | null;
   /** Messages from the other person after my read marker. */
   unread: number;
+  /** My read marker in this conversation (listening mode: an undecided setting hides what's unread). */
+  my_read_at?: string | null;
   /** Newest message time, else when the conversation was made. */
   last_activity_at: string;
 }
@@ -184,7 +188,7 @@ export function groupChatList<T extends Pick<ChatListRow, 'is_ai' | 'last_activi
  */
 export function applyIncomingMessage<T extends ChatListRow>(
   rows: readonly T[],
-  msg: { id: string; conversation_id: string; sender_id: string; preview: string; created_at: string },
+  msg: { id: string; conversation_id: string; sender_id: string; preview: string; created_at: string; attachment_kind?: string | null },
   myUserId: string,
 ): T[] | null {
   const idx = rows.findIndex((r) => r.conversation_id === msg.conversation_id);
@@ -199,7 +203,9 @@ export function applyIncomingMessage<T extends ChatListRow>(
   const isNewer = !row.last_message || Date.parse(msg.created_at) >= Date.parse(row.last_message.created_at);
   const updated: T = {
     ...row,
-    last_message: isNewer ? { id: msg.id, sender_id: msg.sender_id, preview: msg.preview, created_at: msg.created_at } : row.last_message,
+    last_message: isNewer
+      ? { id: msg.id, sender_id: msg.sender_id, preview: msg.preview, created_at: msg.created_at, attachment_kind: msg.attachment_kind ?? null }
+      : row.last_message,
     last_activity_at: isNewer ? msg.created_at : row.last_activity_at,
     unread: msg.sender_id !== myUserId ? row.unread + 1 : 0,
   };

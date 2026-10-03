@@ -70,7 +70,7 @@ object TeachingKeys {
     fun homework(relId: String) = "teaching/homework/$relId"
     fun flags(relId: String) = "teaching/flags/$relId"
     fun claude(relId: String) = "teaching/claude/$relId"
-    /** v2: one chat per pair (migration 0099) — lists cached before it held merged-away chats. */
+    /** v2: one chat per pair (migration 0102) — lists cached before it held merged-away chats. */
     fun conversations(relId: String) = "teaching/conversations-v2/$relId"
     fun lessons(relId: String) = "teaching/lessons/$relId"
     fun lessonLog(relId: String) = "teaching/lesson-log/$relId"
@@ -200,6 +200,7 @@ class SendHomeworkController(private val app: LabApp, private val scope: Corouti
             if (res.assignments.isEmpty()) error(res.errors.firstOrNull()?.error ?: "Could not send the deck")
             res
         }.onSuccess { res ->
+            app.analytics.track("tutor.send_homework", mapOf("items" to 1, "mode" to o.mode.wire, "kind" to "deck", "split_days" to o.splitDays))
             val hanzi = res.skipped.flatMap { it.hanzi }
             val skipped = if (hanzi.isEmpty()) "" else " Left out ${TeachingFormat.plural(hanzi.size, "word")} they already have (${hanzi.take(6).joinToString("、")}${if (hanzi.size > 6) "…" else ""})."
             celebrate()
@@ -227,6 +228,7 @@ class SendHomeworkController(private val app: LabApp, private val scope: Corouti
             .onSuccess { res ->
                 if (res.errors.isNotEmpty()) done(SendOutcome(error = res.errors.first().error))
                 else {
+                    app.analytics.track("tutor.send_homework", mapOf("items" to 1, "mode" to o.mode.wire, "kind" to "lesson"))
                     celebrate()
                     done(SendOutcome(result = "Assigned ${item.title} to $studentName ${if (o.mode.hasOneOff) sendHow("lesson", o) else "— it will appear in their next study session"}."))
                 }

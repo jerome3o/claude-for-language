@@ -46,7 +46,18 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
         if (activityId != null) set(CallLayout.reduce(_layout.value, CallLayout.Action.ActivityStarted))
     }
 
-    fun dispatch(action: CallLayout.Action) = set(CallLayout.reduce(_layout.value, action))
+    fun dispatch(action: CallLayout.Action) {
+        // Usage analytics: a board tile opened / a layout preset chosen (ids only).
+        when (action) {
+            is CallLayout.Action.Open, is CallLayout.Action.Focus -> {
+                val tile = (action as? CallLayout.Action.Open)?.tile ?: (action as CallLayout.Action.Focus).tile
+                if (tile == CallLayout.TileId.TEXT || tile == CallLayout.TileId.DRAW || tile == CallLayout.TileId.CHAT) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.board", mapOf("tile" to tile.wire))
+            }
+            is CallLayout.Action.Preset -> dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.layout", mapOf("preset" to action.preset.wire))
+            else -> Unit
+        }
+        set(CallLayout.reduce(_layout.value, action))
+    }
 
     fun replace(layout: CallLayout.Layout) = set(layout)
 

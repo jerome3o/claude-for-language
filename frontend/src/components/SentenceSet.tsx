@@ -17,6 +17,7 @@ import { useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
 import { AddChunkModal, Chunk } from './AddChunkModal';
 import { SentenceWordBreakdown } from './SentenceWordBreakdown';
+import { track } from '../services/analytics';
 
 /**
  * A note's sentence set: several example sentences for one word, ordered from
@@ -258,6 +259,8 @@ export function SentenceSet({
   const advanceRow = (row: DisplayRow) => {
     const total = revealSteps(row, englishFirst[row.key]).length;
     const first = englishFirst[row.key] ? 0 : startStage;
+    const current = revealed[row.key] ?? first;
+    if (current < total) track('study.sentence_reveal', { step: current + 1 });
     setRevealed((prev) => {
       const stage = prev[row.key] ?? first;
       return { ...prev, [row.key]: stage >= total ? first : stage + 1 };
@@ -294,6 +297,7 @@ export function SentenceSet({
             translation: row.translation,
           });
       setExplanations((prev) => ({ ...prev, [row.key]: explanation }));
+      track('study.sentence_explain');
     } catch (err) {
       console.error('[SentenceSet] Explain failed:', err);
       setExplanations((prev) => ({ ...prev, [row.key]: 'error' }));

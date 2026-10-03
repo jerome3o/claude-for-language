@@ -9,6 +9,8 @@
  *
  * Signed in (mounted under /api after the auth middleware):
  *   PUT  /api/profile/email-prefs    { email_chat_messages: boolean } — Settings on web and in the Lab app
+ *   PUT  /api/profile/chat-prefs     { chat_auto_check: boolean | null } — "Check my Chinese automatically"
+ *                                    (Settings → Chat; null = the default, on for the learner side; docs/CHAT.md "Auto-check")
  */
 
 import { Hono } from 'hono';
@@ -16,6 +18,7 @@ import type { Context } from 'hono';
 import type { Env } from '../types';
 import { unsubscribePageHtml, verifyUnsubscribeToken } from '../services/email-unsubscribe';
 import { APP_BASE_URL } from '../services/email';
+import { setChatAutoCheck } from '../services/chat/auto-check';
 
 export async function setChatEmails(db: D1Database, userId: string, on: boolean): Promise<boolean> {
   const res = await db.prepare('UPDATE users SET email_chat_messages = ? WHERE id = ?').bind(on ? 1 : 0, userId).run();
@@ -67,4 +70,12 @@ emailPrefs.put('/profile/email-prefs', async (c) => {
   if (typeof body.email_chat_messages !== 'boolean') return c.json({ error: 'email_chat_messages must be true or false' }, 400);
   await setChatEmails(c.env.DB, c.get('user').id, body.email_chat_messages);
   return c.json({ email_chat_messages: body.email_chat_messages });
+});
+
+emailPrefs.put('/profile/chat-prefs', async (c) => {
+  const body = await c.req.json<{ chat_auto_check?: unknown }>().catch(() => ({} as { chat_auto_check?: unknown }));
+  const v = body.chat_auto_check;
+  if (v !== null && typeof v !== 'boolean') return c.json({ error: 'chat_auto_check must be true, false or null' }, 400);
+  await setChatAutoCheck(c.env.DB, c.get('user').id, v);
+  return c.json({ chat_auto_check: v });
 });

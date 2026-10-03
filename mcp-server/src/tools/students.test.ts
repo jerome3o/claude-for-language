@@ -427,6 +427,7 @@ const EXPECTED_TOOLS = [
   'list_student_homework',
   'get_shared_deck_progress',
   'share_deck_with_student',
+  'send_session_notes_items',
   'update_student_deck_copy',
   'move_student_deck',
   'remove_student_deck',
@@ -946,7 +947,8 @@ describe('card flags & Ask-Claude history tools', () => {
     };
     const { tools, calls } = fakeContext({ 'POST /api/relationships/rel-1/session-notes': { job } });
     const out = parse(await tools.get('submit_session_notes')!.handler({ relationship_id: 'rel-1', notes: 'x'.repeat(40), title: 'Restaurant', lesson_at: '2026-09-14' }));
-    expect(calls[0].body).toMatchObject({ notes: 'x'.repeat(40), title: 'Restaurant', lesson_at: '2026-09-14', priority: 'core', auto_share: true, log_lesson: true });
+    // Nothing is sent by default: the results wait in the tutor's account.
+    expect(calls[0].body).toMatchObject({ notes: 'x'.repeat(40), title: 'Restaurant', lesson_at: '2026-09-14', priority: 'core', auto_share: false, log_lesson: true });
     expect(out).toMatchObject({ job_id: 'job-1', status: 'queued', step_count: 0, made: { deck: null, lessons: [], reader: null } });
     expect(typeof out.hint).toBe('string');
   });
@@ -959,7 +961,7 @@ describe('card flags & Ask-Claude history tools', () => {
     };
     const { tools, calls } = fakeContext({ 'POST /api/calls/call-9/homework': { job } });
     const out = parse(await tools.get('submit_session_notes')!.handler({ call_id: 'call-9', priority: 'non_urgent' }));
-    expect(calls[0]).toMatchObject({ method: 'POST', path: '/api/calls/call-9/homework', body: { priority: 'non_urgent', auto_share: true, log_lesson: true } });
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/api/calls/call-9/homework', body: { priority: 'non_urgent', auto_share: false, log_lesson: true } });
     expect(out).toMatchObject({ job_id: 'job-2', status: 'queued' });
   });
 
@@ -974,32 +976,87 @@ describe('card flags & Ask-Claude history tools', () => {
       };
     };
     const { tools, calls } = fakeContext({
+      'GET /api/relationships': { students: [{ id: 'rel-1', requester_id: 'me', recipient_id: 's', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome Swannack', email: 'jerome@example.com' } }], tutors: [] },
       'GET /api/relationships/rel-1/lesson-log': { entries: [{ id: 'l1', lesson_at: '2026-10-02T12:00:00.000Z' }, { id: 'l0', lesson_at: '2026-09-25T12:00:00.000Z' }] },
       'POST /api/relationships/rel-1/homework': homework,
     });
-    const out = parse(await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', priority: 'non_urgent', today: '2026-09-28' }));
-    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /api/relationships/rel-1/lesson-log', 'POST /api/relationships/rel-1/homework']);
-    expect(calls[1].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'both', due_date: '2026-10-02', priority: 'non_urgent' }], today: '2026-09-28' });
+    const out = parse(await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', priority: 'non_urgent', today: '2026-09-28', student_name: 'Jerome', confirm: true }));
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /api/relationships', 'GET /api/relationships/rel-1/lesson-log', 'POST /api/relationships/rel-1/homework']);
+    expect(calls[2].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'both', due_date: '2026-10-02', priority: 'non_urgent' }], today: '2026-09-28' });
     expect(out).toMatchObject({ shared_deck_id: 'sd-9', student_deck_id: 'copy-1', student_deck_name: 'Food (from tutor)', mode: 'both', due_date: '2026-10-02', skipped_known: ['米饭'] });
-    expect(out.message).toBe('Sent as one-off homework due Fri 2 Oct, then in long-term review.');
+    expect(out).toMatchObject({ sent: true, sent_to: { relationship_id: 'rel-1', name: 'Jerome Swannack' } });
+    expect(out.message).toBe('SENT to Jerome Swannack: "Food (from tutor)" as one-off homework due Fri 2 Oct, then in long-term review.');
 
     // An explicit mode / date is passed through; long-term only has no date and needs no lesson log.
     calls.length = 0;
-    await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', mode: 'one_off', due_date: '2026-10-05', skip_known: false, today: '2026-09-28' });
-    expect(calls.map((c) => c.path)).toEqual(['/api/relationships/rel-1/homework']);
-    expect(calls[0].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'one_off', due_date: '2026-10-05', priority: 'core', skip_known: false }], today: '2026-09-28' });
+    await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', mode: 'one_off', due_date: '2026-10-05', skip_known: false, today: '2026-09-28', confirm: true });
+    expect(calls.map((c) => c.path)).toEqual(['/api/relationships', '/api/relationships/rel-1/homework']);
+    expect(calls[1].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'one_off', due_date: '2026-10-05', priority: 'core', skip_known: false }], today: '2026-09-28' });
     calls.length = 0;
-    await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', mode: 'fsrs', today: '2026-09-28' });
-    expect(calls[0].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'fsrs', due_date: null, priority: 'core' }], today: '2026-09-28' });
+    await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', mode: 'fsrs', today: '2026-09-28', confirm: true });
+    expect(calls[1].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'fsrs', due_date: null, priority: 'core' }], today: '2026-09-28' });
   });
 
   it('share_deck_with_student falls back to two days when the lesson log cannot be read', async () => {
     const { tools, calls } = fakeContext({
+      'GET /api/relationships': { students: [{ id: 'rel-1', requester_id: 'me', recipient_id: 's', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome Swannack', email: 'jerome@example.com' } }], tutors: [] },
       'POST /api/relationships/rel-1/homework': () => ({ assignments: [{ id: 'a1', target_id: 'c', title: 'Food', mode: 'both', due_date: '2026-09-30', created_at: 't' }], skipped: [], errors: [] }),
     });
-    const out = parse(await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', today: '2026-09-28' }));
-    expect((calls[1].body as { items: Array<{ due_date: string }> }).items[0].due_date).toBe('2026-09-30');
+    const out = parse(await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', today: '2026-09-28', confirm: true }));
+    expect((calls[2].body as { items: Array<{ due_date: string }> }).items[0].due_date).toBe('2026-09-30');
     expect(out.due_date).toBe('2026-09-30');
+  });
+
+  it('create, then send: send tools refuse without confirm and never touch the API', async () => {
+    const { tools, calls } = fakeContext({});
+    for (const [name, args] of [
+      ['share_deck_with_student', { relationship_id: 'rel-1', deck_id: 'deck-1' }],
+      ['update_student_deck_copy', { relationship_id: 'rel-1', shared_deck_id: 'sd-1' }],
+      ['send_session_notes_items', { relationship_id: 'rel-1', job_id: 'job-1' }],
+      ['share_deck_with_student', { relationship_id: 'rel-1', deck_id: 'deck-1', confirm: false }],
+    ] as const) {
+      const res = await tools.get(name)!.handler(args as Record<string, unknown>);
+      expect(res.isError, name).toBe(true);
+      expect((res.content[0] as { text: string }).text).toContain('Not sent');
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it('send tools refuse a student the tutor did not name', async () => {
+    const { tools, calls } = fakeContext({ 'GET /api/relationships': { students: [{ id: 'rel-1', requester_id: 'me', recipient_id: 's', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome Swannack', email: 'jerome@example.com' } }], tutors: [] },
+      });
+    const res = await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', student_name: 'Mei', confirm: true });
+    expect(res.isError).toBe(true);
+    expect((res.content[0] as { text: string }).text).toContain('is Jerome Swannack, not "Mei"');
+    expect(calls.map((c) => c.path)).toEqual(['/api/relationships']);
+  });
+
+  it('submit_session_notes refuses auto_share without confirm; with it the request says so', async () => {
+    const job = { id: 'job-1', relationship_id: 'rel-1', title: null, notes: 'x'.repeat(40), notes_chars: 40, lesson_at: null, priority: 'core', auto_share: true, status: 'queued', progress: null, steps: [], rounds: 0, result: {}, error: null, created_at: 't', finished_at: null };
+    const { tools, calls } = fakeContext({ 'POST /api/relationships/rel-1/session-notes': { job } });
+    const refused = await tools.get('submit_session_notes')!.handler({ relationship_id: 'rel-1', notes: 'x'.repeat(40), auto_share: true });
+    expect(refused.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    await tools.get('submit_session_notes')!.handler({ relationship_id: 'rel-1', notes: 'x'.repeat(40), auto_share: true, confirm: true });
+    expect(calls[0].body).toMatchObject({ auto_share: true });
+  });
+
+  it('send_session_notes_items posts the chosen keys and reports SENT to the student', async () => {
+    const job = {
+      id: 'job-1', relationship_id: 'rel-1', title: null, notes: 'n', notes_chars: 1, lesson_at: null, priority: 'core', auto_share: false,
+      status: 'done', progress: 'Done', rounds: 5, error: null, created_at: 't', finished_at: 't', steps: [],
+      result: { deck: { id: 'd1', name: 'Food', note_count: 9, target_deck_id: 'sd1' }, lessons: [{ library_item_id: 'l1', title: '把', exercise_count: 6 }] },
+    };
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships': { students: [{ id: 'rel-1', requester_id: 'me', recipient_id: 's', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome Swannack', email: 'jerome@example.com' } }], tutors: [] },
+      'POST /api/relationships/rel-1/session-notes/job-1/send': { job, sent: [{ key: 'deck', title: 'Food' }], errors: [], skipped: [] },
+    });
+    const out = parse(await tools.get('send_session_notes_items')!.handler({ relationship_id: 'rel-1', job_id: 'job-1', items: ['deck'], confirm: true }));
+    expect(calls[1]).toMatchObject({ method: 'POST', path: '/api/relationships/rel-1/session-notes/job-1/send', body: { items: ['deck'] } });
+    expect(out).toMatchObject({ sent: true, items_sent: [{ key: 'deck', title: 'Food' }] });
+    expect(out.message).toMatch(/^SENT to Jerome Swannack: "Food"/);
+    // The lesson is still in the tutor's account.
+    expect((out.job as { not_sent: unknown }).not_sent).toEqual([{ key: 'lesson:l1', title: '把' }]);
   });
 
   it('submit_session_notes without notes or call_id is refused', async () => {

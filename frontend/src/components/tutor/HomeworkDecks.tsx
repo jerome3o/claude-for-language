@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createDeck } from '../../api/client';
 import type { HomeworkDeckSummary } from '../../types/tutorDashboard';
 import { plural } from './format';
+import { track } from '../../services/analytics';
 import './tutor-dashboard.css';
 
 /**
@@ -20,6 +21,7 @@ export function HomeworkDecks({ decks }: { decks: HomeworkDeckSummary[] }) {
   const create = useMutation({
     mutationFn: () => createDeck(name.trim()),
     onSuccess: (deck) => {
+      track('deck.create', { source: 'manual' });
       queryClient.invalidateQueries({ queryKey: ['decks'] });
       navigate(`/decks/${deck.id}`);
     },

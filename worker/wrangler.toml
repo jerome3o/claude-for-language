@@ -1,6 +1,8 @@
 name = "chinese-learning-api"
 main = "src/index.ts"
 compatibility_date = "2024-05-29"
+# AsyncLocalStorage: the analytics request scope (services/analytics/scope.ts).
+compatibility_flags = ["nodejs_als"]
 
 # D1 Database
 # After running `wrangler d1 create chinese-learning-db`, replace the database_id below
@@ -150,8 +152,15 @@ max_retries = 2
 [ai]
 binding = "AI"
 
+# Workers Observability: every request logs one JSON line (services/analytics/request-log.ts).
+# Two-ish users, so keep every log (turn head_sampling_rate down if volume grows).
 [observability]
 enabled = true
+head_sampling_rate = 1
+
+# Daily at 03:17 UTC: prune usage_events older than 180 days (docs/ANALYTICS.md).
+[triggers]
+crons = ["17 3 * * *"]
 
 # Frontend is deployed separately to Cloudflare Pages
 # See .github/workflows/deploy.yml

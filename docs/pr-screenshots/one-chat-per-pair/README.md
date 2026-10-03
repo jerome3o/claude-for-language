@@ -1,7 +1,7 @@
 # One chat per pair — screenshots
 
 Phone viewport 412×915 @2×. The chat with 王明慧 used to be three conversations
-("Welcome", "Homework" and an untitled one); migration 0099 merged them into one.
+("Welcome", "Homework" and an untitled one); migration 0102 merged them into one.
 
 ## Web
 

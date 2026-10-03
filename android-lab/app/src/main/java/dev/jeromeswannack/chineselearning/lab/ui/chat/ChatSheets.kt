@@ -121,6 +121,14 @@ class ChatSheetActions(
     /** No app opens a file: share it / save a copy (path, name, mime). */
     val onShareFile: (String, String, String) -> Unit = { _, _, _ -> },
     val onSaveFile: (String, String, String) -> Unit = { _, _, _ -> },
+    // ---- listening mode ----
+    /** ⋯ → 🎧 Listening mode (on ↔ off). */
+    val onToggleListening: () -> Unit = {},
+    /** ⋯ → 🙈 Hide all messages. */
+    val onHideAll: () -> Unit = {},
+    // ---- auto-check ----
+    /** ▶ in "How to say it better": read (playing id, text) aloud with the chat's TTS. */
+    val onPlayText: (String, String) -> Unit = { _, _ -> },
 )
 
 @Composable
@@ -138,6 +146,19 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             }
         }
         ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss) { AttachContent(ui, actions) }
+        is ChatSheet.SayBetter -> {
+            val m = ui.messages.firstOrNull { it.id == s.message.id } ?: s.message
+            val v = remember(m, ui.myId, ui.otherName) { SayBetterView.of(m, ui.myId, ui.otherName) }
+            if (v != null) LabBottomSheet(onDismiss = actions.onDismiss) {
+                val playId = "say-better-${m.id}"
+                SayBetterContent(
+                    v, ui.online, playing = ui.playingId == playId, cards = actions.cards,
+                    onPlay = { actions.onPlayText(playId, v.corrected) },
+                    onAsk = { actions.onMenuAction(dev.jeromeswannack.chineselearning.lab.core.MessageMenu.DISCUSS, m) },
+                    onClose = actions.onDismiss,
+                )
+            }
+        }
         is ChatSheet.Explain -> ui.explain?.let { e ->
             dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet(onDismiss = actions.onCloseExplain) {
                 ExplainContent(e, s.saveCard, ui.online, actions.cards, onRetry = actions.onRetryExplain, onClose = actions.onCloseExplain)
@@ -228,6 +249,15 @@ fun ChatMenuContent(ui: ChatUi, actions: ChatSheetActions) {
     Column(Modifier.testTag("chat-menu")) {
         NavRow("🔍", "Search", desc = "Find a message in this chat", onClick = actions.onOpenSearch)
         RowDivider()
+        // Listening mode (docs/CHAT.md "Listening mode"): new messages arrive hidden — listen first.
+        if (ui.listeningAvailable) {
+            Box(Modifier.testTag("chat-menu-listening")) { ToggleRow("🎧", "Listening mode", ui.listening.setting.on, desc = "New messages arrive hidden — tap to listen, hold to reveal") { actions.onToggleListening() } }
+            RowDivider()
+            if (ui.listening.setting.on) {
+                NavRow("🙈", "Hide all messages", desc = "Every message from ${ui.otherName.ifEmpty { "them" }.substringBefore(' ')} becomes a listening exercise", onClick = actions.onHideAll)
+                RowDivider()
+            }
+        }
         // PR 3: make cards from the chat; pinyin / translations for every message.
         NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
         RowDivider()
@@ -480,4 +510,5 @@ private fun WordSheet(hanzi: String, context: String, ui: ChatUi, actions: ChatS
         }
     }
 }
+
 

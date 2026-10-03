@@ -12,7 +12,7 @@
 import { z } from 'zod';
 import type { ToolContext } from './context.js';
 import { errorResult, guard, jsonResult, textResult } from './context.js';
-import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignmentSummary, describeSend, sendAsHomework } from './homework-send.js';
+import { CONFIRM_SEND, NEEDS_CONFIRM, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_TODAY, STUDENT_NAME, assignmentSummary, describeSend, resolveStudent, sendAsHomework, sentTo } from './homework-send.js';
 import type { StudyBudgetInfo } from '../../../shared/decks/tutor-budget';
 import type {
   CardFlagRow,
@@ -663,7 +663,7 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'share_deck_with_student',
-    `Send one of the tutor's own decks to the student as homework — a real homework assignment, like the app's Send homework sheet. The app copies the deck (with audio) into the student's account as "<name> (from tutor)", leaving out words they already have (skip_known, default true). By default (\`mode: "both"\`) it is a one-off pass due by \`due_date\` (default: the student's next logged lesson, else in two days) — it shows on their Homework list with the date — AND it joins their long-term review queue, where the student introduces a fixed number of new words a day (their daily budget, 3 by default) from the top of the queue down, so sending more never adds to their daily load. \`mode: "one_off"\` = the pass only (never enters daily review); \`"fsrs"\` = long-term only, no date. \`priority\` decides where the long-term copy lands: "core" (default) top, studied next; "non_urgent" bottom. Deck ids come from list_decks. To add words to a deck already shared, edit the tutor's deck and call update_student_deck_copy instead (sending twice makes a second copy). Returns shared_deck_id and the assignments created.`,
+    `${SEND_RULE} Send one of the tutor's own decks to the student as homework — a real homework assignment, like the app's Send homework sheet. The app copies the deck (with audio) into the student's account as "<name> (from tutor)", leaving out words they already have (skip_known, default true). By default (\`mode: "both"\`) it is a one-off pass due by \`due_date\` (default: the student's next logged lesson, else in two days) — it shows on their Homework list with the date — AND it joins their long-term review queue, where the student introduces a fixed number of new words a day (their daily budget, 3 by default) from the top of the queue down, so sending more never adds to their daily load. \`mode: "one_off"\` = the pass only (never enters daily review); \`"fsrs"\` = long-term only, no date. \`priority\` decides where the long-term copy lands: "core" (default) top, studied next; "non_urgent" bottom. Deck ids come from list_decks. To add words to a deck already shared, edit the tutor's deck and call update_student_deck_copy instead (sending twice makes a second copy). Returns shared_deck_id and the assignments created.`,
     {
       relationship_id: RELATIONSHIP_ID,
       deck_id: z.string().describe("One of the tutor's deck ids (list_decks)."),
@@ -672,12 +672,18 @@ export function registerStudentTools(ctx: ToolContext): void {
       priority: z.enum(['core', 'non_urgent']).optional().describe('Long-term part (mode both / fsrs): "core" (default) = top of the student\'s queue, studied next; "non_urgent" = bottom, after everything else.'),
       skip_known: z.boolean().optional().describe('Leave out words the student already has (default true; `skipped` lists them).'),
       today: SEND_TODAY,
+      student_name: STUDENT_NAME,
+      confirm: CONFIRM_SEND,
     },
-    async ({ relationship_id, deck_id, mode, due_date, priority, skip_known, today }) =>
+    async ({ relationship_id, deck_id, mode, due_date, priority, skip_known, today, student_name, confirm }) =>
       guard(async () => {
+        if (confirm !== true) return errorResult(NEEDS_CONFIRM);
+        const student = await resolveStudent(api, ctx.userId, relationship_id, student_name);
         const sent = await sendAsHomework(api, relationship_id, 'deck', deck_id, { mode, due_date, priority: priority ?? 'core', skip_known, today });
         const first = sent.result.assignments[0];
         return jsonResult({
+          sent: true,
+          sent_to: student,
           shared_deck_id: sent.copy?.share_id ?? null,
           tutor_deck_id: deck_id,
           student_deck_id: sent.copy?.target_id ?? first.target_id,
@@ -687,7 +693,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           due_date: sent.due_date,
           assignments: assignmentSummary(sent.result.assignments),
           skipped_known: sent.result.skipped.flatMap((s) => s.hanzi),
-          message: `Sent ${describeSend(sent.mode, sent.due_date)}.`,
+          message: sentTo(student.name, `"${sent.copy?.target_name ?? first.title}" ${describeSend(sent.mode, sent.due_date)}.`),
         });
       })
   );
@@ -774,14 +780,21 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'update_student_deck_copy',
-    "Bring the student's copy of a shared deck up to date with the tutor's version: words the tutor added since sharing are copied over (with their cards and audio), words the student already has are matched by hanzi and left untouched so their progress and history survive. Returns how many were added / kept / got missing audio filled.",
-    { relationship_id: RELATIONSHIP_ID, shared_deck_id: z.string().describe('The `shared_deck_id` from list_student_homework.') },
-    async ({ relationship_id, shared_deck_id }) =>
+    `${SEND_RULE} Bring the student's copy of a shared deck up to date with the tutor's version: words the tutor added since sharing are copied over (with their cards and audio), words the student already has are matched by hanzi and left untouched so their progress and history survive. Returns how many were added / kept / got missing audio filled.`,
+    {
+      relationship_id: RELATIONSHIP_ID,
+      shared_deck_id: z.string().describe('The `shared_deck_id` from list_student_homework.'),
+      student_name: STUDENT_NAME,
+      confirm: CONFIRM_SEND,
+    },
+    async ({ relationship_id, shared_deck_id, student_name, confirm }) =>
       guard(async () => {
-        const r = await api.post<Record<string, unknown>>(
+        if (confirm !== true) return errorResult(NEEDS_CONFIRM);
+        const student = await resolveStudent(api, ctx.userId, relationship_id, student_name);
+        const r = await api.post<{ added?: number; kept?: number; audio_filled?: number; updated?: number }>(
           `${rel(relationship_id)}/shared-decks/${encodeURIComponent(shared_deck_id)}/update`
         );
-        return jsonResult(r);
+        return jsonResult({ sent: true, sent_to: student, ...r, message: sentTo(student.name, `their copy gained ${r.added ?? 0} new word(s), took your newer text on ${r.updated ?? 0}, kept ${r.kept ?? 0}.`) });
       })
   );
 
@@ -789,7 +802,7 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'submit_session_notes',
-    `Hand the tutor's raw notes from a lesson — or the transcript of a recorded video lesson — to the in-app assistant, which works in the background (a minute or a few): it checks the words against the student's existing cards and struggles, builds a deck of standard cards for the words taught in the lesson, writes a mini lesson ONLY when the notes show a grammar point with example sentences, a graded reader only when the notes call for one, and (by default) sends everything to the student as homework. Pass \`notes\` verbatim (any length and format; do not pre-process them into cards), OR \`call_id\` for a video call whose transcript, whiteboard text, chat and report become the notes (the call must belong to the relationship and be ended). Returns the job; poll get_session_notes_job for progress and the result. Also logs the lesson (anchors "since last lesson" in Insights) unless \`log_lesson\` is false.`,
+    `Hand the tutor's raw notes from a lesson — or the transcript of a recorded video lesson — to the in-app assistant, which works in the background (a minute or a few): it checks the words against the student's existing cards and struggles, builds a deck of standard cards for the words taught in the lesson, writes a mini lesson ONLY when the notes show a grammar point with example sentences and a graded reader only when the notes call for one. Everything it makes stays in the TUTOR's account — NOTHING is sent to the student (the result lists each item with \`sent: false\`); send them afterwards with send_session_notes_items when the tutor asks (or the tutor uses "Send to <student>" on the job in the app). Pass \`notes\` verbatim (any length and format; do not pre-process them into cards), OR \`call_id\` for a video call whose transcript, whiteboard text, chat and report become the notes (the call must belong to the relationship and be ended). Returns the job; poll get_session_notes_job for progress and the result. Also logs the lesson (anchors "since last lesson" in Insights) unless \`log_lesson\` is false.`,
     {
       relationship_id: RELATIONSHIP_ID.optional().describe('Required with `notes`. Ignored with `call_id` (the call knows its relationship).'),
       notes: z.string().min(20).max(120_000).optional().describe('The raw session notes, verbatim. Omit when passing call_id.'),
@@ -797,12 +810,16 @@ export function registerStudentTools(ctx: ToolContext): void {
       title: z.string().max(120).optional().describe('Optional title for the lesson / deck ("Restaurant ordering"). Ignored with call_id (the call\'s title is used).'),
       lesson_at: z.string().optional().describe('When the lesson happened (YYYY-MM-DD or ISO). Default: now (or the call\'s start).'),
       priority: z.enum(['core', 'non_urgent']).optional().describe('Where the deck lands in the student\'s study queue when sent: core = top (default), non_urgent = bottom.'),
-      auto_share: z.boolean().optional().describe('Send the deck / lesson / reader to the student when done (default true). false keeps them in the tutor\'s library to review first.'),
+      auto_share: z.boolean().optional().describe('Default false: everything stays in the tutor\'s account to review first. true sends it all to the student automatically when the job finishes — ONLY when the tutor explicitly asked for that in this conversation; then confirm: true is required too.'),
+      confirm: z.boolean().optional().describe('With auto_share: must be true — only after the tutor explicitly asked to send the results to this student without reviewing them.'),
       log_lesson: z.boolean().optional().describe('Also add a lesson-log entry with these notes (default true).'),
     },
-    async ({ relationship_id, notes, call_id, title, lesson_at, priority, auto_share, log_lesson }) =>
+    async ({ relationship_id, notes, call_id, title, lesson_at, priority, auto_share, confirm, log_lesson }) =>
       guard(async () => {
-        const options = { priority: priority ?? 'core', auto_share: auto_share ?? true, log_lesson: log_lesson ?? true };
+        if (auto_share && confirm !== true) {
+          return errorResult('auto_share sends everything to the student without review: it needs confirm: true, and only when the tutor explicitly asked for that. Nothing was submitted. Call again without auto_share to make the homework in the tutor\'s account first.');
+        }
+        const options = { priority: priority ?? 'core', auto_share: auto_share === true, log_lesson: log_lesson ?? true };
         if (call_id) {
           const r = await api.post<{ job: SessionNotesJobRow; existing?: boolean }>(`/api/calls/${encodeURIComponent(call_id)}/homework`, options);
           return jsonResult({
@@ -847,6 +864,39 @@ export function registerStudentTools(ctx: ToolContext): void {
       guard(async () => {
         const r = await api.get<{ jobs: SessionNotesJobRow[] }>(`${rel(relationship_id)}/session-notes`, { limit: String(clampInt(limit, 1, 200, 20)) });
         return jsonResult({ jobs: r.jobs.map((j) => compactSessionNotesJob(j)) });
+      })
+  );
+
+  server.tool(
+    'send_session_notes_items',
+    `${SEND_RULE} Send what a finished session-notes job made (its deck, mini lessons and reader, which wait in the tutor's account) to the job's student as homework — the same as "Send to <student>" on the job in the app, a real assignment like share_deck_with_student. \`items\` picks which ("deck", "lesson:<library_item_id>", "reader" — the keys in get_session_notes_job's \`not_sent\`); omit it to send everything not sent yet. Not for drafts (those use assign_homework_draft).`,
+    {
+      relationship_id: RELATIONSHIP_ID,
+      job_id: z.string().describe('The `job_id` from submit_session_notes / list_session_notes_jobs.'),
+      items: z.array(z.string()).optional().describe('Keys from `not_sent`: "deck", "lesson:<library_item_id>", "reader". Omit = all of them.'),
+      mode: SEND_MODE,
+      due_date: SEND_DUE_DATE,
+      today: SEND_TODAY,
+      student_name: STUDENT_NAME,
+      confirm: CONFIRM_SEND,
+    },
+    async ({ relationship_id, job_id, items, mode, due_date, today, student_name, confirm }) =>
+      guard(async () => {
+        if (confirm !== true) return errorResult(NEEDS_CONFIRM);
+        const student = await resolveStudent(api, ctx.userId, relationship_id, student_name);
+        const r = await api.post<{ job: SessionNotesJobRow; sent: Array<{ key: string; title: string }>; errors: Array<{ source_id: string; error: string }>; skipped: Array<{ hanzi: string[] }> }>(
+          `${rel(relationship_id)}/session-notes/${encodeURIComponent(job_id)}/send`,
+          { items, mode, due_date, today },
+        );
+        return jsonResult({
+          sent: r.sent.length > 0,
+          sent_to: student,
+          items_sent: r.sent,
+          errors: r.errors,
+          skipped_known: r.skipped.flatMap((s) => s.hanzi),
+          job: compactSessionNotesJob(r.job),
+          message: r.sent.length ? sentTo(student.name, r.sent.map((i) => `"${i.title}"`).join(', ') + ` ${describeSend(mode ?? 'both', due_date ?? null)}.`) : `Nothing was sent to ${student.name}.`,
+        });
       })
   );
 

@@ -4,6 +4,7 @@ import { decksInQueueOrder, defaultPickerDeckId } from '@shared/decks/queue';
 import { createDeck, createNotesBatch, getDecks } from '../../api/client';
 import { proposeChatFlashcards } from '../../api/chat';
 import { invalidateKnownHanzi } from '../../services/readerWords';
+import { track, trackError } from '../../services/analytics';
 import {
   batchNotesFrom,
   draftsFromProposal,
@@ -120,6 +121,7 @@ export function MakeFlashcardsSheet({
       invalidateKnownHanzi();
       void queryClient.invalidateQueries({ queryKey: ['decks'] });
       const created = res.created?.length ?? 0;
+      track('chat.make_flashcards', { count: created, focus: scope.kind });
       if (!res.failed || res.failed.length === 0) {
         onAdded(`Added ${created} card${created === 1 ? '' : 's'} to ${deckName || 'your deck'}.`);
         return;
@@ -133,6 +135,7 @@ export function MakeFlashcardsSheet({
           .join('; ')}`,
       );
     } catch (error) {
+      trackError('chat_make_flashcards', error);
       setSaveError(describeError(error, "Couldn't add the cards."));
     } finally {
       setSaving(false);

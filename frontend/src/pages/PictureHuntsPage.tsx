@@ -6,6 +6,7 @@ import type { LocalPictureHunt } from '../db/database';
 import {
   deleteHuntEverywhere, getHuntImage, getLocalHunts, preparePhoto, refreshPictureHunts, storeHuntList,
 } from '../services/pictureHunts';
+import { track, trackError } from '../services/analytics';
 import './PictureHuntPage.css';
 
 /** Starter scenes — one tap instead of thinking one up. */
@@ -99,6 +100,7 @@ export function PictureHuntsPage() {
       const { hunt } = mode === 'generate'
         ? await createPictureHunt({ prompt: prompt.trim(), use_learning_words: useWords })
         : await uploadPictureHunt(await preparePhoto(photo!), caption);
+      track('picture_hunt.create', { source: mode === 'generate' ? 'generated' : 'upload' });
       await storeHuntList([hunt, ...hunts.filter((h) => h.id !== hunt.id)]);
       setPrompt('');
       setPhoto(null);
@@ -106,6 +108,7 @@ export function PictureHuntsPage() {
       if (fileRef.current) fileRef.current.value = '';
       await reloadLocal();
     } catch (err) {
+      trackError('picture_hunt_create', err);
       setError(err instanceof Error ? err.message : 'Couldn\'t start it — check your connection and try again.');
     } finally {
       setBusy(false);

@@ -165,7 +165,7 @@ export function MessageMenu({
               <button
                 key={item.id}
                 type="button"
-                className={`msg-sheet-action${item.danger ? ' danger' : ''}${item.active ? ' active' : ''}`}
+                className={`msg-sheet-action${item.danger ? ' danger' : ''}${item.active ? ' active' : ''}${item.id === 'say_better' ? ' say-better' : ''}`}
                 onClick={() => onAction(item.id)}
                 disabled={blocked}
                 data-tool={item.id}

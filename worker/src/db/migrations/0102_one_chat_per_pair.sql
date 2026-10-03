@@ -79,6 +79,16 @@ ON CONFLICT (conversation_id, user_id) DO UPDATE
 
 DELETE FROM conversation_reads WHERE conversation_id IN (SELECT old_id FROM _chat_merge);
 
+-- Listening mode (0099_chat_listening): a person's setting on the one chat stays; one
+-- that only existed on a merged-away chat moves over (the most recently changed wins).
+INSERT OR IGNORE INTO chat_listening (conversation_id, user_id, listening, since, updated_at)
+SELECT mg.primary_id, cl.user_id, cl.listening, cl.since, cl.updated_at
+  FROM chat_listening cl
+  JOIN _chat_merge mg ON mg.old_id = cl.conversation_id
+ ORDER BY cl.updated_at DESC;
+
+DELETE FROM chat_listening WHERE conversation_id IN (SELECT old_id FROM _chat_merge);
+
 -- In-app notifications (unread chat rows are cleared per conversation).
 UPDATE notifications
    SET conversation_id = (SELECT primary_id FROM _chat_merge WHERE old_id = notifications.conversation_id)

@@ -49,11 +49,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkRemoval
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkSend
+import dev.jeromeswannack.chineselearning.lab.data.api.toSendResult
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabToast
 import dev.jeromeswannack.chineselearning.lab.data.api.DraftPlanDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DraftPlanItemDto
@@ -502,15 +505,32 @@ data class JobActions(
     val open: (String) -> Unit = {},
     /** "Undo — remove from Jerome" on what the job sent; null hides it (a page without the confirm sheet). */
     val remove: ((RemovalTarget) -> Unit)? = null,
+    /**
+     * Create, then send: "Send to Jerome" on each unsent item (keys "deck" | "lesson:<id>" | "reader"), after a
+     * confirm. The callback gets null on success or the error line. Null hides the buttons.
+     */
+    val send: ((job: SessionJobDto, keys: List<String>, done: (String?) -> Unit) -> Unit)? = null,
 )
 
 /** One session-notes job: live progress, what it made, Retry / Cancel / Delete (web: SessionNotesJobCard). */
 @Composable
-fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Instant.now(), studentName: String? = null) {
+fun SessionJobCard(
+    job: SessionJobDto,
+    actions: JobActions,
+    now: Instant = Instant.now(),
+    studentName: String? = null,
+    /** Screenshots: open with the Send confirm showing for these keys. */
+    initialConfirmSend: List<String>? = null,
+) {
     var showSteps by remember { mutableStateOf(false) }
     var showNotes by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmSend by remember { mutableStateOf(initialConfirmSend) }
+    var sending by remember { mutableStateOf(false) }
+    var sendError by remember { mutableStateOf<String?>(null) }
     val active = job.active
+    // Create, then send: what the job made waits in the tutor's account until she presses Send.
+    val unsent = if (job.status == "done") HomeworkSend.unsentJobItems(job.result.toSendResult()) else emptyList()
     TeachCard(Modifier.animateContentSize()) {
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
@@ -546,27 +566,37 @@ fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Insta
             val first = HomeworkRemoval.studentFirstName(studentName)
             val undo = HomeworkRemoval.removalUndoLabel(studentName)
             fun undoFor(target: RemovalTarget?): (() -> Unit)? = if (target != null && actions.remove != null) ({ actions.remove.invoke(target) }) else null
+            val sendLabel = HomeworkSend.sendToLabel(studentName)
+            fun sendFor(key: String): (() -> Unit)? = if (actions.send != null && unsent.any { it.key == key }) ({ confirmSend = listOf(key) }) else null
             r.deck?.let { d ->
                 MadeRow(
-                    "📚", "${d.name} · ${TeachingFormat.plural(d.note_count, "card")}", d.target_deck_id != null, "sent to student", "in your library, not sent",
-                    removed = d.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    "📚", "${d.name} · ${TeachingFormat.plural(d.note_count, "card")}", !d.target_deck_id.isNullOrEmpty(), "sent to $first", "in your library, not sent",
+                    removed = !d.removed_at.isNullOrEmpty(), removedLabel = "removed from $first", undoLabel = undo,
+                    sendLabel = sendLabel, sending = sending, onSend = sendFor("deck"),
                     onUndo = undoFor(d.target_deck_id?.takeIf { d.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.DECK, it, d.name) }),
                 ) { actions.open(Routes.deck(d.id)) }
             }
             r.lessons.forEach { l ->
                 MadeRow(
-                    "📘", "${l.title} · mini lesson, ${TeachingFormat.plural(l.exercise_count, "exercise")}", l.lesson_id != null, "assigned", "in your library, not assigned",
-                    removed = l.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    "📘", "${l.title} · mini lesson, ${TeachingFormat.plural(l.exercise_count, "exercise")}", !l.lesson_id.isNullOrEmpty(), "sent to $first", "in your library, not sent",
+                    removed = !l.removed_at.isNullOrEmpty(), removedLabel = "removed from $first", undoLabel = undo,
+                    sendLabel = sendLabel, sending = sending, onSend = sendFor("lesson:${l.library_item_id}"),
                     onUndo = undoFor(l.lesson_id?.takeIf { l.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.LESSON, it, l.title) }),
                 ) { actions.open(Routes.libraryItem(l.library_item_id)) }
             }
             r.reader?.let { rd ->
                 MadeRow(
-                    "📖", "${rd.title_english} · reader, ${TeachingFormat.plural(rd.page_count, "page")}", rd.target_reader_id != null, "sent to student", "in your readers, not sent",
-                    removed = rd.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    "📖", "${rd.title_english} · reader, ${TeachingFormat.plural(rd.page_count, "page")}", !rd.target_reader_id.isNullOrEmpty(), "sent to $first", "in your readers, not sent",
+                    removed = !rd.removed_at.isNullOrEmpty(), removedLabel = "removed from $first", undoLabel = undo,
+                    sendLabel = sendLabel, sending = sending, onSend = sendFor("reader"),
                     onUndo = undoFor(rd.target_reader_id?.takeIf { rd.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.READER, it, rd.title_chinese.ifEmpty { rd.title_english }) }),
                 ) { actions.open(Routes.readerEdit(rd.id)) }
             }
+            if (unsent.size > 1 && actions.send != null) TeachButton(
+                if (sending) "Sending…" else HomeworkSend.sendAllLabel(unsent.size, studentName),
+                Modifier.fillMaxWidth().testTag("sn-send-all"), primary = true, enabled = !sending,
+            ) { confirmSend = unsent.map { it.key } }
+            sendError?.let { InlineNotice(it, kind = NoticeKind.Error) }
             r.summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink) }
             if (r.skipped.isNotEmpty()) MutedLine("${TeachingFormat.plural(r.skipped.size, "word")} left out: ${r.skipped.joinToString("; ")}")
         }
@@ -578,6 +608,23 @@ fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Insta
             if (!active) InlineButton("Delete", danger = true) { confirmDelete = true }
         }
         if (showNotes) Text(job.notes, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.background).padding(10.dp))
+    }
+    confirmSend?.let { keys ->
+        val titles = unsent.filter { it.key in keys }.map { it.title }
+        ConfirmDialog(
+            if (keys.size > 1) HomeworkSend.sendAllLabel(keys.size, studentName) else HomeworkSend.sendToLabel(studentName),
+            HomeworkSend.sendConfirmText(titles, studentName),
+            "Send",
+            onConfirm = {
+                confirmSend = null
+                val send = actions.send
+                if (titles.isNotEmpty() && send != null) {
+                    sending = true; sendError = null
+                    send(job, keys) { e -> sending = false; sendError = e }
+                }
+            },
+            onDismiss = { confirmSend = null },
+        )
     }
     if (confirmDelete) ConfirmDialog("Forget this job?", "Anything it created stays in your library.", "Delete", onConfirm = { actions.delete(job) }, onDismiss = { confirmDelete = false }, danger = true)
 }
@@ -593,6 +640,10 @@ private fun MadeRow(
     removedLabel: String = "",
     undoLabel: String = "",
     onUndo: (() -> Unit)? = null,
+    sendLabel: String = "",
+    sending: Boolean = false,
+    /** "Send to Jerome" while it is only in the tutor's account (create, then send). */
+    onSend: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Column {
@@ -608,6 +659,7 @@ private fun MadeRow(
             }
         }
         if (sent && !removed && onUndo != null) Row(Modifier.padding(start = 28.dp)) { InlineButton(undoLabel, danger = true, onClick = onUndo) }
+        if (!sent && !removed && onSend != null) Row(Modifier.padding(start = 28.dp).testTag("sn-send")) { InlineButton(sendLabel, enabled = !sending, onClick = onSend) }
     }
 }
 
@@ -649,7 +701,7 @@ private fun SessionNotesList(ui: SessionNotesUi, actions: JobActions, back: () -
             ui.jobs == null && ui.error != null -> item { InlineNotice(ui.error, kind = NoticeKind.Error) }
             ui.jobs == null -> item { LoadingState() }
             ui.jobs.isEmpty() -> item {
-                TeachCard { MutedLine("After a lesson, paste your notes here. The assistant turns them into a deck of cards for ${ui.studentName} — and a mini lesson when the notes show a grammar point with examples — then sends them as homework.") }
+                TeachCard { MutedLine("After a lesson, paste your notes here. The assistant turns them into a deck of cards for ${ui.studentName} — and a mini lesson when the notes show a grammar point with examples — kept in your account until you press Send.") }
             }
             else -> ui.jobs.forEach { j -> item(key = j.id) { SessionJobCard(j, actions, now, ui.studentName) } }
         }
@@ -665,7 +717,8 @@ fun SessionNotesForm(studentName: String, online: Boolean, submit: (String, Stri
     var title by remember { mutableStateOf("") }
     var lessonAt by remember { mutableStateOf(today) }
     var priority by remember { mutableStateOf("core") }
-    var autoShare by remember { mutableStateOf(true) }
+    // Create, then send: nothing goes to the student unless the tutor ticks this.
+    var autoShare by remember { mutableStateOf(false) }
     var logLesson by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -703,7 +756,7 @@ fun SessionNotesForm(studentName: String, online: Boolean, submit: (String, Stri
         if (autoShare) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OptionTile("Core", "top of their queue", priority == "core", Modifier.weight(1f)) { priority = "core" }
             OptionTile("Non-urgent", "after their other decks", priority == "non_urgent", Modifier.weight(1f)) { priority = "non_urgent" }
-        } else MutedLine("The deck stays in your library until you send it from Send homework.")
+        } else MutedLine("Everything is made in your account and nothing reaches ${HomeworkRemoval.studentFirstName(studentName)} until you press ${HomeworkSend.sendToLabel(studentName)} on the result.", Modifier.testTag("sn-not-sent-hint"))
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable { logLesson = !logLesson }, verticalAlignment = Alignment.CenterVertically) {
             Checkbox(logLesson, { logLesson = it }, colors = CheckboxDefaults.colors(checkedColor = Lab.colors.accent))
             Text("Also log this as a lesson (Insights counts “since last lesson” from it)", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)

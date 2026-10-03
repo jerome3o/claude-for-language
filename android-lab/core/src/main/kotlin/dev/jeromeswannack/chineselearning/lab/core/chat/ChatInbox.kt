@@ -23,6 +23,8 @@ data class ChatListLastMessage(
     @SerialName("sender_id") val senderId: String,
     val preview: String = "",
     @SerialName("created_at") val createdAt: String,
+    /** 'image' | 'voice' | 'file' | 'video' when the message has an attachment (listening mode leaves those visible). */
+    @SerialName("attachment_kind") val attachmentKind: String? = null,
 )
 
 /** `ChatListRow`: one conversation in the Chats inbox (`GET /api/me/chats`). */
@@ -39,6 +41,8 @@ data class ChatListRow(
     @SerialName("last_message") val lastMessage: ChatListLastMessage? = null,
     /** Messages from the other person after my read marker. */
     val unread: Int = 0,
+    /** My read marker in this conversation (listening mode: an undecided setting hides what's unread). */
+    @SerialName("my_read_at") val myReadAt: String? = null,
     /** Newest message time, else when the conversation was made. */
     @SerialName("last_activity_at") val lastActivityAt: String = "",
 )
@@ -51,7 +55,7 @@ data class ChatListResponse(
 )
 
 /** A live `message` for [ChatInbox.applyIncomingMessage]. */
-data class IncomingChatMessage(val id: String, val conversationId: String, val senderId: String, val preview: String, val createdAt: String)
+data class IncomingChatMessage(val id: String, val conversationId: String, val senderId: String, val preview: String, val createdAt: String, val attachmentKind: String? = null)
 
 /**
  * Port of shared/chats/inbox.ts — the Chats inbox rules (the Chats tab), parity-tested
@@ -213,7 +217,7 @@ object ChatInbox {
             a != null && b != null && a >= b
         }
         val updated = row.copy(
-            lastMessage = if (isNewer) ChatListLastMessage(msg.id, msg.senderId, msg.preview, msg.createdAt) else last,
+            lastMessage = if (isNewer) ChatListLastMessage(msg.id, msg.senderId, msg.preview, msg.createdAt, msg.attachmentKind) else last,
             lastActivityAt = if (isNewer) msg.createdAt else row.lastActivityAt,
             unread = if (msg.senderId != myUserId) row.unread + 1 else 0,
         )

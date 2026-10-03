@@ -31,6 +31,7 @@ import {
   type BlockPlayEvent,
   type BlockPlayState,
 } from '@shared/reader/blockPlayback';
+import { track } from '../services/analytics';
 import './ReaderAudioScrubber.css';
 
 /** Pointer travel (px) that turns a tap on the waveform into a drag. */
@@ -251,8 +252,10 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
     if (status !== 'ready' || !drag || drag.dragging) return;
     const ms = msAt(e.clientX);
     // A tap: jump to the tapped block (one block = a free anchor, as before)
-    if (blocksRef.current.length > 1) dispatch({ type: 'jump', index: blockIndexAt(blocksRef.current, ms) });
-    else dispatch({ type: 'place', ms });
+    if (blocksRef.current.length > 1) {
+      track('reader.audio_block', { action: 'jump' });
+      dispatch({ type: 'jump', index: blockIndexAt(blocksRef.current, ms) });
+    } else dispatch({ type: 'place', ms });
   }, [status, dispatch, msAt]);
 
   const start = useCallback(async () => {
@@ -279,6 +282,7 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
 
   const step = useCallback((dir: -1 | 1) => {
     if (status !== 'ready') return;
+    track('reader.audio_block', { action: dir < 0 ? 'step_back' : 'step_forward' });
     dispatch({ type: 'step', dir, posMs: positionMs() });
   }, [status, dispatch, positionMs]);
 

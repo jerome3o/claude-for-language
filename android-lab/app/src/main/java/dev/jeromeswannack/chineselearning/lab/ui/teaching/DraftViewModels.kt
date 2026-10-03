@@ -64,6 +64,7 @@ class LessonNotesController(private val app: LabApp, private val vm: ViewModel, 
     fun add(notes: String, title: String?, lessonAt: String, draft: Boolean, go: (String) -> Unit, done: (String?) -> Unit) = vm.viewModelScope.launch {
         attempt { app.repo.api.addLessonNotes(relId, AddLessonNotesBody(notes, title, lessonAt, draft)) }
             .onSuccess { r ->
+                app.analytics.track("tutor.lesson_notes_add", mapOf("draft" to draft))
                 app.haptics.correct()
                 done(null)
                 entries.refresh()
@@ -127,6 +128,7 @@ class DraftViewModel(private val app: LabApp, private val relId: String, private
         _ui.update { it.copy(assigning = true, error = null) }
         attempt { app.repo.api.assignHomeworkDraft(relId, jobId) }
             .onSuccess { r ->
+                app.analytics.track("tutor.homework_draft_assign", mapOf("items" to r.assignments.size))
                 val skipped = r.skipped.sumOf { it.hanzi.size }
                 app.haptics.celebrate()
                 app.sounds.play(Sounds.Sfx.FANFARE)
@@ -147,7 +149,7 @@ class DraftViewModel(private val app: LabApp, private val relId: String, private
     fun send(message: String, done: () -> Unit) = viewModelScope.launch {
         _ui.update { it.copy(sending = true, chatError = null) }
         attempt { app.repo.api.sendDraftMessage(relId, jobId, message) }
-            .onSuccess { app.haptics.tick(); done(); load() }
+            .onSuccess { app.analytics.track("tutor.homework_draft_message"); app.haptics.tick(); done(); load() }
             .onFailure { e -> _ui.update { it.copy(chatError = e.userMessage().ifBlank { "Could not send" }) } }
         _ui.update { it.copy(sending = false) }
     }
@@ -163,6 +165,15 @@ class SessionNotesViewModel(private val app: LabApp, private val relId: String) 
 
     /** "Undo — remove from Jerome" on what a job sent (take homework back); the job then shows "removed from Jerome". */
     val removal = HomeworkRemovalController(app, viewModelScope, relId) { _, _ ->
+        jobs.refresh()
+        app.scope.launch {
+            app.cache.delete(TeachingKeys.DASHBOARD)
+            app.cache.delete(TeachingKeys.overview(relId))
+        }
+    }
+
+    /** Create, then send: "Send to Jerome" on what a job made; the job then shows "sent to Jerome". */
+    val sender = HomeworkSendController(app, viewModelScope, { relId }) {
         jobs.refresh()
         app.scope.launch {
             app.cache.delete(TeachingKeys.DASHBOARD)
@@ -186,7 +197,7 @@ class SessionNotesViewModel(private val app: LabApp, private val relId: String) 
 
     fun submit(body: SubmitSessionNotesBody, done: (String?) -> Unit) = viewModelScope.launch {
         attempt { app.repo.api.submitSessionNotes(relId, body) }
-            .onSuccess { app.haptics.correct(); done(null); jobs.refresh() }
+            .onSuccess { app.analytics.track("tutor.session_notes"); app.haptics.correct(); done(null); jobs.refresh() }
             .onFailure { done(it.userMessage()) }
     }
 

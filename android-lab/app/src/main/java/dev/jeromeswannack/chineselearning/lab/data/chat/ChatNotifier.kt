@@ -148,7 +148,7 @@ object ChatNotifier {
             .setWhen(c.lines.lastOrNull()?.timeMs ?: System.currentTimeMillis())
             .setShowWhen(true)
             .setNumber(unread)
-            .setContentIntent(ShellLinks.pending(ctx, id, route))
+            .setContentIntent(ShellLinks.pending(ctx, id, route, notification = "chat_message"))
             .setDeleteIntent(actionIntent(ctx, ChatActionReceiver.ACTION_DISMISSED, c, id + 3, mutable = false))
             .addAction(reply)
             .addAction(read)

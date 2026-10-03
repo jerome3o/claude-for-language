@@ -1,5 +1,5 @@
 /**
- * One chat per pair (docs/CHAT.md "One chat per pair"): migration 0099 merges a
+ * One chat per pair (docs/CHAT.md "One chat per pair"): migration 0102 merges a
  * relationship's extra human conversations into one, without losing anything;
  * the API then gets-or-creates that one chat and answers merged-away ids as it.
  */
@@ -27,11 +27,11 @@ const msg = (db: SqliteD1, id: string, conv: string, sender: string, at: string,
   db.raw.run(`INSERT INTO messages (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, [id, conv, sender, content, at, ...Object.values(extra)]);
 };
 
-describe('migration 0099: merge a pair\'s conversations into one', () => {
+describe('migration 0102: merge a pair\'s conversations into one', () => {
   let db: SqliteD1;
 
   beforeEach(async () => {
-    db = await createSqliteD1({ stopBefore: '0099' });
+    db = await createSqliteD1({ stopBefore: '0102' });
     users(db);
     // Minghui ↔ Jerome: three human conversations (the invite's "Welcome", a titled one, an untitled one).
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-1', ?, ?, 'tutor', 'active')", [TUTOR, STUDENT]);
@@ -57,6 +57,10 @@ describe('migration 0099: merge a pair\'s conversations into one', () => {
     db.raw.run("INSERT INTO conversation_reads (conversation_id, user_id, last_read_at) VALUES ('c-chat', ?, '2026-09-20T10:00:00.000Z')", [TUTOR]);
     db.raw.run("INSERT INTO conversation_reads (conversation_id, user_id, last_read_at) VALUES ('c-homework', ?, '2026-10-01T08:00:00.000Z')", [TUTOR]);
     db.raw.run("INSERT INTO notifications (id, user_id, type, title, conversation_id, is_read) VALUES ('n1', ?, 'new_chat_message', 'New message', 'c-chat', 0)", [STUDENT]);
+    // Listening mode: the student turned it on in an old chat only; the tutor has settings in both.
+    db.raw.run("INSERT INTO chat_listening (conversation_id, user_id, listening, since, updated_at) VALUES ('c-chat', ?, 1, '2026-09-20T10:00:00.000Z', '2026-09-21T00:00:00.000Z')", [STUDENT]);
+    db.raw.run("INSERT INTO chat_listening (conversation_id, user_id, listening, since, updated_at) VALUES ('c-homework', ?, 0, NULL, '2026-09-01T00:00:00.000Z')", [TUTOR]);
+    db.raw.run("INSERT INTO chat_listening (conversation_id, user_id, listening, since, updated_at) VALUES ('c-welcome', ?, 1, NULL, '2026-09-02T00:00:00.000Z')", [TUTOR]);
     // Claude practice chats: never merged, may be several.
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-ai', ?, 'claude-ai', 'student', 'active')", [STUDENT]);
     db.raw.run("INSERT INTO conversations (id, relationship_id, title, is_ai_conversation) VALUES ('ai-1', 'rel-ai', 'Café', 1)");
@@ -67,7 +71,7 @@ describe('migration 0099: merge a pair\'s conversations into one', () => {
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-2', 'tutor-2', ?, 'tutor', 'active')", [STUDENT]);
     db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('c-li', 'rel-2')");
     msg(db, 'l1', 'c-li', 'tutor-2', '2026-09-03T09:00:00.000Z', '你好');
-    applyMigrationsFrom(db, '0099');
+    applyMigrationsFrom(db, '0102');
   });
 
   it('picks the most recently active conversation and moves every message into it', () => {
@@ -104,6 +108,11 @@ describe('migration 0099: merge a pair\'s conversations into one', () => {
       { conversation_id: 'c-homework', user_id: TUTOR, last_read_at: '2026-10-01T08:00:00.000Z' },
     ]);
     expect(db.rows("SELECT conversation_id FROM notifications WHERE id = 'n1'")).toEqual([{ conversation_id: 'c-homework' }]);
+    // Listening mode: the one chat's own setting stays; one only on an old chat moves over.
+    expect(db.rows("SELECT conversation_id, user_id, listening, since FROM chat_listening ORDER BY user_id")).toEqual([
+      { conversation_id: 'c-homework', user_id: STUDENT, listening: 1, since: '2026-09-20T10:00:00.000Z' },
+      { conversation_id: 'c-homework', user_id: TUTOR, listening: 0, since: null },
+    ]);
   });
 
   it('leaves Claude practice chats and single chats alone, and cleans up', () => {

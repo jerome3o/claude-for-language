@@ -53,6 +53,17 @@ export async function cancelSessionNotesJob(relId: string, id: string): Promise<
   return r.job;
 }
 
+export interface SendSessionNotesResult {
+  job: SessionNotesJob;
+  sent: Array<{ key: string; kind: 'deck' | 'lesson' | 'reader'; title: string }>;
+  errors: Array<{ source_id: string; error: string }>;
+}
+
+/** The explicit send: what the job made (keys "deck" | "lesson:<id>" | "reader"; none = all unsent) goes to the student as homework. */
+export async function sendSessionNotesItems(relId: string, id: string, items?: string[]): Promise<SendSessionNotesResult> {
+  return request<SendSessionNotesResult>(`${base(relId)}/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify(items?.length ? { items } : {}) });
+}
+
 export async function deleteSessionNotesJob(relId: string, id: string): Promise<void> {
   await request<{ success: boolean }>(`${base(relId)}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

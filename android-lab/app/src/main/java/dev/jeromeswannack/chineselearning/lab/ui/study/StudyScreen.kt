@@ -217,7 +217,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onTypeInstead = vm::typeInstead,
             onTick = { app.haptics.tick() },
             onCardProgress = vm::onCardProgress,
-            onOpenCoach = { text -> onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true)) },
+            onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true)) },
             onPlayMyRecording = vm::playMyRecording,
             onStartRecording = vm::startRecording,
             onStopRecording = vm::stopRecording,

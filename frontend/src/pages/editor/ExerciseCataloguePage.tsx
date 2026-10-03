@@ -8,7 +8,7 @@
  * type as soon as it is registered.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   EXERCISE_TYPE_LIST,
@@ -20,6 +20,7 @@ import { SAMPLE_LESSONS, sampleLesson, type SampleLesson } from '@shared/lesson/
 import { createLibraryItem } from '../../api/lessonEditor';
 import { StudyCustomLesson } from '../../components/StudyCustomLesson';
 import { ErrorMessage } from '../../components/Loading';
+import { track } from '../../services/analytics';
 import '../StudyPage.css';
 import './ExerciseCataloguePage.css';
 
@@ -88,6 +89,7 @@ export function ExerciseCataloguePage() {
     setError(null);
     try {
       const item = await createLibraryItem(sample.spec);
+      track('tutor.catalogue_copy', { exercise_type: sample.type });
       navigate(`/library/${item.id}/edit`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not copy the sample (are you online?)');
@@ -135,6 +137,10 @@ export function CatalogueTrialPage() {
   const { sampleId = '' } = useParams<{ sampleId: string }>();
   const navigate = useNavigate();
   const sample = sampleLesson(sampleId);
+  const sampleType = sample?.type;
+  useEffect(() => {
+    if (sampleType) track('lesson.catalogue_try', { exercise_type: sampleType });
+  }, [sampleId, sampleType]);
   if (!sample) {
     return (
       <div className="page"><div className="container">

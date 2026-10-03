@@ -267,7 +267,7 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
               r.requester_id, r.recipient_id, r.requester_role,
               u.id AS other_id, u.name AS other_name, u.picture_url AS other_picture,
               m.id AS last_id, m.sender_id AS last_sender_id, m.content AS last_content, m.created_at AS last_created_at,
-              m.deleted_at AS last_deleted_at, m.attachment AS last_attachment,
+              m.deleted_at AS last_deleted_at, m.attachment AS last_attachment, cr.last_read_at AS my_read_at,
               (SELECT COUNT(*) FROM messages um
                 WHERE um.conversation_id = c.id AND um.sender_id != ?1 AND um.deleted_at IS NULL
                   AND um.created_at > COALESCE(cr.last_read_at, '')) AS unread
@@ -289,7 +289,7 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
       is_ai_conversation: number; requester_id: string; recipient_id: string; requester_role: 'tutor' | 'student';
       other_id: string; other_name: string | null; other_picture: string | null;
       last_id: string | null; last_sender_id: string | null; last_content: string | null; last_created_at: string | null;
-      last_deleted_at: string | null; last_attachment: string | null; unread: number;
+      last_deleted_at: string | null; last_attachment: string | null; unread: number; my_read_at: string | null;
     }>();
 
   const conversations: ChatListRow[] = (rows.results ?? []).map((r) => {
@@ -307,6 +307,7 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
             deleted: !!r.last_deleted_at,
           }),
           created_at: r.last_created_at,
+          attachment_kind: attachment?.kind ?? null,
         }
       : null;
     return {
@@ -318,6 +319,7 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
       other_role: otherRole,
       last_message: lastMessage,
       unread: Number(r.unread ?? 0),
+      my_read_at: r.my_read_at ?? null,
       last_activity_at: lastMessage?.created_at ?? r.last_message_at ?? r.conv_created_at ?? now.toISOString(),
     };
   });

@@ -274,7 +274,7 @@ object CallAlertNotifier {
         if (!canPost(ctx)) return
         ensureChannel(ctx)
         val who = call.otherUserName?.trim()?.takeIf { it.isNotEmpty() } ?: "Your partner"
-        val open = ShellLinks.pending(ctx, notificationId(call.id), "/calls/${call.id}")
+        val open = ShellLinks.pending(ctx, notificationId(call.id), "/calls/${call.id}", notification = "call")
         val n = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_lab)
             .setContentTitle("📹 $who is calling")
@@ -296,7 +296,7 @@ object CallAlertNotifier {
             .setSmallIcon(R.drawable.ic_stat_lab)
             .setContentTitle("Missed video call from ${name?.trim()?.takeIf { it.isNotEmpty() } ?: "your partner"}")
             .setContentText("Tap to see your calls")
-            .setContentIntent(ShellLinks.pending(ctx, notificationId(callId), "/calls"))
+            .setContentIntent(ShellLinks.pending(ctx, notificationId(callId), "/calls", notification = "missed_call"))
             .setSilent(true)
             .setAutoCancel(true)
             .build()

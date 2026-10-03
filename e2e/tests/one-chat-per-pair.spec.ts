@@ -3,7 +3,7 @@ import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test
 /**
  * One chat per pair (docs/CHAT.md "One chat per pair"): a tutor and a student
  * have ONE conversation. Older extra conversations were merged into it by
- * migration 0099 — an old link still opens it, every message shows in order,
+ * migration 0102 — an old link still opens it, every message shows in order,
  * the inbox has one row for the person, and nothing offers a second chat.
  */
 

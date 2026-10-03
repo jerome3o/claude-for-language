@@ -769,6 +769,32 @@ suspend fun Api.cancelSessionJob(relId: String, id: String): SessionJobDto = pos
 suspend fun Api.deleteSessionJob(relId: String, id: String) = delete<Unit>("${sn(relId)}/${enc(id)}")
 
 @Serializable
+data class SendSessionItemsBody(val items: List<String>? = null)
+
+@Serializable
+data class SentItemDto(val key: String = "", /** deck | lesson | reader */ val kind: String = "", val source_id: String = "", val title: String = "")
+
+@Serializable
+data class SendErrorDto(val source_id: String = "", val error: String = "")
+
+@Serializable
+data class SendSessionItemsResultDto(val job: SessionJobDto, val sent: List<SentItemDto> = emptyList(), val errors: List<SendErrorDto> = emptyList())
+
+/**
+ * Create, then send: what the job made (keys "deck" | "lesson:<library_item_id>" | "reader"; empty = every unsent item)
+ * goes to the student as homework (web: sendSessionNotesItems).
+ */
+suspend fun Api.sendSessionNotesItems(relId: String, id: String, items: List<String>): SendSessionItemsResultDto =
+    post<SendSessionItemsBody, SendSessionItemsResultDto>("${sn(relId)}/${enc(id)}/send", SendSessionItemsBody(items.takeIf { it.isNotEmpty() }))
+
+/** The job result as the shared send rule reads it (HomeworkSend.unsentJobItems). */
+fun JobResultDto.toSendResult(): dev.jeromeswannack.chineselearning.lab.core.SendJobResult = dev.jeromeswannack.chineselearning.lab.core.SendJobResult(
+    deck = deck?.let { dev.jeromeswannack.chineselearning.lab.core.SendJobDeck(it.id, it.name, it.note_count, it.target_deck_id, it.removed_at) },
+    lessons = lessons.map { dev.jeromeswannack.chineselearning.lab.core.SendJobLesson(it.library_item_id, it.title, it.lesson_id, it.removed_at) },
+    reader = reader?.let { dev.jeromeswannack.chineselearning.lab.core.SendJobReader(it.id, it.title_english, it.target_reader_id, it.removed_at) },
+)
+
+@Serializable
 data class LessonNotesJobBriefDto(
     val id: String,
     val status: String = "queued",

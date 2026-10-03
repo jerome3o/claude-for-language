@@ -242,6 +242,7 @@ class PasteWordsViewModel(
                 }
             }.awaitAll()
             val outcome = ImportOutcome(added.get(), updated.get(), failed.toList())
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("deck.paste_list", mapOf("added" to outcome.added, "updated" to outcome.updated, "skipped" to d.plan.size - work.size, "failed" to failed.size))
             if (outcome.added + outcome.updated > 0) env.fx.success() else if (failed.isNotEmpty()) env.fx.failure()
             _ui.update { it.copy(stage = PasteStage.DONE, outcome = outcome, current = null) }
             env.requestSync()
