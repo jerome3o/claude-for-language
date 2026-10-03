@@ -389,7 +389,9 @@ export function ChatPage() {
     [thread.openedAt, isAIConversation, myId, thread.readMarkerAtOpen, serverMessages.length > 0],
   );
   // ----- Listening mode (docs/CHAT.md "Listening mode") -----
-  const listening = useChatListening(wantsNew ? undefined : convId);
+  // Chats with a person only: Claude role-play replies are spoken already (as in the Lab app).
+  const listeningRaw = useChatListening(wantsNew ? undefined : convId);
+  const listening = isAIConversation ? { ...listeningRaw, setting: { on: false, since: null } } : listeningRaw;
   const revealed = useRevealed(wantsNew ? undefined : convId);
   const listenPlayer = useListeningPlayer((m) => setNotice({ kind: 'error', text: m }));
   const readAloudParamsRef = useRef(readAloudParams);
@@ -409,8 +411,8 @@ export function ChatPage() {
     void setConversationListening(convId, true, thread.readMarkerAtOpen ?? HIDE_ALL_SINCE);
   }, [convId, wantsNew, listening.setting.on, listening.decided, thread.openedAt, thread.readMarkerAtOpen]);
   useEffect(() => {
-    // Clips ready before a tap: on open, and as messages / their `audio_clip` arrive.
-    if (!myId || serverMessages.length === 0) return;
+    // Clips ready before a tap: on open, and as messages arrive.
+    if (!myId || serverMessages.length === 0 || isAIConversation) return;
     // A little later than the send, so the server's pre-generated clip is usually there already.
     const t = window.setTimeout(() => void prefetchMessageClips(serverMessages, myId, readAloudParamsRef.current), 2500);
     return () => window.clearTimeout(t);
@@ -1932,6 +1934,7 @@ export function ChatPage() {
               <span aria-hidden="true">🃏</span> Make flashcards
               {!isOnline && <span className="msg-sheet-action-hint">Needs internet</span>}
             </button>
+            {!isAIConversation && (
             <button
               type="button"
               role="menuitemcheckbox"
@@ -1946,6 +1949,7 @@ export function ChatPage() {
               <span aria-hidden="true">🎧</span> Listening mode
               <span className={`chat-menu-switch${listening.setting.on ? ' on' : ''}`} aria-hidden="true" />
             </button>
+            )}
             {listening.setting.on && (
               <button
                 type="button"

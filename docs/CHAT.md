@@ -446,6 +446,7 @@ cache by the same triple (`getTTSWithCache`; Lab the same cache as Read aloud).
   is open (→ `/api/me/chat-clips`), and in background sync (`/api/me/chat-clips`). A tap then plays at once, offline.
 
 **UI**
+- Chats with a person only (a Claude role-play chat's replies are spoken already: no toggle there).
 - Chat header ⋯ → **🎧 Listening mode** (a checkbox item; on → off), and while on **🙈 Hide all messages**.
   Settings → Chat → **Listening mode in new chats** (the default). The header subtitle shows "🎧 Listening mode".
 - A hidden bubble: the normal received bubble (same size class, grey), the text replaced by 🎧 + 24 bars
