@@ -119,7 +119,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   └── index.ts       # Re-exports
 │   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge, video fit / PiP (videoFit.ts), the shared text board CRDT (textDoc.ts), board pages across lessons (pages.ts), call alerts (alerts.ts), drawing on a shared screen (annotate.ts), board tab-complete rules (gloss.ts) (see docs/VIDEO_CALLS.md)
 │   ├── materials/         # Lesson materials: kinds, limits, page text, `material:<id>:<page>` annotation targets, presented-material shape, PPTX_RENDER_NOTE
-│   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
+│   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP); inbox.ts = the Chats tab rules (sort, preview, relative time, search, badge, live updates) — parity-tested by the Lab app
 │   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts) — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts (new characters first); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
@@ -725,6 +725,7 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `PUT /api/decks/:id/settings` - Any subset of the deck settings (validated; 400 with `problems`) — per-deck caps on the global new-card budget
 - `POST /api/decks/:id/move` - `{ to: 'top' | 'bottom' }` move a deck in the study queue (`study_priority`)
 - `PUT /api/decks/reorder` - `{ deck_ids }` the whole queue, first = studied first
+- `GET /api/me/chats` - The Chats tab inbox: every conversation of my active relationships (Claude role-play chats flagged `is_ai`) with the other person, last message preview, my unread count, `last_activity_at`, newest first — one query (`getChatList`, `services/chat/reads.ts`; rules in `shared/chats/inbox.ts`, docs/CHAT.md "Chats tab")
 - `PUT /api/profile/email-prefs` - `{ email_chat_messages: boolean }` chat e-mails on / off (on `/api/auth/me`); every chat e-mail also carries a sign-in-free "Turn off chat emails" link + RFC 8058 `List-Unsubscribe` headers → `GET|POST /api/email/unsubscribe?t=`, `POST /api/email/resubscribe?t=` (HMAC token, `services/email-unsubscribe.ts`, `routes/email-prefs.ts`; docs/CHAT.md "E-mail opt-out")
 - `PUT /api/profile/study-budget` - `{ new_cards_per_day?, secondary_cards_per_day? }` the account's global daily new-card budget (0–200; 400 with `problems`); current values on `/api/auth/me`
 - `GET|PUT /api/profile` - The editable profile (`routes/profile.ts`, `services/profile.ts`, validation `shared/profile`): `{ name?, bio?, about?, time_zone? }` (400 + `problems`; `name: null` = back to the Google name) → `{ name, picture_url, picture_source: google|upload|none, name_custom, google_name, google_picture_url, bio, about, time_zone }`
@@ -1964,15 +1965,29 @@ The app supports many-to-many tutor-student relationships where users can be tut
   Which ⋯ tools show is `learningToolsForMessage` in `shared/chats/messageTools.ts` (Lab `MessageTools.kt`, parity-tested).
   Web: `components/chat/ChatWords.tsx`, `MakeFlashcardsSheet.tsx`, `ChatCorrection.tsx`, `CheckDraftPanel.tsx`,
   `services/chatLearning.ts`; Lab: `ui/chat/ChatLearningViews.kt`, `ChatCardsSheet.kt`, core `ChatLearning.kt`.
+- **Chat round 2 — a normal chat app** (docs/CHAT.md "Round 2"): Signal-like bubbles with NO buttons on them —
+  groups by sender within 3 min, time + ✓ / ✓✓ ticks inside the last bubble of a group, day pills, reactions pill, reply
+  quote inside the bubble (`layoutBubbles` / `tickFor` / `firstLink` in `shared/chats/bubbles.ts`, Lab `ChatBubbles.kt`
+  parity-tested). Every tool is in the **message menu** — long-press (touch), right-click or the hover 😊 / ⋯ (desktop):
+  a reaction bar + Reply · Copy · Translate · Pinyin · Explain · Save as flashcard · Make flashcards from selection ·
+  Check my Chinese · Correct · Read aloud · Discuss with Claude · Pin · Edit · Delete · Select (`messageMenu` in
+  `shared/chats/messageMenu.ts`, Lab `MessageMenu.kt` parity-tested; web `components/chat/MessageMenu.tsx`).
+  Explain / Save as flashcard = `components/chat/ExplainSheet.tsx` (`/api/sentences/explain-text` cached by text,
+  `SentenceWordBreakdown`, the whole message as one card via `breakdownSentenceCard` → `AddChunkModal`). Swipe right on
+  a bubble = reply. Composer: `[+] [😊 field ✓] [🎤|➤]`, hold the mic to record (slide left 100 px cancels, up 80 px
+  locks; `VoiceComposer` `mode` held / locked). Voice bubbles: real waveform (`services/voiceWaveform.ts`) + 1× / 1.5× / 2×.
+  Link previews: `GET /api/link-preview?url=` (`services/link-preview.ts`: public http(s) only, ≤ 512 KB, cached a day;
+  client `services/linkPreview.ts`). Styles: `components/chat/chat-signal.css`.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
-- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Decks · Library · More; student: Study · Decks · Tutor · Progress · More; account with students: Students · Decks · Study · More (+ Progress if they also study). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
+- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Chats · Library · More; student: Study · Chats · Tutor · Progress · More; account with students: Students · Chats · Study · More (+ Progress if they also study). The Chats tab carries an unread badge (conversations with unread messages); Decks is the first row of More (a `/decks` page lights More up). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
 - `/` - Study home (a tutor account gets the teaching home, `TutorHome`). On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
-- `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
-- `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
+- `/chats` - Chats tab: every conversation (tutors + students, Claude role-play in its own section), Signal-style rows with avatar / last message / time / unread, search, ✏️ new chat; cached offline, live while open (`pages/ChatsPage.tsx`, `hooks/useChatList.ts`)
+- `/decks` - Deck list + card search (`?q=`; `/search` redirects here) — More → Decks, Home "All decks →"
+- `/more` - Grouped More page (Decks first, then Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
 - `/profile` - Profile (`pages/ProfilePage.tsx`, `components/profile/`): display name, photo (crop sheet → 512px JPEG → R2 `avatars/<user>/<id>.jpg`, served by the public `GET /api/audio/<key>`), About me (public: `PersonAbout` on the tutor / student page, the /join page), time zone (the other side sees your local time), and the learner's private bio. **`users.name` / `picture_url` stay the effective values every query reads** (migration 0076 adds `google_name`, `google_picture_url`, `name_custom`, `picture_source`, `picture_key`, `about`, `time_zone`); the Google sign-in (`touchExistingUser` → `googleProfileRefresh`, and the MCP server's OAuth callback) always refreshes the `google_*` columns but only overwrites name / picture while the user follows Google. Reached from More (user card + Account → Profile), Settings, and the tutor's Students dashboard header chip / "Introduce yourself" nudge
 - `/settings` - Profile link · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, conversation voices (`/settings/voices`), sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
 - `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests

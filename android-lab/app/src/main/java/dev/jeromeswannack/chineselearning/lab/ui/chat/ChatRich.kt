@@ -1,6 +1,8 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chat
 
+import dev.jeromeswannack.chineselearning.lab.core.ChatBubbles
 import dev.jeromeswannack.chineselearning.lab.core.ChatSearch
+import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SendMessageBody
 import dev.jeromeswannack.chineselearning.lab.data.api.chatMessagesPath
@@ -10,8 +12,11 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
 import dev.jeromeswannack.chineselearning.lab.data.platform.OutboxEntity
 import kotlinx.serialization.json.Json
 import java.net.URLDecoder
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * A message I sent that the server hasn't confirmed yet — read from the Outbox, so it survives
@@ -179,33 +184,59 @@ sealed interface ChatRow {
     val key: String
     data class Day(val label: String, override val key: String) : ChatRow
     data object Unread : ChatRow { override val key = "unread" }
-    data class Msg(val message: ChatMessageDto, val receipt: ChatRich.Receipt? = null) : ChatRow { override val key = message.id }
-    data class Pending(val bubble: PendingBubble) : ChatRow { override val key = "p-" + bubble.clientId }
+    /** A message and where it sits in its group (chat round 2: ChatBubbles, parity-tested). */
+    data class Msg(val message: ChatMessageDto, val layout: ChatBubbles.Layout) : ChatRow { override val key = message.id }
+    data class Pending(val bubble: PendingBubble, val layout: ChatBubbles.Layout) : ChatRow { override val key = "p-" + bubble.clientId }
 }
 
 object ChatRows {
-    /** Day dividers, the unread divider, messages (+ receipt) and my pending bubbles last. */
+    private val dayLabel = DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)
+
+    /** The device's offset now, minutes EAST of UTC (the web's `-Date#getTimezoneOffset()`). */
+    fun offsetMinutes(zone: ZoneId = ZoneId.systemDefault(), now: Instant = Instant.now()): Int = zone.rules.getOffset(now).totalSeconds / 60
+
+    /** The day pill: "Today" / "Yesterday" / "Mon 28 Sep" (docs/CHAT.md "Round 2"). */
+    fun dayLabel(day: String, today: String): String {
+        if (day.isEmpty()) return ""
+        if (day == today) return "Today"
+        val d = runCatching { LocalDate.parse(day) }.getOrNull() ?: return day
+        val t = runCatching { LocalDate.parse(today) }.getOrNull()
+        if (t != null && d == t.minusDays(1)) return "Yesterday"
+        return dayLabel.format(d)
+    }
+
+    /** A pending bubble as the layout sees it: its outbox state as `pending`. */
+    fun bubbleOf(p: PendingBubble, myId: String?) = ChatBubbles.Message(
+        "p-" + p.clientId, myId ?: "", Js.toIsoString(p.createdAtMs), null,
+        when { p.failed -> "failed"; p.delivered -> null; else -> "sending" },
+    )
+
+    /**
+     * Day pills, the unread divider, messages and my pending bubbles last — each bubble with its
+     * group position and tick (`layoutBubbles`, shared with the web).
+     */
     fun build(
         messages: List<ChatMessageDto>,
         pending: List<PendingBubble>,
         unreadId: String?,
-        receipt: Pair<String, ChatRich.Receipt>?,
-        today: LocalDate = LocalDate.now(),
-        zone: ZoneId = ZoneId.systemDefault(),
+        myId: String?,
+        otherReadAt: String?,
+        nowMs: Long = System.currentTimeMillis(),
+        offsetMinutes: Int = offsetMinutes(),
     ): List<ChatRow> {
-        val rows = ArrayList<ChatRow>(messages.size + pending.size + 8)
-        var lastLabel: String? = null
-        for (g in ChatLogic.groupByDate(messages, today, zone)) {
-            rows += ChatRow.Day(g.label, "d-" + g.messages.first().id)
-            lastLabel = g.label
-            for (m in g.messages) {
+        val bubbles = messages.map { ChatBubbles.Message(it.id, it.sender_id, it.created_at, it.deleted_at, null) } + pending.map { bubbleOf(it, myId) }
+        val layouts = ChatBubbles.layoutBubbles(bubbles, myId ?: "", otherReadAt, offsetMinutes)
+        val today = Js.toIsoString(nowMs + offsetMinutes * 60_000L).take(10)
+        val rows = ArrayList<ChatRow>(bubbles.size + 8)
+        layouts.forEachIndexed { i, l ->
+            if (l.newDay) rows += ChatRow.Day(dayLabel(l.day, today), "d-" + l.id)
+            if (i < messages.size) {
+                val m = messages[i]
                 if (m.id == unreadId) rows += ChatRow.Unread
-                rows += ChatRow.Msg(m, receipt?.takeIf { it.first == m.id }?.second)
+                rows += ChatRow.Msg(m, l)
+            } else {
+                rows += ChatRow.Pending(pending[i - messages.size], l)
             }
-        }
-        if (pending.isNotEmpty()) {
-            if (lastLabel != "Today") rows += ChatRow.Day("Today", "d-pending")
-            pending.forEach { rows += ChatRow.Pending(it) }
         }
         return rows
     }

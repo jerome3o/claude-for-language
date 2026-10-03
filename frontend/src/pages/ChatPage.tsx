@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LiveCallBanner } from '../components/calls/CallBanner';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { chatBackTarget } from '../components/chat/chatBack';
 import { base64ToBlob } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -12,7 +13,6 @@ import {
   getAIResponse,
   generateConversationTTS,
   checkMessage,
-  translateMessageFlashcard,
   updateConversationVoiceSettings,
   updateConversationTitle,
   getConversations,
@@ -21,12 +21,11 @@ import {
   translateMessageSegmented,
   coachSentence,
 } from '../api/client';
-import type { TranslateFlashcardResponse, VocabularyDefinition } from '../api/client';
+import type { VocabularyDefinition } from '../api/client';
 import {
   MessageWithSender,
   getOtherUserInRelationship,
   getMyRoleInRelationship,
-  isClaudeUser,
   MINIMAX_VOICES,
   GeneratedNoteWithContext,
   CheckMessageResponse,
@@ -34,9 +33,13 @@ import {
 import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { MessageDiscussionModal } from '../components/MessageDiscussionModal';
-import { MessageActionSheet } from '../components/chat/MessageActionSheet';
-import { toolsForMessage, manageToolsForMessage, learningToolsForMessage, looksLikeChinese } from '../components/chat/messageTools';
-import type { MessageToolId } from '../components/chat/messageTools';
+import { MessageMenu, type MenuAnchor } from '../components/chat/MessageMenu';
+import { looksLikeChinese } from '../components/chat/messageTools';
+import { messageMenu, menuText, type MenuActionId } from '@shared/chats/messageMenu';
+import { firstLink, layoutBubbles, type BubbleLayout } from '@shared/chats/bubbles';
+import { ExplainSheet } from '../components/chat/ExplainSheet';
+import { LinkPreviewCard } from '../components/chat/LinkPreviewCard';
+import { createCall } from '../api/calls';
 import { InlineNotice, describeError } from '../components/chat/InlineNotice';
 import type { Notice } from '../components/chat/InlineNotice';
 import { SpinnerButton } from '../components/chat/SpinnerButton';
@@ -49,7 +52,7 @@ import { DeckSelectorWithCreate } from '../components/chat/DeckSelectors';
 import { FULL_EMOJI_LIST, getQuickEmojis, getRecentEmojis, saveRecentEmoji } from '../components/chat/emojis';
 import { useChatThread, type ChatMessage } from '../hooks/useChatThread';
 import { useChatScroll } from '../hooks/useChatScroll';
-import { firstUnreadId, receiptFor, shouldSendTyping } from '../services/chatThread';
+import { firstUnreadId, shouldSendTyping } from '../services/chatThread';
 import { compressPhoto } from '../services/chatMedia';
 import { searchMessages } from '@shared/chats/search';
 import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrection, clearMessageCorrection } from '../api/chat';
@@ -74,7 +77,7 @@ import {
 } from '../services/chatLearning';
 import { PhotoBubble, PhotoViewer } from '../components/chat/PhotoBubble';
 import { VoiceBubble } from '../components/chat/VoiceBubble';
-import { VoiceComposer } from '../components/chat/VoiceComposer';
+import { VoiceComposer, type VoiceCommand } from '../components/chat/VoiceComposer';
 import { PhotoComposeSheet } from '../components/chat/PhotoComposeSheet';
 import { PinnedBar } from '../components/chat/PinnedBar';
 import { ChatSearchBar } from '../components/chat/ChatSearchBar';
@@ -83,12 +86,12 @@ import {
   EditMessageSheet,
   NewMessagesPill,
   OutboxState,
-  ReceiptLine,
   TypingIndicator,
 } from '../components/chat/ChatBits';
 import './ChatPage.css';
 import '../components/chat/chat-rich.css';
 import '../components/chat/chat-learning.css';
+import '../components/chat/chat-signal.css';
 
 const LONG_PRESS_MS = 500;
 
@@ -96,6 +99,9 @@ export function ChatPage() {
   const { relId, convId } = useParams<{ relId: string; convId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Opened from the Chats tab → back returns to the inbox, else to the person's page.
+  const backTo = chatBackTarget(location.state, relId);
   const { user } = useAuth();
   const { isOnline } = useNetwork();
   const queryClient = useQueryClient();
@@ -113,7 +119,22 @@ export function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preparingPhoto, setPreparingPhoto] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<{ blob: Blob; width: number; height: number } | null>(null);
-  const [recording, setRecording] = useState(false);
+  // Voice: 'held' while the finger is on the mic, 'locked' once slid up (or tapped open).
+  const [recording, setRecording] = useState<false | 'held' | 'locked'>(false);
+  const [voiceCmd, setVoiceCmd] = useState<VoiceCommand | null>(null);
+  const [dragX, setDragX] = useState(0);
+  const micPress = useRef<{ x: number; y: number; at: number; id: number } | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  // Explain / Save as flashcard (docs/CHAT.md "Round 2").
+  const [explain, setExplain] = useState<{ text: string; mode: 'explain' | 'save' } | null>(null);
+  // Bubbles whose time was tapped open (the last of a group always shows it).
+  const [shownTimes, setShownTimes] = useState<Set<string>>(new Set());
+  // Swipe right to reply (touch).
+  const swipe = useRef<{ id: string; x: number; y: number; dx: number; locked: 'h' | 'v' | null; buzzed: boolean } | null>(null);
+  const [swipeState, setSwipeState] = useState<{ id: string; dx: number } | null>(null);
+  const [callBusy, setCallBusy] = useState(false);
   const [viewer, setViewer] = useState<{ url: string; caption: string | null } | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [editBusy, setEditBusy] = useState(false);
@@ -181,10 +202,6 @@ export function ChatPage() {
   const [discussingMessage, setDiscussingMessage] = useState<MessageWithSender | null>(null);
 
   // Translate + flashcard state
-  const [translatingMessageId, setTranslatingMessageId] = useState<string | null>(null);
-  const [translateResult, setTranslateResult] = useState<TranslateFlashcardResponse | null>(null);
-  const [showTranslateModal, setShowTranslateModal] = useState(false);
-  const [isSavingTranslateCard, setIsSavingTranslateCard] = useState(false);
 
   // Word-by-word (segmented) translation, per message
   const [wordByWord, setWordByWord] = useState<Set<string>>(new Set());
@@ -207,7 +224,7 @@ export function ChatPage() {
   const [replyingTo, setReplyingTo] = useState<MessageWithSender | null>(null);
 
   // Per-message action sheet (⋯ / long-press)
-  const [sheet, setSheet] = useState<{ message: MessageWithSender; anchor: DOMRect | null } | null>(null);
+  const [sheet, setSheet] = useState<{ message: ChatMessage; anchor: MenuAnchor; emojiFirst?: boolean } | null>(null);
   const pressTimer = useRef<number | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
   const pressFiredAt = useRef(0);
@@ -230,6 +247,10 @@ export function ChatPage() {
     setNotice(null);
     setSheet(null);
     setShowHeaderMenu(false);
+    setExplain(null);
+    setShownTimes(new Set());
+    setAttachOpen(false);
+    setEmojiOpen(false);
     // Stop any playing audio
     playerRef.current.stop();
     setPlayingAudioMessageId(null);
@@ -250,7 +271,7 @@ export function ChatPage() {
     createConversation(relId)
       .then((conv) => {
         queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-        navigate(`/connections/${relId}/chat/${conv.id}`, { replace: true });
+        navigate(`/connections/${relId}/chat/${conv.id}`, { replace: true, state: location.state });
       })
       .catch((error) => {
         setCreateError(describeError(error, "Couldn't start a new conversation."));
@@ -392,6 +413,8 @@ export function ChatPage() {
           next.delete(msg.id);
           return next;
         });
+        // Don't leave "Translating…" spinning: switch it back off for this message.
+        updateDisplay((p) => (isShown(p, 'translate', msg.id) && !p.translateAll ? toggleShown(p, 'translate', msg.id) : p));
         showError("Couldn't translate that message.", error);
       });
   };
@@ -614,10 +637,10 @@ export function ChatPage() {
     queryClient.getQueryData<Array<{ id: string; name: string }>>(['decks'])?.find((d) => d.id === deckId)?.name;
 
   // ----- Make flashcards from this chat (docs/CHAT.md PR 3) -----
-  const startSelecting = () => {
+  const startSelecting = (firstId?: string) => {
     setShowHeaderMenu(false);
     setSearchOpen(false);
-    setSelectedIds(new Set());
+    setSelectedIds(new Set(firstId ? [firstId] : []));
     setSelecting(true);
     setNotice(null);
   };
@@ -795,46 +818,6 @@ export function ChatPage() {
     }
   };
 
-  // Translate message and generate flashcard
-  const handleTranslateFlashcard = async (msg: MessageWithSender) => {
-    if (translatingMessageId) return;
-    setTranslatingMessageId(msg.id);
-    try {
-      const result = await translateMessageFlashcard(msg.id);
-      setTranslateResult(result);
-      setModalNotice(null);
-      setShowTranslateModal(true);
-    } catch (error) {
-      console.error('Failed to translate message:', error);
-      showError("Couldn't translate that message.", error);
-    } finally {
-      setTranslatingMessageId(null);
-    }
-  };
-
-  const handleSaveTranslateCard = async (deckId: string) => {
-    if (!translateResult) return;
-    setIsSavingTranslateCard(true);
-    setModalNotice(null);
-    try {
-      await createNote(deckId, {
-        hanzi: translateResult.flashcard.hanzi,
-        pinyin: translateResult.flashcard.pinyin,
-        english: translateResult.flashcard.english,
-        fun_facts: translateResult.flashcard.fun_facts,
-        context: translateResult.flashcard.context,
-      });
-      setShowTranslateModal(false);
-      setTranslateResult(null);
-      showSuccess(`Saved ${translateResult.flashcard.hanzi} to ${deckNameFor(deckId) || 'your deck'}.`);
-    } catch (error) {
-      console.error('Failed to save flashcard:', error);
-      showModalError("Couldn't save the flashcard.", error);
-    } finally {
-      setIsSavingTranslateCard(false);
-    }
-  };
-
   // Interactive translation word save handlers
   const handleSaveWordFromChat = (definition: VocabularyDefinition) => {
     setWordToSave(definition);
@@ -914,9 +897,10 @@ export function ChatPage() {
     }
   };
 
-  // ----- Per-message action sheet -----
-  const openSheet = (message: MessageWithSender, anchor: DOMRect | null) => {
-    setSheet({ message, anchor });
+  // ----- The message menu (docs/CHAT.md "Round 2") -----
+  const openSheet = (message: ChatMessage, anchor: MenuAnchor, emojiFirst = false) => {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator && !anchor) navigator.vibrate?.(12);
+    setSheet({ message, anchor, emojiFirst });
   };
 
   const clearPress = () => {
@@ -927,44 +911,99 @@ export function ChatPage() {
     pressStart.current = null;
   };
 
-  const startPress = (msg: MessageWithSender) => (e: React.PointerEvent<HTMLElement>) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    const target = e.currentTarget;
+  const startPress = (msg: ChatMessage) => (e: React.PointerEvent<HTMLElement>) => {
+    // Long-press is for touch / pen; a mouse right-clicks (or uses the hover ⋯).
+    if (e.pointerType === 'mouse') return;
     clearPress();
     pressStart.current = { x: e.clientX, y: e.clientY };
+    if (!selecting) {
+      swipe.current = { id: msg.id, x: e.clientX, y: e.clientY, dx: 0, locked: null, buzzed: false };
+    }
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null;
       pressFiredAt.current = Date.now();
-      openSheet(msg, target.getBoundingClientRect());
+      swipe.current = null;
+      setSwipeState(null);
+      openSheet(msg, null);
     }, LONG_PRESS_MS);
   };
 
+  const SWIPE_MAX = 72;
+  const SWIPE_REPLY = 56;
+
   const movePress = (e: React.PointerEvent<HTMLElement>) => {
-    if (!pressStart.current) return;
-    if (Math.abs(e.clientX - pressStart.current.x) > 10 || Math.abs(e.clientY - pressStart.current.y) > 10) {
+    if (pressStart.current && (Math.abs(e.clientX - pressStart.current.x) > 10 || Math.abs(e.clientY - pressStart.current.y) > 10)) {
       clearPress();
     }
+    const sw = swipe.current;
+    if (!sw) return;
+    const dx = e.clientX - sw.x;
+    const dy = e.clientY - sw.y;
+    if (!sw.locked && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) sw.locked = Math.abs(dx) > Math.abs(dy) && dx > 0 ? 'h' : 'v';
+    if (sw.locked !== 'h') return;
+    sw.dx = Math.max(0, Math.min(SWIPE_MAX, dx));
+    if (sw.dx >= SWIPE_REPLY && !sw.buzzed) {
+      sw.buzzed = true;
+      navigator.vibrate?.(10);
+    }
+    setSwipeState({ id: sw.id, dx: sw.dx });
   };
 
-  const handleSheetAction = (id: MessageToolId) => {
+  const endPress = (msg: ChatMessage) => () => {
+    clearPress();
+    const sw = swipe.current;
+    swipe.current = null;
+    if (sw && sw.locked === 'h' && sw.dx >= SWIPE_REPLY) {
+      setReplyingTo(msg);
+      inputRef.current?.focus();
+    }
+    setSwipeState(null);
+  };
+
+  const toggleTime = (id: string) =>
+    setShownTimes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const handleSheetAction = (id: MenuActionId) => {
     if (!sheet) return;
     const msg = sheet.message;
     setSheet(null);
     switch (id) {
       case 'reply':
         setReplyingTo(msg);
+        inputRef.current?.focus();
+        break;
+      case 'copy':
+        void handleCopy(msg);
+        break;
+      case 'translate':
+        toggleDisplay(msg, 'translate');
+        break;
+      case 'pinyin':
+        toggleDisplay(msg, 'pinyin');
+        break;
+      case 'explain':
+        setExplain({ text: menuText(msg), mode: 'explain' });
+        break;
+      case 'save_card':
+        setExplain({ text: menuText(msg), mode: 'save' });
+        break;
+      case 'select_cards':
+      case 'select':
+        startSelecting(msg.id);
         break;
       case 'play':
-        handlePlayMessageAudio(msg);
+        void handlePlayMessageAudio(msg);
         break;
       case 'check':
-        handleCheckMessage(msg);
+        void handleCheckMessage(msg);
         break;
       case 'view_corrections':
         openCheckResult(msg);
-        break;
-      case 'translate':
-        handleTranslateFlashcard(msg);
         break;
       case 'word_by_word':
         setWordByWord((prev) => {
@@ -977,9 +1016,6 @@ export function ChatPage() {
       case 'discuss':
         setDiscussingMessage(msg);
         break;
-      case 'copy':
-        handleCopy(msg);
-        break;
       case 'pin':
       case 'unpin':
         void togglePin(msg);
@@ -991,9 +1027,6 @@ export function ChatPage() {
       case 'delete':
         setDeleting(msg);
         break;
-      case 'make_cards':
-        openCards({ kind: 'message', id: msg.id });
-        break;
       case 'correction_card':
         openCards({ kind: 'correction', id: msg.id });
         break;
@@ -1004,9 +1037,100 @@ export function ChatPage() {
       case 'remove_correction':
         void removeCorrection(msg);
         break;
-      case 'react':
-        break;
     }
+  };
+
+  // Copy the selected messages (selection mode's bar), oldest first.
+  const copySelected = async () => {
+    const text = serverMessages
+      .filter((m) => selectedIds.has(m.id))
+      .map((m) => menuText(m))
+      .filter(Boolean)
+      .join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      showSuccess(selectedIds.size === 1 ? 'Copied.' : `Copied ${selectedIds.size} messages.`);
+      stopSelecting();
+    } catch (error) {
+      showError("Couldn't copy to the clipboard.", error);
+    }
+  };
+
+  const handleVideoCall = async () => {
+    if (!relId || callBusy) return;
+    setCallBusy(true);
+    try {
+      const { call } = await createCall({ relationship_id: relId });
+      navigate(`/calls/${call.id}`);
+    } catch (error) {
+      showError("Couldn't start the call.", error);
+      setCallBusy(false);
+    }
+  };
+
+  // ----- The mic: hold to record, slide left to cancel, slide up to lock -----
+  const MIC_CANCEL_PX = 100;
+  const MIC_LOCK_PX = 80;
+  const MIC_MIN_HOLD_MS = 350;
+
+  const micDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    micPress.current = { x: e.clientX, y: e.clientY, at: Date.now(), id: e.pointerId };
+    setNotice(null);
+    setDragX(0);
+    setVoiceCmd(null);
+    setRecording('held');
+    navigator.vibrate?.(15);
+  };
+
+  const micMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const p = micPress.current;
+    if (!p || recording !== 'held') return;
+    const dx = Math.min(0, e.clientX - p.x);
+    const dy = e.clientY - p.y;
+    setDragX(dx);
+    if (dx <= -MIC_CANCEL_PX) {
+      micPress.current = null;
+      setVoiceCmd({ action: 'cancel', seq: Date.now() });
+      navigator.vibrate?.([10, 40, 10]);
+    } else if (dy <= -MIC_LOCK_PX) {
+      micPress.current = null;
+      setDragX(0);
+      setRecording('locked');
+      navigator.vibrate?.(15);
+    }
+  };
+
+  const micUp = () => {
+    const p = micPress.current;
+    micPress.current = null;
+    if (!p || recording !== 'held') return;
+    if (Date.now() - p.at < MIC_MIN_HOLD_MS) {
+      setVoiceCmd({ action: 'cancel', seq: Date.now() });
+      setNotice({ kind: 'info', text: 'Hold the mic to record, release to send.' });
+      return;
+    }
+    setVoiceCmd({ action: 'send', seq: Date.now() });
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? newMessage.length;
+    const end = el?.selectionEnd ?? newMessage.length;
+    const next = newMessage.slice(0, start) + emoji + newMessage.slice(end);
+    setNewMessage(next);
+    saveRecentEmoji(emoji);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.selectionStart = el.selectionEnd = start + emoji.length;
+    });
   };
 
   if (wantsNew) {
@@ -1014,7 +1138,7 @@ export function ChatPage() {
       return (
         <div className="chat-page">
           <div className="chat-header">
-            <Link to={`/connections/${relId}`} className="chat-back" aria-label="Back">←</Link>
+            <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
             <span className="chat-header-name">New conversation</span>
           </div>
           <div className="chat-messages">
@@ -1060,18 +1184,20 @@ export function ChatPage() {
     return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   };
 
-  // Group messages by date
-  const messagesByDate: { date: string; messages: ChatMessage[] }[] = [];
-  let currentDate = '';
-  for (const msg of messages) {
-    const msgDate = new Date(msg.created_at).toDateString();
-    if (msgDate !== currentDate) {
-      currentDate = msgDate;
-      messagesByDate.push({ date: msg.created_at, messages: [msg] });
-    } else {
-      messagesByDate[messagesByDate.length - 1].messages.push(msg);
-    }
-  }
+  // Signal-like groups, day separators and ticks (shared/chats/bubbles.ts).
+  const offsetMinutes = -new Date().getTimezoneOffset();
+  const layouts = layoutBubbles(
+    messages.map((m) => ({
+      id: m.id,
+      sender_id: m.sender_id,
+      created_at: m.created_at,
+      deleted_at: m.deleted_at,
+      pending: m.outbox ? (m.outbox.status === 'failed' ? ('failed' as const) : ('sending' as const)) : null,
+    })),
+    myId,
+    isAIConversation ? null : thread.readState.other,
+    offsetMinutes,
+  );
 
   // A message's check status is whatever we learnt locally, else what the server stored.
   const withCheckStatus = <T extends MessageWithSender>(msg: T): T => {
@@ -1079,52 +1205,55 @@ export function ChatPage() {
     return local ? { ...msg, check_status: local.status } : msg;
   };
 
-  const learningFor = (msg: ChatMessage) =>
-    learningToolsForMessage(
+  const menuFor = (raw: ChatMessage) => {
+    const msg = withCheckStatus(raw);
+    return messageMenu(
       {
         sender_id: msg.sender_id,
         content: msg.content,
         deleted_at: msg.deleted_at,
-        attachment: msg.attachment
-          ? { kind: msg.attachment.kind, transcript: msg.attachment.kind === 'voice' ? msg.attachment.transcript : null }
-          : null,
-        correction: msg.correction,
         pending: !!msg.outbox,
+        attachment: msg.attachment
+          ? {
+              kind: msg.attachment.kind,
+              transcript: msg.attachment.kind === 'voice' ? msg.attachment.transcript : null,
+              translation: msg.attachment.kind === 'voice' ? msg.attachment.translation : null,
+            }
+          : null,
+        translation: translationOf(msg),
+        correction: msg.correction,
+        check_status: msg.check_status,
+        has_discussion: msg.has_discussion,
+        pinned_at: msg.pinned_at,
       },
       viewerRole,
       isAIConversation,
       user!.id,
+      { pinyinOn: isShown(displayPrefs, 'pinyin', msg.id), translateOn: isShown(displayPrefs, 'translate', msg.id) },
     );
-
-  const sheetTools = (() => {
-    if (!sheet) return [];
-    const learn = learningFor(sheet.message as ChatMessage);
-    const base = toolsForMessage(withCheckStatus(sheet.message), viewerRole, isAIConversation, user!.id).menu.filter(
-      (t) => !learn.replaces.includes(t.id),
-    );
-    const react = base.filter((t) => t.id === 'react');
-    return [
-      ...react,
-      ...learn.menu,
-      ...base.filter((t) => t.id !== 'react'),
-      ...manageToolsForMessage(sheet.message, isAIConversation, user!.id),
-    ];
-  })();
+  };
 
   const isLearner = viewerRole === 'student' || isAIConversation;
   const otherFirst = (otherUser.name || 'Your tutor').split(' ')[0];
-  const suppressWordTap = () => selecting || Date.now() - pressFiredAt.current < 800;
+  const suppressWordTap = () => selecting || Date.now() - pressFiredAt.current < 800 || !!swipe.current?.locked;
 
   const chatToolsBlocked = !isOnline;
-  const receipt = isAIConversation ? null : receiptFor(serverMessages, myId, thread.readState.other);
   const hitSet = new Set(searchHits);
   const composerEmpty = !newMessage.trim();
-  // ✓ "Check my Chinese" on the compose box: the learner, a draft with Chinese (same rule as the message tool).
+  // ✓ "Check my Chinese" on the compose box: the learner, a draft with Chinese (same rule as the menu).
   const canCheckDraft = isLearner && !composerEmpty && looksLikeChinese(newMessage);
+
+  const replyLine = (m: MessageWithSender['reply_to']) => {
+    if (!m) return '';
+    if (m.deleted_at) return 'Message deleted';
+    const kind = (m as { attachment?: { kind?: string } | null }).attachment?.kind;
+    if (!m.content) return kind === 'voice' ? '🎤 Voice message' : '📷 Photo';
+    return m.content.length > 80 ? m.content.slice(0, 80) + '…' : m.content;
+  };
 
   const renderBody = (msg: ChatMessage, isMe: boolean, hasChinese: boolean, pinyinOn: boolean, translateOn: boolean) => {
     if (msg.deleted_at) {
-      return <span className="chat-deleted-text">Message deleted</span>;
+      return <span className="chat-deleted-text">🚫 Message deleted</span>;
     }
     const att = msg.attachment;
     if (att?.kind === 'image') {
@@ -1138,7 +1267,11 @@ export function ChatPage() {
             localBlob={msg.outbox?.blob}
             onOpen={(url) => setViewer({ url, caption: msg.content || null })}
           />
-          {msg.content && <div className="chat-photo-caption">{msg.content}</div>}
+          {msg.content && (
+            <div className="chat-photo-caption">
+              <ChatWordsText text={msg.content} words={usableWords(msg)} showPinyin={pinyinOn} known={known} onTapWord={setTappedWord} suppressTap={suppressWordTap} />
+            </div>
+          )}
         </>
       );
     }
@@ -1175,6 +1308,7 @@ export function ChatPage() {
     const checkStatus = msg.check_status;
     // A video-call invite ("join here: …/calls/<id>") shows a Join button instead of the raw link.
     const callId = /https?:\/\/\S+\/calls\/([A-Za-z0-9_-]{8,})/.exec(msg.content)?.[1];
+    const link = callId ? null : firstLink(msg.content);
     return (
       <>
         {callId ? (
@@ -1192,6 +1326,7 @@ export function ChatPage() {
             suppressTap={suppressWordTap}
           />
         )}
+        {link && <LinkPreviewCard url={link} isOnline={isOnline} />}
         {translateOn && (
           <span className="chat-translation" data-testid="chat-translation">
             {translationOf(msg) ?? (
@@ -1205,7 +1340,10 @@ export function ChatPage() {
           <button
             type="button"
             className={`check-status ${checkStatus}`}
-            onClick={() => openCheckResult(msg)}
+            onClick={(e) => {
+              e.stopPropagation();
+              openCheckResult(msg);
+            }}
             title={checkStatus === 'correct' ? 'Checked — looks good' : 'View corrections'}
             aria-label={checkStatus === 'correct' ? 'Checked — looks good' : 'View corrections'}
           >
@@ -1216,30 +1354,32 @@ export function ChatPage() {
     );
   };
 
-  const renderMessage = (rawMsg: ChatMessage) => {
+  const TICK_LABEL: Record<string, string> = { pending: 'Sending', sent: 'Sent', read: 'Seen', failed: 'Not sent' };
+  const tickGlyph = (tick: string) => (tick === 'pending' ? '🕓' : tick === 'read' ? '✓✓' : tick === 'sent' ? '✓' : '!');
+
+  const renderMessage = (rawMsg: ChatMessage, layout: BubbleLayout) => {
     const msg = withCheckStatus(rawMsg);
-    const isMe = msg.sender_id === user!.id;
-    const isAI = isClaudeUser(msg.sender_id);
+    const isMe = layout.mine;
     const isPlaying = playingAudioMessageId === msg.id;
     const isChecking = checkingMessageId === msg.id;
-    const isTranslating = translatingMessageId === msg.id;
     const isDeleted = !!msg.deleted_at;
     const pending = msg.outbox;
     const kind = msg.attachment?.kind ?? null;
-    const tools = toolsForMessage(msg, viewerRole, isAIConversation, user!.id);
-    const canPlay = !kind && !isDeleted && tools.inline.some((t) => t.id === 'play');
     const interactive = !pending && !isDeleted;
-    // 拼音 / EN toggles: any message whose text (or voice transcript) has Chinese.
     const wordsText = isDeleted ? null : wordsTextOf(msg);
-    const hasZh = !!wordsText && looksLikeChinese(wordsText.text) && !(kind === 'image');
+    const hasZh = !!wordsText && looksLikeChinese(wordsText.text);
     const pinyinOn = hasZh && isShown(displayPrefs, 'pinyin', msg.id);
-    const canTranslate = hasZh && !pending && (kind === 'voice' ? !!translationOf(msg) : true);
+    const canTranslate = hasZh && !pending && (kind === 'voice' ? !!translationOf(msg) : kind !== 'image');
     const translateOn = canTranslate && isShown(displayPrefs, 'translate', msg.id);
     const selectable = selecting && interactive && !!wordsText;
     const selected = selectable && selectedIds.has(msg.id);
+    const showMeta = layout.lastInGroup || shownTimes.has(msg.id) || !!pending;
+    const swipeDx = swipeState?.id === msg.id ? swipeState.dx : 0;
     const classes = [
       'chat-message',
       isMe ? 'sent' : 'received',
+      layout.firstInGroup ? 'group-first' : '',
+      layout.lastInGroup ? 'group-last' : '',
       selecting ? 'selecting' : '',
       selectable ? 'selectable' : '',
       selected ? 'selected' : '',
@@ -1247,12 +1387,18 @@ export function ChatPage() {
       currentHit === msg.id ? 'search-current' : '',
       scroll.flashId === msg.id ? 'flash' : '',
       pending ? `outbox-${pending.status}` : '',
+      sheet?.message.id === msg.id ? 'menu-open' : '',
     ]
       .filter(Boolean)
       .join(' ');
 
     return (
       <div key={msg.id}>
+        {layout.newDay && (
+          <div className="chat-date-divider">
+            <span>{formatDate(msg.created_at)}</span>
+          </div>
+        )}
         {dividerId === msg.id && (
           <div className="chat-unread-divider" data-unread-divider data-testid="chat-unread-divider">
             <span>New messages</span>
@@ -1269,42 +1415,111 @@ export function ChatPage() {
               {selected ? '✓' : ''}
             </span>
           )}
-          {!isMe && (
-            <div className="chat-message-avatar">
-              {msg.sender.picture_url ? (
-                <img src={msg.sender.picture_url} alt="" />
-              ) : (
-                <div className="placeholder">{isAI ? '🤖' : (msg.sender.name || '?')[0].toUpperCase()}</div>
+          {swipeDx > 0 && (
+            <span className={`chat-swipe-reply${swipeDx >= SWIPE_REPLY ? ' ready' : ''}`} style={{ opacity: Math.min(1, swipeDx / SWIPE_REPLY) }} aria-hidden="true">
+              ↩
+            </span>
+          )}
+          <div className="chat-message-content" style={swipeDx ? { transform: `translateX(${swipeDx}px)` } : undefined}>
+            <div className="chat-bubble-row">
+              <div
+                className={`chat-bubble${isDeleted ? ' deleted' : ''}${kind ? ` has-${kind}` : ''}${kind === 'image' && !msg.content ? ' photo-only' : ''}`}
+                onPointerDown={interactive || pending ? startPress(msg) : undefined}
+                onPointerMove={movePress}
+                onPointerUp={endPress(msg)}
+                onPointerCancel={endPress(msg)}
+                onPointerLeave={() => clearPress()}
+                onClick={() => {
+                  if (selecting || Date.now() - pressFiredAt.current < 800) return;
+                  if (pending?.status === 'failed') return;
+                  toggleTime(msg.id);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  // A touch long-press also fires contextmenu; it already opened the sheet.
+                  if (pressTimer.current || Date.now() - pressFiredAt.current < 1000 || selecting) return;
+                  if (interactive || pending) openSheet(msg, { x: e.clientX, y: e.clientY });
+                }}
+              >
+                {msg.reply_to && !isDeleted && (
+                  <button
+                    type="button"
+                    className="reply-preview"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      scroll.jumpTo(msg.reply_to!.id);
+                    }}
+                  >
+                    <span className="reply-preview-name">{msg.reply_to.sender.id === myId ? 'You' : msg.reply_to.sender.name || 'Unknown'}</span>
+                    <span className="reply-preview-text">{replyLine(msg.reply_to)}</span>
+                  </button>
+                )}
+                {renderBody(msg, isMe, hasZh, pinyinOn, translateOn)}
+                {showMeta && (
+                  <span className="chat-bubble-meta" data-testid="chat-bubble-meta">
+                    {msg.pinned_at && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
+                    {msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
+                    <span className="chat-time">{formatTime(msg.created_at)}</span>
+                    {layout.tick === 'pending' ? (
+                      <span className="chat-tick pending" data-testid="chat-send-pending" aria-label="Sending" title="Sending…">
+                        {tickGlyph('pending')}
+                      </span>
+                    ) : (
+                      layout.tick !== 'none' && (
+                        <span className={`chat-tick ${layout.tick}`} data-testid="chat-receipt" data-kind={layout.tick} aria-label={TICK_LABEL[layout.tick]} title={TICK_LABEL[layout.tick]}>
+                          {tickGlyph(layout.tick)}
+                        </span>
+                      )
+                    )}
+                  </span>
+                )}
+              </div>
+              {interactive && !selecting && (
+                <div className="chat-hover-tools" aria-hidden="false">
+                  <button
+                    type="button"
+                    className="chat-hover-btn"
+                    onClick={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      openSheet(msg, { x: r.left, y: r.bottom + 4 }, true);
+                    }}
+                    aria-label="React"
+                    title="React"
+                  >
+                    😊
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-hover-btn"
+                    onClick={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      openSheet(msg, { x: r.left, y: r.bottom + 4 });
+                    }}
+                    aria-label="More actions"
+                    title="More"
+                    aria-haspopup="dialog"
+                    data-testid="chat-more-btn"
+                  >
+                    ⋯
+                  </button>
+                </div>
               )}
             </div>
-          )}
-          <div className="chat-message-content">
-            {msg.reply_to && !isDeleted && (
-              <button type="button" className="reply-preview" onClick={() => scroll.jumpTo(msg.reply_to!.id)}>
-                <span className="reply-preview-name">{msg.reply_to.sender.name || 'Unknown'}</span>
-                <span className="reply-preview-text">
-                  {msg.reply_to.deleted_at
-                    ? 'Message deleted'
-                    : msg.reply_to.content.length > 60
-                      ? msg.reply_to.content.slice(0, 60) + '...'
-                      : msg.reply_to.content || '📎 Attachment'}
-                </span>
-              </button>
+            {!isDeleted && msg.reactions && msg.reactions.length > 0 && (
+              <div className="message-reactions">
+                {msg.reactions.map((r) => (
+                  <button
+                    key={r.emoji}
+                    className={`reaction-badge ${r.users.some((u) => u.id === user!.id) ? 'mine' : ''}`}
+                    onClick={() => handleReaction(msg.id, r.emoji)}
+                    title={r.users.map((u) => u.name || 'Unknown').join(', ')}
+                  >
+                    {r.emoji}
+                    {r.count > 1 ? ` ${r.count}` : ''}
+                  </button>
+                ))}
+              </div>
             )}
-            <div
-              className={`chat-bubble${isDeleted ? ' deleted' : ''}${kind ? ` has-${kind}` : ''}${kind === 'image' && !msg.content ? ' photo-only' : ''}`}
-              onPointerDown={interactive && !selecting ? startPress(msg) : undefined}
-              onPointerMove={movePress}
-              onPointerUp={clearPress}
-              onPointerCancel={clearPress}
-              onPointerLeave={clearPress}
-              onContextMenu={(e) => {
-                // A touch long-press also fires contextmenu; keep the native menu out of the way.
-                if (pressTimer.current || Date.now() - pressFiredAt.current < 1000) e.preventDefault();
-              }}
-            >
-              {renderBody(msg, isMe, tools.hasChinese, pinyinOn, translateOn)}
-            </div>
             {msg.correction && !isDeleted && (
               <CorrectionBlock
                 original={msg.content}
@@ -1320,99 +1535,22 @@ export function ChatPage() {
                 onMakeCard={() => openCards({ kind: 'correction', id: msg.id })}
               />
             )}
-            {!isDeleted && msg.reactions && msg.reactions.length > 0 && (
-              <div className="message-reactions">
-                {msg.reactions.map((r) => (
-                  <button
-                    key={r.emoji}
-                    className={`reaction-badge ${r.users.some((u) => u.id === user!.id) ? 'mine' : ''}`}
-                    onClick={() => handleReaction(msg.id, r.emoji)}
-                    title={r.users.map((u) => u.name || 'Unknown').join(', ')}
-                  >
-                    {r.emoji} {r.count > 1 ? r.count : ''}
-                  </button>
-                ))}
-              </div>
+            {pending?.status === 'failed' && (
+              <OutboxState status="failed" onRetry={() => thread.retry(pending.client_id)} onDiscard={() => thread.discard(pending.client_id)} />
             )}
-            <div className="chat-message-meta">
-              {pending ? (
-                <OutboxState
-                  status={pending.status}
-                  onRetry={() => thread.retry(pending.client_id)}
-                  onDiscard={() => thread.discard(pending.client_id)}
-                />
-              ) : (
-                <span className="chat-time">{formatTime(msg.created_at)}</span>
-              )}
-              {msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
-              {msg.pinned_at && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
-              {receipt?.messageId === msg.id && <ReceiptLine kind={receipt.kind} />}
-              {msg.recording_url && <span className="has-recording" title="Has recording">🎤</span>}
-              {isChecking && (
-                <span className="msg-status" role="status">
-                  <span className="chat-spinner" aria-hidden="true" /> Checking…
-                </span>
-              )}
-              {isTranslating && (
-                <span className="msg-status" role="status">
-                  <span className="chat-spinner" aria-hidden="true" /> Translating…
-                </span>
-              )}
-              {interactive && !selecting && (
-                <div className="chat-message-actions">
-                  {hasZh && (
-                    <button
-                      type="button"
-                      className={`msg-action-btn chat-toggle-btn${pinyinOn ? ' on' : ''}`}
-                      onClick={() => toggleDisplay(msg, 'pinyin')}
-                      aria-pressed={pinyinOn}
-                      aria-label={pinyinOn ? 'Hide pinyin' : 'Show pinyin'}
-                      title={pinyinOn ? 'Hide pinyin' : 'Show pinyin'}
-                    >
-                      拼
-                    </button>
-                  )}
-                  {canTranslate && (
-                    <button
-                      type="button"
-                      className={`msg-action-btn chat-toggle-btn${translateOn ? ' on' : ''}`}
-                      onClick={() => toggleDisplay(msg, 'translate')}
-                      disabled={!translateOn && !translationOf(msg) && chatToolsBlocked}
-                      aria-pressed={translateOn}
-                      aria-label={translateOn ? 'Hide translation' : 'Show translation'}
-                      title={translateOn ? 'Hide translation' : 'Show translation'}
-                    >
-                      EN
-                    </button>
-                  )}
-                  <button type="button" className="msg-action-btn" onClick={() => setReplyingTo(msg)} title="Reply" aria-label="Reply">
-                    ↩
+            {(isChecking || isPlaying) && (
+              <span className="msg-status" role="status">
+                {isPlaying ? (
+                  <button type="button" className="chat-stop-audio" onClick={() => void handlePlayMessageAudio(msg)}>
+                    ⏹ Stop
                   </button>
-                  {canPlay && (
-                    <button
-                      type="button"
-                      className={`msg-action-btn ${isPlaying ? 'playing' : ''}`}
-                      onClick={() => handlePlayMessageAudio(msg)}
-                      disabled={chatToolsBlocked && !isPlaying}
-                      title={chatToolsBlocked ? 'Play needs internet' : isPlaying ? 'Stop' : 'Play audio'}
-                      aria-label={isPlaying ? 'Stop audio' : 'Play audio'}
-                    >
-                      {isPlaying ? '⏹' : '🔊'}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="msg-action-btn msg-more-btn"
-                    onClick={(e) => openSheet(msg, e.currentTarget.getBoundingClientRect())}
-                    title="More actions"
-                    aria-label="More actions"
-                    aria-haspopup="dialog"
-                  >
-                    ⋯
-                  </button>
-                </div>
-              )}
-            </div>
+                ) : (
+                  <>
+                    <span className="chat-spinner" aria-hidden="true" /> Checking…
+                  </>
+                )}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -1423,7 +1561,7 @@ export function ChatPage() {
     <div className="chat-page">
       {/* Header */}
       <div className="chat-header">
-        <Link to={`/connections/${relId}`} className="chat-back" aria-label="Back">←</Link>
+        <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
         <div className="chat-header-user">
           {otherUser.picture_url ? (
             <img src={otherUser.picture_url} alt="" className="chat-avatar" />
@@ -1447,7 +1585,7 @@ export function ChatPage() {
         <div className="chat-header-actions">
           <button
             type="button"
-            className={`btn btn-sm btn-secondary chat-search-btn${searchOpen ? ' active' : ''}`}
+            className={`chat-header-icon chat-search-btn${searchOpen ? ' active' : ''}`}
             onClick={() => {
               setSearchOpen((v) => !v);
               setSearchQuery('');
@@ -1459,19 +1597,21 @@ export function ChatPage() {
           >
             🔍
           </button>
+          {!isAIConversation && (
+            <button
+              type="button"
+              className="chat-header-icon"
+              onClick={() => void handleVideoCall()}
+              disabled={!isOnline || callBusy}
+              aria-label="Video call"
+              title={isOnline ? 'Video call' : 'Calls need internet'}
+            >
+              📹
+            </button>
+          )}
           <button
             type="button"
-            className={`btn btn-sm btn-secondary chat-card-btn${selecting ? ' active' : ''}`}
-            onClick={() => (selecting ? stopSelecting() : startSelecting())}
-            disabled={!selecting && (chatToolsBlocked || serverMessages.length === 0)}
-            title={chatToolsBlocked ? 'Needs internet' : 'Make flashcards from this chat'}
-            aria-pressed={selecting}
-          >
-            + Cards
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-secondary chat-menu-btn"
+            className="chat-header-icon chat-menu-btn"
             onClick={() => setShowHeaderMenu((v) => !v)}
             aria-label="Conversation menu"
             aria-haspopup="menu"
@@ -1551,7 +1691,7 @@ export function ChatPage() {
               role="menuitem"
               className="chat-header-menu-item"
               disabled={!isOnline || serverMessages.length === 0}
-              onClick={startSelecting}
+              onClick={() => startSelecting()}
             >
               <span aria-hidden="true">🃏</span> Make flashcards
               {!isOnline && <span className="msg-sheet-action-hint">Needs internet</span>}
@@ -1618,21 +1758,11 @@ export function ChatPage() {
               <p>{isAIConversation ? 'Start practicing Chinese!' : 'Start the conversation!'}</p>
             </div>
           ) : (
-            messagesByDate.map((group) => (
-              <div key={group.date.slice(0, 10) + group.messages[0].id} className="chat-date-group">
-                <div className="chat-date-divider">
-                  <span>{formatDate(group.date)}</span>
-                </div>
-                {group.messages.map(renderMessage)}
-              </div>
-            ))
+            messages.map((m, i) => renderMessage(m, layouts[i]))
           )}
           {showTyping && <TypingIndicator name={otherFirstName} />}
           {isWaitingForAI && (
-            <div className="chat-message received">
-              <div className="chat-message-avatar">
-                <div className="placeholder">🤖</div>
-              </div>
+            <div className="chat-message received group-first group-last">
               <div className="chat-message-content">
                 <div className="chat-bubble typing">
                   <span className="dot"></span>
@@ -1643,14 +1773,14 @@ export function ChatPage() {
             </div>
           )}
         </div>
-        {scroll.pillCount > 0 && <NewMessagesPill count={scroll.pillCount} onClick={() => scroll.scrollToBottom(true)} />}
+        {(scroll.pillCount > 0 || !scroll.atBottom) && <NewMessagesPill count={scroll.pillCount} onClick={() => scroll.scrollToBottom(true)} />}
       </div>
 
       {/* Reply preview bar */}
       {replyingTo && (
         <div className="reply-bar">
           <div className="reply-bar-content">
-            <span className="reply-bar-name">{replyingTo.sender.name || 'Unknown'}</span>
+            <span className="reply-bar-name">{replyingTo.sender_id === myId ? 'Replying to yourself' : `Replying to ${replyingTo.sender.name || 'Unknown'}`}</span>
             <span className="reply-bar-text">
               {replyingTo.content
                 ? replyingTo.content.length > 80
@@ -1681,33 +1811,23 @@ export function ChatPage() {
               Cancel
             </button>
             <span className="chat-select-count">{selectedIds.size} selected</span>
+            <button type="button" className="btn btn-secondary" disabled={selectedIds.size === 0} onClick={() => void copySelected()}>
+              Copy
+            </button>
             <button
               type="button"
               className="btn btn-primary"
-              disabled={selectedIds.size === 0}
+              disabled={selectedIds.size === 0 || !isOnline}
               onClick={() => openCards({ kind: 'selected', ids: serverMessages.filter((m) => selectedIds.has(m.id)).map((m) => m.id) })}
             >
-              Make cards
+              Make flashcards
             </button>
           </div>
         </div>
       )}
 
-      {/* Composer */}
+      {/* Composer: [+] [😊 field ✓] [🎤 | ➤] (docs/CHAT.md "Round 2") */}
       <div className="chat-composer" style={selecting ? { display: 'none' } : undefined}>
-        <div className="chat-composer-tools">
-          <SpinnerButton
-            type="button"
-            className="btn btn-secondary chat-help-btn"
-            busy={isGeneratingOptions}
-            onClick={handleHelpMeSayIt}
-            disabled={chatToolsBlocked || messages.length === 0}
-            title={chatToolsBlocked ? 'Needs internet' : 'Not sure how to say something? Get suggestions in Chinese'}
-          >
-            <span aria-hidden="true">💡</span> Help me say it
-          </SpinnerButton>
-          {chatToolsBlocked && <span className="chat-offline-hint">Chat tools need internet</span>}
-        </div>
         <OfflineWarning message="You're offline. Messages you send now wait here and go out when you're back online." />
         <InlineNotice notice={notice} onDismiss={clearNotice} className="chat-composer-notice" />
         {draftCheck && !recording && (
@@ -1723,93 +1843,193 @@ export function ChatPage() {
             onClose={() => setDraftCheck(null)}
           />
         )}
-        {recording ? (
-          <VoiceComposer
-            onSend={sendVoice}
-            onCancel={() => setRecording(false)}
-            onError={(text) => setNotice({ kind: 'error', text })}
-          />
-        ) : (
-          <form className="chat-input-form" onSubmit={handleSend}>
-            {!isAIConversation && (
+        {emojiOpen && !recording && (
+          <div className="chat-emoji-panel" data-testid="chat-emoji-panel">
+            {getRecentEmojis().length > 0 && (
               <>
-                <button
-                  type="button"
-                  className="chat-round-btn chat-attach-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={preparingPhoto}
-                  aria-label="Send a photo"
-                  title="Send a photo"
-                >
-                  {preparingPhoto ? <span className="chat-spinner" aria-hidden="true" /> : '📎'}
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="chat-file-input"
-                  data-testid="chat-photo-input"
-                  onChange={(e) => void handlePhotoPicked(e.target.files?.[0])}
-                />
+                <div className="emoji-picker-section-label">Recent</div>
+                <div className="msg-sheet-emoji-grid">
+                  {getRecentEmojis().map((e) => (
+                    <button key={`r-${e}`} type="button" className="msg-sheet-emoji" onClick={() => insertEmoji(e)}>
+                      {e}
+                    </button>
+                  ))}
+                </div>
               </>
             )}
-            <textarea
-              ref={inputRef}
-              value={newMessage}
-              onChange={(e) => {
-                setNewMessage(e.target.value);
-                if (draftCheck && e.target.value.trim() !== draftCheck.draft) setDraftCheck(null);
-                noteTyping(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+            <div className="msg-sheet-emoji-grid">
+              {FULL_EMOJI_LIST.map((e) => (
+                <button key={e} type="button" className="msg-sheet-emoji" onClick={() => insertEmoji(e)}>
+                  {e}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {recording === 'held' && (
+          <div className="chat-mic-lock-hint" aria-hidden="true">
+            <span>🔒</span>
+            <span className="chat-mic-lock-arrow">⌃</span>
+          </div>
+        )}
+        <form className="chat-input-form" onSubmit={handleSend}>
+          {recording ? (
+            <VoiceComposer
+              mode={recording}
+              command={voiceCmd}
+              dragX={dragX}
+              onSend={sendVoice}
+              onCancel={() => {
+                setRecording(false);
+                setDragX(0);
               }}
+              onError={(text) => setNotice({ kind: 'error', text })}
+            />
+          ) : (
+            <>
+              <button
+                type="button"
+                className={`chat-round-btn chat-attach-btn${attachOpen ? ' open' : ''}`}
+                onClick={() => {
+                  setEmojiOpen(false);
+                  setAttachOpen((v) => !v);
+                }}
+                disabled={preparingPhoto}
+                aria-label="Attach"
+                aria-expanded={attachOpen}
+                title="Photo, camera, help me say it"
+                data-testid="chat-attach-btn"
+              >
+                {preparingPhoto ? <span className="chat-spinner" aria-hidden="true" /> : '+'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="chat-file-input"
+                data-testid="chat-photo-input"
+                onChange={(e) => void handlePhotoPicked(e.target.files?.[0])}
+              />
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="chat-file-input"
+                onChange={(e) => void handlePhotoPicked(e.target.files?.[0])}
+              />
+              <div className="chat-input-pill">
+                <button
+                  type="button"
+                  className={`chat-pill-btn${emojiOpen ? ' active' : ''}`}
+                  onClick={() => {
+                    setAttachOpen(false);
+                    setEmojiOpen((v) => !v);
+                  }}
+                  aria-label="Emoji"
+                  aria-expanded={emojiOpen}
+                  data-testid="chat-emoji-btn"
+                >
+                  😊
+                </button>
+                <textarea
+                  ref={inputRef}
+                  value={newMessage}
+                  onChange={(e) => {
+                    setNewMessage(e.target.value);
+                    if (draftCheck && e.target.value.trim() !== draftCheck.draft) setDraftCheck(null);
+                    noteTyping(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
+                  }}
+                  onFocus={() => setAttachOpen(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      handleSend(e);
+                    }
+                  }}
+                  placeholder={isAIConversation ? 'Type in Chinese…' : 'Message'}
+                  className="chat-input"
+                  rows={1}
+                  aria-label="Message"
+                />
+                {canCheckDraft && (
+                  <button
+                    type="button"
+                    className={`chat-pill-btn chat-check-btn${draftCheck ? ' active' : ''}`}
+                    onClick={() => void runDraftCheck(newMessage.trim())}
+                    disabled={draftCheck?.kind === 'loading'}
+                    aria-label="Check my Chinese"
+                    title={isOnline ? 'Check my Chinese before sending' : 'Checking needs internet'}
+                  >
+                    ✓
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          {recording === 'locked' ? null : composerEmpty && !isAIConversation ? (
+            <button
+              type="button"
+              className={`chat-round-btn chat-mic-btn${recording === 'held' ? ' recording' : ''}`}
+              onPointerDown={micDown}
+              onPointerMove={micMove}
+              onPointerUp={micUp}
+              onPointerCancel={micUp}
+              onContextMenu={(e) => e.preventDefault()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                // Keyboard: Enter / Space opens the locked recorder.
+                if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  handleSend(e);
+                  setNotice(null);
+                  setRecording('locked');
                 }
               }}
-              placeholder={isAIConversation ? 'Type in Chinese...' : 'Message'}
-              className="chat-input"
-              rows={1}
-              aria-label="Message"
-            />
-            {canCheckDraft && (
-              <button
-                type="button"
-                className={`chat-round-btn chat-check-btn${draftCheck ? ' active' : ''}`}
-                onClick={() => void runDraftCheck(newMessage.trim())}
-                disabled={draftCheck?.kind === 'loading'}
-                aria-label="Check my Chinese"
-                title={isOnline ? 'Check my Chinese before sending' : 'Checking needs internet'}
-              >
-                ✓
-              </button>
+              aria-label="Hold to record a voice message"
+              title="Hold to record, release to send"
+              data-testid="chat-mic-btn"
+            >
+              🎤
+            </button>
+          ) : (
+            <SpinnerButton
+              type="submit"
+              className="chat-round-btn chat-send"
+              busy={isWaitingForAI}
+              disabled={composerEmpty}
+              aria-label="Send"
+            >
+              ➤
+            </SpinnerButton>
+          )}
+        </form>
+        {attachOpen && !recording && (
+          <div className="chat-attach-menu" role="menu" data-testid="chat-attach-menu">
+            {!isAIConversation && (
+              <>
+                <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); cameraInputRef.current?.click(); }}>
+                  <span className="chat-attach-icon" aria-hidden="true">📷</span> Camera
+                </button>
+                <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); fileInputRef.current?.click(); }}>
+                  <span className="chat-attach-icon" aria-hidden="true">🖼️</span> Photo
+                </button>
+              </>
             )}
-            {composerEmpty && !isAIConversation ? (
-              <button
-                type="button"
-                className="chat-round-btn chat-mic-btn"
-                onClick={() => {
-                  setNotice(null);
-                  setRecording(true);
-                }}
-                aria-label="Record a voice message"
-                title="Record a voice message"
-              >
-                🎤
-              </button>
-            ) : (
-              <SpinnerButton
-                type="submit"
-                className="btn btn-primary chat-send"
-                busy={isWaitingForAI}
-                disabled={composerEmpty}
-              >
-                Send
-              </SpinnerButton>
-            )}
-          </form>
+            <button
+              type="button"
+              role="menuitem"
+              className="chat-attach-item"
+              disabled={chatToolsBlocked || messages.length === 0 || isGeneratingOptions}
+              onClick={() => {
+                setAttachOpen(false);
+                handleHelpMeSayIt();
+              }}
+            >
+              <span className="chat-attach-icon" aria-hidden="true">💡</span> Help me say it
+              {chatToolsBlocked && <span className="msg-sheet-action-hint">Needs internet</span>}
+            </button>
+          </div>
         )}
       </div>
 
@@ -1827,21 +2047,29 @@ export function ChatPage() {
       )}
       {deleting && <ConfirmDeleteSheet busy={deleteBusy} onConfirm={() => void confirmDelete()} onCancel={() => setDeleting(null)} />}
 
-      {/* Per-message action sheet */}
-      {sheet && (
-        <MessageActionSheet
-          message={sheet.message}
-          tools={sheetTools}
-          isOnline={isOnline}
-          anchor={sheet.anchor}
-          quickEmojis={getQuickEmojis()}
-          recentEmojis={getRecentEmojis()}
-          allEmojis={FULL_EMOJI_LIST}
-          onAction={handleSheetAction}
-          onReact={(emoji) => handleReaction(sheet.message.id, emoji)}
-          onClose={() => setSheet(null)}
-        />
-      )}
+      {/* The message menu (long-press / right-click / hover ⋯) */}
+      {sheet &&
+        (() => {
+          const menu = menuFor(sheet.message);
+          return (
+            <MessageMenu
+              senderName={sheet.message.sender_id === myId ? 'You' : sheet.message.sender.name || 'Unknown'}
+              preview={menuText(sheet.message) || (sheet.message.attachment?.kind === 'voice' ? '🎤 Voice message' : sheet.message.attachment ? '📷 Photo' : '')}
+              items={menu.items}
+              reactions={menu.reactions}
+              isOnline={isOnline}
+              anchor={sheet.anchor}
+              emojiFirst={sheet.emojiFirst}
+              quickEmojis={getQuickEmojis()}
+              recentEmojis={getRecentEmojis()}
+              allEmojis={FULL_EMOJI_LIST}
+              onAction={handleSheetAction}
+              onReact={(emoji) => handleReaction(sheet.message.id, emoji)}
+              onClose={() => setSheet(null)}
+            />
+          );
+        })()}
+      {explain && <ExplainSheet text={explain.text} mode={explain.mode} isOnline={isOnline} onClose={() => setExplain(null)} />}
 
       {/* Make flashcards from this chat */}
       {cardScope && convId && (
@@ -2027,43 +2255,6 @@ export function ChatPage() {
           message={discussingMessage}
           onClose={() => setDiscussingMessage(null)}
         />
-      )}
-
-      {/* Translate + Flashcard Modal */}
-      {showTranslateModal && translateResult && (
-        <div className="modal-overlay" onClick={() => { setShowTranslateModal(false); setModalNotice(null); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Translation</h3>
-            <div className="translate-result">
-              <div className="translate-english">{translateResult.translation}</div>
-            </div>
-            <h4>Flashcard</h4>
-            <div className="generated-card-preview">
-              <div className="preview-hanzi">{translateResult.flashcard.hanzi}</div>
-              <div className="preview-pinyin">{translateResult.flashcard.pinyin}</div>
-              <div className="preview-english">{translateResult.flashcard.english}</div>
-              {translateResult.flashcard.fun_facts && (
-                <div className="preview-funfacts">{translateResult.flashcard.fun_facts}</div>
-              )}
-              {translateResult.flashcard.context && (
-                <div className="preview-context">
-                  Context: {translateResult.flashcard.context}
-                </div>
-              )}
-            </div>
-            <DeckSelectorWithCreate
-              onSelect={(deckId) => handleSaveTranslateCard(deckId)}
-              isSaving={isSavingTranslateCard}
-              selectedCount={1}
-            />
-            <InlineNotice notice={modalNotice} onDismiss={clearModalNotice} className="chat-modal-notice" />
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => { setShowTranslateModal(false); setModalNotice(null); }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Word Save Modal from Interactive Translation */}

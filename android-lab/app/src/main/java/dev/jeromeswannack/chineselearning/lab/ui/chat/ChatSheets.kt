@@ -41,7 +41,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.core.MessageTool
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MINIMAX_VOICES
 import dev.jeromeswannack.chineselearning.lab.data.api.SuggestedCard
@@ -104,18 +103,50 @@ class ChatSheetActions(
     val review: ReviewActions = ReviewActions(),
     val onSaveCorrection: (ChatMessageDto, text: String, note: String) -> Unit = { _, _, _ -> },
     val onRemoveCorrection: (ChatMessageDto) -> Unit = {},
+    // ---- round 2 (docs/CHAT.md "Round 2") ----
+    /** A long-press menu action (MessageMenu ids). */
+    val onMenuAction: (id: String, ChatMessageDto) -> Unit = { _, _ -> },
+    /** Explain / Save as flashcard: add a word or the sentence as a card (the Coach's AddChunkSheet calls). */
+    val cards: dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions = dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions(),
+    val onRetryExplain: () -> Unit = {},
+    val onCloseExplain: () -> Unit = {},
+    val onOpenSearch: () -> Unit = {},
+    val onOpenHelp: () -> Unit = {},
 )
 
 @Composable
 fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
     when (val s = ui.sheet) {
         null -> {}
-        is ChatSheet.Actions -> MessageActionSheet(s.message, ui.menuTools(s.message), ui.online, ChatLogic.quickEmojis(ui.recentEmojis), ui.recentEmojis, actions, mine = s.message.sender_id == ui.myId, rich = !ui.isAi)
-        ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Send a photo") {
-            NavRow("📷", "Take a photo", trailing = {}, onClick = actions.onCamera)
-            RowDivider()
-            NavRow("🖼️", "Choose from gallery", trailing = {}, onClick = actions.onGallery)
+        is ChatSheet.Actions -> {
+            val m = ui.messages.firstOrNull { it.id == s.message.id } ?: s.message
+            LabBottomSheet(onDismiss = actions.onDismiss) {
+                MessageMenuContent(
+                    m, ui.menu(m), ui.online, ui.recentEmojis, mine = m.sender_id == ui.myId,
+                    onReact = { e -> actions.onReact(m, e) },
+                    onAction = { id -> actions.onMenuAction(id, m) },
+                )
+            }
+        }
+        ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss) {
+            if (!ui.isAi) {
+                NavRow("📷", "Camera", trailing = {}, onClick = actions.onCamera)
+                RowDivider()
+                NavRow("🖼️", "Photo", desc = "From the gallery", trailing = {}, onClick = actions.onGallery)
+                RowDivider()
+            }
+            val help = ui.online && ui.messages.isNotEmpty() && !ui.generatingOptions
+            NavRow(
+                "💡", "Help me say it",
+                desc = if (!ui.online) "Needs internet" else if (ui.messages.isEmpty()) "After the first message" else "Say what you mean — Claude suggests replies",
+                enabled = help, trailing = {}, onClick = actions.onOpenHelp,
+            )
             Spacer(Modifier.height(16.dp))
+        }
+        is ChatSheet.Explain -> ui.explain?.let { e ->
+            LabBottomSheet(onDismiss = actions.onCloseExplain) {
+                ExplainContent(e, s.saveCard, ui.online, actions.cards, onRetry = actions.onRetryExplain, onClose = actions.onCloseExplain)
+            }
         }
         is ChatSheet.Photo -> PhotoSheet(s, ui, actions)
         ChatSheet.Pins -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Pinned messages") {
@@ -136,6 +167,8 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             danger = true,
         )
         ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) {
+            NavRow("🔍", "Search", desc = "Find a message in this chat", onClick = actions.onOpenSearch)
+            RowDivider()
             // PR 3: make cards from the chat; pinyin / translations for every message.
             NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
             RowDivider()
@@ -191,56 +224,6 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
         is ChatSheet.Correct -> LabBottomSheet(onDismiss = actions.onDismiss, title = if (s.message.correction == null) "Correct this" else "Edit correction") {
             CorrectPanel(ui.messages.firstOrNull { it.id == s.message.id } ?: s.message, ui, actions)
         }
-    }
-}
-
-/** Per-message tools: quick reactions (expandable), then every other tool as a 48dp row (web: MessageActionSheet). */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun MessageActionSheet(m: ChatMessageDto, tools: List<MessageTool>, online: Boolean, quick: List<String>, recent: List<String>, actions: ChatSheetActions, mine: Boolean = false, rich: Boolean = false) {
-    var all by remember { mutableStateOf(false) }
-    LabBottomSheet(onDismiss = actions.onDismiss) {
-        Column(Modifier.padding(horizontal = 20.dp).testTag("message-actions")) {
-            Text(m.sender.name ?: "Unknown", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
-            Text(previewOf(m), style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, maxLines = 3)
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                quick.forEach { e -> EmojiButton(e, online) { actions.onReact(m, e) } }
-                EmojiButton(if (all) "−" else "+", online) { all = !all }
-            }
-            if (!online) Text("Reactions need internet", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-            if (all) {
-                Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
-                    if (recent.isNotEmpty()) {
-                        Text("Recent", style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted, modifier = Modifier.padding(top = 8.dp))
-                        FlowRow { recent.forEach { e -> EmojiButton(e, online) { actions.onReact(m, e) } } }
-                    }
-                    Text("All", style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted, modifier = Modifier.padding(top = 8.dp))
-                    FlowRow { ChatLogic.FULL_EMOJIS.forEach { e -> EmojiButton(e, online) { actions.onReact(m, e) } } }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-        tools.filter { it.id != "react" }.forEach { t ->
-            val blocked = t.needsInternet && !online
-            NavRow(t.icon, t.label, desc = if (blocked) "Needs internet" else null, enabled = !blocked, trailing = {}, onClick = { actions.onTool(t.id, m) })
-        }
-        // PR 2 (docs/CHAT.md): pin for either person; edit / delete my own.
-        if (rich) {
-            val pinned = !m.pinned_at.isNullOrEmpty()
-            val off = if (!online) "Needs internet" else null
-            NavRow("📌", if (pinned) "Unpin" else "Pin", desc = off, enabled = online, trailing = {}, onClick = { actions.onPin(m, !pinned) })
-            if (mine && !m.isVoice) NavRow("✏️", if (m.isImage) "Edit caption" else "Edit", desc = off, enabled = online, trailing = {}, onClick = { actions.onEdit(m) })
-            if (mine) NavRow("🗑️", "Delete", desc = off, danger = true, enabled = online, trailing = {}, onClick = { actions.onAskDelete(m) })
-        }
-        Spacer(Modifier.height(16.dp))
-    }
-}
-
-@Composable
-private fun EmojiButton(e: String, enabled: Boolean, onClick: () -> Unit) {
-    Box(Modifier.size(48.dp).clip(CircleShape).bouncyClickable(enabled = enabled, pressedScale = 0.8f, onClick = onClick).alpha(if (enabled) 1f else 0.4f), contentAlignment = Alignment.Center) {
-        Text(e, fontSize = 24.sp)
     }
 }
 

@@ -50,16 +50,17 @@ class ChatLearningComposeTest {
 
     private val two = S.student.copy(messages = listOf(S.m1, S.m2), aids = ChatLearning.Aids())
 
-    @Test fun chipsOpenTheWordSheetAndTogglesFlip() {
+    @Test fun chipsOpenTheWordSheet_andBubblesCarryNoToggles() {
         val rec = Rec()
         show(two, rec)
         assertTrue(compose.onAllNodesWithTag("chat-word-chip").fetchSemanticsNodes().size >= 8)
         compose.onNodeWithText("商店").performClick()
         compose.onNodeWithText("周末").performClick()
-        compose.onAllNodesWithTag("chat-toggle-pinyin")[0].performClick()
-        compose.onAllNodesWithTag("chat-toggle-translation")[1].performClick()
         compose.waitForIdle()
-        assertEquals(listOf("chip m2 3", "chip m1 0", "pinyin m1", "translation m2"), rec.calls.filter { !it.startsWith("words") })
+        assertEquals(listOf("chip m2 3", "chip m1 0"), rec.calls.filter { !it.startsWith("words") })
+        // Round 2: 拼 / EN live in the long-press menu now, not under every bubble.
+        assertEquals(0, compose.onAllNodesWithTag("chat-toggle-pinyin").fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithTag("chat-toggle-translation").fetchSemanticsNodes().size)
     }
 
     @Test fun messagesWithoutWordsAskForThem_andShowThePhonesPinyin() {
@@ -78,18 +79,18 @@ class ChatLearningComposeTest {
         compose.onNodeWithTag("chat-pick-today").performClick()
         compose.onNodeWithTag("chat-pick-last").performClick()
         compose.onAllNodesWithTag("chat-select-row")[0].performClick()
-        compose.onNodeWithText("🃏 Make cards from 1 message").performClick()
+        compose.onNodeWithTag("chat-propose").performClick()
         compose.waitForIdle()
         assertEquals(listOf("today", "last", "select m1", "propose"), rec.calls.filter { !it.startsWith("words") })
     }
 
-    @Test fun studentMakesACardFromTheCorrection() {
+    @Test fun studentMakesACardFromTheCorrection_throughTheMenu() {
         val rec = Rec()
         show(two, rec)
         compose.onNodeWithTag("chat-correction").assertExists()
-        compose.onNodeWithTag("chat-correction-card").performClick()
-        compose.waitForIdle()
-        assertTrue("correction-card m2" in rec.calls)
+        // No button under the correction any more: it is "Make a card from the correction" in the menu.
+        assertEquals(0, compose.onAllNodesWithTag("chat-correction-card").fetchSemanticsNodes().size)
+        assertTrue(two.menu(S.m2).items.any { it.id == dev.jeromeswannack.chineselearning.lab.core.MessageMenu.CORRECTION_CARD })
     }
 
     @Test fun checkThenUseThis() {

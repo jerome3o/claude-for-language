@@ -4,19 +4,31 @@ import { formatDuration } from '../../services/chatThread';
 
 const MAX_MS = 5 * 60 * 1000;
 
+export type VoiceCommand = { action: 'send' | 'cancel'; seq: number };
+
 /**
- * Recording a voice message (replaces the text box while open): starts on
- * mount, a red dot and a live timer; 🗑 cancels, ⏹ stops to listen back first,
- * ➤ sends straight away. Stops by itself at 5 minutes.
+ * Recording a voice message (replaces the text box while open), Signal-style
+ * (docs/CHAT.md "Round 2"): starts on mount. **Held** — the finger is on the
+ * mic: a red dot, the timer and "‹ Slide to cancel" (following the finger,
+ * `dragX`); the composer's mic sends `command`s (release = send, slide left =
+ * cancel). **Locked** (slid up, or tapped open): 🗑 cancels, ⏹ stops to listen
+ * back first, ➤ sends. Stops by itself at 5 minutes.
  */
 export function VoiceComposer({
   onSend,
   onCancel,
   onError,
+  mode = 'locked',
+  command,
+  dragX = 0,
 }: {
   onSend: (blob: Blob, durationMs: number) => void;
   onCancel: () => void;
   onError: (text: string) => void;
+  mode?: 'held' | 'locked';
+  command?: VoiceCommand | null;
+  /** How far the finger has slid left (px, ≤ 0) while held. */
+  dragX?: number;
 }) {
   const [phase, setPhase] = useState<'starting' | 'recording' | 'preview'>('starting');
   const [elapsed, setElapsed] = useState(0);
@@ -28,6 +40,7 @@ export function VoiceComposer({
   const startedAt = useRef(0);
   const after = useRef<'send' | 'preview' | 'cancel'>('cancel');
   const audio = useRef<HTMLAudioElement | null>(null);
+  const earlyStop = useRef(false);
   const callbacks = useRef({ onSend, onCancel, onError });
   callbacks.current = { onSend, onCancel, onError };
 
@@ -50,8 +63,10 @@ export function VoiceComposer({
         callbacks.current.onCancel();
         return;
       }
-      if (cancelled) {
+      if (cancelled || earlyStop.current) {
         s.getTracks().forEach((t) => t.stop());
+        // Released before the microphone was ready: too short to be a message.
+        if (!cancelled) callbacks.current.onCancel();
         return;
       }
       stream.current = s;
@@ -110,9 +125,23 @@ export function VoiceComposer({
   const stop = (next: 'send' | 'preview' | 'cancel') => {
     after.current = next;
     const rec = recorder.current;
-    if (rec && rec.state !== 'inactive') rec.stop();
+    if (!rec) {
+      earlyStop.current = true;
+      if (next === 'cancel') callbacks.current.onCancel();
+      return;
+    }
+    if (rec.state !== 'inactive') rec.stop();
     if (next === 'cancel') callbacks.current.onCancel();
   };
+
+  // Commands from the held mic button (release = send, slide left = cancel).
+  const lastSeq = useRef(0);
+  useEffect(() => {
+    if (!command || command.seq === lastSeq.current) return;
+    lastSeq.current = command.seq;
+    stop(command.action);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [command]);
 
   const togglePreview = () => {
     if (!preview) return;
@@ -126,8 +155,23 @@ export function VoiceComposer({
     else audio.current.play().catch(() => setPlaying(false));
   };
 
+  if (mode === 'held') {
+    const cancelling = dragX <= -60;
+    return (
+      <div className="chat-voice-composer held" data-testid="voice-composer" data-mode="held">
+        <div className="chat-voice-recording" role="status">
+          <span className="chat-rec-dot" aria-hidden="true" />
+          <span className="chat-rec-time">{phase === 'starting' ? 'Starting…' : formatDuration(elapsed)}</span>
+        </div>
+        <span className={`chat-voice-slide${cancelling ? ' cancelling' : ''}`} style={{ transform: `translateX(${Math.max(-120, dragX)}px)` }}>
+          ‹ Slide to cancel
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <div className="chat-voice-composer" data-testid="voice-composer">
+    <div className="chat-voice-composer" data-testid="voice-composer" data-mode="locked">
       <button type="button" className="chat-round-btn chat-voice-cancel" onClick={() => stop('cancel')} aria-label="Discard recording">
         🗑
       </button>
