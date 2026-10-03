@@ -64,7 +64,17 @@ class Prefs(context: Context) {
             .putBoolean("share_usage", me.share_usage)
             .putString("voice_gender", me.voice_gender)
             .apply()
+        me.card_check?.let { cardCheck = it }
     }
+
+    /**
+     * Word checks (Settings → "Check new words for mistakes"): Paste a list asks Claude to
+     * double-check the preview. The server's effective value from /api/auth/me; before the
+     * first answer, on for a tutor account (the server's default).
+     */
+    var cardCheck: Boolean
+        get() = if (sp.contains("card_check")) sp.getBoolean("card_check", false) else accountRole == "tutor"
+        set(v) = sp.edit().putBoolean("card_check", v).apply()
 
     var budget: StudyBudget
         get() = StudyBudget(

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { applyYiBuToneChanges, YI_BU_CONVENTION } from '@shared/pinyin/toneChange';
 
 /**
  * Fill in the missing pinyin / English of a pasted word list in one call.
@@ -16,7 +17,7 @@ export const MAX_GLOSS_WORDS = 100;
 const SYSTEM_PROMPT = `You complete a vocabulary list for a Chinese learner's flashcards.
 
 For each word you get the simplified characters and sometimes pinyin or an English meaning that the teacher already supplied. Return every word with:
-- pinyin: standard Hanyu Pinyin WITH TONE MARKS (nǐ hǎo, not ni3 hao3), syllables separated by spaces within a word only where the word has more than one character (e.g. "píng guǒ"). Use the reading that fits the most common meaning of the word as a vocabulary item (银行 → yín háng, not yín xíng).
+- pinyin: standard Hanyu Pinyin WITH TONE MARKS (nǐ hǎo, not ni3 hao3), syllables separated by spaces within a word only where the word has more than one character (e.g. "píng guǒ"). Use the reading that fits the most common meaning of the word as a vocabulary item (银行 → yín háng, not yín xíng). ${YI_BU_CONVENTION}
 - english: a short flashcard gloss — one to four words, the most common meaning first; add a second sense after a semicolon only when the word is genuinely ambiguous. Include the part of speech only when it disambiguates ("to open", "(measure word)").
 
 Keep anything the teacher already supplied exactly as given — do not "improve" their pinyin or English. Only fill in what is missing. Return the list via the gloss_words tool, in the same order.`;
@@ -94,7 +95,8 @@ export async function glossWords(apiKey: string, words: GlossInput[]): Promise<G
         const got = byHanzi.get(w.hanzi.trim());
         return {
           hanzi: w.hanzi,
-          pinyin: w.pinyin?.trim() || got?.pinyin || '',
+          // Claude's pinyin gets the 一 / 不 tone changes (shared/pinyin); the teacher's stays as typed.
+          pinyin: w.pinyin?.trim() || (got?.pinyin ? applyYiBuToneChanges(w.hanzi, got.pinyin) : ''),
           english: w.english?.trim() || got?.english || '',
         };
       });

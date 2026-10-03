@@ -417,3 +417,9 @@
   font-size: 0.875rem;
   line-height: 1.4;
 }
+
+/* Word check of a preview row: spans the row, under its text. */
+.pw-check {
+  grid-column: 1 / -1;
+  padding: 0 0.25rem 0.6rem;
+}

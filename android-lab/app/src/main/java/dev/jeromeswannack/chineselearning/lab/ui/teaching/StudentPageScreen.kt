@@ -137,6 +137,8 @@ data class StudentPageActions(
     val refresh: () -> Unit = {},
     /** Take homework back: opens the confirm sheet for that deck / lesson / reader. */
     val removeHomework: (RemovalTarget) -> Unit = {},
+    /** Homework deck menu → "🔎 Check for errors" on the student's copy (word checks). */
+    val checkDeck: (HomeworkDeckDto) -> Unit = {},
     val removalSheet: RemovalSheetActions = RemovalSheetActions(),
 )
 
@@ -313,6 +315,7 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
                 ui.relId, d, ui.updatingShare == d.shared_deck_id, { to -> actions.moveShare(d, to) }, { actions.updateShare(d) }, actions.open, now,
                 removeLabel = HomeworkRemoval.removalMenuLabel(HomeworkRemoval.DECK, name),
                 onRemove = { actions.removeHomework(RemovalTarget(HomeworkRemoval.DECK, d.shared_deck_id, d.source_deck_name)) },
+                onCheck = if (d.target_deck_name != null) ({ actions.checkDeck(d) }) else null,
             )
         }
     }

@@ -25,7 +25,19 @@ export interface CreateNoteOptions {
   audio?: AudioMode;
   /** Queue the graded sentence set (default true). Big imports pass false; the hourly top-up covers them. */
   sentences?: boolean;
+  /**
+   * Queue a word check when the account's "Check new words" is on (default true;
+   * services/card-check.ts). False for copies, the starter deck, rows Paste a list
+   * already checked in its preview, and callers that run the check themselves.
+   */
+  check?: boolean;
   bg?: Background;
+}
+
+/** Options of a note edit. */
+export interface UpdateNoteOptions {
+  /** Re-check the word when hanzi / pinyin / english changed (default true; false when applying a check's own fix). */
+  check?: boolean;
 }
 
 /** Fields a note edit may change. Anything omitted is left alone. */

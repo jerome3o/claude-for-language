@@ -22,6 +22,8 @@ import { errorResult, guard, textResult, type ToolContext } from './tools/contex
 import { CREATE_THEN_SEND, NOT_SENT } from './tools/homework-send.js';
 import { registerStudentTools } from './tools/students.js';
 import { registerContentTools } from './tools/content.js';
+import { registerCheckTools, checkWarningsMessage, type CheckWarning } from './tools/checks.js';
+import { parseCheckIssues } from '../../shared/cards/check';
 import { registerHomeworkTools } from './tools/homework.js';
 import { registerHomeworkHubTools } from './tools/homework-hub.js';
 import { registerNoteUpdateTool } from './tools/notes.js';
@@ -589,7 +591,8 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
 
         // The API creates the note + 3 cards, validates the pinyin, starts
         // TTS for the word and the sentence, and queues the sentence set.
-        const note = await api.post<Note>(`/api/decks/${encodeURIComponent(deck_id)}/notes`, {
+        // ?check=sync: the word check runs now; its possible issues come back on the note.
+        const note = await api.post<Note & { check_issues?: string | null }>(`/api/decks/${encodeURIComponent(deck_id)}/notes?check=sync`, {
           hanzi,
           pinyin,
           english,
@@ -599,9 +602,10 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
           sentence_clue_translation,
         });
 
+        const warnings: CheckWarning[] = parseCheckIssues(note.check_issues ?? null).map(i => ({ note_id: note.id, hanzi: note.hanzi, issue_id: i.id, field: i.field, kind: i.kind, current: i.current, proposed: i.proposed, reason: i.reason }));
         const copies = await updateStudentCopies(api, 'deck', deck_id, update_student_copies);
 
-        return textResult(`Added note: ${note.hanzi} (${note.pinyin}) - ${note.english} (id=${note.id}). Audio is being generated in the background.${copies?.message ? ` ${copies.message}` : ''}`);
+        return textResult(`Added note: ${note.hanzi} (${note.pinyin}) - ${note.english} (id=${note.id}). Audio is being generated in the background.${copies?.message ? ` ${copies.message}` : ''}${checkWarningsMessage(warnings)}`);
       })
     );
 
@@ -649,13 +653,15 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
         // per-row failures, and queues TTS + sentence sets in the background.
         let created: Note[] = [];
         let failed: { index: number; hanzi: string; error: string }[] = [];
+        let warnings: CheckWarning[] = [];
         if (toCreate.length > 0) {
-          const result = await api.post<{ created: Note[]; failed: { index: number; hanzi: string; error: string }[] }>(
-            `/api/decks/${encodeURIComponent(deck_id)}/notes/batch`,
+          const result = await api.post<{ created: Note[]; failed: { index: number; hanzi: string; error: string }[]; check_warnings?: CheckWarning[] }>(
+            `/api/decks/${encodeURIComponent(deck_id)}/notes/batch?check=sync`,
             { notes: toCreate },
           );
           created = result.created ?? [];
           failed = result.failed ?? [];
+          warnings = result.check_warnings ?? [];
         }
 
         let summary = `Added ${created.length}/${notes.length} notes:\n${created.map(n => `  - ${n.hanzi} (${n.pinyin})`).join('\n')}`;
@@ -671,6 +677,9 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
         }
         if (skipped.length > 0) {
           summary += `\n\nSkipped ${skipped.length} duplicate(s) (hanzi already exists in your decks or appeared more than once in this request):\n${skipped.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
+        }
+        if (warnings.length > 0) {
+          summary += `\n\n${checkWarningsMessage(warnings).trim()}\n${warnings.map(w => `  - note_id=${w.note_id} issue_id=${w.issue_id}`).join('\n')}`;
         }
 
         return textResult(summary);
@@ -1905,6 +1914,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     // main API as this user, so ownership and tutor checks stay in one place.
     registerStudentTools(ctx);
     registerContentTools(ctx);
+    registerCheckTools(ctx);
     registerHomeworkTools(ctx);
     registerHomeworkHubTools(ctx);
     registerTutorApps(ctx);

@@ -202,7 +202,8 @@ class DeckWrites(
     // ---------------- notes ----------------
 
     /** "+ Add word" — the server makes the three cards and the audio, so it needs a connection. */
-    suspend fun createNote(deckId: String, f: NoteFields): Result<NoteDto> {
+    /** [skipCheck]: Paste a list already checked this word (`?check=none` — no second word check on the server). */
+    suspend fun createNote(deckId: String, f: NoteFields, skipCheck: Boolean = false): Result<NoteDto> {
         CardStandard.newNoteProblem(f.hanzi, f.pinyin, f.english, f.sentenceClue)?.let { return Result.failure(RefusedException(it)) }
         return online("add a word") {
             val clue = NoteSearch.jsTrim(f.sentenceClue).ifEmpty { null }
@@ -215,6 +216,7 @@ class DeckWrites(
                     sentence_clue_translation = clue?.let { NoteSearch.jsTrim(f.sentenceClueTranslation).ifEmpty { null } },
                     alternatives = f.alternativesJson(),
                 ),
+                skipCheck,
             )
             mirrorNote(note)
             note
@@ -391,6 +393,21 @@ class DeckWrites(
     /** A deck / note write of ours still waiting in the Outbox: new ones queue behind it. */
     private suspend fun hasQueuedWrites(): Boolean = outbox.all().any { it.state == Outbox.PENDING && it.kind in KINDS }
 
+    /**
+     * A word check's Apply fix / Dismiss came back with the note: take its pinyin / english and
+     * what is left of `check_issues`. When the answer carries no check_issues at all, drop just
+     * [resolvedIssueId] from the local list (never lose the others).
+     */
+    suspend fun mirrorCheckedNote(n: NoteDto, resolvedIssueId: String) {
+        val local = dao.note(n.id) ?: return
+        val issues = n.check_issues ?: local.checkIssues?.let { raw ->
+            val rest = dev.jeromeswannack.chineselearning.lab.core.CardCheck.parseCheckIssues(raw).filter { it.id != resolvedIssueId }
+            if (rest.isEmpty()) null else kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(dev.jeromeswannack.chineselearning.lab.core.NoteCheckIssue.serializer()), rest)
+        }
+        dao.upsertNotes(listOf(local.copy(pinyin = n.pinyin.ifEmpty { local.pinyin }, english = n.english.ifEmpty { local.english }, checkIssues = issues)))
+        onLocalChange()
+    }
+
     private suspend fun mirrorNote(n: NoteDto, withCards: Boolean = true) {
         dao.upsertNotes(listOf(noteEntity(n)))
         if (withCards && n.cards.isNotEmpty()) dao.insertCardsIfMissing(n.cards.map { CardEntity(it.id, n.id, n.deck_id, it.card_type) })
@@ -406,7 +423,7 @@ class DeckWrites(
             id = n.id, deckId = n.deck_id, hanzi = n.hanzi, pinyin = n.pinyin, english = n.english, audioUrl = n.audio_url,
             funFacts = n.fun_facts, context = n.context, sentenceClue = n.sentence_clue, sentenceCluePinyin = n.sentence_clue_pinyin,
             sentenceClueTranslation = n.sentence_clue_translation, sentenceClueAudioUrl = n.sentence_clue_audio_url,
-            alternatives = n.alternatives, createdAt = n.created_at, longTerm = n.long_term,
+            alternatives = n.alternatives, createdAt = n.created_at, longTerm = n.long_term, checkIssues = n.check_issues,
         )
     }
 }

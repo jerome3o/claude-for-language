@@ -39,6 +39,8 @@ export interface StructuredCallOptions<T> {
   validate: (input: unknown) => T;
   attempts?: number;
   timeoutMs?: number;
+  /** Called with each successful reply's token usage (cost accounting). */
+  onUsage?: (usage: { input_tokens: number; output_tokens: number }, model: string) => void;
   /** Test seam: supply a client instead of constructing one. */
   client?: Pick<Anthropic, 'messages'>;
   sleep?: (ms: number) => Promise<void>;
@@ -79,6 +81,7 @@ export async function structuredCall<T>(opts: StructuredCallOptions<T>): Promise
       if (response.stop_reason === 'refusal') {
         throw new StructuredCallError('Claude declined to answer this one', false);
       }
+      if (response.usage) opts.onUsage?.({ input_tokens: response.usage.input_tokens ?? 0, output_tokens: response.usage.output_tokens ?? 0 }, model);
       const toolUse = response.content.find((b) => b.type === 'tool_use');
       if (!toolUse || toolUse.type !== 'tool_use') throw new Error('Claude returned no structured answer');
       return opts.validate(toolUse.input);

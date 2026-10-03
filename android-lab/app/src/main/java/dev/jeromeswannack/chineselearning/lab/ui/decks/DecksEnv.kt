@@ -28,6 +28,8 @@ class DecksEnv(
     val setBonus: (scope: String, day: String, value: Int) -> Unit = { _, _, _ -> },
     /** users.role = tutor: the deck page offers "Try it as a student" instead of Study. */
     val isTutorAccount: () -> Boolean = { false },
+    /** Settings → "Check new words for mistakes": Paste a list runs the word check on its preview. */
+    val cardCheck: () -> Boolean = { false },
     /** Pull everything again (after a delete / when the server knows more than the phone). */
     val requestSync: () -> Unit = {},
     val fx: DecksFx = DecksFx(),
@@ -56,6 +58,7 @@ class DecksEnv(
                 bonus = { scope, day -> app.prefs.bonus(scope, day) },
                 setBonus = { scope, day, v -> app.prefs.setBonus(scope, day, v) },
                 isTutorAccount = { app.prefs.accountRole == "tutor" },
+                cardCheck = { app.prefs.cardCheck },
                 requestSync = { app.scope.launch { app.repo.sync() } },
                 fx = DecksFx(
                     tick = { app.haptics.tick() },

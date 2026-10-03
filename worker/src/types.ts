@@ -18,6 +18,8 @@ export interface Env {
   /** Chat live delivery: one ChatHub Durable Object per user (docs/CHAT.md §4). */
   CHAT_HUB: DurableObjectNamespace<import('./durable/chat-hub').ChatHub>;
   TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
+  /** Word checks (services/card-check.ts): new / edited notes and per-deck "Check for errors" runs. */
+  CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
   TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
   /** One MiniMax rate limiter for every TTS call (docs/AUDIO.md). Optional so tests run without it. */
@@ -297,6 +299,9 @@ export interface Note {
   alternatives: string | null;  // JSON array of acceptable alternative hanzi answers
   /** The learner's "long-term review" choice for this word: 1 in, 0 out, null = follow the deck (migration 0096). */
   long_term?: 0 | 1 | null;
+  /** Open word-check issues, JSON NoteCheckIssue[] (shared/cards/check.ts; migration 0104). */
+  check_issues?: string | null;
+  check_at?: string | null;
   created_at: string;
   updated_at: string;
 }

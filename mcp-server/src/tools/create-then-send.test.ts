@@ -24,7 +24,7 @@ const sends = (c: Call) => c.method === 'POST' && SENDING.some((r) => r.test(c.p
 function answer(method: string, path: string, body: unknown): unknown {
   if (path === '/api/relationships') return { students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 's', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome' } }], tutors: [] };
   if (method === 'POST' && path === '/api/decks') return { id: 'deck-1', name: 'Weather' };
-  if (path.endsWith('/notes/batch')) return { created: (body as { notes: Array<{ hanzi: string }> }).notes.map((n, i) => ({ id: `n${i}`, hanzi: n.hanzi, audio_url: null })), failed: [] };
+  if (path.includes('/notes/batch')) return { created: (body as { notes: Array<{ hanzi: string }> }).notes.map((n, i) => ({ id: `n${i}`, hanzi: n.hanzi, audio_url: null })), failed: [] };
   if (method === 'GET' && path.startsWith('/api/decks/')) return { id: 'deck-1', notes: [] };
   if (path.endsWith('/shared-decks')) return [{ id: 'share-1', source_deck_id: 'src', target_deck_id: 'tgt', source_deck_name: 'Weather' }];
   if (path === '/api/readers/import') return { id: 'r1', status: 'ready', image_jobs: 0, spec: {} };

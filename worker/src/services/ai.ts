@@ -3,12 +3,13 @@ import { GeneratedDeck, GeneratedNote, GeneratedNoteWithContext, Note, Conversat
 import { LESSON_SPEC_INPUT_SCHEMA } from './custom-lesson';
 import { validateLessonSpec } from '@shared/lesson';
 import { CARD_STANDARD, CARD_STANDARD_SHORT } from '@shared/cards';
+import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
 For each vocabulary item, provide:
 - hanzi: Chinese characters (simplified)
-- pinyin: Romanized pronunciation with tone marks/accents (e.g., "nǐ hǎo" for 你好, "māmā" for 妈妈)
+- pinyin: Romanized pronunciation with tone marks/accents (e.g., "nǐ hǎo" for 你好, "māma" for 妈妈)
 - english: Clear, concise English translation
 - fun_facts: Substantive learning note — explain grammar patterns, cultural context, common mistakes, disambiguation from similar-sounding words, or what makes this word/phrase distinctive. Focus on what helps the learner understand and remember correctly. NOT trivial trivia. (can be empty string)
 
@@ -147,7 +148,11 @@ Respond with JSON in this exact format:
     throw new Error('Invalid notes structure from AI');
   }
 
-  return result.notes;
+  // The 一 / 不 tone changes of the card standard, whatever Claude wrote (shared/pinyin).
+  return result.notes.map(n => ({
+    ...n,
+    pinyin: typeof n.pinyin === 'string' ? applyYiBuToneChanges(n.hanzi ?? '', n.pinyin) : n.pinyin,
+  }));
 }
 
 const ASK_SYSTEM_PROMPT = `You are a helpful Chinese language tutor. The user is studying a Chinese vocabulary word and has a question about it.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { pinyin as toPinyin } from 'pinyin-pro';
+import { autoPinyin } from '../../utils/autoPinyin';
 import { breakdownSentenceCard } from '@shared/coach/actions';
 import type { SentenceBriefExplanation } from '../../types';
 import { getTextExplanation } from '../../services/sentence-sets';
@@ -19,7 +19,7 @@ export function ExplainSheet({ text, mode, isOnline, onClose }: { text: string; 
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<Chunk | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const sentencePinyin = toPinyin(text, { type: 'string', nonZh: 'consecutive' }).replace(/\s+/g, ' ').trim();
+  const sentencePinyin = autoPinyin(text, { nonZh: 'consecutive' }).replace(/\s+/g, ' ').trim();
 
   useEffect(() => {
     let live = true;

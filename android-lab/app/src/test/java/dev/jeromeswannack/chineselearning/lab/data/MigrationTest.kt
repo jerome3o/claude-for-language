@@ -121,4 +121,29 @@ class MigrationTest {
         }
         room.close()
     }
+
+    /** v4 adds notes.checkIssues (word checks): existing notes have none (null); unsynced events stay. */
+    @Test fun v3ToV4AddsCheckIssuesAndKeepsEverything() {
+        createFromExportedSchema(3).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt) VALUES ('d1', 'Lesson 9', NULL, 3, 6, 1, '2026-10-01 10:00:00')")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt, longTerm) VALUES ('n1', 'd1', '一样', 'yī yàng', 'the same', '2026-10-01 10:00:00', 1)")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'hanzi_to_meaning', 0, 0, 0, 0, 0, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-10-01T08:00:00.000Z', 4200, NULL, 0)")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            val note = dao.notes(listOf("n1")).single()
+            assertEquals(null, note.checkIssues)
+            assertEquals(1, note.longTerm)
+            val issues = """[{"id":"i1","field":"pinyin","kind":"tone_change","current":"yī yàng","proposed":"yí yàng","reason":"r"}]"""
+            dao.upsertNotes(listOf(note.copy(checkIssues = issues)))
+            assertEquals(issues, dao.notes(listOf("n1")).single().checkIssues)
+        }
+        room.close()
+    }
 }

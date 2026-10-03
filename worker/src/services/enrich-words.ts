@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CARD_STANDARD, cardTextProblems } from '@shared/cards/standard';
+import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
 
 /**
  * Write the explanation (fun_facts) and the card's example sentence for a
@@ -76,7 +77,7 @@ export function mergeEnrichment(inputs: EnrichInput[], raw: RawEnrichment[]): En
         cardTextProblems({ sentence_clue: candidate }).length === 0;
       if (ok) {
         sentence_clue = candidate;
-        sentence_clue_pinyin = str(got?.sentence_clue_pinyin);
+        sentence_clue_pinyin = applyYiBuToneChanges(candidate, str(got?.sentence_clue_pinyin));
         sentence_clue_translation = str(got?.sentence_clue_translation);
       }
     }

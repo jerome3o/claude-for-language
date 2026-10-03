@@ -172,6 +172,22 @@ reveals everything: tap any object for its name, ▶ audio and **+ Add as card**
 found" with a personal best per picture. Finished hunts are cached whole on the device and
 play offline; plays upload idempotently on the next sync. Same in the Lab app.
 
+### 13. Word checks and the 一 / 不 tone changes
+
+- **Pinyin convention**: every pinyin the app writes by itself (device auto-fill, Claude in Generate / gloss /
+  enrich) carries the textbook 一 / 不 tone changes — 一 yī alone / at a word's end / as a number, ordinal or date;
+  yí before a 4th tone, yì before the others; neutral yi in 看一看 — 不 bú before a 4th tone, otherwise bù; neutral
+  bu in 要不要. No third-tone sandhi (nǐ hǎo). One shared function (`shared/pinyin/toneChange.ts`), ported to the
+  Lab app and parity-tested; part of the card standard Claude follows. Existing notes are not rewritten.
+- **Check new words** (Settings → Cards, on by default for tutors): new / edited words get a cheap Haiku check
+  for wrong tones, a missing 一/不 tone change, the wrong reading of a multi-reading character, or a wrong /
+  misleading English gloss. A finding shows on the word as "⚠ Possible issue" with **Apply fix** / **Dismiss**;
+  nothing changes automatically. Paste a list checks the preview rows before they are saved.
+- **Check for errors** (deck ⋯ menu; the tutor's student page, on a homework deck she sent — the student's copy):
+  a cost estimate ("~319 words · about $0.04"), then the deck is checked in batches with progress, then a review
+  list (current → proposed, reason, checkboxes) and **Apply selected**; a tutor can fix her own source deck too.
+- MCP: `check_deck_for_errors`, `apply_note_fixes`; the create tools report the check's warnings.
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities

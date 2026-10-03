@@ -848,9 +848,9 @@ export async function getNotesChangedSince(db: D1Database, userId: string, since
     .prepare(
       `SELECT n.* FROM notes n
         JOIN decks d ON n.deck_id = d.id
-       WHERE d.user_id = ? AND (n.updated_at >= ? OR n.long_term_at >= ?)`
+       WHERE d.user_id = ? AND (n.updated_at >= ? OR n.long_term_at >= ? OR n.check_at >= ?)`
     )
-    .bind(userId, sinceDate, sinceDate)
+    .bind(userId, sinceDate, sinceDate, sinceDate)
     .all<Record<string, unknown>>();
 }
 

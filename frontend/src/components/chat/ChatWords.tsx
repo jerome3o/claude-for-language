@@ -1,4 +1,4 @@
-import { pinyin as toPinyin } from 'pinyin-pro';
+import { autoPinyin } from '../../utils/autoPinyin';
 import { isTappableWord, sentenceAround, wordOffsets } from '@shared/reader/words';
 import { looksLikeChinese } from './messageTools';
 import type { ChatWord } from '../../types';
@@ -16,7 +16,7 @@ export function tidyPinyin(s: string): string {
 /** Pinyin of a whole text, made on the device (before the words arrive). */
 export function devicePinyinLine(text: string): string {
   try {
-    return tidyPinyin(toPinyin(text, { type: 'string', nonZh: 'consecutive' }));
+    return tidyPinyin(autoPinyin(text, { nonZh: 'consecutive' }));
   } catch {
     return '';
   }
@@ -25,7 +25,7 @@ export function devicePinyinLine(text: string): string {
 function wordPinyin(w: ChatWord): string {
   if (w.pinyin) return w.pinyin;
   try {
-    return toPinyin(w.text, { toneType: 'symbol' });
+    return autoPinyin(w.text);
   } catch {
     return '';
   }

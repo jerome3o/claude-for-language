@@ -110,6 +110,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
 
   // Relationship-scoped rows without foreign keys.
   { label: 'card_flags', sql: `DELETE FROM card_flags WHERE student_id = ?1 OR tutor_id = ?1 OR relationship_id IN ${REL}` },
+  { label: 'deck_check_jobs', sql: `DELETE FROM deck_check_jobs WHERE user_id = ?1 OR deck_owner_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'tutor_note_jobs', sql: `DELETE FROM tutor_note_jobs WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'notifications', sql: `DELETE FROM notifications WHERE user_id = ?1 OR relationship_id IN ${REL} OR homework_id IN ${HOMEWORK}` },
 

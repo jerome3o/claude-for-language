@@ -43,6 +43,7 @@ import { useHomeworkItems } from '../components/homework/useHomeworkItems';
 import { RecentHomeworkCard } from '../components/tutor/library/RecentHomeworkCard';
 import { getRelationshipLibrary } from '../api/homeworkLibrary';
 import { RemoveHomeworkSheet, type RemovalTarget } from '../components/tutor/RemoveHomeworkSheet';
+import { DeckCheckSheet } from '../components/cardCheck/DeckCheckSheet';
 import { SharedReadersSection } from '../components/tutor/SharedReadersSection';
 import { Toast, useToast } from '../components/Toast';
 import { removalMenuLabel } from '@shared/homework';
@@ -178,6 +179,8 @@ export function ConnectionDetailPage() {
   const [updatingShare, setUpdatingShare] = useState<string | null>(null);
   const [updateNote, setUpdateNote] = useState<string | null>(null);
   const [removal, setRemoval] = useState<RemovalTarget | null>(null);
+  // "Check for errors" on the student's copy of a homework deck I sent (components/cardCheck).
+  const [checking, setChecking] = useState<{ id: string; title: string } | null>(null);
   const [toast, showToast] = useToast(4500);
 
   const relationshipQuery = useQuery({
@@ -533,12 +536,18 @@ export function ConnectionDetailPage() {
                           total={d.queue_total}
                           label="their queue"
                           onMove={(to) => handleMoveShare(d.shared_deck_id, d.source_deck_name, to)}
-                          extraItems={[{ key: 'remove', label: removalMenuLabel('deck', otherName), danger: true, onSelect: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) }]}
+                          extraItems={[
+                            { key: 'check', label: '🔎 Check for errors', onSelect: () => setChecking({ id: d.shared_deck_id, title: d.source_deck_name }) },
+                            { key: 'remove', label: removalMenuLabel('deck', otherName), danger: true, onSelect: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) },
+                          ]}
                         />
                       ) : (
                         <OverflowMenu
                           label={`More for ${d.source_deck_name}`}
-                          items={[{ label: removalMenuLabel('deck', otherName), danger: true, onClick: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) }]}
+                          items={[
+                            ...(d.target_deck_name != null ? [{ label: '🔎 Check for errors', onClick: () => setChecking({ id: d.shared_deck_id, title: d.source_deck_name }) }] : []),
+                            { label: removalMenuLabel('deck', otherName), danger: true, onClick: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) },
+                          ]}
                         />
                       )}
                       {d.notes_missing > 0 && d.target_deck_name != null ? (
@@ -617,6 +626,15 @@ export function ConnectionDetailPage() {
             </section>
           )}
         </div>
+
+        {checking && (
+          <DeckCheckSheet
+            target={{ kind: 'student', relId: relId!, sharedDeckId: checking.id }}
+            title={`${otherName.split(' ')[0] || 'Their'}’s copy of ${checking.title}`}
+            onClose={() => setChecking(null)}
+            onApplied={(n) => showToast(`Fixed ${n} word${n === 1 ? '' : 's'} in ${otherName.split(' ')[0] || 'their'}’s copy`)}
+          />
+        )}
 
         {removal && (
           <RemoveHomeworkSheet
