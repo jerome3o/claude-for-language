@@ -735,3 +735,139 @@
 .msg-menu.popover .msg-sheet-action {
   min-height: 40px;
 }
+
+/* ---------- Round 2 PR 3: files, video, forwarded, info, multi-photo, queue ---------- */
+.chat-file {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 200px;
+  max-width: 300px;
+  padding: 0.35rem 0.1rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-file-icon {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 1.5rem;
+  background: rgba(0, 0, 0, 0.07);
+}
+.chat-message.sent .chat-file-icon {
+  background: rgba(255, 255, 255, 0.2);
+}
+.chat-file-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-file-name {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-file-meta {
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+.chat-video {
+  width: min(280px, 62vw);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  margin: -0.2rem -0.45rem 0.2rem;
+}
+.chat-video video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #000;
+}
+.chat-video-placeholder {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #1c1c1e;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 1.4rem;
+}
+.chat-video-len {
+  font-size: 0.8rem;
+}
+.chat-forwarded {
+  display: block;
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.75;
+  margin-bottom: 0.15rem;
+}
+.chat-forward-sub {
+  color: #888;
+  font-size: 0.875rem;
+}
+.chat-header-queue {
+  color: #b26b00;
+}
+.chat-info-rows {
+  margin: 0;
+  padding: 0.5rem 1rem 1rem;
+}
+.chat-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+.chat-info-row dt {
+  color: #666;
+}
+.chat-info-row dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 500;
+}
+.chat-photo-compose-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: 0.75rem;
+}
+.chat-photo-compose-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.chat-photo-compose-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.chat-photo-compose-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  cursor: pointer;
+}

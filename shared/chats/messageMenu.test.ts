@@ -8,14 +8,14 @@ const base = { sender_id: 'them', content: '你好，今天怎么样？' };
 describe('messageMenu', () => {
   it('a Chinese message from the tutor, seen by the student: every learning tool, in order', () => {
     expect(ids(messageMenu(base, 'student', false, 'me'))).toEqual([
-      'reply', 'copy', 'translate', 'pinyin', 'explain', 'save_card', 'select_cards', 'play', 'discuss', 'pin', 'select',
+      'reply', 'copy', 'forward', 'translate', 'pinyin', 'explain', 'save_card', 'select_cards', 'play', 'discuss', 'pin', 'info', 'select',
     ]);
   });
 
   it('my own Chinese message as the learner: Check my Chinese, Edit, Delete', () => {
     const m = messageMenu({ ...base, sender_id: 'me' }, 'student', false, 'me');
     expect(ids(m)).toEqual([
-      'reply', 'copy', 'translate', 'pinyin', 'explain', 'save_card', 'select_cards', 'check', 'play', 'discuss', 'pin', 'edit', 'delete', 'select',
+      'reply', 'copy', 'forward', 'translate', 'pinyin', 'explain', 'save_card', 'select_cards', 'check', 'play', 'discuss', 'pin', 'info', 'edit', 'delete', 'select',
     ]);
     expect(m.items.find((i) => i.id === 'delete')?.danger).toBe(true);
     expect(ids(messageMenu({ ...base, sender_id: 'me', check_status: 'needs_improvement' }, 'student', false, 'me'))).toContain('view_corrections');
@@ -34,7 +34,7 @@ describe('messageMenu', () => {
 
   it('English text: no translate / pinyin / explain / save card / read aloud', () => {
     expect(ids(messageMenu({ sender_id: 'them', content: 'See you tomorrow' }, 'student', false, 'me'))).toEqual([
-      'reply', 'copy', 'select_cards', 'discuss', 'pin', 'select',
+      'reply', 'copy', 'forward', 'select_cards', 'discuss', 'pin', 'info', 'select',
     ]);
   });
 
@@ -48,9 +48,9 @@ describe('messageMenu', () => {
   it('voice: tools work on the transcript; translate only when the transcript was translated; no read aloud / edit', () => {
     const v = { sender_id: 'me', content: '', attachment: { kind: 'voice', transcript: '我很好', translation: null } };
     expect(menuText(v)).toBe('我很好');
-    expect(ids(messageMenu(v, 'student', false, 'me'))).toEqual(['reply', 'copy', 'pinyin', 'explain', 'save_card', 'select_cards', 'discuss', 'pin', 'delete', 'select']);
+    expect(ids(messageMenu(v, 'student', false, 'me'))).toEqual(['reply', 'copy', 'forward', 'pinyin', 'explain', 'save_card', 'select_cards', 'discuss', 'pin', 'info', 'delete', 'select']);
     expect(ids(messageMenu({ ...v, attachment: { ...v.attachment, translation: "I'm fine" } }, 'student', false, 'me'))).toContain('translate');
-    expect(ids(messageMenu({ ...v, attachment: { kind: 'voice', transcript: null } }, 'student', false, 'me'))).toEqual(['reply', 'pin', 'delete', 'select']);
+    expect(ids(messageMenu({ ...v, attachment: { kind: 'voice', transcript: null } }, 'student', false, 'me'))).toEqual(['reply', 'forward', 'pin', 'info', 'delete', 'select']);
   });
 
   it('a photo: caption tools, Edit caption, no Check / Correct', () => {
@@ -59,7 +59,7 @@ describe('messageMenu', () => {
     expect(m.items.find((i) => i.id === 'edit')?.label).toBe('Edit caption');
     expect(ids(m)).not.toContain('check');
     expect(ids(messageMenu({ ...p, sender_id: 'them' }, 'tutor', false, 'me'))).not.toContain('correct');
-    expect(ids(messageMenu({ sender_id: 'them', content: '', attachment: { kind: 'image' } }, 'student', false, 'me'))).toEqual(['reply', 'pin', 'select']);
+    expect(ids(messageMenu({ sender_id: 'them', content: '', attachment: { kind: 'image' } }, 'student', false, 'me'))).toEqual(['reply', 'forward', 'pin', 'info', 'select']);
   });
 
   it('deleted: nothing; pending: Copy only, no reactions', () => {

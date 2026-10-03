@@ -189,7 +189,8 @@ describe('rich chat messages', () => {
     expect((await tutor.upload('conv-1', 'kind=image', text, 'image/png')).status).toBe(415);
     expect((await tutor.upload('conv-1', 'kind=image', png(10, 10), 'text/html')).status).toBe(415);
     expect((await tutor.upload('conv-1', 'kind=voice&duration_ms=1000', png(10, 10), 'audio/webm')).status).toBe(415);
-    expect((await tutor.upload('conv-1', 'kind=video', png(10, 10), 'image/png')).status).toBe(400);
+    expect((await tutor.upload('conv-1', 'kind=sticker', png(10, 10), 'image/png')).status).toBe(400);
+    expect((await tutor.upload('conv-1', 'kind=video', png(10, 10), 'image/png')).status).toBe(415); // a photo is not a video
     expect((await tutor.upload('conv-1', 'kind=voice', webm(), 'audio/webm')).status).toBe(400); // no duration
     expect((await tutor.upload('conv-1', 'kind=voice&duration_ms=300001', webm(), 'audio/webm')).status).toBe(400); // > 5 min
     expect((await tutor.upload('conv-1', 'kind=image', new Uint8Array(0), 'image/png')).status).toBe(400);
