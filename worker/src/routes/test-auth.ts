@@ -1,3 +1,4 @@
+import { autoCheckMessageInBackground } from '../services/chat/auto-check';
 import { Hono } from 'hono';
 import { Env, User } from '../types';
 import { createSession } from '../services/auth';
@@ -166,6 +167,32 @@ testAuth.post('/homework-draft', async (c) => {
     steps: [{ at, kind: 'done', text: 'Draft ready for review' }],
   });
   return c.json({ job_id: job.id, lesson_log_id: entry.id });
+});
+
+/**
+ * POST /api/test/chat-auto-check — run the chat auto-check on a message with a
+ * canned answer instead of Claude (E2E + screenshots): the real store +
+ * `message_updated` path. Body: { message_id, result? } where result is the
+ * check_message tool input (default: one 了 too many).
+ */
+testAuth.post('/chat-auto-check', async (c) => {
+  const b = await c.req.json<{ message_id: string; result?: unknown }>();
+  const row = await c.env.DB.prepare('SELECT content FROM messages WHERE id = ?').bind(b.message_id).first<{ content: string }>();
+  if (!row) return c.json({ error: 'message not found' }, 404);
+  const canned = b.result ?? {
+    status: 'improvable',
+    severity: 'minor',
+    corrected: { hanzi: row.content.replace('去了', '去'), pinyin: 'wǒ zuótiān qù shāngdiàn mǎi dōngxi le', english: 'I went to the shop to buy things yesterday.' },
+    mistakes: [{
+      quote: '去了', fix: '去', why: 'One 了 at the end is enough here — 去 and 买 are one action.',
+      card: { hanzi: '去商店买东西', pinyin: 'qù shāngdiàn mǎi dōngxi', english: 'go to the shop to buy things', fun_facts: '去 (qù) go\n商店 (shāngdiàn) shop\n买 (mǎi) buy\n东西 (dōngxi) things\nVerb series: 去 + place + what you do there.' },
+    }],
+    alternative: { hanzi: '我昨天去商店买了点东西', pinyin: 'wǒ zuótiān qù shāngdiàn mǎi le diǎn dōngxi', english: 'I bought a few things at the shop yesterday.', note: 'Sounds more natural in conversation.' },
+    card: { hanzi: '我昨天去商店买东西了。', pinyin: 'wǒ zuótiān qù shāngdiàn mǎi dōngxi le', english: 'I went to the shop to buy things yesterday.', fun_facts: '我 (wǒ) I\n昨天 (zuótiān) yesterday\n去 (qù) go\n商店 (shāngdiàn) shop\n买 (mǎi) buy\n东西 (dōngxi) things\n了 (le) completed\nOne 了 at the end covers the whole series.' },
+  };
+  await c.env.DB.prepare('UPDATE messages SET auto_check = NULL WHERE id = ?').bind(b.message_id).run();
+  const outcome = await autoCheckMessageInBackground(c.env, b.message_id, { check: async () => canned });
+  return c.json({ outcome });
 });
 
 /**

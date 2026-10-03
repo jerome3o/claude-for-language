@@ -1,3 +1,4 @@
+import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import type { ReaderWord } from '@shared/reader/words';
 
 // Cloudflare bindings
@@ -554,6 +555,8 @@ export interface Message {
   // Check status for user messages
   check_status: MessageCheckStatus | null;
   check_feedback: string | null;
+  /** The background "check my Chinese" (shared/chats/autoCheck.ts) — only on the sender's own view of a message. */
+  auto_check?: AutoCheckResult | null;
   recording_url: string | null;
   reply_to_message_id: string | null;
   // Interactive translation fields

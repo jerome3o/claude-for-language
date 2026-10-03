@@ -457,3 +457,41 @@ cache by the same triple (`getTTSWithCache`; Lab the same cache as Read aloud).
   un-blur animation (blur 8 px → 0, 260 ms) — it does NOT open the message menu; once revealed, long-press opens the
   menu again. A small **👁** button beside the bubble reveals it too (accessibility). Offline with no cached clip:
   "Audio not downloaded yet" notice.
+---
+
+# Auto-check — "How to say it better" (migration 0101_chat_auto_check.sql)
+
+Jerome: "When a student sends a message, automatically check if there can be improvements. If so, show a slight visual
+indicator… When they long-press the message, the top option should be 'understand how to make it better'."
+
+```sql
+ALTER TABLE messages ADD COLUMN auto_check TEXT;        -- JSON AutoCheckResult (shared/chats/autoCheck.ts) incl. the text it was about
+ALTER TABLE users ADD COLUMN chat_auto_check INTEGER;   -- NULL = default (on for the learner side), 1 = always, 0 = never
+```
+- **When**: after a text message is sent (live or replayed from the outbox — same `POST …/messages`, a repeated client_id is
+  not checked again) or edited, `autoCheckMessageInBackground` (`worker/src/services/chat/auto-check.ts`) runs in
+  `waitUntil` beside the translation / word chips. One `structuredCall` (`claude-sonnet-5`, Haiku on the last try, forced
+  `check_message` tool, thinking off, the chat's last 6 lines as context, `CARD_STANDARD` for the cards). ≈ 2k tokens in,
+  80–500 out ≈ $0.005–0.009 per check.
+- **Who** (`autoCheckApplies`): the student side of a tutor chat and the person in a Claude practice chat by default; the
+  account switch wins either way. **Skipped** (`autoCheckSkipReason`): no Chinese / emoji only, ≤ 2 content characters,
+  more English words than Han characters, > 400 characters, photos / voice / files.
+- **Result** `{ text, status: ok | improvable, corrected, corrected_pinyin, corrected_english, mistakes: [{ quote, fix, why,
+  card }], alternative, severity: minor | moderate | major, card, checked_at }`. The prompt flags only grammar errors, wrong
+  words and clearly unnatural phrasing; `normalizeAutoCheck` turns an "improvable" that only changes punctuation into ok and
+  drops cards that break a HARD card rule. Written only while the message still has that text; an edit clears it
+  (`auto_check = NULL`) and re-checks; delete clears it. Idempotent: a stored result for the current text is not redone.
+- **Delivery**: the message's `auto_check` (served only while `text` = content, and ONLY on the sender's own view — the
+  tutor never gets it) through `message_updated` and `?since=`, so both apps get it live and offline.
+- **Indicator** (`sayBetterState`, Lab `SayBetter.kt` parity-tested): on my own bubble a small amber ✎ in the meta row
+  (shown even when the bubble isn't the last of its group), label "Could be better — hold to see". The tutor's correction
+  takes precedence: state `corrected`, "<tutor> corrected this — hold to see".
+- **Menu**: `say_better` "✨ How to say it better" is the FIRST item when improvable or corrected; a current auto-check
+  (ok or improvable) replaces "Check my Chinese".
+- **Sheet** (web `components/chat/SayBetterSheet.tsx`, Lab `ui/chat/`): You wrote (character diff, highlighted not struck —
+  a line through 了 reads as 子) · Better (pinyin, English, ▶ via the conversation TTS) · each mistake "你说 X → Y" + why
+  (+ card) · More natural · **+ Add as flashcard** (the add-card sheet with `card`) · **Ask Claude about this** (Discuss
+  with Claude). Built from the stored result, so it works offline.
+- **Setting**: `PUT /api/profile/chat-prefs { chat_auto_check: true | false | null }`; `/api/auth/me` → `chat_auto_check`
+  (null = default). Settings → Chat → "Check my Chinese automatically" shows `autoCheckSettingShown` (on unless a tutor account).
+- E2E seam: `POST /api/test/chat-auto-check { message_id, result? }` runs the real store + broadcast with a canned answer.

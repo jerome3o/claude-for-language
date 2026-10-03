@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { NotificationsSection } from '../components/NotificationsSection';
 import { ChatListeningSettings } from '../components/chat/ChatListeningSettings';
+import { ChatSettingsSection } from '../components/ChatSettingsSection';
 import { Link } from 'react-router-dom';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget, updateShareUsage } from '../api/client';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
@@ -851,6 +852,8 @@ export function SettingsPage() {
 
         <NotificationsSection />
         <ChatListeningSettings />
+
+        <ChatSettingsSection />
 
         <div className="settings-section">
           <button className="btn btn-secondary export-btn settings-signout" onClick={() => { logout(); }}>

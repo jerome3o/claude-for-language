@@ -141,6 +141,9 @@ sealed interface ChatSheet {
     data class Info(val message: ChatMessageDto) : ChatSheet
     /** No app on the phone opens this file: Share… / Save to Downloads. */
     data class FileFallback(val path: String, val name: String, val mime: String) : ChatSheet
+    // ---- auto-check ----
+    /** ✨ How to say it better: the tutor's correction, else the background check (docs/CHAT.md "Auto-check"). */
+    data class SayBetter(val message: ChatMessageDto) : ChatSheet
 }
 
 /** A photo shrunk on the phone, waiting in the compose sheet. */
@@ -340,10 +343,17 @@ data class ChatUi(
         MessageMenu.Message(
             senderId = m.sender_id, content = m.content, deletedAt = m.deleted_at, pending = false,
             attachmentKind = m.attachment?.kind, transcript = m.attachment?.transcript, attachmentTranslation = m.attachment?.translation,
-            translation = m.translation, hasCorrection = m.correction != null, checkStatus = checkStatus(m),
+            translation = m.translation, hasCorrection = m.correction != null, correctionText = m.correction?.text,
+            checkStatus = checkStatus(m), autoCheckStatus = m.auto_check?.status, autoCheckText = m.auto_check?.text,
             hasDiscussion = m.has_discussion, pinnedAt = m.pinned_at,
         ),
         viewerRole, isAi, myId ?: "", pinyinOn = aids.pinyin(m.id), translateOn = aids.translation(m.id),
+    )
+
+    /** "corrected" | "improvable" | null — the ✎ on my own bubble and the menu's ✨ ([SayBetter.state], parity-tested). */
+    fun sayBetter(m: ChatMessageDto): String? = dev.jeromeswannack.chineselearning.lab.core.SayBetter.state(
+        m.sender_id, m.content, m.deleted_at, m.attachment?.kind, m.correction != null, m.correction?.text,
+        m.auto_check?.status, m.auto_check?.text, myId ?: "",
     )
 
     /** The text the learning tools work on (the voice transcript, else the message / caption). */
@@ -1280,6 +1290,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         _ui.update { it.copy(sheet = null) }
         app.analytics.track("chat.menu_action", mapOf("action" to id, "kind" to (m.attachment?.kind ?: "text")))
         when (id) {
+            MessageMenu.SAY_BETTER -> openSheet(ChatSheet.SayBetter(m))
             MessageMenu.REPLY -> reply(m)
             MessageMenu.COPY -> copy(_ui.value.menuText(m))
             MessageMenu.TRANSLATE -> translateInline(m)
@@ -1460,12 +1471,14 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
      * sender's voice gender → the first voice of that gender in MY conversation voices; Claude's
      * lines in a role-play chat keep the chat's persona voice. Never the legacy conversations.voice_id.
      */
-    internal suspend fun readAloudVoice(m: ChatMessageDto): Pair<String, Double> {
+    internal suspend fun readAloudVoice(m: ChatMessageDto): Pair<String, Double> = readAloudVoice(m.sender_id)
+
+    private suspend fun readAloudVoice(senderId: String): Pair<String, Double> {
         val s = _ui.value
         val c = s.conversation
         return ChatReadAloud.voice(
-            app, senderIsMe = m.sender_id.isNotEmpty() && m.sender_id == s.myId, otherGender = otherVoiceGender,
-            fromAi = s.isAi && m.sender_id == CLAUDE_USER_ID, personaVoice = c?.voice_id, personaSpeed = c?.voice_speed,
+            app, senderIsMe = senderId.isNotEmpty() && senderId == s.myId, otherGender = otherVoiceGender,
+            fromAi = s.isAi && senderId == CLAUDE_USER_ID, personaVoice = c?.voice_id, personaSpeed = c?.voice_speed,
         )
     }
 
@@ -1474,29 +1487,36 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
      * else it is made by `/api/practice/tts` and kept. Online failure → the server's own resolution
      * (`/tts` with message_id); offline with nothing cached → the phone's zh-CN voice of that gender.
      */
-    fun play(m: ChatMessageDto) {
-        if (_ui.value.playingId == m.id) { stopAudio(); return }
-        val text = m.content
+    fun play(m: ChatMessageDto) = speak(m.id, m.sender_id, m.content, m.id)
+
+    /**
+     * Read aloud [text] in MY voice (the corrected sentence of "How to say it better" — always my own
+     * message); [id] = what shows as playing ("say-better-<messageId>").
+     */
+    fun playText(id: String, text: String) = speak(id, _ui.value.myId.orEmpty(), text, null)
+
+    private fun speak(id: String, senderId: String, text: String, messageId: String?) {
+        if (_ui.value.playingId == id) { stopAudio(); return }
         if (text.isBlank()) return
-        _ui.update { it.copy(playingId = m.id) }
+        _ui.update { it.copy(playingId = id) }
         viewModelScope.launch {
-            val (voice, speed) = readAloudVoice(m)
+            val (voice, speed) = readAloudVoice(senderId)
             val online = app.online.value
             // The same clip listening mode's tap plays (ChatReadAloud: one voice rule, one device cache).
             val file = ChatClips.of(app).clip(text, voice, speed)
-            if (_ui.value.playingId != m.id) return@launch
-            if (file != null) { playFile(file, m.id); return@launch }
-            if (online) {
+            if (_ui.value.playingId != id) return@launch
+            if (file != null) { playFile(file, id); return@launch }
+            if (online && messageId != null) {
                 try {
-                    val r = api.conversationTts(convId, text, null, null, messageId = m.id)
-                    if (_ui.value.playingId == m.id) playBase64(r.audio_base64, m.id)
+                    val r = api.conversationTts(convId, text, null, null, messageId = messageId)
+                    if (_ui.value.playingId == id) playBase64(r.audio_base64, id)
                     return@launch
                 } catch (e: Exception) {
                     // the phone's own voice below
                 }
             }
             deviceVoice.speak(text, dev.jeromeswannack.chineselearning.lab.core.ChatVoice.deviceGender(voice)) {
-                _ui.update { u -> if (u.playingId == m.id) u.copy(playingId = null) else u }
+                _ui.update { u -> if (u.playingId == id) u.copy(playingId = null) else u }
             }
         }
     }

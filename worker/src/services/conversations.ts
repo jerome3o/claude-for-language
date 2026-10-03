@@ -1,3 +1,4 @@
+import { parseAutoCheck } from '@shared/chats/autoCheck';
 import { copyDeckForUser } from './content';
 import type { HomeworkPriority } from '@shared/decks';
 import { CARD_STANDARD } from '@shared/cards';
@@ -106,6 +107,7 @@ export async function getConversations(
         created_at: conv.last_created_at!,
         check_status: null,
         check_feedback: null,
+        auto_check: null,
         recording_url: null,
         reply_to_message_id: null,
         translation: null,
@@ -214,6 +216,7 @@ type MessageRow = {
   forwarded_from: string | null;
   words: string | null;
   correction: string | null;
+  auto_check: string | null;
   u_id: string;
   u_name: string | null;
   u_picture: string | null;
@@ -238,7 +241,7 @@ async function queryMessages(
            m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
            m.translation, m.segmentation, m.client_id,
            m.updated_at, m.edited_at, m.deleted_at, m.attachment, m.pinned_at, m.pinned_by,
-           m.words, m.correction, m.forwarded_from,
+           m.words, m.correction, m.forwarded_from, m.auto_check,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
            rm.id as reply_id, rm.content as reply_content, rm.deleted_at as reply_deleted_at, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
@@ -287,6 +290,8 @@ async function queryMessages(
       words: words?.words ?? null,
       words_source: words?.source ?? null,
       correction: deleted ? null : parseCorrection(row.correction),
+      // The background check is the sender's own (docs/CHAT.md "Auto-check"); never shown to the other person.
+      auto_check: deleted || row.sender_id !== viewerId ? null : parseAutoCheck(row.auto_check, row.content),
       sender: {
         id: row.u_id,
         name: row.u_name,
@@ -457,6 +462,7 @@ export async function sendMessage(
     created_at: now,
     check_status: null,
     check_feedback: null,
+    auto_check: null,
     recording_url: null,
     reply_to_message_id: replyToMessageId || null,
     translation: null,

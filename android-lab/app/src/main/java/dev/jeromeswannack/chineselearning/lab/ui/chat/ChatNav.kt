@@ -252,6 +252,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onOpenHelp = { vm.openSheet(ChatSheet.HelpMeSayIt) },
                 onToggleListening = vm.listening::toggle,
                 onHideAll = vm.listening::hideAll,
+                onPlayText = vm::playText,
             ),
         )
     }
