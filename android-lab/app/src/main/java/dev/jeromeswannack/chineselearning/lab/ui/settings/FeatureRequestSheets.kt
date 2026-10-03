@@ -3,6 +3,8 @@ package dev.jeromeswannack.chineselearning.lab.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -18,7 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.data.api.FeatureRequestDetailDto
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFormSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.StatusPill
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -27,15 +32,32 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 @Composable
 fun FeatureRequestSheet(detail: FeatureRequestDetailDto, busy: Busy, onComment: (String, () -> Unit) -> Unit, onDismiss: () -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
-    LabBottomSheet(onDismiss = onDismiss, title = "Feature Request") {
-        FeatureRequestBody(detail, busy, text, { text = it }) { onComment(text) { text = "" } }
+    LabSheetFrame(onDismiss = onDismiss) {
+        FeatureRequestBody(detail, busy, text, { text = it }, title = "Feature Request") { onComment(text) { text = "" } }
     }
 }
 
 @Composable
-fun FeatureRequestBody(detail: FeatureRequestDetailDto, busy: Busy, text: String, onText: (String) -> Unit, onSend: () -> Unit) {
+fun FeatureRequestBody(detail: FeatureRequestDetailDto, busy: Busy, text: String, onText: (String) -> Unit, title: String? = null, modifier: Modifier = Modifier, onSend: () -> Unit) {
     val r = detail.request
-    Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // The comment thread scrolls; the comment box and its button stay pinned (SheetScaffold).
+    SheetScaffold(
+        modifier,
+        header = title?.let { t -> { SheetTitle(t) } },
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
+        footerAbove = {
+            OutlinedTextField(
+                value = text, onValueChange = onText,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
+                placeholder = { Text("Add a comment...", color = Lab.colors.muted) },
+                enabled = !busy.busy,
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent, unfocusedBorderColor = Lab.colors.cardBorder),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Lab.colors.ink),
+            )
+            busy.error?.let { StatusLine(it, error = true) }
+        },
+        footer = { PrimaryPill(if (busy.busy) "Sending..." else "Comment", Modifier.weight(1f).height(52.dp), enabled = text.isNotBlank() && !busy.busy, onClick = onSend) },
+    ) {
         Text(r.content, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
         StatusPill(requestStatusLabel(r.status), requestStatusColor(r.status))
         Text(listOfNotNull(timeAgo(r.created_at), r.page_context?.let { "from $it" }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
@@ -48,16 +70,6 @@ fun FeatureRequestBody(detail: FeatureRequestDetailDto, busy: Busy, text: String
                 }
             }
         }
-        OutlinedTextField(
-            value = text, onValueChange = onText,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
-            placeholder = { Text("Add a comment...", color = Lab.colors.muted) },
-            enabled = !busy.busy,
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent, unfocusedBorderColor = Lab.colors.cardBorder),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Lab.colors.ink),
-        )
-        PrimaryPill(if (busy.busy) "Sending..." else "Comment", enabled = text.isNotBlank() && !busy.busy, onClick = onSend)
-        busy.error?.let { StatusLine(it, error = true) }
     }
 }
 
@@ -65,8 +77,14 @@ fun FeatureRequestBody(detail: FeatureRequestDetailDto, busy: Busy, text: String
 @Composable
 fun FeedbackSheet(busy: Busy, onSend: (String, () -> Unit) -> Unit, onDismiss: () -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
-    LabBottomSheet(onDismiss = onDismiss, title = "Send feedback") {
-        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LabFormSheet(
+        onDismiss = onDismiss,
+        title = "Send feedback",
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
+        footerAbove = busy.error?.let { e -> { StatusLine(e, error = true) } },
+        footer = { PrimaryPill(if (busy.busy) "Sending..." else "Send", Modifier.weight(1f).height(52.dp), enabled = text.isNotBlank() && !busy.busy) { onSend(text) { text = ""; onDismiss() } } },
+    ) {
+        run {
             Text("An idea, a bug, something that felt off? It goes to the feature request list.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
             OutlinedTextField(
                 value = text, onValueChange = { text = it },
@@ -76,8 +94,6 @@ fun FeedbackSheet(busy: Busy, onSend: (String, () -> Unit) -> Unit, onDismiss: (
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent, unfocusedBorderColor = Lab.colors.cardBorder),
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = Lab.colors.ink),
             )
-            PrimaryPill(if (busy.busy) "Sending..." else "Send", enabled = text.isNotBlank() && !busy.busy) { onSend(text) { text = ""; onDismiss() } }
-            busy.error?.let { StatusLine(it, error = true) }
         }
     }
 }

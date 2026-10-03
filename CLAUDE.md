@@ -612,6 +612,15 @@ AI assistants can manage vocabulary via MCP (see MCP Server section below).
 - [ ] Modals are usable on small screens
 - [ ] Navigation is accessible with one hand
 
+#### Sheets and long forms: the primary action never scrolls away
+Every modal / bottom sheet puts its Save / Send / Add row in **`.sheet-footer`** (index.css) as
+the LAST child of the sheet's scrolling body: it sticks to the sheet's bottom while the content
+scrolls under it (edge shadow only while there is more below), settles in place at the end so it
+never covers the last field, and bleeds over the scroller's padding (`--sheet-pad`,
+`--sheet-pad-bottom` when it isn't 1rem). Sheets size with `dvh` so the keyboard shrinks them. A
+long form on a normal page uses `.page-footer` (pinned above the tab bar). Lab app: wrap the sheet
+in `SheetScaffold` (ui/kit, see android-lab/docs/UI_KIT.md). E2E: `e2e/tests/sticky-save.spec.ts`.
+
 #### Common Patterns
 ```css
 /* Mobile-first example */

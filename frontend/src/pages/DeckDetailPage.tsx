@@ -316,7 +316,7 @@ function NoteHistoryModal({
           </div>
         )}
 
-        <div className="modal-actions" style={{ marginTop: '1rem' }}>
+        <div className="modal-actions sheet-footer" style={{ marginTop: '1rem' }}>
           <Link to={`/cards/${note.id}`} className="btn btn-secondary">
             Card page: flags &amp; Claude chats
           </Link>
@@ -1074,7 +1074,7 @@ function DeckDebugModal({
           )}
         </div>
 
-        <div className="modal-actions" style={{ marginTop: '1rem' }}>
+        <div className="modal-actions sheet-footer" style={{ marginTop: '1rem' }}>
           <button className="btn btn-secondary" onClick={onClose}>
             Close
           </button>
@@ -1184,7 +1184,6 @@ function DeckSettingsModal({
             e.preventDefault();
             saveMutation.mutate();
           }}
-          style={{ maxHeight: '70vh', overflowY: 'auto' }}
         >
           {/* Deck Info Section */}
           <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Deck Info</h3>
@@ -1447,7 +1446,7 @@ function DeckSettingsModal({
             </>
           )}
 
-          <div className="modal-actions" style={{ marginTop: '1rem' }}>
+          <div className="modal-actions sheet-footer" style={{ marginTop: '1rem' }}>
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Cancel
             </button>
@@ -1544,7 +1543,7 @@ function NoteForm({
         />
       </div>
 
-      <div className="modal-actions">
+      <div className="modal-actions sheet-footer">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>
           Cancel
         </button>
@@ -2383,7 +2382,7 @@ export function DeckDetailPage() {
                 Are you sure you want to delete "{deck.name}"? This will delete all{' '}
                 {deck.notes.length} notes and their cards. This action cannot be undone.
               </p>
-              <div className="modal-actions">
+              <div className="modal-actions sheet-footer">
                 <button
                   className="btn btn-secondary"
                   onClick={() => setShowDeleteConfirm(false)}
@@ -2532,7 +2531,7 @@ export function DeckDetailPage() {
                   })}
                 </div>
               )}
-              <div className="modal-actions" style={{ marginTop: '1rem' }}>
+              <div className="modal-actions sheet-footer" style={{ marginTop: '1rem' }}>
                 <button
                   className="btn btn-secondary"
                   onClick={() => setShowShareTutorModal(false)}
