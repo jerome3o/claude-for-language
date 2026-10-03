@@ -7,11 +7,12 @@ name: Android Lab Build
 #   an app entry opts into pre-releases — the hybrid app's entry keeps tracking
 #   android-v* only (see android-lab/README.md).
 
+# Each commit builds ONCE: pushes build only on main (the release); a branch builds through its
+# pull request. A branch without a PR can still be built with "Run workflow" (workflow_dispatch).
 on:
   push:
     branches:
       - main
-      - 'claude/**'
     paths:
       - 'android-lab/**'
       - 'shared/scheduler/**'
@@ -31,25 +32,30 @@ on:
       - '.github/workflows/android-lab-build.yml'
   workflow_dispatch:
 
-jobs:
-  lab:
-    runs-on: ubuntu-latest
-    name: Test and build Lab APK
-    timeout-minutes: 40
-    permissions:
-      contents: write # create releases
-    env:
-      IS_RELEASE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-      # Google Play internal testing (android-lab/PLAY.md): only when the service-account key is set.
-      HAS_PLAY_KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
-      # versionCode = this workflow's run number, for the APK AND the AAB of a run (both are built
-      # from this env). run_number only ever goes up (branch / PR runs spend numbers too, which
-      # just leaves gaps), so every Lab release — Obtainium pre-release or Play upload — is newer
-      # than the one before. A re-run keeps its number: Play then refuses the duplicate
-      # versionCode, which is harmless (the upload step is non-fatal).
-      APP_VERSION_CODE: ${{ github.run_number }}
-      APP_VERSION_NAME: 0.${{ github.run_number }}
+# A newer push to the same PR / branch cancels the run it supersedes. main is never cancelled:
+# every main run gets its own group (a shared group would still cancel a PENDING main run when a
+# third arrives, which would skip a Lab release).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# versionCode = this workflow's run number, for the APK AND the AAB of a run (both are built
+# from this env). run_number only ever goes up (PR runs spend numbers too, which just leaves
+# gaps), so every Lab release — Obtainium pre-release or Play upload — is newer than the one
+# before. A re-run keeps its number: Play then refuses the duplicate versionCode, which is
+# harmless (the upload step is non-fatal).
+env:
+  APP_VERSION_CODE: ${{ github.run_number }}
+  APP_VERSION_NAME: 0.${{ github.run_number }}
+
+# Four jobs run side by side (each on its own 4-vCPU runner): the TS parity tests, the app's unit
+# tests (Robolectric / Roborazzi), the debug APK and the release build. On main the release job
+# builds the SIGNED APK + AAB and the publish job — which needs every test job — releases them.
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    name: Core tests (FSRS / budget / answer parity with the TypeScript)
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -64,6 +70,141 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Core unit tests (parity with the TypeScript)
+        run: ./gradlew :core:test --no-daemon
+        working-directory: android-lab
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-core-test-reports
+          path: android-lab/core/build/reports/tests
+          retention-days: 14
+
+  app-tests:
+    runs-on: ubuntu-latest
+    name: App unit tests (queue engine, UI render)
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: android-lab
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Robolectric downloads its android-all-instrumented jars (one per SDK the tests pin) into
+      # ~/.m2 at test time; keep them between runs.
+      - name: Cache Robolectric android-all jars
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ hashFiles('android-lab/gradle/libs.versions.toml') }}
+          restore-keys: robolectric-
+
+      - name: Firebase config (google-services.json)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | base64 -d > android-lab/app/google-services.json
+            echo "FCM configured"
+          fi
+
+      - name: App unit tests (queue engine, UI render)
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+        working-directory: android-lab
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-test-reports
+          path: android-lab/app/build/reports/tests
+          retention-days: 14
+
+  # ---- Debug build (PRs / branches) ----
+  debug-apk:
+    if: github.ref != 'refs/heads/main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: Debug APK
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: android-lab
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Firebase config (google-services.json)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | base64 -d > android-lab/app/google-services.json
+            echo "FCM configured"
+          fi
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon
+        working-directory: android-lab
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chinese-learning-lab-debug-apk
+          path: android-lab/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+  release:
+    runs-on: ubuntu-latest
+    name: Release build
+    timeout-minutes: 40
+    env:
+      IS_RELEASE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    outputs:
+      is_release: ${{ env.IS_RELEASE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: android-lab
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -93,35 +234,6 @@ jobs:
             echo "::notice::GOOGLE_SERVICES_JSON not set — Lab build without FCM (see android-lab/PUSH.md)"
           fi
 
-      - name: Unit tests (FSRS / budget / answer parity with the TypeScript, queue engine, UI render)
-        run: ./gradlew :core:test :app:testDebugUnitTest --no-daemon
-        working-directory: android-lab
-
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lab-test-reports
-          path: |
-            android-lab/core/build/reports/tests
-            android-lab/app/build/reports/tests
-          retention-days: 14
-
-      # ---- Debug build (branches / PRs) ----
-
-      - name: Build debug APK
-        if: env.IS_RELEASE != 'true'
-        run: ./gradlew :app:assembleDebug --no-daemon
-        working-directory: android-lab
-
-      - name: Upload debug APK artifact
-        if: env.IS_RELEASE != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: chinese-learning-lab-debug-apk
-          path: android-lab/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
-
       # The release variant runs lintVitalRelease (fatal lint errors), which the debug build skips:
       # a Fragment-version lint error once passed every PR and then failed every main build, so no
       # Lab release went out. Build it here too (unsigned — no keystore on branches / PRs) so a
@@ -131,40 +243,62 @@ jobs:
         run: ./gradlew :app:assembleRelease --no-daemon
         working-directory: android-lab
 
-      # ---- Signed pre-release on main (Obtainium "Lab" entry) ----
+      # ---- Signed release on main (published by the publish job once every test job passed) ----
 
       - name: Decode signing keystore
         if: env.IS_RELEASE == 'true'
         run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
-      - name: Build signed release APK
+      # The same key signs the Play bundle: for Play it is the UPLOAD key; Play App Signing
+      # re-signs what users install with Google's app signing key.
+      - name: Build signed release APK + bundle (Google Play)
         if: env.IS_RELEASE == 'true'
-        run: ./gradlew :app:assembleRelease --no-daemon
+        run: ./gradlew :app:assembleRelease :app:bundleRelease --no-daemon
         working-directory: android-lab
         env:
           ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: chineselearning
 
-      # The same key signs the Play bundle: for Play it is the UPLOAD key; Play App Signing
-      # re-signs what users install with Google's app signing key.
-      - name: Build signed release bundle (Google Play)
-        if: env.IS_RELEASE == 'true'
-        run: ./gradlew :app:bundleRelease --no-daemon
-        working-directory: android-lab
-        env:
-          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: chineselearning
+      - name: Remove signing keystore
+        if: always() && env.IS_RELEASE == 'true'
+        run: rm -f "$RUNNER_TEMP/release.keystore"
 
       - name: Rename APK and AAB for release
         if: env.IS_RELEASE == 'true'
         run: |
-          cp android-lab/app/build/outputs/apk/release/app-release.apk chinese-learning-lab.apk
-          cp android-lab/app/build/outputs/bundle/release/app-release.aab "chinese-learning-lab-v${APP_VERSION_NAME}.aab"
+          mkdir -p lab-release
+          cp android-lab/app/build/outputs/apk/release/app-release.apk lab-release/chinese-learning-lab.apk
+          cp android-lab/app/build/outputs/bundle/release/app-release.aab "lab-release/chinese-learning-lab-v${APP_VERSION_NAME}.aab"
+
+      - name: Hand the signed APK and AAB to the publish job
+        if: env.IS_RELEASE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-release
+          path: lab-release/
+          retention-days: 3
+
+  # ---- Signed pre-release on main (Obtainium "Lab" entry) + Google Play ----
+  publish:
+    needs: [core-tests, app-tests, release]
+    if: needs.release.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    name: Publish Lab release
+    timeout-minutes: 15
+    permissions:
+      contents: write # create releases
+    env:
+      # Google Play internal testing (android-lab/PLAY.md): only when the service-account key is set.
+      HAS_PLAY_KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+    steps:
+      - name: Download the signed APK and AAB
+        uses: actions/download-artifact@v4
+        with:
+          name: lab-release
+          path: .
 
       - name: Publish GitHub pre-release
-        if: env.IS_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: lab-v${{ env.APP_VERSION_NAME }}
@@ -186,11 +320,11 @@ jobs:
       # in Play Console, and a Play hiccup must never fail the Obtainium release above.
 
       - name: Play upload skipped (no service account)
-        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY != 'true'
+        if: env.HAS_PLAY_KEY != 'true'
         run: echo "::notice title=Play upload skipped::PLAY_SERVICE_ACCOUNT_JSON is not set; the .aab is on the GitHub pre-release. See android-lab/PLAY.md"
 
       - name: Release notes for Play (commit subject)
-        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY == 'true'
+        if: env.HAS_PLAY_KEY == 'true'
         env:
           COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
         run: |
@@ -203,7 +337,7 @@ jobs:
 
       - name: Upload to Google Play (internal testing)
         id: play
-        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY == 'true'
+        if: env.HAS_PLAY_KEY == 'true'
         continue-on-error: true
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
@@ -220,7 +354,7 @@ jobs:
       # console (roll it out there once; after that the step above succeeds).
       - name: Upload to Google Play as a draft (fallback)
         id: play_draft
-        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY == 'true' && steps.play.outcome == 'failure'
+        if: env.HAS_PLAY_KEY == 'true' && steps.play.outcome == 'failure'
         continue-on-error: true
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
@@ -233,7 +367,7 @@ jobs:
           whatsNewDirectory: ${{ runner.temp }}/whatsnew
 
       - name: Report Play upload
-        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY == 'true'
+        if: env.HAS_PLAY_KEY == 'true'
         env:
           PLAY: ${{ steps.play.outcome }}
           PLAY_DRAFT: ${{ steps.play_draft.outcome }}

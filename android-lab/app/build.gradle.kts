@@ -88,7 +88,12 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
-            all { it.systemProperty("robolectric.pixelCopyRenderMode", "hardware") }
+            all {
+                it.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+                // Robolectric / Roborazzi tests are CPU-bound and independent per class: run them in
+                // parallel JVMs (3 on a 4-vCPU CI runner).
+                it.maxParallelForks = (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(1)
+            }
         }
     }
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
