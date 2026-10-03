@@ -59,6 +59,9 @@ data class ChatMessageDto(
     // ---- round 2 PR 3 ----
     /** The message this one was forwarded from — shown as "↪ Forwarded". */
     val forwarded_from: String? = null,
+    // ---- listening mode (docs/CHAT.md "Listening mode") ----
+    /** The pre-generated read-aloud clip (`<msg>-<hash>`), null until made / after an edit (`GET /api/messages/:id/audio`). */
+    val audio_clip: String? = null,
 ) {
     val isDeleted: Boolean get() = !deleted_at.isNullOrEmpty()
     val isImage: Boolean get() = !isDeleted && attachment?.kind == "image"

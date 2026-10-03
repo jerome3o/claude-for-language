@@ -283,15 +283,21 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
         metaColor, if (mine) Color.White else Lab.colors.accent,
     )
     val haptic = LocalHapticFeedback.current
+    // Listening mode: the text is hidden — tap plays it, a long press reveals it (never the menu).
+    val hidden = ui.isHidden(m)
     val openMenu: () -> Unit = {
         if (!m.isDeleted) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            if (selecting) actions.onToggleSelect(m.id) else actions.onOpenSheet(ChatSheet.Actions(m))
+            when {
+                selecting -> actions.onToggleSelect(m.id)
+                hidden -> actions.onReveal(m)
+                else -> actions.onOpenSheet(ChatSheet.Actions(m))
+            }
         }
     }
     RequestWordsOnScreen(m, actions)
     val invite = if (!m.isDeleted && !m.isVoice && !m.isImage) ChatLogic.callInvite(m.content) else null
-    val link = if (!m.isDeleted && !m.isVoice && invite == null) ChatBubbles.firstLink(m.content) else null
+    val link = if (!m.isDeleted && !m.isVoice && invite == null && !hidden) ChatBubbles.firstLink(m.content) else null
     if (link != null) LaunchedEffect(link) { actions.onRequestLinkPreview(link) }
     if (m.isVoice) LaunchedEffect(m.id) { actions.onRequestWaveform(m.id, m, null) }
 
@@ -310,6 +316,7 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
                                     onClick = {
                                         when {
                                             selecting -> actions.onToggleSelect(m.id)
+                                            hidden -> actions.onListen(m)
                                             m.isImage -> onView(ViewerTarget(m, null))
                                             m.isFile -> actions.onOpenFile(m)
                                             m.isVideo -> actions.onToggleVideo(m.id)
@@ -317,20 +324,22 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
                                         }
                                     },
                                     onLongClick = openMenu,
-                                    onLongClickLabel = "Message actions",
+                                    onLongClickLabel = if (hidden) "Reveal message" else "Message actions",
+                                    onClickLabel = if (hidden) "Listen" else null,
                                 )
-                                .testTag("chat-bubble"),
+                                .testTag(if (hidden) "chat-listening-bubble" else "chat-bubble"),
                         ) {
                             Column {
                                 // Round 2 PR 3: "↪ Forwarded" on top of the bubble.
                                 if (m.isForwarded) ForwardedLabel(mine, Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp))
                                 when {
+                                    hidden -> ListeningContent(m, meta, ui, actions)
                                     m.isDeleted -> DeletedContent(fg, meta)
                                     m.isImage -> PhotoContent(m, fg, meta, ui, actions)
                                     m.isVoice -> VoiceContent(m.id, m, null, m.attachment!!.duration_ms, mine, meta, ui, actions)
                                     m.isFile -> FileContent(m, mine, fg, meta, ui, actions)
                                     m.isVideo -> VideoContent(m, fg, meta, ui, actions)
-                                    else -> TextContent(m, mine, fg, meta, invite, link, ui, actions, openMenu)
+                                    else -> RevealIn(m.id, m.id in ui.listening.justRevealed) { TextContent(m, mine, fg, meta, invite, link, ui, actions, openMenu) }
                                 }
                             }
                         }
@@ -369,7 +378,13 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
         Row(rowModifier.testTag("chat-message"), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
             val status = ui.checkStatus(m)
             if (mine && status != null && !m.isDeleted) CheckBadge(status) { actions.onViewCheck(m) }
-            Box(Modifier.fillMaxWidth(BUBBLE_FRACTION).widthIn(max = MAX_BUBBLE), contentAlignment = if (mine) Alignment.TopEnd else Alignment.TopStart) { body() }
+            if (hidden) {
+                // The bubble keeps its own width; 👁 sits right beside it.
+                Row(Modifier.fillMaxWidth(BUBBLE_FRACTION + 0.12f).widthIn(max = MAX_BUBBLE + 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f, fill = false)) { body() }
+                    RevealButton { actions.onReveal(m) }
+                }
+            } else Box(Modifier.fillMaxWidth(BUBBLE_FRACTION).widthIn(max = MAX_BUBBLE), contentAlignment = if (mine) Alignment.TopEnd else Alignment.TopStart) { body() }
         }
     }
 }

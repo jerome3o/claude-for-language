@@ -178,13 +178,20 @@ class ChatLive(private val app: LabApp) {
                 if (m.sender_id == me || m.sender.id == me) {
                     // Sent from my other device: I've seen this chat.
                     ChatNotifier.cancel(app, m.conversation_id)
-                } else if (rel != null) {
-                    ChatNotifier.notifyIncoming(app, IncomingChat.fromMessage(m, rel), me)
+                } else {
+                    // Listening mode: its clip onto the phone before the tap.
+                    prefetchClip(m)
+                    if (rel != null) {
+                        val chat = ChatListeningStore.masked(app.cache, IncomingChat.fromMessage(m, rel), m.content, m.attachment?.kind, m.deleted_at, me)
+                        ChatNotifier.notifyIncoming(app, chat, me)
+                    }
                 }
             }
             "message_updated" -> {
                 val m = obj["message"]?.let { runCatching { app.repo.api.json.decodeFromJsonElement(ChatMessageDto.serializer(), it) }.getOrNull() } ?: return
                 _events.emit(LiveEvent.Updated(m.conversation_id, m))
+                // A clip made after the send (or for an edit) arrives as an update.
+                if (m.sender_id != (myId ?: Connections.myId(app.cache))) prefetchClip(m)
             }
             "read" -> {
                 val conv = obj.str("conversation_id") ?: return
@@ -197,6 +204,13 @@ class ChatLive(private val app: LabApp) {
                 _events.emit(LiveEvent.Typing(conv, obj.str("user_id").orEmpty()))
             }
         }
+    }
+
+    /** Listening mode (docs/CHAT.md "Client prefetch"): a new / changed message's clip, cache-first, in the background. */
+    private fun prefetchClip(m: ChatMessageDto) {
+        val clip = m.audio_clip ?: return
+        if (!m.deleted_at.isNullOrEmpty() || !m.attachment?.kind.isNullOrEmpty()) return
+        app.scope.launch { runCatching { ChatClips.of(app).prefetch(listOf(m.id to clip)) } }
     }
 
     private fun JsonObject.str(key: String): String? = runCatching { this[key]?.jsonPrimitive?.contentOrNull }.getOrNull()

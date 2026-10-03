@@ -74,6 +74,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.async
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatActions as ChatWrites
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaStore
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatClips
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
+import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListening
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatWaveforms
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPhoto
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatVoiceRecorder
@@ -293,7 +296,19 @@ data class ChatUi(
     val fileErrors: Set<String> = emptySet(),
     /** The video bubble playing in place (message id, or "p-<clientId>"). */
     val playingVideo: String? = null,
+    // ---- listening mode (docs/CHAT.md "Listening mode") ----
+    val listening: ListeningUi = ListeningUi(),
 ) {
+    /** Listening mode belongs to chats with a person (Claude's replies are spoken already). */
+    val listeningAvailable: Boolean get() = !isAi && !otherIsClaude
+
+    /** Is [m] drawn as a hidden listening bubble (shared `shouldHideMessage`)? */
+    fun isHidden(m: ChatMessageDto): Boolean {
+        val me = myId ?: return false
+        if (!listeningAvailable) return false
+        return ChatListening.shouldHideMessage(ChatListeningStore.listeningMessage(m), me, listening.setting, listening.readMarkerAtOpen, listening.revealed)
+    }
+
     /** "🕓 1 message waiting for a connection" / "🕓 Sending 2 messages…" while this chat's outbox holds sends. */
     val queueLabel: String? get() = ChatRound3.queueLabel(pending, online)
 
@@ -351,6 +366,8 @@ data class ChatUi(
 class ChatViewModel(private val app: LabApp, private val relId: String, private val convId: String) : ViewModel() {
     private val _ui = MutableStateFlow(ChatUi())
     val ui: StateFlow<ChatUi> = _ui
+    /** Listening mode: the hidden bubbles' state + playback (ChatListeningMode.kt). */
+    val listening = ChatListeningMode(app, convId, viewModelScope, _ui, stopOthers = { stopAudio() }, notice = { error(it) })
     private val api get() = app.repo.api
     private val cards = CardTools(app)
     private val media = ChatMediaStore.of(app)
@@ -382,6 +399,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     init {
         viewModelScope.launch { app.online.collect { o -> _ui.update { it.copy(online = o) }; if (o) flushOutbox() } }
+        listening.start()
         viewModelScope.launch { load() }
         viewModelScope.launch { Connections.markConversationRead(app, convId) }
         // The live socket (data/chat/ChatLive.kt): new / changed messages, read receipts, typing.
@@ -458,6 +476,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         if (cachedMsgs != null) {
             _ui.update { it.copy(loading = false, messages = cachedMsgs) }
             refreshPending()
+            listening.measureCached(cachedMsgs)
         }
         try {
             val rel = api.relationship(relId).also { cache.put(ConnectionsKeys.relationship(relId), ConnectionsKeys.KIND, it) }
@@ -479,6 +498,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 )
             }
             refreshPending()
+            // Listening mode: an undecided setting hides what was unread until now (stored as `since`); clips prefetched.
+            listening.onOpened(page.read_state?.me, _ui.value.messages)
             readHere()
             startPolling()
         } catch (e: Exception) {
@@ -606,6 +627,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         viewModelScope.launch { app.cache.put(messagesKey, KIND, _ui.value.messages.takeLast(CACHE_LIMIT)) }
         val fresh = list.filter { it.id !in before && it.sender_id != myId }
         if (fresh.isNotEmpty()) onIncomingWhileOpen(fresh.size)
+        // Their clips (cache-first; the live socket prefetches too, this covers polling).
+        if (list.any { it.sender_id != myId && it.audio_clip != null }) listening.prefetch(_ui.value.messages)
     }
 
     /** Re-reads the whole page (reactions, has_discussion changed on the server). */
@@ -1418,6 +1441,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         _ui.update { it.copy(playingId = m.id) }
         viewModelScope.launch {
             try {
+                // A chat with a person: the message's own clip, the one listening mode plays (cache-first, offline too).
+                val clip = if (_ui.value.listeningAvailable) runCatching { ChatClips.of(app).file(m.id, m.audio_clip) }.getOrNull() else null
+                if (clip != null) { playFile(clip, m.id); return@launch }
                 val c = _ui.value.conversation
                 val r = api.conversationTts(convId, m.content, c?.voice_id, c?.voice_speed)
                 playBase64(r.audio_base64, m.id)
@@ -1433,6 +1459,11 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         val file = withContext(Dispatchers.IO) {
             File(app.cacheDir, "chat-tts.mp3").apply { writeBytes(Base64.decode(base64, Base64.DEFAULT)) }
         }
+        playFile(file, messageId)
+    }
+
+    private fun playFile(file: File, messageId: String) {
+        stopAudio()
         _ui.update { it.copy(playingId = messageId) }
         val mp = MediaPlayer()
         player = mp
@@ -1447,6 +1478,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     fun stopAudio() {
+        listening.stop()
         progressJob?.cancel()
         player?.runCatching { release() }
         player = null
