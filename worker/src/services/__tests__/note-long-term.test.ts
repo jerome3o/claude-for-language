@@ -1,5 +1,5 @@
 /**
- * "Add to my long-term review" (migration 0095, docs/HOMEWORK.md §3a): the learner's per-word
+ * "Add to my long-term review" (migration 0096, docs/HOMEWORK.md §3a): the learner's per-word
  * choice is stored on their own note without touching updated_at, and still reaches every
  * device through /api/sync/changes.
  */

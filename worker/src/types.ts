@@ -282,7 +282,7 @@ export interface Note {
   multiple_choice_options: string | null;  // JSON: per-character multiple choice alternatives
   pinyin_only: number;  // 0 or 1 — when set, meaning_to_hanzi cards auto-show multiple choice
   alternatives: string | null;  // JSON array of acceptable alternative hanzi answers
-  /** The learner's "long-term review" choice for this word: 1 in, 0 out, null = follow the deck (migration 0095). */
+  /** The learner's "long-term review" choice for this word: 1 in, 0 out, null = follow the deck (migration 0096). */
   long_term?: 0 | 1 | null;
   created_at: string;
   updated_at: string;
