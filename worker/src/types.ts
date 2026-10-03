@@ -45,6 +45,8 @@ export interface Env {
   SESSION_SECRET: string;
   ADMIN_EMAIL: string;
   NTFY_TOPIC: string;
+  /** Public origin of this worker for links in e-mails (default: the workers.dev URL). */
+  PUBLIC_API_URL?: string;
   // Email
   SENDGRID_API_KEY: string;
   // E2E testing - enables test auth endpoints (NEVER set in production)
