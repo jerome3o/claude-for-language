@@ -32,6 +32,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.replyToCardFlag
 import dev.jeromeswannack.chineselearning.lab.data.api.resolveCardFlag
 import dev.jeromeswannack.chineselearning.lab.data.api.revokeInvite
 import dev.jeromeswannack.chineselearning.lab.data.api.sendInstallHowTo
+import dev.jeromeswannack.chineselearning.lab.data.api.sharedReaders
 import dev.jeromeswannack.chineselearning.lab.data.api.startCall
 import dev.jeromeswannack.chineselearning.lab.data.api.studentClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.api.studentLessons
@@ -46,6 +47,7 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkPlan
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkRemoval
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +73,7 @@ object TeachingKeys {
     fun conversations(relId: String) = "teaching/conversations/$relId"
     fun lessons(relId: String) = "teaching/lessons/$relId"
     fun lessonLog(relId: String) = "teaching/lesson-log/$relId"
+    fun readers(relId: String) = "teaching/shared-readers/$relId"
 }
 
 /** Runs [block], turning a failure into a sentence (never throws except cancellation). */
@@ -246,6 +249,26 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     val conversations = app.cachedResource(viewModelScope, TeachingKeys.conversations(relId), TeachingKeys.KIND) { conversations(relId) }
     val lessons = app.cachedResource(viewModelScope, TeachingKeys.lessons(relId), TeachingKeys.KIND) { studentLessons(relId) }
     val lessonLog = app.cachedResource(viewModelScope, TeachingKeys.lessonLog(relId), TeachingKeys.KIND) { lessonLog(relId) }
+    val readers = app.cachedResource(viewModelScope, TeachingKeys.readers(relId), TeachingKeys.KIND) { sharedReaders(relId) }
+
+    /** Take homework back: the confirm sheet + toast; the row leaves the lists at once, then they refresh. */
+    val removal = HomeworkRemovalController(app, viewModelScope, relId) { target, _ ->
+        when (target.kind) {
+            HomeworkRemoval.DECK -> if (overview.state.value.data != null) overview.update { o ->
+                o!!.copy(homework = o.homework.copy(decks = o.homework.decks.filterNot { it.shared_deck_id == target.id || it.target_deck_id == target.id }))
+            }
+            HomeworkRemoval.LESSON -> {
+                lessons.update { l -> l.orEmpty().filterNot { it.id == target.id } }
+                if (overview.state.value.data != null) overview.update { o -> o!!.copy(homework = o.homework.copy(lessons = o.homework.lessons.filterNot { it.lesson_id == target.id })) }
+            }
+            else -> readers.update { r -> r.orEmpty().filterNot { it.id == target.id || it.target_reader_id == target.id } }
+        }
+        overview.refresh(); homework.refresh(); lessons.refresh(); readers.refresh()
+        app.scope.launch {
+            app.cache.delete(TeachingKeys.DASHBOARD)
+            app.cache.delete("teaching/session-notes/$relId")
+        }
+    }
 
     data class Transient(
         val notice: String? = null,
@@ -285,7 +308,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     }
 
     fun refresh() {
-        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh(); profile.resource.refresh()
+        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh(); profile.resource.refresh(); readers.refresh()
     }
 
     private fun refreshAfterHomework() {

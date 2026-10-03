@@ -17,9 +17,9 @@ export interface TutorNotesStep {
 }
 
 export interface TutorNotesResult {
-  deck?: { id: string; name: string; note_count: number; target_deck_id?: string; shared_at?: string };
-  lessons?: Array<{ library_item_id: string; title: string; lesson_id?: string; exercise_count: number }>;
-  reader?: { id: string; title_english: string; title_chinese: string; page_count: number; target_reader_id?: string };
+  deck?: { id: string; name: string; note_count: number; target_deck_id?: string; shared_at?: string; /** The tutor took it back (services/homework-removal.ts). */ removed_at?: string };
+  lessons?: Array<{ library_item_id: string; title: string; lesson_id?: string; exercise_count: number; removed_at?: string }>;
+  reader?: { id: string; title_english: string; title_chinese: string; page_count: number; target_reader_id?: string; removed_at?: string };
   /** The agent's closing note to the tutor: what was made, what was skipped and why. */
   summary?: string;
   skipped?: string[];

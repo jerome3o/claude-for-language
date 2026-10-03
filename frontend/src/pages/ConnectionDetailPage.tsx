@@ -37,6 +37,10 @@ import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
 import { LessonNotesSection } from '../components/tutor/LessonNotesSection';
 import { StudentProfileSection } from '../components/tutor/StudentProfileSection';
 import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
+import { RemoveHomeworkSheet, type RemovalTarget } from '../components/tutor/RemoveHomeworkSheet';
+import { SharedReadersSection } from '../components/tutor/SharedReadersSection';
+import { Toast, useToast } from '../components/Toast';
+import { removalMenuLabel } from '@shared/homework';
 import { Avatar } from '../components/tutor/StudentCard';
 import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTime } from '../components/tutor/format';
 import '../components/tutor/tutor-dashboard.css';
@@ -134,6 +138,8 @@ export function ConnectionDetailPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [updatingShare, setUpdatingShare] = useState<string | null>(null);
   const [updateNote, setUpdateNote] = useState<string | null>(null);
+  const [removal, setRemoval] = useState<RemovalTarget | null>(null);
+  const [toast, showToast] = useToast(4500);
 
   const relationshipQuery = useQuery({
     queryKey: ['relationship', relId],
@@ -413,7 +419,7 @@ export function ConnectionDetailPage() {
           </nav>
 
           {/* The tutor's private profile of the student: every homework / lesson / reader agent reads it */}
-          <StudentProfileSection relId={relId!} studentName={otherUser.name || otherName} />
+          <StudentProfileSection relId={relId!} studentName={otherName} />
 
           {/* Lesson notes → the assistant drafts homework → the tutor reviews and assigns (docs/HOMEWORK.md) */}
           <LessonNotesSection relId={relId!} studentName={otherName} />
@@ -452,12 +458,18 @@ export function ConnectionDetailPage() {
                       </div>
                     </Link>
                     <div className="td-hw-actions">
-                      {d.target_deck_name != null && d.queue_position != null && (
+                      {d.target_deck_name != null && d.queue_position != null ? (
                         <QueuePositionMenu
                           position={d.queue_position}
                           total={d.queue_total}
                           label="their queue"
                           onMove={(to) => handleMoveShare(d.shared_deck_id, d.source_deck_name, to)}
+                          extraItems={[{ key: 'remove', label: removalMenuLabel('deck', otherName), danger: true, onSelect: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) }]}
+                        />
+                      ) : (
+                        <OverflowMenu
+                          label={`More for ${d.source_deck_name}`}
+                          items={[{ label: removalMenuLabel('deck', otherName), danger: true, onClick: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) }]}
                         />
                       )}
                       {d.notes_missing > 0 && d.target_deck_name != null ? (
@@ -474,8 +486,15 @@ export function ConnectionDetailPage() {
             )}
             {/* The student's mini lessons (assigned by me, by others, their own) */}
             <div className="td-nested-section">
-              <StudentLessonsSection relId={relId!} isTutor={true} />
+              <StudentLessonsSection
+                relId={relId!}
+                isTutor={true}
+                studentName={otherName}
+                onRemove={(l) => setRemoval({ kind: 'lesson', id: l.id, title: l.title })}
+              />
             </div>
+            {/* Graded readers I sent */}
+            <SharedReadersSection relId={relId!} studentName={otherName} onRemove={(r) => setRemoval({ kind: 'reader', id: r.id, title: r.title })} />
           </section>
 
           {/* Decks the student shared with me — behind ⋯ */}
@@ -532,6 +551,26 @@ export function ConnectionDetailPage() {
             </section>
           )}
         </div>
+
+        {removal && (
+          <RemoveHomeworkSheet
+            relId={relId!}
+            studentName={otherName}
+            target={removal}
+            onClose={() => setRemoval(null)}
+            onRemoved={(text) => {
+              setRemoval(null);
+              showToast(text);
+              queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
+              queryClient.invalidateQueries({ queryKey: ['student-lessons', relId] });
+              queryClient.invalidateQueries({ queryKey: ['shared-readers', relId] });
+              queryClient.invalidateQueries({ queryKey: ['session-notes', relId] });
+              queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
+              queryClient.invalidateQueries({ queryKey: ['relationship-homework', relId] });
+            }}
+          />
+        )}
+        <Toast message={toast} />
 
         {showHomeworkSheet && (
           <SendHomeworkSheet

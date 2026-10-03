@@ -13,6 +13,7 @@ export function QueuePositionMenu({
   onMove,
   onOpenChange,
   label = 'the queue',
+  extraItems = [],
 }: {
   /** 1-based place; first = studied first. */
   position: number;
@@ -21,6 +22,8 @@ export function QueuePositionMenu({
   onOpenChange?: (open: boolean) => void;
   /** Whose queue, for the tooltip ("their queue"). */
   label?: string;
+  /** More items under the moves (the tutor's "Remove from …'s decks"); `danger` draws it red. */
+  extraItems?: Array<{ key: string; label: string; onSelect: () => void; danger?: boolean }>;
 }) {
   const [open, setOpenState] = useState(false);
   const setOpen = (v: boolean) => { setOpenState(v); onOpenChange?.(v); };
@@ -59,6 +62,14 @@ export function QueuePositionMenu({
               </button>
             );
           })}
+          {extraItems.map((item) => (
+            <button key={item.key} type="button" role="menuitem" className={item.danger ? 'menu-danger' : undefined}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); item.onSelect(); }}
+              style={{ background: 'none', border: 'none', textAlign: 'left', padding: '0.625rem 0.875rem', fontSize: '0.875rem', cursor: 'pointer', minHeight: '44px', color: item.danger ? '#dc2626' : 'inherit', fontWeight: item.danger ? 600 : undefined }}
+              data-testid={`queue-menu-${item.key}`}>
+              {item.label}
+            </button>
+          ))}
         </div>
       )}
     </span>

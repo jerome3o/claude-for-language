@@ -477,3 +477,10 @@
     flex-direction: row;
   }
 }
+
+/* "Undo — remove from <student>" next to an item the assistant sent */
+.sn-undo {
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  min-height: 32px;
+}
