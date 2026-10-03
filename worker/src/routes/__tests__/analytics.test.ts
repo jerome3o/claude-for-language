@@ -56,9 +56,9 @@ describe('POST /api/analytics/events', () => {
         ev('evt_00000004', 'not.real'),
       ],
     };
-    const first = await (await req('/api/analytics/events', post(body))).json();
+    const first = await (await req('/api/analytics/events', post(body))).json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(first).toMatchObject({ accepted: 2, stored: 2, rejected: 2, opted_out: false, level: 'verbose' });
-    const again = await (await req('/api/analytics/events', post(body))).json();
+    const again = await (await req('/api/analytics/events', post(body))).json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(again.stored).toBe(0);
     const rows = db.rows<{ event: string; props: string; screen: string; user_id: string }>('SELECT event, props, screen, user_id FROM usage_events ORDER BY id');
     expect(rows).toHaveLength(2);
@@ -74,9 +74,9 @@ describe('POST /api/analytics/events', () => {
     expect((await makeApp('tutor-1')('/api/analytics/events', post({ nope: 1 }))).status).toBe(400);
     const basic = await (await makeApp('tutor-1', { ANALYTICS_LEVEL: 'basic' })('/api/analytics/events', post({
       events: [ev('evt_b0000001', 'study.card_rated', { props: { rating: 'good' } }), ev('evt_b0000002', 'study.session_start')],
-    }))).json();
+    }))).json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(basic).toMatchObject({ stored: 1, level: 'basic' });
-    const off = await (await makeApp('tutor-1', { ANALYTICS_LEVEL: 'off' })('/api/analytics/events', post({ events: [ev('evt_o0000001', 'chat.open')] }))).json();
+    const off = await (await makeApp('tutor-1', { ANALYTICS_LEVEL: 'off' })('/api/analytics/events', post({ events: [ev('evt_o0000001', 'chat.open')] }))).json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(off.stored).toBe(0);
   });
 
@@ -86,7 +86,7 @@ describe('POST /api/analytics/events', () => {
     const res = await req('/api/profile/analytics', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ share_usage: false }) });
     expect(await res.json()).toEqual({ share_usage: false });
     expect(db.rows('SELECT * FROM usage_events')).toHaveLength(0);
-    const after = await (await makeApp('tutor-1')('/api/analytics/events', post({ events: [ev('evt_p0000002', 'chat.open')] }))).json();
+    const after = await (await makeApp('tutor-1')('/api/analytics/events', post({ events: [ev('evt_p0000002', 'chat.open')] }))).json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(after).toMatchObject({ stored: 0, opted_out: true });
     expect((await req('/api/profile/analytics', { method: 'PUT', body: JSON.stringify({ share_usage: 'yes' }) })).status).toBe(400);
   });
@@ -128,7 +128,7 @@ describe('admin usage questions', () => {
 
   const get = async (path: string, as = 'admin-1') => {
     const res = await makeApp(as)(path);
-    return { status: res.status, body: await res.json() };
+    return { status: res.status, body: (await res.json()) as any } // eslint-disable-line @typescript-eslint/no-explicit-any;
   };
 
   it('is admin only', async () => {
