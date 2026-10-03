@@ -17,7 +17,7 @@ empty, and nothing came back for it. A bulk import came out ~95 % silent.
 | Piece | Where | What |
 |---|---|---|
 | Settings + signature | `services/tts/settings.ts` | model / voice / speed / encode → `s<hash>`; each stored clip records `<settings hash>.<text hash>` |
-| Rate limiter | `durable/tts-limiter.ts` (DO `TTS_LIMITER`, one instance) + `services/tts/bucket.ts` (pure) | token bucket at `MINIMAX_RPM` (default 55, wrangler var), burst ≤ 5 → never more than rpm + burst in any minute |
+| Rate limiter | `durable/tts-limiter.ts` (DO `TTS_LIMITER`, one instance) + `services/tts/bucket.ts` (pure) | token bucket at the LEARNED rate (AIMD, below; hard cap `MINIMAX_RPM` = 9, ceiling `MINIMAX_RPM_MAX` = 60), burst ≤ 5 → never more than rpm + burst in any minute |
 | The MiniMax call | `services/audio.ts` `callMiniMaxTTS` | the ONLY function that calls MiniMax: slot first, then the call, outcome reported back |
 | Clip worker | `services/tts/clips.ts` `ensureClip` | one clip (word / card sentence / sentence-set row): idempotent, key swap, shared copies |
 | Queue | `tts-queue` (`services/tts/queue.ts`) | one clip per message + the backfill pump; `max_concurrency` 2, batch 4 |
@@ -41,7 +41,29 @@ empty, and nothing came back for it. A bulk import came out ~95 % silent.
 - No Google fallback for stored clips (Google Wavenet is "pretty terrible"). A clip that can't be
   made now waits in the queue. Ephemeral conversation audio may still fall back to Google in the
   moment (never stored).
-- The DO logs `{"type":"tts_limiter", …}` once a minute with tokens and last-hour counts.
+- The DO logs `{"type":"tts_limiter", …}` once a minute with tokens and last-hour counts, and
+  `event: rpm_changed` / `minimax_rate_limited` whenever the learned rate moves.
+- **A waiting tap reserves the next token**: when an interactive caller is told to wait, batch may
+  not take a token until its retry time + 5 s. At 9/min the burst is ONE token, so without this a
+  pump worker polling for a slot could take every token from under a waiting tap.
+
+### The learned rate (AIMD)
+
+The plan's real RPM is not known to the code (Starter = 10/min; pay-as-you-go = 60/min; it may
+change without notice). The limiter learns it (pure logic `services/tts/bucket.ts`
+`adaptiveBounds` / `initialAdaptive` / `rollAdaptive` / `noteRequest` / `noteRateLimited`,
+unit-tested in `tts-limiter.test.ts`):
+- first run: **8/min**; afterwards the persisted rate (DO storage key `adaptive`, with the last 30
+  changes) — a restart or deploy keeps what was learned;
+- **+2/min** after each full minute in which someone was refused a slot (there was demand — an idle
+  minute proves nothing) and MiniMax never said 1002 / 429;
+- **×0.5** on a 1002 / 1039 / 429 (plus the 15 s / 60 s block above); the minute that started with
+  the 1002 earns nothing;
+- floor **2/min**; ceiling `MINIMAX_RPM_MAX` (default 60) and `MINIMAX_RPM` when it is set (a hard
+  cap: what we allow ourselves whatever the learning says).
+- `wrangler.toml` ships `MINIMAX_RPM = "9"` (Starter, 10/min). **On a bigger plan, delete
+  `MINIMAX_RPM`** and the limiter climbs to the plan by itself (it then probes past a 10/min plan
+  every few minutes, so keep the cap while on Starter).
 
 ## Provenance and the key swap
 
@@ -91,10 +113,12 @@ pump at a time (a lease in the limiter DO). Crons (`wrangler.toml`, UTC):
 ## Operating it
 
 - Status: MCP `audio_backfill_status` (or `GET /api/admin/audio/backfill`): backlog by kind ×
-  state, clips by provider / model / voice, failures, limiter (RPM, night, last hour), measured
-  clips/min and the ETA.
+  state, clips by provider / model / voice, failures, limiter (`learned_rpm`, `rpm_cap`,
+  `last_rate_limited_at`, `rpm_history`, night, last hour), measured clips/min, the ETA and
+  `eta_at_learned_rpm` (backlog ÷ the batch share of the learned rate).
 - Kick: `audio_backfill_run` (`limit` also queues that many clips at once).
-- Plan RPM: set `MINIMAX_RPM` in `worker/wrangler.toml` `[vars]` a few under the plan's limit.
+- Plan RPM: `MINIMAX_RPM` in `worker/wrangler.toml` `[vars]` is a hard cap a little under the
+  plan's limit (9 for Starter); remove it to let the learned rate find a bigger plan.
 - Perceived speed after a model change: `audio_tts_compare` returns durations for the old and
   new model; if they differ, set `TTS_SPEED_OVERRIDE` (0.5–2) — the settings hash changes and the
   backfill regenerates everything at the new speed.

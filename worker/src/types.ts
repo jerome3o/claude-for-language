@@ -24,6 +24,8 @@ export interface Env {
   TTS_LIMITER?: DurableObjectNamespace<import('./durable/tts-limiter').TtsLimiter>;
   /** MiniMax requests per minute we allow ourselves (default 55). */
   MINIMAX_RPM?: string;
+  /** Ceiling for the learned (AIMD) MiniMax rate; default 60 (docs/AUDIO.md). */
+  MINIMAX_RPM_MAX?: string;
   /** Match the perceived speed after a model change (0.5–2; default services/tts/settings.ts). */
   TTS_SPEED_OVERRIDE?: string;
   ANTHROPIC_API_KEY: string;
