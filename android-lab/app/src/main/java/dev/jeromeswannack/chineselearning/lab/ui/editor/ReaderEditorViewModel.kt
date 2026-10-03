@@ -46,6 +46,8 @@ data class ReaderEditorUi(
     /** Page index → a failure line under that page. */
     val pageNotes: Map<Int, String> = emptyMap(),
     val online: Boolean = true,
+    /** Successful saves in this visit — the route asks "Also update their copies?" after each (docs/HOMEWORK.md §10). */
+    val savedCount: Int = 0,
 ) {
     val dirty: Boolean get() = spec != null && JsJson.canonical(spec) != JsJson.canonical(savedSpec)
 }
@@ -140,7 +142,7 @@ class ReaderEditorViewModel(private val deps: EditorDeps, val id: String, privat
                 deps.cache.put(targetKey, "editor", CachedReaderTarget(result.spec, result.is_published), CachedReaderTarget.serializer())
                 deps.cache.delete(draftKey)
                 draftJob?.cancel()
-                _ui.update { it.copy(saving = false, spec = result.spec, savedSpec = result.spec, errors = ReaderValidator.validate(result.spec), restoredDraft = false) }
+                _ui.update { it.copy(saving = false, spec = result.spec, savedSpec = result.spec, errors = ReaderValidator.validate(result.spec), restoredDraft = false, savedCount = it.savedCount + 1) }
                 deps.feedback.success()
                 val jobs = result.image_jobs ?: 0
                 if (jobs > 0) {

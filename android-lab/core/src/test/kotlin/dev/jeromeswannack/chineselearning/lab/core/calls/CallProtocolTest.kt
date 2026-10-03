@@ -194,4 +194,38 @@ class CallProtocolTest {
         assertNull(o(CallTextBoard.message(emptyList()))["page"])
         assertEquals("""{"type":"text_cursor","sel":null,"page":"p1"}""", CallTextBoard.cursorMessage(null, page = "p1"))
     }
+
+    // ---- round 5: the tutor leads (shared/calls/protocol.ts + follow.ts)
+
+    @Test fun round5WelcomeShownAndShareStopped() {
+        val w = CallProtocol.parseServer(
+            """{"type":"welcome","client_id":"c9","server_time":1,"started_at":1,"peers":[],"board":[],"chat":[],
+               "tutor_id":"u-tutor","shown":{"id":"s1","v":2,"by":"u-tutor","name":"Minghui","view":{"kind":"text","page":"p2"},"at":1790000000000}}""",
+        )
+        assertIs<ServerMessage.Welcome>(w)
+        assertEquals("u-tutor", w.tutorId)
+        assertEquals(CallFollow.ShownState("s1", 2, "u-tutor", "Minghui", CallFollow.ShowView.text("p2"), 1_790_000_000_000), w.shown)
+        // A solo call / an older room: nobody leads.
+        val solo = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","server_time":1,"started_at":1,"peers":[],"board":[],"chat":[],"tutor_id":null,"shown":null}""")
+        assertIs<ServerMessage.Welcome>(solo)
+        assertNull(solo.tutorId)
+        assertNull(solo.shown)
+        assertEquals(
+            ServerMessage.Shown(CallFollow.ShownState("s3", 1, "u-tutor", "Minghui", CallFollow.ShowView.DRAW, 5)),
+            CallProtocol.parseServer("""{"type":"shown","shown":{"id":"s3","v":1,"by":"u-tutor","name":"Minghui","view":{"kind":"draw"},"at":5}}"""),
+        )
+        assertEquals(ServerMessage.Shown(null), CallProtocol.parseServer("""{"type":"shown","shown":null}"""))
+        // A view the room would never send is no show at all.
+        assertEquals(ServerMessage.Shown(null), CallProtocol.parseServer("""{"type":"shown","shown":{"id":"s3","v":1,"by":"u","name":"M","view":{"kind":"remote"},"at":5}}"""))
+        assertNull(CallProtocol.parseServer("""{"type":"shown"}"""))
+        assertEquals(ServerMessage.ShareStopped("u-tutor", "Minghui"), CallProtocol.parseServer("""{"type":"share_stopped","by":"u-tutor","name":"Minghui"}"""))
+    }
+
+    @Test fun round5ClientMessages() {
+        assertEquals("""{"type":"show","view":{"kind":"text","page":"p1"}}""", CallProtocol.show(CallFollow.ShowView.text("p1")))
+        assertEquals("""{"type":"show","view":{"kind":"text","page":"p2"},"follow":true}""", CallProtocol.show(CallFollow.ShowView.text("p2"), follow = true))
+        assertEquals("""{"type":"show","view":{"kind":"screen"}}""", CallProtocol.show(CallFollow.ShowView(CallFollow.ShowKind.SCREEN)))
+        assertEquals("""{"type":"show","view":null}""", CallProtocol.show(null))
+        assertEquals("""{"type":"stop_share"}""", CallProtocol.stopShare())
+    }
 }

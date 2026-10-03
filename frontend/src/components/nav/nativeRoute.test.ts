@@ -7,10 +7,16 @@ describe('nativeRouteAction', () => {
     expect(nativeRouteAction('/study', '/study?autostart=true')).toBe('stay');
   });
 
-  it('leaves a homework pass, reader, quest… on screen for a study reminder', () => {
+  it('a study reminder ALWAYS opens Study, over a homework pass / reader / quest too', () => {
     for (const p of ['/homework/hw1', '/readers/r1', '/picture-hunt/p1', '/quests/q1', '/tutor-notes/practice', '/library/l1/try']) {
-      expect(nativeRouteAction(p, '/study?autostart=true')).toBe('stay');
+      expect(nativeRouteAction(p, '/study?autostart=true')).toBe('navigate');
     }
+  });
+
+  it('the homework reminder leaves a pass in progress on screen', () => {
+    expect(nativeRouteAction('/homework/hw1', '/homework')).toBe('stay');
+    expect(nativeRouteAction('/readers/r1', '/homework/hw2')).toBe('stay');
+    expect(nativeRouteAction('/decks', '/homework/hw2')).toBe('navigate');
   });
 
   it('opens Study from anywhere else', () => {

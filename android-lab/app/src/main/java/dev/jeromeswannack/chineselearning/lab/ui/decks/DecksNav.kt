@@ -132,6 +132,13 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
     var shareTutor by remember { mutableStateOf(false) }
     var paste by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var anki by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget?>(null) }
+    // docs/HOMEWORK.md §10: a word added / edited here → "Also update <student>'s copy?" when students have this deck.
+    val copies = dev.jeromeswannack.chineselearning.lab.ui.teaching.rememberStudentCopies(nav.app)
+    androidx.compose.runtime.DisposableEffect(vm, copies) {
+        vm.editor.onWordSaved = { copies.check("deck", deckId, "a word in ${ui.deck?.name ?: "this deck"}") }
+        onDispose { vm.editor.onWordSaved = {} }
+    }
+    dev.jeromeswannack.chineselearning.lab.ui.teaching.StudentCopiesHost(copies)
     if (paste) {
         PasteRoute(env, deckId) { paste = false }
         return

@@ -113,7 +113,7 @@ export async function createCall(
   }
   const id = generateId();
   const title = (input.title || '').trim().slice(0, 120) || null;
-  // Within 20 minutes of the last call between these people: the same lesson.
+  // Within two hours (LESSON_GAP_MS) of the last call between these people: the same lesson.
   const lessonId = await lessonForNewCall(db, relId, userId);
   if (relId) {
     // Both people pressing "Video call" at the same moment used to make two calls: each joined

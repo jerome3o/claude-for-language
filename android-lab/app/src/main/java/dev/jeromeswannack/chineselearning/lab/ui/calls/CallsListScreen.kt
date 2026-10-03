@@ -102,7 +102,7 @@ fun CallsListScreen(ui: CallsListUi, actions: CallsListActions) {
             list == null -> item { InlineNotice(q.error ?: "Couldn't load your calls.", kind = if (q.offline) NoticeKind.Offline else NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRefresh) }
             list.isEmpty() -> item { EmptyState("📼", "No calls yet") }
             else -> item {
-                // One entry per lesson (calls within 20 minutes of each other), its calls listed small underneath.
+                // One entry per lesson (calls within two hours of each other, LESSON_GAP_MS), its calls listed small underneath.
                 val lessons = CallsFormat.groupByLesson(list)
                 LabCard {
                     lessons.forEachIndexed { i, lesson ->

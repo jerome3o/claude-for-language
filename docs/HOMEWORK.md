@@ -246,3 +246,69 @@ These were the open questions of the first cut; the code matches each answer.
    light / moderate / heavy thresholds (`LOAD_THRESHOLDS` in `shared/homework/load.ts`: heavy at 2 overdue items,
    40 one-off words or 30 days of long-term words to go; moderate at 1 overdue, 15 words, 4 items or 10 days).
    Expect to tune them once Minghui has used the flow for a few weeks.
+
+## 8. Link homework
+
+A homework kind for things outside the app: a YouTube video, a song, a TV-drama clip, an article. Nothing is
+hosted or embedded — the app only links out (a YouTube link shows its public thumbnail, `i.ytimg.com`, no API call).
+
+- **Tutor-first**: a link is created in the TUTOR's account (`homework_links`: title, url, instructions) and nothing
+  reaches a student until she sends it. Sending = an assignment `kind: 'link'`, `mode: 'one_off'`,
+  `source_id = target_id = <link id>`, due date optional (`null` = no due date), `item_count` 1. The assignment keeps
+  a snapshot in `assignments.details` (`{ url, instructions, thumbnail_url }`), so editing or deleting the tutor's
+  link never breaks the student's homework; saving an edit offers to update the sent copies (§10).
+- **Student**: the link shows on Home's "From <tutor>" card and `/homework` like any item (🔗). `/homework/:id` is
+  the link page: title, site, thumbnail, instructions, **Open link ↗** (external browser), then **Mark as done** with
+  an optional note back to the tutor. Done = a `done` event with `note` (`assignment_events.note`), offline-first like
+  every pass event.
+- **Tutor**: the homework library shows its status and the student's note.
+- Pure helpers: `shared/homework/link.ts` (`normalizeLinkUrl`, `youtubeVideoId`, `linkThumbnail`, `linkSiteName`,
+  `pickLinkHomework`, `cleanLinkNote`).
+- API: `GET|POST /api/homework-links` (`{ title, url, instructions? }` → 201 `{ link }`, 400 + `problems`),
+  `PUT /api/homework-links/:id` (any subset; `update_student_copies?: boolean | string[]` relationship ids),
+  `DELETE /api/homework-links/:id` (soft; sent copies stay). Send with the usual
+  `POST /api/relationships/:relId/homework` `{ items: [{ kind: 'link', source_id, mode: 'one_off', due_date? }] }`.
+  Student: `POST /api/me/homework/events` events may carry `note` (≤ 1000 chars).
+- MCP: `create_link_homework` (creates only), `assign_link_homework` (sends to one or more students).
+
+## 9. The homework library
+
+One row per thing a tutor sent a student — deck copy, lesson, reader, link — built from the share rows plus the
+assignments on the same copy (`buildHomeworkLibrary`, `shared/homework/library.ts`). Each row: sent date, due date,
+kind, progress % and status — **Completed** (green) · **In progress** (blue; amber when due today / tomorrow) ·
+**Overdue** (red) · **Not started** (grey). Progress maths:
+
+| kind | % | complete when |
+|---|---|---|
+| deck with a pass (one_off / both) | pass words right / words in the pass (all day-parts) | every part done |
+| deck, long-term only (fsrs / shared before assignments) | words met / words (minus words left out) | every word met |
+| lesson | 0 / 100 | completed once (or its assignment done) |
+| reader | 0 / 100 | read once (or its assignment done) |
+| link | 0 / 100 | the student marked it done |
+
+Overdue = not complete and the open due date (earliest unfinished one-off part) is before today. The Lab app ports
+`libraryStatus`, `statusTone`, `filterLibrary`, `mostRecentHomework`, `libraryDueText` (core `HomeworkLibrary.kt`,
+parity-tested).
+
+- Pages: `/connections/:relId/homework` (one student) and `/homework-library` (all students), filters by status and
+  kind; per row: Open, Edit, Update their copy, Change due date (the row's `due_assignment_id`), Remove (the existing
+  take-back flow; a link = cancel). Linked from the student page and the Students dashboard.
+- **Most recent homework**: the top of the student page shows `mostRecentHomework` (the newest item + whatever was
+  sent within 30 min, max 3) with %, due date and the status colour; the dashboard card shows the newest one compactly.
+- Students: `/homework` shows the same status chips on their own items (computed on the device with `libraryStatus`).
+- API (tutor): `GET /api/relationships/:relId/homework-library?today=` → `{ items, counts, today }`;
+  `GET /api/tutor/homework-library?today=` → `{ students: [{ relationship_id, student_id, student_name }], items, counts, today }`.
+
+## 10. Updating students' copies when the tutor edits
+
+Editing something already sent offers **Also update <student>'s copy** per student, default on — the web deck page
+(after a word is added / edited), the lesson editor and reader editor (after Save), the link editor, the Lab's
+equivalents and the MCP update tools (`update_student_copies: true`, set only when the tutor asked — it is a send). One API for all of them:
+
+- `GET /api/student-copies?kind=deck|lesson|reader|link&source_id=` → `{ copies: [{ relationship_id, student_id,
+  student_name, target_id, share_id, behind }] }` (the caller's own sources only; active relationships).
+- `POST /api/student-copies/update` `{ kind, source_id, relationship_ids? }` → `{ updated, results: [{ relationship_id,
+  student_name, ok, detail, error? }] }`. Deck = `updateSharedDeckCopy` (new words added, edited text copied, progress
+  kept); lesson = the library push-update (same lesson ids, history + FSRS kept); reader = `updateSharedReaderCopy`
+  (pages matched by position, the copy's page ids kept, so reading progress survives; pictures share the R2 keys);
+  link = the sent assignments' title + details.

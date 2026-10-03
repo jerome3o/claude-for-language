@@ -200,6 +200,8 @@ data class CallActions(
     /** Haptics: a light tick (focus, preset, swipe) / a snap (a floating camera lands in its corner). */
     val onTick: () -> Unit = {},
     val onSnap: () -> Unit = {},
+    /** Round 5: the tutor leads — Show for student, Stop their share; the student's banner and note. */
+    val lead: LeadActions = LeadActions(),
 )
 
 /** Screenshots: where the shared-screen drawing tools start (round 4). */
@@ -534,7 +536,19 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         // A new activity (either person started it, or it was running when I joined) comes onto the stage.
         LaunchedEffect(activity?.sessionId) { h.setActivity(activity?.sessionId) }
         LaunchedEffect(sharing) { if (!sharing) annotating = false }
+        // Round 5: the controller's stage (follow / auto-show) is this screen's.
+        LaunchedEffect(maxWidth) { actions.lead.onStageWidth(maxWidth.value.toDouble()) }
         val arrangement = CallLayout.arrangeTiles(layout, available, maxWidth.value.toDouble())
+        // Round 5: the tutor's corner button on a stage tile (the student is here; never in a solo call).
+        val showEnd = if (wide) 100.dp else 8.dp
+        val showButton: @Composable (CallLayout.TileId, CallLayout.Role, Modifier) -> Unit = { tile, role, mod ->
+            val kind = dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowKind.of(tile.wire)
+            if (s.leads && role == CallLayout.Role.STAGE && kind != null) {
+                val view = if (kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowKind.TEXT) dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView.text(s.pages.shown)
+                else dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView(kind)
+                ShowForStudentButton(dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.isShowing(s.shown, s.myUserId, view), mod) { actions.lead.onShow(tile) }
+            }
+        }
         val chatVisible = CallLayout.TileId.CHAT in arrangement.stage || (CallLayout.TileId.CHAT in layout.open && layout.mode == CallLayout.Mode.GRID)
         LaunchedEffect(chatVisible, s.chat.size) { if (chatVisible) seenChat = s.chat.size }
         val boardOnStage = CallLayout.boardOnStage(layout)
@@ -544,8 +558,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             if (h.applySplit(choice, board, content)) actions.onTick()
         }
 
-        val boardSwitch: @Composable (CallLayout.TileId) -> Unit = { current ->
-            Row(Modifier.padding(start = 8.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        val boardSwitch: @Composable (CallLayout.TileId, CallLayout.Role) -> Unit = { current, role ->
+            Row(Modifier.fillMaxWidth().padding(start = 8.dp, top = 8.dp, end = showEnd), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Tab("Board", current == CallLayout.TileId.TEXT) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.DRAW, CallLayout.TileId.TEXT)); actions.onTick() }
                 Tab("Draw", current == CallLayout.TileId.DRAW) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.TEXT, CallLayout.TileId.DRAW)); actions.onTick() }
                 // Round 4: something is shared — the board with the screen (the same menu as a long-press).
@@ -553,6 +567,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     val icon = if (ScreenBoardSplit.contentOf(layout, available) == CallLayout.TileId.MATERIAL) "📑" else "🖥️"
                     Tab(if (ScreenBoardSplit.isSplit(layout)) "$icon ⋯" else "+ $icon", false) { splitMenu = current }
                 }
+                Spacer(Modifier.weight(1f))
+                showButton(current, role, Modifier)
             }
         }
         val tiles = buildMap<CallLayout.TileId, TileSpec> {
@@ -594,7 +610,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     else Text(if (s.micOn && s.hasMic) "You" else "🔇 You", color = OnDark, fontSize = 13.sp)
                 }
             })
-            if (available.screen) put(CallLayout.TileId.SCREEN, TileSpec(if (remoteSharing) "$first’s screen" else "Your screen", onLongPress = { splitMenu = CallLayout.TileId.SCREEN }) { _ ->
+            if (available.screen) put(CallLayout.TileId.SCREEN, TileSpec(if (remoteSharing) "$first’s screen" else "Your screen", onLongPress = { splitMenu = CallLayout.TileId.SCREEN }) { role ->
                 Box(Modifier.fillMaxSize().background(Color.Black)) {
                     // Their shared screen — or MY own, as big as any tile: either person can draw on it
                     // (circle a character); a tap is a "look here" ping. Strokes show on both sides.
@@ -621,31 +637,41 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         onClick = { applySplit(ScreenBoardSplit.toggle(layout, tilesW, tilesH), ScreenBoardSplit.boardOf(layout), CallLayout.TileId.SCREEN) },
                         onLongClick = { splitMenu = CallLayout.TileId.SCREEN },
                     )
+                    // Round 5: the tutor shows her own screen to the student / stops the student's share.
+                    if (remoteSharing) { if (s.leads) StopTheirShareButton(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd)) { actions.lead.onStopTheirShare() } }
+                    else showButton(CallLayout.TileId.SCREEN, role, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd))
                 }
             })
             if (presenting != null) put(CallLayout.TileId.MATERIAL, TileSpec("📑 ${presenting.title}", onLongPress = { splitMenu = CallLayout.TileId.MATERIAL }) { role ->
                 // Room for the tile's ⤢ at the bar's end where the tiles chrome shows it (a wide layout, not focused).
                 val focusedHere = arrangement.mode == CallLayout.Mode.FOCUS && arrangement.stage.firstOrNull() == CallLayout.TileId.MATERIAL
-                MaterialTile(
-                    presenting, s.materialAnnotations, info.materialSource, pen, actions.material,
-                    onKeep = actions.onAnnotationsKept, onTick = actions.onTick, nowMs = nowMs,
-                    endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
-                    seed = initialMaterial,
-                )
+                Box(Modifier.fillMaxSize()) {
+                    MaterialTile(
+                        presenting, s.materialAnnotations, info.materialSource, pen, actions.material,
+                        onKeep = actions.onAnnotationsKept, onTick = actions.onTick, nowMs = nowMs,
+                        endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
+                        seed = initialMaterial,
+                    )
+                    // Below the material's bar, over the page.
+                    showButton(CallLayout.TileId.MATERIAL, role, Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 8.dp))
+                }
             })
             if (activity != null) put(CallLayout.TileId.ACTIVITY, TileSpec("${dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.KIND_INFO[activity.spec.kind]?.icon ?: "🎲"} ${activity.spec.title}") { role ->
                 val focusedHere = arrangement.mode == CallLayout.Mode.FOCUS && arrangement.stage.firstOrNull() == CallLayout.TileId.ACTIVITY
-                ActivityTile(
-                    activity, s.myUserId, actions.activity,
-                    topInset = LocalActivityInsetTop.current,
-                    endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
-                    compact = role != CallLayout.Role.STAGE,
-                    seed = info.activitySeed,
-                )
+                Box(Modifier.fillMaxSize()) {
+                    ActivityTile(
+                        activity, s.myUserId, actions.activity,
+                        topInset = LocalActivityInsetTop.current,
+                        endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
+                        compact = role != CallLayout.Role.STAGE,
+                        seed = info.activitySeed,
+                    )
+                    showButton(CallLayout.TileId.ACTIVITY, role, Modifier.align(Alignment.BottomEnd).padding(bottom = 8.dp, end = 8.dp))
+                }
             })
-            put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true, onLongPress = if (available.screen || available.material) ({ splitMenu = CallLayout.TileId.TEXT }) else null) { _ ->
+            put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true, onLongPress = if (available.screen || available.material) ({ splitMenu = CallLayout.TileId.TEXT }) else null) { role ->
                 Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
-                    boardSwitch(CallLayout.TileId.TEXT)
+                    boardSwitch(CallLayout.TileId.TEXT, role)
                     TextBoardPanel(
                         s.textBoard, actions.onTextChanged, actions.onTextSelected, actions.onTextBlurred, Modifier.fillMaxWidth().weight(1f),
                         explain = actions.explain, gloss = actions.gloss, glossOn = info.boardGlossOn, onGlossOn = actions.onBoardGlossOn,
@@ -662,9 +688,9 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     )
                 }
             })
-            put(CallLayout.TileId.DRAW, TileSpec("Draw", closable = true, onLongPress = if (available.screen || available.material) ({ splitMenu = CallLayout.TileId.DRAW }) else null) { _ ->
+            put(CallLayout.TileId.DRAW, TileSpec("Draw", closable = true, onLongPress = if (available.screen || available.material) ({ splitMenu = CallLayout.TileId.DRAW }) else null) { role ->
                 Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
-                    boardSwitch(CallLayout.TileId.DRAW)
+                    boardSwitch(CallLayout.TileId.DRAW, role)
                     Whiteboard(s.board, s.liveStrokes.values.toList(), s.myUserId, actions.onCommitBoard, actions.onLive, Modifier.fillMaxWidth().weight(1f))
                 }
             })
@@ -700,6 +726,15 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 )
                 // "Minghui brought you to page 3" / "… deleted page 2".
                 BoardNoticePill(s.boardNotice, actions.pages.onDismissNotice, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+                // Round 5, the student: "Minghui is showing you this" (while it is on my stage) / "… stopped your screen share" —
+                // low on the stage, clear of the faces box and the tiles' own top rows, above the board's page strip.
+                Column(
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = 76.dp, start = 16.dp, end = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ShowingBannerPill(s.showingBanner, actions.lead.onDismissShowing)
+                    ShareStoppedPill(s.shareStoppedNote, actions.lead.onDismissShareStopped)
+                }
             }
             if (s.sharingScreen) ShareBar(s.annotations, otherName, info.screenOverlayOn, now, actions.onToggleScreenOverlay, onDraw = {
                 // "Draw on it": my screen on the stage, drawing on.

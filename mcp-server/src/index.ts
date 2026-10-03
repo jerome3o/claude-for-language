@@ -23,6 +23,9 @@ import { CREATE_THEN_SEND, NOT_SENT } from './tools/homework-send.js';
 import { registerStudentTools } from './tools/students.js';
 import { registerContentTools } from './tools/content.js';
 import { registerHomeworkTools } from './tools/homework.js';
+import { registerHomeworkHubTools } from './tools/homework-hub.js';
+import { registerNoteUpdateTool } from './tools/notes.js';
+import { UPDATE_STUDENT_COPIES, updateStudentCopies } from './tools/student-copies.js';
 import { registerAdminTools } from './tools/admin.js';
 import { registerDebugTools } from './tools/debug.js';
 import { registerUsageTools } from './tools/usage.js';
@@ -78,9 +81,6 @@ const NEW_DECK_DEFAULTS = { new_cards_per_day: 3, secondary_cards_per_day: 6 } a
 
 /** Deck scheduling fields `update_deck` accepts; each goes to PUT /api/decks/:id/settings. */
 const DECK_SETTING_FIELDS = ['new_cards_per_day', 'secondary_cards_per_day', 'interval_modifier', 'request_retention', 'easy_interval', 'maximum_interval'] as const;
-
-/** Fields `update_note` may change through PUT /api/notes/:id. */
-const NOTE_PATCH_FIELDS = ['hanzi', 'pinyin', 'english', 'fun_facts', 'sentence_clue', 'sentence_clue_pinyin', 'sentence_clue_translation'] as const;
 
 /** Only the keys whose value was given, so an omitted field is left alone by the API. */
 function definedFields<T extends Record<string, unknown>>(input: T, keys: readonly (keyof T)[]): Partial<T> {
@@ -563,7 +563,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
 
     this.server.tool(
       "add_note",
-      `Add a vocabulary note to a deck (creates 3 cards automatically). TTS audio for the word and its example sentence is generated in the background — the note is usable at once and audio_url fills in shortly after. ${CARD_STANDARD_SHORT}`,
+      `Add a vocabulary note to a deck (creates 3 cards automatically). TTS audio for the word and its example sentence is generated in the background — the note is usable at once and audio_url fills in shortly after. When the deck was sent to students, their copies can get the new word too (only with update_student_copies: true, when the tutor asked; progress kept). ${CARD_STANDARD_SHORT}`,
       {
         deck_id: z.string().describe("The deck ID"),
         hanzi: z.string().describe("Chinese characters (simplified)"),
@@ -573,8 +573,9 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
         sentence_clue: z.string().optional().describe("A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words"),
         sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
         sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
+        update_student_copies: UPDATE_STUDENT_COPIES,
       },
-      async ({ deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation }) => guard(async () => {
+      async ({ deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, update_student_copies }) => guard(async () => {
         // Read-only pre-check across every deck the user owns; the API itself
         // only rejects duplicates within a deck.
         const existing = await this.env.DB
@@ -598,13 +599,15 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
           sentence_clue_translation,
         });
 
-        return textResult(`Added note: ${note.hanzi} (${note.pinyin}) - ${note.english} (id=${note.id}). Audio is being generated in the background.`);
+        const copies = await updateStudentCopies(api, 'deck', deck_id, update_student_copies);
+
+        return textResult(`Added note: ${note.hanzi} (${note.pinyin}) - ${note.english} (id=${note.id}). Audio is being generated in the background.${copies?.message ? ` ${copies.message}` : ''}`);
       })
     );
 
     this.server.tool(
       "batch_add_notes",
-      `Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly; up to 500 per call). Each note gets 3 cards; TTS audio is queued server-side and fills in shortly after, so the call returns without waiting. Hanzi already in any of your decks (or repeated in the request) are skipped; a note the API rejects (missing field, tone-number pinyin, symbols on the card) is listed under failed while the rest are created. ${CARD_STANDARD_SHORT}`,
+      `Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly; up to 500 per call). Each note gets 3 cards; TTS audio is queued server-side and fills in shortly after, so the call returns without waiting. Hanzi already in any of your decks (or repeated in the request) are skipped; a note the API rejects (missing field, tone-number pinyin, symbols on the card) is listed under failed while the rest are created. When the deck was sent to students, their copies can get the new words too (only with update_student_copies: true, when the tutor asked; progress kept). ${CARD_STANDARD_SHORT}`,
       {
         deck_id: z.string().describe("The deck ID"),
         notes: z.array(z.object({
@@ -616,8 +619,9 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
           sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
           sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
         })).min(1).max(500).describe("Array of notes to add (max 500)"),
+        update_student_copies: UPDATE_STUDENT_COPIES,
       },
-      async ({ deck_id, notes }) => guard(async () => {
+      async ({ deck_id, notes, update_student_copies }) => guard(async () => {
         // Read-only pre-check: which hanzi already exist across all the user's decks.
         const incomingHanzi = notes.map(n => n.hanzi);
         const placeholders = incomingHanzi.map(() => '?').join(', ');
@@ -661,6 +665,10 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
         if (failed.length > 0) {
           summary += `\n\nFailed ${failed.length} (not saved):\n${failed.map(f => `  - ${f.hanzi}: ${f.error}`).join('\n')}`;
         }
+        if (created.length > 0) {
+          const copies = await updateStudentCopies(api, 'deck', deck_id, update_student_copies);
+          if (copies?.message) summary += `\n\n${copies.message}`;
+        }
         if (skipped.length > 0) {
           summary += `\n\nSkipped ${skipped.length} duplicate(s) (hanzi already exists in your decks or appeared more than once in this request):\n${skipped.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
         }
@@ -669,31 +677,8 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
       })
     );
 
-    this.server.tool(
-      "update_note",
-      `Update an existing note. Only the fields given change. A changed hanzi gets a new word clip and a changed sentence_clue a new sentence clip, both generated in the background. ${CARD_STANDARD_SHORT}`,
-      {
-        note_id: z.string().describe("The note ID"),
-        hanzi: z.string().optional().describe("New Chinese characters"),
-        pinyin: z.string().optional().describe("New pinyin"),
-        english: z.string().optional().describe("New English translation"),
-        fun_facts: z.string().optional().describe("Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words"),
-        sentence_clue: z.string().optional().describe("A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words"),
-        sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
-        sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
-      },
-      async ({ note_id, ...fields }) => guard(async () => {
-        const patch = definedFields(fields, NOTE_PATCH_FIELDS);
-        if (Object.keys(patch).length === 0) {
-          return errorResult("No updates provided");
-        }
-
-        // Ownership is checked by the API (404 when the note isn't the user's).
-        const updatedNote = await api.put<Note>(`/api/notes/${encodeURIComponent(note_id)}`, patch);
-
-        return textResult(`Updated note: ${JSON.stringify(updatedNote, null, 2)}`);
-      })
-    );
+    // update_note lives in tools/notes.ts (registered below).
+    registerNoteUpdateTool(ctx);
 
     this.server.tool(
       "delete_note",
@@ -1921,6 +1906,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     registerStudentTools(ctx);
     registerContentTools(ctx);
     registerHomeworkTools(ctx);
+    registerHomeworkHubTools(ctx);
     registerTutorApps(ctx);
     // Admin: accounts, roles, access requests, deletion (the API answers 403 to non-admins).
     registerAdminTools(ctx);

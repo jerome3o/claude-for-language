@@ -154,6 +154,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'custom_lesson_completions', sql: `DELETE FROM custom_lesson_completions WHERE user_id = ?1 OR lesson_id IN ${LESSONS}` },
   { label: 'custom_lessons', sql: `DELETE FROM custom_lessons WHERE user_id = ?1` },
   { label: 'lesson_library', sql: `DELETE FROM lesson_library WHERE owner_id = ?1` },
+  { label: 'homework_links', sql: `DELETE FROM homework_links WHERE user_id = ?1` },
   { label: 'editor_chat_messages', sql: `DELETE FROM editor_chat_messages WHERE chat_id IN (SELECT id FROM editor_chats WHERE owner_id = ?1)` },
   { label: 'editor_chats', sql: `DELETE FROM editor_chats WHERE owner_id = ?1` },
 

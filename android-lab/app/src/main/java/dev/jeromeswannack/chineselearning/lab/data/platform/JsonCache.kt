@@ -39,7 +39,9 @@ class JsonCache(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
-    suspend fun <T> get(key: String, serializer: KSerializer<T>): T? = load(key)?.let { decode(serializer, it.json) }
+    /** Read and decoded off the main thread: a multi-MB document (readers/list) froze the UI for 2 s+. */
+    suspend fun <T> get(key: String, serializer: KSerializer<T>): T? =
+        load(key)?.let { e -> withContext(Dispatchers.Default) { decode(serializer, e.json) } }
 
     suspend inline fun <reified T> get(key: String): T? = get(key, json.serializersModule.serializer<T>())
 
@@ -55,15 +57,19 @@ class JsonCache(
         dao.putCache(values.map { (k, v) -> row(k, kind, json.encodeToString(serializer, v), now) })
     }
 
-    /** Emits the current value (null when missing) and again whenever it is rewritten. */
+    /**
+     * Emits the current value (null when missing) and again whenever it is rewritten. Decoded on
+     * [Dispatchers.Default], never on the collector's thread: a ViewModel collects on Main, and
+     * decoding the 2 MB "readers/list" there froze Home / the Study tab for seconds (freeze reports).
+     */
     fun <T> observe(key: String, serializer: KSerializer<T>): Flow<T?> =
-        observeEntry(key).map { it?.let { e -> decode(serializer, e.json) } }.distinctUntilChanged()
+        observeEntry(key).map { it?.let { e -> decode(serializer, e.json) } }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
     inline fun <reified T> observe(key: String): Flow<T?> = observe(key, json.serializersModule.serializer<T>())
 
     /** Every document of [kind], in key order. */
     suspend fun <T> all(kind: String, serializer: KSerializer<T>): List<T> =
-        safeMetas(kind).mapNotNull { m -> load(m.key)?.let { decode(serializer, it.json) } }
+        safeMetas(kind).mapNotNull { m -> load(m.key)?.let { e -> withContext(Dispatchers.Default) { decode(serializer, e.json) } } }
 
     fun <T> observeAll(kind: String, serializer: KSerializer<T>): Flow<List<T>> =
         dao.observeCacheMetas(kind)

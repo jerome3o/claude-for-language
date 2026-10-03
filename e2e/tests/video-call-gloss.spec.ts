@@ -71,7 +71,9 @@ async function joinAndOpenBoard(page: Page, callId: string) {
   await expect(button).toBeEnabled({ timeout: 20000 });
   await button.click();
   await page.getByTestId('call-live').waitFor({ timeout: 20000 });
-  await page.getByTestId('open-board').click();
+  // Round 5: the tutor opening the board shows it to the student — open it only if it isn't there yet.
+  const tiles = page.getByTestId('call-tiles');
+  await expect(tiles).toHaveAttribute('data-stage', /text/, { timeout: 2000 }).catch(() => page.getByTestId('open-board').click());
   await page.getByTestId('text-board').waitFor();
 }
 
