@@ -110,7 +110,7 @@ export function CallsListPage() {
             <p className="td-muted">No calls yet.</p>
           ) : (
             <div className="calls-list" data-testid="calls-list">
-              {/* One entry per lesson (calls within 20 minutes of each other), its calls inside. */}
+              {/* One entry per lesson (calls within two hours of each other), its calls inside. */}
               {groupCallsByLesson(calls).map(({ lessonId, calls: group }) => {
                 const live = group.find((c) => c.status === 'live');
                 const head = live ?? group[group.length - 1];

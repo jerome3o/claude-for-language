@@ -109,7 +109,7 @@ tutorNotes.post('/calls/:id/homework', async (c) => {
     const call = await requireCall(c.env.DB, c.req.param('id'), tutor.id);
     if (!call.relationship_id) throw new HttpError(400, 'This call is not part of a tutor–student connection');
     const { studentId } = await requireTutor(c.env.DB, call.relationship_id, tutor.id);
-    // The LESSON (every call between the two of them within 20 minutes, shared/calls/lessons.ts)
+    // The LESSON (every call between the two of them within two hours, shared/calls/lessons.ts)
     // gets its homework once: on 2 Oct 2026 one lesson of four calls became three homework decks.
     const material = call.lesson_id ? await lessonMaterial(c.env.DB, call.lesson_id) : null;
     const calls = material ? material.calls : [call];

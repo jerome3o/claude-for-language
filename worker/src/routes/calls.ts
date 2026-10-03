@@ -121,7 +121,7 @@ calls.post('/calls', async (c) => {
 calls.get('/calls/:id', async (c) => {
   try {
     const call = await requireCall(c.env.DB, c.req.param('id'), c.get('user').id);
-    // The review page shows the whole LESSON this call is part of (calls within 20 minutes of each
+    // The review page shows the whole LESSON this call is part of (calls within two hours of each
     // other, shared/calls/lessons.ts): transcript, recordings, board, chat and the one report.
     const material = call.lesson_id ? await lessonMaterial(c.env.DB, call.lesson_id) : null;
     const lessonCallIds = material ? material.calls.map((x) => x.id) : [call.id];

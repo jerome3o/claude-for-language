@@ -1032,3 +1032,61 @@
 .pm-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pm-meta { font-size: 0.8rem; color: #6b7280; }
 .pm-add { min-height: 44px; }
+
+/* ---------- round 5: the tutor leads (shared/calls/follow.ts) */
+.call-show-btn {
+  position: absolute;
+  top: 0.35rem;
+  right: 3.1rem;
+  z-index: 6;
+  min-height: 36px;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.96);
+  color: #1d4ed8;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.call-show-btn.on { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+.call-tile-body.call-show-host { display: block; }
+.call-stop-their-share {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.5rem;
+  z-index: 6;
+  min-height: 40px;
+  padding: 0 0.85rem;
+  border: none;
+  border-radius: 999px;
+  background: #b91c1c;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.call-showing-banner {
+  position: absolute;
+  top: 0.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: calc(100% - 2rem);
+  padding: 0.2rem 0.3rem 0.2rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.78);
+  color: #e5e7eb;
+  font-size: 0.85rem;
+  pointer-events: auto;
+  animation: call-banner-in 0.25s ease;
+}
+.call-showing-banner span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-showing-banner button { min-width: 32px; min-height: 32px; border: none; background: none; color: inherit; font-size: 0.9rem; cursor: pointer; }
+.call-showing-banner.note { top: 2.8rem; background: rgba(127, 29, 29, 0.9); color: #fff; }
+@keyframes call-banner-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }

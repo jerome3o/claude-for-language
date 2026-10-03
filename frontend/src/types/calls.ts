@@ -15,7 +15,7 @@ export interface CallListItem {
   started_at: number | null;
   ended_at: number | null;
   created_at: string;
-  /** The lesson it belongs to (calls within 20 minutes of each other, shared/calls/lessons.ts). */
+  /** The lesson it belongs to (calls within two hours of each other, shared/calls/lessons.ts). */
   lesson_id?: string | null;
   other_user_name: string | null;
   segment_count: number;

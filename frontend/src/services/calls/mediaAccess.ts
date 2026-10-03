@@ -234,12 +234,12 @@ export interface DevicePrefs {
   videoId?: string | null;
   speakerId?: string | null;
   /**
-   * The microphone / camera were switched OFF when I last left a call (absent =
-   * on). A rejoin — the next call of the lesson, a reload — comes back the same
-   * way instead of with everything off (Minghui, 2 Oct 2026).
+   * The microphone was muted when I last left a call (absent = on): a rejoin —
+   * the next call of the lesson, a reload — comes back muted. The camera is NOT
+   * remembered (round 5): every call starts with it on (shared/calls/devices.ts).
+   * An older `camOff` in storage is ignored and dropped on the next save.
    */
   micOff?: boolean;
-  camOff?: boolean;
 }
 
 export function loadDevicePrefs(): DevicePrefs {

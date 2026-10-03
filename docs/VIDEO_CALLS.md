@@ -285,11 +285,21 @@ suppressed prompt); a permission switched to Allow in site settings is picked up
 (`navigator.permissions` change). The Join button says what you'll join with ("Join with audio only",
 "Join without camera & mic"). **Devices** (⚙️ before joining, ⋯ → Camera, mic & speaker in the call):
 camera / microphone / speaker (`setSinkId`), remembered per device (`call-devices-v1`), together
-with whether the mic / camera were **on or off** (`micOff` / `camOff`): a rejoin — a reload, the
-next call of the lesson — comes back as you left it, and Join waits up to 4 s for a camera / mic
-request still in flight instead of joining with nothing (Minghui's rejoins on 2 Oct 2026 logged
-"joining with no mic, no camera" with no device error: she pressed Join before the preview had
-its devices). The join line in the connection log says "mic / mic muted / no mic".
+with whether the mic was **muted** (`micOff`): a rejoin — a reload, the next call of the lesson —
+comes back muted if you left it muted, and Join waits up to 4 s for a camera / mic request still in
+flight instead of joining with nothing (Minghui's rejoins on 2 Oct 2026 logged "joining with no
+mic, no camera" with no device error: she pressed Join before the preview had its devices).
+
+**The camera always starts on (round 5).** Minghui still found her camera off every time she
+joined. Two causes: (1) when her Mac's camera answered after the 4 s wait, the call was still
+*joining* (the room socket connecting) and the web app only announced a device that opened once the
+call was *live* — so the room, and Jerome's screen, kept `cam: false, mic: false` from the join line
+until she toggled; (2) round 4 remembered `camOff`, so switching the camera off at the end of one
+lesson started every later call dark. Now `shared/calls/devices.ts` decides (Lab `CallDevices.kt`,
+parity-tested): `deviceOnWhenOpened` — the camera comes on whenever it opens (preview, join,
+rejoin; "off" is never remembered, an old `camOff` in storage is ignored), the mic keeps round 4's
+rule; `announceDevice` — a device that opens is announced from Join on (`joining` included). The
+connection log has a "camera opened while joining" line. The join line in the connection log says "mic / mic muted / no mic".
 
 Our side sends no `Permissions-Policy` header (the Pages site and the worker were checked), and the
 preview's `getUserMedia` runs on page load, which Chrome allows; so a missing prompt comes from the
@@ -391,6 +401,35 @@ applied by the CallRoom; worker tests with a mocked clock in `durable/__tests__/
   last 10 min (one conditional `INSERT … WHERE NOT EXISTS`, so two presses in the same second can't
   both insert).
 
+## The tutor leads: Show for student, Stop their share (round 5)
+
+Rules in `shared/calls/follow.ts` (Lab `core/…/calls/CallFollow.kt`, parity-tested); the CallRoom
+enforces who may do what — the **relationship's tutor** (`relationshipTutor`, sent to clients as
+`welcome.tutor_id`; nobody in a solo call).
+
+- **Show for student** — on whatever is on the tutor's stage (the text board, the drawing board, a
+  material page, her own shared screen, an activity) a small corner button **👁 Show for student**
+  (**Showing ✓** while it is shown). It sends `show { view }`; the room keeps the latest
+  `ShownState { id, v, by, name, view, at }` in storage (so a reconnect gets it in `welcome.shown`)
+  and broadcasts `shown`. **Opening the board shows it without the button** (`autoShowBoard`: a
+  board tile came onto her stage). Turning the board page while the board is shown sends
+  `show { follow: true }` — the same show (`id`), `v` + 1 (`nextShown`).
+- On the student's device (`followStep`): a NEW show (new `id`) puts that tile on the stage once
+  (layout action `shown`: focus it with the cameras floating, or leave a split that already has it),
+  opens the shown board page and shows a quiet **"Minghui is showing you this"** pill with ✕ (gone as
+  soon as the student looks elsewhere). After that their own layout choice wins until the tutor shows
+  something new; her page turns are followed only while they are on the board. A show of a tile that
+  isn't there yet (a material still opening) is applied when it appears. The show button pressed
+  again is a new show (pulls the student back). Materials already share page turns for both.
+- **Stop their share** — on the screen tile showing the student's share, the tutor gets **⏹ Stop
+  their share** (`stop_share`). The room checks `canStopShare` (tutor, the other person; the student
+  gets an error), sends `share_stopped { name }` to the sharer, sets their `state.screen` false and
+  tells everyone (`peer_state`). The student's device stops capturing (exactly like its own Stop) and
+  shows **"Minghui stopped your screen share"** for a few seconds.
+- Tests: `shared/calls/follow.test.ts`, `worker/src/durable/__tests__/call-room-follow.test.ts`
+  (permissions, follow-ups, welcome after a reload), `e2e/tests/video-call-follow.spec.ts` (two
+  browsers), Lab `CallControllerTest` / parity tests.
+
 ## Lessons: calls in a row are one lesson (round 4)
 
 On 2 Oct 2026 one lesson became four calls: Jerome pressed the big red button to switch to his
@@ -405,7 +444,7 @@ computer (it ended the call for both, an ended room refuses joins), Minghui's ne
   (`EMPTY_CALL_END_MS`, was 3).
 - **The rule** (`shared/calls/lessons.ts`, unit-tested; Lab port parity-tested): calls between the
   same two people (a relationship; a solo call: its caller) belong to one **lesson** when a call
-  starts no more than `LESSON_GAP_MS` = **20 min** after the previous one ended, or while it is still
+  starts no more than `LESSON_GAP_MS` = **2 hours** (20 min until round 5) after the previous one ended, or while it is still
   live. `POST /api/calls` puts the new call in the open lesson (`lessonForNewCall`,
   `services/calls/lessons.ts`) or starts one; ending a call updates the lesson's `last_ended_at`.
 - **Storage** — migration 0089: `call_lessons` (relationship, started_at / last_ended_at in ms,
@@ -418,7 +457,7 @@ computer (it ended the call for both, an ended room refuses joins), Minghui's ne
   lesson report is (re)written over ALL its calls (`lesson_report` queue message,
   `processLessonReport`). A call that joins later makes the report stale (`report_call_ids`) and it is
   written again when that call is transcribed. Chosen over "wait until the 20-minute window has
-  passed": that would make every report 20 minutes late for a case that is rare. "Process now" on the
+  passed": that would make every report two hours late for a case that is rare. "Process now" on the
   review page re-runs the whole lesson.
 - **What shows per lesson** — `GET /api/calls/:id` returns the lesson (`lesson.calls`) and its whole
   transcript, recordings, board pages / text, chat, connection log and report; the review page shows

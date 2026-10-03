@@ -1,7 +1,7 @@
 /**
  * Lessons (migration 0089, services/calls/lessons.ts) against real SQLite with
  * every migration: the back-fill of 2 Oct 2026's four calls into ONE lesson,
- * a new call joining the lesson within 20 minutes (and not after), the lesson
+ * a new call joining the lesson within two hours (and not after), the lesson
  * report queued once every call is transcribed, and the lesson's material.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -51,7 +51,7 @@ describe('call lessons', () => {
     expect(JSON.parse(x1.summary_json!)).toEqual({ summary: 'solo' });
   });
 
-  it('a new call within 20 minutes of the last one joins its lesson; later, a new lesson', async () => {
+  it('a new call within two hours of the last one joins its lesson; later, a new lesson', async () => {
     const db = await createSqliteD1();
     seedPeople(db);
     const first = await lessonForNewCall(db, 'rel', 'tutor', T('10:00'));
@@ -61,6 +61,9 @@ describe('call lessons', () => {
     db.raw.exec(`UPDATE calls SET status = 'ended', ended_at = ${T('10:30')} WHERE id = 'a'`);
     await refreshLessonEnd(db, first);
     expect((await getLesson(db, first))!.last_ended_at).toBe(T('10:30'));
+    expect(LESSON_GAP_MS).toBe(2 * 60 * 60_000); // round 5: two hours, not 20 minutes
+    expect(await lessonForNewCall(db, 'rel', 'tutor', T('12:00'))).toBe(first); // back after 1 h 30
+    db.raw.exec(`UPDATE call_lessons SET last_ended_at = ${T('10:30')} WHERE id = '${first}'`);
     expect(await lessonForNewCall(db, 'rel', 'tutor', T('10:30') + LESSON_GAP_MS)).toBe(first);
     expect((await getLesson(db, first))!.last_ended_at).toBeNull(); // open again
     db.raw.exec(`UPDATE call_lessons SET last_ended_at = ${T('10:30')} WHERE id = '${first}'`);

@@ -23,6 +23,18 @@ import {
   boardOnStage as isBoardOnStage,
   formatOffset,
   initialLinkHealth,
+  isAvailable,
+  followStep,
+  autoShowBoard,
+  isShowing,
+  showingBanner,
+  shareStoppedNote,
+  tileForShow,
+  SHOW_BUTTON_LABEL,
+  SHOWN_BUTTON_LABEL,
+  STOP_THEIR_SHARE_LABEL,
+  type AppliedShow,
+  type ShowView,
   layoutReducer,
   layoutShortcut,
   PRESETS,
@@ -218,7 +230,56 @@ export function CallPage() {
   useEffect(() => {
     if (activityId) dispatch({ type: 'activityStarted' });
   }, [activityId]);
-  const chatVisible = arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage.includes('chat') || (layout.open.includes('chat') && layout.mode === 'grid');
+  const stageTiles = arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage;
+  const chatVisible = stageTiles.includes('chat') || (layout.open.includes('chat') && layout.mode === 'grid');
+  const stageKey = stageTiles.join(',');
+
+  // ---- round 5 (shared/calls/follow.ts): the tutor leads the student's stage.
+  const iLead = !!call.tutorId && call.tutorId === user!.id;
+  // The board page I'm on (the text board's session changes it).
+  const [boardPage, setBoardPage] = useState(call.textBoard.page);
+  useEffect(() => call.textBoard.subscribe(() => setBoardPage(call.textBoard.page)), [call.textBoard]);
+  // Tutor: opening the board shows it to the student too; turning its page while it is shown follows.
+  const prevStageRef = useRef<string[]>(stageTiles);
+  useEffect(() => {
+    const prev = prevStageRef.current;
+    prevStageRef.current = stageTiles;
+    if (!iLead || call.phase !== 'live') return;
+    const kind = autoShowBoard(prev as TileId[], stageTiles);
+    if (kind) call.show(kind === 'text' ? { kind, page: call.textBoard.page || undefined } : { kind });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageKey, iLead, call.phase]);
+  useEffect(() => {
+    const sh = call.shown;
+    if (!iLead || !boardPage || !sh || sh.by !== user!.id || sh.view.kind !== 'text' || sh.view.page === boardPage) return;
+    if (stageTiles.includes('text')) call.show({ kind: 'text', page: boardPage }, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardPage, iLead]);
+  // Student: each new show goes on my stage once (then my own layout wins); page turns follow while I'm on the board.
+  const appliedShowRef = useRef<AppliedShow | null>(null);
+  const [bannerShow, setBannerShow] = useState<string | null>(null);
+  useEffect(() => {
+    const sh = call.shown;
+    if (!sh) return;
+    const tile = tileForShow(sh.view);
+    const step = followStep(appliedShowRef.current, sh, user!.id, isAvailable(tile, available), stageTiles.includes(tile));
+    if (step.kind === 'none') return;
+    appliedShowRef.current = { id: sh.id, v: sh.v };
+    if (step.kind === 'stage') {
+      dispatch({ type: 'shown', tile: step.tile });
+      setBannerShow(sh.id);
+    }
+    const page = step.kind === 'stage' ? step.page : step.page;
+    if (page && page !== call.textBoard.page) call.textBoard.openPage(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.shown, available.screen, available.material, available.activity]);
+  const bannerOn = !!call.shown && bannerShow === call.shown.id && call.shown.by !== user!.id && stageTiles.includes(tileForShow(call.shown.view));
+  // "Minghui stopped your screen share": a few seconds.
+  useEffect(() => {
+    if (!call.shareStoppedBy) return;
+    const t = setTimeout(call.dismissShareStopped, 6000);
+    return () => clearTimeout(t);
+  }, [call.shareStoppedBy, call.dismissShareStopped]);
   useEffect(() => {
     if (chatVisible) setSeenChat(call.chat.length);
   }, [chatVisible, call.chat.length]);
@@ -353,6 +414,17 @@ export function CallPage() {
   const chatOnStage = chatVisible;
   const first = otherName.split(' ')[0];
 
+  /** The tutor's corner button on a tile on her stage: "Show for student" / "Showing ✓". */
+  const showButton = (tile: TileId, view: ShowView) => {
+    if (!iLead || !stageTiles.includes(tile)) return null;
+    const on = isShowing(call.shown, call.myUserId, view);
+    return (
+      <button type="button" className={`call-show-btn${on ? ' on' : ''}`} onClick={() => call.show(view)} data-testid={`show-${tile}`} title="Put this on the student's screen">
+        {on ? SHOWN_BUTTON_LABEL : `👁 ${SHOW_BUTTON_LABEL}`}
+      </button>
+    );
+  };
+
   const boardSwitch = (current: 'text' | 'draw') => (
     <div className="call-board-switch" role="tablist">
       <button type="button" role="tab" aria-selected={current === 'text'} className={current === 'text' ? 'active' : ''} onClick={() => dispatch({ type: 'swap', from: 'draw', to: 'text' })} data-testid={current === 'draw' ? 'board-tab-text' : undefined}>Board</button>
@@ -409,6 +481,12 @@ export function CallPage() {
             // My own shared screen, as big as any tile: I can draw on it too.
             <CallVideo stream={call.screenStream} muted screen className="call-self-screen" testId="my-screen" onVideoSize={setMyScreenSize} />
           )}
+          {iShare && showButton('screen', { kind: 'screen' })}
+          {remoteSharing && iLead && (
+            <button type="button" className="call-stop-their-share" onClick={() => call.stopTheirShare()} data-testid="stop-their-share">
+              ⏹ {STOP_THEIR_SHARE_LABEL}
+            </button>
+          )}
           <AnnotationLayer
             store={call.annotations}
             video={remoteSharing ? remoteSize : myScreenSize}
@@ -449,6 +527,8 @@ export function CallPage() {
     material: {
       label: call.presenting ? `📑 ${call.presenting.title}` : 'Material',
       content: call.presenting ? (
+        <div className="call-tile-body call-show-host">
+        {showButton('material', { kind: 'material' })}
         <MaterialTile
           presenting={call.presenting}
           store={call.materialAnnotations}
@@ -458,14 +538,18 @@ export function CallPage() {
           onTurn={call.turnMaterialPage}
           onStop={() => void call.stopPresenting()}
           annot={call.materialAnnot}
-          active={arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage.includes('material')}
+          active={stageTiles.includes('material')}
         />
+        </div>
       ) : null,
     },
     activity: {
       label: call.activity ? `🎲 ${call.activity.spec.title}` : 'Activity',
       content: call.activity ? (
-        <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
+        <div className="call-tile-body call-show-host">
+          {showButton('activity', { kind: 'activity' })}
+          <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
+        </div>
       ) : null,
     },
     text: {
@@ -474,6 +558,7 @@ export function CallPage() {
       content: (
         <div className="call-tile-body call-paper" data-testid="call-panel-text">
           {boardSwitch('text')}
+          {showButton('text', { kind: 'text', page: boardPage || undefined })}
           <TextBoard session={call.textBoard} gloss={{ callId, userId: call.myUserId }} />
         </div>
       ),
@@ -484,6 +569,7 @@ export function CallPage() {
       content: (
         <div className="call-tile-body call-paper" data-testid="call-panel-board">
           {boardSwitch('draw')}
+          {showButton('draw', { kind: 'draw' })}
           <Whiteboard items={call.board} live={call.liveStrokes} myUserId={call.myUserId} onCommit={call.commitBoard} onLive={call.sendLiveStroke} />
         </div>
       ),
@@ -509,6 +595,18 @@ export function CallPage() {
       </div>
 
       <div className="call-main">
+        {bannerOn && call.shown && (
+          <div className="call-showing-banner" role="status" data-testid="showing-banner">
+            <span>👁 {showingBanner(call.shown.name.split(' ')[0])}</span>
+            <button type="button" onClick={() => setBannerShow(null)} aria-label="Hide">✕</button>
+          </div>
+        )}
+        {call.shareStoppedBy && (
+          <div className="call-showing-banner note" role="status" data-testid="share-stopped-note">
+            <span>⏹ {shareStoppedNote(call.shareStoppedBy.name.split(' ')[0])}</span>
+            <button type="button" onClick={call.dismissShareStopped} aria-label="Dismiss">✕</button>
+          </div>
+        )}
         <CallTiles
           layout={layout}
           dispatch={dispatch}
