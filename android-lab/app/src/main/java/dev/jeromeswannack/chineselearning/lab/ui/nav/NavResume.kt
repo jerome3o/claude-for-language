@@ -15,7 +15,8 @@ import org.json.JSONObject
  *  - A "go study" entry (the widget, a due-card / homework reminder notification — the intent
  *    carries `ShellLinks.EXTRA_SOFT`) leaves a resumable activity in progress on screen
  *    ([isResumable]: a homework pass, a reader, a lesson, a picture hunt, a quest); otherwise it
- *    opens its path, and Study is single-instance (LabNav.openStudy).
+ *    opens its path. A Study entry ALWAYS opens Study (over the pass, which stays underneath;
+ *    LabNav.handle) — Jerome would rather be able to study.
  *  - Every other link (a chat notification, a call, the coach) is explicit and always opens.
  */
 object NavResume {

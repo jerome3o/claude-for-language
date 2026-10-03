@@ -18,7 +18,7 @@ fun NavGraphBuilder.studyGraph(nav: LabNav) {
             app = nav.app,
             deckId = entry.arguments?.getString("deck"),
             onExit = {
-                nav.back()
+                nav.closeStudy()
                 nav.app.scope.launch { nav.app.repo.sync() }
             },
             onOpen = { path -> nav.open(path) },
