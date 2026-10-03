@@ -148,6 +148,9 @@ test('make flashcards: pick messages → review → one batch add', async ({ bro
   test.setTimeout(120_000);
   const { tutor, student, relId, convId } = await seedChat(request);
   const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token: student.token, data: { name: '聊天生词' } });
+  // A newer deck, but 聊天生词 is moved to the top of the study queue: the sheet starts on it.
+  await api(request, '/api/decks', { method: 'POST', token: student.token, data: { name: 'Weekend words' } });
+  await api(request, `/api/decks/${deck.body.id}/move`, { method: 'POST', token: student.token, data: { to: 'top' } });
   const m1 = await say(request, tutor, convId, '你周末打算做什么？');
   await say(request, student, convId, '我想去爬山。');
   const chatPath = `/connections/${relId}/chat/${convId}`;
@@ -198,11 +201,14 @@ test('make flashcards: pick messages → review → one batch add', async ({ bro
   await expect(review.getByText('Already in your decks')).toBeVisible();
   await expect(review.getByText('From “你周末打算做什么？”').first()).toBeVisible();
 
-  // Edit one field, pick the deck, add.
+  // The top deck of the queue is preselected and listed first.
+  await expect(review.getByLabel('Deck')).toHaveValue(deck.body.id);
+  await expect(review.getByLabel('Deck').locator('option').first()).toHaveText('聊天生词');
+
+  // Edit one field, add.
   await review.getByRole('button', { name: 'Edit 打算' }).click();
   await review.getByRole('textbox', { name: 'English', exact: true }).fill('to plan (to)');
   await review.getByRole('button', { name: 'Done' }).click();
-  await review.getByLabel('Deck').selectOption(deck.body.id);
   await review.getByRole('button', { name: 'Add 1 card' }).click();
 
   await expect(review).toHaveCount(0, { timeout: 10000 });
@@ -222,8 +228,8 @@ test('make flashcards: pick messages → review → one batch add', async ({ bro
       },
     ],
   });
-  // The deck is remembered for next time.
-  expect(await page.evaluate(() => localStorage.getItem('chat-flashcards-last-deck'))).toBe(deck.body.id);
+  // Nothing is remembered: the next sheet starts on the top deck again.
+  expect(await page.evaluate(() => localStorage.getItem('chat-flashcards-last-deck'))).toBeNull();
 
   await page.context().close();
 });

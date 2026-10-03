@@ -227,7 +227,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                     </button>
                   </div>
                 )}
-                <div className="td-confirm-actions">
+                <div className="td-confirm-actions sheet-footer">
                   {existing ? (
                     <>
                       <button type="button" className="btn btn-primary" disabled={busy || !isOnline} onClick={() => updateMutation.mutate(existing.shared_deck_id)}>
@@ -258,7 +258,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                 {alreadyAssigned(pendingLesson) ? ' They already have a lesson with this title.' : ''}
               </p>
               <HomeworkModePicker name="send-lesson" mode={mode} onMode={setMode} dueDate={dueDate} onDueDate={setDueDate} nextLesson={defaults.nextLesson} />
-              <div className="td-confirm-actions">
+              <div className="td-confirm-actions sheet-footer">
                 <button type="button" className="btn btn-primary" disabled={busy || !isOnline} onClick={() => assignMutation.mutate(pendingLesson)}>
                   {assignMutation.isPending ? 'Assigning…' : 'Assign lesson'}
                 </button>

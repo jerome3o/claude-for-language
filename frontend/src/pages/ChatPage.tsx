@@ -2,7 +2,10 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LiveCallBanner } from '../components/calls/CallBanner';
 import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { chatBackTarget } from '../components/chat/chatBack';
-import { base64ToBlob } from '../services/ttsCache';
+import { base64ToBlob, getTTSWithCache } from '../services/ttsCache';
+import { speakWithBrowserTTS } from '../services/audioCache';
+import { readConversationVoices } from '../services/conversationVoices';
+import { chatReadAloudSpeed, chatReadAloudVoice, parseVoiceGender } from '@shared/chats/voice';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -11,7 +14,6 @@ import {
   createNote,
   createConversation,
   getAIResponse,
-  generateConversationTTS,
   checkMessage,
   updateConversationVoiceSettings,
   updateConversationTitle,
@@ -29,6 +31,7 @@ import {
   MINIMAX_VOICES,
   GeneratedNoteWithContext,
   CheckMessageResponse,
+  CLAUDE_AI_USER_ID,
 } from '../types';
 import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
@@ -661,14 +664,28 @@ export function ChatPage() {
     }
 
     setPlayingAudioMessageId(msg.id);
+    // The sender's voice (shared/chats/voice.ts): their voice_gender over MY
+    // conversation voices; Claude's lines in a role-play keep the persona voice.
+    // Cache-first by (text, voice, speed), so a message plays offline once heard.
+    const fromAi = isAIConversation && msg.sender_id === CLAUDE_AI_USER_ID;
+    const rel = relationshipQuery.data;
+    const sender = msg.sender_id === user?.id ? user : rel && user ? getOtherUserInRelationship(rel, user.id) : null;
+    const senderGender = fromAi ? null : parseVoiceGender(sender && sender.id === msg.sender_id ? sender.voice_gender : null);
+    const voice = chatReadAloudVoice({ senderGender, enabled: readConversationVoices(), fromAi, personaVoice: conversation?.voice_id });
+    const speed = chatReadAloudSpeed({ fromAi, personaSpeed: conversation?.voice_speed });
     try {
-      const result = await generateConversationTTS(
-        convId!,
-        msg.content,
-        conversation?.voice_id || undefined,
-        conversation?.voice_speed || undefined
-      );
-      playBase64Audio(result.audio_base64, result.content_type, msg.id);
+      const blob = await getTTSWithCache(msg.content, speed, voice);
+      if (blob) {
+        playerRef.current.play(blob, {
+          onEnded: () => setPlayingAudioMessageId(null),
+          onError: () => setPlayingAudioMessageId(null),
+        });
+        return;
+      }
+      if (navigator.onLine) throw new Error('No audio came back');
+      // Offline and never fetched: a Mandarin device voice of the sender's gender.
+      await speakWithBrowserTTS(msg.content, senderGender === 'other' ? null : senderGender);
+      setPlayingAudioMessageId(null);
     } catch (error) {
       console.error('Failed to generate TTS:', error);
       setPlayingAudioMessageId(null);

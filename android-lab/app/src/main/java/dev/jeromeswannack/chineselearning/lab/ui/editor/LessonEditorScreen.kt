@@ -28,6 +28,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ErrorState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFormSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreenFrame
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
@@ -210,23 +211,24 @@ fun ExportSheet(subject: String, onDismiss: () -> Unit, onPick: (ExportFormat, B
 fun RawJsonSheet(spec: JsonObject, subject: String, onApply: (String) -> List<String>, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(JsJson.stringifyPretty(spec)) }
     var problems by remember { mutableStateOf<List<String>>(emptyList()) }
-    LabBottomSheet(onDismiss, title = "Raw JSON") {
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("The $subject spec exactly as it is stored. Edit and apply — changes go into the form (unsaved until you press Save).", color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall)
-            androidx.compose.material3.OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 460.dp),
-                textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = Lab.colors.ink),
-            )
-            ErrorList(problems)
-            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), onClick = onDismiss)
-                PrimaryPill("Apply", Modifier.weight(1f).height(52.dp)) {
-                    problems = onApply(text)
-                    if (problems.isEmpty()) onDismiss()
-                }
+    LabFormSheet(
+        onDismiss,
+        title = "Raw JSON",
+        footer = {
+            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), onClick = onDismiss)
+            PrimaryPill("Apply", Modifier.weight(1f).height(52.dp)) {
+                problems = onApply(text)
+                if (problems.isEmpty()) onDismiss()
             }
-        }
+        },
+    ) {
+        Text("The $subject spec exactly as it is stored. Edit and apply — changes go into the form (unsaved until you press Save).", color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall)
+        androidx.compose.material3.OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 460.dp),
+            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = Lab.colors.ink),
+        )
+        ErrorList(problems)
     }
 }

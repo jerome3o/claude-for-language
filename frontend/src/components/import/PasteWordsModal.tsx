@@ -529,7 +529,7 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
               </section>
             )}
 
-            <div className="pw-footer">
+            <div className="pw-footer sheet-footer">
               <div className="pw-summary" aria-live="polite">
                 {parsed.rows.length === 0
                   ? 'Paste or type a list to see a preview.'
@@ -602,7 +602,7 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
                 </ul>
               </section>
             )}
-            <div className="modal-actions">
+            <div className="modal-actions sheet-footer">
               <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
             </div>
           </div>

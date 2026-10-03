@@ -207,21 +207,43 @@ export async function getAudioCacheStats(): Promise<{
  * Prefers voices synthesized on-device (localService) so playback works
  * offline — network-backed voices stall on spotty connections.
  */
-export function pickChineseVoice(): SpeechSynthesisVoice | undefined {
+export function pickChineseVoice(gender?: 'male' | 'female' | null): SpeechSynthesisVoice | undefined {
   if (!('speechSynthesis' in window)) return undefined;
   const voices = window.speechSynthesis.getVoices();
-  const chineseVoices = voices.filter(v =>
+  return pickChineseVoiceFrom(voices, gender);
+}
+
+/** Device voices carry their gender only in the name ("…-female", "Xiaoxiao Female", "Kangkang"…). */
+const MALE_NAME = /\bmale\b|男|kangkang|yunxi|yunyang|yunjian|-m\d|#male/i;
+const FEMALE_NAME = /female|女|huihui|yaoyao|xiaoxiao|xiaoyi|tingting|meijia|-f\d|#female/i;
+
+/**
+ * Pure part of pickChineseVoice: a Mandarin voice (zh-CN first, then any zh),
+ * on-device first, of the asked gender when one is recognisable by name. Never
+ * a non-Chinese default.
+ */
+export function pickChineseVoiceFrom<V extends { lang: string; name: string; localService?: boolean }>(
+  voices: readonly V[],
+  gender?: 'male' | 'female' | null,
+): V | undefined {
+  const chinese = voices.filter(v =>
     v.lang.startsWith('zh') ||
     v.lang.toLowerCase().includes('chinese') ||
     v.name.toLowerCase().includes('chinese')
   );
-  return chineseVoices.find(v => v.localService) || chineseVoices[0];
+  const mainland = chinese.filter(v => /^zh[-_]CN/i.test(v.lang) || /mandarin|普通话/i.test(v.name));
+  const pool = mainland.length ? mainland : chinese;
+  const matches = (v: V) => gender === 'male' ? MALE_NAME.test(v.name) && !FEMALE_NAME.test(v.name)
+    : gender === 'female' ? FEMALE_NAME.test(v.name) : true;
+  const gendered = gender ? pool.filter(matches) : pool;
+  const from = gendered.length ? gendered : pool;
+  return from.find(v => v.localService) || from[0];
 }
 
 /**
  * Use browser's Web Speech API as fallback for TTS
  */
-export function speakWithBrowserTTS(text: string): Promise<void> {
+export function speakWithBrowserTTS(text: string, gender?: 'male' | 'female' | null): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!('speechSynthesis' in window)) {
       reject(new Error('Speech synthesis not supported'));
@@ -230,8 +252,8 @@ export function speakWithBrowserTTS(text: string): Promise<void> {
 
     const utterance = new SpeechSynthesisUtterance(text);
 
-    // Try to find a Chinese voice (prefer on-device voices)
-    const chineseVoice = pickChineseVoice();
+    // A Chinese voice (on-device first, of the speaker's gender when known)
+    const chineseVoice = pickChineseVoice(gender);
     if (chineseVoice) {
       utterance.voice = chineseVoice;
     }

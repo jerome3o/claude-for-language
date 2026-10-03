@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,7 +56,9 @@ import dev.jeromeswannack.chineselearning.lab.data.api.myRelationships
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
@@ -242,36 +245,24 @@ fun AssignController.actions(onConnections: () -> Unit) = AssignActions(::toggle
 
 @Composable
 fun AssignSheet(ui: AssignUi, actions: AssignActions) {
-    LabBottomSheet(onDismiss = actions.onDismiss, title = "Assign “${ui.title}”") {
-        AssignSheetBody(ui, actions)
+    LabSheetFrame(onDismiss = actions.onDismiss) {
+        AssignSheetBody(ui, actions, title = "Assign “${ui.title}”")
     }
 }
 
+/** Student picker + mode + due date; the student list scrolls, Cancel / Assign stay pinned (SheetScaffold). */
 @Composable
-fun ColumnScope.AssignSheetBody(ui: AssignUi, actions: AssignActions) {
+fun AssignSheetBody(ui: AssignUi, actions: AssignActions, title: String? = null, modifier: Modifier = Modifier) {
     val students = ui.students
-    when {
-        students == null && ui.loadError == null -> LoadingState(text = "Loading students…")
-        students == null -> InlineNotice(ui.loadError ?: "", Modifier.padding(horizontal = 20.dp), NoticeKind.Error)
-        students.isEmpty() -> {
-            Text(
-                "You have no students yet. Invite one from Connections.",
-                style = MaterialTheme.typography.bodyLarge, color = Lab.colors.muted,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-            )
-            NavRow("👥", "Open Connections", desc = "Invite a student", onClick = actions.onConnections)
-        }
-        else -> {
-            SheetLabel("Who gets it")
-            students.forEach { s -> StudentRow(s, s.relationshipId in ui.selected, enabled = !ui.busy, onToggle = { actions.onToggle(s.relationshipId) }) }
-            Spacer(Modifier.height(12.dp))
-            SheetLabel("How they study it")
-            ModePicker(ui.mode, enabled = !ui.busy, onMode = actions.onMode, modifier = Modifier.padding(horizontal = 20.dp))
-            AnimatedVisibility(ui.mode.hasOneOff, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                DuePicker(ui.today, ui.due, enabled = !ui.busy, onDue = actions.onDue, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp))
-            }
-            if (ui.error != null) InlineNotice(ui.error, Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp), NoticeKind.Error)
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    val picking = !students.isNullOrEmpty()
+    SheetScaffold(
+        modifier,
+        header = title?.let { t -> { SheetTitle(t) } },
+        contentPadding = PaddingValues(vertical = 4.dp),
+        spacing = 0.dp,
+        footerAbove = ui.error?.takeIf { picking }?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
+        footer = if (!picking) null else {
+            {
                 SecondaryPill("Cancel", Modifier.height(52.dp), enabled = !ui.busy, onClick = actions.onDismiss)
                 val n = ui.selected.size
                 PrimaryPill(
@@ -284,6 +275,30 @@ fun ColumnScope.AssignSheetBody(ui: AssignUi, actions: AssignActions) {
                     enabled = !ui.busy && n > 0,
                     onClick = actions.onSubmit,
                 )
+            }
+        },
+    ) {
+        when {
+            students == null && ui.loadError == null -> LoadingState(text = "Loading students…")
+            students == null -> InlineNotice(ui.loadError ?: "", Modifier.padding(horizontal = 20.dp), NoticeKind.Error)
+            students.isEmpty() -> {
+                Text(
+                    "You have no students yet. Invite one from Connections.",
+                    style = MaterialTheme.typography.bodyLarge, color = Lab.colors.muted,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+                NavRow("👥", "Open Connections", desc = "Invite a student", onClick = actions.onConnections)
+            }
+            else -> {
+                SheetLabel("Who gets it")
+                students.forEach { s -> StudentRow(s, s.relationshipId in ui.selected, enabled = !ui.busy, onToggle = { actions.onToggle(s.relationshipId) }) }
+                Spacer(Modifier.height(12.dp))
+                SheetLabel("How they study it")
+                ModePicker(ui.mode, enabled = !ui.busy, onMode = actions.onMode, modifier = Modifier.padding(horizontal = 20.dp))
+                AnimatedVisibility(ui.mode.hasOneOff, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                    DuePicker(ui.today, ui.due, enabled = !ui.busy, onDue = actions.onDue, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp))
+                }
+                Spacer(Modifier.height(8.dp))
             }
         }
     }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,7 +40,9 @@ import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
@@ -121,8 +124,8 @@ fun SendHomeworkSheet(
     onDismiss: () -> Unit,
     lessonDays: List<String?> = emptyList(),
 ) {
-    LabBottomSheet(onDismiss = onDismiss, title = "Send homework to $studentName") {
-        SendHomeworkContent(studentName, decks, library, sharedDecks, assignedLessons, online, today, actions, lessonDays = lessonDays)
+    LabSheetFrame(onDismiss = onDismiss) {
+        SendHomeworkContent(studentName, decks, library, sharedDecks, assignedLessons, online, today, actions, lessonDays = lessonDays, title = "Send homework to $studentName")
     }
 }
 
@@ -142,6 +145,8 @@ fun SendHomeworkContent(
     initialMode: HomeworkMode? = null,
     initialSplit: Int = 1,
     lessonDays: List<String?> = emptyList(),
+    title: String? = null,
+    modifier: Modifier = Modifier,
 ) {
     // docs/HOMEWORK.md "Defaults": Both, due at the next logged lesson, else in two days — until the tutor picks.
     val defaults = sendDefaults(today, lessonDays)
@@ -164,29 +169,71 @@ fun SendHomeworkContent(
         error = o.error
     }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (pendingDeck == null && pendingLesson == null) {
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(4.dp)) {
-                listOf("📚 A deck", "🎓 A lesson", "🔗 A link").forEachIndexed { i, label ->
-                    Text(
-                        label,
-                        color = if (tab == i) Lab.colors.ink else Lab.colors.muted,
-                        fontWeight = if (tab == i) FontWeight.SemiBold else FontWeight.Normal,
-                        modifier = Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(11.dp))
-                            .background(if (tab == i) Lab.colors.card else Color.Transparent)
-                            .bouncyClickable { tab = i; if (i == 1) actions.loadLibrary() }
-                            .padding(vertical = 12.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
+    val deck = pendingDeck
+    val lesson = pendingLesson
+    val existingCopy = deck?.let { d -> sharedDecks.firstOrNull { it.source_deck_id == d.id } }
+    // The pinned footer (SheetScaffold): the Send / Assign / Update button never scrolls away,
+    // however long the deck list or the options above it are.
+    val footer: (@Composable RowScope.() -> Unit)? = when {
+        deck != null && existingCopy != null -> {
+            {
+                SecondaryPill("Back", Modifier.weight(1f).height(52.dp), enabled = !busy) { pendingDeck = null }
+                PrimaryPill(if (busy) "Updating…" else "Update their copy" + if (existingCopy.notes_missing > 0) " (+${existingCopy.notes_missing})" else "", Modifier.weight(2f).height(52.dp), enabled = !busy && online) {
+                    busy = true; error = null; actions.updateCopy(deck, existingCopy, done)
                 }
             }
         }
-        if (!online) InlineNotice("You're offline — homework can't be sent right now.", kind = NoticeKind.Offline)
-        result?.let { InlineNotice(it, kind = NoticeKind.Success) }
-        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+        deck != null -> {
+            {
+                SecondaryPill("Back", Modifier.weight(1f).height(52.dp), enabled = !busy) { pendingDeck = null }
+                PrimaryPill(if (busy) "Sending…" else if (deck.name.length <= 16) "Send ${deck.name}" else "Send deck", Modifier.weight(2f).height(52.dp), enabled = !busy && online) {
+                    busy = true; error = null; actions.sendDeck(deck, opts, done)
+                }
+            }
+        }
+        lesson != null -> {
+            {
+                SecondaryPill("Back", Modifier.weight(1f).height(52.dp), enabled = !busy) { pendingLesson = null }
+                PrimaryPill(if (busy) "Assigning…" else "Assign lesson", Modifier.weight(2f).height(52.dp), enabled = !busy && online) {
+                    busy = true; error = null; actions.assignLesson(lesson, opts, done)
+                }
+            }
+        }
+        else -> null
+    }
 
-        val deck = pendingDeck
-        val lesson = pendingLesson
+    SheetScaffold(
+        modifier,
+        header = {
+            if (title != null) SheetTitle(title)
+            if (pendingDeck == null && pendingLesson == null) {
+                Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 4.dp)) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(4.dp)) {
+                        listOf("📚 A deck", "🎓 A lesson", "🔗 A link").forEachIndexed { i, label ->
+                            Text(
+                                label,
+                                color = if (tab == i) Lab.colors.ink else Lab.colors.muted,
+                                fontWeight = if (tab == i) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(11.dp))
+                                    .background(if (tab == i) Lab.colors.card else Color.Transparent)
+                                    .bouncyClickable { tab = i; if (i == 1) actions.loadLibrary() }
+                                    .padding(vertical = 12.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        footerAbove = if (result == null && error == null && online) null else {
+            {
+                if (!online) InlineNotice("You're offline — homework can't be sent right now.", kind = NoticeKind.Offline)
+                result?.let { InlineNotice(it, kind = NoticeKind.Success) }
+                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+            }
+        },
+        footer = footer,
+    ) {
         AnimatedContent(Triple(deck, lesson, tab), label = "send") { (d, l, t) ->
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when {
@@ -214,18 +261,10 @@ fun SendHomeworkContent(
                             }
                         }
                         if (existing != null) {
-                            PrimaryPill(if (busy) "Updating…" else "Update their copy" + if (existing.notes_missing > 0) " (+${existing.notes_missing})" else "", Modifier.fillMaxWidth().height(52.dp), enabled = !busy && online) {
-                                busy = true; error = null; actions.updateCopy(d, existing, done)
-                            }
                             SecondaryPill(if (busy) "Sending…" else "Send a second copy anyway", Modifier.fillMaxWidth(), enabled = !busy && online) {
                                 busy = true; error = null; actions.sendDeck(d, opts, done)
                             }
-                        } else {
-                            PrimaryPill(if (busy) "Sending…" else "Send ${d.name}", Modifier.fillMaxWidth().height(52.dp), enabled = !busy && online) {
-                                busy = true; error = null; actions.sendDeck(d, opts, done)
-                            }
                         }
-                        SecondaryPill("Back", Modifier.fillMaxWidth(), enabled = !busy) { pendingDeck = null }
                     }
                     l != null -> {
                         Text("Assign ${l.title} to $studentName?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
@@ -235,10 +274,6 @@ fun SendHomeworkContent(
                             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
                         )
                         ModePicker(mode, { mode = it }, dueDate, { chosenDue = it }, today, null, 1, nextLesson = defaults.nextLesson) {}
-                        PrimaryPill(if (busy) "Assigning…" else "Assign lesson", Modifier.fillMaxWidth().height(52.dp), enabled = !busy && online) {
-                            busy = true; error = null; actions.assignLesson(l, opts, done)
-                        }
-                        SecondaryPill("Back", Modifier.fillMaxWidth(), enabled = !busy) { pendingLesson = null }
                     }
                     t == 2 -> LinkSendForm(
                         studentName, today, defaults.dueDate, defaults.nextLesson, online, busy,
@@ -288,9 +323,9 @@ fun SendHomeworkContent(
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
     }
 }
+
 
 @Composable
 private fun OptionRow(title: String, meta: String, enabled: Boolean, onClick: () -> Unit) {

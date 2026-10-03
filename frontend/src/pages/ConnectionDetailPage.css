@@ -219,49 +219,38 @@
   margin-left: 0.5rem;
 }
 
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  z-index: 1000;
-}
-
-.modal {
+/* New-conversation modal. Scoped: this file stays loaded after the page is
+   left, and unscoped .modal rules here used to restyle every other modal. */
+.connection-modal {
+  --sheet-pad: 1.5rem;
   background: white;
   border-radius: 0.75rem;
   padding: 1.5rem;
   width: 100%;
   max-width: 400px;
   max-height: 80vh;
+  max-height: 80dvh;
   overflow-y: auto;
 }
 
-.modal h3 {
+.connection-modal h3 {
   margin: 0 0 1rem 0;
   font-size: 1.25rem;
 }
 
-.modal .form-group {
+.connection-modal .form-group {
   margin-bottom: 1rem;
 }
 
-.modal label {
+.connection-modal label {
   display: block;
   margin-bottom: 0.5rem;
   font-weight: 500;
   font-size: 0.875rem;
 }
 
-.modal input[type="text"],
-.modal textarea {
+.connection-modal input[type="text"],
+.connection-modal textarea {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid var(--border-color, #e5e5e5);
@@ -270,13 +259,13 @@
   font-family: inherit;
 }
 
-.modal textarea {
+.connection-modal textarea {
   resize: vertical;
   min-height: 80px;
 }
 
-.modal input[type="text"]:focus,
-.modal textarea:focus {
+.connection-modal input[type="text"]:focus,
+.connection-modal textarea:focus {
   outline: none;
   border-color: var(--primary-color, #3b82f6);
 }
@@ -288,8 +277,9 @@
   color: var(--text-light, #666);
 }
 
-.modal-actions {
+.connection-modal .modal-actions {
   display: flex;
+  flex-direction: row;
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 1rem;

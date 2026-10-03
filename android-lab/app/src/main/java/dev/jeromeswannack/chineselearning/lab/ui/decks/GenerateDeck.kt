@@ -27,6 +27,7 @@ import dev.jeromeswannack.chineselearning.lab.data.NoteDto
 import dev.jeromeswannack.chineselearning.lab.ui.cards.Field
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
+import dev.jeromeswannack.chineselearning.lab.ui.kit.FormScreen
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
 import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
@@ -144,27 +145,31 @@ fun GenerateDeckScreen(ui: GenerateUi, actions: GenerateActions) {
         }
         return
     }
-    LabScreen("Generate with Claude", subtitle = "Describe what you want to learn and Claude will make a deck of cards with audio.", onBack = actions.onBack) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Field("What do you want to learn?", ui.prompt, lines = 4, hint = "e.g. Vocabulary for ordering food at a Chinese restaurant", onChange = actions.onPrompt)
-                Field("Deck name (optional)", ui.deckName, hint = "Leave blank to auto-generate", onChange = actions.onDeckName)
+    FormScreen(
+        "Generate with Claude",
+        subtitle = "Describe what you want to learn and Claude will make a deck of cards with audio.",
+        onBack = actions.onBack,
+        footerAbove = if (ui.error == null && ui.online) null else {
+            {
                 ui.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
                 if (!ui.online) InlineNotice("You're offline. AI generation requires an internet connection.", kind = NoticeKind.Offline)
-                PrimaryPill(
-                    if (ui.busy) "Generating… (about 30 s)" else "✨ Generate deck",
-                    Modifier.fillMaxWidth().height(56.dp),
-                    enabled = ui.online && ui.prompt.isNotBlank() && !ui.busy,
-                ) { actions.onGenerate() }
             }
-        }
-        item { SectionHeader("Example prompts") }
-        item {
-            LabCard {
-                GenerateDeckViewModel.EXAMPLES.forEachIndexed { i, e ->
-                    if (i > 0) RowDivider()
-                    NavRow("💡", e, onClick = { actions.onPrompt(e) })
-                }
+        },
+        footer = {
+            PrimaryPill(
+                if (ui.busy) "Generating… (about 30 s)" else "✨ Generate deck",
+                Modifier.weight(1f).height(56.dp),
+                enabled = ui.online && ui.prompt.isNotBlank() && !ui.busy,
+            ) { actions.onGenerate() }
+        },
+    ) {
+        Field("What do you want to learn?", ui.prompt, lines = 4, hint = "e.g. Vocabulary for ordering food at a Chinese restaurant", onChange = actions.onPrompt)
+        Field("Deck name (optional)", ui.deckName, hint = "Leave blank to auto-generate", onChange = actions.onDeckName)
+        SectionHeader("Example prompts")
+        LabCard {
+            GenerateDeckViewModel.EXAMPLES.forEachIndexed { i, e ->
+                if (i > 0) RowDivider()
+                NavRow("💡", e, onClick = { actions.onPrompt(e) })
             }
         }
     }

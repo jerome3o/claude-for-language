@@ -227,7 +227,7 @@ export function LessonNotesSheet({ relId, studentName, onClose }: { relId: strin
           </label>
           {error && <div className="td-error" role="alert">{error}</div>}
           {!isOnline && <div className="td-error">You&rsquo;re offline — the notes can be saved once you&rsquo;re back online.</div>}
-          <div className="sn-actions">
+          <div className="sn-actions sheet-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={tooShort || save.isPending || !isOnline} data-testid="ln-submit">
               {save.isPending ? 'Saving…' : draft ? 'Save & draft homework' : 'Save notes'}

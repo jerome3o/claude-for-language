@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +33,8 @@ import dev.jeromeswannack.chineselearning.lab.data.NoteEntity
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteAudioRecordingDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteUpdate
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
@@ -59,11 +59,15 @@ class EditCardActions(
 /** Edit card (components/CardEditModal.tsx) as a full-height sheet. */
 @Composable
 fun EditCardSheet(note: NoteEntity, aiAvailable: Boolean, actions: EditCardActions, onDismiss: () -> Unit) {
-    LabBottomSheet(onDismiss = onDismiss) { EditCardForm(note, aiAvailable, actions, onDismiss) }
+    LabSheetFrame(onDismiss = onDismiss) { EditCardForm(note, aiAvailable, actions, onDismiss) }
 }
 
+/**
+ * The edit-card form: title + delete strip fixed, fields scrolling, Cancel / Save pinned at the
+ * bottom ([SheetScaffold]) — Save is reachable without scrolling however long the card is.
+ */
 @Composable
-fun EditCardForm(note: NoteEntity, aiAvailable: Boolean, actions: EditCardActions, onDismiss: () -> Unit, loadRecordings: Boolean = true) {
+fun EditCardForm(note: NoteEntity, aiAvailable: Boolean, actions: EditCardActions, onDismiss: () -> Unit, loadRecordings: Boolean = true, modifier: Modifier = Modifier) {
     var hanzi by remember { mutableStateOf(note.hanzi) }
     var pinyin by remember { mutableStateOf(note.pinyin) }
     var english by remember { mutableStateOf(note.english) }
@@ -83,28 +87,57 @@ fun EditCardForm(note: NoteEntity, aiAvailable: Boolean, actions: EditCardAction
     fun reloadRecordings() = scope.launch { recordings = runCatching { actions.recordings() }.getOrElse { emptyList() } }
     LaunchedEffect(note.id) { if (loadRecordings && aiAvailable && actions.media == null) reloadRecordings() else recordings = emptyList() }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Edit card", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.weight(1f))
-            TextButton(onClick = { confirmDelete = !confirmDelete }) { Text("🗑 Delete note", color = Palette.Again) }
+    fun save() {
+        saving = true
+        error = null
+        val clueValue = clue.trim().ifEmpty { null }
+        val update = NoteUpdate(
+            hanzi = hanzi, pinyin = pinyin, english = english,
+            funFacts = funFacts.ifEmpty { null },
+            sentenceClue = clueValue,
+            sentenceCluePinyin = cluePinyin.trim().ifEmpty { null },
+            sentenceClueTranslation = clueTranslation.trim().ifEmpty { null },
+            sentenceClueAudioUrl = clueAudio,
+            alternatives = CardExtrasLogic.alternativesJson(alternatives),
+        )
+        scope.launch {
+            try { actions.save(update); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { saving = false }
         }
-        AnimatedVisibility(confirmDelete) {
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.Again.copy(alpha = 0.1f)).padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("Delete this note and all three of its cards?", color = Lab.colors.ink, style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SecondaryPill("Delete", Modifier.weight(1f).height(46.dp), enabled = !saving && aiAvailable, danger = true) {
-                        saving = true
-                        scope.launch {
-                            try { actions.delete(); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { saving = false }
+    }
+
+    SheetScaffold(
+        modifier,
+        header = {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Edit card", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { confirmDelete = !confirmDelete }) { Text("🗑 Delete note", color = Palette.Again) }
+                }
+                AnimatedVisibility(confirmDelete) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.Again.copy(alpha = 0.1f)).padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Delete this note and all three of its cards?", color = Lab.colors.ink, style = MaterialTheme.typography.bodyMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SecondaryPill("Delete", Modifier.weight(1f).height(46.dp), enabled = !saving && aiAvailable, danger = true) {
+                                saving = true
+                                scope.launch {
+                                    try { actions.delete(); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { saving = false }
+                                }
+                            }
+                            SecondaryPill("Keep it", Modifier.weight(1f).height(46.dp)) { confirmDelete = false }
                         }
                     }
-                    SecondaryPill("Keep it", Modifier.weight(1f).height(46.dp)) { confirmDelete = false }
                 }
             }
-        }
+        },
+        footerAbove = error?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
+        footer = {
+            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), onClick = onDismiss)
+            PrimaryPill(if (saving) "Saving…" else "Save", Modifier.weight(1f).height(52.dp), enabled = !saving && aiAvailable && hanzi.isNotBlank()) { save() }
+        },
+    ) {
         if (!aiAvailable) InlineNotice("You're offline — edits need a connection.", kind = NoticeKind.Offline)
 
         Field("Hanzi", hanzi) { hanzi = it }
@@ -160,28 +193,6 @@ fun EditCardForm(note: NoteEntity, aiAvailable: Boolean, actions: EditCardAction
             }
         }
 
-        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 4.dp)) {
-            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), onClick = onDismiss)
-            PrimaryPill(if (saving) "Saving…" else "Save", Modifier.weight(1f).height(52.dp), enabled = !saving && aiAvailable && hanzi.isNotBlank()) {
-                saving = true
-                error = null
-                val clueValue = clue.trim().ifEmpty { null }
-                val update = NoteUpdate(
-                    hanzi = hanzi, pinyin = pinyin, english = english,
-                    funFacts = funFacts.ifEmpty { null },
-                    sentenceClue = clueValue,
-                    sentenceCluePinyin = cluePinyin.trim().ifEmpty { null },
-                    sentenceClueTranslation = clueTranslation.trim().ifEmpty { null },
-                    sentenceClueAudioUrl = clueAudio,
-                    alternatives = CardExtrasLogic.alternativesJson(alternatives),
-                )
-                scope.launch {
-                    try { actions.save(update); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { saving = false }
-                }
-            }
-        }
-        Spacer(Modifier.width(1.dp))
     }
 }
 

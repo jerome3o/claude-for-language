@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,7 +43,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFormSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
@@ -64,7 +66,19 @@ fun PhotoCropSheet(
 ) {
     val image = remember(photo) { photo.asImageBitmap() }
     var crop by remember(photo) { mutableStateOf<ProfileRules.Crop?>(null) }
-    LabBottomSheet(onDismiss = { if (!busy) onCancel() }, title = "Position your photo") {
+    LabFormSheet(
+        onDismiss = { if (!busy) onCancel() },
+        title = "Position your photo",
+        contentPadding = PaddingValues(0.dp),
+        spacing = 0.dp,
+        footerAbove = error?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
+        footer = {
+            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), enabled = !busy, onClick = onCancel)
+            PrimaryPill(if (busy) "Uploading…" else "Use this photo", Modifier.weight(1f).height(52.dp), enabled = !busy && crop != null) {
+                crop?.let { onConfirm(ProfileRules.sourceRect(it)) }
+            }
+        },
+    ) {
         Text(
             "Drag to move · pinch or use the slider to zoom",
             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
@@ -117,13 +131,6 @@ fun PhotoCropSheet(
                 colors = SliderDefaults.colors(thumbColor = Lab.colors.accent, activeTrackColor = Lab.colors.accent),
             )
             Text("+", style = MaterialTheme.typography.titleLarge, color = Lab.colors.muted)
-        }
-        error?.let { InlineNotice(it, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), kind = NoticeKind.Error) }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryPill("Cancel", Modifier.weight(1f), enabled = !busy, onClick = onCancel)
-            PrimaryPill(if (busy) "Uploading…" else "Use this photo", Modifier.weight(1f), enabled = !busy && crop != null) {
-                crop?.let { onConfirm(ProfileRules.sourceRect(it)) }
-            }
         }
     }
 }
