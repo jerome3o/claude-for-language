@@ -329,7 +329,7 @@ total time, and a **speed chip 1× → 1.5× → 2×** (remembered on the device
   Chinese text would only ever hit a chip.
 - "A quick tap" on the mic = released within 250 ms; the menu is a bottom sheet at every width (the message is shown
   lifted inside it); the voice transcript stays a card under the bubble.
-## Round 2 — PR 3: the rest of a normal chat app (migration 0094_chat_forward.sql)
+## Round 2 — PR 3: the rest of a normal chat app (migration 0095_chat_forward.sql)
 
 ```sql
 ALTER TABLE messages ADD COLUMN forwarded_from TEXT;   -- the source message of a forward
