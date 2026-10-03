@@ -21,3 +21,17 @@ The student's Settings → New cards a day: the tutor's numbers with "Set by Min
 
 ![Student chat](06-student-chat-message.png)
 The chat message the tutor's change posts (normal send path: unread badge, push).
+
+## Lab app (Roborazzi)
+
+![Lab tutor row](lab-01-row.png)
+Student page: "Daily new cards" row with Edit.
+
+![Lab edit sheet](lab-02-sheet.png)
+The sheet's content: blue / purple steppers, live hint, Reset to default, Save.
+
+![Lab settings](lab-03-settings.png)
+Student Settings: "Set by Minghui · 3 Oct".
+
+![Lab dashboard chip](lab-04-dashboard-chip.png)
+Students dashboard chip "📚 5 + 10 a day".

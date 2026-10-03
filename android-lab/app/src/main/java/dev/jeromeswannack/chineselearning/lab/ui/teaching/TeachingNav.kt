@@ -275,6 +275,8 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
     val removal by vm.removal.sheet.collectAsStateWithLifecycle()
     val toast by vm.removal.toast.collectAsStateWithLifecycle()
     var profileEditor by remember { mutableStateOf<StudentProfileFields?>(null) }
+    val budget by vm.budget.resource.state.collectAsStateWithLifecycle()
+    var budgetEditor by remember { mutableStateOf(false) }
     val student = rel.studentUser()
     val name = overview.data?.let { studentName(it) } ?: student?.name ?: student?.email ?: "Student"
 
@@ -314,6 +316,10 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
                     name, profile.data?.profile, profile.data != null, profile.error,
                     StudentProfileActions(edit = { profileEditor = it }, retry = { vm.profile.resource.refresh() }),
                 )
+            },
+            dailyBudget = {
+                val info = (budget.data?.budget ?: overview.data?.study_budget)?.toInfo()
+                DailyBudgetRow(info, budget.error ?: overview.error, onEdit = { budgetEditor = true }, onRetry = { vm.budget.resource.refresh() })
             },
             lessonNotes = {
                 LessonNotesSection(
@@ -363,6 +369,12 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             save = { fields, done -> vm.profile.save(fields, done) },
             onDismiss = { profileEditor = null },
         )
+    }
+    if (budgetEditor) {
+        // The overview's copy is enough to edit with until GET …/student-study-budget (with the hint's top deck) arrives.
+        val data = budget.data ?: overview.data?.study_budget?.let { dev.jeromeswannack.chineselearning.lab.data.api.StudentStudyBudgetDto(budget = it) }
+        if (data != null) DailyBudgetSheet(data, online, save = { n, sec, done -> vm.budget.save(n, sec, done) }, onDismiss = { budgetEditor = false })
+        else budgetEditor = false
     }
     if (showNotesSheet) {
         LessonNotesSheet(name, online, save = { notes, title, at, draft, done ->

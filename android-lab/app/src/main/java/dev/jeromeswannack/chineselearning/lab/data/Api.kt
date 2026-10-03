@@ -35,6 +35,8 @@ data class MeDto(
     val conversation_voices: List<String>? = null,
     /** A new chat message also sends an e-mail (Settings → Notifications → Chat e-mails; docs/CHAT.md). */
     val email_chat_messages: Boolean = true,
+    /** The budget with who set it (a tutor can change it: shared/decks/tutor-budget.ts); null from an older server. */
+    val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
 )
 
 @Serializable
@@ -88,6 +90,8 @@ data class ChangesDto(
     /** Every deck id the account has, and when that list was taken (ghost decks: [core.GhostDecks]). */
     val live_deck_ids: List<String>? = null,
     val live_deck_ids_at: String? = null,
+    /** The account's daily new-card budget, so a tutor's change applies on the next sync (null from an older server). */
+    val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
 )
 
 @Serializable

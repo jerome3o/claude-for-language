@@ -10,7 +10,6 @@ import dev.jeromeswannack.chineselearning.lab.data.HttpException
 import dev.jeromeswannack.chineselearning.lab.data.api.AudioQualityDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FeatureRequestDetailDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FeatureRequestDto
-import dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetDto
 import dev.jeromeswannack.chineselearning.lab.data.api.audioQuality
 import dev.jeromeswannack.chineselearning.lab.data.api.classifyAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.commentOnFeatureRequest
@@ -21,7 +20,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.featureRequests
 import dev.jeromeswannack.chineselearning.lab.data.api.problems
 import dev.jeromeswannack.chineselearning.lab.data.api.regenerateFallbackAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.saveLandingPage
-import dev.jeromeswannack.chineselearning.lab.data.api.saveStudyBudget
+import dev.jeromeswannack.chineselearning.lab.data.api.saveOwnStudyBudget
+import dev.jeromeswannack.chineselearning.lab.core.StudyBudgetInfo
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.settings.SettingsStore
 import kotlinx.coroutines.CancellationException
@@ -44,6 +44,8 @@ data class SettingsUi(
     val budgetDraft: StudyBudget = StudyBudget.DEFAULT,
     val budgetBusy: Busy = Busy(),
     val budgetSavedFlash: Boolean = false,
+    /** Who set the saved budget: "Set by Minghui · 3 Oct" while the numbers are the tutor's (TutorBudget.budgetSetByLabel). */
+    val budgetInfo: StudyBudgetInfo? = null,
     /** study | students | decks, null = automatic. */
     val landing: String? = null,
     val landingBusy: Busy = Busy(),
@@ -72,6 +74,7 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
         SettingsUi(
             budget = app.prefs.budget,
             budgetDraft = app.prefs.budget,
+            budgetInfo = app.prefs.budgetInfo,
             landing = app.prefs.landingPage,
             lastExportAt = store.lastExportAt,
             lastExportSize = store.lastExportSize,
@@ -90,6 +93,7 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
                 _ui.update { u ->
                     u.copy(
                         budget = saved,
+                        budgetInfo = app.prefs.budgetInfo,
                         budgetDraft = if (u.budgetDraft == u.budget) saved else u.budgetDraft,
                         landing = if (u.landingBusy.busy) u.landing else app.prefs.landingPage,
                     )
@@ -113,10 +117,11 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
         val draft = _ui.value.budgetDraft
         _ui.update { it.copy(budgetBusy = Busy(busy = true)) }
         try {
-            val saved = call { app.repo.api.saveStudyBudget(StudyBudgetDto(draft.newCardsPerDay, draft.secondaryCardsPerDay)) }
-            val b = StudyBudget(saved.new_cards_per_day, saved.secondary_cards_per_day)
-            app.prefs.budget = b // the study queue reads this (one source of truth, refreshed on sync)
-            _ui.update { it.copy(budget = b, budgetDraft = b, budgetBusy = Busy(), budgetSavedFlash = true) }
+            // Last write wins: saving here replaces a tutor's numbers (and clears "Set by …").
+            val info = call { app.repo.api.saveOwnStudyBudget(draft.newCardsPerDay, draft.secondaryCardsPerDay) }.toInfo()
+            val b = info.budget
+            app.prefs.budgetInfo = info // the study queue reads prefs.budget (one source of truth, refreshed on sync)
+            _ui.update { it.copy(budget = b, budgetDraft = b, budgetInfo = info, budgetBusy = Busy(), budgetSavedFlash = true) }
             app.haptics.correct()
             delay(2500)
             _ui.update { it.copy(budgetSavedFlash = false) }

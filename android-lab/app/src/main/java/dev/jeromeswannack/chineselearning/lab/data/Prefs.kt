@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.data
 
 import android.content.Context
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
+import dev.jeromeswannack.chineselearning.lab.core.StudyBudgetInfo
 
 /** Small key-value state: session token, sync cursors, budget, toggles. */
 class Prefs(context: Context) {
@@ -60,6 +61,33 @@ class Prefs(context: Context) {
             sp.getInt("budget_secondary", StudyBudget.DEFAULT.secondaryCardsPerDay),
         )
         set(v) = sp.edit().putInt("budget_new", v.newCardsPerDay).putInt("budget_secondary", v.secondaryCardsPerDay).apply()
+
+    /**
+     * The budget with who set it (`StudyBudgetInfo` from /api/auth/me, /api/sync/changes or a
+     * save): Settings shows "Set by Minghui · 3 Oct" from it. Writing it also writes [budget].
+     */
+    var budgetInfo: StudyBudgetInfo
+        get() {
+            val b = budget
+            return StudyBudgetInfo(
+                newCardsPerDay = b.newCardsPerDay,
+                secondaryCardsPerDay = b.secondaryCardsPerDay,
+                isDefault = sp.getBoolean("budget_is_default", b == StudyBudget.DEFAULT),
+                setById = sp.getString("budget_set_by_id", null),
+                setByName = sp.getString("budget_set_by_name", null),
+                setByTutor = sp.getBoolean("budget_set_by_tutor", false),
+                setAt = sp.getString("budget_set_at", null),
+            )
+        }
+        set(v) = sp.edit()
+            .putInt("budget_new", v.newCardsPerDay)
+            .putInt("budget_secondary", v.secondaryCardsPerDay)
+            .putBoolean("budget_is_default", v.isDefault)
+            .putString("budget_set_by_id", v.setById)
+            .putString("budget_set_by_name", v.setByName)
+            .putBoolean("budget_set_by_tutor", v.setByTutor)
+            .putString("budget_set_at", v.setAt)
+            .apply()
 
     /** Epoch ms of the last full sync (0 = never). */
     var lastFullSync: Long

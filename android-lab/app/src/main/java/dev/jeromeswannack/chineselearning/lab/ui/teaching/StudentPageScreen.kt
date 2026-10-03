@@ -111,6 +111,8 @@ data class StudentPageUi(
     val lessonNotes: (@Composable () -> Unit)? = null,
     /** The tutor's private student profile (StudentProfileSection) — rendered just before the lesson notes. */
     val studentProfile: (@Composable () -> Unit)? = null,
+    /** "Daily new cards" — the student's budget row (DailyBudgetRow), rendered just before Homework. */
+    val dailyBudget: (@Composable () -> Unit)? = null,
 )
 
 data class StudentPageActions(
@@ -288,6 +290,7 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
     val o = ui.overview.data
     ui.studentProfile?.let { section -> item(key = "student-profile") { section() } }
     ui.lessonNotes?.let { section -> item(key = "lesson-notes") { section() } }
+    ui.dailyBudget?.let { row -> item(key = "daily-budget") { row() } }
     item(key = "homework") {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             TeachSectionTitle("Homework")

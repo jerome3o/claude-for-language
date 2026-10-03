@@ -191,7 +191,10 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
     private suspend fun refreshProfile() {
         val me = api.me()
         prefs.saveProfile(me)
-        prefs.budget = StudyBudget(me.new_cards_per_day.coerceIn(0, StudyBudget.MAX), me.secondary_cards_per_day.coerceIn(0, StudyBudget.MAX))
+        // A tutor may have changed it: the study queue and Home read prefs.budget, so her numbers apply today.
+        val info = me.study_budget?.toInfo()
+        if (info != null) prefs.budgetInfo = info
+        else prefs.budget = StudyBudget(me.new_cards_per_day.coerceIn(0, StudyBudget.MAX), me.secondary_cards_per_day.coerceIn(0, StudyBudget.MAX))
         me.conversation_voices?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.put(platform.cache, it) }
     }
 
@@ -262,6 +265,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
             val ghosts = db.withTransaction { SyncChanges.apply(dao, changes).also { LongTermStore.reapplyPending(dao, db.platform()) } }
             if (ghosts.isNotEmpty()) android.util.Log.i("LabSync", "Removed ${ghosts.size} decks the server no longer has: $ghosts")
         }
+        changes.study_budget?.let { prefs.budgetInfo = it.toInfo() }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).
         changes.cards.mapTo(dirty.ids) { it.id }
