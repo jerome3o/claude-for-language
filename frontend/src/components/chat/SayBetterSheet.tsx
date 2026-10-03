@@ -50,7 +50,7 @@ export function SayBetterSheet({
         english,
         note: correction.note,
         mistakes: sameAsCheck ? check.mistakes : [],
-        alternative: check?.alternative ?? null,
+        alternative: sameAsCheck ? check.alternative : null,
         card: { hanzi: correction.text, pinyin, english: english || message.translation || '', fun_facts: correction.note || undefined } as Chunk,
       };
     }
