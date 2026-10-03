@@ -12,6 +12,7 @@
 import type { Env } from '../../types';
 import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED, generateConversationTTS } from '../audio';
 import { hasHan } from '@shared/chats/listening';
+import { broadcastMessageUpdated, currentUpdatedAt, laterThan } from './messages';
 
 export interface MessageClipInput {
   id: string;
@@ -75,10 +76,13 @@ export async function ensureMessageClip(env: Env, msg: MessageClipInput, tts: Me
     if (!clip) return null;
     await env.AUDIO_BUCKET.put(key, clip.bytes, { httpMetadata: { contentType: clip.contentType } });
   }
-  await env.DB
-    .prepare('UPDATE messages SET audio_key = ? WHERE id = ? AND content = ? AND (audio_key IS NULL OR audio_key != ?)')
-    .bind(key, msg.id, msg.content, key)
+  const at = laterThan(await currentUpdatedAt(env.DB, msg.id));
+  const res = await env.DB
+    .prepare('UPDATE messages SET audio_key = ?, updated_at = ? WHERE id = ? AND content = ? AND deleted_at IS NULL AND (audio_key IS NULL OR audio_key != ?)')
+    .bind(key, at, msg.id, msg.content, key)
     .run();
+  // Devices learn `audio_clip` from the usual update and fetch the clip ahead of a tap.
+  if ((res.meta?.changes ?? 0) > 0 && env.CHAT_HUB) await broadcastMessageUpdated(env, msg.id).catch(() => undefined);
   return key;
 }
 

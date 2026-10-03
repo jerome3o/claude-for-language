@@ -190,6 +190,12 @@ describe('message clips', () => {
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([9, 9]));
     expect(db.rows("SELECT audio_key FROM messages WHERE id = 'm-3'")).toEqual([{ audio_key: key }]);
     expect((await app('stranger').request('/api/messages/m-3/audio', {}, env())).status).toBe(403);
+    expect(res.headers.get('X-Clip-Id')).toMatch(/^m-3-[0-9a-f]{16}$/);
+
+    // The background-prefetch list: the other person's ready clips only.
+    const clips = (await (await app(STUDENT).request('/api/me/chat-clips', {}, env())).json()) as { clips: unknown[] };
+    expect(clips.clips).toEqual([{ message_id: 'm-3', conversation_id: 'conv-1', clip: res.headers.get('X-Clip-Id') }]);
+    expect(((await (await app(TUTOR).request('/api/me/chat-clips', {}, env())).json()) as { clips: unknown[] }).clips).toEqual([]);
     expect((await app(STUDENT).request('/api/messages/nope/audio', {}, env())).status).toBe(404);
   });
 });

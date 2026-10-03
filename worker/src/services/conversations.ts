@@ -193,6 +193,7 @@ export async function getConversationById(
 // ============ Messages ============
 
 type MessageRow = {
+  audio_key?: string | null;
   id: string;
   conversation_id: string;
   sender_id: string;
@@ -226,6 +227,12 @@ type MessageRow = {
   has_discussion: number;
 };
 
+/** `chat-tts/<conv>/<msg>-<hash>.mp3` → `<msg>-<hash>`: the clip's id (clients cache by it; the R2 key itself is never sent). */
+export function clipIdOf(key: string | null | undefined): string | null {
+  const m = key ? /\/([^/]+)\.mp3$/.exec(key) : null;
+  return m ? m[1] : null;
+}
+
 /** Messages as the chat shows them (sender, reply, reactions), filtered by `where` (params after the viewer id). */
 async function queryMessages(
   db: D1Database,
@@ -238,7 +245,7 @@ async function queryMessages(
            m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
            m.translation, m.segmentation, m.client_id,
            m.updated_at, m.edited_at, m.deleted_at, m.attachment, m.pinned_at, m.pinned_by,
-           m.words, m.correction, m.forwarded_from,
+           m.words, m.correction, m.forwarded_from, m.audio_key,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
            rm.id as reply_id, rm.content as reply_content, rm.deleted_at as reply_deleted_at, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
@@ -284,6 +291,7 @@ async function queryMessages(
       pinned_at: row.pinned_at ?? null,
       pinned_by: row.pinned_by ?? null,
       forwarded_from: row.forwarded_from ?? null,
+      audio_clip: deleted ? null : clipIdOf(row.audio_key),
       words: words?.words ?? null,
       words_source: words?.source ?? null,
       correction: deleted ? null : parseCorrection(row.correction),
