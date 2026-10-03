@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import {
   askAboutNote,
@@ -2782,6 +2782,7 @@ export function StudyCard({
 export function StudyPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { isOnline } = useNetwork();
   // Clips play a few seconds apart all session; keep the output warm between them.
   useNativeOutputHold();
@@ -2912,15 +2913,22 @@ export function StudyPage() {
   // The close button just leaves: nothing ends. The card on screen (revealed or not, its answer,
   // a recording) and the undo are kept, and Study picks up right there next time
   // (services/studyResume.ts).
+  // It goes BACK to whatever was open before Study (Home, a deck, the coach…). It used to push a
+  // new "/" on top, which left Study underneath: the phone's back gesture from Home brought the
+  // same study screen up again, once per visit. Opened straight into Study (a link, the widget):
+  // Home replaces it.
   const leaveStudy = useCallback(() => {
-    navigate('/');
-  }, [navigate]);
+    // react-router keeps the in-app history index in history.state.idx (0 = the page load's entry).
+    const idx = (window.history.state as { idx?: number } | null)?.idx;
+    if (location.key !== 'default' && typeof idx === 'number' && idx > 0) navigate(-1);
+    else navigate('/', { replace: true });
+  }, [navigate, location.key]);
 
   // If study hasn't started (no autostart), redirect to home
   // The home page now handles deck selection and study initiation
   useEffect(() => {
     if (!studyStarted && !autostart) {
-      navigate('/');
+      navigate('/', { replace: true });
     }
   }, [studyStarted, autostart, navigate]);
 

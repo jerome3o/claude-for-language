@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 /** `/study?deck=` — the session (immersive: no tab bar). Package A. */
 fun NavGraphBuilder.studyGraph(nav: LabNav) {
     composable(
-        Routes.route("/study?deck={deck}"),
+        Routes.STUDY_ROUTE,
         arguments = listOf(navArgument("deck") { type = NavType.StringType; nullable = true; defaultValue = null }),
     ) { entry ->
         StudyRoute(

@@ -95,7 +95,7 @@ class DueWidgetProvider : AppWidgetProvider() {
         /** The widget's views for [model] at [size] (also what the screenshot test renders). */
         fun views(context: Context, model: ShellRules.WidgetModel, size: ShellRules.WidgetSize = ShellRules.WidgetSize.FULL): RemoteViews {
             val t = ShellRules.widgetText(model)
-            val study = ShellLinks.pending(context, 40, if (model.signedIn) ShellLinks.STUDY else "/")
+            val study = ShellLinks.softPending(context, 40, if (model.signedIn) ShellLinks.STUDY else "/")
             // Straight into the coach's sentence box with the keyboard up, at every size.
             val coach = ShellLinks.pending(context, 41, ShellLinks.COACH_TYPE)
             val homework = if (t.homework == null) null else {

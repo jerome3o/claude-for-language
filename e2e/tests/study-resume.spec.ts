@@ -82,3 +82,31 @@ test('leaving Study keeps the card; the coach and back; celebrate today once', a
   await expect(page.getByTestId('study-done')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('study-done')).toContainText('All done for now');
 });
+
+test('✕ goes back to the page Study was opened from — Study is never left under Home', async ({ page, request }) => {
+  const email = `leave-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Leave learner' } });
+  const token = auth.session_token;
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token, data: { name: '周末计划' } });
+  await api(request, `/api/decks/${deck.id}/notes`, {
+    method: 'POST', token, data: { hanzi: '打算', pinyin: 'dǎsuàn', english: 'to plan; to intend', fun_facts: '打 (dǎ) to do · 算 (suàn) to reckon' },
+  });
+
+  await page.goto(`/?session_token=${token}`);
+  await expect(page.getByText(/[1-9]\d* cards? due/)).toBeVisible({ timeout: 30000 });
+  // Home → Study → ✕, twice: it used to push a new "/" each time, leaving Study under Home.
+  for (let i = 0; i < 2; i++) {
+    await page.getByRole('button', { name: "Study today's cards" }).click();
+    await expect(page.getByTestId('study-close')).toBeVisible({ timeout: 30000 });
+    // The first card's one-time explainer may sit over the screen.
+    const gotIt = page.getByRole('button', { name: 'Got it' });
+    await page.waitForTimeout(500);
+    if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+    await page.getByTestId('study-close').click();
+    await expect(page).not.toHaveURL(/\/study/);
+  }
+  // The phone's back gesture from Home must not bring a study screen back.
+  await page.goBack().catch(() => null);
+  await page.waitForTimeout(500);
+  await expect(page).not.toHaveURL(/\/study/);
+});

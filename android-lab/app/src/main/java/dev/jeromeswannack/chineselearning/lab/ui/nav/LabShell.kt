@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,7 +44,10 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
  * (NavRules.tabsFor), the lit tab from the current path (activeTab), hidden on immersive
  * paths (isImmersiveRoute) and while the keyboard is up.
  *
- * [pendingPath] is a deep link (`chineselearning-lab:///decks/abc`) to open once the graph exists.
+ * [pending] is a link from outside (`chineselearning-lab:///decks/abc`, the widget, a notification)
+ * to apply once the graph exists ([LabNav.handle]). [restoreFrom] is the stack saved before the
+ * process died (a cold start without saved state, NavResume): rebuilt first when still fresh.
+ * The stack is saved on every move and whenever the app goes to the background.
  */
 @Composable
 fun LabShell(
@@ -51,8 +55,11 @@ fun LabShell(
     handoff: (String) -> Unit,
     onSignedOut: () -> Unit,
     onSignIn: () -> Unit,
-    pendingPath: String? = null,
-    onPathConsumed: () -> Unit = {},
+    pending: NavRequest? = null,
+    onPendingConsumed: () -> Unit = {},
+    restoreFrom: LastRoute? = null,
+    onRestored: () -> Unit = {},
+    onNav: (LabNav) -> Unit = {},
 ) {
     val vm: ShellViewModel = viewModel(factory = ShellViewModel.Factory(app))
     val shell by vm.state.collectAsStateWithLifecycle()
@@ -76,11 +83,35 @@ fun LabShell(
     }
     LaunchedEffect(path) { app.callAlerts.path = path }
 
-    LaunchedEffect(pendingPath) {
-        if (pendingPath != null) {
-            nav.open(pendingPath)
-            onPathConsumed()
+    LaunchedEffect(nav) { onNav(nav) }
+    val lastRoutes = remember(app) { LastRouteStore(app) }
+    // Where the app was, for a cold start (and a "go study" tap's freshness check): what was on
+    // screen when it was last in front. Read at launch; the first save below overwrites it.
+    val seenAt = remember { mutableStateOf(restoreFrom?.savedAt) }
+    LaunchedEffect(restoreFrom) {
+        if (restoreFrom != null) {
+            nav.restore(NavResume.stackToRestore(restoreFrom, System.currentTimeMillis(), nav.currentFullPath() ?: "/"))
+            onRestored()
         }
+    }
+    LaunchedEffect(pending) {
+        if (pending != null) {
+            nav.handle(pending, seenAt.value)
+            onPendingConsumed()
+        }
+    }
+    LaunchedEffect(controller) {
+        controller.currentBackStack.collect {
+            val paths = nav.stackPaths()
+            if (paths.isNotEmpty()) {
+                lastRoutes.save(paths)
+                seenAt.value = System.currentTimeMillis()
+            }
+        }
+    }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+        lastRoutes.save(nav.stackPaths())
+        seenAt.value = System.currentTimeMillis()
     }
 
     ShellFrame(

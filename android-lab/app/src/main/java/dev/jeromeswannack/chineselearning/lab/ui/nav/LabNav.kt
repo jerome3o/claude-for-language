@@ -1,6 +1,8 @@
 package dev.jeromeswannack.chineselearning.lab.ui.nav
 
+import android.net.Uri
 import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraph
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import dev.jeromeswannack.chineselearning.lab.LabApp
@@ -15,6 +17,9 @@ import kotlinx.coroutines.flow.StateFlow
  *   nav.back()
  *   nav.openInMainApp("/decks/$id")    // straight to the hybrid app / website
  */
+/** A link from outside the app; [soft] = a "go study" entry (see NavResume). */
+data class NavRequest(val path: String, val soft: Boolean = false)
+
 class LabNav(
     val app: LabApp,
     val controller: NavHostController,
@@ -33,6 +38,11 @@ class LabNav(
      */
     fun open(path: String) {
         val p = if (path.startsWith("/")) path else "/$path"
+        // Study is single-instance: never a second session under the first (Jerome's "I click the
+        // X, it slides down, and reveals the same study screen again").
+        if (NavResume.isStudy(p)) return openStudy(p)
+        // The same screen again (a double tap, the widget tapped twice, a repeated intent) stays one layer.
+        if (currentFullPath() == p) return
         if (tryNavigate(Routes.routeForPath(p))) return
         if (p.contains('?') && tryNavigate(Routes.routeForPath(p.substringBefore('?')))) return
         controller.navigate(Routes.placeholder(p))
@@ -78,6 +88,44 @@ class LabNav(
         if (!ok) controller.navigate(Routes.placeholder("/$route"))
     }
 
+    /**
+     * Opens Study with at most one Study entry on the stack: one already there (with the same
+     * deck) comes back to the top, whatever was opened over it closed; a Study for another deck
+     * replaces it. Closing Study then returns to whatever was open before it.
+     */
+    fun openStudy(path: String = Routes.study()) {
+        val p = if (path.startsWith("/")) path else "/$path"
+        val existing = controller.currentBackStack.value.lastOrNull { it.destination.route == Routes.STUDY_ROUTE }
+        if (existing != null) {
+            if (fullPathOf(existing) == p) {
+                controller.popBackStack(existing.destination.id, inclusive = false)
+                return
+            }
+            controller.popBackStack(existing.destination.id, inclusive = true)
+        }
+        if (!tryNavigate(Routes.routeForPath(p))) controller.navigate(Routes.placeholder(p))
+    }
+
+    /**
+     * A link from outside the app (MainActivity). [NavRequest.soft] ("go study": the widget, a
+     * reminder notification) leaves a fresh resumable activity on screen (NavResume); explicit
+     * links (a chat, a call) always open.
+     */
+    fun handle(request: NavRequest, seenAt: Long?, now: Long = System.currentTimeMillis()) {
+        if (request.soft && NavResume.softEntryStays(currentFullPath(), seenAt, now)) return
+        open(request.path)
+    }
+
+    /** Rebuilds a saved stack (bottom first) over the start screen — a cold start (NavResume). */
+    fun restore(paths: List<String>) = paths.forEach { runCatching { open(it) } }
+
+    /** The back stack as full web paths (with their query), bottom first — what LastRouteStore keeps. */
+    fun stackPaths(): List<String> =
+        controller.currentBackStack.value.filter { it.destination !is NavGraph }.map(::fullPathOf)
+
+    /** The full web path of the screen on top, query included ("/study?deck=abc"). */
+    fun currentFullPath(): String? = controller.currentBackStackEntry?.takeIf { it.destination !is NavGraph }?.let(::fullPathOf)
+
     fun back() {
         if (!controller.popBackStack()) controller.navigate(Routes.HOME_ROUTE)
     }
@@ -96,6 +144,26 @@ class LabNav(
 
     companion object {
         /** A back-stack entry as the web path it shows (placeholders report the path they stand in for). */
+        private val ARG = Regex("\\{([^}]+)\\}")
+        private val WHOLE_ARG = Regex("^\\{([^}]+)\\}$")
+
+        /** [pathOf] with the query the route declares ("/study?deck=abc", "/coach?draft=…"), ids encoded: re-openable. */
+        fun fullPathOf(entry: NavBackStackEntry): String {
+            val pattern = entry.destination.route ?: return "/"
+            val args = entry.arguments
+            if (pattern == Routes.PLACEHOLDER_ROUTE) return args?.getString("path") ?: "/"
+            if (pattern == Routes.HOME_ROUTE) return "/"
+            @Suppress("DEPRECATION")
+            fun arg(name: String): String? = args?.get(name)?.toString()
+            val base = pattern.substringBefore('?').replace(ARG) { m -> Uri.encode(arg(m.groupValues[1]).orEmpty()) }
+            val query = pattern.substringAfter('?', "").split('&').filter { it.isNotEmpty() }.mapNotNull { part ->
+                val name = WHOLE_ARG.find(part.substringAfter('=', ""))?.groupValues?.get(1) ?: return@mapNotNull null
+                val value = arg(name) ?: return@mapNotNull null
+                "${part.substringBefore('=')}=${Uri.encode(value)}"
+            }
+            return "/$base" + if (query.isEmpty()) "" else "?" + query.joinToString("&")
+        }
+
         fun pathOf(entry: NavBackStackEntry): String {
             val pattern = entry.destination.route ?: return "/"
             val args = entry.arguments
