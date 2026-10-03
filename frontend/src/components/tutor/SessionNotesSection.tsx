@@ -44,7 +44,7 @@ export function SessionNotesSection({ relId, studentName, showAll = false }: { r
       {jobsQuery.data && jobs.length === 0 && (
         <div className="sn-empty">
           After a lesson, paste your notes here. The assistant turns them into a deck of cards for {studentName} — and a mini lesson
-          when the notes show a grammar point with examples — then sends them as homework.
+          when the notes show a grammar point with examples — kept in your account until you press Send.
         </div>
       )}
 
