@@ -74,6 +74,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.async
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatActions as ChatWrites
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaStore
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatClips
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatReadAloud
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
+import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListening
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatWaveforms
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPhoto
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatVoiceRecorder
@@ -294,7 +298,19 @@ data class ChatUi(
     val fileErrors: Set<String> = emptySet(),
     /** The video bubble playing in place (message id, or "p-<clientId>"). */
     val playingVideo: String? = null,
+    // ---- listening mode (docs/CHAT.md "Listening mode") ----
+    val listening: ListeningUi = ListeningUi(),
 ) {
+    /** Listening mode belongs to chats with a person (Claude's replies are spoken already). */
+    val listeningAvailable: Boolean get() = !isAi && !otherIsClaude
+
+    /** Is [m] drawn as a hidden listening bubble (shared `shouldHideMessage`)? */
+    fun isHidden(m: ChatMessageDto): Boolean {
+        val me = myId ?: return false
+        if (!listeningAvailable) return false
+        return ChatListening.shouldHideMessage(ChatListeningStore.listeningMessage(m), me, listening.setting, listening.readMarkerAtOpen, listening.revealed)
+    }
+
     /** "🕓 1 message waiting for a connection" / "🕓 Sending 2 messages…" while this chat's outbox holds sends. */
     val queueLabel: String? get() = ChatRound3.queueLabel(pending, online)
 
@@ -352,6 +368,8 @@ data class ChatUi(
 class ChatViewModel(private val app: LabApp, private val relId: String, private val convId: String) : ViewModel() {
     private val _ui = MutableStateFlow(ChatUi())
     val ui: StateFlow<ChatUi> = _ui
+    /** Listening mode: the hidden bubbles' state + playback (ChatListeningMode.kt). */
+    val listening = ChatListeningMode(app, convId, viewModelScope, _ui, stopOthers = { stopAudio() }, notice = { error(it) }, voiceOf = { readAloudVoice(it) })
     private val api get() = app.repo.api
     private val cards = CardTools(app)
     private val media = ChatMediaStore.of(app)
@@ -359,8 +377,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private var pollJob: Job? = null
     private var player: MediaPlayer? = null
     private var progressJob: Job? = null
-    /** Read-aloud clips: the lessons' cache-first TTS (`/api/practice/tts`, files keyed by text + voice + speed). */
-    private val ttsClips get() = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).media
     /** Offline with no clip on the phone: the phone's own zh-CN voice of the sender's gender. */
     private val deviceVoice by lazy { dev.jeromeswannack.chineselearning.lab.fx.DeviceChineseVoice(app) }
     /** The other person's users.voice_gender (from the relationship, cached with it). */
@@ -389,6 +405,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     init {
         viewModelScope.launch { app.online.collect { o -> _ui.update { it.copy(online = o) }; if (o) flushOutbox() } }
+        listening.start()
         viewModelScope.launch { load() }
         viewModelScope.launch { Connections.markConversationRead(app, convId) }
         // The live socket (data/chat/ChatLive.kt): new / changed messages, read receipts, typing.
@@ -465,6 +482,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         if (cachedMsgs != null) {
             _ui.update { it.copy(loading = false, messages = cachedMsgs) }
             refreshPending()
+            listening.measureCached(cachedMsgs)
         }
         try {
             val rel = api.relationship(relId).also { cache.put(ConnectionsKeys.relationship(relId), ConnectionsKeys.KIND, it) }
@@ -486,6 +504,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 )
             }
             refreshPending()
+            // Listening mode: an undecided setting hides what was unread until now (stored as `since`); clips prefetched.
+            listening.onOpened(page.read_state?.me, _ui.value.messages)
             readHere()
             startPolling()
         } catch (e: Exception) {
@@ -614,6 +634,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         viewModelScope.launch { app.cache.put(messagesKey, KIND, _ui.value.messages.takeLast(CACHE_LIMIT)) }
         val fresh = list.filter { it.id !in before && it.sender_id != myId }
         if (fresh.isNotEmpty()) onIncomingWhileOpen(fresh.size)
+        // Their clips (cache-first; the live socket prefetches too, this covers polling).
+        if (fresh.isNotEmpty()) listening.prefetch(_ui.value.messages)
     }
 
     /** Re-reads the whole page (reactions, has_discussion changed on the server). */
@@ -1425,14 +1447,13 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
      * sender's voice gender → the first voice of that gender in MY conversation voices; Claude's
      * lines in a role-play chat keep the chat's persona voice. Never the legacy conversations.voice_id.
      */
-    private suspend fun readAloudVoice(m: ChatMessageDto): Pair<String, Double> {
+    internal suspend fun readAloudVoice(m: ChatMessageDto): Pair<String, Double> {
         val s = _ui.value
-        val fromAi = s.isAi && m.sender_id == CLAUDE_USER_ID
-        val gender = if (m.sender_id.isNotEmpty() && m.sender_id == s.myId) app.prefs.voiceGender else otherVoiceGender
-        val enabled = dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.get(app.cache)
         val c = s.conversation
-        return dev.jeromeswannack.chineselearning.lab.core.ChatVoice.voice(gender, enabled, fromAi, c?.voice_id) to
-            dev.jeromeswannack.chineselearning.lab.core.ChatVoice.speed(fromAi, c?.voice_speed)
+        return ChatReadAloud.voice(
+            app, senderIsMe = m.sender_id.isNotEmpty() && m.sender_id == s.myId, otherGender = otherVoiceGender,
+            fromAi = s.isAi && m.sender_id == CLAUDE_USER_ID, personaVoice = c?.voice_id, personaSpeed = c?.voice_speed,
+        )
     }
 
     /**
@@ -1448,7 +1469,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         viewModelScope.launch {
             val (voice, speed) = readAloudVoice(m)
             val online = app.online.value
-            val file = ttsClips.tts(text, voice, speed = speed, online = online)
+            // The same clip listening mode's tap plays (ChatReadAloud: one voice rule, one device cache).
+            val file = ChatClips.of(app).clip(text, voice, speed)
             if (_ui.value.playingId != m.id) return@launch
             if (file != null) { playFile(file, m.id); return@launch }
             if (online) {
@@ -1489,6 +1511,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     fun stopAudio() {
+        listening.stop()
         progressJob?.cancel()
         deviceVoice.stop()
         player?.runCatching { release() }
