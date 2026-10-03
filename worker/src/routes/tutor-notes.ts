@@ -2,13 +2,14 @@
  * Session notes → agent jobs (tutor-only). Mounted under /api after the auth
  * middleware, so c.get('user') is always set.
  *
- *   POST   /relationships/:relId/session-notes            { notes, title?, lesson_at?, priority?, auto_share?, log_lesson? } → 202 job
+ *   POST   /relationships/:relId/session-notes            { notes, title?, lesson_at?, priority?, auto_share? (default false), log_lesson? } → 202 job
  *   GET    /relationships/:relId/session-notes            { jobs } newest first (no transcripts)
  *   GET    /relationships/:relId/session-notes/:id        the job with steps + result
  *   POST   /relationships/:relId/session-notes/:id/retry  re-queue a failed / cancelled job (resumes from its checkpoint)
  *   POST   /relationships/:relId/session-notes/:id/cancel stop a queued / running job between rounds
+ *   POST   /relationships/:relId/session-notes/:id/send   { items?: ['deck' | 'lesson:<id>' | 'reader'], mode?, due_date?, today? } send what it made (default: everything unsent) as homework
  *   DELETE /relationships/:relId/session-notes/:id        forget the job (what it created stays)
- *   POST   /calls/:id/homework                           { priority?, auto_share?, log_lesson? } → 202 job from the call's transcript / board / chat / report
+ *   POST   /calls/:id/homework                           { priority?, auto_share? (default false), log_lesson? } → 202 job from the call's transcript / board / chat / report
  *   GET    /calls/:id/homework                           { jobs } made from this call
  *
  * The agent itself is services/tutor-notes-agent.ts, run by the
@@ -19,7 +20,9 @@ import { Hono } from 'hono';
 import type { Env, TutorRelationship } from '../types';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
 import * as jobs from '../db/tutor-notes-queries';
-import { submitSessionNotes, SubmitError, callNotesFor, lessonNotesFor } from '../services/tutor-notes-submit';
+import { submitSessionNotes, SubmitError, callNotesFor, lessonNotesFor, wantsAutoShare } from '../services/tutor-notes-submit';
+import { sendJobItems, SendJobError } from '../services/tutor-notes-send';
+import { HomeworkError } from '../services/homework';
 import { requireCall, getParticipants, CallError } from '../services/calls/store';
 import { lessonMaterial } from '../services/calls/lessons';
 
@@ -45,6 +48,7 @@ async function requireTutor(db: D1Database, relId: string, userId: string): Prom
 function errorResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown, fallback: string): Response {
   if (error instanceof HttpError || error instanceof SubmitError) return c.json({ error: error.message }, error.status);
   if (error instanceof CallError) return c.json({ error: error.message }, error.status);
+  if (error instanceof SendJobError || error instanceof HomeworkError) return c.json({ error: error.message }, error.status);
   const message = error instanceof Error ? error.message : fallback;
   console.error('[tutor-notes]', message);
   return c.json({ error: message }, 500);
@@ -87,7 +91,7 @@ tutorNotes.post('/relationships/:relId/session-notes', async (c) => {
       title: typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 120) : null,
       lessonAt: parseLessonAt(body.lesson_at),
       priority: body.priority === 'non_urgent' ? 'non_urgent' : 'core',
-      autoShare: body.auto_share !== false,
+      autoShare: wantsAutoShare(body),
       logLesson: body.log_lesson !== false,
     });
     return c.json({ job: jobJson(job) }, 202);
@@ -137,7 +141,7 @@ tutorNotes.post('/calls/:id/homework', async (c) => {
       title: title.slice(0, 120),
       lessonAt: startedAt ? new Date(startedAt).toISOString() : null,
       priority: body.priority === 'non_urgent' ? 'non_urgent' : 'core',
-      autoShare: body.auto_share !== false,
+      autoShare: wantsAutoShare(body),
       logLesson: body.log_lesson !== false,
       sourceCallId: calls[0].id,
     });
@@ -229,6 +233,25 @@ tutorNotes.post('/relationships/:relId/session-notes/:id/cancel', async (c) => {
     return c.json({ job: jobJson(updated!) });
   } catch (error) {
     return errorResponse(c, error, 'Failed to cancel the job');
+  }
+});
+
+/**
+ * The explicit send: what the job made goes to the student as homework
+ * (services/tutor-notes-send.ts → assignHomework, like the Send homework sheet).
+ */
+tutorNotes.post('/relationships/:relId/session-notes/:id/send', async (c) => {
+  try {
+    const relId = c.req.param('relId');
+    await requireTutor(c.env.DB, relId, c.get('user').id);
+    const job = await jobs.getJobInRelationship(c.env.DB, relId, c.req.param('id'));
+    if (!job) throw new HttpError(404, 'Job not found');
+    const body = await c.req.json<{ items?: unknown; mode?: unknown; due_date?: unknown; today?: unknown }>().catch(() => ({} as Record<string, unknown>));
+    const keys = Array.isArray(body.items) ? body.items.filter((k): k is string => typeof k === 'string') : null;
+    const out = await sendJobItems(c.env, job, { keys, mode: body.mode, due_date: body.due_date, today: body.today });
+    return c.json({ job: jobJson(out.job), sent: out.sent, assignments: out.result.assignments, skipped: out.result.skipped, errors: out.result.errors, copies: out.result.copies });
+  } catch (error) {
+    return errorResponse(c, error, 'Failed to send to the student');
   }
 });
 

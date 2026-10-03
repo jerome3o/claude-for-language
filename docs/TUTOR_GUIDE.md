@@ -17,12 +17,20 @@ each picture.
 
 If you have read this guide before, these are the sections that changed:
 
+**Create, then send (3 Oct)**
+
+- Whatever you make — with Claude, the assistant, or by hand — is **made in your own
+  account and sent to nobody** until you say so. Session-notes results now wait for
+  **Send to <student>** (or **Send all**) on the result; Claude only sends when you ask it
+  to send *that* item to *that* student — [section 8](#session-notes--homework-written-by-the-assistant),
+  [section 13](#13-claude-as-your-teaching-assistant-the-mcp-connection).
+
 **Session notes → homework (26 Sep)**
 
 - Paste your **raw lesson notes** on the student page and an assistant builds the
   homework in the background: a deck of standard cards for the words you taught (skipping
   what the student already knows), a mini lesson only when the notes show a grammar point
-  with examples, and sends them to the student — [section 8](#session-notes--homework-written-by-the-assistant).
+  with examples — kept in your account until you send them — [section 8](#session-notes--homework-written-by-the-assistant).
 
 **New look**
 
@@ -859,10 +867,11 @@ and let the assistant do the rest.
    you wrote during the lesson — any length, any format, Chinese and English mixed,
    corrections, "he keeps confusing X and Y", a homework line. You can also attach a text
    file. Add a title and the lesson date if you like.
-2. Choose what happens when it is ready. By default the results are **sent to the student
-   automatically** (Core = top of their study queue, Non-urgent = after their other decks);
-   untick it to keep them in your library and send them yourself later. The notes are
-   also **logged as a lesson**, so Insights counts "since last lesson" from them.
+2. Choose what happens when it is ready. By default **nothing is sent**: the deck, lesson
+   and reader are made in your account and wait for you to send them. Tick *Send … to
+   the student automatically* only if you want to skip the review (Core = top of their
+   study queue, Non-urgent = after their other decks). The notes are also **logged as a
+   lesson**, so Insights counts "since last lesson" from them.
 3. Tap **Start**. The job runs in the background for a minute or a few; the card under
    *Session notes* shows what the assistant is doing (words checked against the student's
    cards, deck created, cards added, lesson written…). You can leave the page.
@@ -893,7 +902,11 @@ the notes — no typing needed. The job appears there and under *Session notes* 
 page, marked "from a video lesson".
 
 When it finishes, the card shows the deck (with a link to your copy), the lesson, the
-reader, and a short **summary** of what was made and what was left out and why. *What it
+reader, and a short **summary** of what was made and what was left out and why. Each item
+that is still only in your account says *in your library, not sent* and has a **Send to
+<student>** button; with more than one there is also **Send all to <student>**. The app
+asks once more before sending, then the item reads *sent to <student>* (and *Undo — remove
+from <student>* takes it back if you change your mind). *What it
 did* opens the full step list. A job that fails (the AI was overloaded, say) keeps its
 steps and has **Retry**, which continues from where it stopped. Everything it created is
 an ordinary deck / library lesson / reader in your account, so you can edit it and
@@ -1438,14 +1451,24 @@ last lesson? Write him a short reader about it and send it."*
 - **Lesson log and messages** — "Log today's lesson: we did 把 sentences, homework is the
   restaurant deck." · "Send 小明 a message reminding him about Thursday." · "Show me what
   he wrote in the chat."
-- **Homework** — "Make a deck of 10 words about ordering food with example sentences and
-  send it to 小明." · "Add 词汇 to last week's deck and update his copy." · "Assign the
-  weather lesson from my library to 小明 and 李华."
+- **Homework** — "Make a deck of 10 words about ordering food with example sentences." ·
+  "Send the food deck to 小明." · "Add 词汇 to last week's deck and update his copy." ·
+  "Assign the weather lesson from my library to 小明 and 李华."
 - **Readers and lessons** — "Write a five-page elementary reader about a trip to the
   night market using the words 小明 got wrong, then open it for review." · "Make a mini
   lesson on 了 with a scramble and a listening exercise."
 - **New students** — "Create an invite link for a new student with the Starter Chinese
   deck and a welcome message."
+
+### Making versus sending
+
+Claude **makes things in your account and sends nothing** unless you tell it to send *that*
+item to *that* student in the same chat. "Make a deck of food words for 小明" makes the deck
+in your Decks and Claude replies *Saved in your account (not sent)* — then it asks whether
+to send it. "Send it to 小明" sends it, and the reply starts **SENT to 小明**. So you can ask
+for lots of material, look it over (or let it sit until next week) and send it when you are
+ready. If something does go out by mistake: "take the food deck back from 小明" removes his
+copy.
 
 ### Review windows
 
