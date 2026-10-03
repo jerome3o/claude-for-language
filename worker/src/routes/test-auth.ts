@@ -159,7 +159,7 @@ testAuth.post('/picture-hunt', async (c) => {
 });
 
 /**
- * POST /api/test/merged-chats — a pair's chat as migration 0098 leaves it after
+ * POST /api/test/merged-chats — a pair's chat as migration 0099 leaves it after
  * merging older conversations (one chat per pair): the one conversation holding
  * every message, plus the merged-away rows pointing at it (old links / ids).
  * Body: { relationship_id, old_titles: string[], messages: [{ sender_id, content, created_at }] }

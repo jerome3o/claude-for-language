@@ -334,7 +334,7 @@ export function ChatPage() {
 
   const conversation = conversationsQuery.data?.find((c) => c.id === convId);
 
-  // An old conversation id (merged into the pair's one chat by migration 0098 —
+  // An old conversation id (merged into the pair's one chat by migration 0099 —
   // a notification, an e-mail, a bookmark) → swap to the chat it became, carrying
   // the unsent draft along, so live events and read markers line up.
   const listedIds = conversationsQuery.data?.map((c) => c.id).join(',');

@@ -149,7 +149,7 @@ chatMessages.post('/messages/:id/forward', async (c) => {
   const body = await c.req.json<{ conversation_id?: unknown; client_id?: unknown }>().catch(() => ({} as { conversation_id?: unknown; client_id?: unknown }));
   const askedId = typeof body.conversation_id === 'string' ? body.conversation_id : '';
   if (!askedId) return c.json({ error: 'conversation_id is required' }, 400);
-  // A merged-away id (one chat per pair, migration 0098) forwards into the chat it became.
+  // A merged-away id (one chat per pair, migration 0099) forwards into the chat it became.
   const targetId = (await resolveConversationId(c.env.DB, askedId)) ?? askedId;
   const clientId = normalizeClientId(body.client_id);
   if (body.client_id !== undefined && body.client_id !== null && body.client_id !== '' && !clientId) {

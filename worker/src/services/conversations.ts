@@ -129,7 +129,7 @@ const HUMAN_LIVE = 'merged_into IS NULL AND COALESCE(is_ai_conversation, 0) = 0'
 
 /**
  * THE conversation of a relationship between two people, or null when none
- * exists yet. Migration 0098 merged the old extras into it and a unique index
+ * exists yet. Migration 0099 merged the old extras into it and a unique index
  * keeps it single. (For a relationship with Claude: its most recent practice chat.)
  */
 export async function findRelationshipConversationId(db: D1Database, relationshipId: string): Promise<string | null> {
@@ -269,7 +269,7 @@ export async function getConversationById(
     .bind(conversationId)
     .first<Conversation>();
 
-  // A merged-away id (migration 0098) answers as the chat it was merged into.
+  // A merged-away id (migration 0099) answers as the chat it was merged into.
   if (conv?.merged_into) {
     const resolved = await resolveConversationId(db, conv.merged_into);
     conv = resolved

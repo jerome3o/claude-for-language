@@ -21,7 +21,7 @@ import {
   type ChatListResponse,
 } from '@shared/chats/inbox';
 
-// v2: one chat per pair (migration 0098) — a v1 list may still hold the merged-away rows.
+// v2: one chat per pair (migration 0099) — a v1 list may still hold the merged-away rows.
 const CACHE_PREFIX = 'chat-list-v2:';
 
 function dropOldCaches(): void {

@@ -329,13 +329,13 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
 - `student_profiles` - The tutor's PRIVATE profile of a student, one per `tutor_relationships` row (tutor_id, student_id, markdown `body` ≤ 8000, optional `level` / `handwriting` / `words_per_lesson`). Migration 0077. Only the tutor-only route, the dashboard's `has_profile` flag and the tutor-side content agents read it — never a student-facing path. See "Student profile" below
-- `users.voice_gender` - 'male' | 'female' | 'other' | NULL: the voice this person's chat messages are read aloud in (migration 0098; Profile → "Your voice when your messages are read aloud", admin `PUT /api/admin/users/:user/voice-gender`, MCP `admin_set_user_voice_gender`). See "Chat read-aloud voice"
+- `users.voice_gender` - 'male' | 'female' | 'other' | NULL: the voice this person's chat messages are read aloud in (migration 0099; Profile → "Your voice when your messages are read aloud", admin `PUT /api/admin/users/:user/voice-gender`, MCP `admin_set_user_voice_gender`). See "Chat read-aloud voice"
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
-- `conversations` - Chat threads within a relationship: ONE per tutor–student pair (migration 0098 merged the extras, `merged_into` = the chat an old id became, unique index on live human rows); Claude practice chats may be several
+- `conversations` - Chat threads within a relationship: ONE per tutor–student pair (migration 0099 merged the extras, `merged_into` = the chat an old id became, unique index on live human rows); Claude practice chats may be several
 - `messages` - Individual chat messages
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
@@ -1947,7 +1947,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
   role-aware (`toolsForMessage` in `frontend/src/components/chat/messageTools.ts`, unit-tested):
   Check my Chinese only on the learner's own messages, Translate only on the other party's. Failures
   show as Coach-style inline notices (`InlineNotice`), never `alert()`.
-- **One chat per pair** (docs/CHAT.md "One chat per pair", migration 0098, `routes/one-chat.ts`): a tutor and a
+- **One chat per pair** (docs/CHAT.md "One chat per pair", migration 0099, `routes/one-chat.ts`): a tutor and a
   student have exactly ONE conversation — `openRelationshipConversation` (`services/conversations.ts`) is the
   get-or-create every path posts through (`POST /api/relationships/:relId/conversations/open`; creating another
   returns it). Older extras were merged into the most recently active one (messages moved, read markers max'd,

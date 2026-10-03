@@ -397,7 +397,7 @@ there's more than one) → `/connections/:relId/chat` → THE chat with them. A 
 - The tab badge = conversations with people (not Claude) that have unread messages
   (`unreadConversationCount`).
 
-## One chat per pair (migration 0098_one_chat_per_pair.sql)
+## One chat per pair (migration 0099_one_chat_per_pair.sql)
 
 Jerome: "Make it so there's only one chat between each pair of people — each student–tutor combination."
 A tutor relationship has exactly **one** human conversation. (Claude role-play / practice chats are not

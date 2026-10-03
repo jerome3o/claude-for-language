@@ -1,5 +1,5 @@
 /**
- * One chat per pair (docs/CHAT.md "One chat per pair"): migration 0098 merges a
+ * One chat per pair (docs/CHAT.md "One chat per pair"): migration 0099 merges a
  * relationship's extra human conversations into one, without losing anything;
  * the API then gets-or-creates that one chat and answers merged-away ids as it.
  */
@@ -27,11 +27,11 @@ const msg = (db: SqliteD1, id: string, conv: string, sender: string, at: string,
   db.raw.run(`INSERT INTO messages (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, [id, conv, sender, content, at, ...Object.values(extra)]);
 };
 
-describe('migration 0098: merge a pair\'s conversations into one', () => {
+describe('migration 0099: merge a pair\'s conversations into one', () => {
   let db: SqliteD1;
 
   beforeEach(async () => {
-    db = await createSqliteD1({ stopBefore: '0098' });
+    db = await createSqliteD1({ stopBefore: '0099' });
     users(db);
     // Minghui ↔ Jerome: three human conversations (the invite's "Welcome", a titled one, an untitled one).
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-1', ?, ?, 'tutor', 'active')", [TUTOR, STUDENT]);
@@ -67,7 +67,7 @@ describe('migration 0098: merge a pair\'s conversations into one', () => {
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-2', 'tutor-2', ?, 'tutor', 'active')", [STUDENT]);
     db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('c-li', 'rel-2')");
     msg(db, 'l1', 'c-li', 'tutor-2', '2026-09-03T09:00:00.000Z', '你好');
-    applyMigrationsFrom(db, '0098');
+    applyMigrationsFrom(db, '0099');
   });
 
   it('picks the most recently active conversation and moves every message into it', () => {

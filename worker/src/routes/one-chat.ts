@@ -1,7 +1,7 @@
 /**
- * One chat per pair (docs/CHAT.md "One chat per pair", migration 0098).
+ * One chat per pair (docs/CHAT.md "One chat per pair", migration 0099).
  *
- * A tutor and a student have exactly ONE conversation. Migration 0098 merged the
+ * A tutor and a student have exactly ONE conversation. Migration 0099 merged the
  * old extras into it and marked them `merged_into`; a unique index keeps it single.
  * Claude role-play / practice chats are not tutor–student chats and may be many.
  *
