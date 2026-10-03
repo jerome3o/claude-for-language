@@ -54,6 +54,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.myRelationships
 import dev.jeromeswannack.chineselearning.lab.core.ChatDrafts
 import dev.jeromeswannack.chineselearning.lab.core.ChatFiles
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPicked
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
+import dev.jeromeswannack.chineselearning.lab.data.chat.conversation
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaSizing
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import dev.jeromeswannack.chineselearning.lab.data.api.chatMessagesPath
@@ -213,6 +215,8 @@ data class DiscussState(
 data class ChatUi(
     val loading: Boolean = true,
     val loadError: String? = null,
+    /** One chat per pair: the server served this (merged-away) id as another chat; the route swaps to it. */
+    val mergedInto: String? = null,
     val otherName: String = "",
     val otherIsClaude: Boolean = false,
     val conversation: ChatConversationDto? = null,
@@ -374,6 +378,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private val discarded = HashSet<String>()
 
     private val messagesKey = "chat/$convId/messages"
+    /** This chat's id and every old id merged into it (ChatPair). */
+    private var aliases: List<String> = listOf(convId)
     /** Forwards queued from this screen (their failures come back as a notice). */
     private val forwards = HashSet<String>()
     /** The draft is kept per conversation only after the stored one was restored (round 2 PR 3). */
@@ -402,6 +408,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
         // Pending bubbles are the outbox (survive process death), delivered ones until the server copy shows.
         viewModelScope.launch {
+            // Sends queued under an id that was merged into this chat still show here (the server delivers them).
+            aliases = runCatching { ChatPair.aliasesOf(ChatPair.merged(app), convId) }.getOrDefault(listOf(convId))
             app.outbox.observe().collect { items ->
                 // A forward the server refused (deleted / gone / not a member): say so, drop the row.
                 items.filter { it.id in forwards && it.state == dev.jeromeswannack.chineselearning.lab.data.platform.Outbox.FAILED }.forEach { f ->
@@ -409,7 +417,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                     error("Couldn't forward that. ${ChatRound3.forwardError(f.lastError)}")
                     app.scope.launch { app.outbox.discard(f.id) }
                 }
-                val now = ChatRich.pendingFromOutbox(items, convId, api.json, ChatMediaStore::dims)
+                val now = aliases.flatMap { id -> ChatRich.pendingFromOutbox(items, id, api.json, ChatMediaStore::dims) }
                 val ids = now.mapTo(HashSet()) { it.clientId }
                 for (p in outboxPending) if (p.clientId !in ids && p.clientId !in discarded && !p.failed) delivered[p.clientId] = p.copy(delivered = true)
                 outboxPending = now
@@ -464,6 +472,16 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             val convs = api.chatConversations(relId).also { cache.put(ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND, it) }
             applyHeader(rel, convs, me)
             val page = api.chatMessages(convId)
+            // One chat per pair: an id merged away on the server is served as the chat it went into —
+            // its messages carry the primary's id; an empty one is asked about (`merged_from`).
+            var merged = ChatPair.mergedInto(convId, page.messages)
+            if (merged == null && page.messages.isEmpty() && convs.none { it.id == convId }) {
+                merged = runCatching { ChatPair.mergedInto(convId, emptyList(), api.conversation(convId)) }.getOrNull()
+            }
+            if (merged != null) {
+                _ui.update { it.copy(mergedInto = merged) }
+                return
+            }
             lastTimestamp = ChatRich.nextCursor(lastTimestamp, page.latest_timestamp)
             cache.put(messagesKey, KIND, page.messages.takeLast(CACHE_LIMIT))
             val myId = _ui.value.myId
@@ -1554,6 +1572,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     fun rename(title: String) {
+        // Only Claude practice chats have titles (a person's chat answers 410: one chat per pair).
+        if (!_ui.value.isAi) return
         _ui.update { it.copy(saving = true, modalNotice = null) }
         viewModelScope.launch {
             try {

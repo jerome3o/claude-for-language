@@ -174,24 +174,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             onDismiss = actions.onDismiss,
             danger = true,
         )
-        ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) {
-            NavRow("🔍", "Search", desc = "Find a message in this chat", onClick = actions.onOpenSearch)
-            RowDivider()
-            // PR 3: make cards from the chat; pinyin / translations for every message.
-            NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
-            RowDivider()
-            ToggleRow("拼", "Show pinyin for all", ui.aids.pinyinAll) { actions.onPinyinAll(it) }
-            RowDivider()
-            ToggleRow("EN", "Show translations for all", ui.aids.translationAll) { actions.onTranslationAll(it) }
-            RowDivider()
-            NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
-            RowDivider()
-            NavRow("✏️", if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation", enabled = ui.online, onClick = actions.onOpenRename)
-            if (ui.isAi) { RowDivider(); NavRow("🔊", "Voice settings", onClick = actions.onOpenVoice) }
-            RowDivider()
-            NavRow("☰", "All conversations", onClick = actions.onAllConversations)
-            Spacer(Modifier.height(16.dp))
-        }
+        ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) { ChatMenuContent(ui, actions) }
         is ChatSheet.Translate -> CardSheet("Translation", listOf(s.result.flashcard), ui, actions, s.result.translation)
         is ChatSheet.Check -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Check Result") {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -219,7 +202,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             }
         }
         is ChatSheet.Word -> WordSheet(s.hanzi, s.context, ui, actions)
-        ChatSheet.Rename -> RenameSheet(ui, actions)
+        ChatSheet.Rename -> if (ui.isAi) RenameSheet(ui, actions)
         ChatSheet.Voice -> VoiceSheet(ui, actions)
         is ChatSheet.Discuss -> DiscussSheet(s.message, ui, actions)
         is ChatSheet.ChatWord -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordSheet(
@@ -232,6 +215,37 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
         is ChatSheet.Correct -> LabBottomSheet(onDismiss = actions.onDismiss, title = if (s.message.correction == null) "Correct this" else "Edit correction") {
             CorrectPanel(ui.messages.firstOrNull { it.id == s.message.id } ?: s.message, ui, actions)
         }
+    }
+}
+
+/**
+ * The header's ⋯: Search, Make flashcards, pinyin / translations for all. One chat per pair
+ * (docs/CHAT.md): a chat with a person has no title, no "New conversation" and no list of
+ * conversations; a Claude practice chat (there may be several) keeps New conversation, its
+ * title, Voice settings and All conversations.
+ */
+@Composable
+fun ChatMenuContent(ui: ChatUi, actions: ChatSheetActions) {
+    Column(Modifier.testTag("chat-menu")) {
+        NavRow("🔍", "Search", desc = "Find a message in this chat", onClick = actions.onOpenSearch)
+        RowDivider()
+        // PR 3: make cards from the chat; pinyin / translations for every message.
+        NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
+        RowDivider()
+        ToggleRow("拼", "Show pinyin for all", ui.aids.pinyinAll) { actions.onPinyinAll(it) }
+        RowDivider()
+        ToggleRow("EN", "Show translations for all", ui.aids.translationAll) { actions.onTranslationAll(it) }
+        if (ui.isAi) {
+            RowDivider()
+            NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
+            RowDivider()
+            NavRow("✏️", if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation", enabled = ui.online, onClick = actions.onOpenRename)
+            RowDivider()
+            NavRow("🔊", "Voice settings", onClick = actions.onOpenVoice)
+            RowDivider()
+            NavRow("☰", "All conversations", onClick = actions.onAllConversations)
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }
 

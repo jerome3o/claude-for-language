@@ -33,6 +33,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -625,28 +626,32 @@ private fun conversationDate(iso: String, now: Instant): String {
 }
 
 @Composable
-fun ConversationsCard(relId: String, conversations: List<ConversationDto>?, onStart: () -> Unit, open: (String) -> Unit, now: Instant = Instant.now()) {
+/**
+ * The ONE chat with the student (one chat per pair, docs/CHAT.md): a single row with the last
+ * message and the unread count; tapping it is Message (THE chat via `/conversations/open`).
+ */
+fun ConversationsCard(name: String, conversations: List<ConversationDto>?, onMessage: () -> Unit, now: Instant = Instant.now()) {
+    val c = conversations?.firstOrNull()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        TeachSectionTitle("Conversations")
+        TeachSectionTitle("Chat")
         TeachCard {
-            when {
-                conversations == null -> MutedLine("Loading conversations…")
-                conversations.isEmpty() -> {
-                    Text("No conversations yet", style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
-                    MutedLine("Send a message to get started")
-                    PrimaryPill("Message", Modifier.height(48.dp), onClick = onStart)
-                }
-                else -> conversations.forEach { c ->
-                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).bouncyClickable(pressedScale = 0.98f) { open(Routes.chat(relId, c.id)) }, verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(c.title ?: "Chat", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink)
-                            c.last_message?.let { MutedLine(dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(it.content, it.attachment_kind, it.deleted_at)) }
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            MutedLine(conversationDate(c.last_message_at ?: c.created_at, now))
-                            if (c.unread > 0) dev.jeromeswannack.chineselearning.lab.ui.kit.CountBadge(if (c.unread > 99) "99+" else c.unread.toString())
-                        }
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp).bouncyClickable(pressedScale = 0.98f, onClick = onMessage).testTag("one-chat"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("💬", fontSize = 22.sp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Chat with ${name.ifBlank { "your student" }}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    when {
+                        conversations == null -> MutedLine("Loading…")
+                        c?.last_message == null -> MutedLine("Send a message to get started")
+                        else -> MutedLine(dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(c.last_message.content, c.last_message.attachment_kind, c.last_message.deleted_at))
                     }
+                }
+                if (c != null) Column(horizontalAlignment = Alignment.End) {
+                    MutedLine(conversationDate(c.last_message_at ?: c.created_at, now))
+                    if (c.unread > 0) dev.jeromeswannack.chineselearning.lab.ui.kit.CountBadge(if (c.unread > 99) "99+" else c.unread.toString())
                 }
             }
         }

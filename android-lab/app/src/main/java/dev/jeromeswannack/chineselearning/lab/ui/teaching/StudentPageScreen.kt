@@ -342,7 +342,7 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
             }
         }
     }
-    item(key = "conversations") { ConversationsCard(ui.relId, ui.conversations.data, actions.message, actions.open, now) }
+    item(key = "conversations") { ConversationsCard(name, ui.conversations.data, actions.message, now) }
     if (o != null && !o.is_new) item(key = "activity") { ActivityCard(ui.relId, o.activity, actions.open) }
     item(key = "end") { Spacer(Modifier.height(8.dp)) }
 }
