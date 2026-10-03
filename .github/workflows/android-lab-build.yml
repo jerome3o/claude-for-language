@@ -122,6 +122,15 @@ jobs:
           path: android-lab/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
+      # The release variant runs lintVitalRelease (fatal lint errors), which the debug build skips:
+      # a Fragment-version lint error once passed every PR and then failed every main build, so no
+      # Lab release went out. Build it here too (unsigned — no keystore on branches / PRs) so a
+      # broken release build fails the PR instead of main.
+      - name: Release build check (unsigned, lintVitalRelease)
+        if: env.IS_RELEASE != 'true'
+        run: ./gradlew :app:assembleRelease --no-daemon
+        working-directory: android-lab
+
       # ---- Signed pre-release on main (Obtainium "Lab" entry) ----
 
       - name: Decode signing keystore

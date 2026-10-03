@@ -131,6 +131,25 @@ export function clearMessageCorrection(messageId: string): Promise<MessageWithSe
   return request(`/messages/${messageId}/correction`, { method: 'DELETE' });
 }
 
+/** A link's preview card (docs/CHAT.md "Round 2"); null when the page has nothing to show. */
+export interface LinkPreviewData {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  site_name: string | null;
+}
+
+export async function fetchLinkPreview(url: string): Promise<LinkPreviewData | null> {
+  try {
+    return await request<LinkPreviewData>(`/link-preview?url=${encodeURIComponent(url)}`);
+  } catch (err) {
+    const status = (err as ChatApiError).status;
+    if (status === 404 || status === 400) return null;
+    throw err;
+  }
+}
+
 /** The Chats tab: every conversation with its last message and my unread count (`GET /api/me/chats`). */
 export function getChatList(): Promise<import('@shared/chats/inbox').ChatListResponse> {
   return request('/me/chats');
