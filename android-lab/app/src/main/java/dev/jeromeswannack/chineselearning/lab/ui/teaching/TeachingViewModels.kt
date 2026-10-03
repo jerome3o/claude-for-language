@@ -36,6 +36,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.sharedReaders
 import dev.jeromeswannack.chineselearning.lab.data.api.startCall
 import dev.jeromeswannack.chineselearning.lab.data.api.studentClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.api.studentLessons
+import dev.jeromeswannack.chineselearning.lab.data.api.createHomeworkLink
+import dev.jeromeswannack.chineselearning.lab.data.api.sendLinkHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.studentOverview
 import dev.jeromeswannack.chineselearning.lab.data.api.studentSharedDecks
 import dev.jeromeswannack.chineselearning.lab.data.api.teachingMe
@@ -93,8 +95,11 @@ class DashboardViewModel(private val app: LabApp) : ViewModel() {
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
+    /** Every student's homework library: the newest item goes on each card. */
+    val library = HomeworkLibrarySource(app, viewModelScope, null)
+
     /** The Send-homework sheet opened from a student's card. */
-    val send = SendHomeworkController(app, viewModelScope) { dashboard.refresh() }
+    val send = SendHomeworkController(app, viewModelScope) { dashboard.refresh(); library.refresh() }
 
     fun revoke(invite: PendingInviteDto) = viewModelScope.launch {
         attempt { app.repo.api.revokeInvite(invite.id) }
@@ -233,6 +238,20 @@ class SendHomeworkController(private val app: LabApp, private val scope: Corouti
             }.onFailure { done(SendOutcome(error = it.userMessage())) }
     }
 
+    /** 🔗 A link: POST /api/homework-links (my account), then POST …/homework { kind: 'link', mode: 'one_off' }. */
+    fun sendLink(relId: String, studentName: String, draft: LinkDraft, done: (SendOutcome) -> Unit) = scope.launch {
+        attempt {
+            val link = app.repo.api.createHomeworkLink(dev.jeromeswannack.chineselearning.lab.data.api.HomeworkLinkBody(draft.title, draft.url, draft.instructions))
+            val res = app.repo.api.sendLinkHomework(relId, link.id, draft.dueDate)
+            if (res.assignments.isEmpty()) error(res.errors.firstOrNull()?.error ?: "Could not send the link")
+            res
+        }.onSuccess {
+            celebrate()
+            done(SendOutcome(result = "Sent “${draft.title}” to $studentName" + (draft.dueDate?.let { " — due ${HomeworkPlan.shortDay(it)}" } ?: "") + ". They'll see it in their homework after their next sync."))
+            onChanged()
+        }.onFailure { done(SendOutcome(error = it.userMessage())) }
+    }
+
     private fun celebrate() {
         app.haptics.correct()
         app.sounds.play(Sounds.Sfx.POP)
@@ -250,6 +269,8 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     val lessons = app.cachedResource(viewModelScope, TeachingKeys.lessons(relId), TeachingKeys.KIND) { studentLessons(relId) }
     val lessonLog = app.cachedResource(viewModelScope, TeachingKeys.lessonLog(relId), TeachingKeys.KIND) { lessonLog(relId) }
     val readers = app.cachedResource(viewModelScope, TeachingKeys.readers(relId), TeachingKeys.KIND) { sharedReaders(relId) }
+    /** The homework library of this student ("Most recent homework" at the top of the page). */
+    val library = HomeworkLibrarySource(app, viewModelScope, relId)
 
     /** Take homework back: the confirm sheet + toast; the row leaves the lists at once, then they refresh. */
     val removal = HomeworkRemovalController(app, viewModelScope, relId) { target, _ ->
@@ -263,7 +284,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
             }
             else -> readers.update { r -> r.orEmpty().filterNot { it.id == target.id || it.target_reader_id == target.id } }
         }
-        overview.refresh(); homework.refresh(); lessons.refresh(); readers.refresh()
+        overview.refresh(); homework.refresh(); lessons.refresh(); readers.refresh(); library.refresh()
         app.scope.launch {
             app.cache.delete(TeachingKeys.DASHBOARD)
             app.cache.delete("teaching/session-notes/$relId")
@@ -309,11 +330,11 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     }
 
     fun refresh() {
-        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh(); profile.resource.refresh(); budget.resource.refresh(); readers.refresh()
+        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh(); profile.resource.refresh(); budget.resource.refresh(); readers.refresh(); library.refresh()
     }
 
     private fun refreshAfterHomework() {
-        overview.refresh(); homework.refresh(); lessons.refresh()
+        overview.refresh(); homework.refresh(); lessons.refresh(); library.refresh()
         app.scope.launch { app.cache.delete(TeachingKeys.DASHBOARD) }
     }
 

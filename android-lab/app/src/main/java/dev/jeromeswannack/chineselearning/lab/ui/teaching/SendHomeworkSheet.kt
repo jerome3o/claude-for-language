@@ -73,6 +73,8 @@ data class SendHomeworkActions(
     val assignLesson: (LibraryItemSummaryDto, SendOptions, (SendOutcome) -> Unit) -> Unit = { _, _, _ -> },
     val loadLibrary: () -> Unit = {},
     val open: (String) -> Unit = {},
+    /** 🔗 A link: create it in my account, then send it one-off (docs/HOMEWORK.md §8). */
+    val sendLink: (LinkDraft, (SendOutcome) -> Unit) -> Unit = { _, _ -> },
 )
 
 /** What the sheet opens on (web: sendDefaults() in components/tutor/sendHomework.ts). */
@@ -165,7 +167,7 @@ fun SendHomeworkContent(
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (pendingDeck == null && pendingLesson == null) {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(4.dp)) {
-                listOf("📚 A deck", "🎓 A lesson").forEachIndexed { i, label ->
+                listOf("📚 A deck", "🎓 A lesson", "🔗 A link").forEachIndexed { i, label ->
                     Text(
                         label,
                         color = if (tab == i) Lab.colors.ink else Lab.colors.muted,
@@ -238,6 +240,10 @@ fun SendHomeworkContent(
                         }
                         SecondaryPill("Back", Modifier.fillMaxWidth(), enabled = !busy) { pendingLesson = null }
                     }
+                    t == 2 -> LinkSendForm(
+                        studentName, today, defaults.dueDate, defaults.nextLesson, online, busy,
+                        onSend = { draft -> busy = true; error = null; result = null; actions.sendLink(draft, done) },
+                    )
                     t == 0 -> {
                         when {
                             decks == null -> LoadingState(text = "Loading your decks…")

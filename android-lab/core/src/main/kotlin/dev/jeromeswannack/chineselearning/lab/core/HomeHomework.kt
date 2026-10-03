@@ -37,8 +37,8 @@ data class HomeHomeworkCard(val rows: List<HomeHomeworkRow>, val more: Int, val 
 object HomeHomework {
     const val LIMIT = 4
 
-    private val ICON = mapOf("deck" to "📚", "lesson" to "🎓", "reader" to "📖")
-    private val KIND_WORD = mapOf("lesson" to "lesson", "reader" to "reader")
+    private val ICON = mapOf("deck" to "📚", "lesson" to "🎓", "reader" to "📖", "link" to "🔗")
+    private val KIND_WORD = mapOf("lesson" to "lesson", "reader" to "reader", "link" to "link")
 
     /** Port of compactDue: "due in 1 day" reads as "due tomorrow". */
     fun compactDue(due: DueLabel): String = if (due.days == 1) "due tomorrow" else due.text

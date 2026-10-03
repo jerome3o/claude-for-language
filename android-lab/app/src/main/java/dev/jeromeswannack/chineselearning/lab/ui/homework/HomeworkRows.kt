@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.DueLabel
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkItemView
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkLibrary
+import dev.jeromeswannack.chineselearning.lab.ui.teaching.LibraryStatusChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
 import dev.jeromeswannack.chineselearning.lab.ui.kit.RowDivider
 import dev.jeromeswannack.chineselearning.lab.ui.kit.StatusPill
@@ -54,9 +56,13 @@ fun DueChip(due: DueLabel, done: Boolean = false) {
     else if (due.text.isNotEmpty()) StatusPill(due.text, dueColor(due.tone), Modifier.testTag("hw-due"))
 }
 
-/** One homework item: icon, title, progress line (+ bar), due chip. Taps into the pass (web: HomeworkRow). */
+/**
+ * One homework item: icon, title, progress line (+ bar), the status chip (docs/HOMEWORK.md §9:
+ * Completed / In progress / Overdue / Not started, coloured like the tutor's library — core
+ * HomeworkLibrary.itemStatus) and the due chip. Taps into the pass (web: HomeworkRow).
+ */
 @Composable
-fun HomeworkRow(item: HomeworkItemView, showTutor: Boolean = false, onOpen: (String) -> Unit) {
+fun HomeworkRow(item: HomeworkItemView, showTutor: Boolean = false, today: String = Homework.localDate(), onOpen: (String) -> Unit) {
     val a = item.assignment
     val base = Homework.titleParts(a).base
     Row(
@@ -80,7 +86,12 @@ fun HomeworkRow(item: HomeworkItemView, showTutor: Boolean = false, onOpen: (Str
             }
         }
         Spacer(Modifier.width(10.dp))
-        DueChip(item.due, item.done)
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val status = HomeworkLibrary.itemStatus(item, today)
+            LibraryStatusChip(status, a.due_date, today)
+            // "Overdue" already says it; otherwise the due label ("due today", "due in 3 days").
+            if (!item.done && status != HomeworkLibrary.OVERDUE) DueChip(item.due)
+        }
     }
 }
 
@@ -95,11 +106,11 @@ fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, color: Color = P
 
 /** A card of homework rows with dividers. */
 @Composable
-fun HomeworkList(items: List<HomeworkItemView>, showTutor: Boolean, onOpen: (String) -> Unit) {
+fun HomeworkList(items: List<HomeworkItemView>, showTutor: Boolean, today: String = Homework.localDate(), onOpen: (String) -> Unit) {
     LabCard {
         items.forEachIndexed { i, item ->
             if (i > 0) RowDivider()
-            HomeworkRow(item, showTutor, onOpen)
+            HomeworkRow(item, showTutor, today, onOpen)
         }
     }
 }

@@ -113,6 +113,8 @@ data class StudentPageUi(
     val studentProfile: (@Composable () -> Unit)? = null,
     /** "Daily new cards" — the student's budget row (DailyBudgetRow), rendered just before Homework. */
     val dailyBudget: (@Composable () -> Unit)? = null,
+    /** "Most recent homework" (docs/HOMEWORK.md §9) — the first thing on the page. */
+    val recentHomework: (@Composable () -> Unit)? = null,
 )
 
 data class StudentPageActions(
@@ -231,6 +233,7 @@ private fun headerLine(ui: StudentPageUi, now: Instant): String {
 
 private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, onShowQr: () -> Unit) {
     val o = ui.overview.data
+    ui.recentHomework?.let { card -> item(key = "recent-homework") { card() } }
     if (!ui.about.isNullOrBlank() || !ui.timeZone.isNullOrBlank()) item(key = "about") {
         dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard {
             dev.jeromeswannack.chineselearning.lab.ui.profile.PersonAbout(ui.about, ui.timeZone, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), now = now)

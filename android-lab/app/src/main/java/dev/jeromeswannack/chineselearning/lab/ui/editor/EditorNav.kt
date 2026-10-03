@@ -89,6 +89,10 @@ private fun LessonEditorRoute(nav: LabNav, target: String, id: String) {
     val exporter = rememberExporter(onSaved = { vm.notify(it) }, onError = { vm.notify(it, error = true) })
     LaunchedEffect(Unit) { dev.jeromeswannack.chineselearning.lab.core.Pinyin.preload() }
     val backTo = if (target == "library") Routes.libraryItem(id) else Routes.lessons()
+    // docs/HOMEWORK.md §10: after a library lesson is saved, offer to update the students' copies.
+    val copies = dev.jeromeswannack.chineselearning.lab.ui.teaching.rememberStudentCopies(app)
+    LaunchedEffect(ui.savedCount) { if (ui.savedCount > 0 && target == "library") copies.check("lesson", id, "this lesson") }
+    dev.jeromeswannack.chineselearning.lab.ui.teaching.StudentCopiesHost(copies)
     val spec = ui.spec
     var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
     AnkiExportSheet(anki) { anki = null }
@@ -216,6 +220,10 @@ private fun ReaderEditorRoute(nav: LabNav, id: String) {
     val speak = rememberSpeaker(app)
     val exporter = rememberExporter(onSaved = { vm.notify(it) }, onError = { vm.notify(it, error = true) })
     LaunchedEffect(Unit) { dev.jeromeswannack.chineselearning.lab.core.Pinyin.preload() }
+    // docs/HOMEWORK.md §10: after a save, offer to update the copies students were sent.
+    val copies = dev.jeromeswannack.chineselearning.lab.ui.teaching.rememberStudentCopies(app)
+    LaunchedEffect(ui.savedCount) { if (ui.savedCount > 0) copies.check("reader", id, "this reader") }
+    dev.jeromeswannack.chineselearning.lab.ui.teaching.StudentCopiesHost(copies)
     val spec = ui.spec
     var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
     AnkiExportSheet(anki) { anki = null }

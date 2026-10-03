@@ -44,6 +44,8 @@ data class LessonEditorUi(
     /** Unsaved edits from an earlier visit were put back. */
     val restoredDraft: Boolean = false,
     val view: EditorView = EditorView.EDIT,
+    /** Successful saves in this visit — the route asks "Also update their copies?" after each (docs/HOMEWORK.md §10). */
+    val savedCount: Int = 0,
 ) {
     val dirty: Boolean get() = spec != null && JsJson.canonical(spec) != savedCanonical
 }
@@ -157,7 +159,7 @@ class LessonEditorViewModel(private val deps: EditorDeps, val target: String, va
                 deps.cache.put(targetKey, "editor", CachedLessonTarget(savedSpec, state.isOwner, state.assigned), CachedLessonTarget.serializer())
                 deps.cache.delete(draftKey)
                 draftJob?.cancel()
-                _ui.update { it.copy(saving = false, spec = savedSpec, savedCanonical = JsJson.canonical(savedSpec)!!, errors = LessonValidator.validate(savedSpec), restoredDraft = false) }
+                _ui.update { it.copy(saving = false, spec = savedSpec, savedCanonical = JsJson.canonical(savedSpec)!!, errors = LessonValidator.validate(savedSpec), restoredDraft = false, savedCount = it.savedCount + 1) }
                 deps.feedback.success()
                 notify("Saved")
             } catch (e: CancellationException) {

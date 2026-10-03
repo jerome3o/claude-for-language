@@ -103,6 +103,8 @@ class HomeworkParityTest {
                 assertEquals(eo["title"]!!.jsonObject["part"]!!.str, t.part, "$where part")
                 assertEquals(eo["detail"]!!.str, Homework.rowDetail(item, false), "$where detail")
                 assertEquals(eo["detail_tutor"]!!.str, Homework.rowDetail(item, true), "$where detail tutor")
+                assertEquals(eo["status"]!!.str, HomeworkLibrary.itemStatus(item, today), "$where status")
+                eo["icon"]?.str?.let { assertEquals(it, Homework.kindIcon(item.assignment.kind), "$where icon") }
             }
             val sorted = Homework.sortHomeworkItems(items)
             assertEquals(o["todo"]!!.strings(), sorted.todo.map { it.assignment.id }, "screen[$i] todo order")

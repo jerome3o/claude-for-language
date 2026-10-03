@@ -38,6 +38,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.Homework
+import dev.jeromeswannack.chineselearning.lab.core.LibraryItem
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PendingInviteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentOverviewDto
@@ -96,6 +98,9 @@ fun StudentsDashboardScreen(
     actions: DashboardActions,
     notice: String? = null,
     now: Instant = Instant.now(),
+    /** Each student's newest homework (relationship id → row), from the homework library. */
+    recentHomework: Map<String, LibraryItem> = emptyMap(),
+    today: String = Homework.localDate(),
 ) {
     LabScreen(
         title = "My students",
@@ -112,7 +117,8 @@ fun StudentsDashboardScreen(
                     if (data.students.isEmpty() && data.invites.isEmpty()) {
                         EmptyState("👥", "No students yet", body = if (canInvite) "Tap + Invite to make a link your student opens on their phone." else "Ask Jerome to turn on invites for your account.")
                     }
-                    data.students.forEach { StudentCard(it, actions, now) }
+                    if (data.students.isNotEmpty()) HomeworkLibraryLink("Everything you sent, with each student's progress") { actions.open(Routes.HOMEWORK_LIBRARY) }
+                    data.students.forEach { StudentCard(it, actions, now, recentHomework[it.relationship_id], today) }
                     if (canInvite) data.invites.forEach { PendingInviteRow(it, actions, now) }
                     HomeworkDecksSection(data.homework_decks, actions)
                 }
@@ -123,7 +129,7 @@ fun StudentsDashboardScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant = Instant.now()) {
+fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant = Instant.now(), recent: LibraryItem? = null, today: String = Homework.localDate()) {
     val name = studentName(o)
     val relId = o.relationship_id
     var showQr by remember { mutableStateOf(false) }
@@ -149,6 +155,7 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
             }
             Text("›", color = Lab.colors.muted, fontSize = 22.sp)
         }
+        recent?.let { item -> RecentHomeworkLine(item, today) { actions.open(Routes.studentHomeworkLibrary(relId)) } }
         if (o.is_new) {
             SetupChecklistCompact(o, now)
             if (o.has_profile == false) ProfileHintPill { actions.open(Routes.connection(relId)) }

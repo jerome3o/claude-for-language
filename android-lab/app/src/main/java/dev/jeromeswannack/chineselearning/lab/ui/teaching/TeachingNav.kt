@@ -195,10 +195,17 @@ fun StudentsDashboardRoute(nav: LabNav) {
     val decks by vm.send.decks.collectAsStateWithLifecycle()
     val canInvite = me.data?.let { it.can_invite || it.is_admin } ?: app.prefs.isAdmin
 
+    val library by vm.library.state.collectAsStateWithLifecycle()
+    val recent = remember(library.data) {
+        library.data.orEmpty().groupBy { it.relationship_id }
+            .mapNotNull { (rel, items) -> dev.jeromeswannack.chineselearning.lab.core.HomeworkLibrary.mostRecentHomework(items, 1).firstOrNull()?.let { rel to it } }
+            .toMap()
+    }
     StudentsDashboardScreen(
         state = state,
         canInvite = canInvite,
         notice = notice,
+        recentHomework = recent,
         actions = DashboardActions(
             open = nav::open,
             message = { o -> vm.message(o) { conv -> nav.open(Routes.chat(o.relationship_id, conv)) } },
@@ -208,7 +215,7 @@ fun StudentsDashboardRoute(nav: LabNav) {
             copy = { context.copyToClipboard(it); app.haptics.tick() },
             share = context::shareLink,
             createDeck = { name -> vm.createDeck(name) { id -> nav.open(Routes.deck(id)) } },
-            refresh = { vm.dashboard.refresh() },
+            refresh = { vm.dashboard.refresh(); vm.library.refresh() },
         ),
     )
     if (inviting) {
@@ -246,6 +253,7 @@ internal fun SendHomeworkFor(nav: LabNav, send: SendHomeworkController, relId: S
             assignLesson = { item, o, done -> send.assignLesson(relId, name, item, o, done) },
             loadLibrary = { send.loadLibrary() },
             open = { onDismiss(); nav.open(it) },
+            sendLink = { draft, done -> send.sendLink(relId, name, draft, done) },
         ),
         onDismiss = onDismiss,
     )
@@ -276,6 +284,7 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
     val toast by vm.removal.toast.collectAsStateWithLifecycle()
     var profileEditor by remember { mutableStateOf<StudentProfileFields?>(null) }
     val budget by vm.budget.resource.state.collectAsStateWithLifecycle()
+    val library by vm.library.state.collectAsStateWithLifecycle()
     var budgetEditor by remember { mutableStateOf(false) }
     val student = rel.studentUser()
     val name = overview.data?.let { studentName(it) } ?: student?.name ?: student?.email ?: "Student"
@@ -320,6 +329,14 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             dailyBudget = {
                 val info = (budget.data?.budget ?: overview.data?.study_budget)?.toInfo()
                 DailyBudgetRow(info, budget.error ?: overview.error, onEdit = { budgetEditor = true }, onRetry = { vm.budget.resource.refresh() })
+            },
+            recentHomework = library.data?.takeIf { it.isNotEmpty() }?.let { items ->
+                {
+                    MostRecentHomeworkCard(
+                        items, dev.jeromeswannack.chineselearning.lab.core.Homework.localDate(),
+                        onSeeAll = { nav.open(Routes.studentHomeworkLibrary(relId)) },
+                    )
+                }
             },
             lessonNotes = {
                 LessonNotesSection(

@@ -31,6 +31,7 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
         val sentences = remember { passSentenceActions(nav.app) }
         val lessonEnv = rememberExerciseEnv(nav.app)
         val readerEnv = rememberReaderEnv(nav.app, (ui as? PassUi.Player)?.reader?.reader?.id.orEmpty())
+        val context = androidx.compose.ui.platform.LocalContext.current
         HomeworkPassScreen(
             ui,
             PassActions(
@@ -46,6 +47,8 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
                 onReaderRated = vm::rateReader,
                 sentences = sentences,
                 onPlaySentence = vm::playSentence,
+                onOpenLink = { url -> vm.linkOpened(); openExternal(context, url) },
+                onLinkDone = vm::markLinkDone,
             ),
             lessonEnv = lessonEnv,
             readerEnv = readerEnv,

@@ -57,3 +57,23 @@ Link homework: Open link ↗ (opens in the browser), what to do, a note for the 
 
 ![Link homework done](14-student-link-done.png)
 Done, with the note that the tutor sees in her library.
+
+## Lab app (Roborazzi, phone)
+
+![Library — one student](lab/hwlib-01-student.png)
+![Library — all students](lab/hwlib-02-all-students.png)
+![Filter: In progress](lab/hwlib-03-filter-in-progress.png)
+![Row actions](lab/hwlib-04-row-actions.png)
+![Change due date](lab/hwlib-05-change-due.png)
+![Empty library](lab/hwlib-06-empty.png)
+![Most recent homework in each status](lab/hwlib-07-most-recent-statuses.png)
+Most recent homework in each status (Completed green, In progress / Not started amber when due soon, Overdue red, Not started grey).
+![Student page](lab/hwlib-08-student-page.png)
+![Dashboard](lab/hwlib-09-dashboard.png)
+![Update copies prompt](lab/hwlib-10-update-copies.png)
+![Update copies done](lab/hwlib-11-update-copies-done.png)
+![Edit link](lab/hwlib-12-edit-link.png)
+![Send a link](lab/hwlib-13-send-link.png)
+![Student: link homework](lab/hwlink-01-student-page.png)
+![Student: link done](lab/hwlink-02-student-done.png)
+![Student: homework list with statuses](lab/hwlink-03-student-list.png)

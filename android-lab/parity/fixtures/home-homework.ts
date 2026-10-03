@@ -39,7 +39,7 @@ const TODAY = '2026-09-29';
 const TUTORS = ['明慧老师', 'Mandarin Home 明慧老师', '王老师', ''] as const;
 
 function assignment(i: number): HomeworkAssignment {
-  const kind = pick(['deck', 'deck', 'lesson', 'reader'] as const);
+  const kind = pick(['deck', 'deck', 'lesson', 'reader', 'link'] as const);
   const partCount = kind === 'deck' ? pick([1, 1, 2]) : 1;
   const partIndex = int(0, partCount - 1);
   const noteIds = kind === 'deck' ? Array.from({ length: int(0, 12) }, (_, k) => `a${i}n${k}`) : null;

@@ -66,9 +66,12 @@ object HomeworkStore {
     fun observe(cache: JsonCache): Flow<Pair<List<HomeworkAssignment>, List<HomeworkEvent>>?> =
         combine(assignments(cache), events(cache)) { a, e -> a?.let { it to (e ?: emptyList()) } }
 
-    /** Records one pass event (right / wrong / done) and uploads it (now when online, else later). */
-    suspend fun recordPassEvent(app: LabApp, assignmentId: String, itemId: String, result: String, now: Instant = Instant.now()): HomeworkEvent {
-        val event = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, itemId, result, now.toString())
+    /**
+     * Records one pass event (right / wrong / done) and uploads it (now when online, else later).
+     * [note]: link homework's optional note back to the tutor on its `done` event (§8).
+     */
+    suspend fun recordPassEvent(app: LabApp, assignmentId: String, itemId: String, result: String, now: Instant = Instant.now(), note: String? = null): HomeworkEvent {
+        val event = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, itemId, result, now.toString(), note)
         val cache = app.cache
         // Queue first: a sync merging events in between keeps anything still in the outbox.
         app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(event)), id = event.id)

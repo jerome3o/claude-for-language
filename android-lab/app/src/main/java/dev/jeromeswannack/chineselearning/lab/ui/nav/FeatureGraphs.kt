@@ -21,6 +21,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.settings.settingsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.study.studyGraph
 import dev.jeromeswannack.chineselearning.lab.ui.study.tutorNotesGraph
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.teachingGraph
+import dev.jeromeswannack.chineselearning.lab.ui.teaching.homeworkLibraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.strokes.strokesGraph
 import dev.jeromeswannack.chineselearning.lab.ui.quests.questsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.coach.coachGraph
@@ -64,6 +65,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     todayGraph(nav)         // "/today/lessons[/:id]", "/today/reader" — Lab-only today split
     materialsGraph(nav)     // "/materials", "/materials/:id"  J (calls round 4 PR 5)
     chatsGraph(nav)         // "/chats"       the Chats tab inbox
+    homeworkLibraryGraph(nav) // "/homework-library", "/connections/:relId/homework" F
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }

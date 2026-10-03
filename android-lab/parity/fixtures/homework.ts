@@ -18,6 +18,8 @@ import {
   titleParts,
   homeworkRowDetail,
   oneOffOnlyTargets,
+  itemStatus,
+  KIND_ICON,
   type HomeworkAssignment,
   type HomeworkEvent,
 } from '../../../shared/homework';
@@ -71,7 +73,7 @@ const passes = Array.from({ length: 300 }, () => {
 
 // ---- screens: items, order, rows ----
 function assignment(i: number): HomeworkAssignment {
-  const kind = pick(['deck', 'deck', 'lesson', 'reader'] as const);
+  const kind = pick(['deck', 'deck', 'lesson', 'reader', 'link'] as const);
   const partCount = kind === 'deck' ? pick([1, 1, 2, 3]) : 1;
   const partIndex = int(0, partCount - 1);
   const base = pick(['餐厅 Restaurant', '天气', 'Week 3 homework', '第三周作业：天气']);
@@ -126,6 +128,8 @@ const screens = Array.from({ length: 80 }, () => {
       title: titleParts(it.assignment),
       detail: homeworkRowDetail(it, false),
       detail_tutor: homeworkRowDetail(it, true),
+      status: itemStatus(it, TODAY),
+      icon: KIND_ICON[it.assignment.kind] ?? null,
     })),
     todo: sorted.todo.map((i) => i.assignment.id),
     done: sorted.done.map((i) => i.assignment.id),
