@@ -47,6 +47,7 @@ private fun LibraryRoute(nav: LabNav) {
     var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
     AnkiExportSheet(anki) { anki = null }
     Effects(model.effects, nav, exporter) { anki = it }
+    val folderUi = model.folders?.ui?.collectAsStateWithLifecycle()?.value
     LibraryScreen(
         ui,
         LibraryActions(
@@ -80,7 +81,12 @@ private fun LibraryRoute(nav: LabNav) {
                 onDismiss = model::closeNewLesson,
             ),
             assign = model.assign.actions { nav.open(Routes.CONNECTIONS) },
+            onMoveToFolder = model::moveToFolder,
+            onLift = { nav.app.haptics.flip() },
+            onSlot = { nav.app.haptics.tick() },
         ),
+        folders = folderUi,
+        folderActions = remember(model) { model.folders?.let(dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions::of) ?: dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions() },
     )
 }
 

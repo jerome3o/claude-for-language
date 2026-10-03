@@ -35,6 +35,8 @@ data class DeckEntity(
     val secondaryCardsPerDay: Int?,
     val studyPriority: Int,
     val createdAt: String,
+    /** The deck's folder (server decks.folder_id, migration 0099; core Folders.kt), null = Unfiled. v4. */
+    val folderId: String? = null,
 ) {
     fun toQueueDeck() = QueueDeck(id, studyPriority, createdAt, newCardsPerDay, secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP)
 }
@@ -149,6 +151,9 @@ interface LabDao {
     @Upsert suspend fun upsertDecks(decks: List<DeckEntity>)
     @Query("DELETE FROM decks") suspend fun clearDecks()
     @Query("DELETE FROM decks WHERE id IN (:ids)") suspend fun deleteDecks(ids: List<String>)
+    /** Folders (data/folders/FolderWrites.kt): a move, and a deleted folder's decks back to Unfiled. */
+    @Query("UPDATE decks SET folderId = :folderId WHERE id IN (:ids)") suspend fun setDeckFolder(ids: List<String>, folderId: String?)
+    @Query("UPDATE decks SET folderId = NULL WHERE folderId = :folderId") suspend fun unfileDecks(folderId: String)
 
     // notes
     @Query("SELECT * FROM notes WHERE id = :id") suspend fun note(id: String): NoteEntity?
@@ -225,7 +230,7 @@ interface LabDao {
         // v2: generic feature tables (data/platform/) — features use these instead of new schema.
         JsonCacheEntity::class, OutboxEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

@@ -50,6 +50,7 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
         var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
         val importReader = rememberReaderImporter(nav) { message = it }
         AnkiExportSheet(anki) { anki = null }
+        val folderUi = vm.folders.ui.collectAsStateWithLifecycle().value
         ReadersListScreen(
             ui.copy(message = message),
             ReadersActions(
@@ -65,7 +66,12 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
                 onImport = { message = null; importReader() },
                 onAnki = { r -> anki = AnkiExportTarget.Reader(r.id, r.titleChinese) },
                 onDismissMessage = { message = null },
+                onMoveToFolder = { id -> vm.folders.openMove(listOf(id)) },
+                onLift = { nav.app.haptics.flip() },
+                onSlot = { nav.app.haptics.tick() },
             ),
+            folders = folderUi,
+            folderActions = remember(vm) { dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions.of(vm.folders) },
         )
     }
     composable(Routes.route("/readers/generate")) {
@@ -172,6 +178,14 @@ class ReadersViewModel(private val app: LabApp) : ViewModel() {
     private val _ui = MutableStateFlow(ReadersUi())
     val ui: StateFlow<ReadersUi> = _ui.asStateFlow()
     private var poll: Job? = null
+
+    /** Folders of the Readers list (shared with Decks and the Library: ui/folders/). */
+    val folders = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController(
+        viewModelScope, dev.jeromeswannack.chineselearning.lab.core.Folders.READER, app.cache,
+        dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController.writes(app),
+        dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel.of(app),
+        currentFolderOf = { id -> _ui.value.readers?.firstOrNull { it.id == id }?.folderId },
+    )
 
     init {
         viewModelScope.launch {

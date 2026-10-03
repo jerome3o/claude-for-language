@@ -30,5 +30,6 @@ object FeatureSyncs {
         platform.register("calls", dev.jeromeswannack.chineselearning.lab.data.calls.CallsSync) // J: close orphaned call-recording pieces + push them
         platform.register("board-pages", dev.jeromeswannack.chineselearning.lab.data.calls.BoardPagesSync) // J: lesson board pages per relationship, readable offline
         platform.register("chats", dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsSync) // the Chats tab inbox (/api/me/chats), offline + badge
+        platform.register("folders", dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.Sync) // folders of decks / lessons / readers (after library + readers: re-applies pending moves)
     }
 }

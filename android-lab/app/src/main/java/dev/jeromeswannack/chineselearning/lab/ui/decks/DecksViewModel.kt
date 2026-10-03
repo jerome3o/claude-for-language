@@ -35,6 +35,8 @@ data class DeckCardUi(
     val totalCards: Int,
     val mastered: Int,
     val learning: Int,
+    /** The deck's folder (null = Unfiled). Organisation only: the queue order is global. */
+    val folderId: String? = null,
 )
 
 /** One local search hit (the web's NoteSearchResults row). */
@@ -91,6 +93,13 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
     val editor = dev.jeromeswannack.chineselearning.lab.ui.cards.NoteEditor(env, viewModelScope).apply {
         onDone = { msg -> _ui.update { it.copy(notice = msg, noticeIsError = false) } }
     }
+    /** Folders on the Decks list (shared with the Library and Readers: ui/folders/). */
+    val folders: dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController? = env.folderWrites?.let { w ->
+        dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController(
+            viewModelScope, dev.jeromeswannack.chineselearning.lab.core.Folders.DECK, env.cache, w, env.folderFeel,
+            currentFolderOf = { id -> _ui.value.decks.firstOrNull { it.id == id }?.folderId },
+        )
+    }
     private var searchJob: Job? = null
     private var serverJob: Job? = null
 
@@ -131,6 +140,7 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
                 id = d.id, name = d.name, noteCount = noteCounts[d.id] ?: 0,
                 counts = StudyQueue.counts(q.dueCards, q.reviewedNoteIds), hasMoreNew = q.hasMoreNew,
                 totalCards = completion.total, mastered = completion.mastered, learning = completion.learning,
+                folderId = d.folderId,
             )
         }
     }

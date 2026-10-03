@@ -9,6 +9,7 @@ import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
 import dev.jeromeswannack.chineselearning.lab.data.platform.LabPlatform
 import dev.jeromeswannack.chineselearning.lab.data.homework.LongTermStore
+import dev.jeromeswannack.chineselearning.lab.data.api.folders
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -198,7 +199,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         me.conversation_voices?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.put(platform.cache, it) }
     }
 
-    private fun deckEntity(d: DeckDto) = DeckEntity(d.id, d.name, d.description, d.new_cards_per_day, d.secondary_cards_per_day, d.study_priority, d.created_at)
+    private fun deckEntity(d: DeckDto) = DeckEntity(d.id, d.name, d.description, d.new_cards_per_day, d.secondary_cards_per_day, d.study_priority, d.created_at, d.folder_id)
 
     private fun noteEntity(n: NoteDto, deckId: String = n.deck_id) = NoteEntity(
         id = n.id, deckId = deckId, hanzi = n.hanzi, pinyin = n.pinyin, english = n.english, audioUrl = n.audio_url,
@@ -249,6 +250,18 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
             }
             step.detail = "%,d notes · %,d cards".format(notes.size, serverCards.size)
         }
+        // The folder list (all kinds) comes whole: a full sync asks for it (an incremental one gets
+        // it in /api/sync/changes). An older server without folders must not fail the sync.
+        try {
+            dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.replaceFromServer(platform.cache, db.platform(), api.folders())
+        } catch (e: UnauthorizedException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("LabSync", "folders not synced", e)
+        }
+        dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.reapplyPendingItems(dao, platform.cache, db.platform())
         prefs.lastFullSync = System.currentTimeMillis()
         prefs.changesCursor = snapshotAt
         prefs.fullRefreshVersion = FULL_REFRESH_VERSION
@@ -265,6 +278,10 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
             val ghosts = db.withTransaction { SyncChanges.apply(dao, changes).also { LongTermStore.reapplyPending(dao, db.platform()) } }
             if (ghosts.isNotEmpty()) android.util.Log.i("LabSync", "Removed ${ghosts.size} decks the server no longer has: $ghosts")
         }
+        // Folders (all kinds) come whole with every change set; the decks' folder moves still in
+        // the Outbox stay as made on this phone (data/folders/FolderStore.kt).
+        changes.folders?.let { dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.replaceFromServer(platform.cache, db.platform(), it) }
+        dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.reapplyPendingItems(dao, platform.cache, db.platform())
         changes.study_budget?.let { prefs.budgetInfo = it.toInfo() }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).

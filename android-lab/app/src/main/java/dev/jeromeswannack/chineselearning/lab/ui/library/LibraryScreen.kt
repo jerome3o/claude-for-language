@@ -49,6 +49,34 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.RowDivider
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import dev.jeromeswannack.chineselearning.lab.core.Folder
+import dev.jeromeswannack.chineselearning.lab.core.Folders
+import dev.jeromeswannack.chineselearning.lab.ui.decks.dragReorderList
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderHeaderRow
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderOverlays
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderRow
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderToolbar
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderUi
+import dev.jeromeswannack.chineselearning.lab.ui.folders.SelectTick
+import dev.jeromeswannack.chineselearning.lab.ui.folders.folderRows
+import dev.jeromeswannack.chineselearning.lab.ui.folders.foldersInDragOrder
+import dev.jeromeswannack.chineselearning.lab.ui.folders.rememberFolderHeaderDrag
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreenFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
+import dev.jeromeswannack.chineselearning.lab.ui.kit.OfflineNotice
+import dev.jeromeswannack.chineselearning.lab.ui.kit.ScreenTitle
 
 // `/library` — the tutor's Lesson Library (web: pages/editor/LessonLibraryPage.tsx).
 
@@ -73,55 +101,112 @@ data class LibraryActions(
     val onConfirmArchive: (LibraryItemSummary) -> Unit = {},
     val onCancelArchive: () -> Unit = {},
     val onDismissNotice: () -> Unit = {},
+    /** ⋯ → 📁 Move to folder…. */
+    val onMoveToFolder: (LibraryItemSummary) -> Unit = {},
+    val onLift: () -> Unit = {},
+    val onSlot: () -> Unit = {},
     val newLesson: NewLessonActions = NewLessonActions(),
     val assign: AssignActions = AssignActions(),
 )
 
 @Composable
-fun LibraryScreen(ui: LibraryUi, actions: LibraryActions) {
-    LabScreen(
-        title = "📚 Lesson Library",
-        actions = { MoreButton(actions.onPageMenu) },
-    ) {
-        item(key = "notice") { NoticeSlot(ui.notice, actions.onDismissNotice) }
-        item(key = "intro") {
-            Text(
-                "Master copies of your mini lessons. Assign one to a student and they get their own copy in their study sessions; edit here and push the update to keep everyone in step.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Lab.colors.muted,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-        }
-        item(key = "new") { PrimaryPill("+ New lesson", Modifier.fillMaxWidth().height(54.dp), onClick = actions.onNew) }
-        item(key = "catalogue") {
-            LabCard {
-                NavRow(
-                    "🧭",
-                    "Exercise catalogue",
-                    desc = "Every exercise type — sentence making, writing, dictation, speaking, conversations — with a sample lesson you can take.",
-                    onClick = actions.onCatalogue,
-                )
-            }
-        }
-        item(key = "list") {
-            LoadableContent(
-                ui.list,
-                onRetry = actions.onRetry,
-                isEmpty = { it.isEmpty() },
-                empty = {
-                    EmptyState(
-                        "📚",
-                        "No lessons yet",
-                        body = "Describe one and let Claude draft it, or import a JSON export.",
-                        actionLabel = "+ New lesson",
-                        onAction = actions.onNew,
-                    )
-                },
-            ) { items ->
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items.forEach { item -> LibraryCard(item, busy = ui.busyItemId == item.id, actions) }
+fun LibraryScreen(
+    ui: LibraryUi,
+    actions: LibraryActions,
+    folders: FolderUi? = null,
+    folderActions: FolderActions = FolderActions(),
+    listState: LazyListState = rememberLazyListState(),
+) {
+    val data = ui.list.data
+    val grouped = folders != null && folders.hasFolders && !data.isNullOrEmpty()
+    val baseRows = if (grouped) libraryRows(data!!, folders!!.folders, folders.collapsed) else emptyList()
+    val drag = rememberFolderHeaderDrag(listState, baseRows, folders, folderActions, actions.onLift, actions.onSlot)
+    val rows = if (grouped) libraryRows(data!!, foldersInDragOrder(folders!!.folders, drag), folders.collapsed) else emptyList()
+    LabScreenFrame {
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize()) {
+                ScreenTitle("📚 Lesson Library", actions = { MoreButton(actions.onPageMenu) })
+                LazyColumn(
+                    Modifier.fillMaxSize().dragReorderList(drag),
+                    state = listState,
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = if (folders?.selecting == true) 110.dp else 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item(key = "notice") { NoticeSlot(ui.notice, actions.onDismissNotice) }
+                    item(key = "intro") {
+                        Text(
+                            "Master copies of your mini lessons. Assign one to a student and they get their own copy in their study sessions; edit here and push the update to keep everyone in step.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Lab.colors.muted,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                    item(key = "new") { PrimaryPill("+ New lesson", Modifier.fillMaxWidth().height(54.dp), onClick = actions.onNew) }
+                    item(key = "catalogue") {
+                        LabCard {
+                            NavRow(
+                                "🧭",
+                                "Exercise catalogue",
+                                desc = "Every exercise type — sentence making, writing, dictation, speaking, conversations — with a sample lesson you can take.",
+                                onClick = actions.onCatalogue,
+                            )
+                        }
+                    }
+                    if (data.isNullOrEmpty()) {
+                        item(key = "list") {
+                            LoadableContent(
+                                ui.list,
+                                onRetry = actions.onRetry,
+                                isEmpty = { it.isEmpty() },
+                                empty = {
+                                    EmptyState(
+                                        "📚",
+                                        "No lessons yet",
+                                        body = "Describe one and let Claude draft it, or import a JSON export.",
+                                        actionLabel = "+ New lesson",
+                                        onAction = actions.onNew,
+                                    )
+                                },
+                            ) {}
+                        }
+                    } else {
+                        if (ui.list.offline) item(key = "offline") { OfflineNotice(updatedAt = ui.list.updatedAt) }
+                        else ui.list.error?.let { e -> item(key = "error") { InlineNotice(e, kind = NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRetry) } }
+                        if (folders != null) {
+                            item(key = "folder-toolbar") {
+                                FolderToolbar(folders, onNewFolder = { folderActions.onNewFolder(null) }, onSelect = folderActions.onSelect, onDone = folderActions.onDoneSelecting)
+                            }
+                        }
+                        val shown: List<FolderRow<LibraryItemSummary>> = if (grouped) rows else data.map { FolderRow.Item(it, it.id, 0, "unfiled") }
+                        items(shown, key = { it.key }) { row ->
+                            val lifted = drag.dragId == row.key
+                            val mod = Modifier
+                                .zIndex(if (lifted) 1f else 0f)
+                                .graphicsLayer { translationY = if (lifted) drag.dragOffsetY else 0f }
+                                .then(if (lifted) Modifier else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)))
+                            when (row) {
+                                is FolderRow.Header -> FolderHeaderRow(
+                                    row,
+                                    Folders.LESSON,
+                                    onToggle = { folderActions.onToggle(row.folder?.id) },
+                                    onMenu = row.folder?.let { f -> { folderActions.onMenu(f, row.own, row.subfolders) } },
+                                    modifier = mod,
+                                    lifted = lifted,
+                                )
+                                is FolderRow.Item -> LibraryCard(
+                                    row.item,
+                                    busy = ui.busyItemId == row.item.id,
+                                    actions,
+                                    modifier = mod.padding(start = (row.depth * 16).dp),
+                                    selection = if (folders?.selecting == true) row.item.id in folders.selected else null,
+                                    onSelect = { folderActions.onToggleSelected(row.item.id) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
+            if (folders != null) FolderOverlays(folders, folderActions)
         }
     }
 
@@ -168,12 +253,24 @@ internal fun MoreButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun LibraryCard(item: LibraryItemSummary, busy: Boolean, actions: LibraryActions) {
-    LabCard(Modifier.alpha(if (busy) 0.6f else 1f)) {
+private fun LibraryCard(
+    item: LibraryItemSummary,
+    busy: Boolean,
+    actions: LibraryActions,
+    modifier: Modifier = Modifier,
+    /** Select mode: null = off, else whether it is ticked (a tap toggles). */
+    selection: Boolean? = null,
+    onSelect: () -> Unit = {},
+) {
+    LabCard(modifier.alpha(if (busy) 0.6f else 1f).then(if (selection == true) Modifier.border(2.dp, Lab.colors.accent, RoundedCornerShape(18.dp)) else Modifier)) {
         Row(
-            Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.98f) { actions.onOpen(item) }.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp),
+            Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.98f) { if (selection != null) onSelect() else actions.onOpen(item) }.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp),
             verticalAlignment = Alignment.Top,
         ) {
+            if (selection != null) {
+                SelectTick(selection, Modifier.padding(top = 10.dp))
+                Spacer(Modifier.width(12.dp))
+            }
             Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(Lab.colors.accentSoft), contentAlignment = Alignment.Center) {
                 Text(item.icon ?: "🎓", fontSize = 26.sp)
             }
@@ -218,6 +315,8 @@ internal fun TagPill(tag: String) {
 private fun ItemMenuSheet(item: LibraryItemSummary, actions: LibraryActions) {
     LabBottomSheet(onDismiss = actions.onCloseMenu, title = item.title) {
         NavRow("⧉", "Duplicate", desc = "The copy opens in the editor", onClick = { actions.onDuplicate(item) })
+        RowDivider()
+        NavRow("📁", "Move to folder…", desc = "Organise your library — students see no difference", onClick = { actions.onMoveToFolder(item) })
         RowDivider()
         ExportRows(
             onExport = { format, save -> actions.onExport(item, format, save) },
@@ -273,3 +372,7 @@ internal fun MiniAction(label: String, onClick: () -> Unit) {
         Text(label, color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
     }
 }
+
+/** Library items grouped into their folders, as rows (items keep the list's order). */
+internal fun libraryRows(items: List<LibraryItemSummary>, folders: List<Folder>, collapsed: Set<String>): List<FolderRow<LibraryItemSummary>> =
+    folderRows(Folders.groupIntoFolders(items, { it.folder_id }, folders, Folders.LESSON), collapsed) { it.id }

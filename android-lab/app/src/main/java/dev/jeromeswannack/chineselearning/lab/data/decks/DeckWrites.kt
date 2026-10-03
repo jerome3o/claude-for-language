@@ -400,7 +400,7 @@ class DeckWrites(
         /** The Outbox kinds this class writes. */
         val KINDS = setOf("deck-order", "deck-edit", "deck-settings", "deck-delete", "note-edit", "note-delete", "note-move", "card-flags")
 
-        fun deckEntity(d: DeckDto) = DeckEntity(d.id, d.name, d.description, d.new_cards_per_day, d.secondary_cards_per_day, d.study_priority, d.created_at)
+        fun deckEntity(d: DeckDto) = DeckEntity(d.id, d.name, d.description, d.new_cards_per_day, d.secondary_cards_per_day, d.study_priority, d.created_at, d.folder_id)
 
         fun noteEntity(n: NoteDto) = NoteEntity(
             id = n.id, deckId = n.deck_id, hanzi = n.hanzi, pinyin = n.pinyin, english = n.english, audioUrl = n.audio_url,

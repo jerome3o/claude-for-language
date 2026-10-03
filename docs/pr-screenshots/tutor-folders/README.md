@@ -28,3 +28,17 @@ Lesson Library grouped into Grammar / Conversations / Unfiled.
 
 ![Readers with folders](09-readers-folders.png)
 Graded readers: 📁 button per story.
+
+Lab app (Roborazzi, phone):
+
+![Lab decks](lab-folders-01-decks.png)
+Decks grouped by folder (subfolder inside HSK 3, Food & travel collapsed, Unfiled last).
+
+![Lab library](lab-folders-02-library.png)
+Library lessons in folders.
+
+![Lab move sheet](lab-folders-03-move-sheet.png)
+Move to folder sheet.
+
+![Lab readers](lab-folders-04-readers.png)
+Readers in folders.
