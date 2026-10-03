@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chat
 
 import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
+import dev.jeromeswannack.chineselearning.lab.core.MessageMenu
 import dev.jeromeswannack.chineselearning.lab.core.ProposedCard
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatAttachmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatCorrectionDto
@@ -40,35 +41,46 @@ class ChatLearningUiTest {
         assertNull(student.translationOf(m))
     }
 
-    @Test fun menuToolsForTheTutorAndTheStudent() {
+    private fun ChatUi.ids(m: ChatMessageDto) = menu(m).items.map { it.id }
+
+    @Test fun theLongPressMenuForTheTutorAndTheStudent() {
         val theirs = msg("m1", "me", "我昨天去商店买东西了")
-        val ids = tutor.menuTools(theirs).map { it.id }
-        assertTrue(ChatUi.TOOL_CORRECT in ids)
-        assertTrue(ChatUi.TOOL_MAKE_CARDS in ids)
-        assertFalse(ChatUi.TOOL_REMOVE_CORRECTION in ids)
+        val ids = tutor.ids(theirs)
+        assertTrue(MessageMenu.CORRECT in ids)
+        assertTrue(MessageMenu.SELECT_CARDS in ids)
+        assertFalse(MessageMenu.REMOVE_CORRECTION in ids)
         val corrected = theirs.copy(correction = ChatCorrectionDto("我昨天去商店买了东西", "了 after the verb", "t1", "x"))
-        val ids2 = tutor.menuTools(corrected).map { it.id }
-        assertTrue(ChatUi.TOOL_REMOVE_CORRECTION in ids2)
-        assertEquals("Edit correction", tutor.menuTools(corrected).first { it.id == ChatUi.TOOL_CORRECT }.label)
-        assertFalse("a tutor doesn't make cards from a correction", ChatUi.TOOL_CORRECTION_CARD in ids2)
-        // The student sees "Make a card from the correction" on their corrected message, never "Correct this".
-        val sIds = student.menuTools(corrected).map { it.id }
-        assertTrue(ChatUi.TOOL_CORRECTION_CARD in sIds)
-        assertFalse(ChatUi.TOOL_CORRECT in sIds)
+        val ids2 = tutor.ids(corrected)
+        assertTrue(MessageMenu.REMOVE_CORRECTION in ids2)
+        assertEquals("Edit correction", tutor.menu(corrected).items.first { it.id == MessageMenu.CORRECT }.label)
+        assertFalse("a tutor doesn't make cards from a correction", MessageMenu.CORRECTION_CARD in ids2)
+        // The student sees "Make a card from the correction" on their corrected message, never "Correct".
+        val sIds = student.ids(corrected)
+        assertTrue(MessageMenu.CORRECTION_CARD in sIds)
+        assertFalse(MessageMenu.CORRECT in sIds)
         // Their own message can't be corrected by the tutor; a photo neither.
-        assertFalse(ChatUi.TOOL_CORRECT in tutor.menuTools(msg("m2", "t1", "很好！")).map { it.id })
-        assertFalse(ChatUi.TOOL_CORRECT in tutor.menuTools(theirs.copy(attachment = ChatAttachmentDto("image"))).map { it.id })
+        assertFalse(MessageMenu.CORRECT in tutor.ids(msg("m2", "t1", "很好！")))
+        assertFalse(MessageMenu.CORRECT in tutor.ids(theirs.copy(attachment = ChatAttachmentDto("image"))))
     }
 
-    @Test fun learningToolsReplaceWordByWordAndTranslateInATutorChat() {
-        val m = msg("m1", "t1", "我昨天去了。")
-        val ids = student.menuTools(m).map { it.id }
-        assertFalse("word_by_word" in ids)
-        assertFalse("translate" in ids)
-        assertEquals(ChatUi.TOOL_MAKE_CARDS, ids.last())
-        // The Claude practice chat keeps them.
+    @Test fun theMenuFollowsTheTogglesAndTheCheck() {
+        val m = msg("m1", "t1", "我昨天去了。").copy(translation = "I went yesterday.")
+        val on = student.copy(aids = ChatLearning.Aids().togglePinyin("m1").toggleTranslation("m1"))
+        assertEquals("Hide pinyin", on.menu(m).items.first { it.id == MessageMenu.PINYIN }.label)
+        assertEquals("Hide translation", on.menu(m).items.first { it.id == MessageMenu.TRANSLATE }.label)
+        assertEquals("Translate", student.menu(m).items.first { it.id == MessageMenu.TRANSLATE }.label)
+        // A check result learnt here wins over the server's copy.
+        val mine = msg("m2", "me", "我很好")
+        assertTrue(MessageMenu.CHECK in student.ids(mine))
+        assertTrue(MessageMenu.VIEW_CORRECTIONS in student.copy(checkStatuses = mapOf("m2" to "needs_improvement")).ids(mine))
+        // The Claude practice chat: Word by word, no pin / edit / delete.
         val ai = student.copy(conversation = dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto("c1", "rel1", "Practice", is_ai_conversation = true))
-        assertTrue("word_by_word" in ai.menuTools(m).map { it.id })
+        assertTrue(MessageMenu.WORD_BY_WORD in ai.ids(m))
+        assertFalse(MessageMenu.PIN in ai.ids(mine))
+        // Voice: the tools work on the transcript.
+        val voice = msg("v1", "t1", "").copy(attachment = ChatAttachmentDto("voice", transcript_status = "done", transcript = "我昨天去了。"))
+        assertEquals("我昨天去了。", student.menuText(voice))
+        assertFalse(MessageMenu.PLAY in student.ids(voice))
     }
 
     @Test fun pickableMarksWhatCanBeSent() {

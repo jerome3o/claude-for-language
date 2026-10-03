@@ -110,6 +110,9 @@ dependencies {
     implementation(project(":core"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    // ShellPermission uses registerForActivityResult; Firebase would otherwise resolve fragment 1.1.0,
+    // which fails lintVitalRelease (InvalidFragmentVersionForActivityResult) and so the release build.
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

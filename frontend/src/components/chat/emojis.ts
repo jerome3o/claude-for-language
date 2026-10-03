@@ -1,6 +1,6 @@
 /** Reaction emojis for the chat's ⋯ sheet: quick row (recents first) and the full grid. */
 
-const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '👏', '🔥'];
+const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 export const FULL_EMOJI_LIST = [
   // Smileys
   '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😊',

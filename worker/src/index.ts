@@ -82,6 +82,8 @@ import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
 import boardPagesRoutes from './routes/board-pages';
 import pushRoutes from './routes/push';
+import { emailPublic, emailPrefs } from './routes/email-prefs';
+import linkPreview from './routes/link-preview';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
 import chatMessagesRoutes from './routes/chat-messages';
 import chatLearningRoutes from './routes/chat-learning';
@@ -447,6 +449,8 @@ app.get('/api/auth/me', async (c) => {
     landing_page: user.landing_page || null,
     // Video-call alerts: 'ring' (ring in the app + push) or 'silent' (banner only).
     call_alerts: (user as { call_alerts?: string | null }).call_alerts === 'silent' ? 'silent' : 'ring',
+    // A new chat message also sends an e-mail (Settings → Notifications; the e-mail's own "Turn off" link).
+    email_chat_messages: (user as { email_chat_messages?: number | null }).email_chat_messages !== 0,
     // The learner's daily new-card budget across all decks (NULL = default).
     new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
@@ -464,6 +468,8 @@ app.route('/api/test', testAuth);
 mountCallSocket(app);
 // Chat live socket: authenticated by a one-minute `live` ticket (see routes/chat-live.ts).
 mountLiveSocket(app);
+// "Turn off chat emails" links: the signed token in the URL is the credential (routes/email-prefs.ts).
+app.route('/api/email', emailPublic);
 
 app.use('/api/*', authMiddleware);
 
@@ -500,6 +506,8 @@ app.route('/api', callsRoutes);
 app.route('/api', boardPagesRoutes);
 // Web Push subscriptions + the call-alerts setting (routes/push.ts).
 app.route('/api', pushRoutes);
+app.route('/api', emailPrefs);
+app.route('/api', linkPreview);
 // Chat: messages, read markers, inbox, native push tokens, live ticket (docs/CHAT.md)
 app.route('/api', chatLiveRoutes);
 // Rich messages: photo / voice upload + serving, edit, delete, pin, reactions (docs/CHAT.md PR 2)
