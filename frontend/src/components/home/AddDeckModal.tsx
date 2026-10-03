@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createDeck } from '../../api/client';
+import { track } from '../../services/analytics';
 
 /**
  * "+ Add a deck": the existing create form with the Claude option inside it,
@@ -16,6 +17,7 @@ export function AddDeckModal({ onClose }: { onClose: () => void }) {
   const createMutation = useMutation({
     mutationFn: () => createDeck(name, description || undefined),
     onSuccess: (deck) => {
+      track('deck.create', { source: 'manual' });
       queryClient.invalidateQueries({ queryKey: ['decks'] });
       onClose();
       navigate(`/decks/${deck.id}`);
@@ -78,7 +80,7 @@ export function AddDeckModal({ onClose }: { onClose: () => void }) {
             </p>
           )}
 
-          <div className="modal-actions">
+          <div className="modal-actions sheet-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Cancel
             </button>

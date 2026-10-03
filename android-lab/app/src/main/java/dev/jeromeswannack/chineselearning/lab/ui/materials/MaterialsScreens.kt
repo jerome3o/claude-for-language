@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -45,7 +47,7 @@ import dev.jeromeswannack.chineselearning.lab.data.materials.UploadStage
 import dev.jeromeswannack.chineselearning.lab.ui.calls.materialIcon
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFormSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
@@ -133,8 +135,14 @@ fun MaterialsScreen(
     sharing?.let { m ->
         // The list's copy carries the latest shared_with after a toggle.
         val current = ui.materials?.firstOrNull { it.id == m.id } ?: m
-        LabBottomSheet(onDismiss = { sharing = null }, title = "Share “${current.title}”") {
-            Column(Modifier.padding(horizontal = 16.dp).testTag("material-share-sheet")) {
+        LabFormSheet(
+            onDismiss = { sharing = null },
+            title = "Share “${current.title}”",
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            spacing = 0.dp,
+            footer = { SecondaryPill("Done", Modifier.weight(1f).height(52.dp)) { sharing = null } },
+        ) {
+            Column(Modifier.testTag("material-share-sheet")) {
                 Text("They can read it and see it in calls. Presenting it in a call with them shares it automatically.", color = Lab.colors.muted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 ui.students.forEach { st ->
                     val on = current.shared_with?.contains(st.relationshipId) == true
@@ -146,17 +154,18 @@ fun MaterialsScreen(
                         Text(st.name, color = Lab.colors.ink, fontSize = 16.sp)
                     }
                 }
-                SecondaryPill("Done", Modifier.fillMaxWidth().padding(top = 8.dp)) { sharing = null }
             }
         }
     }
     renaming?.let { m ->
         var title by remember(m.id) { mutableStateOf(m.title) }
-        LabBottomSheet(onDismiss = { renaming = null }, title = "Rename") {
-            Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Title") })
-                PrimaryPill("Save", Modifier.fillMaxWidth(), enabled = title.isNotBlank() && title.trim() != m.title) { actions.onRename(m, title.trim()); renaming = null }
-            }
+        LabFormSheet(
+            onDismiss = { renaming = null },
+            title = "Rename",
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
+            footer = { PrimaryPill("Save", Modifier.weight(1f).height(52.dp), enabled = title.isNotBlank() && title.trim() != m.title) { actions.onRename(m, title.trim()); renaming = null } },
+        ) {
+            OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Title") })
         }
     }
     deleting?.let { m ->

@@ -6,6 +6,7 @@ import type { Invite } from '../../types/invites';
 import { QRCode } from './QRCode';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { OfflineWarning } from '../OfflineWarning';
+import { track, trackError } from '../../services/analytics';
 import './invites.css';
 
 type RoleChoice = 'tutor' | 'student' | 'none';
@@ -96,6 +97,7 @@ export function InviteSheet({ onClose, onCreated }: InviteSheetProps) {
         if (selectedDecks.has(STARTER_OPTION_ID)) {
           setCreatingStep('Creating your Starter Chinese deck…');
           const starter = await createStarterDeck();
+          track('deck.create', { source: 'starter' });
           shareDeckIds.unshift(starter.deck.id);
           queryClient.invalidateQueries({ queryKey: ['decks'] });
         }
@@ -111,8 +113,10 @@ export function InviteSheet({ onClose, onCreated }: InviteSheetProps) {
         note: note.trim() || null,
       });
       setInvite(created);
+      track('tutor.invite_create', { decks: shareDeckIds.length });
       onCreated?.(created);
     } catch (err) {
+      trackError('invite_create', err);
       setError(err instanceof Error ? err.message : 'Could not create the invite');
     } finally {
       setIsCreating(false);
@@ -325,14 +329,16 @@ export function InviteSheet({ onClose, onCreated }: InviteSheetProps) {
             {error && <p className="text-error invite-error">{error}</p>}
             <OfflineWarning message="You're offline. Invite links can't be created right now." />
 
-            <button
-              type="button"
-              className="btn btn-primary btn-block invite-create-btn"
-              onClick={handleCreate}
-              disabled={!canCreate}
-            >
-              {isCreating ? (creatingStep ?? 'Creating…') : 'Create link'}
-            </button>
+            <div className="sheet-footer">
+              <button
+                type="button"
+                className="btn btn-primary btn-block invite-create-btn"
+                onClick={handleCreate}
+                disabled={!canCreate}
+              >
+                {isCreating ? (creatingStep ?? 'Creating…') : 'Create link'}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="invite-sheet-body invite-result">

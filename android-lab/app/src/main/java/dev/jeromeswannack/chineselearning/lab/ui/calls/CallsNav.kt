@@ -48,8 +48,9 @@ private fun CallReviewRoute(nav: LabNav, id: String) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val removal by vm.removal.sheet.collectAsStateWithLifecycle()
     val toast by vm.removal.toast.collectAsStateWithLifecycle()
+    val sentToast by vm.sender.toast.collectAsStateWithLifecycle()
     CallReviewScreen(
-        ui.copy(removal = removal, toast = toast),
+        ui.copy(removal = removal, toast = sentToast ?: toast),
         CallReviewActions(
             onBack = nav::back,
             onJoin = { nav.open(Routes.call(id)) },
@@ -64,6 +65,7 @@ private fun CallReviewRoute(nav: LabNav, id: String) {
             jobs = JobActions(
                 retry = vm::retryJob, cancel = vm::cancelJob, delete = vm::deleteJob, open = { nav.open(it) },
                 remove = { target -> vm.removal.start(target, ui.homework?.studentName ?: "") },
+                send = { job, keys, done -> vm.sender.send(job, keys, ui.homework?.studentName ?: "", done) },
             ),
             removalSheet = vm.removal.actions,
             onAllSessionNotes = { nav.open(Routes.sessionNotes(it)) },

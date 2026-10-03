@@ -1635,6 +1635,15 @@ export async function updateUserBio(bio: string | null): Promise<string | null> 
 }
 
 /** Set the "Start on" tab (null = automatic). */
+/** Settings → Advanced → "Share usage data" (docs/ANALYTICS.md). Off also deletes what was collected. */
+export async function updateShareUsage(share_usage: boolean): Promise<boolean> {
+  const data = await fetchJSON<{ share_usage: boolean }>('/profile/analytics', {
+    method: 'PUT',
+    body: JSON.stringify({ share_usage }),
+  });
+  return data.share_usage;
+}
+
 export async function updateLandingPage(landing_page: LandingPage | null): Promise<LandingPage | null> {
   const data = await fetchJSON<{ landing_page: LandingPage | null }>('/profile/landing-page', {
     method: 'PUT',

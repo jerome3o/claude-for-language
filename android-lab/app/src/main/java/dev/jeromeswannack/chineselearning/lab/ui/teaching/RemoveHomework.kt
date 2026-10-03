@@ -2,8 +2,10 @@ package dev.jeromeswannack.chineselearning.lab.ui.teaching
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
@@ -34,7 +36,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.removeStudentReader
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFormSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
@@ -81,9 +83,22 @@ data class RemovalSheetActions(
 /** "Remove “HSK 1” from Jerome's decks?" — what happens in plain words, the copy option, Cancel / red Remove. */
 @Composable
 fun RemoveHomeworkSheet(ui: RemovalSheetUi, actions: RemovalSheetActions) {
-    LabBottomSheet(onDismiss = { if (!ui.busy) actions.dismiss() }, title = ui.copy?.title ?: "Remove homework") {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val copy = ui.copy
+    val copy = ui.copy
+    LabFormSheet(
+        onDismiss = { if (!ui.busy) actions.dismiss() },
+        title = copy?.title ?: "Remove homework",
+        spacing = 12.dp,
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
+        footerAbove = ui.error?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
+        footer = {
+            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), enabled = !ui.busy, onClick = actions.dismiss)
+            PrimaryPill(
+                if (ui.busy) "Removing…" else copy?.confirmLabel ?: "Remove",
+                Modifier.weight(1f).height(52.dp), enabled = copy != null && !ui.busy, color = Palette.Again, onClick = actions.confirm,
+            )
+        },
+    ) {
+        run {
             when {
                 ui.loadError != null -> InlineNotice(ui.loadError, kind = NoticeKind.Error)
                 copy == null -> MutedLine("Checking what ${ui.studentName.trim().split(Regex("\\s+")).firstOrNull()?.ifEmpty { null } ?: "they"} has done…")
@@ -107,14 +122,6 @@ fun RemoveHomeworkSheet(ui: RemovalSheetUi, actions: RemovalSheetActions) {
                         }
                     }
                 }
-            }
-            ui.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SecondaryPill("Cancel", Modifier.weight(1f), enabled = !ui.busy, onClick = actions.dismiss)
-                PrimaryPill(
-                    if (ui.busy) "Removing…" else copy?.confirmLabel ?: "Remove",
-                    Modifier.weight(1f), enabled = copy != null && !ui.busy, color = Palette.Again, onClick = actions.confirm,
-                )
             }
         }
     }
@@ -191,6 +198,7 @@ class HomeworkRemovalController(
             }
                 .onSuccess { result ->
                     _sheet.value = null
+                    app.analytics.track("tutor.remove_homework", mapOf("kind" to t.kind))
                     app.haptics.correct()
                     app.sounds.play(Sounds.Sfx.POP)
                     showToast(HomeworkRemoval.removalToast(t.kind, t.title, s.studentName, result.source_deleted))

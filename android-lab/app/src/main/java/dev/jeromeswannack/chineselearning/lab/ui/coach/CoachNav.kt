@@ -114,10 +114,7 @@ private fun coachCardActions(app: LabApp): SentenceActions {
     val tools = CardTools(app)
     return SentenceActions(
         decks = {
-            withContext(Dispatchers.IO) {
-                app.repo.dao.decks().sortedWith(compareByDescending<dev.jeromeswannack.chineselearning.lab.data.DeckEntity> { it.studyPriority }.thenByDescending { it.createdAt })
-                    .map { it.id to it.name }
-            }
+            withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { it.id to it.name } }
         },
         deckHas = tools::deckHas,
         addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english, c.funFacts)) },
@@ -175,6 +172,7 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
     fun start(text: String, action: CoachAction, onStarted: (String) -> Unit) {
         if (text.isEmpty() || local.value.starting) return
         local.update { it.copy(draft = text, starting = true, pendingAction = action, startError = null, savedBreakdown = null) }
+        app.analytics.track("coach.start", mapOf("action" to action.id))
         viewModelScope.launch {
             val cached = if (action == CoachAction.EXPLAIN) runCatching { tools.cachedTextExplanation(text) }.getOrNull() else null
             if (cached != null && !app.online.value) {

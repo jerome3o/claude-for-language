@@ -17,6 +17,7 @@ import {
   type CallAlertsMode,
   type PushState,
 } from '../../services/push';
+import { track } from '../../services/analytics';
 import './CallBanner.css';
 
 function usePushState(): [PushState | null, () => void] {
@@ -39,6 +40,7 @@ export function CallAlertsSection() {
     setNote(null);
     try {
       await setCallAlerts(next);
+      track('settings.change', { setting: 'call_alerts', value: next });
     } catch (err) {
       setMode(prev);
       setNote(err instanceof Error ? err.message : 'Could not save');

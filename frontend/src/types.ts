@@ -1,3 +1,4 @@
+import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import type { CoachAction } from '@shared/coach';
 import type { StudyBudgetInfo } from '@shared/decks';
 // Card types
@@ -50,6 +51,10 @@ export interface AuthUser {
   call_alerts?: 'ring' | 'silent';
   /** A new chat message also sends an e-mail (default true; Settings → Notifications, or the e-mail's own link). */
   email_chat_messages?: boolean;
+  /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account). */
+  chat_auto_check?: boolean | null;
+  /** Settings → Advanced → "Share usage data" (docs/ANALYTICS.md); absent on old servers = on. */
+  share_usage?: boolean;
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;
@@ -60,6 +65,8 @@ export interface AuthUser {
   /** Profile screen (/profile): public About me, time zone, where the picture comes from. */
   about?: string | null;
   time_zone?: string | null;
+  /** Voice my chat messages are read aloud in (Profile; shared/chats/voice.ts). */
+  voice_gender?: 'male' | 'female' | 'other' | null;
   picture_source?: 'google' | 'upload' | 'none';
 }
 
@@ -315,6 +322,8 @@ export interface UserSummary {
   about?: string | null;
   /** Their IANA time zone — shown as their local time (relationships only). */
   time_zone?: string | null;
+  /** Their read-aloud voice (shared/chats/voice.ts; relationships only). */
+  voice_gender?: 'male' | 'female' | 'other' | null;
 }
 
 export interface TutorRelationshipWithUsers extends TutorRelationship {
@@ -373,6 +382,8 @@ export interface Message {
   words_source?: 'content' | 'transcript' | null;
   /** The tutor's correction of this message. */
   correction?: ChatCorrection | null;
+  /** The background "check my Chinese" — only on my own messages (shared/chats/autoCheck.ts, docs/CHAT.md "Auto-check"). */
+  auto_check?: AutoCheckResult | null;
 }
 
 /** One word chip of a chat message (same shape as a reader page's words). */

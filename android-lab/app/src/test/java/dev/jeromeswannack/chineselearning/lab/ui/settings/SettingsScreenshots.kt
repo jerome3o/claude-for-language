@@ -22,6 +22,12 @@ import dev.jeromeswannack.chineselearning.lab.testing.Samples
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
 import dev.jeromeswannack.chineselearning.lab.ui.more.DebugReportRow
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavRole
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import org.junit.Test
 import org.robolectric.annotation.Config
 
@@ -72,8 +78,8 @@ class SettingsScreenshots : LabScreenshotTest() {
     @Test fun darkMain() = shoot("settings-05-dark", dark = true, settleMs = 1_000) { SettingsScreen(ui, env(), SettingsActions(onBack = {})) }
 
     @Test fun featureRequest() = shoot("settings-06-feature-request") {
-        LabScreen("Feature Request", onBack = {}) {
-            item {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(Lab.colors.card).padding(top = 16.dp)) {
+            run {
                 FeatureRequestBody(
                     FeatureRequestDetailDto(
                         ui.requests!![0],
@@ -82,8 +88,8 @@ class SettingsScreenshots : LabScreenshotTest() {
                             FeatureRequestCommentDto("c2", "Jerome", "Nice, the heatmap too please!", iso(90)),
                         ),
                     ),
-                    Busy(), "Also a haptic when the streak goes up?", {}, {},
-                )
+                    Busy(), "Also a haptic when the streak goes up?", {}, title = "Feature Request",
+                ) {}
             }
         }
     }

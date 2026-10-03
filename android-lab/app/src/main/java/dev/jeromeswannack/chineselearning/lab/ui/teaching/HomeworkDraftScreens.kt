@@ -8,6 +8,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -47,11 +49,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkRemoval
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkSend
+import dev.jeromeswannack.chineselearning.lab.data.api.toSendResult
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabToast
 import dev.jeromeswannack.chineselearning.lab.data.api.DraftPlanDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DraftPlanItemDto
@@ -64,6 +69,10 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
+import dev.jeromeswannack.chineselearning.lab.ui.kit.StickyFooter
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
@@ -193,13 +202,14 @@ fun Pulse(color: Color = Palette.Secondary) {
 /** Add lesson notes: title, date, notes, "draft homework from these notes" (web: LessonNotesSheet). */
 @Composable
 fun LessonNotesSheet(studentName: String, online: Boolean, save: (notes: String, title: String?, lessonAt: String, draft: Boolean, (String?) -> Unit) -> Unit, onDismiss: () -> Unit) {
-    LabBottomSheet(onDismiss = onDismiss, title = "Lesson notes for $studentName") {
-        LessonNotesForm(online, save, onDismiss)
+    LabSheetFrame(onDismiss = onDismiss) {
+        LessonNotesForm(online, save, title = "Lesson notes for $studentName", onDismiss = onDismiss)
     }
 }
 
 @Composable
-fun LessonNotesForm(online: Boolean, save: (String, String?, String, Boolean, (String?) -> Unit) -> Unit, onDismiss: () -> Unit) {
+fun LessonNotesForm(online: Boolean, save: (String, String?, String, Boolean, (String?) -> Unit) -> Unit, title: String? = null, modifier: Modifier = Modifier, onDismiss: () -> Unit) {
+    val sheetTitle = title
     val today = LocalDate.now().toString()
     var title by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
@@ -210,7 +220,23 @@ fun LessonNotesForm(online: Boolean, save: (String, String?, String, Boolean, (S
     var picking by remember { mutableStateOf(false) }
     val chars = notes.trim().length
     val tooShort = if (draft) chars < 20 else chars == 0
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    SheetScaffold(
+        modifier,
+        header = sheetTitle?.let { t -> { SheetTitle(t) } },
+        footerAbove = if (error == null && online) null else {
+            {
+                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                if (!online) InlineNotice("You're offline — the notes can be saved once you're back online.", kind = NoticeKind.Offline)
+            }
+        },
+        footer = {
+            TeachButton("Cancel", Modifier.weight(1f).height(52.dp), onClick = onDismiss)
+            TeachButton(if (saving) "Saving…" else if (draft) "Save & draft homework" else "Save notes", Modifier.weight(1.4f).height(52.dp), primary = true, enabled = !tooShort && !saving && online) {
+                saving = true; error = null
+                save(notes.trim(), title.trim().ifEmpty { null }, lessonAt, draft) { e -> saving = false; error = e }
+            }
+        },
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(title, { if (it.length <= 120) title = it }, Modifier.weight(1f), label = { Text("Title (optional)") }, placeholder = { Text("Restaurant ordering") }, singleLine = true)
             InlineButton(TutorPageFormat.day(lessonAt)) { picking = true }
@@ -222,15 +248,6 @@ fun LessonNotesForm(online: Boolean, save: (String, String?, String, Boolean, (S
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable { draft = !draft }, verticalAlignment = Alignment.CenterVertically) {
             Checkbox(draft, { draft = it }, colors = CheckboxDefaults.colors(checkedColor = Lab.colors.accent))
             Text("Draft homework from these notes — you review it before anything is sent", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
-        }
-        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        if (!online) InlineNotice("You're offline — the notes can be saved once you're back online.", kind = NoticeKind.Offline)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TeachButton("Cancel", Modifier.weight(1f), onClick = onDismiss)
-            TeachButton(if (saving) "Saving…" else if (draft) "Save & draft homework" else "Save notes", Modifier.weight(1.4f), primary = true, enabled = !tooShort && !saving && online) {
-                saving = true; error = null
-                save(notes.trim(), title.trim().ifEmpty { null }, lessonAt, draft) { e -> saving = false; error = e }
-            }
         }
     }
     if (picking) DatePickerSheet(lessonAt, null, { picking = false; lessonAt = minOf(it, today) }, { picking = false })
@@ -295,7 +312,11 @@ fun HomeworkDraftScreen(ui: DraftUi, actions: DraftActions, now: Instant = Insta
                     view == null && ui.loading -> LoadingState()
                     view == null -> Box(Modifier.padding(20.dp)) { InlineNotice(ui.error ?: "Draft not found", kind = NoticeKind.Error, actionLabel = "Retry", onAction = actions.retry) }
                     wide -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LazyColumn(Modifier.weight(1.3f), contentPadding = pad, verticalArrangement = Arrangement.spacedBy(12.dp)) { draftColumn(ui, view, actions, now) }
+                        Column(Modifier.weight(1.3f).fillMaxHeight()) {
+                            val listState = rememberLazyListState()
+                            LazyColumn(Modifier.weight(1f), state = listState, contentPadding = pad, verticalArrangement = Arrangement.spacedBy(12.dp)) { draftColumn(ui, view, actions, now) }
+                            AssignBar(ui, view, actions, listState.canScrollForward)
+                        }
                         Box(Modifier.weight(1f).padding(end = 20.dp, bottom = 20.dp)) { DraftChat(ui, view, actions) }
                     }
                     else -> Column(Modifier.fillMaxSize()) {
@@ -308,8 +329,11 @@ fun HomeworkDraftScreen(ui: DraftUi, actions: DraftActions, now: Instant = Insta
                                 )
                             }
                         }
-                        if (tab == 0) LazyColumn(Modifier.fillMaxSize(), contentPadding = pad, verticalArrangement = Arrangement.spacedBy(12.dp)) { draftColumn(ui, view, actions, now) }
-                        else Box(Modifier.fillMaxSize().padding(20.dp)) { DraftChat(ui, view, actions) }
+                        if (tab == 0) {
+                            val listState = rememberLazyListState()
+                            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = pad, verticalArrangement = Arrangement.spacedBy(12.dp)) { draftColumn(ui, view, actions, now) }
+                            AssignBar(ui, view, actions, listState.canScrollForward)
+                        } else Box(Modifier.fillMaxSize().padding(20.dp)) { DraftChat(ui, view, actions) }
                     }
                 }
             }
@@ -398,12 +422,16 @@ private fun LazyListScope.draftColumn(ui: DraftUi, view: DraftViewDto, actions: 
         }
     }
     if (plan.items.isEmpty() && !working) item(key = "empty") { MutedLine("This draft has nothing in it yet — ask Claude, or write the notes again.") }
-    if (!assigned) item(key = "assign") {
-        val included = includedItems(view)
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            PrimaryPill(if (ui.assigning) "Assigning…" else "Assign ${TeachingFormat.plural(included.size, "item")}", Modifier.fillMaxWidth().height(56.dp), enabled = !locked && !ui.assigning && included.isNotEmpty() && ui.online, onClick = actions.assign)
-            MutedLine(assignSummary(included))
-        }
+}
+
+/** "Assign N items" pinned under the draft (StickyFooter): the word list can be long. */
+@Composable
+private fun AssignBar(ui: DraftUi, view: DraftViewDto, actions: DraftActions, moreAbove: Boolean) {
+    if (view.job.assigned_at != null) return
+    val locked = view.working
+    val included = includedItems(view)
+    StickyFooter(moreAbove = moreAbove, color = Lab.colors.background, above = { MutedLine(assignSummary(included)) }) {
+        PrimaryPill(if (ui.assigning) "Assigning…" else "Assign ${TeachingFormat.plural(included.size, "item")}", Modifier.weight(1f).height(56.dp), enabled = !locked && !ui.assigning && included.isNotEmpty() && ui.online, onClick = actions.assign)
     }
 }
 
@@ -477,15 +505,32 @@ data class JobActions(
     val open: (String) -> Unit = {},
     /** "Undo — remove from Jerome" on what the job sent; null hides it (a page without the confirm sheet). */
     val remove: ((RemovalTarget) -> Unit)? = null,
+    /**
+     * Create, then send: "Send to Jerome" on each unsent item (keys "deck" | "lesson:<id>" | "reader"), after a
+     * confirm. The callback gets null on success or the error line. Null hides the buttons.
+     */
+    val send: ((job: SessionJobDto, keys: List<String>, done: (String?) -> Unit) -> Unit)? = null,
 )
 
 /** One session-notes job: live progress, what it made, Retry / Cancel / Delete (web: SessionNotesJobCard). */
 @Composable
-fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Instant.now(), studentName: String? = null) {
+fun SessionJobCard(
+    job: SessionJobDto,
+    actions: JobActions,
+    now: Instant = Instant.now(),
+    studentName: String? = null,
+    /** Screenshots: open with the Send confirm showing for these keys. */
+    initialConfirmSend: List<String>? = null,
+) {
     var showSteps by remember { mutableStateOf(false) }
     var showNotes by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmSend by remember { mutableStateOf(initialConfirmSend) }
+    var sending by remember { mutableStateOf(false) }
+    var sendError by remember { mutableStateOf<String?>(null) }
     val active = job.active
+    // Create, then send: what the job made waits in the tutor's account until she presses Send.
+    val unsent = if (job.status == "done") HomeworkSend.unsentJobItems(job.result.toSendResult()) else emptyList()
     TeachCard(Modifier.animateContentSize()) {
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
@@ -521,27 +566,37 @@ fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Insta
             val first = HomeworkRemoval.studentFirstName(studentName)
             val undo = HomeworkRemoval.removalUndoLabel(studentName)
             fun undoFor(target: RemovalTarget?): (() -> Unit)? = if (target != null && actions.remove != null) ({ actions.remove.invoke(target) }) else null
+            val sendLabel = HomeworkSend.sendToLabel(studentName)
+            fun sendFor(key: String): (() -> Unit)? = if (actions.send != null && unsent.any { it.key == key }) ({ confirmSend = listOf(key) }) else null
             r.deck?.let { d ->
                 MadeRow(
-                    "📚", "${d.name} · ${TeachingFormat.plural(d.note_count, "card")}", d.target_deck_id != null, "sent to student", "in your library, not sent",
-                    removed = d.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    "📚", "${d.name} · ${TeachingFormat.plural(d.note_count, "card")}", !d.target_deck_id.isNullOrEmpty(), "sent to $first", "in your library, not sent",
+                    removed = !d.removed_at.isNullOrEmpty(), removedLabel = "removed from $first", undoLabel = undo,
+                    sendLabel = sendLabel, sending = sending, onSend = sendFor("deck"),
                     onUndo = undoFor(d.target_deck_id?.takeIf { d.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.DECK, it, d.name) }),
                 ) { actions.open(Routes.deck(d.id)) }
             }
             r.lessons.forEach { l ->
                 MadeRow(
-                    "📘", "${l.title} · mini lesson, ${TeachingFormat.plural(l.exercise_count, "exercise")}", l.lesson_id != null, "assigned", "in your library, not assigned",
-                    removed = l.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    "📘", "${l.title} · mini lesson, ${TeachingFormat.plural(l.exercise_count, "exercise")}", !l.lesson_id.isNullOrEmpty(), "sent to $first", "in your library, not sent",
+                    removed = !l.removed_at.isNullOrEmpty(), removedLabel = "removed from $first", undoLabel = undo,
+                    sendLabel = sendLabel, sending = sending, onSend = sendFor("lesson:${l.library_item_id}"),
                     onUndo = undoFor(l.lesson_id?.takeIf { l.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.LESSON, it, l.title) }),
                 ) { actions.open(Routes.libraryItem(l.library_item_id)) }
             }
             r.reader?.let { rd ->
                 MadeRow(
-                    "📖", "${rd.title_english} · reader, ${TeachingFormat.plural(rd.page_count, "page")}", rd.target_reader_id != null, "sent to student", "in your readers, not sent",
-                    removed = rd.removed_at != null, removedLabel = "removed from $first", undoLabel = undo,
+                    "📖", "${rd.title_english} · reader, ${TeachingFormat.plural(rd.page_count, "page")}", !rd.target_reader_id.isNullOrEmpty(), "sent to $first", "in your readers, not sent",
+                    removed = !rd.removed_at.isNullOrEmpty(), removedLabel = "removed from $first", undoLabel = undo,
+                    sendLabel = sendLabel, sending = sending, onSend = sendFor("reader"),
                     onUndo = undoFor(rd.target_reader_id?.takeIf { rd.removed_at == null }?.let { RemovalTarget(HomeworkRemoval.READER, it, rd.title_chinese.ifEmpty { rd.title_english }) }),
                 ) { actions.open(Routes.readerEdit(rd.id)) }
             }
+            if (unsent.size > 1 && actions.send != null) TeachButton(
+                if (sending) "Sending…" else HomeworkSend.sendAllLabel(unsent.size, studentName),
+                Modifier.fillMaxWidth().testTag("sn-send-all"), primary = true, enabled = !sending,
+            ) { confirmSend = unsent.map { it.key } }
+            sendError?.let { InlineNotice(it, kind = NoticeKind.Error) }
             r.summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink) }
             if (r.skipped.isNotEmpty()) MutedLine("${TeachingFormat.plural(r.skipped.size, "word")} left out: ${r.skipped.joinToString("; ")}")
         }
@@ -553,6 +608,23 @@ fun SessionJobCard(job: SessionJobDto, actions: JobActions, now: Instant = Insta
             if (!active) InlineButton("Delete", danger = true) { confirmDelete = true }
         }
         if (showNotes) Text(job.notes, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.background).padding(10.dp))
+    }
+    confirmSend?.let { keys ->
+        val titles = unsent.filter { it.key in keys }.map { it.title }
+        ConfirmDialog(
+            if (keys.size > 1) HomeworkSend.sendAllLabel(keys.size, studentName) else HomeworkSend.sendToLabel(studentName),
+            HomeworkSend.sendConfirmText(titles, studentName),
+            "Send",
+            onConfirm = {
+                confirmSend = null
+                val send = actions.send
+                if (titles.isNotEmpty() && send != null) {
+                    sending = true; sendError = null
+                    send(job, keys) { e -> sending = false; sendError = e }
+                }
+            },
+            onDismiss = { confirmSend = null },
+        )
     }
     if (confirmDelete) ConfirmDialog("Forget this job?", "Anything it created stays in your library.", "Delete", onConfirm = { actions.delete(job) }, onDismiss = { confirmDelete = false }, danger = true)
 }
@@ -568,6 +640,10 @@ private fun MadeRow(
     removedLabel: String = "",
     undoLabel: String = "",
     onUndo: (() -> Unit)? = null,
+    sendLabel: String = "",
+    sending: Boolean = false,
+    /** "Send to Jerome" while it is only in the tutor's account (create, then send). */
+    onSend: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Column {
@@ -583,6 +659,7 @@ private fun MadeRow(
             }
         }
         if (sent && !removed && onUndo != null) Row(Modifier.padding(start = 28.dp)) { InlineButton(undoLabel, danger = true, onClick = onUndo) }
+        if (!sent && !removed && onSend != null) Row(Modifier.padding(start = 28.dp).testTag("sn-send")) { InlineButton(sendLabel, enabled = !sending, onClick = onSend) }
     }
 }
 
@@ -624,29 +701,47 @@ private fun SessionNotesList(ui: SessionNotesUi, actions: JobActions, back: () -
             ui.jobs == null && ui.error != null -> item { InlineNotice(ui.error, kind = NoticeKind.Error) }
             ui.jobs == null -> item { LoadingState() }
             ui.jobs.isEmpty() -> item {
-                TeachCard { MutedLine("After a lesson, paste your notes here. The assistant turns them into a deck of cards for ${ui.studentName} — and a mini lesson when the notes show a grammar point with examples — then sends them as homework.") }
+                TeachCard { MutedLine("After a lesson, paste your notes here. The assistant turns them into a deck of cards for ${ui.studentName} — and a mini lesson when the notes show a grammar point with examples — kept in your account until you press Send.") }
             }
             else -> ui.jobs.forEach { j -> item(key = j.id) { SessionJobCard(j, actions, now, ui.studentName) } }
         }
     }
-    if (sheet) LabBottomSheet(onDismiss = { sheet = false }, title = "Session notes for ${ui.studentName}") { SessionNotesForm(ui.studentName, ui.online, submit) { sheet = false } }
+    if (sheet) LabSheetFrame(onDismiss = { sheet = false }) { SessionNotesForm(ui.studentName, ui.online, submit, title = "Session notes for ${ui.studentName}") { sheet = false } }
 }
 
 @Composable
-fun SessionNotesForm(studentName: String, online: Boolean, submit: (String, String?, String, String, Boolean, Boolean, (String?) -> Unit) -> Unit, onDone: () -> Unit) {
+fun SessionNotesForm(studentName: String, online: Boolean, submit: (String, String?, String, String, Boolean, Boolean, (String?) -> Unit) -> Unit, title: String? = null, modifier: Modifier = Modifier, onDone: () -> Unit) {
+    val sheetTitle = title
     val today = LocalDate.now().toString()
     var notes by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
     var lessonAt by remember { mutableStateOf(today) }
     var priority by remember { mutableStateOf("core") }
-    var autoShare by remember { mutableStateOf(true) }
+    // Create, then send: nothing goes to the student unless the tutor ticks this.
+    var autoShare by remember { mutableStateOf(false) }
     var logLesson by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
     val chars = notes.trim().length
     val tooLong = chars > 120_000
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    SheetScaffold(
+        modifier,
+        header = sheetTitle?.let { t -> { SheetTitle(t) } },
+        footerAbove = if (error == null && online) null else {
+            {
+                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                if (!online) InlineNotice("You're offline — the notes can be sent once you're back online.", kind = NoticeKind.Offline)
+            }
+        },
+        footer = {
+            TeachButton("Cancel", Modifier.weight(1f).height(52.dp), onClick = onDone)
+            TeachButton(if (busy) "Sending…" else "Start", Modifier.weight(1f).height(52.dp), primary = true, enabled = chars >= 20 && !tooLong && !busy && online) {
+                busy = true; error = null
+                submit(notes.trim(), title.trim().ifEmpty { null }, lessonAt, priority, autoShare, logLesson) { e -> busy = false; if (e == null) onDone() else error = e }
+            }
+        },
+    ) {
         OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth().heightIn(min = 180.dp), label = { Text("Notes") }, placeholder = { Text("e.g.\n今天复习了点菜。新词：菜单 càidān menu, 服务员 fúwùyuán waiter…\n把 sentences: 把门关上。把书放在桌子上。\nHe keeps confusing 银行 and 很行…") })
         Text("${"%,d".format(chars)} characters" + if (tooLong) " · max 120,000" else "", style = MaterialTheme.typography.bodySmall, color = if (tooLong) Palette.Again else Lab.colors.muted)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -661,19 +756,10 @@ fun SessionNotesForm(studentName: String, online: Boolean, submit: (String, Stri
         if (autoShare) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OptionTile("Core", "top of their queue", priority == "core", Modifier.weight(1f)) { priority = "core" }
             OptionTile("Non-urgent", "after their other decks", priority == "non_urgent", Modifier.weight(1f)) { priority = "non_urgent" }
-        } else MutedLine("The deck stays in your library until you send it from Send homework.")
+        } else MutedLine("Everything is made in your account and nothing reaches ${HomeworkRemoval.studentFirstName(studentName)} until you press ${HomeworkSend.sendToLabel(studentName)} on the result.", Modifier.testTag("sn-not-sent-hint"))
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable { logLesson = !logLesson }, verticalAlignment = Alignment.CenterVertically) {
             Checkbox(logLesson, { logLesson = it }, colors = CheckboxDefaults.colors(checkedColor = Lab.colors.accent))
             Text("Also log this as a lesson (Insights counts “since last lesson” from it)", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
-        }
-        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        if (!online) InlineNotice("You're offline — the notes can be sent once you're back online.", kind = NoticeKind.Offline)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TeachButton("Cancel", Modifier.weight(1f), onClick = onDone)
-            TeachButton(if (busy) "Sending…" else "Start", Modifier.weight(1f), primary = true, enabled = chars >= 20 && !tooLong && !busy && online) {
-                busy = true; error = null
-                submit(notes.trim(), title.trim().ifEmpty { null }, lessonAt, priority, autoShare, logLesson) { e -> busy = false; if (e == null) onDone() else error = e }
-            }
         }
     }
     if (picking) DatePickerSheet(lessonAt, null, { picking = false; lessonAt = minOf(it, today) }, { picking = false })

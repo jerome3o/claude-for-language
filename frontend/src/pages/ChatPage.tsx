@@ -2,7 +2,10 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LiveCallBanner } from '../components/calls/CallBanner';
 import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { chatBackTarget } from '../components/chat/chatBack';
-import { base64ToBlob } from '../services/ttsCache';
+import { base64ToBlob, getTTSWithCache } from '../services/ttsCache';
+import { speakWithBrowserTTS } from '../services/audioCache';
+import { readConversationVoices } from '../services/conversationVoices';
+import { chatReadAloudSpeed, chatReadAloudVoice, parseVoiceGender } from '@shared/chats/voice';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -11,7 +14,6 @@ import {
   createNote,
   createConversation,
   getAIResponse,
-  generateConversationTTS,
   checkMessage,
   updateConversationVoiceSettings,
   updateConversationTitle,
@@ -29,6 +31,7 @@ import {
   MINIMAX_VOICES,
   GeneratedNoteWithContext,
   CheckMessageResponse,
+  CLAUDE_AI_USER_ID,
 } from '../types';
 import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
@@ -61,9 +64,22 @@ import { useChatScroll } from '../hooks/useChatScroll';
 import { firstUnreadId, shouldSendTyping } from '../services/chatThread';
 import { compressPhoto, fileProblem, videoInfo, VIDEO_MAX_BYTES } from '../services/chatMedia';
 import { searchMessages } from '@shared/chats/search';
+import { HIDE_ALL_SINCE, shouldHideMessage, sinceWhenTurnedOn } from '@shared/chats/listening';
+import {
+  prefetchMessageClips,
+  refreshChatListening,
+  revealMessage,
+  setConversationListening,
+  toListeningMessage,
+  useChatListening,
+  useRevealed,
+} from '../services/chatListening';
+import { ListeningBubble, useListeningPlayer } from '../components/chat/ListeningBubble';
 import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrection, clearMessageCorrection, forwardChatMessage } from '../api/chat';
 import { ChatWordsText, type TappedWord } from '../components/chat/ChatWords';
 import { CorrectionBlock, CorrectMessageSheet } from '../components/chat/ChatCorrection';
+import { SayBetterSheet } from '../components/chat/SayBetterSheet';
+import { sayBetterLabel, sayBetterState } from '@shared/chats/autoCheck';
 import { MakeFlashcardsSheet } from '../components/chat/MakeFlashcardsSheet';
 import { CheckDraftPanel, type DraftCheck } from '../components/chat/CheckDraftPanel';
 import { ReaderWordSheet } from '../components/reader/ReaderWordSheet';
@@ -87,6 +103,7 @@ import { VoiceComposer, type VoiceCommand } from '../components/chat/VoiceCompos
 import { PhotoComposeSheet } from '../components/chat/PhotoComposeSheet';
 import { PinnedBar } from '../components/chat/PinnedBar';
 import { ChatSearchBar } from '../components/chat/ChatSearchBar';
+import { track, trackError } from '../services/analytics';
 import {
   ConfirmDeleteSheet,
   EditMessageSheet,
@@ -98,6 +115,7 @@ import './ChatPage.css';
 import '../components/chat/chat-rich.css';
 import '../components/chat/chat-learning.css';
 import '../components/chat/chat-signal.css';
+import '../components/chat/chat-listening.css';
 
 const LONG_PRESS_MS = 500;
 
@@ -186,8 +204,10 @@ export function ChatPage() {
   const [modalNotice, setModalNotice] = useState<Notice | null>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
   const clearModalNotice = useCallback(() => setModalNotice(null), []);
-  const showError = (fallback: string, error: unknown) =>
+  const showError = (fallback: string, error: unknown) => {
+    trackError('chat', error);
     setNotice({ kind: 'error', text: describeError(error, fallback) });
+  };
   const showModalError = (fallback: string, error: unknown) =>
     setModalNotice({ kind: 'error', text: describeError(error, fallback) });
   const showSuccess = (text: string) => setNotice({ kind: 'success', text });
@@ -221,6 +241,8 @@ export function ChatPage() {
 
   // Message discussion state
   const [discussingMessage, setDiscussingMessage] = useState<MessageWithSender | null>(null);
+  // "✨ How to say it better" (docs/CHAT.md "Auto-check").
+  const [sayBetterFor, setSayBetterFor] = useState<MessageWithSender | null>(null);
 
   // Translate + flashcard state
 
@@ -373,7 +395,67 @@ export function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [thread.openedAt, isAIConversation, myId, thread.readMarkerAtOpen, serverMessages.length > 0],
   );
+  // ----- Listening mode (docs/CHAT.md "Listening mode") -----
+  // Chats with a person only: Claude role-play replies are spoken already (as in the Lab app).
+  const listeningRaw = useChatListening(wantsNew ? undefined : convId);
+  const listening = isAIConversation ? { ...listeningRaw, setting: { on: false, since: null } } : listeningRaw;
+  const revealed = useRevealed(wantsNew ? undefined : convId);
+  const listenPlayer = useListeningPlayer((m) => setNotice({ kind: 'error', text: m }));
+  const readAloudParamsRef = useRef(readAloudParams);
+  readAloudParamsRef.current = readAloudParams;
+  const [revealingId, setRevealingId] = useState<string | null>(null);
+  // While undecided (the Settings default, never opened since): what was unread when the chat opened hides.
+  const listeningMarker = thread.openedAt !== null ? thread.readMarkerAtOpen : thread.readState.me;
+  const isHidden = (msg: ChatMessage): boolean =>
+    !msg.outbox &&
+    shouldHideMessage(toListeningMessage(msg), { viewerId: myId, setting: listening.setting, readMarkerAtOpen: listeningMarker, revealed });
+  useEffect(() => {
+    void refreshChatListening();
+  }, [convId]);
+  useEffect(() => {
+    // Store the undecided choice once, so every device hides the same messages.
+    if (!convId || wantsNew || !listening.setting.on || listening.decided || thread.openedAt === null) return;
+    void setConversationListening(convId, true, thread.readMarkerAtOpen ?? HIDE_ALL_SINCE);
+  }, [convId, wantsNew, listening.setting.on, listening.decided, thread.openedAt, thread.readMarkerAtOpen]);
+  useEffect(() => {
+    // Clips ready before a tap: on open, and as messages arrive.
+    if (!myId || serverMessages.length === 0 || isAIConversation) return;
+    // A little later than the send, so the server's pre-generated clip is usually there already.
+    const t = window.setTimeout(() => void prefetchMessageClips(serverMessages, myId, readAloudParamsRef.current), 2500);
+    return () => window.clearTimeout(t);
+  }, [serverMessages, myId]);
+  const toggleListening = () => {
+    if (!convId) return;
+    const turnOn = !listening.setting.on;
+    void setConversationListening(convId, turnOn, turnOn ? sinceWhenTurnedOn(serverMessages, new Date().toISOString()) : listening.setting.since);
+    if (!turnOn) listenPlayer.stop();
+  };
+  const hideAll = () => {
+    if (convId) void setConversationListening(convId, true, HIDE_ALL_SINCE);
+  };
+  const reveal = (msg: ChatMessage) => {
+    if (!convId) return;
+    navigator.vibrate?.(18);
+    if (listenPlayer.playingId === msg.id) listenPlayer.stop();
+    setRevealingId(msg.id);
+    revealMessage(convId, msg.id);
+    window.setTimeout(() => setRevealingId((id) => (id === msg.id ? null : id)), 420);
+  };
+
   const showTyping = thread.otherTyping && !isAIConversation;
+
+  // Analytics: chat.open once per conversation, when the first load has the read marker.
+  const openTrackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!convId || thread.openedAt === null || !conversation || openTrackedRef.current === convId) return;
+    openTrackedRef.current = convId;
+    const marker = thread.readMarkerAtOpen;
+    const unread = serverMessages.filter((m) => m.sender_id !== myId && (!marker || m.created_at > marker)).length;
+    track('chat.open', { is_ai: isAIConversation, unread });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId, thread.openedAt, conversation]);
+  const trackSend = (kind: 'text' | 'image' | 'voice' | 'file' | 'video') =>
+    track('chat.send', { kind, is_ai: isAIConversation, reply: !!replyingTo, offline: !isOnline });
   const scroll = useChatScroll({
     messages,
     myId,
@@ -481,6 +563,7 @@ export function ChatPage() {
     if (!text || isWaitingForAI || !convId) return;
     setNotice(null);
     setDraftCheck(null);
+    trackSend('text');
     void thread.sendText(text, replyingTo).catch((error) => showError("Couldn't queue your message.", error));
     setNewMessage('');
     setReplyingTo(null);
@@ -510,6 +593,7 @@ export function ChatPage() {
 
   const sendPhoto = (caption: string) => {
     if (!pendingPhotos?.length) return;
+    trackSend('image');
     pendingPhotos.forEach((p, i) => {
       void thread
         .sendMedia({ kind: 'image', blob: p.blob, width: p.width, height: p.height, caption: i === 0 ? caption : '', replyTo: i === 0 ? replyingTo : null })
@@ -529,6 +613,7 @@ export function ChatPage() {
       return;
     }
     setNotice(null);
+    trackSend('file');
     void thread
       .sendMedia({ kind: 'file', blob: file, name: file.name, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the file.", error));
@@ -545,6 +630,7 @@ export function ChatPage() {
     }
     setNotice(null);
     const info = await videoInfo(file);
+    trackSend('video');
     void thread
       .sendMedia({ kind: 'video', blob: file, width: info.width ?? undefined, height: info.height ?? undefined, duration_ms: info.duration_ms ?? undefined, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the video.", error));
@@ -566,11 +652,13 @@ export function ChatPage() {
       }
     }
     if (target.conversationId === convId) void thread.pollNow();
+    track('chat.forward', { kind: serverMessages.find((m) => m.id === ids[0])?.attachment?.kind ?? 'text' });
     showSuccess(`Forwarded ${sent === 1 ? 'the message' : `${sent} messages`} to ${target.label}${target.sub ? ` · ${target.sub}` : ''}.`);
   };
 
   const sendVoice = (blob: Blob, durationMs: number) => {
     setRecording(false);
+    trackSend('voice');
     void thread
       .sendMedia({ kind: 'voice', blob, duration_ms: durationMs, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the voice message.", error));
@@ -636,6 +724,7 @@ export function ChatPage() {
     saveRecentEmoji(emoji);
     try {
       await toggleMessageReaction(messageId, emoji);
+      track('chat.reaction');
       queryClient.invalidateQueries({ queryKey: ['messages', convId] });
     } catch (error) {
       console.error('Failed to toggle reaction:', error);
@@ -652,23 +741,50 @@ export function ChatPage() {
     });
   };
 
-  const handlePlayMessageAudio = async (msg: MessageWithSender) => {
-    if (playingAudioMessageId === msg.id) {
+  /**
+   * The voice a message is read in (shared/chats/voice.ts): the sender's voice_gender over MY
+   * conversation voices; Claude's lines in a role-play keep the persona voice. Cache-first by
+   * (text, voice, speed), so a message plays offline once heard. Read aloud and listening mode's tap.
+   */
+  function readAloudParams(msg: Pick<MessageWithSender, 'sender_id'>) {
+    const fromAi = isAIConversation && msg.sender_id === CLAUDE_AI_USER_ID;
+    const rel = relationshipQuery.data;
+    const sender = msg.sender_id === user?.id ? user : rel && user ? getOtherUserInRelationship(rel, user.id) : null;
+    const senderGender = fromAi ? null : parseVoiceGender(sender && sender.id === msg.sender_id ? sender.voice_gender : null);
+    const voice = chatReadAloudVoice({ senderGender, enabled: readConversationVoices(), fromAi, personaVoice: conversation?.voice_id });
+    const speed = chatReadAloudSpeed({ fromAi, personaSpeed: conversation?.voice_speed });
+    return { voice, speed, senderGender };
+  }
+
+  const handlePlayMessageAudio = (msg: MessageWithSender) => playTextAudio(msg.id, msg.content, msg.sender_id);
+
+  /**
+   * Read `text` aloud in the voice of `senderId` (a message, or the better sentence of
+   * "How to say it better" in my own voice); `key` marks what is playing (a tap again stops it).
+   */
+  const playTextAudio = async (key: string, text: string, senderId: string) => {
+    if (playingAudioMessageId === key) {
       // Stop playing
       playerRef.current.stop();
       setPlayingAudioMessageId(null);
       return;
     }
 
-    setPlayingAudioMessageId(msg.id);
+    setPlayingAudioMessageId(key);
+    const { voice, speed, senderGender } = readAloudParams({ sender_id: senderId });
     try {
-      const result = await generateConversationTTS(
-        convId!,
-        msg.content,
-        conversation?.voice_id || undefined,
-        conversation?.voice_speed || undefined
-      );
-      playBase64Audio(result.audio_base64, result.content_type, msg.id);
+      const blob = await getTTSWithCache(text, speed, voice);
+      if (blob) {
+        playerRef.current.play(blob, {
+          onEnded: () => setPlayingAudioMessageId(null),
+          onError: () => setPlayingAudioMessageId(null),
+        });
+        return;
+      }
+      if (navigator.onLine) throw new Error('No audio came back');
+      // Offline and never fetched: a Mandarin device voice of the sender's gender.
+      await speakWithBrowserTTS(text, senderGender === 'other' ? null : senderGender);
+      setPlayingAudioMessageId(null);
     } catch (error) {
       console.error('Failed to generate TTS:', error);
       setPlayingAudioMessageId(null);
@@ -763,8 +879,10 @@ export function ChatPage() {
           : { ...msg, correction: { text, note: note || null, by: myId, at: new Date().toISOString() } },
       );
       setCorrecting(null);
+      track('chat.correction');
       void thread.pollNow();
     } catch (error) {
+      trackError('chat_correction', error);
       setCorrectError(describeError(error, "Couldn't save the correction."));
     } finally {
       setCorrectBusy(false);
@@ -788,6 +906,7 @@ export function ChatPage() {
       return;
     }
     setDraftCheck({ kind: 'loading', draft });
+    track('chat.check_draft');
     try {
       const result = await coachSentence(draft);
       setDraftCheck((cur) => (cur && cur.draft === draft ? { kind: 'ready', draft, result } : cur));
@@ -991,7 +1110,7 @@ export function ChatPage() {
     pressStart.current = null;
   };
 
-  const startPress = (msg: ChatMessage) => (e: React.PointerEvent<HTMLElement>) => {
+  const startPress = (msg: ChatMessage, hidden = false) => (e: React.PointerEvent<HTMLElement>) => {
     // Long-press is for touch / pen; a mouse right-clicks (or uses the hover ⋯).
     if (e.pointerType === 'mouse') return;
     clearPress();
@@ -1004,7 +1123,9 @@ export function ChatPage() {
       pressFiredAt.current = Date.now();
       swipe.current = null;
       setSwipeState(null);
-      openSheet(msg, null);
+      // Listening mode: a long press on a hidden message reveals it (no menu until then).
+      if (hidden) reveal(msg);
+      else openSheet(msg, null);
     }, LONG_PRESS_MS);
   };
 
@@ -1052,7 +1173,11 @@ export function ChatPage() {
     if (!sheet) return;
     const msg = sheet.message;
     setSheet(null);
+    track('chat.menu_action', { action: id, kind: msg.attachment?.kind ?? 'text' });
     switch (id) {
+      case 'say_better':
+        setSayBetterFor(msg);
+        break;
       case 'reply':
         setReplyingTo(msg);
         inputRef.current?.focus();
@@ -1100,6 +1225,7 @@ export function ChatPage() {
         });
         break;
       case 'discuss':
+        track('chat.discuss');
         setDiscussingMessage(msg);
         break;
       case 'pin':
@@ -1147,6 +1273,7 @@ export function ChatPage() {
     setCallBusy(true);
     try {
       const { call } = await createCall({ relationship_id: relId });
+      track('call.start', { solo: false });
       navigate(`/calls/${call.id}`);
     } catch (error) {
       showError("Couldn't start the call.", error);
@@ -1309,6 +1436,7 @@ export function ChatPage() {
         translation: translationOf(msg),
         correction: msg.correction,
         check_status: msg.check_status,
+        auto_check: msg.auto_check ? { status: msg.auto_check.status, text: msg.auto_check.text } : null,
         has_discussion: msg.has_discussion,
         pinned_at: msg.pinned_at,
       },
@@ -1438,7 +1566,7 @@ export function ChatPage() {
             )}
           </span>
         )}
-        {isMe && checkStatus && (
+        {isMe && checkStatus && !msg.auto_check && (
           <button
             type="button"
             className={`check-status ${checkStatus}`}
@@ -1475,8 +1603,12 @@ export function ChatPage() {
     const translateOn = canTranslate && isShown(displayPrefs, 'translate', msg.id);
     const selectable = selecting && interactive && !!wordsText;
     const selected = selectable && selectedIds.has(msg.id);
-    const showMeta = layout.lastInGroup || shownTimes.has(msg.id) || !!pending;
+    const showTime = layout.lastInGroup || shownTimes.has(msg.id) || !!pending;
+    // My message could be better (auto-check) or was corrected by the tutor: a calm ✎ next to the time.
+    const better = pending ? null : sayBetterState(msg, myId);
+    const showMeta = showTime || !!better;
     const swipeDx = swipeState?.id === msg.id ? swipeState.dx : 0;
+    const hidden = interactive && !selecting && isHidden(rawMsg);
     const classes = [
       'chat-message',
       isMe ? 'sent' : 'received',
@@ -1490,6 +1622,8 @@ export function ChatPage() {
       scroll.flashId === msg.id ? 'flash' : '',
       pending ? `outbox-${pending.status}` : '',
       sheet?.message.id === msg.id ? 'menu-open' : '',
+      hidden ? 'listening-hidden' : '',
+      revealingId === msg.id ? 'listening-revealing' : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -1525,8 +1659,8 @@ export function ChatPage() {
           <div className="chat-message-content" style={swipeDx ? { transform: `translateX(${swipeDx}px)` } : undefined}>
             <div className="chat-bubble-row">
               <div
-                className={`chat-bubble${isDeleted ? ' deleted' : ''}${kind ? ` has-${kind}` : ''}${kind === 'image' && !msg.content ? ' photo-only' : ''}`}
-                onPointerDown={interactive || pending ? startPress(msg) : undefined}
+                className={`chat-bubble${isDeleted ? ' deleted' : ''}${kind ? ` has-${kind}` : ''}${kind === 'image' && !msg.content ? ' photo-only' : ''}${hidden ? ' listening' : ''}`}
+                onPointerDown={interactive || pending ? startPress(msg, hidden) : undefined}
                 onPointerMove={movePress}
                 onPointerUp={endPress(msg)}
                 onPointerCancel={endPress(msg)}
@@ -1534,14 +1668,30 @@ export function ChatPage() {
                 onClick={() => {
                   if (selecting || Date.now() - pressFiredAt.current < 800) return;
                   if (pending?.status === 'failed') return;
+                  // Listening mode: a tap plays the hidden message (again, from the start).
+                  if (hidden) return listenPlayer.play(msg, readAloudParams(msg));
                   toggleTime(msg.id);
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   // A touch long-press also fires contextmenu; it already opened the sheet.
                   if (pressTimer.current || Date.now() - pressFiredAt.current < 1000 || selecting) return;
+                  if (hidden) return reveal(msg);
                   if (interactive || pending) openSheet(msg, { x: e.clientX, y: e.clientY });
                 }}
+                role={hidden ? 'button' : undefined}
+                tabIndex={hidden ? 0 : undefined}
+                aria-label={hidden ? 'Hidden message. Tap to listen, hold to reveal' : undefined}
+                onKeyDown={
+                  hidden
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          listenPlayer.play(msg, readAloudParams(msg));
+                        }
+                      }
+                    : undefined
+                }
               >
                 {msg.reply_to && !isDeleted && (
                   <button
@@ -1557,13 +1707,38 @@ export function ChatPage() {
                   </button>
                 )}
                 {msg.forwarded_from && !isDeleted && <span className="chat-forwarded">↪ Forwarded</span>}
-                {renderBody(msg, isMe, hasZh, pinyinOn, translateOn)}
+                {hidden ? (
+                  <ListeningBubble
+                    messageId={msg.id}
+                    text={msg.content}
+                    playing={listenPlayer.playingId === msg.id}
+                    loading={listenPlayer.loadingId === msg.id}
+                    progress={listenPlayer.playingId === msg.id ? listenPlayer.progress : 0}
+                    durationSec={listenPlayer.durations[msg.id] ?? null}
+                    slow={listenPlayer.slow}
+                    onToggleSlow={listenPlayer.toggleSlow}
+                  />
+                ) : (
+                  renderBody(msg, isMe, hasZh, pinyinOn, translateOn)
+                )}
                 {showMeta && (
                   <span className="chat-bubble-meta" data-testid="chat-bubble-meta">
                     {msg.pinned_at && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
-                    {msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
-                    <span className="chat-time">{formatTime(msg.created_at)}</span>
-                    {layout.tick === 'pending' ? (
+                    {better && (
+                      <span
+                        className={`chat-saybetter-mark ${better}`}
+                        data-testid="chat-saybetter-mark"
+                        data-state={better}
+                        role="img"
+                        aria-label={sayBetterLabel(better, otherUser.name)}
+                        title={sayBetterLabel(better, otherUser.name)}
+                      >
+                        ✎
+                      </span>
+                    )}
+                    {showTime && msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
+                    {showTime && <span className="chat-time">{formatTime(msg.created_at)}</span>}
+                    {!showTime ? null : layout.tick === 'pending' ? (
                       <span className="chat-tick pending" data-testid="chat-send-pending" aria-label="Sending" title="Sending…">
                         {tickGlyph('pending')}
                       </span>
@@ -1577,7 +1752,19 @@ export function ChatPage() {
                   </span>
                 )}
               </div>
-              {interactive && !selecting && (
+              {hidden && (
+                <button
+                  type="button"
+                  className="chat-listening-reveal"
+                  onClick={() => reveal(msg)}
+                  aria-label="Reveal the message"
+                  title="Reveal"
+                  data-testid="chat-listening-reveal"
+                >
+                  👁
+                </button>
+              )}
+              {interactive && !selecting && !hidden && (
                 <div className="chat-hover-tools" aria-hidden="false">
                   <button
                     type="button"
@@ -1682,6 +1869,10 @@ export function ChatPage() {
               <span className="chat-header-title chat-header-typing">typing…</span>
             ) : queueText ? (
               <span className="chat-header-title chat-header-queue" data-testid="chat-queue-status">{queueText}</span>
+            ) : listening.setting.on ? (
+              <span className="chat-header-title chat-header-listening" data-testid="chat-listening-status">
+                🎧 Listening mode{conversation?.title ? ` · ${conversation.title}` : ''}
+              </span>
             ) : (
               conversation?.title && <span className="chat-header-title">{conversation.title}</span>
             )}
@@ -1739,6 +1930,7 @@ export function ChatPage() {
           onOlder={() => setSearchIndex((i) => Math.min(i + 1, Math.max(0, searchHits.length - 1)))}
           onNewer={() => setSearchIndex((i) => Math.max(0, i - 1))}
           onClose={() => {
+            if (searchQuery.trim()) track('chat.search', { results: searchHits.length });
             setSearchOpen(false);
             setSearchQuery('');
           }}
@@ -1801,6 +1993,36 @@ export function ChatPage() {
               <span aria-hidden="true">🃏</span> Make flashcards
               {!isOnline && <span className="msg-sheet-action-hint">Needs internet</span>}
             </button>
+            {!isAIConversation && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={listening.setting.on}
+              className="chat-header-menu-item"
+              data-testid="chat-listening-toggle"
+              onClick={() => {
+                setShowHeaderMenu(false);
+                toggleListening();
+              }}
+            >
+              <span aria-hidden="true">🎧</span> Listening mode
+              <span className={`chat-menu-switch${listening.setting.on ? ' on' : ''}`} aria-hidden="true" />
+            </button>
+            )}
+            {listening.setting.on && (
+              <button
+                type="button"
+                role="menuitem"
+                className="chat-header-menu-item"
+                data-testid="chat-listening-hide-all"
+                onClick={() => {
+                  setShowHeaderMenu(false);
+                  hideAll();
+                }}
+              >
+                <span aria-hidden="true">🙈</span> Hide all messages
+              </button>
+            )}
             <button
               type="button"
               role="menuitemcheckbox"
@@ -1808,6 +2030,7 @@ export function ChatPage() {
               className="chat-header-menu-item"
               onClick={() => {
                 setShowHeaderMenu(false);
+                track('chat.pinyin_toggle', { aid: 'pinyin', on: !displayPrefs.pinyinAll });
                 setDisplayForAll('pinyin', !displayPrefs.pinyinAll);
               }}
             >
@@ -1820,6 +2043,7 @@ export function ChatPage() {
               className="chat-header-menu-item"
               onClick={() => {
                 setShowHeaderMenu(false);
+                track('chat.pinyin_toggle', { aid: 'translate', on: !displayPrefs.translateAll });
                 setDisplayForAll('translate', !displayPrefs.translateAll);
               }}
             >
@@ -2407,6 +2631,22 @@ export function ChatPage() {
       )}
 
       {/* Message Discussion Modal */}
+      {sayBetterFor && (
+        <SayBetterSheet
+          message={serverMessages.find((m) => m.id === sayBetterFor.id) ?? sayBetterFor}
+          viewerId={myId}
+          tutorName={otherUser.name || 'Your tutor'}
+          playing={playingAudioMessageId === `better:${sayBetterFor.id}`}
+          onPlay={(text) => void playTextAudio(`better:${sayBetterFor.id}`, text, myId)}
+          onDiscuss={() => {
+            const msg = sayBetterFor;
+            setSayBetterFor(null);
+            setDiscussingMessage(msg);
+          }}
+          onClose={() => setSayBetterFor(null)}
+        />
+      )}
+
       {discussingMessage && (
         <MessageDiscussionModal
           message={discussingMessage}

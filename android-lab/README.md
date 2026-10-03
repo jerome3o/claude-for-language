@@ -171,6 +171,17 @@ the relationship's tutor leads — "Show for student" puts her stage tile on the
 new show (`core/…/calls/CallFollow.kt`, driven by `CallController` through `CallLayoutHolder`), and she
 can stop the student's screen share (`ui/calls/CallLead.kt`).
 
+## Usage analytics (`data/analytics/`)
+
+Which screens and features are used — never messages, cards, answers or recordings — so the
+admin can ask "has Minghui used feature X?" (docs/ANALYTICS.md). `app.analytics.track("chat.send",
+mapOf("kind" to "text"))` (or `Analytics.track(…)` where there is no `app`); the event and its props
+must be in the shared catalogue (`core/…/analytics/AnalyticsEvents.kt`, parity-tested against
+`shared/analytics/events.ts` — a new event is one line in each) and go through `AnalyticsPrivacy`
+before they are queued. Screen views come from the shell's back stack; events wait in their own
+`analytics.db` and go up after every sync and every minute in front. Settings → Advanced has the
+opt-out switch.
+
 ## Parity: proving the logic matches
 
 `./gradlew :core:test` first runs `parity/generate.sh`, which bundles

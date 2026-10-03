@@ -178,7 +178,7 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
         _ui.update { it.copy(busy = true, notice = null) }
         viewModelScope.launch {
             env.writes.createDeck(name, description).fold(
-                onSuccess = { deck -> env.fx.success(); _ui.update { it.copy(busy = false) }; onCreated(deck.id) },
+                onSuccess = { deck -> dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("deck.create", mapOf("source" to "manual")); env.fx.success(); _ui.update { it.copy(busy = false) }; onCreated(deck.id) },
                 onFailure = { e -> env.fx.failure(); _ui.update { it.copy(busy = false, notice = e.message ?: "Couldn't create the deck.", noticeIsError = true) } },
             )
         }
@@ -188,7 +188,7 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
         _ui.update { it.copy(busy = true, notice = null) }
         viewModelScope.launch {
             env.writes.starterDeck().fold(
-                onSuccess = { deck -> env.fx.success(); _ui.update { it.copy(busy = false) }; onCreated(deck.id) },
+                onSuccess = { deck -> dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("deck.create", mapOf("source" to "starter")); env.fx.success(); _ui.update { it.copy(busy = false) }; onCreated(deck.id) },
                 onFailure = { e -> _ui.update { it.copy(busy = false, notice = e.message, noticeIsError = true) } },
             )
         }
@@ -229,6 +229,7 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
         if (q.isEmpty()) return
         val result = withContext(Dispatchers.IO) { searchLocally(raw, q) }
         _ui.update { it.copy(search = result) }
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("deck.search", mapOf("results" to result.results.size, "server" to (result.results.isEmpty() && env.online.value)))
         serverJob?.cancel()
         if (result.results.isEmpty() && env.online.value) {
             _ui.update { it.copy(search = result.copy(server = ServerSearchUi(loading = true))) }

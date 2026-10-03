@@ -1,3 +1,4 @@
+import { autoCheckMessageInBackground } from '../services/chat/auto-check';
 import { Hono } from 'hono';
 import { Env, User } from '../types';
 import { createSession } from '../services/auth';
@@ -104,6 +105,37 @@ testAuth.post('/auth', async (c) => {
  * Only removes users with emails ending in @test.e2e or with google_id starting with 'test-'.
  */
 /**
+ * POST /api/test/session-notes-job — a FINISHED session-notes job (not a draft)
+ * without running the agent: what the assistant made sits in the tutor's account
+ * and nothing was sent (auto_share off, the default). E2E + screenshots.
+ * Body: { relationship_id, deck_id, deck_name?, library_items?: [{ id, title, exercise_count? }], title?, summary? }
+ */
+testAuth.post('/session-notes-job', async (c) => {
+  const b = await c.req.json<{ relationship_id: string; deck_id?: string; deck_name?: string; library_items?: Array<{ id: string; title: string; exercise_count?: number }>; title?: string; summary?: string }>();
+  const rel = await c.env.DB.prepare('SELECT * FROM tutor_relationships WHERE id = ?').bind(b.relationship_id).first<{ requester_id: string; recipient_id: string; requester_role: string }>();
+  if (!rel) return c.json({ error: 'relationship not found' }, 404);
+  const tutorId = rel.requester_role === 'tutor' ? rel.requester_id : rel.recipient_id;
+  const studentId = rel.requester_role === 'tutor' ? rel.recipient_id : rel.requester_id;
+  const notes = 'Restaurant lesson: 菜单, 服务员, 点菜, 买单. 把 sentences: 把菜单给我。';
+  const job = await tutorJobs.createJob(c.env.DB, { relationship_id: b.relationship_id, tutor_id: tutorId, student_id: studentId, title: b.title ?? null, notes, lesson_at: new Date().toISOString(), priority: 'core', auto_share: false, lesson_log_id: null });
+  const count = b.deck_id ? ((await c.env.DB.prepare('SELECT COUNT(*) AS n FROM notes WHERE deck_id = ?').bind(b.deck_id).first<{ n: number }>())?.n ?? 0) : 0;
+  const at = new Date().toISOString();
+  await tutorJobs.patchJob(c.env.DB, job.id, {
+    status: 'done',
+    progress: 'Done',
+    finished_at: at,
+    result: {
+      ...(b.deck_id ? { deck: { id: b.deck_id, name: b.deck_name ?? 'Lesson deck', note_count: count } } : {}),
+      lessons: (b.library_items ?? []).map((l) => ({ library_item_id: l.id, title: l.title, exercise_count: l.exercise_count ?? 2 })),
+      summary: b.summary ?? 'Made a deck of the words from the lesson.',
+      skipped: [],
+    },
+    steps: [{ at, kind: 'done', text: 'Done' }],
+  });
+  return c.json({ job_id: job.id });
+});
+
+/**
  * POST /api/test/homework-draft — a FINISHED lesson-notes draft without running
  * the agent (E2E + screenshots): a lesson-log entry and a review job whose
  * result points at the tutor's deck (and library lessons) given.
@@ -135,6 +167,32 @@ testAuth.post('/homework-draft', async (c) => {
     steps: [{ at, kind: 'done', text: 'Draft ready for review' }],
   });
   return c.json({ job_id: job.id, lesson_log_id: entry.id });
+});
+
+/**
+ * POST /api/test/chat-auto-check — run the chat auto-check on a message with a
+ * canned answer instead of Claude (E2E + screenshots): the real store +
+ * `message_updated` path. Body: { message_id, result? } where result is the
+ * check_message tool input (default: one 了 too many).
+ */
+testAuth.post('/chat-auto-check', async (c) => {
+  const b = await c.req.json<{ message_id: string; result?: unknown }>();
+  const row = await c.env.DB.prepare('SELECT content FROM messages WHERE id = ?').bind(b.message_id).first<{ content: string }>();
+  if (!row) return c.json({ error: 'message not found' }, 404);
+  const canned = b.result ?? {
+    status: 'improvable',
+    severity: 'minor',
+    corrected: { hanzi: row.content.replace('去了', '去'), pinyin: 'wǒ zuótiān qù shāngdiàn mǎi dōngxi le', english: 'I went to the shop to buy things yesterday.' },
+    mistakes: [{
+      quote: '去了', fix: '去', why: 'One 了 at the end is enough here — 去 and 买 are one action.',
+      card: { hanzi: '去商店买东西', pinyin: 'qù shāngdiàn mǎi dōngxi', english: 'go to the shop to buy things', fun_facts: '去 (qù) go\n商店 (shāngdiàn) shop\n买 (mǎi) buy\n东西 (dōngxi) things\nVerb series: 去 + place + what you do there.' },
+    }],
+    alternative: { hanzi: '我昨天去商店买了点东西', pinyin: 'wǒ zuótiān qù shāngdiàn mǎi le diǎn dōngxi', english: 'I bought a few things at the shop yesterday.', note: 'Sounds more natural in conversation.' },
+    card: { hanzi: '我昨天去商店买东西了。', pinyin: 'wǒ zuótiān qù shāngdiàn mǎi dōngxi le', english: 'I went to the shop to buy things yesterday.', fun_facts: '我 (wǒ) I\n昨天 (zuótiān) yesterday\n去 (qù) go\n商店 (shāngdiàn) shop\n买 (mǎi) buy\n东西 (dōngxi) things\n了 (le) completed\nOne 了 at the end covers the whole series.' },
+  };
+  await c.env.DB.prepare('UPDATE messages SET auto_check = NULL WHERE id = ?').bind(b.message_id).run();
+  const outcome = await autoCheckMessageInBackground(c.env, b.message_id, { check: async () => canned });
+  return c.json({ outcome });
 });
 
 /**

@@ -9,6 +9,7 @@ import { lessonWhere, sendDefaults, sendHow } from './sendHomework';
 import { HomeworkModePicker } from './HomeworkModePicker';
 import { listLibrary } from '../../api/lessonEditor';
 import { updateSharedDeckCopy } from '../../api/tutorDashboard';
+import { track, trackError } from '../../services/analytics';
 import type { Deck } from '../../types';
 import type { HomeworkDeck, HomeworkLesson } from '../../types/tutorDashboard';
 import type { LibraryItemSummary } from '../../types/lessonEditor';
@@ -93,18 +94,23 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
       return res;
     },
     onSuccess: (res, deck) => {
+      track('tutor.send_homework', { items: 1, mode, kind: 'deck', split_days: hasOneOff(mode) ? splitDays : null });
       const skipped = res.skipped.reduce((n, s) => n + s.hanzi.length, 0);
       setResult(`Sent ${deck.name} to ${studentName} ${how('deck')}.${skipped > 0 ? ` Left out ${plural(skipped, 'word')} they already have (${res.skipped.flatMap((s) => s.hanzi).slice(0, 6).join('、')}${skipped > 6 ? '…' : ''}).` : ''}`);
       setPendingDeck(null);
       setError(null);
       invalidate();
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) => {
+      trackError('send_homework', err);
+      setError(err.message);
+    },
   });
 
   const updateMutation = useMutation({
     mutationFn: (sharedDeckId: string) => updateSharedDeckCopy(relId, sharedDeckId),
     onSuccess: (res, _id) => {
+      track('deck.share', { update: true });
       const name = pendingDeck?.name ?? 'the deck';
       setResult(
         res.added === 0 && res.audio_filled === 0
@@ -122,7 +128,10 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
     mutationFn: (item: LibraryItemSummary) => assignHomework(relId, [{ kind: 'lesson', source_id: item.id, mode, due_date: hasOneOff(mode) ? dueDate : null }]),
     onSuccess: (res, item) => {
       if (res.errors.length) setError(res.errors[0].error);
-      else setResult(`Assigned ${item.title} to ${studentName} ${hasOneOff(mode) ? how('lesson') : '— it will appear in their next study session'}.`);
+      else {
+        track('tutor.send_homework', { items: 1, mode, kind: 'lesson' });
+        setResult(`Assigned ${item.title} to ${studentName} ${hasOneOff(mode) ? how('lesson') : '— it will appear in their next study session'}.`);
+      }
       setPendingLesson(null);
       invalidate();
     },
@@ -200,7 +209,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                     </button>
                   </div>
                 )}
-                <div className="td-confirm-actions">
+                <div className="td-confirm-actions sheet-footer">
                   {existing ? (
                     <>
                       <button type="button" className="btn btn-primary" disabled={busy || !isOnline} onClick={() => updateMutation.mutate(existing.shared_deck_id)}>
@@ -231,7 +240,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                 {alreadyAssigned(pendingLesson) ? ' They already have a lesson with this title.' : ''}
               </p>
               <HomeworkModePicker name="send-lesson" mode={mode} onMode={setMode} dueDate={dueDate} onDueDate={setDueDate} nextLesson={defaults.nextLesson} />
-              <div className="td-confirm-actions">
+              <div className="td-confirm-actions sheet-footer">
                 <button type="button" className="btn btn-primary" disabled={busy || !isOnline} onClick={() => assignMutation.mutate(pendingLesson)}>
                   {assignMutation.isPending ? 'Assigning…' : 'Assign lesson'}
                 </button>

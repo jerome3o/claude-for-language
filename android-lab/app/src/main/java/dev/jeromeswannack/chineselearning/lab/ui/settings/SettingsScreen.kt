@@ -104,6 +104,8 @@ fun SettingsScreen(
     debugRow: @Composable () -> Unit = {},
     /** Package J: Video call alerts (ui/calls/CallAlertsSettings.kt). */
     callAlerts: @Composable () -> Unit = {},
+    /** Advanced → "Share usage data" (AnalyticsSettings.kt). */
+    shareUsage: @Composable () -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
 ) {
     var advanced by rememberSaveable { mutableStateOf(startAdvanced) }
@@ -155,6 +157,7 @@ fun SettingsScreen(
                         SecondaryPill("Sentence Coverage →", onClick = { actions.open(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.sentenceCoverage()) })
                     }
                     FeatureRequestsSection(ui, actions)
+                    shareUsage()
                     LabCard {
                         NavRow("🪞", "Duplicate Finder", desc = "Find words that appear in more than one deck", onClick = { actions.open(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.duplicateFinder()) })
                         RowDivider()

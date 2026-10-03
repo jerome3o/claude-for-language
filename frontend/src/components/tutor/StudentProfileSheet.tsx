@@ -16,6 +16,7 @@ import {
 } from '@shared/students';
 import { saveStudentProfile } from '../../api/studentProfile';
 import { useNetwork } from '../../contexts/NetworkContext';
+import { track } from '../../services/analytics';
 import './tutor-dashboard.css';
 import './student-profile.css';
 
@@ -124,6 +125,7 @@ export function StudentProfileSheet({ relId, studentName, saved, initial = saved
   const save = useMutation({
     mutationFn: (fields: StudentProfileFields) => saveStudentProfile(relId, fields),
     onSuccess: (profile) => {
+      track('tutor.student_profile_save');
       queryClient.setQueryData(['student-profile', relId], profile);
       queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
@@ -261,7 +263,7 @@ export function StudentProfileSheet({ relId, studentName, saved, initial = saved
           {error && <div className="td-error" role="alert">{error}</div>}
           {!isOnline && <div className="td-error">You&rsquo;re offline — the profile can be saved once you&rsquo;re back online.</div>}
 
-          <div className="sn-actions sp-actions">
+          <div className="sn-actions sp-actions sheet-footer">
             <button type="button" className="btn btn-secondary" onClick={close}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={!dirty || tooLong || wordsInvalid || save.isPending || !isOnline} data-testid="sp-save">
               {save.isPending ? 'Saving…' : empty && !isStudentProfileEmpty(saved) ? 'Clear profile' : 'Save'}

@@ -13,6 +13,7 @@ import { pinyin as toPinyin } from 'pinyin-pro';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../api/client';
 import { deleteCall, getCall, listCallBoardPages, makeCallFlashcards, processCall } from '../api/calls';
+import { track } from '../services/analytics';
 import { db } from '../db/database';
 import { drainCallUploads } from '../services/calls/uploads';
 import { BoardSnapshot } from '../components/calls/Whiteboard';
@@ -153,6 +154,7 @@ export function CallReviewPage() {
   const [playing, setPlaying] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  useEffect(() => { track('call.review_open'); }, [callId]);
 
   // Keep pushing this device's leftover recording while the page is open.
   useEffect(() => {

@@ -6,6 +6,8 @@ import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
 import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, daysToIntroduce } from '@shared/decks';
+import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
+import { cachedConversationTTS } from './services/tts-cache';
 import { calculateSM2 } from './services/sm2';
 import {
   scheduleCard,
@@ -86,6 +88,7 @@ import pushRoutes from './routes/push';
 import { emailPublic, emailPrefs } from './routes/email-prefs';
 import linkPreview from './routes/link-preview';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
+import chatListeningRoutes from './routes/chat-listening';
 import chatMessagesRoutes from './routes/chat-messages';
 import chatLearningRoutes from './routes/chat-learning';
 import profileRoutes from './routes/profile';
@@ -107,6 +110,12 @@ import { homeworkRoutes } from './routes/homework';
 import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
 import studyTimeRoutes from './routes/study-time';
+import analyticsRoutes from './routes/analytics';
+import { requestLog, bindAnalyticsScope } from './services/analytics/request-log';
+import { runInScope } from './services/analytics/scope';
+import { installAiUsageCapture } from './services/analytics/ai-usage';
+import { trackServer } from './services/analytics/server-events';
+import { pruneUsageEvents } from './services/analytics/usage';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { deleteReaderWithImages } from './services/shared-readers';
 import {
@@ -163,6 +172,11 @@ declare module 'hono' {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Usage analytics (docs/ANALYTICS.md): every Anthropic / Gemini call's tokens + cost,
+// and one structured log line per request for Workers Observability.
+installAiUsageCapture();
+app.use('*', requestLog);
 
 /** A content-service refusal (bad input, not yours, not found) as an HTTP response. */
 function contentErrorResponse(c: { json: (body: unknown, status: number) => Response }, err: unknown): Response | null {
@@ -447,12 +461,21 @@ app.get('/api/auth/me', async (c) => {
     // Profile screen fields (routes/profile.ts); name / picture_url above are already the edited ones.
     about: user.about || null,
     time_zone: user.time_zone || null,
+    // Whose voice reads my chat messages aloud (shared/chats/voice.ts).
+    voice_gender: parseVoiceGender(user.voice_gender),
     picture_source: user.picture_source || 'google',
     landing_page: user.landing_page || null,
     // Video-call alerts: 'ring' (ring in the app + push) or 'silent' (banner only).
     call_alerts: (user as { call_alerts?: string | null }).call_alerts === 'silent' ? 'silent' : 'ring',
     // A new chat message also sends an e-mail (Settings → Notifications; the e-mail's own "Turn off" link).
     email_chat_messages: (user as { email_chat_messages?: number | null }).email_chat_messages !== 0,
+    // "Check my Chinese automatically" in the chat: true / false, null = the default (on for the learner side).
+    chat_auto_check: (() => {
+      const v = (user as { chat_auto_check?: number | null }).chat_auto_check;
+      return v === null || v === undefined ? null : v !== 0;
+    })(),
+    // Settings → Advanced → "Share usage data to help improve the app" (docs/ANALYTICS.md).
+    share_usage: Number((user as { analytics_opt_out?: number | null }).analytics_opt_out) !== 1,
     // The learner's daily new-card budget across all decks (NULL = default).
     new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
@@ -476,6 +499,8 @@ mountLiveSocket(app);
 app.route('/api/email', emailPublic);
 
 app.use('/api/*', authMiddleware);
+// Hand the signed-in user + route pattern to analytics (server events, AI calls).
+app.use('/api/*', bindAnalyticsScope);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
 app.route('/api', lessonEditor);
@@ -516,6 +541,7 @@ app.route('/api', emailPrefs);
 app.route('/api', linkPreview);
 // Chat: messages, read markers, inbox, native push tokens, live ticket (docs/CHAT.md)
 app.route('/api', chatLiveRoutes);
+app.route('/api', chatListeningRoutes);
 // Rich messages: photo / voice upload + serving, edit, delete, pin, reactions (docs/CHAT.md PR 2)
 app.route('/api', chatMessagesRoutes);
 // Learning tools in the chat (docs/CHAT.md PR 3): word chips, corrections, flashcards from the chat.
@@ -552,6 +578,8 @@ app.route('/api', conversationVoicesRoutes);
 app.route('/api', pictureHuntRoutes);
 // Active study time per local day and device: PUT|GET /api/me/study-time (routes/study-time.ts)
 app.route('/api', studyTimeRoutes);
+// Usage analytics: event upload, the opt-out, admin usage questions (routes/analytics.ts)
+app.route('/api', analyticsRoutes);
 // Reader word chips: POST /api/reader-words/backfill, /explain (routes/reader-words.ts)
 app.route('/api', readerWordsRoutes);
 // Lesson materials: a tutor's PDFs / PowerPoints / pictures, shared, presented in calls (routes/materials.ts)
@@ -2340,6 +2368,8 @@ app.post('/api/study/sessions', async (c) => {
   const userId = c.get('user').id;
   const { deck_id } = await c.req.json<{ deck_id?: string }>();
   const session = await db.createStudySession(c.env.DB, userId, deck_id);
+  // Nothing current calls this: a row here means an old client is still in use.
+  void trackServer('server.study_session_api');
   return c.json(session, 201);
 });
 
@@ -2964,6 +2994,8 @@ app.post('/api/coach/conversations', async (c) => {
   }
   const input = text.trim();
   const resolved = resolveCoachAction(input, requested);
+  // No action = an old client relying on auto-detect (the Coach page always sends one now).
+  if (requested === undefined || requested === null) void trackServer('server.coach_auto_detect');
   if (!resolved.ok) {
     return c.json({ error: resolved.error }, 400);
   }
@@ -4084,7 +4116,7 @@ app.post('/api/conversations/:id/ai-initiate', async (c) => {
 app.post('/api/conversations/:id/tts', async (c) => {
   const userId = c.get('user').id;
   const convId = c.req.param('id');
-  const { text, voice_id, voice_speed } = await c.req.json<ConversationTTSRequest>();
+  const { text, voice_id, voice_speed, message_id } = await c.req.json<ConversationTTSRequest & { message_id?: string }>();
 
   if (!text) {
     return c.json({ error: 'Text is required' }, 400);
@@ -4097,20 +4129,37 @@ app.post('/api/conversations/:id/tts', async (c) => {
       return c.json({ error: 'Conversation not found' }, 404);
     }
 
-    // Generate TTS
-    const ttsResult = await generateConversationTTS(c.env, text, {
-      voiceId: voice_id || conv.voice_id || DEFAULT_MINIMAX_VOICE,
-      speed: voice_speed ?? conv.voice_speed ?? DEFAULT_TTS_SPEED,
-    });
+    // The voice follows the sender's voice_gender and the caller's conversation
+    // voices (shared/chats/voice.ts). conversations.voice_id is only the persona
+    // voice of a role-play chat: its column DEFAULT ('female-yujie') used to read
+    // every human chat in a role-play voice, so older clients' voice_id is ignored
+    // outside role-play chats.
+    const isAi = !!conv.is_ai_conversation;
+    let fromAi = isAi && !message_id;
+    let senderGender: string | null = null;
+    if (message_id) {
+      const sender = await c.env.DB
+        .prepare('SELECT m.sender_id, u.voice_gender FROM messages m LEFT JOIN users u ON u.id = m.sender_id WHERE m.id = ? AND m.conversation_id = ?')
+        .bind(message_id, convId)
+        .first<{ sender_id: string; voice_gender: string | null }>();
+      fromAi = isAi && sender?.sender_id === CLAUDE_AI_USER_ID;
+      senderGender = sender?.voice_gender ?? null;
+    }
+    const enabled = (await getConversationVoiceSettings(c.env.DB, userId).catch(() => null))?.enabled ?? null;
+    const personaVoice = isAi ? (voice_id || conv.voice_id) : null;
+    const voiceId = chatReadAloudVoice({ senderGender: parseVoiceGender(senderGender), enabled, fromAi, personaVoice });
+    const speed = chatReadAloudSpeed({ fromAi, personaSpeed: voice_speed ?? conv.voice_speed });
+    const ttsResult = await cachedConversationTTS(c.env, text, { voiceId, speed });
 
     if (!ttsResult) {
       return c.json({ error: 'Failed to generate audio' }, 500);
     }
 
-    const response: ConversationTTSResponse = {
+    const response: ConversationTTSResponse & { voice_id: string } = {
       audio_base64: ttsResult.audioBase64,
       content_type: ttsResult.contentType,
       provider: ttsResult.provider,
+      voice_id: ttsResult.voiceId,
     };
 
     return c.json(response);
@@ -6089,7 +6138,7 @@ app.post('/api/practice/tts', async (c) => {
   if (voice_id !== undefined && !LESSON_VOICE_IDS.has(voice_id)) {
     return c.json({ error: 'Unknown voice' }, 400);
   }
-  const result = await generateConversationTTS(c.env, text, { speed: clampedSpeed, voiceId: voice_id });
+  const result = await cachedConversationTTS(c.env, text, { speed: clampedSpeed, voiceId: voice_id });
   if (!result) return c.json({ error: 'TTS failed' }, 502);
   return c.json({ audio_base64: result.audioBase64, content_type: result.contentType });
 });
@@ -6562,10 +6611,28 @@ export { ChatHub } from './durable/chat-hub';
 
 // Export worker with fetch and queue handlers
 export default {
-  fetch: app.fetch,
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
+    runInScope({ env, userId: null, route: null, waitUntil: (p) => ctx.waitUntil(p) }, () => app.fetch(request, env, ctx)),
+
+  // Daily cron (wrangler.toml [triggers]): prune usage events past retention.
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    await runInScope({ env, userId: null, route: 'cron', waitUntil: (p) => ctx.waitUntil(p) }, async () => {
+      try {
+        const deleted = await pruneUsageEvents(env.DB, Date.now());
+        console.log(JSON.stringify({ type: 'cron', job: 'prune_usage_events', deleted }));
+      } catch (err) {
+        console.error('[cron] prune usage events failed:', err);
+      }
+    });
+  },
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+    return runInScope({ env, userId: null, route: `queue:${batch.queue}`, waitUntil: (p) => ctx.waitUntil(p) }, () => handleQueueBatch(batch, env));
+  },
+};
+
+async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6992,5 +7059,4 @@ export default {
         message.ack();
       }
     }
-  },
-};
+}

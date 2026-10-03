@@ -11,6 +11,7 @@ import { createAudioPlayer } from '../utils/audioPlayback';
 import { Confetti } from '../components/Confetti';
 import { AddChunkModal } from '../components/AddChunkModal';
 import { useNetwork } from '../contexts/NetworkContext';
+import { track } from '../services/analytics';
 import './PictureHuntPage.css';
 
 type Phase = 'playing' | 'reveal';
@@ -152,6 +153,7 @@ export function PictureHuntPlayPage() {
     setHint(null);
     if (recorded.current || !hunt) return;
     recorded.current = true;
+    track('picture_hunt.play_done', { found: foundNow.length, total, gave_up: reason !== 'all' });
     void recordHuntPlay({
       id: playId.current,
       hunt_id: hunt.id,

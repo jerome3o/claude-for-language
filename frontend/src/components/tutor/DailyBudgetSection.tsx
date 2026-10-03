@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { budgetFinishHint, budgetSummary, DEFAULT_STUDY_BUDGET, firstName, shortDay, type StudyBudget, type StudyBudgetInfo } from '@shared/decks';
 import { getStudentStudyBudget, setStudentStudyBudget, type StudentStudyBudget } from '../../api/client';
 import { BudgetStepper } from '../BudgetStepper';
+import { track } from '../../services/analytics';
 import './tutor-dashboard.css';
 import './daily-budget.css';
 
@@ -77,7 +78,8 @@ export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose 
 
   const save = useMutation({
     mutationFn: (update: { new_cards_per_day: number | null; secondary_cards_per_day: number | null }) => setStudentStudyBudget(relId, update),
-    onSuccess: (res) => {
+    onSuccess: (res, update) => {
+      track('tutor.budget_change', { new_cards: update.new_cards_per_day, secondary_cards: update.secondary_cards_per_day, reset: update.new_cards_per_day === null && update.secondary_cards_per_day === null });
       queryClient.setQueryData<StudentStudyBudget>(['student-study-budget', relId], (old) => (old ? { ...old, budget: res.budget } : old));
       queryClient.invalidateQueries({ queryKey: ['student-study-budget', relId] });
       queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
@@ -114,7 +116,7 @@ export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose 
           {hint && <p className="db-hint" data-testid="daily-budget-hint">{hint}</p>}
           <p className="db-muted db-small">{name} gets a chat message from you, and can still change it in their Settings.</p>
           {error && <div className="td-error" role="alert">{error}</div>}
-          <div className="db-actions">
+          <div className="db-actions sheet-footer">
             <button
               type="button"
               className="btn btn-secondary"

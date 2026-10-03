@@ -43,6 +43,15 @@ class Prefs(context: Context) {
         get() = sp.getString("landing_page", null)
         set(v) = sp.edit().putString("landing_page", v).apply()
 
+    /** Settings → Advanced → "Share usage data" (users opt out; data/analytics/Analytics.kt). Default on. */
+    var shareUsage: Boolean
+        get() = sp.getBoolean("share_usage", true)
+        set(v) = sp.edit().putBoolean("share_usage", v).apply()
+    /** My users.voice_gender (male | female | other | null): the voice my own chat messages are read in. */
+    var voiceGender: String?
+        get() = sp.getString("voice_gender", null)
+        set(v) = sp.edit().putString("voice_gender", v).apply()
+
     /** Mirrors /api/auth/me (called by the sync's profile refresh). */
     fun saveProfile(me: MeDto) {
         sp.edit()
@@ -52,6 +61,8 @@ class Prefs(context: Context) {
             .putString("account_role", me.role)
             .putBoolean("is_admin", me.is_admin)
             .putString("landing_page", me.landing_page)
+            .putBoolean("share_usage", me.share_usage)
+            .putString("voice_gender", me.voice_gender)
             .apply()
     }
 

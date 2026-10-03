@@ -3,6 +3,7 @@ import { STUDY_BUDGET_CHANGED, writeStudyBudget } from '../services/studyBudget'
 import type { StudyBudgetInfo } from '@shared/decks';
 import { writeConversationVoices } from '../services/conversationVoices';
 import { AuthUser } from '../types';
+import { setSharingUsage } from '../services/analytics';
 import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
 
 const SESSION_TOKEN_KEY = 'session_token';
@@ -29,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(userData);
       writeStudyBudget(userData);
       writeConversationVoices(userData.conversation_voices);
+      if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);
       localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
     } catch (err) {
       // Only sign out on a real 401 — a network error must not log the user
@@ -80,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
         writeStudyBudget(userData);
         writeConversationVoices(userData.conversation_voices);
+        if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);
         localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
       } catch (err) {
         // Only clear the session on a real 401. Network failures keep the

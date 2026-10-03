@@ -404,9 +404,13 @@ private fun SessionNotesRoute(nav: LabNav, relId: String, name: String) {
     val online by nav.app.online.collectAsStateWithLifecycle()
     val removal by vm.removal.sheet.collectAsStateWithLifecycle()
     val toast by vm.removal.toast.collectAsStateWithLifecycle()
+    val sentToast by vm.sender.toast.collectAsStateWithLifecycle()
     SessionNotesScreen(
-        SessionNotesUi(relId, name, jobs.data, jobs.error, online, removal, toast),
-        JobActions(retry = { vm.retry(it) }, cancel = { vm.cancel(it) }, delete = { vm.delete(it) }, open = nav::open, remove = { vm.removal.start(it, name) }),
+        SessionNotesUi(relId, name, jobs.data, jobs.error, online, removal, sentToast ?: toast),
+        JobActions(
+            retry = { vm.retry(it) }, cancel = { vm.cancel(it) }, delete = { vm.delete(it) }, open = nav::open, remove = { vm.removal.start(it, name) },
+            send = { job, keys, done -> vm.sender.send(job, keys, name, done) },
+        ),
         back = nav::back,
         submit = { notes, title, at, priority, auto, log, done ->
             vm.submit(dev.jeromeswannack.chineselearning.lab.data.api.SubmitSessionNotesBody(notes, title, at, priority, auto, log), done)

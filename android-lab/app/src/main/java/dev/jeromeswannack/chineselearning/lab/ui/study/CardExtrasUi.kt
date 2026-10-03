@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.api.VocabularyDefinition
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
@@ -195,11 +198,11 @@ private fun buildTutorNote(note: TutorNote) = androidx.compose.ui.text.buildAnno
  */
 @Composable
 fun FlagCardSheet(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTutor, String) -> Boolean, onDismiss: () -> Unit) {
-    LabBottomSheet(onDismiss = onDismiss) { FlagCardForm(tutors, hanzi, send, onDismiss) }
+    LabSheetFrame(onDismiss = onDismiss) { FlagCardForm(tutors, hanzi, send, onDismiss) }
 }
 
 @Composable
-fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTutor, String) -> Boolean, onDismiss: () -> Unit, startMessage: String = "", startDone: String? = null) {
+fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTutor, String) -> Boolean, onDismiss: () -> Unit, startMessage: String = "", startDone: String? = null, modifier: Modifier = Modifier) {
     var tutor by remember { mutableStateOf(tutors.firstOrNull()) }
     var message by remember { mutableStateOf(startMessage) }
     var busy by remember { mutableStateOf(false) }
@@ -208,18 +211,50 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
     val scope = rememberCoroutineScope()
     LaunchedEffect(done) { if (done != null && startDone == null) { delay(1400); onDismiss() } }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "🚩 Flag $hanzi for " + (if (tutors.size > 1) "your tutor" else tutor?.name ?: "your tutor"),
-            style = MaterialTheme.typography.titleLarge,
-            color = Lab.colors.ink,
-        )
-        if (tutors.size > 1) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Send to", style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted)
-                for (t in tutors) LabChip(t.name, selected = t == tutor, enabled = !busy && done == null) { tutor = t }
+    fun submit() {
+        val t = tutor ?: return
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                val sent = send(t, message)
+                done = if (sent) "Sent to ${t.name}" else "Saved — it goes to ${t.name} when you're back online"
+            } catch (e: Exception) {
+                error = e.message ?: "Could not save the flag"
+            } finally {
+                busy = false
             }
         }
+    }
+
+    SheetScaffold(
+        modifier,
+        spacing = 12.dp,
+        header = {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "🚩 Flag $hanzi for " + (if (tutors.size > 1) "your tutor" else tutor?.name ?: "your tutor"),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Lab.colors.ink,
+                )
+                if (tutors.size > 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Send to", style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted)
+                        for (t in tutors) LabChip(t.name, selected = t == tutor, enabled = !busy && done == null) { tutor = t }
+                    }
+                }
+            }
+        },
+        footerAbove = error?.takeIf { done == null }?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
+        footer = {
+            if (done != null) {
+                SecondaryPill("Close", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
+            } else {
+                SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), enabled = !busy, onClick = onDismiss)
+                PrimaryPill(if (busy) "Sending…" else "Send", Modifier.weight(1f).height(50.dp), enabled = !busy && message.isNotBlank() && tutor != null) { submit() }
+            }
+        },
+    ) {
         AnimatedContent(done, transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.9f)) togetherWith fadeOut() }, label = "flag") { d ->
             if (d != null) {
                 InlineNotice("✓ $d", kind = NoticeKind.Success)
@@ -234,25 +269,6 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
                         shape = RoundedCornerShape(16.dp),
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
                     )
-                    error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), enabled = !busy, onClick = onDismiss)
-                        PrimaryPill(if (busy) "Sending…" else "Send", Modifier.weight(1f).height(50.dp), enabled = !busy && message.isNotBlank() && tutor != null) {
-                            val t = tutor ?: return@PrimaryPill
-                            busy = true
-                            error = null
-                            scope.launch {
-                                try {
-                                    val sent = send(t, message)
-                                    done = if (sent) "Sent to ${t.name}" else "Saved — it goes to ${t.name} when you're back online"
-                                } catch (e: Exception) {
-                                    error = e.message ?: "Could not save the flag"
-                                } finally {
-                                    busy = false
-                                }
-                            }
-                        }
-                    }
                     Text(
                         "Your tutor gets it in the chat with a link to this card, and their reply shows here next time.",
                         style = MaterialTheme.typography.bodySmall,
@@ -261,7 +277,6 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
     }
 }
 
@@ -278,7 +293,7 @@ fun WordDefinitionSheet(
     addNote: suspend (VocabularyDefinition) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    LabBottomSheet(onDismiss = onDismiss) { WordDefinitionBody(hanzi, context, define, deckHolding, addNote, onDismiss) }
+    LabSheetFrame(onDismiss = onDismiss) { WordDefinitionBody(hanzi, context, define, deckHolding, addNote, onDismiss) }
 }
 
 @Composable
@@ -289,6 +304,7 @@ fun WordDefinitionBody(
     deckHolding: suspend (String) -> String?,
     addNote: suspend (VocabularyDefinition) -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var definition by remember(hanzi) { mutableStateOf<CardTools.Definition?>(null) }
     var loading by remember(hanzi) { mutableStateOf(true) }
@@ -315,45 +331,51 @@ fun WordDefinitionBody(
         existing = runCatching { deckHolding(hanzi) }.getOrNull()
     }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        val d = definition?.value
-        when {
-            loading -> Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
-            error != null -> InlineNotice(error!!, kind = NoticeKind.Error, actionLabel = "Retry", onAction = { load(refresh = false) })
-            d != null -> {
-                Text(d.hanzi, fontSize = 56.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
-                Text(d.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent)
-                Spacer(Modifier.height(4.dp))
-                Text(d.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
-                d.fun_facts?.takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(12.dp))
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(12.dp))
+    val d = definition?.value
+    // A long explanation scrolls; Add to Flashcards / Refresh / Close stay pinned (SheetScaffold).
+    SheetScaffold(
+        modifier,
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
+        spacing = 0.dp,
+        footerAbove = if (saved) {
+            { InlineNotice("Added — it arrives with the next sync.", kind = NoticeKind.Success) }
+        } else null,
+        footer = if (d == null || loading || error != null || saved) null else {
+            {
+                PrimaryPill(if (existing != null) "Add anyway" else "Add to Flashcards", Modifier.weight(1f).height(50.dp)) {
+                    scope.launch {
+                        try { addNote(d); saved = true; delay(900); onDismiss() } catch (e: Exception) { error = CardTools.message(e) }
+                    }
                 }
-                d.example?.takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
-                }
-                existing?.let {
-                    Spacer(Modifier.height(12.dp))
-                    InlineNotice("Already in \"$it\"", kind = NoticeKind.Warning)
-                }
-                Spacer(Modifier.height(16.dp))
-                if (saved) {
-                    InlineNotice("Added — it arrives with the next sync.", kind = NoticeKind.Success)
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PrimaryPill(if (existing != null) "Add anyway" else "Add to Flashcards", Modifier.weight(1f).height(50.dp)) {
-                            scope.launch {
-                                try { addNote(d); saved = true; delay(900); onDismiss() } catch (e: Exception) { error = CardTools.message(e) }
-                            }
-                        }
-                        if (definition?.fromCache == true) SecondaryPill("Refresh", Modifier.height(50.dp)) { load(refresh = true) }
-                        SecondaryPill("Close", Modifier.height(50.dp), onClick = onDismiss)
+                if (definition?.fromCache == true) SecondaryPill("Refresh", Modifier.height(50.dp)) { load(refresh = true) }
+                SecondaryPill("Close", Modifier.height(50.dp), onClick = onDismiss)
+            }
+        },
+    ) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            when {
+                loading -> Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
+                error != null -> InlineNotice(error!!, kind = NoticeKind.Error, actionLabel = "Retry", onAction = { load(refresh = false) })
+                d != null -> {
+                    Text(d.hanzi, fontSize = 56.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
+                    Text(d.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent)
+                    Spacer(Modifier.height(4.dp))
+                    Text(d.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+                    d.fun_facts?.takeIf { it.isNotBlank() }?.let {
+                        Spacer(Modifier.height(12.dp))
+                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(12.dp))
+                    }
+                    d.example?.takeIf { it.isNotBlank() }?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
+                    }
+                    existing?.let {
+                        Spacer(Modifier.height(12.dp))
+                        InlineNotice("Already in \"$it\"", kind = NoticeKind.Warning)
                     }
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
     }
 }
 

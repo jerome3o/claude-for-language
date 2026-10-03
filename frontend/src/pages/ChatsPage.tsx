@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getMyRelationships } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useChatList } from '../hooks/useChatList';
+import { track } from '../services/analytics';
 import { CLAUDE_AI_USER_ID, getOtherUserInRelationship } from '../types';
 import {
   chatInitial,
@@ -16,6 +17,8 @@ import {
   groupChatList,
   type ChatListRow,
 } from '@shared/chats/inbox';
+import { effectiveListening, listeningPreview } from '@shared/chats/listening';
+import { loadRevealed, refreshChatListening, useAllChatListening } from '../services/chatListening';
 import './ChatsPage.css';
 
 /** Avatar colours for people without a picture, picked by a hash of their id. */
@@ -50,6 +53,12 @@ function localOffsetMinutes(): number {
 function ChatRow({ row, rows, myId, now, onOpen }: { row: ChatListRow; rows: ChatListRow[]; myId: string; now: number; onOpen: (id: string) => void }) {
   const { name, subtitle } = chatRowTitle(row, rows);
   const unread = row.unread > 0;
+  // Listening mode: never spoil a hidden message here ("🎧 New message").
+  const listening = useAllChatListening();
+  const setting = effectiveListening(listening.conversations[row.conversation_id] ?? null, listening.default_on);
+  const hiddenPreview = setting.on
+    ? listeningPreview(row.last_message, { viewerId: myId, setting, readMarker: row.my_read_at ?? null, revealed: loadRevealed(row.conversation_id) })
+    : null;
   return (
     <Link
       to={`/connections/${row.relationship_id}/chat/${row.conversation_id}`}
@@ -68,7 +77,7 @@ function ChatRow({ row, rows, myId, now, onOpen }: { row: ChatListRow; rows: Cha
           <span className="chats-row-time">{chatRelativeTime(row.last_activity_at, now, localOffsetMinutes())}</span>
         </span>
         <span className="chats-row-bottom">
-          <span className="chats-row-preview">{chatRowPreview(row, myId)}</span>
+          <span className="chats-row-preview">{hiddenPreview ?? chatRowPreview(row, myId)}</span>
           {unread && (
             <span className="chats-unread" aria-label={`${row.unread} unread`}>
               {row.unread > 99 ? '99+' : row.unread}
@@ -110,6 +119,10 @@ export function ChatsPage() {
       .filter((p) => p.other.id !== CLAUDE_AI_USER_ID);
   }, [relationshipsQuery.data, user]);
 
+  useEffect(() => {
+    void refreshChatListening();
+  }, []);
+
   const filtered = useMemo(() => (rows ? filterChatList(rows, query) : []), [rows, query]);
   const groups = useMemo(() => groupChatList(filtered), [filtered]);
 
@@ -121,6 +134,14 @@ export function ChatsPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [picking]);
+
+  // Analytics: chat.inbox_open once, when the list first has rows (cached or fetched).
+  const inboxTracked = useRef(false);
+  useEffect(() => {
+    if (rows === null || inboxTracked.current) return;
+    inboxTracked.current = true;
+    track('chat.inbox_open', { conversations: rows.length, unread: rows.filter((r) => r.unread > 0).length });
+  }, [rows]);
 
   const startNewChat = () => {
     if (people.length === 1) navigate(`/connections/${people[0].relId}/chat/new`, { state: { from: '/chats' } });

@@ -7,6 +7,7 @@ import { getDueNoteIds } from '../db/database';
 import { Loading } from '../components/Loading';
 import { InlineError } from '../components/Toast';
 import { DifficultyLevel } from '../types';
+import { track, trackError } from '../services/analytics';
 import './GenerateReaderPage.css';
 
 const DIFFICULTY_OPTIONS: { value: DifficultyLevel; label: string; description: string }[] = [
@@ -54,11 +55,13 @@ export function GenerateReaderPage() {
       });
     },
     onSuccess: () => {
+      track('reader.generate');
       // Invalidate readers query to show the new generating reader
       queryClient.invalidateQueries({ queryKey: ['readers'] });
       // Navigate immediately to readers list
       navigate('/readers');
     },
+    onError: (err) => trackError('reader_generate', err),
   });
 
   const toggleDeck = (deckId: string) => {
@@ -248,26 +251,28 @@ export function GenerateReaderPage() {
             />
           )}
 
-          {/* Generate Button */}
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg btn-block"
-            disabled={
-              generateMutation.isPending ||
-              (source === 'decks' ? selectedDeckIds.length === 0 : !dueWordCount)
-            }
-          >
-            {generateMutation.isPending ? (
-              <>
-                <span className="spinner" style={{ width: '20px', height: '20px' }} />
-                Generating Story...
-              </>
-            ) : source === 'due_cards' ? (
-              `Generate from Today's Due Cards${dueWordCount ? ` (${dueWordCount})` : ''}`
-            ) : (
-              'Generate Story'
-            )}
-          </button>
+          {/* Generate Button: pinned while the deck list scrolls */}
+          <div className="page-footer">
+            <button
+              type="submit"
+              className="btn btn-primary btn-lg btn-block"
+              disabled={
+                generateMutation.isPending ||
+                (source === 'decks' ? selectedDeckIds.length === 0 : !dueWordCount)
+              }
+            >
+              {generateMutation.isPending ? (
+                <>
+                  <span className="spinner" style={{ width: '20px', height: '20px' }} />
+                  Generating Story...
+                </>
+              ) : source === 'due_cards' ? (
+                `Generate from Today's Due Cards${dueWordCount ? ` (${dueWordCount})` : ''}`
+              ) : (
+                'Generate Story'
+              )}
+            </button>
+          </div>
 
           {source === 'decks' && selectedDeckIds.length === 0 && (
             <p className="text-light text-center mt-2" style={{ fontSize: '0.875rem' }}>

@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CustomLessonSpec } from '@shared/lesson';
 import type { AnkiExportProgress, AnkiExportResult } from '../../services/anki';
+import { track } from '../../services/analytics';
 import './AnkiExport.css';
 
 export type AnkiExportTarget =
@@ -80,6 +81,7 @@ export function AnkiExportModal({ target, onClose }: { target: AnkiExportTarget;
         result = await anki.exportReaderToAnki(target.readerId, { includeAudio, onProgress });
       }
       anki.saveAnkiExport(result);
+      track('deck.export_anki', { kind: target.kind });
       if (mounted.current) setPhase({ status: 'done', result });
     } catch (err) {
       if (mounted.current) setPhase({ status: 'error', message: err instanceof Error ? err.message : 'Export failed' });
@@ -122,7 +124,7 @@ export function AnkiExportModal({ target, onClose }: { target: AnkiExportTarget;
                 </span>
               </label>
             )}
-            <div className="modal-actions">
+            <div className="modal-actions sheet-footer">
               <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
               <button type="button" className="btn btn-primary" onClick={run}>⬇ Export .apkg</button>
             </div>
@@ -167,7 +169,7 @@ export function AnkiExportModal({ target, onClose }: { target: AnkiExportTarget;
                 <div className="anki-export-result-note">In Anki: File → Import, pick the file.</div>
               </div>
             </div>
-            <div className="modal-actions">
+            <div className="modal-actions sheet-footer">
               <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
             </div>
           </>
@@ -176,7 +178,7 @@ export function AnkiExportModal({ target, onClose }: { target: AnkiExportTarget;
         {phase.status === 'error' && (
           <>
             <div className="anki-export-error" role="alert">{phase.message}</div>
-            <div className="modal-actions">
+            <div className="modal-actions sheet-footer">
               <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
               <button type="button" className="btn btn-primary" onClick={run}>Try again</button>
             </div>

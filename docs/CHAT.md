@@ -213,8 +213,12 @@ ALTER TABLE messages ADD COLUMN correction TEXT;   -- JSON { text, note, by, at 
   `POST /api/conversations/:id/flashcards/propose { message_ids?, since?, focus?: 'correction' }` →
   `{ cards: [FlashcardItem + { already_have: boolean, source_message_id }] }` (structuredCall, CARD_STANDARD, the shared
   FLASHCARD_ITEM_SCHEMA; corrections and words the learner got wrong first; `already_have` = normalised hanzi already in
-  one of the caller's notes) → review sheet (edit fields, uncheck, deck picker, remembered last deck) →
+  one of the caller's notes) → review sheet (edit fields, uncheck, deck picker) →
   `POST /api/decks/:id/notes/batch` in one tap.
+- **Add-card deck pickers** (word sheet, Explain → word / Save as flashcard, Make flashcards, the correction's card, the
+  tap-to-save lists): decks in study-queue order (`decksInQueueOrder`, shared/decks/queue.ts) and the top deck of the
+  queue preselected (`defaultPickerDeckId`) every time — no remembered last deck, no pinned decks. The deck list scrolls
+  on its own and the Add / Save button stays pinned at the bottom of the sheet.
 - **Correct this** (the tutor of the relationship, on the other person's text message): `PUT /api/messages/:id/correction
   { text, note? }` / `DELETE`. Shown under the bubble as a character diff (`diffHanzi`, shared/lesson/answer-check.ts) +
   note; the student's ⋯ → "Make a card from the correction" (`propose` with `focus: 'correction'`). The student gets a
@@ -392,3 +396,102 @@ there's more than one) → `/connections/:relId/chat/new`. A row opens the chat 
   list (`applyIncomingMessage` / `applyReadMarker`; an unknown conversation → refetch).
 - The tab badge = conversations with people (not Claude) that have unread messages
   (`unreadConversationCount`).
+
+## Listening mode (migration 0099_chat_listening.sql)
+
+Jerome: "Hide the messages initially but let me play them out loud, so I can try my listening comprehension on a
+new message. A long click on the hidden message reveals it, a single click plays it."
+
+```sql
+CREATE TABLE chat_listening (conversation_id, user_id, listening INTEGER, since TEXT NULL, updated_at, PK (conversation_id, user_id));
+ALTER TABLE users ADD COLUMN chat_listening_default INTEGER NOT NULL DEFAULT 0;   -- Settings → Chat
+```
+
+**Rules** — `shared/chats/listening.ts` (Lab `core/…/chat/ChatListening.kt`, parity-tested by
+`android-lab/parity/fixtures/chat-listening.ts`):
+- The setting is per person and conversation: `{ on, since }`. No row → the account default (`chat_listening_default`)
+  with `since = null` ("undecided"); `effectiveListening(row, defaultOn)`.
+- A message hides (`shouldHideMessage`) when the mode is on, it is a **candidate** (`listeningCandidate`: the other
+  person's, not deleted, no attachment — photos / voice memos / files / videos stay as they are — and it contains
+  Chinese), it is not revealed on this device, and `created_at > threshold`. Threshold (`listeningThreshold`) =
+  `since`, or — while undecided — the read marker the chat was opened with (what was unread hides). The client
+  then stores that marker as `since` (one PUT), so the choice is stable on every device.
+- Turning it ON from the menu: `since = sinceWhenTurnedOn(messages)` = the newest message on screen — history stays,
+  anything newer hides. **Hide all**: `since = HIDE_ALL_SINCE` (1970) — every candidate hides (revealed ones stay).
+  OFF shows everything (revealed ids are kept).
+- Revealed ids are device-local per conversation (`addRevealed`, newest 500; web localStorage
+  `chat-listening-revealed-v1:<conv>`, Lab JsonCache `chat/listening/revealed/<conv>`). Never synced.
+- The inbox and notifications never spoil a hidden message: `LISTENING_PREVIEW` = "🎧 New message".
+  Inbox: `listeningPreview(row.last_message, { setting, readMarker: row.my_read_at, revealed })` (rows now carry
+  `last_message.attachment_kind` and `my_read_at`). Push / FCM / e-mail / the bell row / ntfy: the worker's
+  `notificationPreviewFor` (the recipient's setting; a new message is always after `since`).
+
+**API** (`routes/chat-listening.ts`):
+- `GET /api/me/chat-listening` → `{ default_on, conversations: [{ conversation_id, on, since, updated_at }] }`
+- `PUT /api/conversations/:id/listening` `{ on, since? }` (ISO UTC or null) → the row; member only (403 / 404), 400 bad body
+- `PUT /api/profile/chat-listening` `{ on }` → `{ default_on }`
+- `GET /api/me/chat-clips[?per_conversation=20]` → `{ clips: [{ message_id, conversation_id, text, voice_id, speed }] }` —
+  the other person's newest Chinese text messages in each chat with a person, in the voice the CALLER hears them
+  (`chatReadAloudVoice`), for background prefetch.
+
+**Audio = the one chat read-aloud path** (`shared/chats/voice.ts`, "Chat read-aloud voice"): the hidden bubble's tap
+plays exactly what Read aloud plays — the sender's `voice_gender` over the listener's conversation voices, speed
+`CHAT_READ_ALOUD_SPEED`, `POST /api/practice/tts` with the server's R2 `tts-cache/` (by text + voice + speed), device
+cache by the same triple (`getTTSWithCache`; Lab the same cache as Read aloud).
+- **Pre-generated** (`services/chat/message-audio.ts` `pregenerateMessageClip`, waitUntil): after a Chinese text
+  message is sent, forwarded or edited, the clip the OTHER person will hear is made into `tts-cache/` — so their tap
+  (or prefetch) is a cache hit. An edit is new text → a new clip. Claude role-play chats are skipped.
+- **Prefetched on the device** (both apps): on chat open and as messages arrive (`prefetchSelection(messages, me, 20)`,
+  ~2.5 s after a change so the server's clip is usually there), on a live `message` event while a chat / the inbox
+  is open (→ `/api/me/chat-clips`), and in background sync (`/api/me/chat-clips`). A tap then plays at once, offline.
+
+**UI**
+- Chats with a person only (a Claude role-play chat's replies are spoken already: no toggle there).
+- Chat header ⋯ → **🎧 Listening mode** (a checkbox item; on → off), and while on **🙈 Hide all messages**.
+  Settings → Chat → **Listening mode in new chats** (the default). The header subtitle shows "🎧 Listening mode".
+- A hidden bubble: the normal received bubble (same size class, grey), the text replaced by 🎧 + 24 bars
+  (`listeningBars(id)`, stable per message) + the duration (`formatListeningDuration` of the clip, else
+  `~estimateSpeechSeconds(text)`), and the hint "Tap to listen · hold to reveal". Time / reply quote / reactions as usual.
+- **Tap** plays (bars animate, ▶ → ■; a tap while playing replays from the start). A small **0.75×** chip on the
+  bubble toggles slow playback (remembered on the device). **Long-press** (same 450–500 ms) reveals with a haptic and an
+  un-blur animation (blur 8 px → 0, 260 ms) — it does NOT open the message menu; once revealed, long-press opens the
+  menu again. A small **👁** button beside the bubble reveals it too (accessibility). Offline with no cached clip:
+  "Audio not downloaded yet" notice.
+---
+
+# Auto-check — "How to say it better" (migration 0101_chat_auto_check.sql)
+
+Jerome: "When a student sends a message, automatically check if there can be improvements. If so, show a slight visual
+indicator… When they long-press the message, the top option should be 'understand how to make it better'."
+
+```sql
+ALTER TABLE messages ADD COLUMN auto_check TEXT;        -- JSON AutoCheckResult (shared/chats/autoCheck.ts) incl. the text it was about
+ALTER TABLE users ADD COLUMN chat_auto_check INTEGER;   -- NULL = default (on for the learner side), 1 = always, 0 = never
+```
+- **When**: after a text message is sent (live or replayed from the outbox — same `POST …/messages`, a repeated client_id is
+  not checked again) or edited, `autoCheckMessageInBackground` (`worker/src/services/chat/auto-check.ts`) runs in
+  `waitUntil` beside the translation / word chips. One `structuredCall` (`claude-sonnet-5`, Haiku on the last try, forced
+  `check_message` tool, thinking off, the chat's last 6 lines as context, `CARD_STANDARD` for the cards). ≈ 2k tokens in,
+  80–500 out ≈ $0.005–0.009 per check.
+- **Who** (`autoCheckApplies`): the student side of a tutor chat and the person in a Claude practice chat by default; the
+  account switch wins either way. **Skipped** (`autoCheckSkipReason`): no Chinese / emoji only, ≤ 2 content characters,
+  more English words than Han characters, > 400 characters, photos / voice / files.
+- **Result** `{ text, status: ok | improvable, corrected, corrected_pinyin, corrected_english, mistakes: [{ quote, fix, why,
+  card }], alternative, severity: minor | moderate | major, card, checked_at }`. The prompt flags only grammar errors, wrong
+  words and clearly unnatural phrasing; `normalizeAutoCheck` turns an "improvable" that only changes punctuation into ok and
+  drops cards that break a HARD card rule. Written only while the message still has that text; an edit clears it
+  (`auto_check = NULL`) and re-checks; delete clears it. Idempotent: a stored result for the current text is not redone.
+- **Delivery**: the message's `auto_check` (served only while `text` = content, and ONLY on the sender's own view — the
+  tutor never gets it) through `message_updated` and `?since=`, so both apps get it live and offline.
+- **Indicator** (`sayBetterState`, Lab `SayBetter.kt` parity-tested): on my own bubble a small amber ✎ in the meta row
+  (shown even when the bubble isn't the last of its group), label "Could be better — hold to see". The tutor's correction
+  takes precedence: state `corrected`, "<tutor> corrected this — hold to see".
+- **Menu**: `say_better` "✨ How to say it better" is the FIRST item when improvable or corrected; a current auto-check
+  (ok or improvable) replaces "Check my Chinese".
+- **Sheet** (web `components/chat/SayBetterSheet.tsx`, Lab `ui/chat/`): You wrote (character diff, highlighted not struck —
+  a line through 了 reads as 子) · Better (pinyin, English, ▶ via the conversation TTS) · each mistake "你说 X → Y" + why
+  (+ card) · More natural · **+ Add as flashcard** (the add-card sheet with `card`) · **Ask Claude about this** (Discuss
+  with Claude). Built from the stored result, so it works offline.
+- **Setting**: `PUT /api/profile/chat-prefs { chat_auto_check: true | false | null }`; `/api/auth/me` → `chat_auto_check`
+  (null = default). Settings → Chat → "Check my Chinese automatically" shows `autoCheckSettingShown` (on unless a tutor account).
+- E2E seam: `POST /api/test/chat-auto-check { message_id, result? }` runs the real store + broadcast with a canned answer.

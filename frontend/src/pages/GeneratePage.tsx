@@ -7,6 +7,7 @@ import { syncService } from '../services/sync';
 import { NoteWithCards } from '../types';
 import { useNetwork } from '../contexts/NetworkContext';
 import { OfflineWarning } from '../components/OfflineWarning';
+import { track } from '../services/analytics';
 
 export function GeneratePage() {
   const navigate = useNavigate();
@@ -24,6 +25,8 @@ export function GeneratePage() {
   const generateMutation = useMutation({
     mutationFn: () => generateDeck(prompt, deckName || undefined),
     onSuccess: async (result) => {
+      track('deck.generate');
+      track('deck.create', { source: 'generate' });
       setGeneratedDeck(result);
       queryClient.invalidateQueries({ queryKey: ['decks'] });
       // Sync to IndexedDB so the new deck is available for offline study
@@ -161,20 +164,22 @@ export function GeneratePage() {
               <OfflineWarning message="You're offline. AI generation requires an internet connection." />
             </div>
 
-            <button
-              type="submit"
-              className="btn btn-primary btn-lg btn-block"
-              disabled={!isOnline || !prompt.trim() || generateMutation.isPending}
-            >
-              {generateMutation.isPending ? (
-                <>
-                  <span className="spinner" style={{ width: '20px', height: '20px' }} />
-                  Generating...
-                </>
-              ) : (
-                'Generate Deck with AI'
-              )}
-            </button>
+            <div className="page-footer">
+              <button
+                type="submit"
+                className="btn btn-primary btn-lg btn-block"
+                disabled={!isOnline || !prompt.trim() || generateMutation.isPending}
+              >
+                {generateMutation.isPending ? (
+                  <>
+                    <span className="spinner" style={{ width: '20px', height: '20px' }} />
+                    Generating...
+                  </>
+                ) : (
+                  'Generate Deck with AI'
+                )}
+              </button>
+            </div>
           </form>
         </div>
 

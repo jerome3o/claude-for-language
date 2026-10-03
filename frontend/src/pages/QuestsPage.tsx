@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createQuest, deleteQuest, listQuests, retryQuest } from '../api/client';
 import type { QuestSummary } from '@shared/quest';
+import { track } from '../services/analytics';
 import './QuestPage.css';
 
 /** Starter topics — one tap instead of thinking up a scene. */
@@ -54,6 +55,7 @@ export function QuestsPage() {
         goal_count: goalCount,
       }),
     onSuccess: (created) => {
+      track('quest.generate', { difficulty });
       setTopic('');
       queryClient.invalidateQueries({ queryKey: ['quests'] });
       navigate(`/quests/${created.id}`);

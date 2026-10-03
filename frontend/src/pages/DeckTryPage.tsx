@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { track } from '../services/analytics';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import { API_BASE } from '../api/client';
@@ -22,6 +23,7 @@ const MODES: Array<{ id: Mode; label: string }> = [
  */
 export function DeckTryPage() {
   const { id } = useParams<{ id: string }>();
+  useEffect(() => { track('tutor.try_as_student', { kind: 'deck' }); }, [id]);
   const navigate = useNavigate();
   const deck = useLiveQuery(() => (id ? db.decks.get(id) : undefined), [id]);
   const notes = useLiveQuery(

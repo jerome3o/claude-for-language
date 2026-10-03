@@ -72,7 +72,7 @@ class ChatScreenshots : LabScreenshotTest() {
     @Test fun deckPicker() = shoot("chat-07-card-deck-picker") {
         dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen("Generated Flashcard") {
             item { CardPreview(card) }
-            item { DeckPicker(base.copy(decks = listOf(DeckChoice("d1", "天气", true), DeckChoice("d2", "Starter Chinese", false))), 1, ChatSheetActions()) { _, _ -> } }
+            item { DeckPicker(base.copy(decks = listOf(DeckChoice("d1", "天气"), DeckChoice("d2", "Starter Chinese"))), 1, ChatSheetActions()) { _, _ -> } }
         }
     }
 

@@ -1,3 +1,4 @@
+import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import type { ReaderWord } from '@shared/reader/words';
 
 // Cloudflare bindings
@@ -44,6 +45,8 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   SESSION_SECRET: string;
   ADMIN_EMAIL: string;
+  /** Usage analytics kill switch: off | basic | verbose (default). docs/ANALYTICS.md */
+  ANALYTICS_LEVEL?: string;
   NTFY_TOPIC: string;
   /** Public origin of this worker for links in e-mails (default: the workers.dev URL). */
   PUBLIC_API_URL?: string;
@@ -180,6 +183,8 @@ export interface User {
   picture_key?: string | null;
   about?: string | null;
   time_zone?: string | null;
+  /** Voice for reading this person's chat messages aloud (migration 0098; shared/chats/voice.ts). */
+  voice_gender?: 'male' | 'female' | 'other' | null;
   /** Which tab the app opens on; NULL = automatic (see PUT /api/profile/landing-page). */
   landing_page: LandingPage | null;
   /** Daily new-card budget across all decks (migration 0069); NULL = DEFAULT_STUDY_BUDGET. */
@@ -513,8 +518,8 @@ export interface TutorRelationship {
 }
 
 export interface TutorRelationshipWithUsers extends TutorRelationship {
-  requester: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone'>;
-  recipient: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone'>;
+  requester: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone' | 'voice_gender'>;
+  recipient: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone' | 'voice_gender'>;
 }
 
 export interface Conversation {
@@ -550,6 +555,8 @@ export interface Message {
   // Check status for user messages
   check_status: MessageCheckStatus | null;
   check_feedback: string | null;
+  /** The background "check my Chinese" (shared/chats/autoCheck.ts) — only on the sender's own view of a message. */
+  auto_check?: AutoCheckResult | null;
   recording_url: string | null;
   reply_to_message_id: string | null;
   // Interactive translation fields

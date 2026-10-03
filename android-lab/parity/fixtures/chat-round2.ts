@@ -8,6 +8,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { messageMenu, menuText, type MenuMessage } from '../../../shared/chats/messageMenu';
 import { queueLabel, loadDraft, saveDraft } from '../../../frontend/src/services/chatDrafts';
+import { sayBetterState, sayBetterLabel, autoCheckSettingShown } from '../../../shared/chats/autoCheck';
 import { layoutBubbles, tickFor, localDay, firstLink, GROUP_GAP_MS, type BubbleMessage } from '../../../shared/chats/bubbles';
 
 const OUT = process.argv[2];
@@ -48,7 +49,7 @@ for (const content of contents)
     for (const mine of [true, false])
       for (const role of ['student', 'tutor'] as const)
         for (const ai of [false, true])
-          for (const variant of [0, 1, 2, 3, 4, 5, 6, 7]) {
+          for (const variant of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
             const msg: MenuMessage = { sender_id: mine ? 'me' : 'them', content, attachment };
             // Spread the other fields over the variants (every field is covered at least once per combination of the above).
             if (variant === 1) msg.deleted_at = '2026-10-01T10:00:00.000Z';
@@ -58,6 +59,11 @@ for (const content of contents)
             if (variant === 5) { msg.check_status = 'correct'; msg.deleted_at = ''; msg.pinned_at = ''; msg.translation = ''; }
             if (variant === 6) { msg.correction = { text: '' }; msg.check_status = null; }
             if (variant === 7) { msg.pending = false; msg.translation = 'Translated'; msg.has_discussion = false; }
+            // Auto-check (shared/chats/autoCheck.ts): improvable / ok on the current text, stale after an edit, with a correction.
+            if (variant === 8) msg.auto_check = { status: 'improvable', text: content };
+            if (variant === 9) { msg.auto_check = { status: 'ok', text: content }; msg.check_status = 'needs_improvement'; }
+            if (variant === 10) msg.auto_check = { status: 'improvable', text: content + '了' };
+            if (variant === 11) { msg.auto_check = { status: 'improvable', text: content }; msg.correction = { text: '你好！' }; }
             for (const state of [{ pinyinOn: false, translateOn: false }, { pinyinOn: true, translateOn: false }, { pinyinOn: false, translateOn: true }, { pinyinOn: true, translateOn: true }]) {
               // Every toggle state only for the plain variants (keeps the file small).
               if (variant > 3 && (state.pinyinOn || state.translateOn)) continue;
@@ -156,4 +162,20 @@ for (let i = 0; i < 400; i++) {
 }
 const finalDrafts = Array.from({ length: 91 }, (_, i) => ({ conv: `c${i}`, text: loadDraft(`c${i}`) }));
 
-writeFileSync(join(OUT, 'chat-round2.json'), JSON.stringify({ menus, layouts, ticks, days, links, groupGapMs: GROUP_GAP_MS, queueLabels, draftOps, finalDrafts }));
+// ---- auto-check: sayBetterState / sayBetterLabel / autoCheckSettingShown ----
+const sayBetter: unknown[] = [];
+for (const sender of ['me', 'them'])
+  for (const content of ['我昨天去了商店买东西了', '你好', ''])
+    for (const deleted of [null, '', '2026-10-01T10:00:00.000Z'])
+      for (const kind of [null, '', 'image', 'voice'])
+        for (const correction of [null, { text: '' }, { text: '我昨天去商店买东西了' }])
+          for (const auto of [null, { status: 'ok' as const, text: content }, { status: 'improvable' as const, text: content }, { status: 'improvable' as const, text: content + '。' }]) {
+            const msg = { sender_id: sender, content, deleted_at: deleted, attachment: kind === null ? null : { kind }, correction, auto_check: auto };
+            sayBetter.push({ message: msg, result: sayBetterState({ ...msg, attachment: kind ? msg.attachment : null }, 'me') });
+          }
+const sayBetterLabels = (['corrected', 'improvable', null] as const).flatMap((state) =>
+  [null, '', 'Minghui', 'Minghui Li', ' lead'].map((name) => ({ state, name, label: sayBetterLabel(state, name) })));
+const settingShown = [true, false, null].flatMap((setting) =>
+  ['tutor', 'student', null, ''].map((role) => ({ setting, role, shown: autoCheckSettingShown(setting, role) })));
+
+writeFileSync(join(OUT, 'chat-round2.json'), JSON.stringify({ menus, layouts, ticks, days, links, groupGapMs: GROUP_GAP_MS, queueLabels, draftOps, finalDrafts, sayBetter, sayBetterLabels, settingShown }));

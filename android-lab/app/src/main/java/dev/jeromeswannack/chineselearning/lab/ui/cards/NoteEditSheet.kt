@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.decks.NoteFields
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
@@ -74,52 +76,72 @@ data class NoteEditActions(
  */
 @Composable
 fun NoteEditSheet(ui: NoteEditUi, actions: NoteEditActions, extras: (@Composable (NoteFields) -> Unit)? = null) {
-    LabBottomSheet(onDismiss = actions.onClose) {
+    LabSheetFrame(onDismiss = actions.onClose) {
         NoteEditForm(ui, actions, extras)
     }
 }
 
-/** The sheet's body — also rendered on its own in screenshots. */
+/**
+ * The sheet's body — also rendered on its own in screenshots. Title + ⋯ fixed, fields
+ * scrolling, Cancel / Add word / Save pinned at the bottom ([SheetScaffold]).
+ */
 @Composable
-fun NoteEditForm(ui: NoteEditUi, actions: NoteEditActions, extras: (@Composable (NoteFields) -> Unit)? = null) {
+fun NoteEditForm(ui: NoteEditUi, actions: NoteEditActions, extras: (@Composable (NoteFields) -> Unit)? = null, modifier: Modifier = Modifier) {
     var f by rememberSaveable(ui.noteId, ui.revision, saver = NoteFieldsSaver) { mutableStateOf(ui.initial) }
     var confirmDelete by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     val adding = ui.noteId == null
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (adding) "Add a word" else "Edit card", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.weight(1f))
-            if (ui.onPlayAvailable(actions)) {
-                Text("▶", color = Lab.colors.accent, fontSize = 20.sp, modifier = Modifier.clickable { actions.onPlay?.invoke() }.padding(12.dp))
-            }
-            if (!adding && (actions.onDelete != null || actions.onMove != null || actions.onOpenHub != null)) {
-                Column {
-                    Text("⋯", color = Lab.colors.ink, fontSize = 22.sp, modifier = Modifier.clickable { menu = true }.padding(horizontal = 14.dp, vertical = 8.dp))
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        actions.onOpenHub?.let { open -> DropdownMenuItem(text = { Text("🗂 Card page: history, flags & Claude chats") }, onClick = { menu = false; open() }) }
-                        actions.onMove?.let { move -> DropdownMenuItem(text = { Text("↪ Move to another deck") }, onClick = { menu = false; move() }) }
-                        if (!ui.hasAudio) actions.onGenerateAudio?.let { gen -> DropdownMenuItem(text = { Text("🔊 Generate audio") }, onClick = { menu = false; gen() }, enabled = ui.online) }
-                        actions.onDelete?.let { DropdownMenuItem(text = { Text("🗑 Delete note", color = Palette.Again) }, onClick = { menu = false; confirmDelete = true }) }
+    SheetScaffold(
+        modifier,
+        header = {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (adding) "Add a word" else "Edit card", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.weight(1f))
+                    if (ui.onPlayAvailable(actions)) {
+                        Text("▶", color = Lab.colors.accent, fontSize = 20.sp, modifier = Modifier.clickable { actions.onPlay?.invoke() }.padding(12.dp))
+                    }
+                    if (!adding && (actions.onDelete != null || actions.onMove != null || actions.onOpenHub != null)) {
+                        Column {
+                            Text("⋯", color = Lab.colors.ink, fontSize = 22.sp, modifier = Modifier.clickable { menu = true }.padding(horizontal = 14.dp, vertical = 8.dp))
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                actions.onOpenHub?.let { open -> DropdownMenuItem(text = { Text("🗂 Card page: history, flags & Claude chats") }, onClick = { menu = false; open() }) }
+                                actions.onMove?.let { move -> DropdownMenuItem(text = { Text("↪ Move to another deck") }, onClick = { menu = false; move() }) }
+                                if (!ui.hasAudio) actions.onGenerateAudio?.let { gen -> DropdownMenuItem(text = { Text("🔊 Generate audio") }, onClick = { menu = false; gen() }, enabled = ui.online) }
+                                actions.onDelete?.let { DropdownMenuItem(text = { Text("🗑 Delete note", color = Palette.Again) }, onClick = { menu = false; confirmDelete = true }) }
+                            }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(confirmDelete) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Delete this note and all three of its cards?", color = Lab.colors.ink, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        SecondaryPill("Keep") { confirmDelete = false }
+                        SecondaryPill("Yes, delete", danger = true, enabled = !ui.busy) { actions.onDelete?.invoke() }
                     }
                 }
             }
-        }
-
-        AnimatedVisibility(confirmDelete) {
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("Delete this note and all three of its cards?", color = Lab.colors.ink, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                SecondaryPill("Keep") { confirmDelete = false }
-                SecondaryPill("Yes, delete", danger = true, enabled = !ui.busy) { actions.onDelete?.invoke() }
+        },
+        footerAbove = if (ui.error == null && ui.info == null) null else {
+            {
+                ui.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                ui.info?.let { InlineNotice(it, kind = NoticeKind.Offline) }
             }
-        }
-
-        ui.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        ui.info?.let { InlineNotice(it, kind = NoticeKind.Offline) }
+        },
+        footer = {
+            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp)) { actions.onClose() }
+            PrimaryPill(
+                if (ui.busy) "Saving…" else if (adding) "Add word" else "Save",
+                Modifier.weight(1f).height(52.dp),
+                enabled = !ui.busy && (!adding || ui.online) && f.hanzi.isNotBlank(),
+            ) { actions.onSave(f) }
+        },
+    ) {
         if (adding && !ui.online) InlineNotice("You're offline — adding a word needs the server (it makes the three cards and the audio).", kind = NoticeKind.Offline)
 
         Field("Hanzi", f.hanzi, big = true) { f = f.copy(hanzi = it) }
@@ -151,15 +173,6 @@ fun NoteEditForm(ui: NoteEditUi, actions: NoteEditActions, extras: (@Composable 
         // Editing an existing note: its sentence set and audio recordings (CardEditModal.tsx).
         if (!adding) extras?.invoke(f)
 
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryPill("Cancel", Modifier.weight(1f)) { actions.onClose() }
-            PrimaryPill(
-                if (ui.busy) "Saving…" else if (adding) "Add word" else "Save",
-                Modifier.weight(1f).height(52.dp),
-                enabled = !ui.busy && (!adding || ui.online) && f.hanzi.isNotBlank(),
-            ) { actions.onSave(f) }
-        }
     }
 }
 

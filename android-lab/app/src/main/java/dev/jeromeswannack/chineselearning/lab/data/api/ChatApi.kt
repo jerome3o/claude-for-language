@@ -59,6 +59,9 @@ data class ChatMessageDto(
     // ---- round 2 PR 3 ----
     /** The message this one was forwarded from — shown as "↪ Forwarded". */
     val forwarded_from: String? = null,
+    // ---- auto-check (docs/CHAT.md "Auto-check") ----
+    /** The background "Check my Chinese" of this text message — only on the SENDER's own view; null when stale / not checked. */
+    val auto_check: AutoCheckDto? = null,
 ) {
     val isDeleted: Boolean get() = !deleted_at.isNullOrEmpty()
     val isImage: Boolean get() = !isDeleted && attachment?.kind == "image"
@@ -112,13 +115,17 @@ data class AIRespondDto(val message: ChatMessageDto, val audio_base64: String? =
 suspend fun Api.aiRespond(conversationId: String): AIRespondDto = exchange("POST", "/api/conversations/${enc(conversationId)}/ai-respond", "{}", AIRespondDto.serializer())
 
 @Serializable
-data class ConversationTtsBody(val text: String, val voice_id: String? = null, val voice_speed: Double? = null)
+data class ConversationTtsBody(val text: String, val voice_id: String? = null, val voice_speed: Double? = null, val message_id: String? = null)
 
 @Serializable
 data class ConversationTtsDto(val audio_base64: String, val content_type: String = "audio/mpeg")
 
-suspend fun Api.conversationTts(conversationId: String, text: String, voiceId: String?, speed: Double?): ConversationTtsDto =
-    post("/api/conversations/${enc(conversationId)}/tts", ConversationTtsBody(text, voiceId, speed))
+/**
+ * The fallback read-aloud: with [messageId] the server resolves the voice itself (shared/chats/voice.ts);
+ * chat read-aloud normally goes through `/api/practice/tts` with the voice resolved on the phone.
+ */
+suspend fun Api.conversationTts(conversationId: String, text: String, voiceId: String?, speed: Double?, messageId: String? = null): ConversationTtsDto =
+    post("/api/conversations/${enc(conversationId)}/tts", ConversationTtsBody(text, voiceId, speed, messageId))
 
 /** A card Claude suggests (GeneratedNoteWithContext). */
 @Serializable
@@ -311,6 +318,35 @@ val MINIMAX_VOICES: List<Pair<String, String>> = listOf(
 /** `{ text, note, by, at }` — the tutor's corrected version of a message. */
 @Serializable
 data class ChatCorrectionDto(val text: String = "", val note: String? = null, val by: String = "", val at: String = "")
+
+// ---------------- auto-check: "How to say it better" (shared/chats/autoCheck.ts) ----------------
+
+/** `AutoCheckCard`: a card the sheet hands to the add-card sheet as it is (CARD_STANDARD fields). */
+@Serializable
+data class AutoCheckCardDto(val hanzi: String = "", val pinyin: String = "", val english: String = "", val fun_facts: String = "")
+
+/** `AutoCheckMistake`: the span written ("" = something missing), what it should be, why, and a card for the fix. */
+@Serializable
+data class AutoCheckMistakeDto(val quote: String = "", val fix: String = "", val why: String = "", val card: AutoCheckCardDto? = null)
+
+/** `AutoCheckAlternative`: a more natural way to say it. */
+@Serializable
+data class AutoCheckAlternativeDto(val hanzi: String = "", val pinyin: String = "", val english: String = "", val note: String? = null)
+
+/** `AutoCheckResult`: about [text] exactly (served only while the message still says it); status 'ok' | 'improvable'. */
+@Serializable
+data class AutoCheckDto(
+    val text: String = "",
+    val status: String = "",
+    val corrected: String = "",
+    val corrected_pinyin: String = "",
+    val corrected_english: String = "",
+    val mistakes: List<AutoCheckMistakeDto> = emptyList(),
+    val alternative: AutoCheckAlternativeDto? = null,
+    val severity: String? = null,
+    val card: AutoCheckCardDto? = null,
+    val checked_at: String = "",
+)
 
 @Serializable
 data class MessageWordsDto(val words: List<ReaderWordDto>? = null, val source: String? = null, val cached: Boolean = false)

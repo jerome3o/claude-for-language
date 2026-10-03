@@ -67,7 +67,6 @@ class ChatSheetActions(
     val onTool: (id: String, ChatMessageDto) -> Unit = { _, _ -> },
     val onReact: (ChatMessageDto, String) -> Unit = { _, _ -> },
     val onSaveCards: (cards: List<SuggestedCard>, deckId: String?, newDeck: String?) -> Unit = { _, _, _ -> },
-    val onTogglePin: (String) -> Unit = {},
     val onHelpMeSayIt: (intended: String, guess: String) -> Unit = { _, _ -> },
     val onToggleOption: (Int) -> Unit = {},
     val onRename: (String) -> Unit = {},
@@ -122,6 +121,14 @@ class ChatSheetActions(
     /** No app opens a file: share it / save a copy (path, name, mime). */
     val onShareFile: (String, String, String) -> Unit = { _, _, _ -> },
     val onSaveFile: (String, String, String) -> Unit = { _, _, _ -> },
+    // ---- listening mode ----
+    /** ⋯ → 🎧 Listening mode (on ↔ off). */
+    val onToggleListening: () -> Unit = {},
+    /** ⋯ → 🙈 Hide all messages. */
+    val onHideAll: () -> Unit = {},
+    // ---- auto-check ----
+    /** ▶ in "How to say it better": read (playing id, text) aloud with the chat's TTS. */
+    val onPlayText: (String, String) -> Unit = { _, _ -> },
 )
 
 @Composable
@@ -139,8 +146,21 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             }
         }
         ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss) { AttachContent(ui, actions) }
+        is ChatSheet.SayBetter -> {
+            val m = ui.messages.firstOrNull { it.id == s.message.id } ?: s.message
+            val v = remember(m, ui.myId, ui.otherName) { SayBetterView.of(m, ui.myId, ui.otherName) }
+            if (v != null) LabBottomSheet(onDismiss = actions.onDismiss) {
+                val playId = "say-better-${m.id}"
+                SayBetterContent(
+                    v, ui.online, playing = ui.playingId == playId, cards = actions.cards,
+                    onPlay = { actions.onPlayText(playId, v.corrected) },
+                    onAsk = { actions.onMenuAction(dev.jeromeswannack.chineselearning.lab.core.MessageMenu.DISCUSS, m) },
+                    onClose = actions.onDismiss,
+                )
+            }
+        }
         is ChatSheet.Explain -> ui.explain?.let { e ->
-            LabBottomSheet(onDismiss = actions.onCloseExplain) {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet(onDismiss = actions.onCloseExplain) {
                 ExplainContent(e, s.saveCard, ui.online, actions.cards, onRetry = actions.onRetryExplain, onClose = actions.onCloseExplain)
             }
         }
@@ -174,24 +194,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             onDismiss = actions.onDismiss,
             danger = true,
         )
-        ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) {
-            NavRow("🔍", "Search", desc = "Find a message in this chat", onClick = actions.onOpenSearch)
-            RowDivider()
-            // PR 3: make cards from the chat; pinyin / translations for every message.
-            NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
-            RowDivider()
-            ToggleRow("拼", "Show pinyin for all", ui.aids.pinyinAll) { actions.onPinyinAll(it) }
-            RowDivider()
-            ToggleRow("EN", "Show translations for all", ui.aids.translationAll) { actions.onTranslationAll(it) }
-            RowDivider()
-            NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
-            RowDivider()
-            NavRow("✏️", if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation", enabled = ui.online, onClick = actions.onOpenRename)
-            if (ui.isAi) { RowDivider(); NavRow("🔊", "Voice settings", onClick = actions.onOpenVoice) }
-            RowDivider()
-            NavRow("☰", "All conversations", onClick = actions.onAllConversations)
-            Spacer(Modifier.height(16.dp))
-        }
+        ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) { ConversationMenuContent(ui, actions) }
         is ChatSheet.Translate -> CardSheet("Translation", listOf(s.result.flashcard), ui, actions, s.result.translation)
         is ChatSheet.Check -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Check Result") {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -227,7 +230,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             onDismiss = actions.onDismiss, onAdded = actions.onWordAdded,
         )
         ChatSheet.Review -> ui.review?.let { r ->
-            LabBottomSheet(onDismiss = actions.review.onClose) { ReviewPanel(r, ui.decks, ui.online, actions.review) }
+            dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet(onDismiss = actions.review.onClose) { ReviewPanel(r, ui.decks, ui.online, actions.review) }
         }
         is ChatSheet.Correct -> LabBottomSheet(onDismiss = actions.onDismiss, title = if (s.message.correction == null) "Correct this" else "Edit correction") {
             CorrectPanel(ui.messages.firstOrNull { it.id == s.message.id } ?: s.message, ui, actions)
@@ -293,7 +296,11 @@ private fun SelectableCard(c: SuggestedCard, selected: Boolean, onToggle: () -> 
     }
 }
 
-/** "Save N cards to:" — pinned decks first (📌), then + Create new deck (web: DeckSelectorWithCreate). */
+/**
+ * "Save N cards to:" — tap a deck to save there, decks in study-queue order (the top deck first),
+ * then + Create new deck (web: DeckSelectorWithCreate). The deck rows scroll on their own (at most
+ * ~5½ rows) so + Create new deck and the sheet's own buttons stay on screen with many decks.
+ */
 @Composable
 fun DeckPicker(ui: ChatUi, count: Int, actions: ChatSheetActions, onPick: (deckId: String?, newDeck: String?) -> Unit) {
     var creating by rememberSaveable { mutableStateOf(false) }
@@ -301,15 +308,19 @@ fun DeckPicker(ui: ChatUi, count: Int, actions: ChatSheetActions, onPick: (deckI
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.testTag("deck-picker")) {
         Text("Save $count card${if (count != 1) "s" else ""} to:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         if (ui.decks.isEmpty() && !creating) Text("No decks yet — create one below.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-        ui.decks.forEach { d ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    (if (d.pinned) "📌 " else "") + d.name,
-                    style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.background)
-                        .bouncyClickable(enabled = !ui.saving) { onPick(d.id, null) }.padding(horizontal = 14.dp, vertical = 13.dp),
-                )
-                Box(Modifier.size(44.dp).clip(CircleShape).clickable { actions.onTogglePin(d.id) }.alpha(if (d.pinned) 1f else 0.35f), contentAlignment = Alignment.Center) { Text("📌") }
+        if (ui.decks.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).testTag("deck-picker-list"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ui.decks.forEach { d ->
+                    Text(
+                        d.name,
+                        style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.background)
+                            .bouncyClickable(enabled = !ui.saving) { onPick(d.id, null) }.padding(horizontal = 14.dp, vertical = 13.dp),
+                    )
+                }
             }
         }
         if (creating) {
@@ -460,3 +471,35 @@ private fun WordSheet(hanzi: String, context: String, ui: ChatUi, actions: ChatS
     }
 }
 
+
+/** The header ⋯ (search, listening mode, make flashcards, pinyin / translations for all, …). */
+@Composable
+fun ConversationMenuContent(ui: ChatUi, actions: ChatSheetActions) {
+    Column {
+        NavRow("🔍", "Search", desc = "Find a message in this chat", onClick = actions.onOpenSearch)
+        RowDivider()
+        // Listening mode (docs/CHAT.md "Listening mode"): new messages arrive hidden — listen first.
+        if (ui.listeningAvailable) {
+            Box(Modifier.testTag("chat-menu-listening")) { ToggleRow("🎧", "Listening mode", ui.listening.setting.on, desc = "New messages arrive hidden — tap to listen, hold to reveal") { actions.onToggleListening() } }
+            RowDivider()
+            if (ui.listening.setting.on) {
+                NavRow("🙈", "Hide all messages", desc = "Every message from ${ui.otherName.ifEmpty { "them" }.substringBefore(' ')} becomes a listening exercise", onClick = actions.onHideAll)
+                RowDivider()
+            }
+        }
+        // PR 3: make cards from the chat; pinyin / translations for every message.
+        NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
+        RowDivider()
+        ToggleRow("拼", "Show pinyin for all", ui.aids.pinyinAll) { actions.onPinyinAll(it) }
+        RowDivider()
+        ToggleRow("EN", "Show translations for all", ui.aids.translationAll) { actions.onTranslationAll(it) }
+        RowDivider()
+        NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
+        RowDivider()
+        NavRow("✏️", if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation", enabled = ui.online, onClick = actions.onOpenRename)
+        if (ui.isAi) { RowDivider(); NavRow("🔊", "Voice settings", onClick = actions.onOpenVoice) }
+        RowDivider()
+        NavRow("☰", "All conversations", onClick = actions.onAllConversations)
+        Spacer(Modifier.height(16.dp))
+    }
+}

@@ -3,12 +3,15 @@
  * update (only changed fields) that PUT /api/profile needs.
  */
 import { normalizeName, normalizeText, type Profile, type ProfileUpdate } from '@shared/profile';
+import type { VoiceGender } from '@shared/chats/voice';
 
 export interface ProfileDraft {
   name: string;
   about: string;
   time_zone: string;
   bio: string;
+  /** '' = not set. */
+  voice_gender: '' | VoiceGender;
 }
 
 export function draftFrom(p: Profile): ProfileDraft {
@@ -17,6 +20,7 @@ export function draftFrom(p: Profile): ProfileDraft {
     about: p.about ?? '',
     time_zone: p.time_zone ?? '',
     bio: p.bio ?? '',
+    voice_gender: p.voice_gender ?? '',
   };
 }
 
@@ -33,6 +37,7 @@ export function profileChanges(saved: Profile, draft: ProfileDraft): ProfileUpda
   if (bio !== (saved.bio ?? '')) out.bio = bio || null;
   const tz = draft.time_zone.trim();
   if (tz !== (saved.time_zone ?? '')) out.time_zone = tz || null;
+  if (draft.voice_gender !== (saved.voice_gender ?? '')) out.voice_gender = draft.voice_gender || null;
   return out;
 }
 

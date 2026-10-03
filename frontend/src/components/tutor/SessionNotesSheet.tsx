@@ -1,8 +1,10 @@
+import { sendToLabel, studentFirstName } from '@shared/homework';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { submitSessionNotes } from '../../api/tutorNotes';
 import type { SessionNotesJob, SessionNotesPriority } from '../../types/tutorNotes';
 import { useNetwork } from '../../contexts/NetworkContext';
+import { track, trackError } from '../../services/analytics';
 import './tutor-dashboard.css';
 import './session-notes.css';
 
@@ -35,7 +37,8 @@ export function SessionNotesSheet({ relId, studentName, onClose, onSubmitted }: 
   const [title, setTitle] = useState('');
   const [lessonAt, setLessonAt] = useState(todayInput());
   const [priority, setPriority] = useState<SessionNotesPriority>('core');
-  const [autoShare, setAutoShare] = useState(true);
+  // Create, then send: nothing goes to the student unless the tutor ticks this.
+  const [autoShare, setAutoShare] = useState(false);
   const [logLesson, setLogLesson] = useState(true);
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,12 +70,16 @@ export function SessionNotesSheet({ relId, studentName, onClose, onSubmitted }: 
         log_lesson: logLesson,
       }),
     onSuccess: (job) => {
+      track('tutor.session_notes');
       queryClient.invalidateQueries({ queryKey: ['session-notes', relId] });
       queryClient.invalidateQueries({ queryKey: ['lesson-log', relId] });
       onSubmitted?.(job);
       onClose();
     },
-    onError: (e) => setError(e instanceof Error ? e.message : 'Could not send the notes'),
+    onError: (e) => {
+      trackError('session_notes', e);
+      setError(e instanceof Error ? e.message : 'Could not send the notes');
+    },
   });
 
   const onPickFile = async (file: File | undefined) => {
@@ -175,7 +182,11 @@ export function SessionNotesSheet({ relId, studentName, onClose, onSubmitted }: 
                 </label>
               </div>
             )}
-            {!autoShare && <div className="sn-hint">The deck stays in your library until you send it from Send homework.</div>}
+            {!autoShare && (
+              <div className="sn-hint" data-testid="sn-not-sent-hint">
+                Everything is made in your account and nothing reaches {studentFirstName(studentName)} until you press <strong>{sendToLabel(studentName)}</strong> on the result.
+              </div>
+            )}
             <label className="sn-check">
               <input type="checkbox" checked={logLesson} onChange={(e) => setLogLesson(e.target.checked)} />
               <span>Also log this as a lesson (Insights counts &ldquo;since last lesson&rdquo; from it)</span>
@@ -185,7 +196,7 @@ export function SessionNotesSheet({ relId, studentName, onClose, onSubmitted }: 
           {error && <div className="td-error" role="alert">{error}</div>}
           {!isOnline && <div className="td-error">You&rsquo;re offline — the notes can be sent once you&rsquo;re back online.</div>}
 
-          <div className="sn-actions">
+          <div className="sn-actions sheet-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={tooShort || tooLong || submit.isPending || !isOnline} data-testid="sn-submit">
               {submit.isPending ? 'Sending…' : 'Start'}

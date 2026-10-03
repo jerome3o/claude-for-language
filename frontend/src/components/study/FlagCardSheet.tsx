@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { queueCardFlag, type RememberedTutor } from '../../services/cardFlags';
+import { track, trackError } from '../../services/analytics';
 
 /**
  * "Flag for tutor": a bottom sheet on the card back. One short note, sent to
@@ -59,8 +60,10 @@ export function FlagCardSheet({
         hanzi,
         message,
       });
+      track('study.flag_card');
       setDone(r.sent ? `Sent to ${tutor.name}` : `Saved — it goes to ${tutor.name} when you're back online`);
     } catch (err) {
+      trackError('study_flag_card', err);
       setError(err instanceof Error ? err.message : 'Could not save the flag');
     } finally {
       setBusy(false);
@@ -104,13 +107,13 @@ export function FlagCardSheet({
               }}
             />
             {error && <div className="study-inline-error" role="alert">{error}</div>}
-            <div className="study-flag-actions">
+            <p className="study-flag-hint">Your tutor gets it in the chat with a link to this card, and their reply shows here next time.</p>
+            <div className="study-flag-actions sheet-footer">
               <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
               <button type="button" className="btn btn-primary" onClick={send} disabled={busy || !message.trim() || !tutor} data-testid="flag-card-send">
                 {busy ? 'Sending…' : 'Send'}
               </button>
             </div>
-            <p className="study-flag-hint">Your tutor gets it in the chat with a link to this card, and their reply shows here next time.</p>
           </>
         )}
       </div>
