@@ -338,6 +338,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
+- `chat_listening` / `users.chat_listening_default` - Chat listening mode (migration 0099, docs/CHAT.md "Listening mode"): per person + conversation `{ listening, since }` (messages after `since` arrive hidden) and the Settings default
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
 - `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
@@ -2009,6 +2010,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
   and the relationship's requester / recipient. Offline and never fetched → a zh-CN device voice of the sender's gender
   (`pickChineseVoiceFrom`). `/api/practice/tts` and `/api/conversations/:id/tts` (`{ message_id }` → resolved server-side)
   keep MiniMax clips in R2 `tts-cache/` (`services/tts-cache.ts`).
+- **Listening mode** (docs/CHAT.md "Listening mode", `shared/chats/listening.ts`, Lab `ChatListening.kt` parity-tested): chat ⋯ → 🎧 Listening mode (+ 🙈 Hide all), Settings → Chat default; the other person's new Chinese text messages show as a hidden bubble — **tap plays** (0.75× chip), **long-press reveals** (no menu until revealed; 👁 too; revealed ids per device). Inbox / push / e-mail say "🎧 New message" (`notificationPreviewFor`). The tap plays the Read-aloud clip (one TTS path, `shared/chats/voice.ts` + R2 `tts-cache/`), pre-generated for the listener on send / edit (`services/chat/message-audio.ts`, waitUntil) and prefetched on chat open, live updates and sync (`GET /api/me/chat-clips`); web `services/chatListening.ts`, `components/chat/ListeningBubble.tsx`.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics

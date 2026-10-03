@@ -213,8 +213,12 @@ ALTER TABLE messages ADD COLUMN correction TEXT;   -- JSON { text, note, by, at 
   `POST /api/conversations/:id/flashcards/propose { message_ids?, since?, focus?: 'correction' }` →
   `{ cards: [FlashcardItem + { already_have: boolean, source_message_id }] }` (structuredCall, CARD_STANDARD, the shared
   FLASHCARD_ITEM_SCHEMA; corrections and words the learner got wrong first; `already_have` = normalised hanzi already in
-  one of the caller's notes) → review sheet (edit fields, uncheck, deck picker, remembered last deck) →
+  one of the caller's notes) → review sheet (edit fields, uncheck, deck picker) →
   `POST /api/decks/:id/notes/batch` in one tap.
+- **Add-card deck pickers** (word sheet, Explain → word / Save as flashcard, Make flashcards, the correction's card, the
+  tap-to-save lists): decks in study-queue order (`decksInQueueOrder`, shared/decks/queue.ts) and the top deck of the
+  queue preselected (`defaultPickerDeckId`) every time — no remembered last deck, no pinned decks. The deck list scrolls
+  on its own and the Add / Save button stays pinned at the bottom of the sheet.
 - **Correct this** (the tutor of the relationship, on the other person's text message): `PUT /api/messages/:id/correction
   { text, note? }` / `DELETE`. Shown under the bubble as a character diff (`diffHanzi`, shared/lesson/answer-check.ts) +
   note; the student's ⋯ → "Make a card from the correction" (`propose` with `focus: 'correction'`). The student gets a
@@ -393,7 +397,7 @@ there's more than one) → `/connections/:relId/chat/new`. A row opens the chat 
 - The tab badge = conversations with people (not Claude) that have unread messages
   (`unreadConversationCount`).
 
-## Listening mode (migration 0098_chat_listening.sql)
+## Listening mode (migration 0099_chat_listening.sql)
 
 Jerome: "Hide the messages initially but let me play them out loud, so I can try my listening comprehension on a
 new message. A long click on the hidden message reveals it, a single click plays it."
@@ -401,7 +405,6 @@ new message. A long click on the hidden message reveals it, a single click plays
 ```sql
 CREATE TABLE chat_listening (conversation_id, user_id, listening INTEGER, since TEXT NULL, updated_at, PK (conversation_id, user_id));
 ALTER TABLE users ADD COLUMN chat_listening_default INTEGER NOT NULL DEFAULT 0;   -- Settings → Chat
-ALTER TABLE messages ADD COLUMN audio_key TEXT;                                   -- the pre-generated clip
 ```
 
 **Rules** — `shared/chats/listening.ts` (Lab `core/…/chat/ChatListening.kt`, parity-tested by
@@ -427,22 +430,20 @@ ALTER TABLE messages ADD COLUMN audio_key TEXT;                                 
 - `GET /api/me/chat-listening` → `{ default_on, conversations: [{ conversation_id, on, since, updated_at }] }`
 - `PUT /api/conversations/:id/listening` `{ on, since? }` (ISO UTC or null) → the row; member only (403 / 404), 400 bad body
 - `PUT /api/profile/chat-listening` `{ on }` → `{ default_on }`
-- `GET /api/messages/:id/audio` → the message read aloud (audio/mpeg, `X-Clip-Id`); made on demand when missing; 410 deleted
-- `GET /api/me/chat-clips[?per_conversation=20]` → `{ clips: [{ message_id, conversation_id, clip }] }` — the newest
-  ready clips of the other person's messages in each chat with a person, for background prefetch.
+- `GET /api/me/chat-clips[?per_conversation=20]` → `{ clips: [{ message_id, conversation_id, text, voice_id, speed }] }` —
+  the other person's newest Chinese text messages in each chat with a person, in the voice the CALLER hears them
+  (`chatReadAloudVoice`), for background prefetch.
 
-**Pre-generated audio** (`services/chat/message-audio.ts`): after a text message with Chinese is sent, forwarded or
-edited, `pregenerateMessageClip` (waitUntil) makes its clip once — R2 `chat-tts/<conv>/<msg>-<hash>.mp3`, the hash
-covering text + voice + speed (`messageVoice` is the one place that picks the voice), stored in `messages.audio_key`
-(an edit clears it; the new text gets a new key), then a `message_updated` so every device learns
-`audio_clip` (`<msg>-<hash>`, on every message) and prefetches it. Claude role-play chats are skipped (their replies
-are spoken already). Read aloud and the listening tap play the same clip. Registered in the storage clean-up as
-`chat-tts/` (collectable, referenced by `messages.audio_key`).
-
-**Client prefetch** (both apps): clips cached by `audio_clip` (web media cache key `chat-clip/<clip>`, Lab
-`AudioCache`), so a tap plays at once and offline: on chat open (`prefetchSelection(messages, me, 20)`), on each
-new message / `message_updated` from the live socket, and in background sync from `/api/me/chat-clips`. A message
-with no `audio_clip` yet is fetched on tap (`GET /api/messages/:id/audio`) and cached under its `X-Clip-Id`.
+**Audio = the one chat read-aloud path** (`shared/chats/voice.ts`, "Chat read-aloud voice"): the hidden bubble's tap
+plays exactly what Read aloud plays — the sender's `voice_gender` over the listener's conversation voices, speed
+`CHAT_READ_ALOUD_SPEED`, `POST /api/practice/tts` with the server's R2 `tts-cache/` (by text + voice + speed), device
+cache by the same triple (`getTTSWithCache`; Lab the same cache as Read aloud).
+- **Pre-generated** (`services/chat/message-audio.ts` `pregenerateMessageClip`, waitUntil): after a Chinese text
+  message is sent, forwarded or edited, the clip the OTHER person will hear is made into `tts-cache/` — so their tap
+  (or prefetch) is a cache hit. An edit is new text → a new clip. Claude role-play chats are skipped.
+- **Prefetched on the device** (both apps): on chat open and as messages arrive (`prefetchSelection(messages, me, 20)`,
+  ~2.5 s after a change so the server's clip is usually there), on a live `message` event while a chat / the inbox
+  is open (→ `/api/me/chat-clips`), and in background sync (`/api/me/chat-clips`). A tap then plays at once, offline.
 
 **UI**
 - Chat header ⋯ → **🎧 Listening mode** (a checkbox item; on → off), and while on **🙈 Hide all messages**.

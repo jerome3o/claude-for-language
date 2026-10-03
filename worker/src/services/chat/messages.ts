@@ -95,7 +95,7 @@ export async function editMessage(db: D1Database, messageId: string, userId: str
   if (kind && content.length > CAPTION_MAX) throw new ChatMessageError(`A caption can be at most ${CAPTION_MAX} characters`, 400);
   const at = laterThan(await currentUpdatedAt(db, messageId));
   await db
-    .prepare('UPDATE messages SET content = ?, edited_at = ?, updated_at = ?, translation = NULL, segmentation = NULL, words = NULL, audio_key = NULL WHERE id = ?')
+    .prepare('UPDATE messages SET content = ?, edited_at = ?, updated_at = ?, translation = NULL, segmentation = NULL, words = NULL WHERE id = ?')
     .bind(content, at, at, messageId)
     .run();
   return (await getMessageById(db, messageId, userId))!;

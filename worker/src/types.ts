@@ -572,12 +572,6 @@ export interface Message {
   /** The message this one was forwarded from (round 2 PR 3); shown as "↪ Forwarded". */
   forwarded_from?: string | null;
   /**
-   * Listening mode (docs/CHAT.md "Listening mode"): the id of the message's
-   * pre-generated read-aloud clip (`<messageId>-<hash>`, the hash covering
-   * text + voice), null until made / after an edit. `GET /api/messages/:id/audio`.
-   */
-  audio_clip?: string | null;
-  /**
    * Learning tools (docs/CHAT.md PR 3): the text split into word chips
    * (shared/reader/words.ts), concatenating exactly to `content` — or, for a
    * voice message, to `attachment.transcript` (`words_source`). Null until

@@ -65,7 +65,7 @@ fun passSentenceActions(app: dev.jeromeswannack.chineselearning.lab.LabApp): Sen
     return SentenceActions(
         cachedExplanation = { r -> tools.cachedExplanation(r.sentenceId, r.hanzi) },
         explain = { r -> tools.explain(r.sentenceId, r.hanzi, r.pinyin, r.translation) },
-        decks = { withContext(Dispatchers.IO) { app.repo.dao.decks().map { it.id to it.name } } },
+        decks = { withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { it.id to it.name } } },
         deckHas = tools::deckHas,
         addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english)) },
     )
