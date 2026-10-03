@@ -259,13 +259,12 @@ private fun NoteCard(n: TutorNoteRow, isNew: Boolean, playingKey: String?, actio
                     if (isNew) Text("new · ", style = MaterialTheme.typography.bodySmall, color = Color(0xFFB45309), fontWeight = FontWeight.Bold)
                     Text(noteWhen(n.updated_at, nowMs), style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(n.hanzi, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        if (n.pinyin.isNotEmpty()) Text(n.pinyin, style = MaterialTheme.typography.bodyLarge, color = Palette.Hard)
-                        if (n.english.isNotEmpty()) Text(n.english, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
-                    }
+                // Stacked, never side by side: a whole sentence's hanzi beside the pinyin left the
+                // pinyin a 0–2 character sliver that wrapped letter by letter (TutorNotesLayoutTest).
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(n.hanzi, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth())
+                    if (n.pinyin.isNotEmpty()) Text(n.pinyin, style = MaterialTheme.typography.bodyLarge, color = Palette.Hard, modifier = Modifier.fillMaxWidth())
+                    if (n.english.isNotEmpty()) Text(n.english, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth())
                 }
                 n.student_message?.takeIf { it.isNotBlank() }?.let {
                     Text("You asked: “$it”", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
