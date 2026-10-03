@@ -75,6 +75,7 @@ import cardFlagsRoutes from './routes/card-flags';
 import claudeChatsRoutes from './routes/claude-chats';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
+import homeworkRemovalRoutes from './routes/homework-removal';
 import materialsRoutes from './routes/materials';
 import readerWordsRoutes from './routes/reader-words';
 import { segmentReader } from './services/reader-words';
@@ -105,7 +106,7 @@ import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
 import studyTimeRoutes from './routes/study-time';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
-import { unreferencedImageKeys } from './services/shared-readers';
+import { deleteReaderWithImages } from './services/shared-readers';
 import {
   createRelationship,
   getMyRelationships,
@@ -497,6 +498,8 @@ app.route('/api', claudeChatsRoutes);
 app.route('/api', tutorDashboardRoutes);
 // Tutor → student sharing of graded readers (routes/shared-readers.ts)
 app.route('/api', sharedReadersRoutes);
+// Take homework back: remove the student's copy of a shared deck / assigned lesson / shared reader (routes/homework-removal.ts)
+app.route('/api', homeworkRemovalRoutes);
 // POST /api/ai/gloss-words, GET /api/decks/:id/student-shares (see routes/word-import.ts)
 app.route('/api', wordImportRoutes);
 
@@ -3366,28 +3369,9 @@ app.post('/api/readers/:id/retry', async (c) => {
 // Delete a graded reader
 app.delete('/api/readers/:id', async (c) => {
   const userId = c.get('user').id;
-  const readerId = c.req.param('id');
-
-  // Get the reader first to find image files to delete
-  const reader = await db.getGradedReader(c.env.DB, readerId, userId);
-  if (!reader) {
-    return c.json({ error: 'Reader not found' }, 404);
-  }
-
-  // Delete images from R2 — unless a shared copy of this reader (tutor →
-  // student) still references the same key (services/shared-readers.ts).
-  const imageKeys = reader.pages.map(p => p.image_url).filter((k): k is string => !!k);
-  for (const key of await unreferencedImageKeys(c.env.DB, imageKeys, readerId)) {
-    try {
-      await c.env.AUDIO_BUCKET.delete(key);
-    } catch (err) {
-      console.error('Failed to delete image:', key, err);
-    }
-  }
-
-  // Delete from database
-  await db.deleteGradedReader(c.env.DB, readerId, userId);
-
+  // Pictures a shared copy (tutor → student) still uses stay in R2 (services/shared-readers.ts).
+  const deleted = await deleteReaderWithImages(c.env, userId, c.req.param('id'));
+  if (!deleted) return c.json({ error: 'Reader not found' }, 404);
   return c.json({ success: true });
 });
 

@@ -17,6 +17,7 @@ import type { GradedReaderWithPages, ReaderPage, VocabularyItem } from '../types
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from './relationships';
 import { generateId } from './cards';
 import { parseReaderWords } from '@shared/reader/words';
+import { deleteGradedReader } from '../db/queries';
 
 export interface SharedReader {
   id: string;
@@ -265,4 +266,32 @@ export async function unreferencedImageKeys(
     if (!row || Number(row.n) === 0) safe.push(key);
   }
   return safe;
+}
+
+/**
+ * Delete one of the user's readers with its pictures — except pictures another
+ * reader's page still uses (a shared copy). The one reader delete path:
+ * `DELETE /api/readers/:id` and the tutor taking a shared reader back.
+ */
+export async function deleteReaderWithImages(
+  env: { DB: D1Database; AUDIO_BUCKET: R2Bucket },
+  userId: string,
+  readerId: string
+): Promise<boolean> {
+  const pages = await env.DB
+    .prepare('SELECT p.image_url FROM reader_pages p JOIN graded_readers r ON r.id = p.reader_id WHERE r.id = ? AND r.user_id = ?')
+    .bind(readerId, userId)
+    .all<{ image_url: string | null }>();
+  const imageKeys = (pages.results || []).map(p => p.image_url).filter((k): k is string => !!k);
+  const keys = await unreferencedImageKeys(env.DB, imageKeys, readerId);
+  const deleted = await deleteGradedReader(env.DB, readerId, userId);
+  if (!deleted) return false;
+  for (const key of keys) {
+    try {
+      await env.AUDIO_BUCKET.delete(key);
+    } catch (err) {
+      console.error('Failed to delete image:', key, err);
+    }
+  }
+  return true;
 }

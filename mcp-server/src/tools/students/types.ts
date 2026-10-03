@@ -313,6 +313,22 @@ export interface SharedDeckRow {
   target_deck_name: string;
 }
 
+/** GET /relationships/:relId/shared-readers row (worker services/shared-readers.ts). */
+export interface SharedReaderListRow {
+  id: string;
+  source_reader_id: string;
+  target_reader_id: string;
+  shared_at: string;
+  source_title_chinese: string | null;
+  source_title_english: string | null;
+  target_title_chinese: string | null;
+  target_title_english: string | null;
+  target_deleted: boolean;
+  page_count: number;
+  read_count: number;
+  last_read_at: string | null;
+}
+
 export interface SharedDeckProgress {
   deck_name: string;
   shared_at: string;
@@ -440,9 +456,9 @@ export interface SessionNotesJobRow {
   steps: SessionNotesStep[];
   rounds: number;
   result: {
-    deck?: { id: string; name: string; note_count: number; target_deck_id?: string };
-    lessons?: Array<{ library_item_id: string; title: string; lesson_id?: string; exercise_count: number }>;
-    reader?: { id: string; title_english: string; title_chinese: string; page_count: number; target_reader_id?: string };
+    deck?: { id: string; name: string; note_count: number; target_deck_id?: string; removed_at?: string };
+    lessons?: Array<{ library_item_id: string; title: string; lesson_id?: string; exercise_count: number; removed_at?: string }>;
+    reader?: { id: string; title_english: string; title_chinese: string; page_count: number; target_reader_id?: string; removed_at?: string };
     summary?: string;
     skipped?: string[];
   };
