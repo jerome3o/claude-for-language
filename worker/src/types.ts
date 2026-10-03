@@ -18,6 +18,14 @@ export interface Env {
   /** Chat live delivery: one ChatHub Durable Object per user (docs/CHAT.md §4). */
   CHAT_HUB: DurableObjectNamespace<import('./durable/chat-hub').ChatHub>;
   TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
+  /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
+  TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
+  /** One MiniMax rate limiter for every TTS call (docs/AUDIO.md). Optional so tests run without it. */
+  TTS_LIMITER?: DurableObjectNamespace<import('./durable/tts-limiter').TtsLimiter>;
+  /** MiniMax requests per minute we allow ourselves (default 55). */
+  MINIMAX_RPM?: string;
+  /** Match the perceived speed after a model change (0.5–2; default services/tts/settings.ts). */
+  TTS_SPEED_OVERRIDE?: string;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;

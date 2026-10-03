@@ -41,6 +41,23 @@ describe('admin tools', () => {
     expect([...tools.keys()].sort()).toEqual([
       'admin_delete_user', 'admin_get_user', 'admin_handle_access_request', 'admin_inspect_user_decks', 'admin_list_access_requests',
       'admin_list_users', 'admin_preview_delete_user', 'admin_set_can_invite', 'admin_set_role', 'admin_set_user_voice_gender',
+      'audio_backfill_run', 'audio_backfill_status', 'audio_tts_compare',
+    ]);
+  });
+
+  it('audio backfill: status is a read-only GET; run posts the limit only when given', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'GET /api/admin/audio/backfill': () => ({ backlog: 12, eta_minutes: 1 }),
+      'POST /api/admin/audio/backfill/run': () => ({ pump_started: true, queued: 0 }),
+    });
+    registerAdminTools(ctx);
+    expect(text(await tools.get('audio_backfill_status')!({}))).toContain('"backlog": 12');
+    await tools.get('audio_backfill_run')!({});
+    await tools.get('audio_backfill_run')!({ limit: 50 });
+    expect(calls).toEqual([
+      { method: 'GET', path: '/api/admin/audio/backfill', body: undefined },
+      { method: 'POST', path: '/api/admin/audio/backfill/run', body: {} },
+      { method: 'POST', path: '/api/admin/audio/backfill/run', body: { limit: 50 } },
     ]);
   });
 

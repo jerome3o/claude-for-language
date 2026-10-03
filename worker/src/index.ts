@@ -9,6 +9,9 @@ import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentE
 import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, daysToIntroduce } from '@shared/decks';
 import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
 import { cachedConversationTTS } from './services/tts-cache';
+import { enqueueClip, enqueueNoteClips, handleTtsBatch, type TtsQueueMessage } from './services/tts/queue';
+import { ensureClip } from './services/tts/clips';
+import { runAudioCron } from './services/tts/cron';
 import { calculateSM2 } from './services/sm2';
 import {
   scheduleCard,
@@ -25,7 +28,7 @@ import { LESSON_VOICE_IDS } from '@shared/lesson';
 import { isHanziOption } from '@shared/cards';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
-import { generateSentenceSet, sentenceAudioRetryDelay } from './services/sentence-set';
+import { generateSentenceSet } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
 import pictureHuntRoutes from './routes/picture-hunts';
 import { runPictureHuntJob } from './services/picture-hunt';
@@ -111,6 +114,7 @@ import { homeworkRoutes } from './routes/homework';
 import { homeworkLibraryRoutes } from './routes/homework-library';
 import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
+import audioBackfillRoutes from './routes/audio-backfill';
 import studyTimeRoutes from './routes/study-time';
 import analyticsRoutes from './routes/analytics';
 import { requestLog, bindAnalyticsScope } from './services/analytics/request-log';
@@ -571,6 +575,7 @@ app.route('/api', homeworkLibraryRoutes);
 app.route('/api', homeworkDraftRoutes);
 // Admin: inspect an account (decks incl. deleted, shares, sync state), set its role, delete it (routes/admin.ts)
 app.route('/api', adminRoutes);
+app.route('/api', audioBackfillRoutes); // /api/admin/audio/* (docs/AUDIO.md)
 
 // Study-state debug reports from the web + Lab apps, and their diff (routes/debug-reports.ts)
 app.route('/api', debugReportsRoutes);
@@ -1330,17 +1335,28 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
     // No body or invalid JSON - use defaults
   }
 
+  void preferProvider; // stored clips are MiniMax only (docs/AUDIO.md)
   try {
-    const result = await generateTTS(c.env, note.hanzi, note.id, { speed, preferProvider, voiceId });
-    if (result) {
-      await content.setNoteAudio(c.env, note.id, result.audioKey, result.provider);
-      // The note's example sentence needs audio too.
-      c.executionCtx.waitUntil(ensureSentenceClueAudio(c.env, note.id));
+    const custom = (speed !== undefined && speed !== DEFAULT_TTS_SPEED) || (voiceId !== undefined && voiceId !== DEFAULT_MINIMAX_VOICE);
+    let stored = false;
+    if (custom) {
+      // An admin trying another voice / speed: stored as is; the backfill brings it back to the house voice later.
+      const result = await generateTTS(c.env, note.hanzi, note.id, { speed, voiceId, priority: 'interactive' });
+      if (result) {
+        await content.setNoteAudio(c.env, note.id, result.audioKey, result.provider, { voice: result.voice, model: result.model });
+        if (note.audio_url) c.executionCtx.waitUntil(content.deleteUnreferencedAudio(c.env, [note.audio_url]));
+        stored = true;
+      }
+    } else {
+      stored = await content.ensureNoteAudio(c.env, note.id, { force: true });
+    }
+    // The note's example sentence needs audio too.
+    c.executionCtx.waitUntil(ensureSentenceClueAudio(c.env, note.id));
+    if (stored) {
       const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
       return c.json(updatedNote);
-    } else {
-      return c.json({ error: 'Failed to generate audio' }, 500);
     }
+    return c.json({ error: 'Audio is busy — the clip is queued and will arrive shortly', queued: true }, 503);
   } catch (error) {
     console.error('TTS generation error:', error);
     return c.json({ error: 'Failed to generate audio' }, 500);
@@ -1383,16 +1399,12 @@ app.post('/api/notes/:id/regenerate-audio', async (c) => {
   }
 
   try {
-    const result = await generateTTS(c.env, note.hanzi, note.id, { preferProvider: 'minimax' });
-    if (result) {
-      await content.setNoteAudio(c.env, note.id, result.audioKey, result.provider);
-      // Only once the new clip is stored; a student's copy may share the old key.
-      if (note.audio_url) c.executionCtx.waitUntil(content.deleteUnreferencedAudio(c.env, [note.audio_url]));
+    // The clip worker swaps the key and removes the old clip only when nothing else uses it.
+    if (await content.ensureNoteAudio(c.env, note.id, { force: true })) {
       const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
       return c.json(updatedNote);
-    } else {
-      return c.json({ error: 'Failed to generate MiniMax audio' }, 500);
     }
+    return c.json({ error: 'Audio is busy — the clip is queued and will arrive shortly', queued: true }, 503);
   } catch (error) {
     console.error('MiniMax TTS generation error:', error);
     return c.json({ error: 'Failed to generate audio' }, 500);
@@ -1481,30 +1493,14 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     const sentenceCluePinyin = input.pinyin || null;
     const sentenceClueTranslation = input.translation || null;
 
-    // Generate TTS for the sentence clue
-    let sentenceClueAudioUrl: string | null = null;
-    let sentenceClueAudioProvider: 'minimax' | 'gtts' | undefined;
-    if (c.env.GOOGLE_TTS_API_KEY || c.env.MINIMAX_API_KEY) {
-      try {
-        const audioResult = await generateTTS(c.env, sentenceClue, `${id}-sentence`);
-        if (audioResult) {
-          sentenceClueAudioUrl = audioResult.audioKey;
-          sentenceClueAudioProvider = audioResult.provider;
-        }
-      } catch (error) {
-        console.error('Failed to generate sentence clue audio:', error);
-        // Continue without audio
-      }
-    }
-
-    // Update the note with sentence clue
+    // Update the note with sentence clue, then its clip (the clip worker: a new
+    // text = a new clip; queued when MiniMax is busy).
     await db.updateNote(c.env.DB, id, userId, {
       sentenceClue,
       sentenceCluePinyin: sentenceCluePinyin ?? undefined,
       sentenceClueTranslation: sentenceClueTranslation ?? undefined,
-      sentenceClueAudioUrl: sentenceClueAudioUrl ?? undefined,
-      sentenceClueAudioProvider,
     });
+    await ensureSentenceClueAudio(c.env, id).catch((error) => console.error('Failed to generate sentence clue audio:', error));
 
     const updatedNote = await db.getNoteById(c.env.DB, id, userId);
     return c.json(updatedNote);
@@ -1516,66 +1512,47 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
 
 // ============ Sentence sets (a graded list of examples per note) ============
 
-/** Generate TTS for a list of sentences, a few at a time, and store the keys. */
+/**
+ * Clips for a list of sentence-set rows. Interactive (someone pressed Generate):
+ * made now through the clip worker, any MiniMax can't make right now queued.
+ * Batch (the background sentence-set job): all queued on tts-queue.
+ */
 async function attachSentenceSetAudio(
   env: Env,
-  sentences: Array<{ id: string; hanzi: string }>
+  sentences: Array<{ id: string; hanzi: string }>,
+  priority: 'interactive' | 'batch' = 'batch',
 ): Promise<Map<string, string>> {
   const audioByIdMap = new Map<string, string>();
-  if (!env.GOOGLE_TTS_API_KEY && !env.MINIMAX_API_KEY) return audioByIdMap;
-
-  const CONCURRENCY = 4;
+  if (!env.MINIMAX_API_KEY) return audioByIdMap;
+  if (priority === 'batch') {
+    for (const sentence of sentences) await enqueueSentenceAudio(env, sentence.id);
+    return audioByIdMap;
+  }
   let next = 0;
   const worker = async () => {
     while (next < sentences.length) {
       const sentence = sentences[next++];
       try {
-        const result = await generateTTS(env, sentence.hanzi, `${sentence.id}-sentence`);
-        if (result) {
-          await db.setNoteSentenceAudio(env.DB, sentence.id, result.audioKey, result.provider);
-          audioByIdMap.set(sentence.id, result.audioKey);
+        const result = await ensureClip(env, { kind: 'sentence', id: sentence.id }, { priority: 'interactive', maxWaitMs: 4_000 });
+        if (result.status === 'generated') {
+          const row = await db.getNoteSentenceByIdUnscoped(env.DB, sentence.id);
+          if (row?.audio_url) audioByIdMap.set(sentence.id, row.audio_url);
+        } else if (result.status === 'rate_limited' || (result.status === 'failed' && !result.permanent)) {
+          await enqueueSentenceAudio(env, sentence.id, result.status === 'rate_limited' && result.minimax ? 60 : 5);
         }
       } catch (error) {
         console.error('[sentence-set] TTS failed for', sentence.id, error);
-        // Sentence stays usable without audio; the next generate can retry.
+        await enqueueSentenceAudio(env, sentence.id, 30);
       }
     }
   };
-
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, sentences.length) }, worker));
-
-  // A row left without a clip (MiniMax rate-limited, most often) would stay
-  // silent for good: nothing revisits a stored set. Queue each one for a
-  // retry after the burst has passed.
-  const silent = sentences.filter((s) => !audioByIdMap.has(s.id));
-  for (const sentence of silent) {
-    await enqueueSentenceAudio(env, sentence.id, 1);
-  }
-  if (silent.length > 0) {
-    console.log('[sentence-set] Queued retries for', silent.length, 'sentences without audio');
-  }
+  await Promise.all(Array.from({ length: Math.min(2, sentences.length) }, worker));
   return audioByIdMap;
 }
 
-/**
- * Queue one sentence-set row for audio. `attempt` counts retries for a row
- * that has none yet; the delay grows with it, and the last attempt is the end
- * of the line for the queue (the hourly sweep and the backfill still find it).
- */
-async function enqueueSentenceAudio(env: Env, sentenceId: string, attempt = 1): Promise<boolean> {
-  const delaySeconds = sentenceAudioRetryDelay(attempt);
-  if (delaySeconds === null) return false;
-  try {
-    // noteId is required by the message shape but unused for this kind.
-    await env.SENTENCE_SET_QUEUE.send(
-      { noteId: '', kind: 'sentence_audio', sentenceId, attempt },
-      { delaySeconds }
-    );
-    return true;
-  } catch (error) {
-    console.error('[sentence-audio] Failed to enqueue sentence', sentenceId, error);
-    return false;
-  }
+/** Queue one sentence-set row's clip on tts-queue (idempotent: a current clip is left alone). */
+async function enqueueSentenceAudio(env: Env, sentenceId: string, delaySeconds?: number): Promise<boolean> {
+  return enqueueClip(env, { kind: 'sentence', id: sentenceId }, { priority: 'batch', delaySeconds });
 }
 
 // List a note's sentence set
@@ -1666,7 +1643,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
     ]);
 
     const needAudio = stored.filter((s) => !s.audio_url);
-    const audioById = await attachSentenceSetAudio(c.env, needAudio);
+    const audioById = await attachSentenceSetAudio(c.env, needAudio, 'interactive');
 
     const sentences = stored.map((s) => ({
       ...s,
@@ -1753,7 +1730,7 @@ app.post('/api/sentences/clue-audio', async (c) => {
   // generation stores the row without a clip); the same button fixes them.
   const sentences = await db.getSentencesMissingAudio(c.env.DB, userId, limit);
   for (const sentence of sentences) {
-    await enqueueSentenceAudio(c.env, sentence.id, 1);
+    await enqueueSentenceAudio(c.env, sentence.id);
   }
 
   const remaining =
@@ -1807,7 +1784,7 @@ app.post('/api/sentences/prefetch', async (c) => {
   // pressing a button.
   const silent = await db.getSentencesMissingAudio(c.env.DB, userId, SENTENCE_AUDIO_SWEEP_BATCH);
   for (const sentence of silent) {
-    await enqueueSentenceAudio(c.env, sentence.id, 1);
+    await enqueueSentenceAudio(c.env, sentence.id);
   }
   if (silent.length > 0) {
     console.log('[sentence-set] Prefetch also queued audio for', silent.length, 'silent sentences');
@@ -2135,24 +2112,14 @@ app.post('/api/decks/:id/regenerate-all-audio', async (c) => {
   let regenerated = 0;
   const errors: string[] = [];
 
+  // Through tts-queue at the shared MiniMax rate (docs/AUDIO.md); each clip is
+  // idempotent and swaps keys without taking a clip a student's copy still uses.
   c.executionCtx.waitUntil((async () => {
     for (const note of notesToRegenerate) {
-      try {
-        const result = await generateTTS(c.env, note.hanzi, note.id, { preferProvider: 'minimax' });
-        if (result) {
-          await content.setNoteAudio(c.env, note.id, result.audioKey, result.provider);
-          if (note.audio_url) await content.deleteUnreferencedAudio(c.env, [note.audio_url]);
-          regenerated++;
-          console.log('[Regenerate All] Regenerated', note.hanzi, 'with', result.provider);
-        } else {
-          errors.push(`Failed to generate audio for ${note.hanzi}`);
-        }
-      } catch (err) {
-        console.error('[Regenerate All] Failed to regenerate', note.hanzi, err);
-        errors.push(`Error regenerating ${note.hanzi}: ${err}`);
-      }
+      if (await enqueueClip(c.env, { kind: 'word', id: note.id }, { priority: 'batch', force: true })) regenerated++;
+      else errors.push(`Failed to queue audio for ${note.hanzi}`);
     }
-    console.log(`[Regenerate All] Completed: ${regenerated}/${notesToRegenerate.length} regenerated`);
+    console.log(`[Regenerate All] Queued: ${regenerated}/${notesToRegenerate.length}`);
   })());
 
   // Return immediately with count of notes being processed
@@ -2516,7 +2483,7 @@ app.post('/api/notes/:id/audio', async (c) => {
     return c.json(recording, 201);
   } else {
     // JSON request - generate TTS audio
-    let provider: 'minimax' | 'gtts' = 'gtts';
+    let provider: 'minimax' | 'gtts' = 'minimax';
     let speed: number | undefined;
     let voiceId: string | undefined;
     let speakerName: string | undefined;
@@ -2543,7 +2510,8 @@ app.post('/api/notes/:id/audio', async (c) => {
     }
 
     try {
-      const result = await generateTTS(c.env, note.hanzi, noteId, { preferProvider: provider, speed, voiceId });
+      void provider; // MiniMax only (docs/AUDIO.md)
+      const result = await generateTTS(c.env, note.hanzi, noteId, { speed, voiceId, priority: 'interactive' });
       if (!result) {
         return c.json({ error: 'Failed to generate audio' }, 500);
       }
@@ -2667,23 +2635,6 @@ app.get('/api/audio-manifest', async (c) => {
   return c.json({ urls });
 });
 
-/**
- * Regenerate one sentence-set clip with MiniMax; keeps the old clip on failure.
- * A row with no clip at all takes whatever generateTTS produces — under the
- * current policy that is Google only when MiniMax is permanently unavailable,
- * and a fallback clip beats a silent row.
- */
-async function regenerateSentenceAudio(env: Env, sentenceId: string): Promise<boolean> {
-  const sentence = await db.getNoteSentenceByIdUnscoped(env.DB, sentenceId);
-  if (!sentence) return false;
-  const result = await generateTTS(env, sentence.hanzi, `${sentenceId}-sentence`);
-  if (!result) return false;
-  if (sentence.audio_url && result.provider !== 'minimax') return false;
-  await db.setNoteSentenceAudio(env.DB, sentenceId, result.audioKey, result.provider);
-  if (sentence.audio_url) await deleteAudio(env.AUDIO_BUCKET, sentence.audio_url).catch(() => {});
-  return true;
-}
-
 // ============ Audio quality ============
 //
 // Mounted at /api/audio-quality, NOT under /api/audio/: that prefix is public
@@ -2793,19 +2744,10 @@ app.post('/api/audio-quality/regenerate', async (c) => {
 
   const targets = await db.getFallbackAudioTargets(c.env.DB, userId, limit);
   let queued = 0;
-  for (const noteId of targets.notes) {
-    await c.env.SENTENCE_SET_QUEUE.send({ noteId, kind: 'note_audio' });
-    queued++;
-  }
-  for (const noteId of targets.clues) {
-    await c.env.SENTENCE_SET_QUEUE.send({ noteId, kind: 'clue_audio', force: true });
-    queued++;
-  }
-  for (const sentenceId of targets.sentences) {
-    // noteId is required by the message shape but unused for this kind.
-    await c.env.SENTENCE_SET_QUEUE.send({ noteId: '', kind: 'sentence_audio', sentenceId });
-    queued++;
-  }
+  // tts-queue, batch priority: a Google clip is replaced by a current MiniMax one (docs/AUDIO.md).
+  for (const noteId of targets.notes) if (await enqueueClip(c.env, { kind: 'word', id: noteId })) queued++;
+  for (const noteId of targets.clues) if (await enqueueClip(c.env, { kind: 'clue', id: noteId })) queued++;
+  for (const sentenceId of targets.sentences) if (await enqueueClip(c.env, { kind: 'sentence', id: sentenceId })) queued++;
 
   const stats = await db.getAudioQualityStats(c.env.DB, userId);
   const remaining = stats.notes.gtts + stats.clues.gtts + stats.sentences.gtts;
@@ -6568,6 +6510,7 @@ app.get('*', async (c) => {
 // The video-call room (Durable Object class must be exported from the entry module)
 export { CallRoom } from './durable/call-room';
 export { ChatHub } from './durable/chat-hub';
+export { TtsLimiter } from './durable/tts-limiter';
 
 // Export worker with fetch and queue handlers
 export default {
@@ -6575,8 +6518,14 @@ export default {
     runInScope({ env, userId: null, route: null, waitUntil: (p) => ctx.waitUntil(p) }, () => app.fetch(request, env, ctx)),
 
   // Daily cron (wrangler.toml [triggers]): prune usage events past retention.
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     await runInScope({ env, userId: null, route: 'cron', waitUntil: (p) => ctx.waitUntil(p) }, async () => {
+      // Audio backfill (docs/AUDIO.md): nightly at London midnight, kept alive hourly.
+      const audio = await runAudioCron(env, event.cron, new Date(event.scheduledTime || Date.now()));
+      if (audio !== 'not_audio') {
+        console.log(JSON.stringify({ type: 'cron', job: 'audio_backfill', cron: event.cron, action: audio }));
+        return;
+      }
       try {
         const deleted = await pruneUsageEvents(env.DB, Date.now());
         console.log(JSON.stringify({ type: 'cron', job: 'prune_usage_events', deleted }));
@@ -6595,6 +6544,11 @@ export default {
 async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
+
+    if (queueName === 'tts-queue') {
+      await handleTtsBatch(batch as unknown as MessageBatch<TtsQueueMessage>, env);
+      return;
+    }
 
     if (queueName === 'call-processing-queue') {
       // Failures are recorded on the piece / call rows (and retried from the
@@ -6912,42 +6866,15 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
       for (const message of batch.messages) {
         const { noteId, count, kind, sentenceId, force, attempt: priorAttempt } = message.body as SentenceSetMessage;
 
-        // Same queue, much smaller job: just the TTS for a card's own sentence.
-        if (kind === 'clue_audio') {
-          const stored = await ensureSentenceClueAudio(env, noteId, { force });
-          console.log('[Queue] Clue audio', stored ? 'done' : 'skipped', noteId);
+        // Clip-only messages from before tts-queue existed: hand them over (docs/AUDIO.md).
+        if (kind === 'clue_audio' || kind === 'note_audio' || kind === 'sentence_audio') {
+          if (kind === 'sentence_audio' && sentenceId) await enqueueClip(env, { kind: 'sentence', id: sentenceId });
+          else if (kind === 'clue_audio') await enqueueClip(env, { kind: 'clue', id: noteId }, { force });
+          else await enqueueNoteClips(env, noteId);
           message.ack();
           continue;
         }
-
-        // Replace a Google-fallback clip with MiniMax. generateTTS returns null
-        // rather than falling back, so a rate limit here leaves the old clip in
-        // place for the next sweep instead of storing another bad one.
-        if (kind === 'note_audio') {
-          // Either a brand-new note (any clip beats silence) or a Google
-          // fallback clip to replace with MiniMax; then the sentence's clip.
-          const stored = await content.ensureNoteAudio(env, noteId);
-          await ensureSentenceClueAudio(env, noteId);
-          console.log('[Queue] Note audio', stored ? 'stored' : 'left', noteId);
-          message.ack();
-          continue;
-        }
-        if (kind === 'sentence_audio' && sentenceId) {
-          const replaced = await regenerateSentenceAudio(env, sentenceId);
-          console.log('[Queue] Sentence audio', replaced ? 'replaced' : 'left', sentenceId);
-          if (!replaced) {
-            // Still no clip at all (as opposed to an old clip left in place):
-            // try again later rather than leaving the row silent.
-            const row = await db.getNoteSentenceByIdUnscoped(env.DB, sentenceId);
-            if (row && !row.audio_url) {
-              const attempt = (priorAttempt ?? 1) + 1;
-              const queued = await enqueueSentenceAudio(env, sentenceId, attempt);
-              console.log('[Queue] Sentence audio retry', queued ? `queued (attempt ${attempt})` : 'exhausted', sentenceId);
-            }
-          }
-          message.ack();
-          continue;
-        }
+        void priorAttempt;
 
         try {
           const note = await db.getNoteByIdUnscoped(env.DB, noteId);
@@ -6991,10 +6918,10 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
             }))
           );
 
-          await attachSentenceSetAudio(env, stored);
-          // While we're here: the card's own sentence often has no audio
-          // either, and this sweep is the one place that visits every note.
-          await ensureSentenceClueAudio(env, noteId);
+          // Every clip through tts-queue at the shared MiniMax rate; the card's own
+          // sentence too (often silent, and this job visits every note).
+          await attachSentenceSetAudio(env, stored, 'batch');
+          await enqueueClip(env, { kind: 'clue', id: noteId });
           await db.markSentenceSetJobDone(env.DB, noteId);
           console.log('[Queue] Sentence set done:', noteId, stored.length, 'sentences');
           message.ack();

@@ -105,4 +105,48 @@ class AutoAudioSessionTest {
         awaitUi(vm, "retried") { asked.size == 2 }
         app.audio.stop()
     }
+
+    @Test
+    fun aQueuedClipIsComingTheRevealWaitsForItAndItPlaysWhenItLands() {
+        var now = 1_000_000L
+        val answers = ArrayDeque(listOf(
+            EnsureAudioResult(null, "queued", "none"),
+            EnsureAudioResult(StudyNoteDto("n1", "d1", "刮风", "guā fēng", "to be windy", audio_url = "generated/n1.mp3", fun_facts = "f"), "generated", "none"),
+        ))
+        app.noteAudio = NoteAudioFixer(app.repo, online = { true }, clock = { now }, request = { id, _ ->
+            asked += id
+            // The second answer waits until the clock advance below is over, so the clip can't play out inside it.
+            if (asked.size > 1) gate.await()
+            answers.removeFirst()
+        })
+        val vm = StudyViewModel(app, null)
+        awaitUi(vm, "coming") { it.cardAudio.word == ClipState.COMING && it.phase is StudyPhase.Showing }
+        // Not a failure: no retry line, no backoff.
+        assertEquals(dev.jeromeswannack.chineselearning.lab.core.NoteAudio.Status.Coming(1, now + 20_000), app.noteAudio.statuses.value["n1"])
+        // Revealed: the auto-play waits for the real clip instead of the device voice.
+        vm.onRevealed(null)
+        vm.playWord(false)
+        idle()
+        assertNull(app.audio.playingKey.value)
+        // ~20 s later the card asks again; the clip has landed and plays on its own.
+        now += 20_000
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(21))
+        gate.complete(true)
+        val ui = awaitUi(vm, "the clip") { it.cardAudio.word == ClipState.READY && app.audio.playingKey.value != null }
+        assertEquals("generated/n1.mp3", app.audio.playingKey.value)
+        assertEquals("generated/n1.mp3", (ui.phase as StudyPhase.Showing).view.note.audioUrl)
+        assertEquals(listOf("n1", "n1"), asked)
+        app.audio.stop()
+    }
+
+    @Test
+    fun aTapWhileComingPlaysTheDeviceVoiceMeanwhile() {
+        app.noteAudio = NoteAudioFixer(app.repo, online = { true }, request = { id, _ -> asked += id; EnsureAudioResult(null, "queued", "none") })
+        val vm = StudyViewModel(app, null)
+        awaitUi(vm, "coming") { it.cardAudio.word == ClipState.COMING && it.phase is StudyPhase.Showing }
+        vm.onRevealed(null)
+        vm.playWord(true)
+        awaitUi(vm, "the device voice") { app.audio.playingKey.value == "tts:刮风" }
+        app.audio.stop()
+    }
 }

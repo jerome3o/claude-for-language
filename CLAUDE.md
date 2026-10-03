@@ -354,11 +354,22 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `call_activities` - In-call activities played (migration 0094): one row per session (call, lesson, relationship, activity_id, kind, title, host, `summary_json` = `ActivitySummary`), upserted by the CallRoom; read by the review page and the homework agent
 - `materials` / `material_pages` / `material_shares` / `material_annotations` / `call_materials` - Lesson materials (migration 0092; docs/VIDEO_CALLS.md "Lesson materials"): a tutor's PDFs / pictures / PowerPoints (original + page pictures drawn on the uploading device in R2 `materials/<owner>/<id>/`, protected), each page's text + speaker notes, shares per relationship (presenting in a call shares it), drawings / text per lesson × material × page (`KeptAnnotations`), which pages a call showed
 
-### Audio Storage
+### Audio Storage & the TTS pipeline (read docs/AUDIO.md before touching TTS)
 - Generated TTS audio and user recordings stored in Cloudflare R2
 - Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
 - Types: `generated` (TTS), `recordings` (user voice)
-- TTS is generated via Google Cloud Text-to-Speech API (Mandarin Wavenet voice)
+- **TTS is MiniMax only**: `speech-2.8-hd`, voice Radio Host, speed 0.6 — set ONLY in
+  `worker/src/services/tts/settings.ts`. No Google fallback for stored clips.
+- **Every MiniMax call goes through `callMiniMaxTTS`** (`services/audio.ts`), which asks the
+  `TtsLimiter` Durable Object for a slot (`MINIMAX_RPM`, default 55; interactive before batch;
+  a 1002 / 429 is requeued 60 s later, never retried in the request). A new TTS path must use it.
+- **Stored clips** (word, card sentence, sentence-set row) are made by `ensureClip`
+  (`services/tts/clips.ts`): idempotent by a settings + text signature (`audio_settings`,
+  `audio_voice`, `audio_model`, migration 0103), fresh key, swap only while the row still
+  points at the old key, copies sharing the key move too, old object deleted only when
+  unreferenced, `updated_at` bumped. Background clips go through **`tts-queue`**
+  (`services/tts/queue.ts`); the backlog (missing → Google → old voice) drains via the pump,
+  nightly at London midnight + hourly crons. Admin: MCP `audio_backfill_status` / `audio_backfill_run`.
 
 ### AI Features
 Uses Anthropic Claude API for several features:
@@ -725,7 +736,8 @@ npm run dev
 
 ### Environment Variables / Secrets
 - `ANTHROPIC_API_KEY`: For AI card generation and Ask Claude feature
-- `GOOGLE_TTS_API_KEY`: For Google Cloud Text-to-Speech audio generation
+- `MINIMAX_API_KEY`: MiniMax TTS (every stored clip; docs/AUDIO.md). `MINIMAX_RPM` (wrangler var) = requests per minute we allow ourselves
+- `GOOGLE_TTS_API_KEY`: Google TTS, now only an in-the-moment fallback for ephemeral conversation audio (never stored)
 - D1 and R2 bindings are configured in `wrangler.toml`
 
 Set secrets via:
@@ -766,7 +778,7 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `GET /api/notes/:id/questions` - Get Q&A history
 - `GET /api/notes/search?q=&limit=` - Server-side search of my notes (hanzi / pinyin, tone-free too / english / card sentence) with `deck_name` + `total_notes` — the Decks tab search is local-first (`services/noteSearch.ts` `noteMatches`, cards + recent ratings loaded only for the notes on screen) and falls back to this when the device finds nothing, saying how many of the account's cards the device holds (`routes/note-search.ts`)
 - `POST /api/notes/:id/generate-audio` - Generate TTS audio for note
-- `POST /api/notes/:id/ensure-audio` - `{ broken?: string[] }` → `{ note, word, sentence }` (ok | copied | generated | failed | none). Idempotent: makes only the MISSING word / sentence clips (a reported 404 key only if R2 really lacks it; a student's copy first takes the tutor's clip). The Lab app's auto-audio (`data/audio/NoteAudioFixer.kt`: on the card, queued offline, background pass over the upcoming queue after sync); `content.ensureNoteClips`
+- `POST /api/notes/:id/ensure-audio` - `{ broken?: string[] }` → `{ note, word, sentence }` (ok | copied | generated | queued | failed | none). Idempotent: makes only the MISSING word / sentence clips (a reported 404 key only if R2 really lacks it; a student's copy first takes the tutor's clip), at interactive priority; `queued` = MiniMax is busy, the clip is on tts-queue and coming. Both apps' auto-audio: web `services/noteAudioEnsure.ts` (study card; "Audio coming…" instead of the device voice), Lab `data/audio/NoteAudioFixer.kt` (on the card, queued offline, background pass over the upcoming queue after sync); `content.ensureNoteClips`
 
 ### Sentence sets (graded example sentences per note)
 Each note can have a **set** of example sentences (separate from the single `sentence_clue`
@@ -915,7 +927,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`.
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md).
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -1832,6 +1844,8 @@ id or an email. Unit-tested in `tools/admin.test.ts`.
 | `admin_set_user_voice_gender` | `male` / `female` / `other` / null — the voice that account's chat messages are read aloud in (`PUT /api/admin/users/:user/voice-gender`) |
 | `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
 | `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
+
+Audio (same file, docs/AUDIO.md): `audio_backfill_status` (read-only: backlog by kind × state, clips by provider / model / voice, limiter, measured clips/min, ETA), `audio_backfill_run` (`limit?`: start the pump, queue that many clips now), `audio_tts_compare` (old vs current model durations — perceived speed check). API: `GET /api/admin/audio/backfill`, `POST /api/admin/audio/backfill/run`, `POST /api/admin/audio/compare` (`routes/audio-backfill.ts`).
 
 #### Debug tools (`mcp-server/src/tools/debug.ts`)
 

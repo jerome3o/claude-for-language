@@ -7,6 +7,11 @@ vi.stubGlobal('crypto', {
 });
 
 const generateTTSMock = vi.fn();
+const ensureClipMock = vi.fn(async () => ({ status: 'generated' }));
+vi.mock('../tts/clips', async (orig) => ({
+  ...(await orig<typeof import('../tts/clips')>()),
+  ensureClip: (...args: unknown[]) => (ensureClipMock as any)(...args),
+}));
 vi.mock('../audio', () => ({
   generateTTS: (...args: unknown[]) => generateTTSMock(...args),
   deleteAudio: vi.fn(),
@@ -47,6 +52,7 @@ describe('ensureStarterDeck', () => {
   beforeEach(() => {
     db = createMockD1();
     idCounter = 0;
+    ensureClipMock.mockClear();
     generateTTSMock.mockReset();
     generateTTSMock.mockResolvedValue({ audioKey: 'generated/x.mp3', provider: 'minimax' });
   });
@@ -76,8 +82,8 @@ describe('ensureStarterDeck', () => {
     expect(noteInserts[0].params).toContain(STARTER_WORDS[0].sentence);
     expect(queries.filter(q => q.sql.includes('INSERT INTO cards'))).toHaveLength(STARTER_WORDS.length * 3);
     // word clip then sentence clip per note (no bg given, so awaited inline)
-    expect(generateTTSMock).toHaveBeenCalledTimes(STARTER_WORDS.length * 2);
-    expect(generateTTSMock.mock.calls[1][1]).toBe('你好！我叫李华。');
+    expect(ensureClipMock).toHaveBeenCalledTimes(STARTER_WORDS.length * 2);
+    expect((ensureClipMock.mock.calls as any[])[1][1]).toMatchObject({ kind: 'clue' });
     // and each note's sentence set is queued
     expect(env.SENTENCE_SET_QUEUE.send).toHaveBeenCalledTimes(STARTER_WORDS.length);
   });

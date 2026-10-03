@@ -107,4 +107,60 @@ class NoteAudioTest {
             NoteAudio.backfillBatch(t.queued, upcoming, notes, emptySet(), t, nowMs = 60_000),
         )
     }
+
+    @Test fun queuedIsPendingNotAFailure() {
+        assertTrue(NoteAudio.isPending("queued"))
+        for (o in listOf("ok", "copied", "generated", "failed", "none", null)) assertFalse(NoteAudio.isPending(o))
+
+        val t = NoteAudio.Tracker()
+        assertTrue(t.start("n", 0))
+        val s = t.coming("n", 1_000)
+        assertEquals(Status.Coming(asks = 1, nextAskAtMs = 1_000 + NoteAudio.COMING_RETRY_MS), s)
+        // No failure backoff: asked again after ~20 s, not 30 s / 2 min.
+        assertFalse(t.mayStart("n", 1_000 + NoteAudio.COMING_RETRY_MS - 1))
+        assertTrue(t.mayStart("n", 1_000 + NoteAudio.COMING_RETRY_MS))
+        // The background pass respects the same wait.
+        val notes = mapOf("n" to Clips("n", null, null, null))
+        assertEquals(emptyList(), NoteAudio.backfillBatch(emptyList(), listOf("n"), notes, emptySet(), t, nowMs = 5_000))
+        assertEquals(listOf("n"), NoteAudio.backfillBatch(emptyList(), listOf("n"), notes, emptySet(), t, nowMs = 21_000))
+    }
+
+    @Test fun reAskKeepsComingAndDedupes() {
+        val t = NoteAudio.Tracker()
+        t.start("n", 0)
+        t.coming("n", 0)
+        assertTrue(t.start("n", NoteAudio.COMING_RETRY_MS))
+        // Still "coming" (no "Generating audio…" flash), and no second request while it is out.
+        assertEquals(Status.Coming(1, NoteAudio.COMING_RETRY_MS, asking = true), t.status("n"))
+        assertFalse(t.mayStart("n", 10 * NoteAudio.COMING_RETRY_MS))
+        assertFalse(t.start("n", 10 * NoteAudio.COMING_RETRY_MS, manual = true))
+        // Offline while asking: left alone.
+        t.queueOffline("n")
+        assertTrue("n" !in t.queued)
+        // A cancelled re-ask leaves it coming, askable again.
+        t.abandoned("n")
+        assertEquals(Status.Coming(1, NoteAudio.COMING_RETRY_MS), t.status("n"))
+        // The clip arrives.
+        t.start("n", NoteAudio.COMING_RETRY_MS)
+        t.succeeded("n")
+        assertEquals(null, t.status("n"))
+    }
+
+    @Test fun comingIsThrottledToSixAsksThenFails() {
+        val t = NoteAudio.Tracker()
+        var now = 0L
+        repeat(NoteAudio.COMING_MAX_ASKS - 1) { i ->
+            assertTrue(t.start("n", now))
+            val s = t.coming("n", now)
+            assertEquals(i + 1, (s as Status.Coming).asks)
+            now += NoteAudio.COMING_RETRY_MS
+        }
+        assertTrue(t.start("n", now))
+        val last = t.coming("n", now)
+        assertTrue(last is Status.Failed, "the ${NoteAudio.COMING_MAX_ASKS}th queued answer counts as a failure: $last")
+        assertEquals(now + NoteAudio.BACKOFF_MS[0], (last as Status.Failed).retryAtMs)
+        // The retry button starts a fresh count.
+        assertTrue(t.start("n", now, manual = true))
+        assertTrue(t.coming("n", now) is Status.Coming)
+    }
 }
