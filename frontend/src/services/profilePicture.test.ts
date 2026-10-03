@@ -59,7 +59,7 @@ describe('crop geometry', () => {
 const saved: Profile = {
   id: 'u1', email: 'm@example.com', name: 'Minghui Zhang', picture_url: null, picture_source: 'google',
   name_custom: false, google_name: 'Minghui Zhang', google_picture_url: null,
-  bio: null, about: 'Hi', time_zone: null,
+  bio: null, about: 'Hi', time_zone: null, voice_gender: null,
 };
 
 describe('profile form', () => {
@@ -68,9 +68,14 @@ describe('profile form', () => {
   });
 
   it('sends only the changed fields, blanks as null', () => {
-    expect(profileChanges(saved, { name: '明慧老师', about: '', time_zone: 'Asia/Shanghai', bio: '' })).toEqual({
+    expect(profileChanges(saved, { name: '明慧老师', about: '', time_zone: 'Asia/Shanghai', bio: '', voice_gender: '' })).toEqual({
       name: '明慧老师', about: null, time_zone: 'Asia/Shanghai',
     });
+  });
+
+  it('sends the read-aloud voice when it changes, not set as null', () => {
+    expect(profileChanges(saved, { ...draftFrom(saved), voice_gender: 'female' })).toEqual({ voice_gender: 'female' });
+    expect(profileChanges({ ...saved, voice_gender: 'male' }, { ...draftFrom(saved), voice_gender: '' })).toEqual({ voice_gender: null });
   });
 
   it('an emptied name is sent so the server can explain', () => {

@@ -69,6 +69,17 @@ class ProfileScreenshots : LabScreenshotTest() {
         ProfileScreen(ProfileUi(profile = me, draft = ProfileDraft.from(me)), ProfileEnv(teaches = false, learns = true, deviceTimeZone = "Pacific/Auckland", now = now), ProfileActions(onBack = {}), listState = androidx.compose.foundation.lazy.rememberLazyListState(3))
     }
 
+    /** "Your voice when your messages are read aloud" — Female picked, not saved yet (the save bar is up). */
+    @Test fun voiceGender() = shoot("profile-08-voice-gender") {
+        val me = ProfileDto(id = "u2", email = "jerome@example.com", name = "Jerome", google_name = "Jerome", time_zone = "Pacific/Auckland", voice_gender = "male")
+        ProfileScreen(
+            ProfileUi(profile = me, draft = ProfileDraft.from(me).copy(voiceGender = "female")),
+            ProfileEnv(teaches = false, learns = true, deviceTimeZone = "Pacific/Auckland", now = now),
+            ProfileActions(onBack = {}),
+            listState = androidx.compose.foundation.lazy.rememberLazyListState(3),
+        )
+    }
+
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("profile-05-unfolded") {
         ProfileScreen(ProfileUi(profile = edited, draft = ProfileDraft.from(edited)), tutorEnv.copy(previewPhoto = portrait().asImageBitmap()), ProfileActions(onBack = {}))

@@ -75,6 +75,7 @@ import kotlinx.coroutines.async
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatActions as ChatWrites
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaStore
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatClips
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatReadAloud
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListening
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatWaveforms
@@ -367,7 +368,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private val _ui = MutableStateFlow(ChatUi())
     val ui: StateFlow<ChatUi> = _ui
     /** Listening mode: the hidden bubbles' state + playback (ChatListeningMode.kt). */
-    val listening = ChatListeningMode(app, convId, viewModelScope, _ui, stopOthers = { stopAudio() }, notice = { error(it) })
+    val listening = ChatListeningMode(app, convId, viewModelScope, _ui, stopOthers = { stopAudio() }, notice = { error(it) }, voiceOf = { readAloudVoice(it) })
     private val api get() = app.repo.api
     private val cards = CardTools(app)
     private val media = ChatMediaStore.of(app)
@@ -375,6 +376,10 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private var pollJob: Job? = null
     private var player: MediaPlayer? = null
     private var progressJob: Job? = null
+    /** Offline with no clip on the phone: the phone's own zh-CN voice of the sender's gender. */
+    private val deviceVoice by lazy { dev.jeromeswannack.chineselearning.lab.fx.DeviceChineseVoice(app) }
+    /** The other person's users.voice_gender (from the relationship, cached with it). */
+    private var otherVoiceGender: String? = null
     private val checkResults = HashMap<String, CheckResultDto>()
     private val typingIn = TypingIndicator()
     private val typingOut = TypingThrottle()
@@ -515,6 +520,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private fun applyHeader(rel: RelationshipDto?, convs: List<ChatConversationDto>?, me: String?) {
         rel ?: return
         val other = rel.other(me)
+        otherVoiceGender = other?.voice_gender
         val tutorId = if (rel.requester_role == "tutor") rel.requester_id else rel.recipient_id
         _ui.update {
             it.copy(
@@ -628,7 +634,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         val fresh = list.filter { it.id !in before && it.sender_id != myId }
         if (fresh.isNotEmpty()) onIncomingWhileOpen(fresh.size)
         // Their clips (cache-first; the live socket prefetches too, this covers polling).
-        if (list.any { it.sender_id != myId && it.audio_clip != null }) listening.prefetch(_ui.value.messages)
+        if (fresh.isNotEmpty()) listening.prefetch(_ui.value.messages)
     }
 
     /** Re-reads the whole page (reactions, has_discussion changed on the server). */
@@ -1436,26 +1442,53 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
+    /**
+     * The voice + speed one message is read in (shared/chats/voice.ts via core ChatVoice): the
+     * sender's voice gender → the first voice of that gender in MY conversation voices; Claude's
+     * lines in a role-play chat keep the chat's persona voice. Never the legacy conversations.voice_id.
+     */
+    internal suspend fun readAloudVoice(m: ChatMessageDto): Pair<String, Double> {
+        val s = _ui.value
+        val c = s.conversation
+        return ChatReadAloud.voice(
+            app, senderIsMe = m.sender_id.isNotEmpty() && m.sender_id == s.myId, otherGender = otherVoiceGender,
+            fromAi = s.isAi && m.sender_id == CLAUDE_USER_ID, personaVoice = c?.voice_id, personaSpeed = c?.voice_speed,
+        )
+    }
+
+    /**
+     * Message menu → Read aloud: a cached clip for (text, voice, speed) plays at once, offline too;
+     * else it is made by `/api/practice/tts` and kept. Online failure → the server's own resolution
+     * (`/tts` with message_id); offline with nothing cached → the phone's zh-CN voice of that gender.
+     */
     fun play(m: ChatMessageDto) {
         if (_ui.value.playingId == m.id) { stopAudio(); return }
+        val text = m.content
+        if (text.isBlank()) return
         _ui.update { it.copy(playingId = m.id) }
         viewModelScope.launch {
-            try {
-                // A chat with a person: the message's own clip, the one listening mode plays (cache-first, offline too).
-                val clip = if (_ui.value.listeningAvailable) runCatching { ChatClips.of(app).file(m.id, m.audio_clip) }.getOrNull() else null
-                if (clip != null) { playFile(clip, m.id); return@launch }
-                val c = _ui.value.conversation
-                val r = api.conversationTts(convId, m.content, c?.voice_id, c?.voice_speed)
-                playBase64(r.audio_base64, m.id)
-            } catch (e: Exception) {
-                _ui.update { it.copy(playingId = null) }
-                error("Couldn't play that message.")
+            val (voice, speed) = readAloudVoice(m)
+            val online = app.online.value
+            // The same clip listening mode's tap plays (ChatReadAloud: one voice rule, one device cache).
+            val file = ChatClips.of(app).clip(text, voice, speed)
+            if (_ui.value.playingId != m.id) return@launch
+            if (file != null) { playFile(file, m.id); return@launch }
+            if (online) {
+                try {
+                    val r = api.conversationTts(convId, text, null, null, messageId = m.id)
+                    if (_ui.value.playingId == m.id) playBase64(r.audio_base64, m.id)
+                    return@launch
+                } catch (e: Exception) {
+                    // the phone's own voice below
+                }
+            }
+            deviceVoice.speak(text, dev.jeromeswannack.chineselearning.lab.core.ChatVoice.deviceGender(voice)) {
+                _ui.update { u -> if (u.playingId == m.id) u.copy(playingId = null) else u }
             }
         }
     }
 
     private suspend fun playBase64(base64: String, messageId: String) {
-        stopAudio()
         val file = withContext(Dispatchers.IO) {
             File(app.cacheDir, "chat-tts.mp3").apply { writeBytes(Base64.decode(base64, Base64.DEFAULT)) }
         }
@@ -1480,6 +1513,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     fun stopAudio() {
         listening.stop()
         progressJob?.cancel()
+        deviceVoice.stop()
         player?.runCatching { release() }
         player = null
         _ui.update { it.copy(playingId = null, voice = null) }
@@ -1982,6 +2016,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         stopAudio()
         recordJob?.cancel()
         recorder?.cancel()
+        deviceVoice.shutdown()
         super.onCleared()
     }
 
