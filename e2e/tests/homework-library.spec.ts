@@ -46,6 +46,8 @@ async function pair(request: APIRequestContext) {
 test('tutor sends link homework → student marks it done → the library shows Completed', async ({ page, request }) => {
   test.setTimeout(150_000);
   const { tutor, student, relId } = await pair(request);
+  // YouTube's thumbnail host may be unreachable in CI: serve a tiny image in its place.
+  await page.route('https://i.ytimg.com/**', (r) => r.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="9"/>' }));
 
   // ---- Tutor: Send homework → 🔗 A link → New link (saved in HER account) → Save & send
   await page.goto(`/connections/${relId}?session_token=${tutor.token}`);
