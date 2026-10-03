@@ -57,6 +57,8 @@ data class NoteDto(
     val alternatives: String? = null,
     val created_at: String? = null,
     val updated_at: String? = null,
+    /** The learner's "long-term review" choice (1 in, 0 out, null = follow the deck). */
+    val long_term: Int? = null,
     val cards: List<CardDto> = emptyList(),
 )
 

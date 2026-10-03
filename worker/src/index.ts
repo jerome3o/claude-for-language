@@ -1059,6 +1059,19 @@ app.put('/api/notes/:id', async (c) => {
   }
 });
 
+// "Add to my long-term review" from a homework pass: { long_term: true | false | null }.
+app.put('/api/notes/:id/long-term', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ long_term?: unknown }>().catch(() => ({} as { long_term?: unknown }));
+  try {
+    const row = await content.setNoteLongTerm(c.env, userId, c.req.param('id'), body.long_term === undefined ? null : body.long_term);
+    if (!row) return c.json({ error: 'Note not found' }, 404);
+    return c.json(row);
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
+  }
+});
+
 app.delete('/api/notes/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
@@ -5641,11 +5654,7 @@ app.get('/api/sync/changes', async (c) => {
   }
 
   // Get updated notes (across all user's decks)
-  const notesResult = await c.env.DB.prepare(`
-    SELECT n.* FROM notes n
-    JOIN decks d ON n.deck_id = d.id
-    WHERE d.user_id = ? AND n.updated_at >= ?
-  `).bind(userId, sinceDate).all();
+  const notesResult = await db.getNotesChangedSince(c.env.DB, userId, sinceDate);
   console.log('[API sync/changes] notes found:', notesResult.results?.length || 0);
   for (const note of (notesResult.results || []) as any[]) {
     console.log('[API sync/changes] note:', note.id, note.hanzi, 'deck_id:', note.deck_id, 'updated_at:', note.updated_at);

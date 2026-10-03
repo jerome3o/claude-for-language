@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.home
 
+import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -67,10 +68,11 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
         val cutoff = StudyQueue.cutoff(now, zone)
         val queueDecks = decks.map { it.toQueueDeck() }
         val today = LocalDate.now(zone).toString()
-        val all = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus("all", today), introduced, cutoff, null)
+        val longTerm = dao.noteLongTerm()
+        val all = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus("all", today), introduced, cutoff, null, longTerm = longTerm)
         val noteCounts = dao.noteCounts().associate { it.deckId to it.count }
         val summaries = decks.map { d ->
-            val q = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id)
+            val q = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm)
             DeckSummary(d.id, d.name, noteCounts[d.id] ?: 0, StudyQueue.counts(q.dueCards, q.reviewedNoteIds))
         }
         val snapshot = runCatching { todayData.snapshot(now, zone) }.getOrDefault(dev.jeromeswannack.chineselearning.lab.ui.today.TodaySnapshot.EMPTY)

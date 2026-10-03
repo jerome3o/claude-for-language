@@ -92,4 +92,45 @@ describe('selectStudyQueue', () => {
     const q = selectStudyQueue([deck('d', 1)], [card('x', 'n', 'gone', 2, NOW - DAY)], budget, 0, new Map(), CUTOFF);
     expect(q.due).toEqual([]);
   });
+
+  describe('long-term review choice (notes.long_term)', () => {
+    // A one-off-only homework copy (caps 0 + 0) above a normal deck.
+    const decks = [deck('oneoff', 9, 0, 0), deck('normal', 1)];
+    const cards = [
+      card('o1-h', 'o1', 'oneoff', 0), card('o1-m', 'o1', 'oneoff', 0, null, 'meaning_to_hanzi'),
+      card('o2-h', 'o2', 'oneoff', 0),
+      card('n1-h', 'n1', 'normal', 0), card('n2-h', 'n2', 'normal', 0), card('n3-h', 'n3', 'normal', 0),
+      // n4 already started: an opt-out no longer applies, its other cards keep flowing.
+      card('n4-h', 'n4', 'normal', 2, NOW + DAY), card('n4-m', 'n4', 'normal', 0, null, 'meaning_to_hanzi'),
+    ];
+
+    it('without choices a 0 + 0 deck introduces nothing and offers no "Study more"', () => {
+      const q = selectStudyQueue(decks, cards, budget, 0, new Map(), CUTOFF);
+      expect(q.due.map(c => c.id)).toEqual(['n1-h', 'n2-h', 'n3-h', 'n4-m']);
+      expect(q.allocation.get('oneoff')).toEqual({ primary: 0, secondary: 0 });
+      expect(q.hasMoreNew).toBe(false);
+    });
+
+    it('an opted-in word of a 0 + 0 deck is introduced first, at the default caps, in its queue position', () => {
+      const q = selectStudyQueue(decks, cards, budget, 0, new Map(), CUTOFF, null, null, new Map([['o1', 1 as const]]));
+      expect(q.due.map(c => c.id)).toEqual(['o1-h', 'o1-m', 'n1-h', 'n2-h', 'n3-h', 'n4-m']);
+      expect(q.pools.find(p => p.deckId === 'oneoff')).toMatchObject({ totalNew: 2, capPrimary: 3, capSecondary: 6 });
+      // o2 (no choice) stays out.
+      expect(q.due.some(c => c.note_id === 'o2')).toBe(false);
+    });
+
+    it('an opted-out word never enters the pool, not even with a bonus; a started one is unaffected', () => {
+      const lt = new Map([['n1', 0 as const], ['n4', 0 as const]]);
+      const q = selectStudyQueue(decks, cards, budget, 10, new Map(), CUTOFF, null, null, lt);
+      expect(q.due.map(c => c.id)).toEqual(['n2-h', 'n3-h', 'n4-m']);
+      expect(q.pools.find(p => p.deckId === 'normal')).toMatchObject({ totalNew: 2, totalSecondaryNew: 1 });
+      expect(q.hasMoreNew).toBe(false);
+    });
+
+    it('opted-in words still share the ONE budget', () => {
+      const tight = { new_cards_per_day: 1, secondary_cards_per_day: 0 };
+      const q = selectStudyQueue(decks, cards, tight, 0, new Map(), CUTOFF, null, null, new Map([['o1', 1 as const], ['o2', 1 as const]]));
+      expect(q.due.map(c => c.id)).toEqual(['o1-h']);
+    });
+  });
 });

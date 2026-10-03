@@ -28,6 +28,7 @@ import { syncRecordingNotes } from './recording-notes';
 import { syncTutorNotes } from './tutorNotes';
 import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
+import { applyPendingNotePrefs, uploadPendingNotePrefs } from './longTerm';
 import { syncPictureHunts } from './pictureHunts';
 import { closeOrphanPieces, drainCallUploads } from './calls/uploads';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
@@ -361,7 +362,7 @@ class SyncService {
     let insertedCardIds: string[] = [];
 
     // Sync data while preserving local card scheduling state
-    await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
+    await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.pendingNotePrefs], async () => {
       // Clear and replace decks and notes (their data comes from server)
       await db.decks.clear();
       await db.notes.clear();
@@ -372,6 +373,8 @@ class SyncService {
       const keptNotes = allNotes.filter(n => !wasRemovedLocally('note', n.id) && !wasRemovedLocally('deck', n.deck_id));
       await db.decks.bulkPut(keptDecks.map(d => deckToLocal(d)));
       await db.notes.bulkPut(keptNotes.map(n => noteToLocal(n)));
+      // Long-term choices not uploaded yet stay as chosen.
+      await applyPendingNotePrefs();
 
       // For cards: only INSERT new ones, preserve existing card scheduling state
       // Card scheduling is computed from local review events, not synced from server
@@ -517,6 +520,13 @@ class SyncService {
       console.error('[Sync] Homework sync failed:', err);
     }
     try {
+      // "Add to my long-term review" choices made offline (homework pass).
+      const prefs = await uploadPendingNotePrefs();
+      if (prefs.uploaded > 0) console.log('[Sync] Long-term choices sent:', prefs.uploaded);
+    } catch (err) {
+      console.error('[Sync] Long-term choice upload failed:', err);
+    }
+    try {
       // Cards flagged for the tutor while offline go up first, so a reply
       // can come back down with the notes below on a later sync.
       const flags = await uploadPendingCardFlags();
@@ -644,7 +654,7 @@ class SyncService {
       }
     }
 
-    await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
+    await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.pendingNotePrefs], async () => {
       if (changes.deleted.card_ids.length > 0) {
         await db.cards.bulkDelete(changes.deleted.card_ids);
       }
@@ -661,6 +671,7 @@ class SyncService {
       }
       if (changes.notes.length > 0) {
         await db.notes.bulkPut(changes.notes.map(n => noteToLocal(n)));
+        await applyPendingNotePrefs();
 
         // When notes are updated, their deck_id may have changed (e.g., moved between decks).
         // Update deck_id on local cards to match the note's current deck_id.
@@ -1041,7 +1052,7 @@ class SyncService {
         if (wasRemovedLocally('deck', deckId)) continue;
         const refetchedCardIds: string[] = [];
 
-        await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
+        await db.transaction('rw', [db.decks, db.notes, db.cards, db.pendingNotePrefs], async () => {
           await db.decks.put(deckToLocal(deck));
 
           for (const note of deck.notes) {
@@ -1058,6 +1069,7 @@ class SyncService {
               }
             }
           }
+          await applyPendingNotePrefs();
         });
 
         // A deck that was dropped and fetched again brings its cards back as

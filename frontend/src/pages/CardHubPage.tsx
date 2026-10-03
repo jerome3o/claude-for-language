@@ -15,6 +15,7 @@ import { relativeDay, shortDateTime, plural } from '../components/tutor/format';
 import { getOtherUserInRelationship, type CardType } from '../types';
 import type { NoteHub, NoteHubCard } from '../types/cardFlags';
 import '../components/cardFlags/cardFlags.css';
+import { NoteLongTermSwitch } from '../components/homework/LongTermSwitch';
 
 function queueLabel(card: NoteHubCard): string {
   if (card.queue === 0) return 'New';
@@ -84,6 +85,7 @@ export function CardHubPage() {
               </div>
             ))}
           </div>
+          {!tutorView && <div className="hub-longterm"><NoteLongTermSwitch noteId={hub.note.id} /></div>}
         </section>
 
         <section className="detail-section" id="flags">

@@ -96,4 +96,29 @@ class MigrationTest {
         }
         room.close()
     }
+
+    /** v3 adds notes.longTerm ("Add to my long-term review"): existing notes follow their deck (null). */
+    @Test fun v2ToV3AddsTheLongTermChoiceAndKeepsEverything() {
+        createFromExportedSchema(2).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt) VALUES ('d1', 'Lesson 8', NULL, 0, 0, 1, '2026-09-30 10:00:00')")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt) VALUES ('n1', 'd1', '刮风', 'guā fēng', 'windy', '2026-09-30 10:00:00')")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'hanzi_to_meaning', 0, 0, 0, 0, 0, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-09-30T08:00:00.000Z', 4200, NULL, 0)")
+            db.execSQL("INSERT INTO outbox (id, kind, method, path, bodyJson, createdAt, attempts, state) VALUES ('o1', 'card-flag', 'POST', '/api/card-flags', '{}', 1, 0, 'pending')")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            assertEquals(null, dao.notes(listOf("n1")).single().longTerm)
+            assertEquals(emptyMap<String, Int>(), dao.noteLongTerm())
+            dao.setNoteLongTerm("n1", 1)
+            assertEquals(mapOf("n1" to 1), dao.noteLongTerm())
+            assertEquals(1, room.platform().pendingOutboxCount())
+        }
+        room.close()
+    }
 }

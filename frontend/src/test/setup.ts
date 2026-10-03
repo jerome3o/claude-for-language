@@ -30,6 +30,7 @@ beforeEach(async () => {
   await db.tutorNotes.clear();
   await db.homeworkAssignments.clear();
   await db.homeworkEvents.clear();
+  await db.pendingNotePrefs.clear();
 });
 
 // Clean up after each test

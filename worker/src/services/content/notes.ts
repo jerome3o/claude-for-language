@@ -17,6 +17,7 @@ import {
 } from './audio';
 import type { Background, CreateNoteOptions, NoteInput, NotePatch } from './types';
 import { cardTextProblems } from '@shared/cards';
+import { toLongTermPref } from '@shared/decks/long-term';
 
 /**
  * Trim and check a note before it is stored: the required fields, then the
@@ -172,6 +173,24 @@ export async function updateNote(
     await later(ensureSentenceClueAudio(env, noteId, { force: clueChanged }).catch(() => false));
   }
   return note;
+}
+
+/**
+ * The learner's "Add to my long-term review" choice for one word (shared/decks/long-term.ts):
+ * true / 1 = opted in, false / 0 = opted out, null = follow the deck. Idempotent (a replay of
+ * the same choice is harmless). Throws ContentError on a value that is none of those.
+ */
+export async function setNoteLongTerm(
+  env: Env,
+  userId: string,
+  noteId: string,
+  value: unknown
+): Promise<{ id: string; long_term: 0 | 1 | null; long_term_at: string } | null> {
+  if (value !== null && value !== true && value !== false && value !== 0 && value !== 1) {
+    throw new ContentError('long_term must be true, false or null');
+  }
+  const pref = toLongTermPref(value);
+  return db.setNoteLongTerm(env.DB, userId, noteId, pref);
 }
 
 /** Delete a note the user owns: row + cards, tombstone, and clips nothing else uses. */

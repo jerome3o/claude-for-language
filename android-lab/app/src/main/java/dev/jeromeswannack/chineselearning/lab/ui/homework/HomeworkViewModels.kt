@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.flow
 import dev.jeromeswannack.chineselearning.lab.data.api.DeckCapsBody
 import dev.jeromeswannack.chineselearning.lab.data.api.setDeckCaps
 import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkStore
+import dev.jeromeswannack.chineselearning.lab.data.homework.LongTermStore
+import dev.jeromeswannack.chineselearning.lab.core.LongTerm
+import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.ui.study.sentenceRows
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +62,8 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
 
     private val local = MutableStateFlow(Local())
     private val notes = MutableStateFlow<Map<String, PassNote>?>(null)
+    /** The deck copy's own long-term default (null until read): false for a 0 + 0 one-off copy. */
+    @Volatile private var deckInReview: Boolean? = null
     private val runtime by lazy { LessonRuntime.of(app) }
     private val targets: Flow<Targets?> = flow { emit(null); emitAll(combine(runtime.store.observe(), runtime.readers.observe()) { l, r -> Targets(l.associateBy { it.id }, r.associateBy { it.id }) }) }
     private var celebrated = false
@@ -83,6 +88,10 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             addState = l.add,
             online = online,
             busy = l.busy,
+            deckInReview = deckInReview ?: Homework.hasFsrs(a.mode),
+            longTermSummary = notes?.let { n ->
+                LongTerm.summary(Homework.passItemIds(a).map { id -> LongTerm.Word(n[id]?.longTerm, n[id]?.started == true) }, deckInReview ?: Homework.hasFsrs(a.mode))
+            },
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, PassUi.Loading)
 
@@ -92,10 +101,15 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
                 if (a == null || a.kind != "deck") return@collect
                 val ids = Homework.passItemIds(a)
                 notes.value = withContext(Dispatchers.IO) {
-                    app.repo.dao.notes(ids).associate { n ->
+                    val dao = app.repo.dao
+                    deckInReview = dao.decks().firstOrNull { it.id == a.target_id }?.let { d ->
+                        LongTerm.deckInDailyReview(d.newCardsPerDay, d.secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP)
+                    }
+                    val started = ids.chunked(500).flatMap { dao.startedNoteIds(it) }.toHashSet()
+                    dao.notes(ids).associate { n ->
                         // The study card's rows: the card's own sentence, then the generated set.
-                        val rows = sentenceRows(n, app.repo.dao.sentencesFor(n.id))
-                        n.id to PassNote(n.id, n.hanzi, n.pinyin, n.english, n.audioUrl, rows, n.deckId)
+                        val rows = sentenceRows(n, dao.sentencesFor(n.id))
+                        n.id to PassNote(n.id, n.hanzi, n.pinyin, n.english, n.audioUrl, rows, n.deckId, n.longTerm, n.id in started)
                     }
                 }
             }
@@ -182,6 +196,22 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
                 local.value = local.value.copy(busy = false, revealedFor = null)
             }
         }
+    }
+
+    /**
+     * The answer side's "Add to my long-term review" switch: stored on the note at once (the queue
+     * follows, offline too) and sent through the Outbox (LongTermStore). Back to the deck's own
+     * default stores null.
+     */
+    fun setLongTerm(on: Boolean) {
+        val d = current() ?: return
+        val note = d.note ?: return
+        if (note.started) return
+        app.haptics.tick()
+        val pref = LongTerm.prefForToggle(on, d.deckInReview)
+        // Optimistic: the switch moves now; the reload after notifyLocalChange confirms it.
+        notes.value = notes.value?.let { m -> m + (note.id to note.copy(longTerm = pref)) }
+        viewModelScope.launch { runCatching { LongTermStore.set(app, note.id, pref) } }
     }
 
     /** One-off-only deck: caps back to the new-deck defaults (3 + 6) so the daily budget introduces it. */

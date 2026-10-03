@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.decks
 
+import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -224,7 +225,7 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
         val introduced = StudyQueue.introducedToday(queueCards, first, StudyQueue.startOfDay(now, zone))
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
-        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, env.budget(), env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId)
+        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, env.budget(), env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId, longTerm = dao.noteLongTerm())
 
         return DeckUi(
             loaded = true,

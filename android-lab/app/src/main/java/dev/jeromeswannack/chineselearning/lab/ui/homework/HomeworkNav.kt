@@ -39,6 +39,7 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
                 onAnswer = vm::answer,
                 onPlay = vm::play,
                 onAddToDaily = vm::addToDaily,
+                onLongTerm = vm::setLongTerm,
                 onRetrySync = vm::retrySync,
                 onAllHomework = { nav.open(Routes.homework()) },
                 onLessonComplete = vm::completeLesson,
