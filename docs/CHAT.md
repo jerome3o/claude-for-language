@@ -260,3 +260,72 @@ ALTER TABLE users ADD COLUMN email_chat_messages INTEGER NOT NULL DEFAULT 1;  --
   → `{ email_chat_messages }` with `Accept: application/json`, else the page. 400 bad token, 404 unknown account.
 - Signed in: `PUT /api/profile/email-prefs { email_chat_messages: boolean }`; the value is on `/api/auth/me`.
   Web: Settings → Notifications → **Chat e-mails** checkbox. Lab: Settings → **Chat e-mails** toggle (cached on the device).
+
+---
+
+# Round 2 — a normal chat app, with the learning tools in the long-press menu
+
+Jerome: "Make it look like a normal chat app like Signal, but when you long-press a message you get all the tools."
+The bubbles carry **no buttons**; every tool is in the message menu. Same rules in both apps.
+
+## Look (Signal-like)
+- **Bubbles**: mine on the right in the accent blue (`#2c6bed` light / `#3b7bf0` dark) with white text; theirs on the left
+  in a neutral grey (`#e9e9eb` light / `#2b2b2e` dark), no border. 18 dp radius; inside a group the corners facing the
+  neighbouring bubbles are 4 dp (Signal's stacked look); max width ~78 % (480 dp / px unfolded).
+- **Groups** (`layoutBubbles`, `shared/chats/bubbles.ts`, Lab `ChatBubbles.kt` parity-tested): consecutive messages
+  from one person within 3 min on the same local day. 2 dp between bubbles in a group, 10 dp between groups.
+- **Time + ticks** sit INSIDE the last bubble of a group, bottom-right, small and translucent (`9:41 ✓✓`); a tap on any
+  other bubble shows its time the same way (toggle). Ticks only on my messages: 🕓 pending, ✓ sent, ✓✓ read
+  (`read_state.other >= created_at`), a red "!" + "Not sent · Tap to retry" under a failed one. "edited", 📌 sit with the time.
+- **Day separators**: a centred pill "Today" / "Yesterday" / "Mon 28 Sep" (not sticky).
+- **Avatars**: none in a 1:1 chat (the header says who it is). The Claude practice chat keeps none either.
+- **Reactions**: a small pill overlapping the bubble's bottom edge (`❤️ 2`), tap = toggle mine.
+- **Reply quote** inside the bubble on top: a 3 dp bar + the name + one line (photo / voice: "📷 Photo" / "🎤 Voice message"); tap jumps.
+- **Pinyin / translation** once toggled from the menu: pinyin over the words (chips) and the translation as a muted line
+  inside the bubble under a hairline. Tapping a Chinese word still opens the word sheet (#493).
+- **Link preview** (`firstLink(text)`): a card under the text inside the bubble — image (if any) on top, site name,
+  title, 2-line description; tap opens the link. `GET /api/link-preview?url=` → `{ url, title, description, image, site_name }`
+  (worker fetches the page — http(s) only, public hosts only, ≤ 512 KB, 5 s, Open Graph / Twitter / <title>; cached a day;
+  404 when nothing usable). Clients cache previews per URL (web localStorage LRU 200; Lab JsonCache `chat/link/<hash>`).
+- **Header**: ← · name (+ "typing…" / title) · 📹 call · ⋯ (search, make flashcards, pinyin for all, translations for
+  all, rename, new conversation, …). No "+ Cards" button any more (it is in ⋯ and in the message menu).
+- **Jump to latest**: the round ↓ button bottom-right while scrolled up, with the "N new" badge.
+
+## Message menu (`messageMenu`, `shared/chats/messageMenu.ts`; Lab `MessageMenu.kt` parity-tested)
+- Phone: **long-press** (450 ms, haptic) → the bubble lifts (the rest dims) with the **reaction bar** (👍 ❤️ 😂 😮 😢 🙏 +)
+  above it and the action list below (a bottom sheet on narrow screens). Web desktop: **right-click** opens it as a popover
+  at the pointer; **hovering** a bubble shows a small 😊 (react) and ⋯ (menu) beside it.
+- Items, in order (the function decides which apply): **Reply · Copy · Translate / Hide translation · Pinyin / Hide pinyin ·
+  Explain · Save as flashcard · Make flashcards from selection · Check my Chinese (my own, learner) · Correct / Edit
+  correction · Remove correction (tutor, on the student's text) · Make a card from the correction · Read aloud ·
+  Word by word (Claude practice chat) · Discuss with Claude · Pin / Unpin · Edit / Edit caption · Delete · Select**.
+  Items needing the network are disabled offline ("Needs internet").
+- **Explain** → a sheet with the sentence, its translation and `SentenceWordBreakdown` (web) / `SentenceBreakdown` (Lab):
+  one word per row (tap → add that word as a card) + "+ Add whole sentence as card". Data = `POST /api/sentences/explain-text`
+  (cached on the device by text like the Coach's Explain).
+- **Save as flashcard** → the whole message as ONE card: the Explain breakdown made into a sentence card with
+  `breakdownSentenceCard` (fun_facts glossing every word = CARD_STANDARD for a sentence), opened in the add-card sheet
+  (deck picker, duplicate warning) → `POST /api/decks/:id/notes` (content service).
+- **Make flashcards from selection** / **Select** → selection mode with this message ticked; the bar at the bottom:
+  "N selected" · Copy · Make flashcards (→ the existing review sheet, `…/flashcards/propose`).
+- **Swipe right** on a bubble (touch) → reply (the bubble follows the finger up to 72 dp, a ↩ fades in, haptic at the
+  threshold 56 dp).
+
+## Composer (one row)
+`[ + ]  [ 😊  Message…            ✓ ]  [ 🎤 | ➤ ]`
+- **+** opens the attach sheet: 📷 Camera · 🖼 Photo · 💡 Help me say it (+ later: 📄 File).
+- **😊** inside the field: the emoji panel (recent + all) inserting at the caret.
+- **✓** inside the field (learner, the draft has Chinese): Check my Chinese before sending (#493's panel).
+- **🎤 → ➤**: the mic becomes Send as soon as there is text. **Hold** the mic to record (timer + red dot + level);
+  release = send; **slide left** ≥ 100 dp = cancel ("‹ Slide to cancel"); **slide up** ≥ 80 dp = lock (hands-free, then
+  ■ stop → preview / ➤ send / 🗑). A quick tap shows "Hold to record" and starts nothing.
+
+## Voice bubble
+▶/⏸, a real waveform (peaks of the decoded clip, 40 bars, cached per message; seeded bars until decoded), the elapsed /
+total time, and a **speed chip 1× → 1.5× → 2×** (remembered on the device). Transcript + pinyin / translation as in #491/#493.
+
+## Notes from the Lab app (round 2)
+- A long press on a word chip (or on a voice transcript) opens the same menu as the bubble — otherwise a long press on
+  Chinese text would only ever hit a chip.
+- "A quick tap" on the mic = released within 250 ms; the menu is a bottom sheet at every width (the message is shown
+  lifted inside it); the voice transcript stays a card under the bubble.

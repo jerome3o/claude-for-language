@@ -121,7 +121,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onRequestWords = vm::requestWords,
             onChip = vm::openChip,
             onTogglePinyin = vm::togglePinyin,
-            onStartSelecting = vm::startSelecting,
+            onStartSelecting = { vm.startSelecting() },
             onCancelSelecting = vm::cancelSelecting,
             onToggleSelect = vm::toggleSelect,
             onSelectToday = vm::selectToday,
@@ -132,6 +132,15 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onUseCheck = vm::useCheck,
             onSendAsIs = vm::sendAsIs,
             onDismissCheck = vm::dismissCheck,
+            onRecordSendNow = vm::sendRecordingNow,
+            onToggleTime = vm::toggleTime,
+            onVideoCall = { vm.videoCall { id -> nav.open(Routes.call(id)) } },
+            onOpenLink = { url -> runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } },
+            onRequestLinkPreview = vm::requestLinkPreview,
+            loadLinkImage = vm::linkImage,
+            onRequestWaveform = vm::requestWaveform,
+            onCycleSpeed = vm::cycleSpeed,
+            onCopySelection = vm::copySelection,
         ),
         callBanner = call?.let { b ->
             {
@@ -145,7 +154,6 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             ui,
             ChatSheetActions(
                 onDismiss = { vm.openSheet(null) },
-                onTool = vm::onTool,
                 onReact = vm::react,
                 onSaveCards = { cards, deck, new -> vm.saveCards(cards, deck, new) },
                 onTogglePin = vm::togglePin,
@@ -178,7 +186,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 loadLocalImage = vm::localImage,
                 wordActions = wordActions,
                 onWordAdded = vm::wordAdded,
-                onMakeFlashcards = vm::startSelecting,
+                onMakeFlashcards = { vm.startSelecting() },
                 onPinyinAll = vm::setPinyinAll,
                 onTranslationAll = vm::setTranslationAll,
                 review = ReviewActions(
@@ -192,6 +200,12 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 ),
                 onSaveCorrection = vm::saveCorrection,
                 onRemoveCorrection = vm::removeCorrection,
+                onMenuAction = vm::onMenuAction,
+                cards = rememberChatCardActions(nav.app),
+                onRetryExplain = vm::retryExplain,
+                onCloseExplain = vm::closeExplain,
+                onOpenSearch = vm::openSearch,
+                onOpenHelp = { vm.openSheet(ChatSheet.HelpMeSayIt) },
             ),
         )
     }
@@ -221,4 +235,24 @@ private fun rememberChatWordActions(app: dev.jeromeswannack.chineselearning.lab.
             add = { deckId, word, ex -> tools.addNote(deckId, dev.jeromeswannack.chineselearning.lab.ui.readers.readerWordNote(word, ex)) },
         )
     }
+}
+
+/**
+ * Explain / Save as flashcard add cards like the Coach's Explain: the same AddChunkSheet calls
+ * (deck chips, duplicate warning, `POST /api/decks/:id/notes`).
+ */
+@Composable
+private fun rememberChatCardActions(app: dev.jeromeswannack.chineselearning.lab.LabApp): dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions = remember(app) {
+    val tools = dev.jeromeswannack.chineselearning.lab.ui.study.CardTools(app)
+    dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions(
+        decks = {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val pinned = app.cache.get<List<String>>(ChatViewModel.PINNED_KEY).orEmpty()
+                app.repo.dao.decks().sortedWith(compareByDescending<dev.jeromeswannack.chineselearning.lab.data.DeckEntity> { it.id in pinned }.thenByDescending { it.studyPriority }.thenByDescending { it.createdAt })
+                    .map { it.id to it.name }
+            }
+        },
+        deckHas = tools::deckHas,
+        addCard = { deckId, c -> tools.addNote(deckId, dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody(c.hanzi, c.pinyin, c.english, c.funFacts)) },
+    )
 }

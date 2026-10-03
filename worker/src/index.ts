@@ -83,6 +83,7 @@ import callsRoutes, { mountCallSocket } from './routes/calls';
 import boardPagesRoutes from './routes/board-pages';
 import pushRoutes from './routes/push';
 import { emailPublic, emailPrefs } from './routes/email-prefs';
+import linkPreview from './routes/link-preview';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
 import chatMessagesRoutes from './routes/chat-messages';
 import chatLearningRoutes from './routes/chat-learning';
@@ -506,6 +507,7 @@ app.route('/api', boardPagesRoutes);
 // Web Push subscriptions + the call-alerts setting (routes/push.ts).
 app.route('/api', pushRoutes);
 app.route('/api', emailPrefs);
+app.route('/api', linkPreview);
 // Chat: messages, read markers, inbox, native push tokens, live ticket (docs/CHAT.md)
 app.route('/api', chatLiveRoutes);
 // Rich messages: photo / voice upload + serving, edit, delete, pin, reactions (docs/CHAT.md PR 2)

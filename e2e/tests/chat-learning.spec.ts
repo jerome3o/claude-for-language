@@ -126,17 +126,20 @@ test('word chips from words, the word sheet, and the 拼 / EN toggles', async ({
   await page.mouse.click(5, 5);
   await expect(sheet).toHaveCount(0);
 
-  // 拼: pinyin over each word; EN: the translation (fetched once).
-  await bubble.getByRole('button', { name: 'Show pinyin' }).click();
+  // Menu → Pinyin: pinyin over each word; Translate: the translation (fetched once).
+  await bubble.getByRole('button', { name: 'More actions' }).click();
+  await page.locator('[data-tool="pinyin"]').click();
   await expect(bubble.locator('rt').first()).toHaveText('wǒmen');
-  await bubble.getByRole('button', { name: 'Show translation' }).click();
+  await bubble.getByRole('button', { name: 'More actions' }).click();
+  await page.locator('[data-tool="translate"]').click();
   await expect(bubble.getByTestId('chat-translation')).toHaveText("Let's go to the shop tomorrow!");
 
   // Remembered per conversation on the device.
   await page.reload();
   const again = page.locator(`[data-msg-id="${m.id}"]`);
-  await expect(again.getByRole('button', { name: 'Hide pinyin' })).toBeVisible({ timeout: 20000 });
-  await expect(again.locator('rt').first()).toHaveText('wǒmen');
+  await expect(again.locator('rt').first()).toHaveText('wǒmen', { timeout: 20000 });
+  await again.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.locator('[data-tool="pinyin"]')).toHaveText('拼Hide pinyin');
 
   await page.context().close();
 });
@@ -179,11 +182,12 @@ test('make flashcards: pick messages → review → one batch add', async ({ bro
   });
 
   await expect(page.getByText('你周末打算做什么？')).toBeVisible({ timeout: 20000 });
-  await page.getByRole('button', { name: '+ Cards' }).click();
+  await page.getByRole('button', { name: 'Conversation menu' }).click();
+  await page.getByRole('menuitem', { name: /Make flashcards/ }).click();
   await expect(page.getByTestId('chat-select-bar')).toBeVisible();
   await page.getByTestId('chat-message').filter({ hasText: '你周末打算做什么？' }).click();
   await expect(page.getByText('1 selected')).toBeVisible();
-  await page.getByRole('button', { name: 'Make cards' }).click();
+  await page.getByRole('button', { name: 'Make flashcards' }).click();
 
   const review = page.getByRole('dialog', { name: 'Make flashcards' });
   await expect(review.getByTestId('chat-card-item')).toHaveCount(2, { timeout: 10000 });

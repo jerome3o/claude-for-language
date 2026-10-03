@@ -124,9 +124,12 @@ class ChatRichTest {
         assertEquals("3", ChatRich.firstUnreadId(msgs, "me", "2026-10-02T10:00:00.000Z"))
         assertNull(ChatRich.firstUnreadId(msgs, "me", "2026-10-02T10:03:00.000Z"))
         assertEquals("1", ChatRich.firstUnreadId(msgs, "me", null))
-        val rows = ChatRows.build(msgs, listOf(PendingBubble("p", "text", "hi", 1)), "3", "2" to ChatRich.Receipt.SEEN, LocalDate.of(2026, 10, 2), ZoneOffset.UTC)
+        val now = java.time.Instant.parse("2026-10-02T12:00:00Z").toEpochMilli()
+        val rows = ChatRows.build(msgs, listOf(PendingBubble("p", "text", "hi", now)), "3", "me", "2026-10-02T10:01:00.000Z", now, 0)
         assertEquals(listOf("d-1", "1", "2", "unread", "3", "4", "p-p"), rows.map { it.key })
-        assertEquals(ChatRich.Receipt.SEEN, (rows[2] as ChatRow.Msg).receipt)
+        assertEquals("Today", (rows[0] as ChatRow.Day).label)
+        assertEquals(dev.jeromeswannack.chineselearning.lab.core.ChatBubbles.Tick.READ, (rows[2] as ChatRow.Msg).layout.tick)
+        assertEquals(dev.jeromeswannack.chineselearning.lab.core.ChatBubbles.Tick.PENDING, (rows.last() as ChatRow.Pending).layout.tick)
     }
 
     @Test
