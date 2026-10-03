@@ -4,6 +4,11 @@ import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d
 import { type ServerMessage } from '@shared/calls';
 import { findActivity, type DescribeSpec } from '@shared/call-activities';
 
+// Node 20 (CI) has no global WebSocket; the room only reads WebSocket.OPEN.
+if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === 'undefined') {
+  (globalThis as { WebSocket?: unknown }).WebSocket = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
+}
+
 const TUTOR = 'tutor-1';
 const STUDENT = 'student-1';
 const clone = <T,>(v: T): T => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
