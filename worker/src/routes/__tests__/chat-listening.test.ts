@@ -102,100 +102,71 @@ describe('listening mode', () => {
   });
 });
 
-// ---------- Pre-generated read-aloud clips ----------
+// ---------- Pre-generated read-aloud clips (on the one chat TTS path) ----------
 
-import { ensureMessageClip, messageClipKey, messageVoice, pregenerateMessageClip, type MessageTts } from '../../services/chat/message-audio';
-
-function fakeBucket() {
-  const store = new Map<string, { bytes: Uint8Array; contentType?: string }>();
-  return {
-    store,
-    bucket: {
-      head: async (key: string) => (store.has(key) ? {} : null),
-      put: async (key: string, value: Uint8Array, opts?: { httpMetadata?: { contentType?: string } }) => {
-        store.set(key, { bytes: new Uint8Array(value), contentType: opts?.httpMetadata?.contentType });
-        return {};
-      },
-      get: async (key: string) => {
-        const o = store.get(key);
-        return o ? { body: o.bytes, httpMetadata: { contentType: o.contentType } } : null;
-      },
-    },
-  };
-}
+import { chatClipsFor, pregenerateMessageClip, readAloudFor } from '../../services/chat/message-audio';
+import { chatReadAloudVoice, CHAT_READ_ALOUD_SPEED } from '@shared/chats/voice';
+import { ttsCacheKey } from '../../services/tts-cache';
 
 describe('message clips', () => {
   let db: SqliteD1;
-  let r2: ReturnType<typeof fakeBucket>;
-  let tts: ReturnType<typeof vi.fn> & MessageTts;
-  const env = () => ({ DB: db, AUDIO_BUCKET: r2.bucket } as unknown as Env);
-  const insert = (id: string, content: string, conv = 'conv-1') =>
-    db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, '2026-10-02T09:00:00.000Z')", [id, conv, TUTOR, content]);
+  let make: ReturnType<typeof vi.fn>;
+  const env = () => ({ DB: db } as unknown as Env);
+  const insert = (id: string, content: string, sender = TUTOR, conv = 'conv-1', at = '2026-10-02T09:00:00.000Z', extra = '') =>
+    db.raw.run(`INSERT INTO messages (id, conversation_id, sender_id, content, created_at${extra ? ', attachment' : ''}) VALUES (?, ?, ?, ?, ?${extra ? ', ?' : ''})`,
+      extra ? [id, conv, sender, content, at, extra] : [id, conv, sender, content, at]);
 
   beforeEach(async () => {
     db = await createSqliteD1();
     seed(db);
+    db.raw.run("UPDATE users SET voice_gender = 'female' WHERE id = ?", [TUTOR]);
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-ai', ?, 'claude-ai', 'student', 'active')", [STUDENT]);
     db.raw.run("INSERT INTO conversations (id, relationship_id, is_ai_conversation) VALUES ('conv-ai', 'rel-ai', 1)");
-    r2 = fakeBucket();
-    tts = vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), contentType: 'audio/mpeg' })) as never;
+    make = vi.fn(async () => null);
   });
 
-  it('a Chinese text message gets one clip, stored in R2 and on the row; an edit makes a new one', async () => {
-    insert('m-1', '明天见');
-    await pregenerateMessageClip(env(), { id: 'm-1', conversation_id: 'conv-1', content: '明天见' }, tts);
-    const [{ audio_key }] = db.rows<{ audio_key: string }>("SELECT audio_key FROM messages WHERE id = 'm-1'");
-    expect(audio_key).toMatch(/^chat-tts\/conv-1\/m-1-[0-9a-f]{16}\.mp3$/);
-    expect(r2.store.get(audio_key)?.contentType).toBe('audio/mpeg');
-    expect(tts).toHaveBeenCalledWith(expect.anything(), '明天见', { voiceId: expect.any(String), speed: expect.any(Number) });
-
-    // Again: already there, no second TTS call.
-    expect(await ensureMessageClip(env(), { id: 'm-1', conversation_id: 'conv-1', content: '明天见' }, tts)).toBe(audio_key);
-    expect(tts).toHaveBeenCalledTimes(1);
-
-    // Edited text → a different key.
-    db.raw.run("UPDATE messages SET content = '后天见' WHERE id = 'm-1'");
-    await pregenerateMessageClip(env(), { id: 'm-1', conversation_id: 'conv-1', content: '后天见' }, tts);
-    const [{ audio_key: edited }] = db.rows<{ audio_key: string }>("SELECT audio_key FROM messages WHERE id = 'm-1'");
-    expect(edited).not.toBe(audio_key);
-    expect(tts).toHaveBeenCalledTimes(2);
+  it('warms the shared TTS cache in the voice the listener hears (sender gender × listener voices)', async () => {
+    await pregenerateMessageClip(env(), { id: 'm-1', conversation_id: 'conv-1', sender_id: TUTOR, content: '明天见' }, make as never);
+    const expected = { voiceId: chatReadAloudVoice({ senderGender: 'female', enabled: null }), speed: CHAT_READ_ALOUD_SPEED };
+    expect(make).toHaveBeenCalledWith(expect.anything(), '明天见', expected);
+    expect(readAloudFor('female', null)).toEqual(expected);
+    // The cache key is the read-aloud one: same text + voice + speed → same clip for Read aloud and the tap.
+    expect(await ttsCacheKey('明天见', expected.voiceId, expected.speed)).toMatch(/^tts-cache\/v1\//);
   });
 
   it('skips English, photos, deleted messages, Claude chats; a failing TTS never throws', async () => {
-    await pregenerateMessageClip(env(), { id: 'x', conversation_id: 'conv-1', content: 'see you' }, tts);
-    await pregenerateMessageClip(env(), { id: 'x', conversation_id: 'conv-1', content: '看', attachment: { kind: 'image' } }, tts);
-    await pregenerateMessageClip(env(), { id: 'x', conversation_id: 'conv-1', content: '看', deleted_at: 'now' }, tts);
-    await pregenerateMessageClip(env(), { id: 'x', conversation_id: 'conv-ai', content: '欢迎' }, tts);
-    expect(tts).not.toHaveBeenCalled();
-    const failing = vi.fn(async () => { throw new Error('MiniMax down'); }) as never;
-    await expect(pregenerateMessageClip(env(), { id: 'm-2', conversation_id: 'conv-1', content: '你好' }, failing)).resolves.toBeUndefined();
+    const base = { id: 'x', conversation_id: 'conv-1', sender_id: TUTOR };
+    await pregenerateMessageClip(env(), { ...base, content: 'see you' }, make as never);
+    await pregenerateMessageClip(env(), { ...base, content: '看', attachment: { kind: 'image' } }, make as never);
+    await pregenerateMessageClip(env(), { ...base, content: '看', deleted_at: 'now' }, make as never);
+    await pregenerateMessageClip(env(), { ...base, conversation_id: 'conv-ai', sender_id: STUDENT, content: '欢迎' }, make as never);
+    expect(make).not.toHaveBeenCalled();
+    const failing = vi.fn(async () => { throw new Error('MiniMax down'); });
+    await expect(pregenerateMessageClip(env(), { ...base, content: '你好' }, failing as never)).resolves.toBeUndefined();
   });
 
-  it('GET /api/messages/:id/audio serves the clip to members only', async () => {
-    insert('m-3', '你好');
-    const key = await messageClipKey({ id: 'm-3', conversation_id: 'conv-1', content: '你好' }, await messageVoice(env(), 'conv-1'));
-    await r2.bucket.put(key, new Uint8Array([9, 9]), { httpMetadata: { contentType: 'audio/mpeg' } });
-    const app = (userId: string) => {
-      const a = new Hono<{ Bindings: Env }>();
-      a.use('/api/*', async (c, next) => {
-        c.set('user', { id: userId } as never);
-        await next();
-      });
-      a.route('/api', chatListening);
-      return a;
-    };
-    const res = await app(STUDENT).request('/api/messages/m-3/audio', {}, env());
-    expect(res.status).toBe(200);
-    expect(res.headers.get('Content-Type')).toBe('audio/mpeg');
-    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([9, 9]));
-    expect(db.rows("SELECT audio_key FROM messages WHERE id = 'm-3'")).toEqual([{ audio_key: key }]);
-    expect((await app('stranger').request('/api/messages/m-3/audio', {}, env())).status).toBe(403);
-    expect(res.headers.get('X-Clip-Id')).toMatch(/^m-3-[0-9a-f]{16}$/);
+  it('GET /api/me/chat-clips lists the other person’s newest Chinese text messages with my voice', async () => {
+    insert('a', '你好', TUTOR, 'conv-1', '2026-10-02T09:00:00.000Z');
+    insert('b', 'hello', TUTOR, 'conv-1', '2026-10-02T09:01:00.000Z');
+    insert('c', '我很好', STUDENT, 'conv-1', '2026-10-02T09:02:00.000Z');
+    insert('d', '看', TUTOR, 'conv-1', '2026-10-02T09:03:00.000Z', JSON.stringify({ kind: 'image', key: 'k', bytes: 1, mime: 'image/jpeg' }));
+    insert('e', '明天见', TUTOR, 'conv-2', '2026-10-02T09:04:00.000Z');
+    const clips = await chatClipsFor(env(), STUDENT);
+    const voice = chatReadAloudVoice({ senderGender: 'female', enabled: null });
+    expect(clips.sort((x, y) => x.message_id.localeCompare(y.message_id))).toEqual([
+      { message_id: 'a', conversation_id: 'conv-1', text: '你好', voice_id: voice, speed: CHAT_READ_ALOUD_SPEED },
+      { message_id: 'e', conversation_id: 'conv-2', text: '明天见', voice_id: voice, speed: CHAT_READ_ALOUD_SPEED },
+    ]);
+    expect((await chatClipsFor(env(), STUDENT, 1)).length).toBe(2);
+    expect(await chatClipsFor(env(), 'stranger')).toEqual([]);
 
-    // The background-prefetch list: the other person's ready clips only.
-    const clips = (await (await app(STUDENT).request('/api/me/chat-clips', {}, env())).json()) as { clips: unknown[] };
-    expect(clips.clips).toEqual([{ message_id: 'm-3', conversation_id: 'conv-1', clip: res.headers.get('X-Clip-Id') }]);
-    expect(((await (await app(TUTOR).request('/api/me/chat-clips', {}, env())).json()) as { clips: unknown[] }).clips).toEqual([]);
-    expect((await app(STUDENT).request('/api/messages/nope/audio', {}, env())).status).toBe(404);
+    const app = new Hono<{ Bindings: Env }>();
+    app.use('/api/*', async (c, next) => {
+      c.set('user', { id: TUTOR } as never);
+      await next();
+    });
+    app.route('/api', chatListening);
+    const res = await app.request('/api/me/chat-clips', {}, env());
+    expect(((await res.json()) as { clips: Array<{ message_id: string }> }).clips.map((c) => c.message_id)).toEqual(['c']);
   });
 });

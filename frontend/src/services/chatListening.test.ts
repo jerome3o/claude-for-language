@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
-  fetchMessageAudio: vi.fn(),
   getChatClips: vi.fn(),
   getChatListening: vi.fn(),
   putChatListeningDefault: vi.fn(),
@@ -10,14 +9,16 @@ const api = vi.hoisted(() => ({
 const cache = vi.hoisted(() => ({ store: new Map<string, Blob>() }));
 
 vi.mock('../api/chat', () => api);
+const tts = vi.hoisted(() => ({ getTTSWithCache: vi.fn() }));
 vi.mock('./audioCache', () => ({
-  cacheAudio: vi.fn(async (k: string, b: Blob) => void cache.store.set(k, b)),
-  getCachedAudio: vi.fn(async (k: string) => cache.store.get(k) ?? null),
   isAudioCached: vi.fn(async (k: string) => cache.store.has(k)),
+}));
+vi.mock('./ttsCache', () => ({
+  getTTSWithCache: tts.getTTSWithCache,
+  ttsCacheKey: (text: string, speed: number, voice: string) => `tts/${text}|${voice}|${speed}`,
 }));
 
 import {
-  clipCacheKey,
   getMessageClip,
   listeningFor,
   loadRevealed,
@@ -37,6 +38,7 @@ beforeEach(() => {
   resetChatListeningForTests();
   cache.store.clear();
   for (const f of Object.values(api)) f.mockReset();
+  tts.getTTSWithCache.mockReset();
 });
 
 describe('the setting on this device', () => {
@@ -79,40 +81,42 @@ describe('revealed messages', () => {
   });
 });
 
-describe('clips', () => {
-  it('plays from the cache, else fetches once and caches under the clip id', async () => {
-    api.fetchMessageAudio.mockResolvedValue({ blob: blob('a'), clip: 'm1-abc' });
-    const first = await getMessageClip({ id: 'm1', audio_clip: null }, true);
-    expect(first).toBeTruthy();
-    expect(cache.store.has(clipCacheKey('m1-abc'))).toBe(true);
-    // Known clip → cache, no network.
-    await getMessageClip({ id: 'm1', audio_clip: 'm1-abc' }, true);
-    expect(api.fetchMessageAudio).toHaveBeenCalledTimes(1);
-    // Offline and never downloaded → null.
-    expect(await getMessageClip({ id: 'm9', audio_clip: 'm9-x' }, false)).toBeNull();
+describe('clips (the Read-aloud path)', () => {
+  const V = { voice: 'Chinese (Mandarin)_Radio_Host', speed: 0.6 };
+
+  it('plays the Read-aloud clip for the text in that voice', async () => {
+    tts.getTTSWithCache.mockResolvedValue(blob('a'));
+    expect(await getMessageClip('你好', V)).toBeTruthy();
+    expect(tts.getTTSWithCache).toHaveBeenCalledWith('你好', 0.6, V.voice);
   });
 
-  it('prefetches the other person’s ready Chinese clips only', async () => {
-    api.fetchMessageAudio.mockImplementation(async (id: string) => ({ blob: blob(id), clip: `${id}-h` }));
+  it('prefetches the other person’s Chinese text messages that are not cached yet', async () => {
+    tts.getTTSWithCache.mockImplementation(async (t: string) => blob(t));
+    cache.store.set(`tts/明天|${V.voice}|0.6`, blob('x'));
     const at = '2026-10-03T10:00:00.000Z';
     const n = await prefetchMessageClips(
       [
-        { id: 'a', sender_id: 'them', content: '你好', created_at: at, audio_clip: 'a-h' },
-        { id: 'b', sender_id: 'me', content: '我很好', created_at: at, audio_clip: 'b-h' },
-        { id: 'c', sender_id: 'them', content: '看', created_at: at, attachment: { kind: 'image' }, audio_clip: null },
-        { id: 'd', sender_id: 'them', content: '明天', created_at: at, audio_clip: null },
+        { id: 'a', sender_id: 'them', content: '你好', created_at: at },
+        { id: 'b', sender_id: 'me', content: '我很好', created_at: at },
+        { id: 'c', sender_id: 'them', content: '看', created_at: at, attachment: { kind: 'image' } },
+        { id: 'd', sender_id: 'them', content: '明天', created_at: at },
+        { id: 'e', sender_id: 'them', content: 'ok', created_at: at },
       ],
       'me',
+      () => V,
     );
     expect(n).toBe(1);
-    expect(api.fetchMessageAudio.mock.calls.map((c) => c[0])).toEqual(['a']);
+    expect(tts.getTTSWithCache.mock.calls.map((c) => c[0])).toEqual(['你好']);
   });
 
-  it('background sync fetches what the server lists and skips what is cached', async () => {
-    cache.store.set(clipCacheKey('x-1'), blob('x'));
-    api.getChatClips.mockResolvedValue({ clips: [{ message_id: 'x', conversation_id: 'c', clip: 'x-1' }, { message_id: 'y', conversation_id: 'c', clip: 'y-1' }] });
-    api.fetchMessageAudio.mockResolvedValue({ blob: blob('y'), clip: 'y-1' });
+  it('background sync fetches what the server lists in the voice it names, skipping what is cached', async () => {
+    cache.store.set('tts/早|v1|0.6', blob('x'));
+    api.getChatClips.mockResolvedValue({ clips: [
+      { message_id: 'x', conversation_id: 'c', text: '早', voice_id: 'v1', speed: 0.6 },
+      { message_id: 'y', conversation_id: 'c', text: '晚安', voice_id: 'v2', speed: 0.6 },
+    ] });
+    tts.getTTSWithCache.mockResolvedValue(blob('y'));
     expect(await prefetchChatClipsInSync()).toBe(1);
-    expect(api.fetchMessageAudio).toHaveBeenCalledWith('y');
+    expect(tts.getTTSWithCache).toHaveBeenCalledWith('晚安', 0.6, 'v2');
   });
 });

@@ -392,6 +392,8 @@ export function ChatPage() {
   const listening = useChatListening(wantsNew ? undefined : convId);
   const revealed = useRevealed(wantsNew ? undefined : convId);
   const listenPlayer = useListeningPlayer((m) => setNotice({ kind: 'error', text: m }));
+  const readAloudParamsRef = useRef(readAloudParams);
+  readAloudParamsRef.current = readAloudParams;
   const [revealingId, setRevealingId] = useState<string | null>(null);
   // While undecided (the Settings default, never opened since): what was unread when the chat opened hides.
   const listeningMarker = thread.openedAt !== null ? thread.readMarkerAtOpen : thread.readState.me;
@@ -409,7 +411,8 @@ export function ChatPage() {
   useEffect(() => {
     // Clips ready before a tap: on open, and as messages / their `audio_clip` arrive.
     if (!myId || serverMessages.length === 0) return;
-    const t = window.setTimeout(() => void prefetchMessageClips(serverMessages, myId), 400);
+    // A little later than the send, so the server's pre-generated clip is usually there already.
+    const t = window.setTimeout(() => void prefetchMessageClips(serverMessages, myId, readAloudParamsRef.current), 2500);
     return () => window.clearTimeout(t);
   }, [serverMessages, myId]);
   const toggleListening = () => {
@@ -709,6 +712,21 @@ export function ChatPage() {
     });
   };
 
+  /**
+   * The voice a message is read in (shared/chats/voice.ts): the sender's voice_gender over MY
+   * conversation voices; Claude's lines in a role-play keep the persona voice. Cache-first by
+   * (text, voice, speed), so a message plays offline once heard. Read aloud and listening mode's tap.
+   */
+  function readAloudParams(msg: Pick<MessageWithSender, 'sender_id'>) {
+    const fromAi = isAIConversation && msg.sender_id === CLAUDE_AI_USER_ID;
+    const rel = relationshipQuery.data;
+    const sender = msg.sender_id === user?.id ? user : rel && user ? getOtherUserInRelationship(rel, user.id) : null;
+    const senderGender = fromAi ? null : parseVoiceGender(sender && sender.id === msg.sender_id ? sender.voice_gender : null);
+    const voice = chatReadAloudVoice({ senderGender, enabled: readConversationVoices(), fromAi, personaVoice: conversation?.voice_id });
+    const speed = chatReadAloudSpeed({ fromAi, personaSpeed: conversation?.voice_speed });
+    return { voice, speed, senderGender };
+  }
+
   const handlePlayMessageAudio = async (msg: MessageWithSender) => {
     if (playingAudioMessageId === msg.id) {
       // Stop playing
@@ -718,15 +736,7 @@ export function ChatPage() {
     }
 
     setPlayingAudioMessageId(msg.id);
-    // The sender's voice (shared/chats/voice.ts): their voice_gender over MY
-    // conversation voices; Claude's lines in a role-play keep the persona voice.
-    // Cache-first by (text, voice, speed), so a message plays offline once heard.
-    const fromAi = isAIConversation && msg.sender_id === CLAUDE_AI_USER_ID;
-    const rel = relationshipQuery.data;
-    const sender = msg.sender_id === user?.id ? user : rel && user ? getOtherUserInRelationship(rel, user.id) : null;
-    const senderGender = fromAi ? null : parseVoiceGender(sender && sender.id === msg.sender_id ? sender.voice_gender : null);
-    const voice = chatReadAloudVoice({ senderGender, enabled: readConversationVoices(), fromAi, personaVoice: conversation?.voice_id });
-    const speed = chatReadAloudSpeed({ fromAi, personaSpeed: conversation?.voice_speed });
+    const { voice, speed, senderGender } = readAloudParams(msg);
     try {
       const blob = await getTTSWithCache(msg.content, speed, voice);
       if (blob) {
@@ -1611,7 +1621,7 @@ export function ChatPage() {
                   if (selecting || Date.now() - pressFiredAt.current < 800) return;
                   if (pending?.status === 'failed') return;
                   // Listening mode: a tap plays the hidden message (again, from the start).
-                  if (hidden) return listenPlayer.play(msg);
+                  if (hidden) return listenPlayer.play(msg, readAloudParams(msg));
                   toggleTime(msg.id);
                 }}
                 onContextMenu={(e) => {
@@ -1629,7 +1639,7 @@ export function ChatPage() {
                     ? (e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          listenPlayer.play(msg);
+                          listenPlayer.play(msg, readAloudParams(msg));
                         }
                       }
                     : undefined

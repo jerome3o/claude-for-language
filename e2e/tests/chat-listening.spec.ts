@@ -59,11 +59,10 @@ async function openAs(browser: Browser, user: SeededUser, path: string, audioReq
     }
   });
   await page.route('**/api/messages/*/words', (route) => route.fulfill({ json: { words: null, source: null, cached: false } }));
-  // The read-aloud clip (no TTS key locally): count the requests, answer with a short MP3.
-  await page.route('**/api/messages/*/audio', (route) => {
-    const id = new URL(route.request().url()).pathname.split('/')[3];
-    audioRequests.push(id);
-    return route.fulfill({ body: MP3, headers: { 'Content-Type': 'audio/mpeg', 'X-Clip-Id': `${id}-e2e` } });
+  // The Read-aloud clip (the one chat TTS path; no TTS key locally): count the texts, answer with a short MP3.
+  await page.route('**/api/practice/tts', (route) => {
+    audioRequests.push((route.request().postDataJSON() as { text: string }).text);
+    return route.fulfill({ json: { audio_base64: MP3.toString('base64'), content_type: 'audio/mpeg' } });
   });
   await page.goto(`/?session_token=${user.token}`);
   await page.locator('.header').waitFor({ timeout: 30000 });
@@ -103,16 +102,17 @@ test('listening mode: a new message is hidden, tap plays, long-press reveals, re
   await expect.poll(async () => (await api<{ conversations: Array<{ conversation_id: string; on: boolean }> }>(request, '/api/me/chat-listening', { token: student.token })).body.conversations.find((c) => c.conversation_id === convId)?.on).toBe(true);
 
   // A new message from the tutor arrives hidden.
-  const sent = await say(request, tutor, convId, '我们明天去商店吧！');
+  await say(request, tutor, convId, '我们明天去商店吧！');
   const hidden = page.getByTestId('chat-listening-bubble');
   await expect(hidden).toBeVisible({ timeout: 20000 });
   await expect(page.getByText('我们明天去商店吧！')).toHaveCount(0);
   await expect(hidden).toContainText('Tap to listen · hold to reveal');
 
-  // Tap → the clip is requested and plays.
+  // Tap → the clip is requested (or was prefetched) and plays.
   const bubble = page.locator('.chat-bubble.listening');
   await bubble.click();
-  await expect.poll(() => audioRequests.includes(sent.id)).toBe(true);
+  await expect.poll(() => audioRequests.includes('我们明天去商店吧！')).toBe(true);
+  await expect(page.locator('.chat-listening.playing, .chat-listening.loading')).toHaveCount(1).catch(() => undefined);
   await expect(page.getByText('我们明天去商店吧！')).toHaveCount(0);
 
   // Long-press → revealed, and no message menu.

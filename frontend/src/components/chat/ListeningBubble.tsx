@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { estimateSpeechSeconds, formatListeningDuration, listeningBars } from '@shared/chats/listening';
-import { getMessageClip, loadSlowPlayback, saveSlowPlayback, type ClipMessage } from '../../services/chatListening';
+import { getMessageClip, loadSlowPlayback, saveSlowPlayback, type ReadAloudParams } from '../../services/chatListening';
 
 export const SLOW_RATE = 0.75;
 
@@ -64,7 +64,7 @@ export interface ListeningPlayer {
   durations: Record<string, number>;
   slow: boolean;
   error: string | null;
-  play: (msg: ClipMessage) => void;
+  play: (msg: { id: string; content: string }, params: ReadAloudParams) => void;
   stop: () => void;
   toggleSlow: () => void;
 }
@@ -109,7 +109,7 @@ export function useListeningPlayer(onError?: (message: string) => void): Listeni
   useEffect(() => stop, [stop]);
 
   const play = useCallback(
-    (msg: ClipMessage) => {
+    (msg: { id: string; content: string }, params: ReadAloudParams) => {
       const mine = ++token.current;
       release();
       setPlayingId(null);
@@ -119,7 +119,8 @@ export function useListeningPlayer(onError?: (message: string) => void): Listeni
       void (async () => {
         let blob: Blob | null = null;
         try {
-          blob = await getMessageClip(msg);
+          // The Read-aloud clip (same voice, same device cache).
+          blob = await getMessageClip(msg.content, params);
         } catch (err) {
           if (mine !== token.current) return;
           setLoadingId(null);

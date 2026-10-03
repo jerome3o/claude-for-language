@@ -15,6 +15,3 @@ CREATE INDEX idx_chat_listening_user ON chat_listening(user_id);
 -- Settings → Chat → "Listening mode in new chats": the default for a conversation with no row.
 ALTER TABLE users ADD COLUMN chat_listening_default INTEGER NOT NULL DEFAULT 0;
 
--- The pre-generated read-aloud clip of a message (R2 `chat-tts/<conv>/<msg>-<hash>.mp3`,
--- the hash covers text + voice + speed, so an edit makes a new clip).
-ALTER TABLE messages ADD COLUMN audio_key TEXT;

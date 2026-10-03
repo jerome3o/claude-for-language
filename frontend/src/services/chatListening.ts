@@ -5,8 +5,8 @@
  *    `GET /api/me/chat-listening` / `PUT …/listening` (a change made offline
  *    is kept `dirty` and re-sent on the next refresh);
  *  - revealed message ids per conversation (this device only);
- *  - the message clips: cached in the media cache by `audio_clip`, fetched on a
- *    tap when missing, and prefetched on chat open, on live updates and in sync.
+ *  - the message clips: the Read-aloud clip (shared/chats/voice.ts, cached by
+ *    text + voice + speed), prefetched on chat open, on live updates and in sync.
  *
  * The rules (what hides, which clips to prefetch) are shared/chats/listening.ts.
  */
@@ -20,8 +20,9 @@ import {
   type ListeningMessage,
   type ListeningSetting,
 } from '@shared/chats/listening';
-import { fetchMessageAudio, getChatClips, getChatListening, putChatListeningDefault, putConversationListening } from '../api/chat';
-import { cacheAudio, getCachedAudio, isAudioCached } from './audioCache';
+import { getChatClips, getChatListening, putChatListeningDefault, putConversationListening } from '../api/chat';
+import { isAudioCached } from './audioCache';
+import { getTTSWithCache, ttsCacheKey } from './ttsCache';
 
 // ---------- The setting ----------
 
@@ -215,74 +216,31 @@ export function saveSlowPlayback(on: boolean): void {
 }
 
 // ---------- Clips ----------
+// The one chat TTS path (shared/chats/voice.ts): a message plays in the voice
+// Read aloud uses, cache-first by (text, voice, speed) — `getTTSWithCache`.
 
-/** Media-cache key of a clip (its id covers the message and a hash of text + voice). */
-export function clipCacheKey(clip: string): string {
-  return `chat-clip/${clip}`;
+export interface ReadAloudParams {
+  voice: string;
+  speed: number;
 }
 
-/** Clips fetched in this page session for messages that had no `audio_clip` yet. */
-const clipOfMessage = new Map<string, string>();
-const inflight = new Map<string, Promise<Blob | null>>();
-
-export interface ClipMessage {
-  id: string;
-  audio_clip?: string | null;
+/** The clip for a message's text in that voice: the device cache, else the network. Offline and never fetched → null. */
+export function getMessageClip(text: string, params: ReadAloudParams): Promise<Blob | null> {
+  return getTTSWithCache(text, params.speed, params.voice);
 }
 
-/** The message's clip: the cache first, else the network (made on demand). Offline with nothing cached → null. */
-export function getMessageClip(msg: ClipMessage, online = typeof navigator === 'undefined' ? true : navigator.onLine): Promise<Blob | null> {
-  const known = msg.audio_clip ?? clipOfMessage.get(msg.id) ?? null;
-  const flightKey = known ?? `msg:${msg.id}`;
-  const running = inflight.get(flightKey);
-  if (running) return running;
-  const p = (async () => {
-    if (known) {
-      const cached = await getCachedAudio(clipCacheKey(known));
-      if (cached) return cached;
-    }
-    if (!online) return null;
-    const { blob, clip } = await fetchMessageAudio(msg.id);
-    const id = clip ?? known;
-    if (id) {
-      clipOfMessage.set(msg.id, id);
-      await cacheAudio(clipCacheKey(id), blob).catch(() => undefined);
-    }
-    return blob;
-  })().finally(() => inflight.delete(flightKey));
-  inflight.set(flightKey, p);
-  return p;
-}
-
-async function fetchMissing(items: ClipMessage[]): Promise<number> {
+async function fetchMissing(items: Array<{ text: string } & ReadAloudParams>): Promise<number> {
   let fetched = 0;
   for (const m of items) {
-    if (!m.audio_clip) continue;
-    if (await isAudioCached(clipCacheKey(m.audio_clip)).catch(() => false)) continue;
-    try {
-      await getMessageClip(m);
-      fetched++;
-    } catch {
-      /* the tap will try again */
-    }
+    if (await isAudioCached(ttsCacheKey(m.text, m.speed, m.voice)).catch(() => false)) continue;
+    if (await getMessageClip(m.text, m).catch(() => null)) fetched++;
   }
   return fetched;
 }
 
-/**
- * Prefetch the clips a tap would play in this chat (the other person's Chinese
- * text messages, newest first). Only clips the server has made already
- * (`audio_clip`) — the rest arrive with their `message_updated`.
- */
-export function prefetchMessageClips(messages: readonly ChatMessageLike[], myId: string, limit = LISTENING_PREFETCH_COUNT): Promise<number> {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return Promise.resolve(0);
-  const picked = prefetchSelection(messages.map(toListeningMessage), myId, limit);
-  const byId = new Map(messages.map((m) => [m.id, m]));
-  return fetchMissing(picked.map((p) => byId.get(p.id)!));
-}
-
 /** The fields of a chat message the listening rules read. */
-export interface ChatMessageLike extends ClipMessage {
+export interface ChatMessageLike {
+  id: string;
   sender_id: string;
   content: string;
   created_at: string;
@@ -294,11 +252,30 @@ export function toListeningMessage(m: ChatMessageLike): ListeningMessage {
   return { id: m.id, sender_id: m.sender_id, content: m.content, created_at: m.created_at, deleted_at: m.deleted_at ?? null, attachment_kind: m.attachment?.kind ?? null };
 }
 
-/** Background sync: the newest ready clips of every chat with a person. Never throws. */
+/**
+ * Prefetch the clips a tap would play in this chat: the other person's Chinese
+ * text messages, newest first, in the voice each is read in.
+ */
+export function prefetchMessageClips<T extends ChatMessageLike>(
+  messages: readonly T[],
+  myId: string,
+  paramsFor: (m: T) => ReadAloudParams,
+  limit = LISTENING_PREFETCH_COUNT,
+): Promise<number> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return Promise.resolve(0);
+  const picked = prefetchSelection(messages.map(toListeningMessage), myId, limit);
+  const byId = new Map(messages.map((m) => [m.id, m]));
+  return fetchMissing(picked.map((p) => {
+    const m = byId.get(p.id)!;
+    return { text: m.content, ...paramsFor(m) };
+  }));
+}
+
+/** Background sync: the newest messages of every chat with a person, in the voice I hear them (server-computed). Never throws. */
 export async function prefetchChatClipsInSync(): Promise<number> {
   try {
     const { clips } = await getChatClips();
-    return await fetchMissing(clips.map((c) => ({ id: c.message_id, audio_clip: c.clip })));
+    return await fetchMissing(clips.map((c) => ({ text: c.text, voice: c.voice_id, speed: c.speed })));
   } catch (err) {
     console.warn('[chat-listening] clip prefetch failed', err);
     return 0;
@@ -306,11 +283,12 @@ export async function prefetchChatClipsInSync(): Promise<number> {
 }
 
 let liveHooked = false;
+let liveTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * While the live socket is open (a chat or the inbox on screen): fetch each
- * new message's clip as soon as the server says it is ready (`message_updated`
- * carrying `audio_clip`), so it is on the device before a tap. Idempotent.
+ * While the live socket is open (a chat or the inbox on screen): a new message
+ * from the other person → prefetch (a few seconds later, once the server has
+ * pre-generated the clip). Idempotent.
  */
 export function prefetchClipsFromLiveEvents(myId: () => string | null): void {
   if (liveHooked) return;
@@ -319,8 +297,9 @@ export function prefetchClipsFromLiveEvents(myId: () => string | null): void {
     chatLive.onEvent((e) => {
       if (e.type !== 'message' && e.type !== 'message_updated') return;
       const me = myId();
-      if (!me || !e.message.audio_clip) return;
-      void prefetchMessageClips([e.message], me, 1);
+      if (!me || e.message.sender_id === me) return;
+      if (liveTimer) clearTimeout(liveTimer);
+      liveTimer = setTimeout(() => void prefetchChatClipsInSync(), 4000);
     });
   });
 }

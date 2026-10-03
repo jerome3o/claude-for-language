@@ -130,16 +130,8 @@ export function putChatListeningDefault(on: boolean): Promise<{ default_on: bool
   return request('/profile/chat-listening', { method: 'PUT', body: JSON.stringify({ on }) });
 }
 
-export function getChatClips(perConversation?: number): Promise<{ clips: Array<{ message_id: string; conversation_id: string; clip: string | null }> }> {
+export function getChatClips(perConversation?: number): Promise<{ clips: Array<{ message_id: string; conversation_id: string; text: string; voice_id: string; speed: number }> }> {
   return request(`/me/chat-clips${perConversation ? `?per_conversation=${perConversation}` : ''}`);
-}
-
-/** A message read aloud (made now if missing) with the clip id it is stored under. */
-export async function fetchMessageAudio(messageId: string): Promise<{ blob: Blob; clip: string | null }> {
-  const res = await fetch(`${API_PATH}/messages/${encodeURIComponent(messageId)}/audio`, { credentials: 'include', headers: getAuthHeaders() });
-  if (res.status === 401) authEvents.onUnauthorized();
-  if (!res.ok) throw Object.assign(new Error(res.status === 502 ? "Couldn't make the audio" : `HTTP ${res.status}`), { status: res.status });
-  return { blob: await res.blob(), clip: res.headers.get('X-Clip-Id') || null };
 }
 
 // ---------- Learning tools (docs/CHAT.md PR 3) ----------
