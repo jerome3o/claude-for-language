@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReaderWord, ReaderWordExplanation } from '@shared/reader/words';
+import { decksInQueueOrder, defaultPickerDeckId } from '@shared/decks/queue';
 import { createNote, generatePracticeTTS } from '../../api/client';
 import { db } from '../../db/database';
-import { usePinnedDecks } from '../../hooks/usePinnedDecks';
 import { useTTS } from '../../hooks/useAudio';
 import { base64ToBlob } from '../../services/ttsCache';
 import { createAudioPlayer } from '../../utils/audioPlayback';
@@ -55,7 +55,6 @@ export function ReaderWordSheet({
   const [playing, setPlaying] = useState(false);
   const player = useRef(createAudioPlayer());
   const tts = useTTS();
-  const { isPinned, sortWithPinnedFirst } = usePinnedDecks();
 
   useEffect(() => {
     if (!word.pinyin) void devicePinyin(word.text).then((p) => p && setPinyin(p));
@@ -66,12 +65,12 @@ export function ReaderWordSheet({
 
   useEffect(() => {
     if (!adding) return;
+    // Queue order, top deck first and preselected (decks the queue ranks higher are the ones being studied).
     void db.decks.toArray().then((list) => {
-      const sorted = sortWithPinnedFirst(list.map((d) => ({ id: d.id, name: d.name })).sort((a, b) => a.name.localeCompare(b.name)));
-      setDecks(sorted);
-      setDeckId((cur) => cur || sorted[0]?.id || '');
+      const ordered = decksInQueueOrder(list).map((d) => ({ id: d.id, name: d.name }));
+      setDecks(ordered);
+      setDeckId((cur) => cur || defaultPickerDeckId(list));
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adding]);
 
   useEffect(() => {
@@ -172,61 +171,65 @@ export function ReaderWordSheet({
     >
       <div className="rw-sheet" role="dialog" aria-label={`The word ${word.text}`} onClick={(e) => e.stopPropagation()}>
         <div className="rw-grab" />
-        <div className="rw-head">
-          <div className="rw-hanzi">{word.text}</div>
-          <button type="button" className={`rw-play${playing ? ' playing' : ''}`} onClick={play} aria-label="Play the word">
-            {playing ? '■' : '▶'}
-          </button>
+        <div className="rw-sheet-body">
+          <div className="rw-head">
+            <div className="rw-hanzi">{word.text}</div>
+            <button type="button" className={`rw-play${playing ? ' playing' : ''}`} onClick={play} aria-label="Play the word">
+              {playing ? '■' : '▶'}
+            </button>
+          </div>
+          {shownPinyin && <div className="rw-pinyin">{shownPinyin}</div>}
+          {shownGloss && <div className="rw-gloss">{shownGloss}</div>}
+          {known && <div className="rw-known">✓ Already in your decks</div>}
+          <div className="rw-sentence">{sentence}</div>
+
+          {explain.kind === 'ready' ? (
+            <div className="rw-explanation" data-testid="rw-explanation">
+              {explain.value.explanation}
+            </div>
+          ) : explain.kind === 'loading' ? (
+            <div className="rw-explanation muted">
+              <span className="spinner" style={{ width: 14, height: 14, display: 'inline-block', marginRight: 8, verticalAlign: 'middle' }} />
+              Asking Claude about {word.text}…
+            </div>
+          ) : (
+            <>
+              {explain.kind === 'error' && <div className="rw-notice">{explain.message}</div>}
+              <button type="button" className="rw-more" onClick={() => void loadExplanation()}>
+                ✨ More about this word
+              </button>
+            </>
+          )}
         </div>
-        {shownPinyin && <div className="rw-pinyin">{shownPinyin}</div>}
-        {shownGloss && <div className="rw-gloss">{shownGloss}</div>}
-        {known && <div className="rw-known">✓ Already in your decks</div>}
-        <div className="rw-sentence">{sentence}</div>
 
-        {explain.kind === 'ready' ? (
-          <div className="rw-explanation" data-testid="rw-explanation">
-            {explain.value.explanation}
-          </div>
-        ) : explain.kind === 'loading' ? (
-          <div className="rw-explanation muted">
-            <span className="spinner" style={{ width: 14, height: 14, display: 'inline-block', marginRight: 8, verticalAlign: 'middle' }} />
-            Asking Claude about {word.text}…
-          </div>
-        ) : (
-          <>
-            {explain.kind === 'error' && <div className="rw-notice">{explain.message}</div>}
-            <button type="button" className="rw-more" onClick={() => void loadExplanation()}>
-              ✨ More about this word
+        {/* Pinned under the scrolling body: the add button is always on screen, however long the explanation. */}
+        <div className="rw-sheet-foot">
+          {added ? (
+            <div className="rw-success">✓ Added to {added}</div>
+          ) : !adding ? (
+            <button type="button" className="rw-add" onClick={() => setAdding(true)}>
+              + Add as card
             </button>
-          </>
-        )}
-
-        {added ? (
-          <div className="rw-success">✓ Added to {added}</div>
-        ) : !adding ? (
-          <button type="button" className="rw-add" onClick={() => setAdding(true)}>
-            + Add as card
-          </button>
-        ) : (
-          <div className="rw-add-panel">
-            <label className="rw-label" htmlFor="rw-deck">
-              Save to deck
-            </label>
-            <select id="rw-deck" className="rw-select" value={deckId} onChange={(e) => setDeckId(e.target.value)}>
-              {decks.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {isPinned(d.id) ? '📌 ' : ''}
-                  {d.name}
-                </option>
-              ))}
-            </select>
-            {duplicate && <div className="rw-notice">This word is already in that deck.</div>}
-            {error && <div className="rw-notice error">{error}</div>}
-            <button type="button" className="rw-add" disabled={saving || !deckId} onClick={() => void add()}>
-              {saving ? 'Adding…' : duplicate ? 'Add anyway' : 'Add to deck'}
-            </button>
-          </div>
-        )}
+          ) : (
+            <div className="rw-add-panel">
+              <label className="rw-label" htmlFor="rw-deck">
+                Save to deck
+              </label>
+              <select id="rw-deck" className="rw-select" value={deckId} onChange={(e) => setDeckId(e.target.value)}>
+                {decks.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              {duplicate && <div className="rw-notice">This word is already in that deck.</div>}
+              {error && <div className="rw-notice error">{error}</div>}
+              <button type="button" className="rw-add" disabled={saving || !deckId} onClick={() => void add()}>
+                {saving ? 'Adding…' : duplicate ? 'Add anyway' : 'Add to deck'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>,
     document.body,

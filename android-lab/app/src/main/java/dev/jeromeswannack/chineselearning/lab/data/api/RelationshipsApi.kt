@@ -17,6 +17,8 @@ data class UserSummaryDto(
     val about: String? = null,
     /** Their IANA time zone — shown as their local time. */
     val time_zone: String? = null,
+    /** users.voice_gender: male | female | other | null — picks the voice their chat messages are read in (core ChatVoice). */
+    val voice_gender: String? = null,
 )
 
 @Serializable

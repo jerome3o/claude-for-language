@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,6 +60,9 @@ import dev.jeromeswannack.chineselearning.lab.ui.cards.Field
 import dev.jeromeswannack.chineselearning.lab.ui.kit.EmptyState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreenFrame
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
@@ -586,28 +590,33 @@ private fun SearchRow(
 /** "+ New deck" (the web's AddDeckModal: Generate with Claude inside, or an empty deck). */
 @Composable
 fun NewDeckSheet(busy: Boolean, online: Boolean, error: String?, onCreate: (String, String) -> Unit, onGenerate: () -> Unit, onStarter: () -> Unit, onDismiss: () -> Unit) {
-    LabBottomSheet(onDismiss = onDismiss, title = "Create new deck") {
+    LabSheetFrame(onDismiss = onDismiss) {
         NewDeckForm(busy, online, error, onCreate, onGenerate, onStarter, onDismiss)
     }
 }
 
 @Composable
-fun NewDeckForm(busy: Boolean, online: Boolean, error: String?, onCreate: (String, String) -> Unit, onGenerate: () -> Unit, onStarter: () -> Unit, onDismiss: () -> Unit) {
+fun NewDeckForm(busy: Boolean, online: Boolean, error: String?, onCreate: (String, String) -> Unit, onGenerate: () -> Unit, onStarter: () -> Unit, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    SheetScaffold(
+        modifier,
+        header = { SheetTitle("Create new deck") },
+        contentPadding = PaddingValues(vertical = 4.dp),
+        spacing = 4.dp,
+        footerAbove = error?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
+        footer = {
+            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp)) { onDismiss() }
+            PrimaryPill(if (busy) "Creating…" else "Create deck", Modifier.weight(1f).height(52.dp), enabled = name.isNotBlank() && !busy && online) { onCreate(name, description) }
+        },
+    ) {
         NavRow("✨", "Generate with Claude", desc = "Describe a topic and get 8–12 words with audio", onClick = onGenerate)
         NavRow("🌱", "Starter Chinese", desc = "15 everyday words with example sentences", enabled = online && !busy, onClick = onStarter)
         Text("or start an empty deck", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp))
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (!online) InlineNotice("You're offline — a new deck needs the server.", kind = NoticeKind.Offline)
-            error?.let { InlineNotice(it, kind = NoticeKind.Error) }
             Field("Deck name", name, hint = "e.g., Restaurant Vocabulary") { name = it }
             Field("Description (optional)", description, lines = 2, hint = "What will you learn in this deck?") { description = it }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SecondaryPill("Cancel", Modifier.weight(1f)) { onDismiss() }
-                PrimaryPill(if (busy) "Creating…" else "Create deck", Modifier.weight(1f).height(52.dp), enabled = name.isNotBlank() && !busy && online) { onCreate(name, description) }
-            }
         }
     }
 }

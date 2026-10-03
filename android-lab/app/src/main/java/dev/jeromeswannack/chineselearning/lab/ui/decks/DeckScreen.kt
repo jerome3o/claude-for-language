@@ -44,6 +44,9 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.EmptyState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
@@ -317,19 +320,26 @@ private fun Stat(value: String, label: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun DeckSettingsSheet(ui: DeckUi, onSave: (String, String, String, String) -> Unit, onDismiss: () -> Unit) {
-    LabBottomSheet(onDismiss = onDismiss, title = "Deck settings") { DeckSettingsForm(ui, onSave, onDismiss) }
+    LabSheetFrame(onDismiss = onDismiss) { DeckSettingsForm(ui, onSave, onDismiss) }
 }
 
 /** Name, description and the deck's two daily caps (validated like pickDeckSettings before saving). */
 @Composable
-fun DeckSettingsForm(ui: DeckUi, onSave: (String, String, String, String) -> Unit, onDismiss: () -> Unit) {
+fun DeckSettingsForm(ui: DeckUi, onSave: (String, String, String, String) -> Unit, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     val d = ui.deck ?: return
     var name by remember(d.id) { mutableStateOf(d.name) }
     var description by remember(d.id) { mutableStateOf(d.description.orEmpty()) }
     var newPerDay by remember(d.id) { mutableStateOf(d.newPerDay.toString()) }
     var secondary by remember(d.id) { mutableStateOf((d.secondaryPerDay ?: dev.jeromeswannack.chineselearning.lab.core.DeckSettings.DEFAULT_SECONDARY_PER_DAY).toString()) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ui.settingsError?.let { InlineNotice(it, kind = NoticeKind.Error) }
+    SheetScaffold(
+        modifier,
+        header = { SheetTitle("Deck settings") },
+        footerAbove = ui.settingsError?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
+        footer = {
+            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp)) { onDismiss() }
+            PrimaryPill(if (ui.busy) "Saving…" else "Save", Modifier.weight(1f).height(52.dp), enabled = !ui.busy && name.isNotBlank()) { onSave(name, description, newPerDay, secondary) }
+        },
+    ) {
         Field("Deck name", name) { name = it }
         Field("Description (optional)", description, lines = 2) { description = it }
         Text(
@@ -342,9 +352,5 @@ fun DeckSettingsForm(ui: DeckUi, onSave: (String, String, String, String) -> Uni
         Text("Maximum new words introduced from this deck each day. Set to 0 to only review.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
         Field("Secondary cards per day", secondary, hint = "0–1000") { secondary = it }
         Text("Extra new cards (purple) for words you've already started — e.g. typing a word you can already say.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 4.dp)) {
-            SecondaryPill("Cancel", Modifier.weight(1f)) { onDismiss() }
-            PrimaryPill(if (ui.busy) "Saving…" else "Save", Modifier.weight(1f).height(52.dp), enabled = !ui.busy && name.isNotBlank()) { onSave(name, description, newPerDay, secondary) }
-        }
     }
 }

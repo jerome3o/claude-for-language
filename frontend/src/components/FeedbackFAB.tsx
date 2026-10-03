@@ -324,7 +324,7 @@ export function FeedbackFAB() {
                     </button>
                   </div>
                 )}
-                <div className="feedback-actions">
+                <div className="feedback-actions sheet-footer">
                   <button
                     className="btn btn-secondary"
                     onClick={() => setIsOpen(false)}

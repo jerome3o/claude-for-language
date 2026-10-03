@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.readers
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,7 +25,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFormSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -50,8 +51,45 @@ fun AddWordSheet(chunk: SentenceChunkDto, actions: AddWordActions, onDismiss: ()
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { decks = actions.decks(); deckId = decks.firstOrNull()?.id }
     LaunchedEffect(deckId) { duplicate = deckId?.let { actions.isDuplicate(it, chunk.hanzi) } ?: false }
-    LabBottomSheet(onDismiss = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    fun add() {
+        val id = deckId ?: return
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                actions.add(id, chunk)
+                done = true
+                onAdded()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                error = e.userMessage()
+            } finally {
+                busy = false
+            }
+        }
+    }
+    // Many decks: the deck chips scroll, "Add to deck" stays pinned (LabFormSheet).
+    LabFormSheet(
+        onDismiss = onDismiss,
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
+        spacing = 8.dp,
+        footerAbove = if (error == null && !done) null else {
+            {
+                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                if (done) InlineNotice("Added — it arrives with the next sync.", kind = NoticeKind.Success)
+            }
+        },
+        footer = if (done) null else {
+            {
+                PrimaryPill(
+                    if (busy) "Adding…" else if (duplicate) "Add anyway" else "Add to deck",
+                    Modifier.weight(1f).height(54.dp),
+                    enabled = !busy && deckId != null,
+                ) { add() }
+            }
+        },
+    ) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(chunk.hanzi, fontSize = 52.sp, color = Lab.colors.ink)
             Text(chunk.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent)
             Text(chunk.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
@@ -61,33 +99,6 @@ fun AddWordSheet(chunk: SentenceChunkDto, actions: AddWordActions, onDismiss: ()
             ChipRow(Modifier.fillMaxWidth()) {
                 for (d in decks) LabChip(d.name, selected = d.id == deckId) { deckId = d.id }
             }
-            error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-            if (done) {
-                InlineNotice("Added — it arrives with the next sync.", kind = NoticeKind.Success)
-            } else {
-                PrimaryPill(
-                    if (busy) "Adding…" else if (duplicate) "Add anyway" else "Add to deck",
-                    Modifier.fillMaxWidth().height(54.dp),
-                    enabled = !busy && deckId != null,
-                ) {
-                    val id = deckId ?: return@PrimaryPill
-                    busy = true
-                    error = null
-                    scope.launch {
-                        try {
-                            actions.add(id, chunk)
-                            done = true
-                            onAdded()
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            error = e.userMessage()
-                        } finally {
-                            busy = false
-                        }
-                    }
-                }
-            }
-            androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
         }
     }
 }

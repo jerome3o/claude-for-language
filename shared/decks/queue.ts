@@ -3,6 +3,7 @@
  * student's own Decks tab, the tutor's move on a homework packet and the
  * worker route behind both.
  */
+import { sortDecksForQueue } from './budget';
 
 export type QueueMove = 'top' | 'up' | 'down' | 'bottom';
 
@@ -64,4 +65,32 @@ export function moveToIndex(ids: readonly string[], id: string, index: number): 
   const next = ids.filter((x) => x !== id);
   next.splice(index, 0, id);
   return next;
+}
+
+// ---- add-card deck pickers (chat word sheet, Save as flashcard, Make flashcards, …) ----
+
+/** What a deck picker needs to know about a deck. */
+export interface PickerDeck {
+  id: string;
+  study_priority?: number | null;
+  created_at?: string | null;
+}
+
+/**
+ * Pure: decks for an add-card picker in study-queue order — the deck at the top
+ * of the queue first (`sortDecksForQueue`: priority high → low, ties newest first).
+ */
+export function decksInQueueOrder<T extends PickerDeck>(decks: readonly T[]): T[] {
+  return sortDecksForQueue(decks.map((d) => ({ d, priority: d.study_priority ?? 0, createdAt: d.created_at ?? '' }))).map((x) => x.d);
+}
+
+/**
+ * Pure: the deck an add-card picker starts on — `preferred` when it is one of
+ * the decks (a sheet opened for one deck, e.g. the study card's own), else the
+ * top of the queue; '' when there are no decks (the picker offers a new deck).
+ * Nothing is remembered between sheets, so the top deck is always the default.
+ */
+export function defaultPickerDeckId(decks: readonly PickerDeck[], preferred?: string | null): string {
+  if (preferred && decks.some((d) => d.id === preferred)) return preferred;
+  return decksInQueueOrder(decks)[0]?.id ?? '';
 }
