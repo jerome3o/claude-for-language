@@ -395,7 +395,8 @@ function useThrottled(send: (text: string) => void, ms = 160) {
 function DictationView({ session: s, role, act, can, speak, spec }: BodyProps & { spec: DictationSpec }) {
   const item = spec.items[s.round];
   const asker = role === 'a';
-  const key = `${s.session_id}:${s.round}:${s.roles.b}`;
+  // A new round, a swap or a reset (back to ready) starts the field from the room's draft again.
+  const key = `${s.session_id}:${s.round}:${s.roles.b}:${s.phase}`;
   const [text, setText] = useState(s.data.draft ?? '');
   const keyRef = useRef(key);
   useEffect(() => {
