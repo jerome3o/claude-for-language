@@ -2,6 +2,7 @@
  * Types for the tutor dashboard and the student page. Mirrors
  * worker/src/services/tutor-dashboard.ts and routes/tutor-dashboard.ts.
  */
+import type { StudyBudgetInfo } from '@shared/decks';
 
 import type { UserSummary, RelationshipRole } from '../types';
 import type { InsightNoteRef } from './insights';
@@ -136,6 +137,8 @@ export interface StudentOverview {
   last_conversation_id: string | null;
   /** The tutor has written a private student profile (StudentProfileSection). */
   has_profile?: boolean;
+  /** The student's daily new-card budget and who set it ("Daily new cards" row; older servers omit it). */
+  study_budget?: StudyBudgetInfo;
 }
 
 export interface PendingInvite {

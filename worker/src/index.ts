@@ -5,7 +5,7 @@ import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMess
 import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
-import { DEFAULT_STUDY_BUDGET, pickStudyBudget, daysToIntroduce } from '@shared/decks';
+import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, daysToIntroduce } from '@shared/decks';
 import { calculateSM2 } from './services/sm2';
 import {
   scheduleCard,
@@ -99,6 +99,7 @@ import lessonImagesRoutes from './routes/lesson-images';
 import conversationVoicesRoutes from './routes/conversation-voices';
 import { getConversationVoiceSettings } from './services/conversation-voices';
 import studentProfileRoutes from './routes/student-profile';
+import studentStudyBudgetRoutes from './routes/student-study-budget';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
 import { sanitizeAttemptData } from '@shared/lesson';
@@ -455,6 +456,8 @@ app.get('/api/auth/me', async (c) => {
     // The learner's daily new-card budget across all decks (NULL = default).
     new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
+    // The same with who set it (the learner or their tutor; shared/decks/tutor-budget.ts).
+    study_budget: await db.getStudyBudgetInfo(c.env.DB, user.id).catch(() => null),
     // The voices this account's conversation exercises use (its own selection,
     // else the admin's, else the shipped defaults) — cached on the device.
     conversation_voices: (await getConversationVoiceSettings(c.env.DB, user.id).catch(() => null))?.enabled ?? null,
@@ -541,6 +544,7 @@ app.route('/api', debugReportsRoutes);
 app.route('/api', lessonImagesRoutes);
 // The tutor's private profile of a student, read by the tutor-side content agents (routes/student-profile.ts; tutor only)
 app.route('/api', studentProfileRoutes);
+app.route('/api', studentStudyBudgetRoutes);
 
 // Conversation voices: the catalogue, this account's selection, cached voice samples (routes/conversation-voices.ts)
 app.route('/api', conversationVoicesRoutes);
@@ -671,9 +675,10 @@ app.put('/api/profile/landing-page', async (c) => {
 app.put('/api/profile/study-budget', async (c) => {
   const userId = c.get('user').id;
   const body = await c.req.json<Record<string, unknown>>();
-  const { budget, problems } = pickStudyBudget(body);
+  const { update, problems } = pickStudyBudgetUpdate(body);
   if (problems.length) return c.json({ error: problems.join('; '), problems }, 400);
-  const saved = await db.setStudyBudget(c.env.DB, userId, budget);
+  // The learner's own change: last write wins over the tutor's, and "Set by <tutor>" goes away.
+  const saved = await db.setStudyBudget(c.env.DB, userId, update, userId);
   return c.json(saved);
 });
 
@@ -5700,6 +5705,8 @@ app.get('/api/sync/changes', async (c) => {
     live_deck_ids,
     live_deck_ids_at: liveDeckIdsAt,
     server_time: serverTime,
+    // The daily new-card budget, so a tutor's change reaches the device on the next sync.
+    study_budget: await db.getStudyBudgetInfo(c.env.DB, userId).catch(() => null),
   });
 });
 

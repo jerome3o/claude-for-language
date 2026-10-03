@@ -161,63 +161,6 @@
   }
 }
 
-/* Daily new-card budget steppers */
-.settings-stepper {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.625rem 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.settings-stepper-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.settings-stepper-label {
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.settings-stepper-hint {
-  font-size: 0.8125rem;
-  color: var(--color-text-light);
-}
-
-.settings-stepper-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex-shrink: 0;
-}
-
-.settings-stepper-controls button {
-  width: 44px;
-  min-height: 44px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  font-size: 1.25rem;
-  cursor: pointer;
-}
-
-.settings-stepper-controls button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.settings-stepper-controls input {
-  width: 3.5rem;
-  min-height: 44px;
-  text-align: center;
-  font-size: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
 /* A checkbox line (Notifications → Chat e-mails) — the whole row is the 44px target. */
 .settings-toggle-row {
   display: flex;
@@ -232,4 +175,16 @@
   width: 1.25rem;
   height: 1.25rem;
   accent-color: var(--color-primary, #2563eb);
+}
+
+/* "Set by Minghui · 3 Oct" under New cards a day while the tutor's numbers apply. */
+.settings-budget-set-by {
+  display: inline-block;
+  margin: 0 0 0.75rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: #f3e8ff;
+  color: #6b21a8;
+  font-size: 0.8125rem;
+  font-weight: 600;
 }

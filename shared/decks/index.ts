@@ -6,3 +6,4 @@ export * from './study-queue';
 export * from './ghosts';
 export * from './novelty';
 export * from './long-term';
+export * from './tutor-budget';

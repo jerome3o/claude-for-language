@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { NotificationsSection } from '../components/NotificationsSection';
 import { Link } from 'react-router-dom';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget } from '../api/client';
-import { readStudyBudget, writeStudyBudget } from '../services/studyBudget';
-import { STUDY_BUDGET_MAX } from '@shared/decks';
+import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
+import { budgetSetByLabel } from '@shared/decks';
+import { BudgetStepper } from '../components/BudgetStepper';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
 import { getAudioCacheStats } from '../services/audioCache';
 import { saveBlobAs } from '../utils/download';
@@ -584,26 +585,6 @@ const LANDING_OPTIONS: { value: LandingPage | ''; label: string; tutorOnly?: boo
   { value: 'decks', label: 'Decks' },
 ];
 
-function Stepper({ label, hint, value, onChange, disabled, testId }: { label: string; hint: string; value: number; onChange: (v: number) => void; disabled?: boolean; testId: string }) {
-  const clamp = (v: number) => Math.max(0, Math.min(STUDY_BUDGET_MAX, Math.round(v)));
-  return (
-    <div className="settings-stepper" data-testid={testId}>
-      <div className="settings-stepper-text">
-        <span className="settings-stepper-label">{label}</span>
-        <span className="settings-stepper-hint">{hint}</span>
-      </div>
-      <div className="settings-stepper-controls">
-        <button type="button" onClick={() => onChange(clamp(value - 1))} disabled={disabled || value <= 0} aria-label={`Fewer ${label}`}>−</button>
-        <input
-          type="number" inputMode="numeric" min={0} max={STUDY_BUDGET_MAX} value={value} disabled={disabled}
-          onChange={(e) => onChange(clamp(Number(e.target.value) || 0))} aria-label={label}
-        />
-        <button type="button" onClick={() => onChange(clamp(value + 1))} disabled={disabled || value >= STUDY_BUDGET_MAX} aria-label={`More ${label}`}>+</button>
-      </div>
-    </div>
-  );
-}
-
 /**
  * The daily new-card budget: ONE pair of numbers for every deck, filled from
  * the top of the deck queue down (shared/decks/budget.ts). This is the lever
@@ -622,6 +603,9 @@ function DailyBudgetSection() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setPrimary(initial.new_cards_per_day); setSecondary(initial.secondary_cards_per_day); }, [initial]);
   const dirty = primary !== initial.new_cards_per_day || secondary !== initial.secondary_cards_per_day;
+  // "Set by Minghui · 3 Oct" while the numbers are the tutor's (they can still be changed here).
+  const info = user?.study_budget ?? readStudyBudgetInfo();
+  const setBy = budgetSetByLabel(info, info?.set_at ? new Date(info.set_at).getTimezoneOffset() : 0);
 
   const save = async () => {
     setSaving(true);
@@ -645,8 +629,9 @@ function DailyBudgetSection() {
       <p className="settings-section-desc">
         One budget for all your decks, filled from the top of your deck list down. Your tutor can send as much homework as she likes; this is what decides your daily load.
       </p>
-      <Stepper label="New words" hint="Words you have never seen (blue)" value={primary} onChange={setPrimary} disabled={saving} testId="budget-primary" />
-      <Stepper label="Extra cards" hint="More card types of words you have started (purple)" value={secondary} onChange={setSecondary} disabled={saving} testId="budget-secondary" />
+      {setBy && <p className="settings-budget-set-by" data-testid="budget-set-by">{setBy}</p>}
+      <BudgetStepper tone="primary" label="New words" hint="Words you have never seen (blue)" value={primary} onChange={setPrimary} disabled={saving} testId="budget-primary" />
+      <BudgetStepper tone="secondary" label="Extra cards" hint="More card types of words you have started (purple)" value={secondary} onChange={setSecondary} disabled={saving} testId="budget-secondary" />
       <div className="feedback-actions">
         <button className="btn btn-primary" onClick={save} disabled={saving || !dirty}>
           {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}

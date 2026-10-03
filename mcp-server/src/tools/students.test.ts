@@ -407,6 +407,7 @@ const EXPECTED_TOOLS = [
   'get_student_overview',
   'get_student_profile',
   'update_student_profile',
+  'set_student_study_budget',
   'get_student_insights',
   'get_student_history',
   'get_student_daily_progress',
@@ -526,6 +527,35 @@ describe('registerStudentTools', () => {
     expect(out.student_profile).toEqual(profile);
     expect(out.has_student_profile).toBe(true);
     expect(calls.map((c) => c.path).sort()).toEqual(['/api/relationships/rel-1/overview', '/api/relationships/rel-1/student-profile']);
+  });
+
+  it('set_student_study_budget PUTs the change (null = default) and reports the new budget', async () => {
+    const budget = { new_cards_per_day: 5, secondary_cards_per_day: 6, is_default: false, set_by_id: 'tutor', set_by_name: 'Minghui', set_by_tutor: true, set_at: '2026-10-03T08:00:00.000Z' };
+    const { tools, calls } = fakeContext({
+      'PUT /api/relationships/rel-1/student-study-budget': { budget, changed: true, message_sent: true },
+    });
+    const out = parse(await tools.get('set_student_study_budget')!.handler({ relationship_id: 'rel-1', new_cards_per_day: 5, secondary_cards_per_day: null }));
+    expect(calls).toEqual([expect.objectContaining({ method: 'PUT', path: '/api/relationships/rel-1/student-study-budget', body: { new_cards_per_day: 5, secondary_cards_per_day: null } })]);
+    expect(out).toEqual({
+      study_budget: { new_words_per_day: 5, extra_cards_per_day: 6, is_default: false, set_by: 'tutor', set_by_name: 'Minghui', set_at: '2026-10-03T08:00:00.000Z' },
+      summary: '5 new words + 6 extra a day',
+      changed: true,
+      chat_message_sent: true,
+    });
+  });
+
+  it('set_student_study_budget refuses an empty change without calling the API', async () => {
+    const { tools, calls } = fakeContext({});
+    const res = await tools.get('set_student_study_budget')!.handler({ relationship_id: 'rel-1' });
+    expect(res.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('list_students / get_student_overview carry the study budget', async () => {
+    const study_budget = { new_cards_per_day: 3, secondary_cards_per_day: 6, is_default: true, set_by_id: null, set_by_name: null, set_by_tutor: false, set_at: null };
+    const { tools } = fakeContext({ 'GET /api/relationships/rel-1/overview': overview({ study_budget }) });
+    const out = parse(await tools.get('get_student_overview')!.handler({ relationship_id: 'rel-1' }));
+    expect(out.study_budget).toEqual({ new_words_per_day: 3, extra_cards_per_day: 6, is_default: true, set_by: null, set_by_name: null, set_at: null });
   });
 
   it('get_student_overview still works when the profile cannot be read', async () => {

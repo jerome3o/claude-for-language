@@ -1,3 +1,5 @@
+import type { StudyBudgetInfo } from '@shared/decks';
+import { writeStudyBudget } from './studyBudget';
 import {
   db,
   LocalDeck,
@@ -84,6 +86,8 @@ interface SyncChangesResponse {
   live_deck_ids?: string[];
   live_deck_ids_at?: string;
   server_time: string;
+  /** The daily new-card budget (a tutor may have changed it; older servers omit it). */
+  study_budget?: StudyBudgetInfo | null;
 }
 
 // Deletion tombstones (migration 0068) exist from 23 Sep 2026. A deck deleted
@@ -626,6 +630,8 @@ class SyncService {
     }
 
     const changes: SyncChangesResponse = await response.json();
+    // The study queue and Home counts read this mirror: the tutor's numbers apply the same day.
+    if (changes.study_budget) writeStudyBudget(changes.study_budget);
     const insertedCardIds: string[] = [];
     this.lastSyncDetails.decks_synced = changes.decks.length;
     this.lastSyncDetails.notes_synced = changes.notes.length;

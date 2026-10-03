@@ -1,4 +1,5 @@
 import type { CoachAction } from '@shared/coach';
+import type { StudyBudgetInfo } from '@shared/decks';
 // Card types
 export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
 
@@ -52,6 +53,8 @@ export interface AuthUser {
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;
+  /** The same with who set it — the learner or their tutor (shared/decks/tutor-budget.ts). */
+  study_budget?: StudyBudgetInfo | null;
   /** Voices this account's conversation exercises use (shared/lesson/voices.ts). */
   conversation_voices?: string[] | null;
   /** Profile screen (/profile): public About me, time zone, where the picture comes from. */

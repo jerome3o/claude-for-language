@@ -9,7 +9,7 @@
  */
 
 import type { User } from '../types';
-import { DEFAULT_STUDY_BUDGET, daysToIntroduce, type StudyBudget } from '@shared/decks';
+import { DEFAULT_STUDY_BUDGET, daysToIntroduce, studyBudgetInfo, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow } from '@shared/decks';
 import {
   rankStruggling,
   listRecordings,
@@ -64,7 +64,7 @@ export interface HomeworkLessonInput {
   last_rating: number | null;
 }
 
-export interface StudentUserRow extends UserSummary {
+export interface StudentUserRow extends UserSummary, StudyBudgetRow {
   last_login_at: string | null;
   /** Daily new-card budget (NULL = default). */
   new_cards_per_day?: number | null;
@@ -207,6 +207,8 @@ export interface StudentOverview {
   last_conversation_id: string | null;
   /** The tutor has written a student profile (student_profiles) — the dashboard hints when not. */
   has_profile: boolean;
+  /** The student's daily new-card budget and who set it (the "Daily new cards" row; tutor can change it). */
+  study_budget: StudyBudgetInfo;
 }
 
 // ---------- Days & streaks ----------
@@ -506,6 +508,7 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
     activity: recentActivityDays(input.activity_rows, input.tz_offset_minutes),
     last_conversation_id: input.last_conversation_id,
     has_profile: !!input.has_profile,
+    study_budget: studyBudgetInfo(input.student, input.student.id),
   };
 }
 

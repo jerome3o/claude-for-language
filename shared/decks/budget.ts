@@ -142,16 +142,36 @@ export function daysToIntroduce(wordsLeft: number, budget: Pick<StudyBudget, 'ne
   return Math.ceil(wordsLeft / Math.max(1, budget.new_cards_per_day));
 }
 
-/** Validate a budget from an untrusted object; returns the clean budget or the problems. */
-export function pickStudyBudget(input: Record<string, unknown> | null | undefined): { budget: Partial<StudyBudget>; problems: string[] } {
-  const budget: Partial<StudyBudget> = {};
+/** A change to the budget: a number sets it, `null` resets it to the default, a missing key leaves it. */
+export type StudyBudgetUpdate = { [K in keyof StudyBudget]?: number | null };
+
+/**
+ * Validate a budget change from an untrusted object (the learner's own Settings and
+ * the tutor's "Daily new cards" both go through this): numbers 0–STUDY_BUDGET_MAX,
+ * `null` = back to the default.
+ */
+export function pickStudyBudgetUpdate(input: Record<string, unknown> | null | undefined): { update: StudyBudgetUpdate; problems: string[] } {
+  const update: StudyBudgetUpdate = {};
   const problems: string[] = [];
   for (const key of ['new_cards_per_day', 'secondary_cards_per_day'] as const) {
-    const v = input?.[key];
-    if (v === undefined || v === null) continue;
+    if (!input || !(key in input)) continue;
+    const v = input[key];
+    if (v === undefined) continue;
+    if (v === null) { update[key] = null; continue; }
     const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
     if (!Number.isInteger(n) || n < 0 || n > STUDY_BUDGET_MAX) problems.push(`${key} must be a whole number between 0 and ${STUDY_BUDGET_MAX}`);
-    else budget[key] = n;
+    else update[key] = n;
+  }
+  return { update, problems };
+}
+
+/** Validate a budget from an untrusted object; returns the clean budget (nulls skipped) or the problems. */
+export function pickStudyBudget(input: Record<string, unknown> | null | undefined): { budget: Partial<StudyBudget>; problems: string[] } {
+  const { update, problems } = pickStudyBudgetUpdate(input);
+  const budget: Partial<StudyBudget> = {};
+  for (const key of ['new_cards_per_day', 'secondary_cards_per_day'] as const) {
+    const v = update[key];
+    if (typeof v === 'number') budget[key] = v;
   }
   return { budget, problems };
 }

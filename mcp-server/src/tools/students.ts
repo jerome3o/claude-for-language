@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { ToolContext } from './context.js';
 import { errorResult, guard, jsonResult, textResult } from './context.js';
 import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignmentSummary, describeSend, sendAsHomework } from './homework-send.js';
+import type { StudyBudgetInfo } from '../../../shared/decks/tutor-budget';
 import type {
   CardFlagRow,
   ClaudeChatQuestionRow,
@@ -39,6 +40,8 @@ import {
   parseStudentProfileInput,
   type StudentProfile,
 } from '../../../shared/students/profile';
+import { STUDY_BUDGET_MAX, pickStudyBudgetUpdate } from '../../../shared/decks/budget';
+import { budgetSummary } from '../../../shared/decks/tutor-budget';
 import {
   clampInt,
   mergeStudentProfile,
@@ -57,6 +60,7 @@ import {
   compactStruggling,
   compactStudentOverview,
   compactStudentRow,
+  compactStudyBudget,
   compactSummary,
   filterRecordings,
   lastMessages,
@@ -161,6 +165,34 @@ export function registerStudentTools(ctx: ToolContext): void {
         if (problems.length) return errorResult(`The profile is not valid:\n- ${problems.join('\n- ')}`);
         const r = await api.put<{ profile: StudentProfile | null }>(`${rel(relationship_id)}/student-profile`, next);
         return jsonResult({ ...r, deleted: r.profile === null });
+      })
+  );
+
+  // ============ The student's daily new-card budget ============
+
+  server.tool(
+    'set_student_study_budget',
+    `Change how many NEW cards the student gets a day (tutor only). The student has ONE daily budget for all their decks — \`new_cards_per_day\` brand-new words (blue) + \`secondary_cards_per_day\` extra cards (purple: the other card types of words already started) — filled from the top of their deck queue down. Homework decks never add to it, so this is the lever for their daily load and for how fast a homework deck gets introduced. Default 3 + 6. Pass a number (0–${STUDY_BUDGET_MAX}) to set one, \`null\` to put it back to the default, omit it to leave it. The student's devices pick it up on their next sync; the student gets a short chat message from the tutor ("I've set your new cards to 5 a day (+10 extra) 📚") and can still change it in their Settings (their Settings shows "Set by <tutor>"). The current values are \`study_budget\` in list_students / get_student_overview. Their own decks' per-deck caps are not changed.`,
+    {
+      relationship_id: RELATIONSHIP_ID,
+      new_cards_per_day: z.number().int().min(0).max(STUDY_BUDGET_MAX).nullable().optional().describe('Brand-new words a day across all decks; null = default (3).'),
+      secondary_cards_per_day: z.number().int().min(0).max(STUDY_BUDGET_MAX).nullable().optional().describe('Extra cards a day (other card types of words already started); null = default (6).'),
+    },
+    async ({ relationship_id, new_cards_per_day, secondary_cards_per_day }) =>
+      guard(async () => {
+        const body: Record<string, number | null> = {};
+        if (new_cards_per_day !== undefined) body.new_cards_per_day = new_cards_per_day;
+        if (secondary_cards_per_day !== undefined) body.secondary_cards_per_day = secondary_cards_per_day;
+        const { problems } = pickStudyBudgetUpdate(body);
+        if (problems.length) return errorResult(problems.join('; '));
+        if (!Object.keys(body).length) return errorResult('Pass new_cards_per_day and/or secondary_cards_per_day (a number, or null for the default).');
+        const r = await api.put<{ budget: StudyBudgetInfo; changed: boolean; message_sent: boolean }>(`${rel(relationship_id)}/student-study-budget`, body);
+        return jsonResult({
+          study_budget: compactStudyBudget(r.budget),
+          summary: budgetSummary(r.budget),
+          changed: r.changed,
+          chat_message_sent: r.message_sent,
+        });
       })
   );
 
