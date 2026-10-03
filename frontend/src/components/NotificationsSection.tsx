@@ -14,6 +14,7 @@ import {
   pushState,
   sendTestPush,
   setCallAlerts,
+  setChatEmails,
   type CallAlertsMode,
   type PushState,
 } from '../services/push';
@@ -31,6 +32,21 @@ export function NotificationsSection() {
   const [state, refresh] = usePushState();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [emails, setEmails] = useState<boolean>(user?.email_chat_messages !== false);
+  useEffect(() => {
+    if (user) setEmails(user.email_chat_messages !== false);
+  }, [user]);
+
+  const toggleEmails = async (next: boolean) => {
+    setEmails(next);
+    setNote(null);
+    try {
+      await setChatEmails(next);
+    } catch (err) {
+      setEmails(!next);
+      setNote(err instanceof Error ? err.message : 'Could not save');
+    }
+  };
 
   const choose = async (next: CallAlertsMode) => {
     const prev = mode;
@@ -97,6 +113,17 @@ export function NotificationsSection() {
           </>
         )}
       </div>
+
+      <h3 style={{ fontSize: '1rem', margin: '1rem 0 0.4rem' }}>Chat e-mails</h3>
+      <label className="settings-toggle-row" data-testid="chat-emails-toggle">
+        <input type="checkbox" checked={emails} onChange={(e) => void toggleEmails(e.target.checked)} />
+        <span>E-mail me when I get a chat message</span>
+      </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
+        {emails
+          ? 'Every chat e-mail has a “Turn off chat emails” link too. Notifications on your devices are separate and stay on.'
+          : 'Off — no e-mails for chat messages. Notifications on your devices still arrive.'}
+      </p>
 
       <h3 style={{ fontSize: '1rem', margin: '1rem 0 0.4rem' }}>Video calls</h3>
       <div className="settings-segmented" role="radiogroup" aria-label="Call alerts">

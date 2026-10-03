@@ -16,6 +16,7 @@ import type { Env, MessageWithSender } from '../../types';
 import { CLAUDE_AI_USER_ID } from '../../types';
 import * as db from '../../db/queries';
 import { sendNewMessageNotification } from '../email';
+import { createUnsubscribeToken, listUnsubscribeHeaders, unsubscribeUrl } from '../email-unsubscribe';
 import { notifyNewChatMessage as ntfyNewChatMessage } from '../notifications';
 import { pushToUsers } from '../push';
 import { pushToDevices } from '../push/devices';
@@ -131,10 +132,13 @@ export async function notifyNewChatMessage(
     step('email', async () => {
       if (!env.SENDGRID_API_KEY || !recipientId) return;
       const recipient = await env.DB
-        .prepare('SELECT email, name FROM users WHERE id = ?')
+        .prepare('SELECT email, name, email_chat_messages FROM users WHERE id = ?')
         .bind(recipientId)
-        .first<{ email: string | null; name: string | null }>();
+        .first<{ email: string | null; name: string | null; email_chat_messages: number | null }>();
       if (!recipient?.email) return;
+      // Turned off in Settings or with the e-mail's own link (docs/CHAT.md "E-mail opt-out").
+      if (recipient.email_chat_messages === 0) return;
+      const url = unsubscribeUrl(env.PUBLIC_API_URL, await createUnsubscribeToken(env, recipientId));
       const sent = await (deps.email ?? sendNewMessageNotification)(env.SENDGRID_API_KEY, {
         recipientEmail: recipient.email,
         recipientName: recipient.name,
@@ -142,6 +146,8 @@ export async function notifyNewChatMessage(
         messagePreview: content,
         conversationId: message.conversation_id,
         relationshipId,
+        unsubscribeUrl: url,
+        headers: listUnsubscribeHeaders(url),
       });
       console.log('[Email] Message notification to', recipient.email, sent ? 'sent' : 'FAILED');
     }),

@@ -44,7 +44,12 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
         val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> vm.finishExport(uri) }
 
         SettingsScreen(
-            callAlerts = { dev.jeromeswannack.chineselearning.lab.ui.calls.CallAlertsSettings(app) },
+            callAlerts = {
+                androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {
+                    dev.jeromeswannack.chineselearning.lab.ui.calls.CallAlertsSettings(app)
+                    dev.jeromeswannack.chineselearning.lab.ui.chat.ChatEmailsSettings(app)
+                }
+            },
             ui = ui,
             env = SettingsEnv(
                 role = shell?.role ?: NavRole(),

@@ -9,7 +9,7 @@ const FROM_EMAIL = 'claude@claude.towerhouse.london';
 const FROM_NAME = 'Chinese Learning App';
 
 // Base URL for the app
-const APP_BASE_URL = 'https://chinese-learning-2x9.pages.dev';
+export const APP_BASE_URL = 'https://chinese-learning-2x9.pages.dev';
 
 interface SendEmailParams {
   to: string;
@@ -17,6 +17,8 @@ interface SendEmailParams {
   subject: string;
   textContent: string;
   htmlContent?: string;
+  /** Extra headers, e.g. List-Unsubscribe (SendGrid passes them through). */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -26,9 +28,10 @@ export async function sendEmail(
   apiKey: string,
   params: SendEmailParams
 ): Promise<boolean> {
-  const { to, toName, subject, textContent, htmlContent } = params;
+  const { to, toName, subject, textContent, htmlContent, headers } = params;
 
   const payload = {
+    ...(headers && Object.keys(headers).length ? { headers } : {}),
     personalizations: [
       {
         to: [{ email: to, name: toName }],
@@ -90,6 +93,10 @@ export async function sendNewMessageNotification(
     messagePreview: string;
     conversationId: string;
     relationshipId: string;
+    /** "Turn off chat emails" link (no sign-in needed); also sent as List-Unsubscribe. */
+    unsubscribeUrl?: string;
+    /** List-Unsubscribe + List-Unsubscribe-Post headers. */
+    headers?: Record<string, string>;
   }
 ): Promise<boolean> {
   const {
@@ -99,6 +106,8 @@ export async function sendNewMessageNotification(
     messagePreview,
     conversationId,
     relationshipId,
+    unsubscribeUrl,
+    headers,
   } = params;
 
   const conversationUrl = `${APP_BASE_URL}/connections/${relationshipId}/chat/${conversationId}`;
@@ -119,7 +128,8 @@ View the conversation: ${conversationUrl}
 "${truncatedPreview}"
 
 ---
-Chinese Learning App`;
+Chinese Learning App${unsubscribeUrl ? `
+Turn off chat emails: ${unsubscribeUrl}` : ''}`;
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -139,14 +149,15 @@ Chinese Learning App`;
 <body>
   <div class="container">
     <h2 class="header">New Message</h2>
-    <p>Hi ${recipientName || 'there'},</p>
-    <p>You have a new message from <strong>${displayName}</strong>.</p>
+    <p>Hi ${escapeHtml(recipientName || 'there')},</p>
+    <p>You have a new message from <strong>${escapeHtml(displayName)}</strong>.</p>
     <a href="${conversationUrl}" class="button">View Conversation</a>
     <div class="message-box">
-      <p class="message-text">"${truncatedPreview}"</p>
+      <p class="message-text">"${escapeHtml(truncatedPreview)}"</p>
     </div>
     <div class="footer">
       <p>Chinese Learning App</p>
+      ${unsubscribeUrl ? `<p><a href="${escapeHtml(unsubscribeUrl)}" style="color:#6b7280">Turn off chat emails</a> · app notifications stay on</p>` : ''}
     </div>
   </div>
 </body>
@@ -158,7 +169,12 @@ Chinese Learning App`;
     subject,
     textContent,
     htmlContent,
+    headers,
   });
+}
+
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
 }
 
 /**

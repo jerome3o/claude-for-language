@@ -237,3 +237,26 @@ ALTER TABLE messages ADD COLUMN correction TEXT;   -- JSON { text, note, by, at 
   FCM `{ type:'chat_correction', conversation_id, relationship_id, message_id, sender_name, content, url }`,
   Web Push `{ type:'chat_correction', title, body, url, tag:'chat-<convId>', conversation_id, relationship_id, message_id }`.
 - Editing keeps the correction; deleting clears it.
+
+---
+
+# E-mail opt-out (migration 0093_chat_email_prefs.sql)
+
+```sql
+ALTER TABLE users ADD COLUMN email_chat_messages INTEGER NOT NULL DEFAULT 1;  -- 0 = no chat e-mails
+```
+
+- `notifyNewChatMessage` (services/chat/notify.ts) skips the e-mail when the recipient's `email_chat_messages = 0`.
+  Push (FCM / Web Push), the live socket and the in-app notification are unaffected.
+- Every chat e-mail has a **Turn off chat emails** link in the footer (HTML + text) and the
+  `List-Unsubscribe: <url>` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers (RFC 2369 / 8058), so Gmail
+  and others show their own Unsubscribe button.
+- The link needs no sign-in: `…/api/email/unsubscribe?t=<token>` on the API worker (`PUBLIC_API_URL`, default the
+  workers.dev URL), token = `b64url(userId).b64url(HMAC-SHA256("email-unsubscribe:" + SESSION_SECRET, "chat:" + userId))`
+  (`services/email-unsubscribe.ts`). It never expires and only ever toggles this one preference.
+- `GET /api/email/unsubscribe?t=` → a tiny page; **a GET changes nothing** (mail scanners open links) — the page POSTs
+  as it loads, so for a person it is one tap, then shows "Chat e-mails are off · Turn back on" (without JavaScript: a button).
+- `POST /api/email/unsubscribe?t=` (also the one-click target, body `List-Unsubscribe=One-Click`) / `POST /api/email/resubscribe?t=`
+  → `{ email_chat_messages }` with `Accept: application/json`, else the page. 400 bad token, 404 unknown account.
+- Signed in: `PUT /api/profile/email-prefs { email_chat_messages: boolean }`; the value is on `/api/auth/me`.
+  Web: Settings → Notifications → **Chat e-mails** checkbox. Lab: Settings → **Chat e-mails** toggle (cached on the device).

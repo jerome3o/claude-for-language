@@ -39,6 +39,12 @@ export async function setCallAlerts(mode: CallAlertsMode): Promise<CallAlertsMod
   return r.call_alerts;
 }
 
+/** Chat e-mails on / off for the account (push notifications are separate). */
+export async function setChatEmails(on: boolean): Promise<boolean> {
+  const r = await api<{ email_chat_messages: boolean }>('/profile/email-prefs', { method: 'PUT', body: JSON.stringify({ email_chat_messages: on }) });
+  return r.email_chat_messages;
+}
+
 const MODE_KEY = 'call-alerts-mode';
 
 /** The account's setting, mirrored on the device so the ring decision works before /auth/me answers. */
