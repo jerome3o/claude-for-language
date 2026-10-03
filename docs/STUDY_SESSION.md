@@ -40,7 +40,12 @@ needs to end anything and there is no "End session?" confirm or recap:
   `shared/study/resume.ts`: same local date, same deck scope, the card still in today's queue — a
   sync may have brought in its review from another device, or the day may have rolled over). The
   review's `time_spent_ms` carries on from the time already spent on the card; time away doesn't
-  count.
+  count. ✕ goes **back** to the screen Study was opened from (web: history back, or Home replacing
+  Study when it was opened straight from a link). There is only ever **one Study**: opening it
+  again (the widget, a reminder) brings the open one back instead of stacking another, and a
+  study reminder / the widget leaves a homework pass, reader, lesson, picture hunt or quest in
+  progress on screen (Lab `ui/nav/NavResume.kt`, web `components/nav/nativeRoute.ts`). The Lab
+  app also reopens where you were after its process died (up to 6 h; then the normal landing).
 - **Study ⇄ Sentence coach.** Card back → **⋯ → Sentence coach** opens the coach with the card's
   sentence (else its hanzi) in the box, not sent, cursor in it (`/coach?draft=…&focus=1`). The
   coach's back (web: **← Back to your card**) returns to the card as it was.

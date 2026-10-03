@@ -58,7 +58,7 @@ object ShellNotifier {
             .setContentTitle(c.hanzi)
             .setContentText("What does this mean? Think, then reveal.$more")
             .addAction(0, "Show answer", action(ctx, ShellActionReceiver.ACTION_REVEAL, 1, c.cardId))
-            .addAction(0, "Open study", ShellLinks.pending(ctx, 2, ShellLinks.STUDY))
+            .addAction(0, "Open study", ShellLinks.softPending(ctx, 2, ShellLinks.STUDY))
             .build())
     }
 
@@ -114,7 +114,7 @@ object ShellNotifier {
             .setContentTitle(ShellRules.homeworkTitle(due))
             .setContentText(lines.first())
             .setStyle(style)
-            .setContentIntent(ShellLinks.pending(ctx, 30, path))
+            .setContentIntent(ShellLinks.softPending(ctx, 30, path))
             .setShowWhen(false)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -138,7 +138,7 @@ object ShellNotifier {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setShowWhen(false) // a card isn't an event with a time
             // Tapping the body opens a full study session (the hybrid's /study?autostart=true).
-            .setContentIntent(ShellLinks.pending(ctx, 0, ShellLinks.STUDY))
+            .setContentIntent(ShellLinks.softPending(ctx, 0, ShellLinks.STUDY))
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
             .also { b -> if (cardId != null) b.addExtras(android.os.Bundle().apply { putString(EXTRA_CARD_ID, cardId) }) }

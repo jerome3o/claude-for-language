@@ -25,6 +25,18 @@ object ShellLinks {
     fun pending(context: Context, requestCode: Int, path: String): PendingIntent =
         PendingIntent.getActivity(context, requestCode, intent(context, path), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
+    /**
+     * A "go study" entry (the widget, a due-card / homework reminder): opens its path unless a
+     * homework pass, reader, lesson, picture hunt or quest is in progress — then that stays on
+     * screen (ui/nav/NavResume.kt). Study itself is single-instance either way.
+     */
+    const val EXTRA_SOFT = "lab_soft"
+
+    fun softIntent(context: Context, path: String): Intent = intent(context, path).putExtra(EXTRA_SOFT, true)
+
+    fun softPending(context: Context, requestCode: Int, path: String): PendingIntent =
+        PendingIntent.getActivity(context, requestCode, softIntent(context, path), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
     /** The in-app path an outside intent asks for: the hybrid-style `route` extra (web path). */
     fun routeExtra(intent: Intent?): String? =
         intent?.getStringExtra(EXTRA_ROUTE)?.trim()?.takeIf { it.isNotEmpty() }?.let { if (it.startsWith("/")) it else "/$it" }

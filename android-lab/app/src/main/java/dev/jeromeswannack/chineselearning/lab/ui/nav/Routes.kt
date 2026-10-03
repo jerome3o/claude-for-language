@@ -124,6 +124,8 @@ object Routes {
     const val PLACEHOLDER_ROUTE = "lab-placeholder?path={path}"
     fun placeholder(path: String) = "lab-placeholder?path=${Uri.encode(path)}"
     const val HOME_ROUTE = "home"
+    /** The study session's navigation route (single-instance: LabNav.openStudy). */
+    const val STUDY_ROUTE = "study?deck={deck}"
 
     /** Path segment encoder (keeps ids with odd characters routable). */
     fun seg(s: String): String = Uri.encode(s)

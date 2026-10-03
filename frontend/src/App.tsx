@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useRef } from 'react';
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NetworkProvider } from './contexts/NetworkContext';
@@ -11,6 +11,7 @@ import { CallAlerts } from './components/calls/CallAlerts';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/Loading';
 import { LandingResolver } from './components/nav/LandingResolver';
+import { nativeRouteAction } from './components/nav/nativeRoute';
 // Eagerly loaded — these are the landing pages
 import { HomePage } from './pages/HomePage';
 import { SplashPage } from './pages/SplashPage';
@@ -139,10 +140,15 @@ function LazyFallback() {
  */
 function NativeNavigationListener() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const here = useRef('');
+  here.current = location.pathname + location.search;
   useEffect(() => {
     const handler = (e: Event) => {
       const route = (e as CustomEvent<string>).detail;
-      if (typeof route === 'string' && route.startsWith('/')) {
+      // A study reminder / the widget never stacks a second Study and leaves a homework pass,
+      // a reader… on screen (components/nav/nativeRoute.ts); chat links always open.
+      if (typeof route === 'string' && route.startsWith('/') && nativeRouteAction(here.current, route) === 'navigate') {
         navigate(route);
       }
     };
