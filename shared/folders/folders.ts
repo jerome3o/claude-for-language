@@ -1,7 +1,7 @@
 /**
  * Folders: organisation only, for decks, Lesson Library items and graded readers.
  *
- * One model for all three (`folders` table, migration 0098): a folder belongs to one
+ * One model for all three (`folders` table, migration 0099): a folder belongs to one
  * user and one `kind`, has a name, an optional parent (ONE level of nesting: a folder
  * inside a top-level folder), and a `position` among its siblings. Items carry a
  * nullable `folder_id`; NULL = Unfiled. Folders never touch the study queue — the deck
