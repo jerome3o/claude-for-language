@@ -58,6 +58,9 @@ object AnalyticsEvents {
         ev("chat.search", "chat", listOf("results")),
         ev("chat.pinyin_toggle", "chat", listOf("aid", "on")),
         ev("chat.discuss", "chat", emptyList()),
+        ev("chat.listening_mode", "chat", listOf("scope", "on")),
+        ev("chat.listening_play", "chat", listOf("slow")),
+        ev("chat.listening_reveal", "chat", emptyList()),
         ev("chat.inbox_open", "chat", listOf("conversations", "unread")),
         ev("call.start", "calls", listOf("solo")),
         ev("call.join", "calls", listOf("role")),
@@ -161,6 +164,7 @@ object AnalyticsEvents {
         "homework.pass_item",
         "reader.word_tap",
         "reader.audio_block",
+        "chat.listening_play",
     )
 
     /** Port of parseAnalyticsLevel (anything unknown = verbose). */

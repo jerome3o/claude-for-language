@@ -124,7 +124,7 @@ export function AnkiExportModal({ target, onClose }: { target: AnkiExportTarget;
                 </span>
               </label>
             )}
-            <div className="modal-actions">
+            <div className="modal-actions sheet-footer">
               <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
               <button type="button" className="btn btn-primary" onClick={run}>⬇ Export .apkg</button>
             </div>
@@ -169,7 +169,7 @@ export function AnkiExportModal({ target, onClose }: { target: AnkiExportTarget;
                 <div className="anki-export-result-note">In Anki: File → Import, pick the file.</div>
               </div>
             </div>
-            <div className="modal-actions">
+            <div className="modal-actions sheet-footer">
               <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
             </div>
           </>
@@ -178,7 +178,7 @@ export function AnkiExportModal({ target, onClose }: { target: AnkiExportTarget;
         {phase.status === 'error' && (
           <>
             <div className="anki-export-error" role="alert">{phase.message}</div>
-            <div className="modal-actions">
+            <div className="modal-actions sheet-footer">
               <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
               <button type="button" className="btn btn-primary" onClick={run}>Try again</button>
             </div>

@@ -23,6 +23,7 @@ import { pushToDevices } from '../push/devices';
 import { broadcastToUsers, broadcastToUser } from './hub';
 import { messagePreviewText } from './media';
 import { getConversationParticipants, otherParticipant, type ChatParticipants } from './reads';
+import { notificationPreviewFor } from './listening';
 
 /** FCM data values are capped well below FCM's 4 KB payload limit. */
 export const FCM_CONTENT_MAX = 1000;
@@ -44,7 +45,7 @@ export function chatUrl(relationshipId: string, conversationId: string): string 
 }
 
 /** The FCM data payload for a new message (all values strings once sent). */
-export function chatMessageFcmData(message: MessageWithSender, relationshipId: string): Record<string, string> {
+export function chatMessageFcmData(message: MessageWithSender, relationshipId: string, preview: string = previewOf(message)): Record<string, string> {
   return {
     type: 'chat_message',
     conversation_id: message.conversation_id,
@@ -54,7 +55,8 @@ export function chatMessageFcmData(message: MessageWithSender, relationshipId: s
     sender_name: message.sender.name || 'Someone',
     sender_picture_url: message.sender.picture_url || '',
     // A photo / voice message: "📷 Photo" / "🎤 Voice message" (+ caption).
-    content: previewOf(message).slice(0, FCM_CONTENT_MAX),
+    // Listening mode: "🎧 New message" instead of the text (docs/CHAT.md "Listening mode").
+    content: preview.slice(0, FCM_CONTENT_MAX),
     attachment_kind: message.attachment?.kind ?? '',
     created_at: message.created_at,
     url: chatUrl(relationshipId, message.conversation_id),
@@ -65,8 +67,7 @@ function previewOf(message: MessageWithSender): string {
   return messagePreviewText(message);
 }
 
-export function chatMessageWebPush(message: MessageWithSender, relationshipId: string) {
-  const text = previewOf(message);
+export function chatMessageWebPush(message: MessageWithSender, relationshipId: string, text: string = previewOf(message)) {
   const preview = text.length > PREVIEW_MAX ? text.slice(0, PREVIEW_MAX) + '…' : text;
   return {
     type: 'chat_message' as const,
@@ -106,7 +107,16 @@ export async function notifyNewChatMessage(
   const relationshipId = participants.relationship_id;
   const recipientIsHuman = !!recipientId && recipientId !== CLAUDE_AI_USER_ID && recipientId !== senderId;
   const senderName = message.sender.name || 'Someone';
-  const content = previewOf(message);
+  const raw = previewOf(message);
+  // What the recipient may see before opening the chat: their listening mode hides Chinese text.
+  let content = raw;
+  if (recipientIsHuman) {
+    try {
+      content = await notificationPreviewFor(env.DB, recipientId, message, raw);
+    } catch (err) {
+      console.error('[chat-notify] listening lookup failed:', err);
+    }
+  }
   const truncated = content.length > PREVIEW_MAX ? content.slice(0, PREVIEW_MAX) + '...' : content;
 
   await Promise.all([
@@ -116,12 +126,12 @@ export async function notifyNewChatMessage(
     ),
     // 2. FCM to the recipient's native apps (never the sender's).
     recipientIsHuman
-      ? step('fcm', () => pushToDevices(env, [recipientId], chatMessageFcmData(message, relationshipId), { collapseKey: message.conversation_id, ttlSeconds: 86400 }, deps.fetcher))
+      ? step('fcm', () => pushToDevices(env, [recipientId], chatMessageFcmData(message, relationshipId, content), { collapseKey: message.conversation_id, ttlSeconds: 86400 }, deps.fetcher))
       : Promise.resolve(),
     // 3. Web Push to the recipient's browsers.
     recipientIsHuman
       ? step('web push', () =>
-          (deps.webPush ?? pushToUsers)(env, [recipientId], chatMessageWebPush(message, relationshipId), {
+          (deps.webPush ?? pushToUsers)(env, [recipientId], chatMessageWebPush(message, relationshipId, content), {
             ttl: 86400,
             urgency: 'high',
             topic: `chat${message.conversation_id.replace(/[^A-Za-z0-9]/g, '').slice(0, 28)}`,

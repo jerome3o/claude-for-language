@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { decksInQueueOrder, defaultPickerDeckId } from '@shared/decks/queue';
 import { createDeck, createNotesBatch, getDecks } from '../../api/client';
 import { proposeChatFlashcards } from '../../api/chat';
-import { usePinnedDecks } from '../../hooks/usePinnedDecks';
 import { invalidateKnownHanzi } from '../../services/readerWords';
 import { track, trackError } from '../../services/analytics';
 import {
   batchNotesFrom,
   draftsFromProposal,
-  initialDeck,
-  loadLastDeck,
   proposeBodyFor,
-  saveLastDeck,
   scopeLabel,
   type CardDraft,
   type FlashcardScope,
@@ -35,7 +32,8 @@ function snippet(text: string, max = 70): string {
  * Make flashcards from this chat (docs/CHAT.md PR 3): Claude proposes cards
  * from the picked messages (or today's / the last 50), each one editable and
  * ticked unless it is already in my decks, then one tap adds them all to one
- * deck (`POST /api/decks/:id/notes/batch`). The deck is remembered.
+ * deck (`POST /api/decks/:id/notes/batch`). The deck starts on the top of the
+ * study queue every time (decks listed in queue order); nothing is remembered.
  */
 export function MakeFlashcardsSheet({
   conversationId,
@@ -59,16 +57,14 @@ export function MakeFlashcardsSheet({
   const [newDeckName, setNewDeckName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const { sortWithPinnedFirst, isPinned } = usePinnedDecks();
 
   const decksQuery = useQuery({ queryKey: ['decks'], queryFn: () => getDecks() });
-  const decks = useMemo(() => sortWithPinnedFirst(decksQuery.data || []), [decksQuery.data, sortWithPinnedFirst]);
+  const decks = useMemo(() => decksInQueueOrder(decksQuery.data || []), [decksQuery.data]);
 
   useEffect(() => {
     if (!decksQuery.data || deckId) return;
-    const first = initialDeck(decks, loadLastDeck());
-    setDeckId(first || NEW_DECK);
-  }, [decksQuery.data, decks, deckId]);
+    setDeckId(defaultPickerDeckId(decksQuery.data) || NEW_DECK);
+  }, [decksQuery.data, deckId]);
 
   const propose = useCallback(async () => {
     setPhase({ kind: 'loading' });
@@ -122,7 +118,6 @@ export function MakeFlashcardsSheet({
         setNewDeckName('');
       }
       const res = await createNotesBatch(target, notes);
-      saveLastDeck(target);
       invalidateKnownHanzi();
       void queryClient.invalidateQueries({ queryKey: ['decks'] });
       const created = res.created?.length ?? 0;
@@ -274,7 +269,6 @@ export function MakeFlashcardsSheet({
               <select id="chat-cards-deck" value={deckId} onChange={(e) => setDeckId(e.target.value)}>
                 {decks.map((deck) => (
                   <option key={deck.id} value={deck.id}>
-                    {isPinned(deck.id) ? '📌 ' : ''}
                     {deck.name}
                   </option>
                 ))}

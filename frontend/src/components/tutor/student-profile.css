@@ -234,6 +234,7 @@
 
 .sp-sheet {
   max-height: 94vh;
+  max-height: 94dvh;
 }
 
 .sp-form {
@@ -405,14 +406,6 @@
   color: var(--color-text-light, #4b5563);
 }
 
-.sp-actions {
-  position: sticky;
-  bottom: -1rem;
-  margin: 0 -1rem -1rem;
-  padding: 0.75rem 1rem;
-  background: var(--color-surface, #fff);
-  border-top: 1px solid var(--color-border, #e5e7eb);
-}
 
 /* Dashboard hint: a quiet dashed pill, not a warning */
 .td-pill-profile {

@@ -74,6 +74,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.async
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatActions as ChatWrites
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaStore
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatClips
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatReadAloud
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
+import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListening
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatWaveforms
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPhoto
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatVoiceRecorder
@@ -97,7 +101,8 @@ import java.io.File
 
 data class Notice(val text: String, val error: Boolean)
 
-data class DeckChoice(val id: String, val name: String, val pinned: Boolean)
+/** A deck in the chat's add-card pickers, listed in study-queue order (the top deck first). */
+data class DeckChoice(val id: String, val name: String)
 
 /** A bottom sheet the chat has open (web: the page's modals + the per-message sheet). */
 sealed interface ChatSheet {
@@ -293,7 +298,19 @@ data class ChatUi(
     val fileErrors: Set<String> = emptySet(),
     /** The video bubble playing in place (message id, or "p-<clientId>"). */
     val playingVideo: String? = null,
+    // ---- listening mode (docs/CHAT.md "Listening mode") ----
+    val listening: ListeningUi = ListeningUi(),
 ) {
+    /** Listening mode belongs to chats with a person (Claude's replies are spoken already). */
+    val listeningAvailable: Boolean get() = !isAi && !otherIsClaude
+
+    /** Is [m] drawn as a hidden listening bubble (shared `shouldHideMessage`)? */
+    fun isHidden(m: ChatMessageDto): Boolean {
+        val me = myId ?: return false
+        if (!listeningAvailable) return false
+        return ChatListening.shouldHideMessage(ChatListeningStore.listeningMessage(m), me, listening.setting, listening.readMarkerAtOpen, listening.revealed)
+    }
+
     /** "🕓 1 message waiting for a connection" / "🕓 Sending 2 messages…" while this chat's outbox holds sends. */
     val queueLabel: String? get() = ChatRound3.queueLabel(pending, online)
 
@@ -351,6 +368,8 @@ data class ChatUi(
 class ChatViewModel(private val app: LabApp, private val relId: String, private val convId: String) : ViewModel() {
     private val _ui = MutableStateFlow(ChatUi())
     val ui: StateFlow<ChatUi> = _ui
+    /** Listening mode: the hidden bubbles' state + playback (ChatListeningMode.kt). */
+    val listening = ChatListeningMode(app, convId, viewModelScope, _ui, stopOthers = { stopAudio() }, notice = { error(it) }, voiceOf = { readAloudVoice(it) })
     private val api get() = app.repo.api
     private val cards = CardTools(app)
     private val media = ChatMediaStore.of(app)
@@ -358,6 +377,10 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private var pollJob: Job? = null
     private var player: MediaPlayer? = null
     private var progressJob: Job? = null
+    /** Offline with no clip on the phone: the phone's own zh-CN voice of the sender's gender. */
+    private val deviceVoice by lazy { dev.jeromeswannack.chineselearning.lab.fx.DeviceChineseVoice(app) }
+    /** The other person's users.voice_gender (from the relationship, cached with it). */
+    private var otherVoiceGender: String? = null
     private val checkResults = HashMap<String, CheckResultDto>()
     private val typingIn = TypingIndicator()
     private val typingOut = TypingThrottle()
@@ -382,6 +405,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     init {
         viewModelScope.launch { app.online.collect { o -> _ui.update { it.copy(online = o) }; if (o) flushOutbox() } }
+        listening.start()
         viewModelScope.launch { load() }
         viewModelScope.launch { Connections.markConversationRead(app, convId) }
         // The live socket (data/chat/ChatLive.kt): new / changed messages, read receipts, typing.
@@ -458,6 +482,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         if (cachedMsgs != null) {
             _ui.update { it.copy(loading = false, messages = cachedMsgs) }
             refreshPending()
+            listening.measureCached(cachedMsgs)
         }
         try {
             val rel = api.relationship(relId).also { cache.put(ConnectionsKeys.relationship(relId), ConnectionsKeys.KIND, it) }
@@ -479,6 +504,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 )
             }
             refreshPending()
+            // Listening mode: an undecided setting hides what was unread until now (stored as `since`); clips prefetched.
+            listening.onOpened(page.read_state?.me, _ui.value.messages)
             readHere()
             startPolling()
             app.analytics.track("chat.open", mapOf("is_ai" to _ui.value.isAi, "unread" to (unread != null)))
@@ -496,6 +523,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private fun applyHeader(rel: RelationshipDto?, convs: List<ChatConversationDto>?, me: String?) {
         rel ?: return
         val other = rel.other(me)
+        otherVoiceGender = other?.voice_gender
         val tutorId = if (rel.requester_role == "tutor") rel.requester_id else rel.recipient_id
         _ui.update {
             it.copy(
@@ -608,6 +636,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         viewModelScope.launch { app.cache.put(messagesKey, KIND, _ui.value.messages.takeLast(CACHE_LIMIT)) }
         val fresh = list.filter { it.id !in before && it.sender_id != myId }
         if (fresh.isNotEmpty()) onIncomingWhileOpen(fresh.size)
+        // Their clips (cache-first; the live socket prefetches too, this covers polling).
+        if (fresh.isNotEmpty()) listening.prefetch(_ui.value.messages)
     }
 
     /** Re-reads the whole page (reactions, has_discussion changed on the server). */
@@ -620,10 +650,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     private suspend fun loadDecks() {
-        val pinned = app.cache.get<List<String>>(PINNED_KEY).orEmpty()
-        val decks = withContext(Dispatchers.IO) { app.repo.dao.decks() }
-            .sortedWith(compareByDescending<dev.jeromeswannack.chineselearning.lab.data.DeckEntity> { it.id in pinned }.thenBy { it.name.lowercase() })
-            .map { DeckChoice(it.id, it.name, it.id in pinned) }
+        // Queue order (the web's decksInQueueOrder): the top deck first, and the pickers' default.
+        val decks = dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(withContext(Dispatchers.IO) { app.repo.dao.decks() }, { it.studyPriority }, { it.createdAt })
+            .map { DeckChoice(it.id, it.name) }
         _ui.update { it.copy(decks = decks) }
     }
 
@@ -1426,26 +1455,61 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
+    /**
+     * The voice + speed one message is read in (shared/chats/voice.ts via core ChatVoice): the
+     * sender's voice gender → the first voice of that gender in MY conversation voices; Claude's
+     * lines in a role-play chat keep the chat's persona voice. Never the legacy conversations.voice_id.
+     */
+    internal suspend fun readAloudVoice(m: ChatMessageDto): Pair<String, Double> {
+        val s = _ui.value
+        val c = s.conversation
+        return ChatReadAloud.voice(
+            app, senderIsMe = m.sender_id.isNotEmpty() && m.sender_id == s.myId, otherGender = otherVoiceGender,
+            fromAi = s.isAi && m.sender_id == CLAUDE_USER_ID, personaVoice = c?.voice_id, personaSpeed = c?.voice_speed,
+        )
+    }
+
+    /**
+     * Message menu → Read aloud: a cached clip for (text, voice, speed) plays at once, offline too;
+     * else it is made by `/api/practice/tts` and kept. Online failure → the server's own resolution
+     * (`/tts` with message_id); offline with nothing cached → the phone's zh-CN voice of that gender.
+     */
     fun play(m: ChatMessageDto) {
         if (_ui.value.playingId == m.id) { stopAudio(); return }
+        val text = m.content
+        if (text.isBlank()) return
         _ui.update { it.copy(playingId = m.id) }
         viewModelScope.launch {
-            try {
-                val c = _ui.value.conversation
-                val r = api.conversationTts(convId, m.content, c?.voice_id, c?.voice_speed)
-                playBase64(r.audio_base64, m.id)
-            } catch (e: Exception) {
-                _ui.update { it.copy(playingId = null) }
-                error("Couldn't play that message.")
+            val (voice, speed) = readAloudVoice(m)
+            val online = app.online.value
+            // The same clip listening mode's tap plays (ChatReadAloud: one voice rule, one device cache).
+            val file = ChatClips.of(app).clip(text, voice, speed)
+            if (_ui.value.playingId != m.id) return@launch
+            if (file != null) { playFile(file, m.id); return@launch }
+            if (online) {
+                try {
+                    val r = api.conversationTts(convId, text, null, null, messageId = m.id)
+                    if (_ui.value.playingId == m.id) playBase64(r.audio_base64, m.id)
+                    return@launch
+                } catch (e: Exception) {
+                    // the phone's own voice below
+                }
+            }
+            deviceVoice.speak(text, dev.jeromeswannack.chineselearning.lab.core.ChatVoice.deviceGender(voice)) {
+                _ui.update { u -> if (u.playingId == m.id) u.copy(playingId = null) else u }
             }
         }
     }
 
     private suspend fun playBase64(base64: String, messageId: String) {
-        stopAudio()
         val file = withContext(Dispatchers.IO) {
             File(app.cacheDir, "chat-tts.mp3").apply { writeBytes(Base64.decode(base64, Base64.DEFAULT)) }
         }
+        playFile(file, messageId)
+    }
+
+    private fun playFile(file: File, messageId: String) {
+        stopAudio()
         _ui.update { it.copy(playingId = messageId) }
         val mp = MediaPlayer()
         player = mp
@@ -1460,7 +1524,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     fun stopAudio() {
+        listening.stop()
         progressJob?.cancel()
+        deviceVoice.stop()
         player?.runCatching { release() }
         player = null
         _ui.update { it.copy(playingId = null, voice = null) }
@@ -1610,14 +1676,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             } catch (e: Exception) {
                 _ui.update { it.copy(saving = false, modalNotice = Notice(e.userMessage(), true)) }
             }
-        }
-    }
-
-    fun togglePin(deckId: String) {
-        viewModelScope.launch {
-            val pinned = app.cache.get<List<String>>(PINNED_KEY).orEmpty()
-            app.cache.put(PINNED_KEY, KIND, if (deckId in pinned) pinned - deckId else pinned + deckId)
-            loadDecks()
         }
     }
 
@@ -1799,9 +1857,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 val cards = r.cards.map(::proposed)
                 val byId = _ui.value.messages.associateBy { it.id }
                 val sources = cards.mapNotNull { it.sourceMessageId }.distinct().mapNotNull { id -> byId[id]?.let { id to sourcePreview(it) } }.toMap()
-                val last = app.cache.get<String>(LAST_DECK_KEY)
+                // The top deck of the study queue every time (decks are in queue order); nothing remembered.
                 val decks = _ui.value.decks
-                val deckId = last?.takeIf { id -> decks.any { it.id == id } } ?: decks.firstOrNull()?.id
+                val deckId = decks.firstOrNull()?.id
                 app.haptics.tick()
                 app.sounds.play(Sounds.Sfx.FLIP, 0.5f)
                 _ui.update {
@@ -1864,7 +1922,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                     deckId = r.deckId!!
                     deckName = _ui.value.decks.firstOrNull { it.id == deckId }?.name ?: "your deck"
                 }
-                app.cache.put(LAST_DECK_KEY, KIND, deckId)
                 val res = api.addNotesBatch(deckId, chosen.map { noteOf(it.second) })
                 val failed = res.failed.associate { it.index to it.error.ifBlank { "Couldn't add this card." } }
                 val added = res.created.size
@@ -1964,17 +2021,15 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         stopAudio()
         recordJob?.cancel()
         recorder?.cancel()
+        deviceVoice.shutdown()
         super.onCleared()
     }
 
     companion object {
         const val KIND = "chat"
-        const val PINNED_KEY = "chat/pinned-decks"
         const val RECENT_KEY = "chat/recent-emojis"
         /** The voice-message speed chip (1 / 1.5 / 2). */
         const val SPEED_KEY = "chat/voice-speed"
-        /** The deck the last "Make flashcards" went to (preselected next time). */
-        const val LAST_DECK_KEY = "chat/last-deck"
 
         fun proposed(c: ProposedCardDto) = dev.jeromeswannack.chineselearning.lab.core.ProposedCard(
             hanzi = c.hanzi, pinyin = c.pinyin, english = c.english, funFacts = c.fun_facts,

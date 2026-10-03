@@ -75,7 +75,7 @@ time; Lab: `0.N (versionCode)`).
 
 - **`ANALYTICS_LEVEL`** (worker env var, default `verbose`): `off` stores nothing (clients keep
   sending and get `stored: 0`), `basic` drops the high-volume events (`VERBOSE_ONLY_EVENTS`:
-  screen views, card ratings, sentence reveals, homework items, reader word taps), `verbose`
+  screen views, card ratings, sentence reveals, homework items, reader word taps, listening-mode plays), `verbose`
   stores everything. Set it in `wrangler.toml` `[vars]` or the dashboard.
 - **Per user** — Settings → Advanced → *Share usage data to help improve the app* (on by default;
   web and Lab). `PUT /api/profile/analytics { share_usage }` sets `users.analytics_opt_out`; turning
@@ -170,6 +170,9 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `chat.search` | `results` | Searched inside a conversation. |
 | `chat.pinyin_toggle` | `aid`, `on` | Switched the 拼 / EN reading aids of a conversation. |
 | `chat.discuss` | — | Discuss with Claude on a message. |
+| `chat.listening_mode` | `scope`, `on` | Listening mode switched for a conversation, or the default for new chats. |
+| `chat.listening_play` | `slow` | Listening mode: tapped a hidden message to hear it. |
+| `chat.listening_reveal` | — | Listening mode: held a hidden message to reveal its text. |
 | `chat.inbox_open` | `conversations`, `unread` | Opened the Chats tab. |
 
 ### calls

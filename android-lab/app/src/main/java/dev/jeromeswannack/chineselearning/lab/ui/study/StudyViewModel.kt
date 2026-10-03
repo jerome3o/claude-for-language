@@ -1007,7 +1007,7 @@ class StudyViewModel(
     }
 
     /** Decks for "+ make a card from this message" (the web's deck buttons). */
-    suspend fun deckChoices(): List<Pair<String, String>> = withContext(Dispatchers.IO) { repo.dao.decks().map { it.id to it.name } }
+    suspend fun deckChoices(): List<Pair<String, String>> = withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { it.id to it.name } }
 
     /** Flag sheet → queue / send. */
     suspend fun flag(tutor: FlagTutor, message: String): Boolean {

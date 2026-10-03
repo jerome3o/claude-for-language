@@ -135,7 +135,7 @@ export function RemoveHomeworkSheet({
             </>
           )}
           {error && <div className="td-error">{error}</div>}
-          <div className="hw-remove-actions">
+          <div className="hw-remove-actions sheet-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>
               Cancel
             </button>

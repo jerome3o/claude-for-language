@@ -62,6 +62,8 @@ export interface AuthUser {
   /** Profile screen (/profile): public About me, time zone, where the picture comes from. */
   about?: string | null;
   time_zone?: string | null;
+  /** Voice my chat messages are read aloud in (Profile; shared/chats/voice.ts). */
+  voice_gender?: 'male' | 'female' | 'other' | null;
   picture_source?: 'google' | 'upload' | 'none';
 }
 
@@ -317,6 +319,8 @@ export interface UserSummary {
   about?: string | null;
   /** Their IANA time zone — shown as their local time (relationships only). */
   time_zone?: string | null;
+  /** Their read-aloud voice (shared/chats/voice.ts; relationships only). */
+  voice_gender?: 'male' | 'female' | 'other' | null;
 }
 
 export interface TutorRelationshipWithUsers extends TutorRelationship {

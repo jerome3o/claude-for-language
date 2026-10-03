@@ -167,7 +167,7 @@ describe('registerContentTools', () => {
     registerContentTools(ctx);
     expect([...tools.keys()].sort()).toEqual([
       'add_words_to_student_deck', 'archive_library_lesson', 'assign_lesson_to_students', 'create_deck_for_student',
-      'create_library_lesson', 'create_reader', 'delete_reader', 'duplicate_library_lesson', 'export_library_lesson',
+      'create_homework_deck', 'create_library_lesson', 'create_reader', 'delete_reader', 'duplicate_library_lesson', 'export_library_lesson',
       'export_reader', 'generate_reader', 'get_lesson_assignments', 'get_library_lesson', 'get_reader', 'get_starter_deck',
       'list_lesson_library', 'list_readers', 'list_student_lessons', 'list_student_readers', 'push_lesson_update',
       'retry_reader', 'share_reader_with_student', 'update_library_lesson', 'update_reader',
@@ -204,31 +204,35 @@ describe('reader tools', () => {
     const { ctx, tools, calls } = fakeContext({
       'POST /api/readers/import': () => ({ id: 'new-1', status: 'ready', image_jobs: 1, spec: validReader }),
       'PUT /api/readers/new-1/spec': (body) => ({ id: 'new-1', status: 'ready', image_jobs: 0, spec: (body as { spec: unknown }).spec }),
+      'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome' } }, { id: 'rel-2', requester_id: 'tutor-1', recipient_id: 'student-2', requester_role: 'tutor', status: 'active', recipient: { name: 'Mei' } }], tutors: [] }),
       'GET /api/relationships/rel-1/lesson-log': LESSON_LOG,
       'POST /api/relationships/rel-1/homework': homeworkRoute({ target_id: 'copy-1', target_name: 'The Kitten Finds a Home', share_id: 's1' }),
     });
     registerReaderTools(ctx);
 
     const created = JSON.parse(text(await tools.get('create_reader')!({ spec: validReader })));
-    expect(created).toMatchObject({ id: 'new-1', image_jobs: 1 });
+    expect(created).toMatchObject({ id: 'new-1', image_jobs: 1, sent: false });
+    expect(created.message).toContain('Saved in your account (not sent)');
 
     const updated = JSON.parse(text(await tools.get('update_reader')!({ reader_id: 'new-1', spec: validReader })));
     expect(updated).toMatchObject({ id: 'new-1', page_count: 2 });
 
-    const shared = JSON.parse(text(await tools.get('share_reader_with_student')!({ relationship_id: 'rel-1', reader_id: 'new-1', today: '2026-09-28' })));
+    const shared = JSON.parse(text(await tools.get('share_reader_with_student')!({ relationship_id: 'rel-1', reader_id: 'new-1', today: '2026-09-28', confirm: true })));
     expect(shared.student_reader).toEqual({ id: 'copy-1', title: 'The Kitten Finds a Home' });
     expect(shared).toMatchObject({ share: { id: 's1', target_reader_id: 'copy-1' }, mode: 'both', due_date: '2026-10-01' });
     expect(shared.message).toContain('due Thu 1 Oct, then in long-term review');
+    expect(shared.message).toMatch(/^SENT to Jerome: /);
 
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
       'POST /api/readers/import',
       'PUT /api/readers/new-1/spec',
+      'GET /api/relationships',
       'GET /api/relationships/rel-1/lesson-log',
       'POST /api/relationships/rel-1/homework',
     ]);
     expect(calls[0].body).toEqual({ spec: validReader });
     // Sent as homework: both, due at the next logged lesson.
-    expect(calls[3].body).toEqual({ items: [{ kind: 'reader', source_id: 'new-1', mode: 'both', due_date: '2026-10-01' }], today: '2026-09-28' });
+    expect(calls[4].body).toEqual({ items: [{ kind: 'reader', source_id: 'new-1', mode: 'both', due_date: '2026-10-01' }], today: '2026-09-28' });
   });
 
   it('generate_reader posts the decks source and tells the model to poll', async () => {
@@ -278,6 +282,7 @@ describe('lesson library tools', () => {
 
   it('assign / assignments / push-update / student-lessons hit the right paths', async () => {
     const { ctx, tools, calls } = fakeContext({
+      'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome' } }, { id: 'rel-2', requester_id: 'tutor-1', recipient_id: 'student-2', requester_role: 'tutor', status: 'active', recipient: { name: 'Mei' } }], tutors: [] }),
       'GET /api/lesson-library/lib-1/assignments': () => ({ assignments: [{ lesson_id: 'l0', relationship_id: 'rel-2', student: { id: 'student-2' }, up_to_date: false }] }),
       'GET /api/relationships/rel-1/lesson-log': () => ({ entries: [] }),
       'POST /api/relationships/rel-1/homework': homeworkRoute({ target_id: 'l1', target_name: 'Tones', share_id: null }),
@@ -287,20 +292,22 @@ describe('lesson library tools', () => {
     });
     registerLessonLibraryTools(ctx);
 
-    const assigned = JSON.parse(text(await tools.get('assign_lesson_to_students')!({ library_id: 'lib-1', relationship_ids: ['rel-1', 'rel-2'], today: '2026-09-28' })));
-    expect(assigned.message).toContain('Assigned to 1 student(s) as one-off homework due Wed 30 Sep, then in long-term review; 1 already had it');
+    const assigned = JSON.parse(text(await tools.get('assign_lesson_to_students')!({ library_id: 'lib-1', relationship_ids: ['rel-1', 'rel-2'], today: '2026-09-28', confirm: true })));
+    expect(assigned.message).toBe('SENT to Jerome: the lesson as one-off homework due Wed 30 Sep, then in long-term review. Mei already had it.');
     expect(assigned.assigned).toEqual([{ relationship_id: 'rel-1', lesson_id: 'l1', student_id: 'student-1', assignment_ids: ['a1'], due_date: '2026-09-30' }]);
     expect(assigned.already_had).toEqual([{ relationship_id: 'rel-2', lesson_id: 'l0', student_id: 'student-2' }]);
     const assignments = JSON.parse(text(await tools.get('get_lesson_assignments')!({ library_id: 'lib-1' })));
     expect(assignments.count).toBe(1);
     const updated = JSON.parse(text(await tools.get('update_library_lesson')!({ library_id: 'lib-1', spec: lesson })));
     expect(updated.message).toContain('push_lesson_update');
-    const pushed = JSON.parse(text(await tools.get('push_lesson_update')!({ library_id: 'lib-1', relationship_ids: ['rel-1'] })));
+    const pushed = JSON.parse(text(await tools.get('push_lesson_update')!({ library_id: 'lib-1', relationship_ids: ['rel-1'], confirm: true })));
     expect(pushed.updated).toBe(1);
     const studentLessons = JSON.parse(text(await tools.get('list_student_lessons')!({ relationship_id: 'rel-1' })));
     expect(studentLessons.count).toBe(1);
 
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
+      'GET /api/relationships',
+      'GET /api/relationships',
       'GET /api/lesson-library/lib-1/assignments',
       'GET /api/relationships/rel-1/lesson-log',
       'POST /api/relationships/rel-1/homework',
@@ -310,15 +317,15 @@ describe('lesson library tools', () => {
       'GET /api/relationships/rel-1/student-lessons',
     ]);
     // No lesson coming up → due in two days; mode both.
-    expect(calls[2].body).toEqual({ items: [{ kind: 'lesson', source_id: 'lib-1', mode: 'both', due_date: '2026-09-30' }], today: '2026-09-28' });
+    expect(calls[4].body).toEqual({ items: [{ kind: 'lesson', source_id: 'lib-1', mode: 'both', due_date: '2026-09-30' }], today: '2026-09-28' });
     // tags omitted → not sent, so the API keeps the current ones
-    expect(calls[4].body).toEqual({ spec: lesson });
-    expect(calls[5].body).toEqual({ relationship_ids: ['rel-1'] });
+    expect(calls[6].body).toEqual({ spec: lesson });
+    expect(calls[7].body).toEqual({ relationship_ids: ['rel-1'] });
   });
 });
 
 describe('student deck tools', () => {
-  it('create_deck_for_student creates the deck and notes in one batch, then shares without waiting for audio — continuing past a failed note', async () => {
+  it('create_homework_deck with send_now + confirm creates the deck and notes in one batch, then sends without waiting for audio — continuing past a failed note', async () => {
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active' }], tutors: [] }),
       'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
@@ -339,7 +346,9 @@ describe('student deck tools', () => {
     });
     registerStudentDeckTools(ctx, { audioWait: { attempts: 1, delayMs: 0 } });
 
-    const result = JSON.parse(text(await tools.get('create_deck_for_student')!({
+    const result = JSON.parse(text(await tools.get('create_homework_deck')!({
+      send_now: true,
+      confirm: true,
       relationship_id: 'rel-1',
       today: '2026-09-28',
       name: 'Weather',
@@ -377,6 +386,7 @@ describe('student deck tools', () => {
     // A real homework assignment: both (one-off pass + long-term), due at the next logged lesson, top of the queue.
     expect(calls[5].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'both', due_date: '2026-10-01', priority: 'core' }], today: '2026-09-28' });
     expect(result.message).toContain('as one-off homework due Thu 1 Oct, then in long-term review');
+    expect(result.message).toMatch(/^SENT to /);
     expect(result.message).toContain('still generating in the background');
   });
 
@@ -399,7 +409,7 @@ describe('student deck tools', () => {
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual(['GET /api/relationships']);
   });
 
-  it('create_deck_for_student removes the deck again when sharing fails', async () => {
+  it('create_homework_deck keeps the deck in the tutor account and says so when sending fails', async () => {
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 's', requester_role: 'tutor', status: 'active' }], tutors: [] }),
       'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
@@ -407,20 +417,19 @@ describe('student deck tools', () => {
       'GET /api/decks/deck-1': () => ({ id: 'deck-1', notes: [{ id: 'n1', audio_url: 'a.mp3' }] }),
       'GET /api/relationships/rel-1/lesson-log': () => ({ entries: [] }),
       'POST /api/relationships/rel-1/homework': () => { throw new ApiError(400, 'The student no longer has an account', null); },
-      'DELETE /api/decks/deck-1': () => ({ success: true }),
     });
     registerStudentDeckTools(ctx, { audioWait: { attempts: 1, delayMs: 0 } });
-    const result = await tools.get('create_deck_for_student')!({
-      relationship_id: 'rel-1', name: 'Weather', notes: [{ hanzi: '刮风', pinyin: 'guā fēng', english: 'windy' }],
+    const result = await tools.get('create_homework_deck')!({
+      send_now: true, confirm: true, relationship_id: 'rel-1', name: 'Weather', notes: [{ hanzi: '刮风', pinyin: 'guā fēng', english: 'windy' }],
     });
     expect(result.isError).toBe(true);
-    expect(text(result)).toContain('could not be shared');
-    expect(text(result)).toContain('removed again');
-    expect(calls.map(c => `${c.method} ${c.path}`).slice(-2)).toEqual(['POST /api/relationships/rel-1/homework', 'DELETE /api/decks/deck-1']);
+    expect(text(result)).toContain('saved in your account but could NOT be sent');
+    expect(calls.map(c => `${c.method} ${c.path}`).at(-1)).toBe('POST /api/relationships/rel-1/homework');
   });
 
-  it('add_words_to_student_deck resolves the source deck from the share and updates the copy', async () => {
+  it('add_words_to_student_deck adds to the tutor deck only, unless update_student_copy + confirm', async () => {
     const { ctx, tools, calls } = fakeContext({
+      'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active', recipient: { name: 'Jerome' } }, { id: 'rel-2', requester_id: 'tutor-1', recipient_id: 'student-2', requester_role: 'tutor', status: 'active', recipient: { name: 'Mei' } }], tutors: [] }),
       'GET /api/relationships/rel-1/shared-decks': () => [{ id: 'share-1', source_deck_id: 'src', target_deck_id: 'tgt', source_deck_name: 'Weather' }],
       'POST /api/decks/src/notes/batch': () => ({ created: [{ id: 'n9', hanzi: '雾', audio_url: null }], failed: [] }),
       'GET /api/decks/src': () => ({ id: 'src', notes: [{ id: 'n9', audio_url: 'c.mp3' }] }),
@@ -428,11 +437,24 @@ describe('student deck tools', () => {
     });
     registerStudentDeckTools(ctx, { audioWait: { attempts: 1, delayMs: 0 } });
 
-    const result = JSON.parse(text(await tools.get('add_words_to_student_deck')!({
+    const kept = JSON.parse(text(await tools.get('add_words_to_student_deck')!({
       relationship_id: 'rel-1', shared_deck_id: 'share-1', notes: [{ hanzi: '雾', pinyin: 'wù', english: 'fog' }],
     })));
-    expect(result).toMatchObject({ tutor_deck_id: 'src', student_deck_id: 'tgt', created: 1, student_copy: { added: 1, kept: 3 } });
+    expect(kept).toMatchObject({ sent: false, tutor_deck_id: 'src', created: 1 });
+    expect(kept.message).toContain('not sent');
+    expect(calls.map(c => c.path)).not.toContain('/api/relationships/rel-1/shared-decks/share-1/update');
+
+    const refused = await tools.get('add_words_to_student_deck')!({ relationship_id: 'rel-1', shared_deck_id: 'share-1', notes: [], update_student_copy: true });
+    expect(refused.isError).toBe(true);
+
+    calls.length = 0;
+    const result = JSON.parse(text(await tools.get('add_words_to_student_deck')!({
+      relationship_id: 'rel-1', shared_deck_id: 'share-1', notes: [{ hanzi: '雾', pinyin: 'wù', english: 'fog' }], update_student_copy: true, confirm: true,
+    })));
+    expect(result).toMatchObject({ sent: true, tutor_deck_id: 'src', student_deck_id: 'tgt', created: 1, student_copy: { added: 1, kept: 3 } });
+    expect(result.message).toMatch(/^SENT to Jerome: /);
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
+      'GET /api/relationships',
       'GET /api/relationships/rel-1/shared-decks',
       'POST /api/decks/src/notes/batch',
       'GET /api/decks/src',

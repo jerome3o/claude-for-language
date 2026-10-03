@@ -48,6 +48,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {
                     dev.jeromeswannack.chineselearning.lab.ui.calls.CallAlertsSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.chat.ChatEmailsSettings(app)
+                    dev.jeromeswannack.chineselearning.lab.ui.chat.ChatListeningSettings(app)
                 }
             },
             ui = ui,

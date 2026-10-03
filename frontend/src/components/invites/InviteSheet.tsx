@@ -329,14 +329,16 @@ export function InviteSheet({ onClose, onCreated }: InviteSheetProps) {
             {error && <p className="text-error invite-error">{error}</p>}
             <OfflineWarning message="You're offline. Invite links can't be created right now." />
 
-            <button
-              type="button"
-              className="btn btn-primary btn-block invite-create-btn"
-              onClick={handleCreate}
-              disabled={!canCreate}
-            >
-              {isCreating ? (creatingStep ?? 'Creating…') : 'Create link'}
-            </button>
+            <div className="sheet-footer">
+              <button
+                type="button"
+                className="btn btn-primary btn-block invite-create-btn"
+                onClick={handleCreate}
+                disabled={!canCreate}
+              >
+                {isCreating ? (creatingStep ?? 'Creating…') : 'Create link'}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="invite-sheet-body invite-result">

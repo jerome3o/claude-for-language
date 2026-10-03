@@ -182,6 +182,8 @@ export interface User {
   picture_key?: string | null;
   about?: string | null;
   time_zone?: string | null;
+  /** Voice for reading this person's chat messages aloud (migration 0098; shared/chats/voice.ts). */
+  voice_gender?: 'male' | 'female' | 'other' | null;
   /** Which tab the app opens on; NULL = automatic (see PUT /api/profile/landing-page). */
   landing_page: LandingPage | null;
   /** Daily new-card budget across all decks (migration 0069); NULL = DEFAULT_STUDY_BUDGET. */
@@ -515,8 +517,8 @@ export interface TutorRelationship {
 }
 
 export interface TutorRelationshipWithUsers extends TutorRelationship {
-  requester: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone'>;
-  recipient: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone'>;
+  requester: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone' | 'voice_gender'>;
+  recipient: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone' | 'voice_gender'>;
 }
 
 export interface Conversation {

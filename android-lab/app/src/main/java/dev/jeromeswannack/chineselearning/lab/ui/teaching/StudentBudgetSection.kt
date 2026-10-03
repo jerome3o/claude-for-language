@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,7 +34,9 @@ import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
@@ -126,11 +129,12 @@ fun DailyBudgetSheet(
             if (e == null) onDismiss() else error = e
         }
     }
-    LabBottomSheet(onDismiss = onDismiss, title = "Daily new cards") {
+    LabSheetFrame(onDismiss = onDismiss) {
         DailyBudgetForm(
             data, draft, { draft = it }, busy, error, online,
             onReset = { draft = data.default.toBudget(); send(null, null) },
             onSave = { send(draft.newCardsPerDay, draft.secondaryCardsPerDay) },
+            title = "Daily new cards",
         )
     }
 }
@@ -146,10 +150,36 @@ fun DailyBudgetForm(
     online: Boolean,
     onReset: () -> Unit,
     onSave: () -> Unit,
+    title: String? = null,
+    modifier: Modifier = Modifier,
 ) {
     val current = data.budget.toInfo().budget
     val default = data.default.toBudget()
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    SheetScaffold(
+        modifier,
+        spacing = 14.dp,
+        header = title?.let { t -> { SheetTitle(t) } },
+        footerAbove = if (error == null && online) null else {
+            {
+                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                if (!online) InlineNotice("Needs a connection to save.", kind = NoticeKind.Offline)
+            }
+        },
+        footer = {
+            SecondaryPill(
+                "Reset to default",
+                Modifier.weight(1f).height(52.dp),
+                enabled = !busy && online && !(data.budget.is_default && draft == default),
+                onClick = onReset,
+            )
+            PrimaryPill(
+                if (busy) "Saving…" else "Save",
+                Modifier.weight(1f).height(52.dp),
+                enabled = !busy && online && draft != current,
+                onClick = onSave,
+            )
+        },
+    ) {
         Stepper("New words a day", "Words they have never seen", draft.newCardsPerDay, { onDraft(draft.copy(newCardsPerDay = it.coerceIn(0, StudyBudget.MAX))) }, StudyBudget.MAX, !busy, accent = Palette.New)
         Stepper("Extra cards a day", "Other card types of words already started", draft.secondaryCardsPerDay, { onDraft(draft.copy(secondaryCardsPerDay = it.coerceIn(0, StudyBudget.MAX))) }, StudyBudget.MAX, !busy, accent = Palette.Secondary)
         val top = data.top_deck
@@ -160,19 +190,5 @@ fun DailyBudgetForm(
             "They'll get a chat message from you, and can still change it in their Settings.",
             style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted,
         )
-        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        if (!online) InlineNotice("Needs a connection to save.", kind = NoticeKind.Offline)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryPill(
-                "Reset to default",
-                enabled = !busy && online && !(data.budget.is_default && draft == default),
-                onClick = onReset,
-            )
-            PrimaryPill(
-                if (busy) "Saving…" else "Save",
-                enabled = !busy && online && draft != current,
-                onClick = onSave,
-            )
-        }
     }
 }

@@ -328,6 +328,8 @@
 .study-flag-sheet {
   padding-left: 1rem;
   padding-right: 1rem;
+  --sheet-pad: 1rem;
+  --sheet-pad-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
 }
 
 .study-flag-title {

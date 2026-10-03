@@ -16,6 +16,7 @@ object ChatDelivery {
         app.chatLive.start()
         if (app.repo.isSignedIn) PushRegistration.ensure(app)
         app.repo.beforeSignOut += { signingOut(app) }
+        ChatClips.of(app) // listening mode's clip cache (background prefetch: ChatListeningStore.Sync)
     }
 
     /** MainActivity after a successful sign-in. */

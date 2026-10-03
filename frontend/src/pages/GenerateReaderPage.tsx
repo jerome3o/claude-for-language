@@ -251,26 +251,28 @@ export function GenerateReaderPage() {
             />
           )}
 
-          {/* Generate Button */}
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg btn-block"
-            disabled={
-              generateMutation.isPending ||
-              (source === 'decks' ? selectedDeckIds.length === 0 : !dueWordCount)
-            }
-          >
-            {generateMutation.isPending ? (
-              <>
-                <span className="spinner" style={{ width: '20px', height: '20px' }} />
-                Generating Story...
-              </>
-            ) : source === 'due_cards' ? (
-              `Generate from Today's Due Cards${dueWordCount ? ` (${dueWordCount})` : ''}`
-            ) : (
-              'Generate Story'
-            )}
-          </button>
+          {/* Generate Button: pinned while the deck list scrolls */}
+          <div className="page-footer">
+            <button
+              type="submit"
+              className="btn btn-primary btn-lg btn-block"
+              disabled={
+                generateMutation.isPending ||
+                (source === 'decks' ? selectedDeckIds.length === 0 : !dueWordCount)
+              }
+            >
+              {generateMutation.isPending ? (
+                <>
+                  <span className="spinner" style={{ width: '20px', height: '20px' }} />
+                  Generating Story...
+                </>
+              ) : source === 'due_cards' ? (
+                `Generate from Today's Due Cards${dueWordCount ? ` (${dueWordCount})` : ''}`
+              ) : (
+                'Generate Story'
+              )}
+            </button>
+          </div>
 
           {source === 'decks' && selectedDeckIds.length === 0 && (
             <p className="text-light text-center mt-2" style={{ fontSize: '0.875rem' }}>

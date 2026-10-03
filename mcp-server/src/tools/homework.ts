@@ -8,7 +8,8 @@
  */
 import { z } from 'zod';
 import type { ToolContext } from './context.js';
-import { guard, jsonResult } from './context.js';
+import { errorResult, guard, jsonResult } from './context.js';
+import { CONFIRM_SEND, NEEDS_CONFIRM, SEND_RULE, STUDENT_NAME, resolveStudent, sentTo } from './homework-send.js';
 import { dueLabel, isDateString, localDate, type DraftPlan, type HomeworkAssignment, type HomeworkLoad } from '../../../shared/homework';
 
 const RELATIONSHIP_ID = z
@@ -107,7 +108,7 @@ export function registerHomeworkTools(ctx: ToolContext): void {
 
   server.tool(
     'assign_homework',
-    'Assign decks / word lists, library lessons (any exercise type) and readers to a student, each as one_off (with a due date), fsrs (long-term) or both. A deck is copied to the student leaving out words they already have (skip_known, default true; `skipped` lists them), and a one-off deck can be spread over `split_days` consecutive days (one assignment per day). A one-off-only deck never enters their daily new-card budget. Returns the assignments created and per-item errors.',
+    `${SEND_RULE} Assign decks / word lists, library lessons (any exercise type) and readers to a student, each as one_off (with a due date), fsrs (long-term) or both. A deck is copied to the student leaving out words they already have (skip_known, default true; \`skipped\` lists them), and a one-off deck can be spread over \`split_days\` consecutive days (one assignment per day). A one-off-only deck never enters their daily new-card budget. Returns the assignments created and per-item errors.`,
     {
       relationship_id: RELATIONSHIP_ID,
       items: z
@@ -126,15 +127,26 @@ export function registerHomeworkTools(ctx: ToolContext): void {
         .min(1)
         .max(20),
       today: TODAY,
+      student_name: STUDENT_NAME,
+      confirm: CONFIRM_SEND,
     },
-    async ({ relationship_id, items, today }) =>
+    async ({ relationship_id, items, today, student_name, confirm }) =>
       guard(async () => {
+        if (confirm !== true) return errorResult(NEEDS_CONFIRM);
+        const student = await resolveStudent(api, ctx.userId, relationship_id, student_name);
         const day = todayOr(today);
         const r = await api.post<{ assignments: HomeworkAssignment[]; skipped: Array<{ source_id: string; hanzi: string[] }>; errors: Array<{ source_id: string; error: string }> }>(
           `${rel(relationship_id)}/homework`,
           { items, today: day }
         );
-        return jsonResult({ assignments: r.assignments.map((a) => compactAssignment(a, day)), skipped: r.skipped, errors: r.errors });
+        return jsonResult({
+          sent: r.assignments.length > 0,
+          sent_to: student,
+          message: r.assignments.length ? sentTo(student.name, `${[...new Set(r.assignments.map((a) => a.title))].map((t) => `"${t}"`).join(', ')}.`) : `Nothing was sent to ${student.name}.`,
+          assignments: r.assignments.map((a) => compactAssignment(a, day)),
+          skipped: r.skipped,
+          errors: r.errors,
+        });
       })
   );
 
@@ -172,7 +184,7 @@ export function registerHomeworkTools(ctx: ToolContext): void {
             date: e.lesson_at.slice(0, 10),
             title: e.title,
             notes_preview: (e.notes ?? '').slice(0, 160),
-            homework: !e.job ? 'none' : e.job.status === 'queued' || e.job.status === 'running' ? 'drafting' : e.job.status !== 'done' ? e.job.status : !e.job.review ? 'sent automatically' : e.job.assigned_at ? 'assigned' : 'draft ready',
+            homework: !e.job ? 'none' : e.job.status === 'queued' || e.job.status === 'running' ? 'drafting' : e.job.status !== 'done' ? e.job.status : !e.job.review ? 'made by session notes (get_session_notes_job shows what is still not sent)' : e.job.assigned_at ? 'assigned' : 'draft ready',
             job_id: e.job?.id ?? null,
           })),
         });
@@ -181,7 +193,7 @@ export function registerHomeworkTools(ctx: ToolContext): void {
 
   server.tool(
     'add_student_lesson_notes',
-    'Add the tutor\'s notes from a lesson to the student\'s lesson-notes list (logged as a lesson). With draft_homework (default true) the in-app assistant then DRAFTS homework from them in the background — a deck of the words taught (words the student already has are skipped), a mini lesson only for a taught structure, a reader only when asked — plus a plan (one-off / long-term, due dates, split over days). NOTHING is sent until the draft is assigned: poll get_homework_draft, adjust with update_homework_draft_plan or revise_homework_draft, then assign_homework_draft.',
+    'Add the tutor\'s notes from a lesson to the student\'s lesson-notes list (logged as a lesson). With draft_homework (default true) the in-app assistant then DRAFTS homework from them in the background — a deck of the words taught (words the student already has are skipped), a mini lesson only for a taught structure, a reader only when asked — plus a plan (one-off / long-term, due dates, split over days). NOTHING is sent until the draft is assigned: poll get_homework_draft, adjust with update_homework_draft_plan or revise_homework_draft, and only when the tutor asks to send it, assign_homework_draft (confirm: true).',
     {
       relationship_id: RELATIONSHIP_ID,
       notes: z.string().min(1).max(120_000).describe('The raw lesson notes, verbatim.'),
@@ -253,13 +265,22 @@ export function registerHomeworkTools(ctx: ToolContext): void {
 
   server.tool(
     'assign_homework_draft',
-    'Assign a reviewed draft to the student following its plan (words the student already has are left out; a split creates one assignment per day). Once only.',
-    { relationship_id: RELATIONSHIP_ID, job_id: z.string(), today: TODAY },
-    async ({ relationship_id, job_id, today }) =>
+    `${SEND_RULE} Assign a reviewed draft to the student following its plan (words the student already has are left out; a split creates one assignment per day). Once only.`,
+    { relationship_id: RELATIONSHIP_ID, job_id: z.string(), today: TODAY, student_name: STUDENT_NAME, confirm: CONFIRM_SEND },
+    async ({ relationship_id, job_id, today, student_name, confirm }) =>
       guard(async () => {
+        if (confirm !== true) return errorResult(NEEDS_CONFIRM);
+        const student = await resolveStudent(api, ctx.userId, relationship_id, student_name);
         const day = todayOr(today);
         const r = await api.post<{ assignments: HomeworkAssignment[]; skipped: Array<{ hanzi: string[] }>; errors: Array<{ source_id: string; error: string }> }>(`${rel(relationship_id)}/homework-drafts/${encodeURIComponent(job_id)}/assign`, { today: day });
-        return jsonResult({ assignments: r.assignments.map((a) => compactAssignment(a, day)), skipped_known: r.skipped.flatMap((s) => s.hanzi), errors: r.errors });
+        return jsonResult({
+          sent: r.assignments.length > 0,
+          sent_to: student,
+          message: r.assignments.length ? sentTo(student.name, `${r.assignments.length} assignment(s) from the draft.`) : `Nothing was sent to ${student.name}.`,
+          assignments: r.assignments.map((a) => compactAssignment(a, day)),
+          skipped_known: r.skipped.flatMap((s) => s.hanzi),
+          errors: r.errors,
+        });
       })
   );
 }

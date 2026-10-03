@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { cancelSessionNotesJob, deleteSessionNotesJob, retrySessionNotesJob } from '../../api/tutorNotes';
+import { cancelSessionNotesJob, deleteSessionNotesJob, retrySessionNotesJob, sendSessionNotesItems } from '../../api/tutorNotes';
 import type { SessionNotesJob, SessionNotesStep } from '../../types/tutorNotes';
 import { isActiveJob } from '../../types/tutorNotes';
 import { plural, shortDateTime } from './format';
-import { removalUndoLabel, studentFirstName } from '@shared/homework';
+import { removalUndoLabel, sendAllLabel, sendConfirmText, sendToLabel, sentToast, studentFirstName, unsentJobItems } from '@shared/homework';
 import { RemoveHomeworkSheet, type RemovalTarget } from './RemoveHomeworkSheet';
 import { Toast, useToast } from '../Toast';
 import './session-notes.css';
@@ -70,6 +70,31 @@ export function SessionNotesJobCard({
   const retry = useMutation({ mutationFn: () => retrySessionNotesJob(relId, job.id), onSuccess: invalidate, onError: (e) => setError(e instanceof Error ? e.message : 'Could not retry') });
   const cancel = useMutation({ mutationFn: () => cancelSessionNotesJob(relId, job.id), onSuccess: invalidate, onError: (e) => setError(e instanceof Error ? e.message : 'Could not cancel') });
   const remove = useMutation({ mutationFn: () => deleteSessionNotesJob(relId, job.id), onSuccess: invalidate, onError: (e) => setError(e instanceof Error ? e.message : 'Could not delete') });
+
+  // Create, then send: what the job made waits in the tutor's account until they press Send.
+  const unsent = job.status === 'done' ? unsentJobItems(job.result) : [];
+  const send = useMutation({
+    mutationFn: (keys: string[]) => sendSessionNotesItems(relId, job.id, keys),
+    onSuccess: (r) => {
+      if (r.errors.length) setError(`Could not send: ${r.errors.map((e) => e.error).join('; ')}`);
+      if (r.sent.length) showToast(sentToast(r.sent.map((i) => i.title), studentName));
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
+      queryClient.invalidateQueries({ queryKey: ['relationship-homework', relId] });
+      queryClient.invalidateQueries({ queryKey: ['student-lessons', relId] });
+      queryClient.invalidateQueries({ queryKey: ['shared-readers', relId] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Could not send'),
+  });
+  const sendKeys = (keys: string[]) => {
+    const titles = unsent.filter((i) => keys.includes(i.key)).map((i) => i.title);
+    if (titles.length && window.confirm(sendConfirmText(titles, studentName))) send.mutate(keys);
+  };
+  const sendButton = (key: string) => (
+    <button type="button" className="btn btn-secondary sn-small sn-send" onClick={() => sendKeys([key])} disabled={send.isPending} data-testid="sn-send">
+      {sendToLabel(studentName)}
+    </button>
+  );
 
   const steps = job.steps;
   const visibleSteps = active && !showSteps ? steps.slice(-LIVE_STEPS) : steps;
@@ -138,10 +163,12 @@ export function SessionNotesJobCard({
                       <span className="sn-unsent"> · removed from {name}</span>
                     ) : deck.target_deck_id ? (
                       <>
-                        <span className="sn-sent"> · sent to student</span> {undo({ kind: 'deck', id: deck.target_deck_id, title: deck.name })}
+                        <span className="sn-sent"> · sent to {name}</span> {undo({ kind: 'deck', id: deck.target_deck_id, title: deck.name })}
                       </>
                     ) : (
-                      <span className="sn-unsent"> · in your library, not sent</span>
+                      <>
+                        <span className="sn-unsent"> · in your library, not sent</span> {sendButton('deck')}
+                      </>
                     )}
                   </span>
                 </li>
@@ -155,10 +182,12 @@ export function SessionNotesJobCard({
                       <span className="sn-unsent"> · removed from {name}</span>
                     ) : l.lesson_id ? (
                       <>
-                        <span className="sn-sent"> · assigned</span> {undo({ kind: 'lesson', id: l.lesson_id, title: l.title })}
+                        <span className="sn-sent"> · sent to {name}</span> {undo({ kind: 'lesson', id: l.lesson_id, title: l.title })}
                       </>
                     ) : (
-                      <span className="sn-unsent"> · in your library, not assigned</span>
+                      <>
+                        <span className="sn-unsent"> · in your library, not sent</span> {sendButton(`lesson:${l.library_item_id}`)}
+                      </>
                     )}
                   </span>
                 </li>
@@ -172,11 +201,13 @@ export function SessionNotesJobCard({
                       <span className="sn-unsent"> · removed from {name}</span>
                     ) : reader.target_reader_id ? (
                       <>
-                        <span className="sn-sent"> · sent to student</span>{' '}
+                        <span className="sn-sent"> · sent to {name}</span>{' '}
                         {undo({ kind: 'reader', id: reader.target_reader_id, title: reader.title_chinese || reader.title_english })}
                       </>
                     ) : (
-                      <span className="sn-unsent"> · in your readers, not sent</span>
+                      <>
+                        <span className="sn-unsent"> · in your readers, not sent</span> {sendButton('reader')}
+                      </>
                     )}
                   </span>
                 </li>
@@ -184,6 +215,11 @@ export function SessionNotesJobCard({
             </ul>
           ) : (
             <div className="sn-nothing">Nothing was created from these notes.</div>
+          )}
+          {unsent.length > 1 && (
+            <button type="button" className="btn btn-primary sn-send-all" onClick={() => sendKeys(unsent.map((i) => i.key))} disabled={send.isPending} data-testid="sn-send-all">
+              {send.isPending ? 'Sending…' : sendAllLabel(unsent.length, studentName)}
+            </button>
           )}
           {summary && <p className="sn-summary">{summary}</p>}
           {skipped && skipped.length > 0 && (

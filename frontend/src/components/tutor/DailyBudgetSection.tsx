@@ -116,7 +116,7 @@ export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose 
           {hint && <p className="db-hint" data-testid="daily-budget-hint">{hint}</p>}
           <p className="db-muted db-small">{name} gets a chat message from you, and can still change it in their Settings.</p>
           {error && <div className="td-error" role="alert">{error}</div>}
-          <div className="db-actions">
+          <div className="db-actions sheet-footer">
             <button
               type="button"
               className="btn btn-secondary"

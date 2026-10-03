@@ -33,6 +33,8 @@ data class MeDto(
     val landing_page: String? = null,
     /** The voices this account's conversation exercises use (data/lessons/ConversationVoiceCache.kt). */
     val conversation_voices: List<String>? = null,
+    /** users.voice_gender (Profile → "Your voice when your messages are read aloud"): male | female | other | null. */
+    val voice_gender: String? = null,
     /** A new chat message also sends an e-mail (Settings → Notifications → Chat e-mails; docs/CHAT.md). */
     val email_chat_messages: Boolean = true,
     /** The budget with who set it (a tutor can change it: shared/decks/tutor-budget.ts); null from an older server. */

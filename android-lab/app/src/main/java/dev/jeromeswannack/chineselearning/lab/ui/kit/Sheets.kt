@@ -67,7 +67,8 @@ fun ConfirmDialog(
         onDismissRequest = onDismiss,
         containerColor = Lab.colors.card,
         title = { Text(title, color = Lab.colors.ink) },
-        text = { Text(text, color = Lab.colors.muted) },
+        // A long body scrolls inside the dialog; the buttons below it stay put.
+        text = { Text(text, color = Lab.colors.muted, modifier = Modifier.verticalScroll(rememberScrollState())) },
         confirmButton = {
             TextButton(onClick = { onDismiss(); onConfirm() }) {
                 Text(confirmLabel, color = if (danger) Palette.Again else Lab.colors.accent, fontWeight = FontWeight.SemiBold)

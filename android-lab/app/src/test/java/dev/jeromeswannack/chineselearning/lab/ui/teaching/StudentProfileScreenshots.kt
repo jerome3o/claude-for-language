@@ -53,7 +53,7 @@ class StudentProfileScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = TeachingScreenshots.TALL)
     @Test fun editorFromExample() = shoot("student-profile-04-editor") {
-        Box(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
+        Box(Modifier.fillMaxSize().background(Lab.colors.card).padding(top = 16.dp)) {
             var draft by remember { mutableStateOf(StudentProfile.EXAMPLES[1].profile) }
             StudentProfileForm("Lily", StudentProfileFields(), draft, { draft = it }, online = true, save = { _, _ -> }, cancel = {}, done = {})
         }
@@ -61,7 +61,7 @@ class StudentProfileScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = TeachingScreenshots.TALL)
     @Test fun editorEmpty() = shoot("student-profile-05-editor-empty") {
-        Box(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
+        Box(Modifier.fillMaxSize().background(Lab.colors.card).padding(top = 16.dp)) {
             var draft by remember { mutableStateOf(StudentProfileFields()) }
             StudentProfileForm("Jerome", StudentProfileFields(), draft, { draft = it }, online = false, save = { _, _ -> }, cancel = {}, done = {})
         }

@@ -94,6 +94,9 @@ export const ANALYTICS_EVENTS = {
   'chat.search': e('chat', 'Searched inside a conversation.', ['results']),
   'chat.pinyin_toggle': e('chat', 'Switched the 拼 / EN reading aids of a conversation.', ['aid', 'on']),
   'chat.discuss': e('chat', 'Discuss with Claude on a message.', []),
+  'chat.listening_mode': e('chat', 'Listening mode switched for a conversation, or the default for new chats.', ['scope', 'on']),
+  'chat.listening_play': e('chat', 'Listening mode: tapped a hidden message to hear it.', ['slow']),
+  'chat.listening_reveal': e('chat', 'Listening mode: held a hidden message to reveal its text.', []),
   'chat.inbox_open': e('chat', 'Opened the Chats tab.', ['conversations', 'unread']),
 
   // ── calls ──────────────────────────────────────────────────────────────
@@ -231,6 +234,7 @@ export const VERBOSE_ONLY_EVENTS: readonly AnalyticsEventName[] = [
   'homework.pass_item',
   'reader.word_tap',
   'reader.audio_block',
+  'chat.listening_play',
 ];
 
 export function parseAnalyticsLevel(raw: unknown): AnalyticsLevel {

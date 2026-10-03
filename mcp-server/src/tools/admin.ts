@@ -83,6 +83,13 @@ export function registerAdminTools(ctx: ToolContext): void {
   );
 
   server.tool(
+    'admin_set_user_voice_gender',
+    'ADMIN ONLY. Set the voice an account\'s chat messages are read aloud in: `male` → the listener\'s male conversation voice, `female` → their female voice, `other` or null → the app\'s usual voice (the same choice the person makes in Profile → "Your voice when your messages are read aloud").',
+    { user: USER, voice_gender: z.enum(['male', 'female', 'other']).nullable() },
+    async ({ user, voice_gender }) => guard(async () => jsonResult(await api.put(`${u(user)}/voice-gender`, { voice_gender })))
+  );
+
+  server.tool(
     'admin_preview_delete_user',
     'ADMIN ONLY. What deleting this account would remove (decks, notes, cards, review events, recordings, readers, lessons, relationships, conversations, messages, calls, sessions…), what stays (the user\'s deck / reader copies already in students\' accounts, lessons assigned to others) and how many R2 objects only this user uses. `blockers` lists why it cannot be deleted (own account, admin, ADMIN_EMAIL, system user). Always show this to the human before admin_delete_user.',
     { user: USER },

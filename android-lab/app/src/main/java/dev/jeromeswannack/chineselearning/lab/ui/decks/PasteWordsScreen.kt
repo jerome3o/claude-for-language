@@ -49,6 +49,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ScreenTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
+import dev.jeromeswannack.chineselearning.lab.ui.kit.StickyFooter
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SectionHeader
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
@@ -82,8 +83,10 @@ fun PasteWordsScreen(ui: PasteUi, actions: PasteActions) {
                 subtitle = ui.deckName.ifEmpty { null },
                 onBack = if (ui.stage == PasteStage.RUNNING) null else actions.onClose,
             )
+            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth(),
+                state = listState,
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -93,7 +96,14 @@ fun PasteWordsScreen(ui: PasteUi, actions: PasteActions) {
                     PasteStage.DONE -> doneStage(ui, actions)
                 }
             }
-            if (ui.stage == PasteStage.EDIT) Footer(ui, actions)
+            // Save / Done pinned under the list (StickyFooter): the list of rows can be long.
+            when (ui.stage) {
+                PasteStage.EDIT -> Footer(ui, actions, moreAbove = listState.canScrollForward)
+                PasteStage.DONE -> StickyFooter(moreAbove = listState.canScrollForward) {
+                    PrimaryPill("Done", Modifier.weight(1f).height(52.dp)) { actions.onClose() }
+                }
+                PasteStage.RUNNING -> Unit
+            }
         }
     }
 }
@@ -296,19 +306,18 @@ private fun PlanRow(p: ImportPlanner.Planned, ui: PasteUi, d: PasteDerived, a: P
 }
 
 @Composable
-private fun Footer(ui: PasteUi, a: PasteActions) {
+private fun Footer(ui: PasteUi, a: PasteActions, moreAbove: Boolean) {
     val d = ui.derived
-    Column(
-        Modifier.fillMaxWidth().background(Lab.colors.card).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    val rows = d?.parsed?.rows?.size ?: 0
+    StickyFooter(
+        moreAbove = moreAbove,
+        above = {
+            Text(if (rows == 0) "Paste or type a list to see a preview." else PasteWordsModel.summaryLine(d!!.summary), style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
+            if (!ui.online && rows > 0) Text("You are offline — saving needs internet.", style = MaterialTheme.typography.bodySmall, color = Palette.Again)
+        },
     ) {
-        val rows = d?.parsed?.rows?.size ?: 0
-        Text(if (rows == 0) "Paste or type a list to see a preview." else PasteWordsModel.summaryLine(d!!.summary), style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
-        if (!ui.online && rows > 0) Text("You are offline — saving needs internet.", style = MaterialTheme.typography.bodySmall, color = Palette.Again)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryPill("Cancel", Modifier.weight(1f)) { a.onClose() }
-            PrimaryPill(d?.let { PasteWordsModel.saveLabel(it.summary) } ?: "Add", Modifier.weight(1.4f).height(52.dp), enabled = ui.canSave) { a.onSave() }
-        }
+        SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp)) { a.onClose() }
+        PrimaryPill(d?.let { PasteWordsModel.saveLabel(it.summary) } ?: "Add", Modifier.weight(1.4f).height(52.dp), enabled = ui.canSave) { a.onSave() }
     }
 }
 
@@ -355,5 +364,4 @@ private fun LazyListScope.doneStage(ui: PasteUi, a: PasteActions) {
             }
         }
     }
-    item(key = "done-btn") { PrimaryPill("Done", Modifier.fillMaxWidth().height(52.dp)) { a.onClose() } }
 }

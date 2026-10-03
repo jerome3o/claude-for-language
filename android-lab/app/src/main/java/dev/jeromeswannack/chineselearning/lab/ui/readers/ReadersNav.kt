@@ -136,7 +136,7 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
                 play = { text -> runtime.audio.speak(text) },
                 cachedExplanation = { word, s -> runtime.readers.cachedExplanation(word.text, s) },
                 explain = { word, s -> runtime.readers.explainWord(word.text, s, word.pinyin, word.gloss) },
-                decks = { app.repo.dao.decks().sortedBy { it.name.lowercase() }.map { DeckChoice(it.id, it.name, it.description) } },
+                decks = { dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { DeckChoice(it.id, it.name, it.description) } },
                 isDuplicate = { deckId, hanzi -> tools.deckHas(deckId, hanzi) },
                 add = { deckId, word, ex -> tools.addNote(deckId, readerWordNote(word, ex)) },
             ),

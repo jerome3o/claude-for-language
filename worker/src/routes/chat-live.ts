@@ -32,6 +32,7 @@ import { notifyChatRead, notifyNewChatMessage } from '../services/chat/notify';
 import { deleteDeviceToken, DeviceTokenError, saveDeviceToken } from '../services/push/devices';
 import { createPurposeTicket, verifyPurposeTicket } from '../services/chat/ticket';
 import { enrichMessageInBackground } from '../services/chat/messages';
+import { pregenerateMessageClip } from '../services/chat/message-audio';
 
 const chat = new Hono<{ Bindings: Env }>();
 
@@ -89,6 +90,8 @@ chat.post('/conversations/:id/messages', async (c) => {
     await background(c, deliverSentMessage(env, convId, userId, message));
     // Chinese messages: translation + word chips (non-blocking); `message_updated` when they land.
     await background(c, enrichMessageInBackground(env, message.id, content));
+    // Its read-aloud clip, ready before anyone taps (listening mode, Read aloud).
+    await background(c, pregenerateMessageClip(env, message));
 
     return c.json(message, 201);
   } catch (error) {

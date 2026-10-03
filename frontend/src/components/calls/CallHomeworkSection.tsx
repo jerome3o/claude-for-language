@@ -37,7 +37,7 @@ export function CallHomeworkSection({ callId, relId, studentName, ready, callCou
   // Homework is made once per LESSON (all its calls): a job that didn't fail or get cancelled means it's made.
   const made = jobs.some((j) => j.status !== 'failed' && j.status !== 'cancelled');
   const start = useMutation({
-    mutationFn: () => makeHomeworkFromCall(callId, { priority: 'core', auto_share: true, log_lesson: true }),
+    mutationFn: () => makeHomeworkFromCall(callId, { priority: 'core', auto_share: false, log_lesson: true }),
     onSuccess: () => {
       track('call.homework_from_call');
       setError(null);
@@ -57,7 +57,7 @@ export function CallHomeworkSection({ callId, relId, studentName, ready, callCou
         <p className="sn-empty">
           Turn this lesson into homework for {studentName}: the assistant reads the transcript, the whiteboard and the report,
           makes a deck of cards for what you taught (skipping words they already know) and a mini lesson when a grammar point was
-          taught, and sends them to the student. Same as pasting notes on their page.
+          taught — all in your account. Nothing reaches {studentName} until you press Send. Same as pasting notes on their page.
           {callCount > 1 && ` This lesson was ${callCount} calls in a row — it reads all of them, and the homework is made once.`}
         </p>
       )}

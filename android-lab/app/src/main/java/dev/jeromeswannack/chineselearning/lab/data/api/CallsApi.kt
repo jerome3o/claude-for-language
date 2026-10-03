@@ -189,7 +189,8 @@ data class FlashcardsFailureDto(val index: Int = 0, val hanzi: String = "", val 
 data class FlashcardsResultDto(val deck_id: String, val created: Int = 0, val failed: List<FlashcardsFailureDto> = emptyList())
 
 @Serializable
-data class CallHomeworkRequest(val priority: String = "core", val auto_share: Boolean = true, val log_lesson: Boolean = true)
+/** Create, then send: auto_share stays false — the tutor sends what was made from the job card. */
+data class CallHomeworkRequest(val priority: String = "core", val auto_share: Boolean = false, val log_lesson: Boolean = true)
 
 @Serializable
 private data class CallJobsDto(val jobs: List<SessionJobDto> = emptyList())

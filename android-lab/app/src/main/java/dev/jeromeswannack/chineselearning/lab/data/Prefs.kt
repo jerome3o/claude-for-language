@@ -47,6 +47,10 @@ class Prefs(context: Context) {
     var shareUsage: Boolean
         get() = sp.getBoolean("share_usage", true)
         set(v) = sp.edit().putBoolean("share_usage", v).apply()
+    /** My users.voice_gender (male | female | other | null): the voice my own chat messages are read in. */
+    var voiceGender: String?
+        get() = sp.getString("voice_gender", null)
+        set(v) = sp.edit().putString("voice_gender", v).apply()
 
     /** Mirrors /api/auth/me (called by the sync's profile refresh). */
     fun saveProfile(me: MeDto) {
@@ -58,6 +62,7 @@ class Prefs(context: Context) {
             .putBoolean("is_admin", me.is_admin)
             .putString("landing_page", me.landing_page)
             .putBoolean("share_usage", me.share_usage)
+            .putString("voice_gender", me.voice_gender)
             .apply()
     }
 
