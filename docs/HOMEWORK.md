@@ -111,7 +111,7 @@ It lets the learner filter what reaches FSRS:
 - in a `both` pass it starts **on** — switch off the words that are too easy, they never enter daily review;
 - in a `one_off`-only pass it starts **off** — switch on a word to really learn it, it joins daily review.
 
-The choice is stored on the student's copy of the note, `notes.long_term` (migration `0094_note_long_term.sql`):
+The choice is stored on the student's copy of the note, `notes.long_term` (migration `0095_note_long_term.sql`):
 `NULL` = follow the deck (a one-off copy, caps 0 + 0, never introduces it; any other deck does), `1` = opted in,
 `0` = opted out. Flipping the switch back to the deck's default stores `NULL` again (so *Add these words to my
 daily review* on a one-off deck still takes every word not singled out). Rules, all pure in
