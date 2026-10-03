@@ -24,14 +24,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.HorizontalDivider
@@ -131,7 +131,7 @@ private fun TabBadge(count: Int, modifier: Modifier) {
 
 private fun iconFor(id: TabId, selected: Boolean): ImageVector = when (id) {
     TabId.STUDY -> if (selected) Icons.Filled.Style else Icons.Outlined.Style
-    TabId.DECKS -> if (selected) Icons.AutoMirrored.Filled.LibraryBooks else Icons.AutoMirrored.Outlined.LibraryBooks
+    TabId.CHATS -> if (selected) Icons.Filled.ChatBubble else Icons.Outlined.ChatBubbleOutline
     TabId.TUTOR -> if (selected) Icons.Filled.Person else Icons.Outlined.Person
     TabId.STUDENTS -> if (selected) Icons.Filled.Groups else Icons.Outlined.Groups
     TabId.LIBRARY -> if (selected) Icons.AutoMirrored.Filled.MenuBook else Icons.AutoMirrored.Outlined.MenuBook

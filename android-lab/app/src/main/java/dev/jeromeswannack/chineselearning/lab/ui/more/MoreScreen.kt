@@ -92,6 +92,20 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
     LabScreen(title = "More", spacing = 4.dp, listState = listState) {
         item { UserCard(ui) { actions.open(Routes.profile()) } }
 
+        // Decks moved here when the Chats tab took their tab: the first row, one tap away.
+        item {
+            NavSection(
+                "Decks",
+                rows = listOf(
+                    row(
+                        "🗂️", "Decks",
+                        if (role.isTutorAccount) "Word lists you send as homework · search every word" else "Your deck queue, search and every word",
+                        Routes.DECKS,
+                    ),
+                ),
+            )
+        }
+
         if (role.isTutorAccount) {
             item {
                 NavSection(

@@ -33,17 +33,17 @@ class DecksScreenshots : LabScreenshotTest() {
         }
     }
 
-    @Test fun list() = shootInShell("decks-01-list", TabId.DECKS) { DecksTabScreen(DecksSamples.list, DecksActions()) }
+    @Test fun list() = shootInShell("decks-01-list", TabId.MORE) { DecksTabScreen(DecksSamples.list, DecksActions()) }
 
-    @Test fun dragging() = shootInShell("decks-02-drag-lifted", TabId.DECKS) {
+    @Test fun dragging() = shootInShell("decks-02-drag-lifted", TabId.MORE) {
         DecksTabScreen(DecksSamples.list.copy(decks = DecksSamples.decks.let { listOf(it[0], it[2], it[1], it[3], it[4]) }), DecksActions(), liftedPreview = "d3")
     }
 
-    @Test fun search() = shootInShell("decks-03-search-results", TabId.DECKS) { DecksTabScreen(DecksSamples.search, DecksActions()) }
+    @Test fun search() = shootInShell("decks-03-search-results", TabId.MORE) { DecksTabScreen(DecksSamples.search, DecksActions()) }
 
-    @Test fun searchServer() = shootInShell("decks-04-search-server-fallback", TabId.DECKS) { DecksTabScreen(DecksSamples.searchServer, DecksActions()) }
+    @Test fun searchServer() = shootInShell("decks-04-search-server-fallback", TabId.MORE) { DecksTabScreen(DecksSamples.searchServer, DecksActions()) }
 
-    @Test fun empty() = shootInShell("decks-05-empty", TabId.DECKS) { DecksTabScreen(DecksUi(loaded = true), DecksActions()) }
+    @Test fun empty() = shootInShell("decks-05-empty", TabId.MORE) { DecksTabScreen(DecksUi(loaded = true), DecksActions()) }
 
     @Test fun newDeck() = shoot("decks-06-new-deck-sheet") { Sheet { NewDeckForm(false, true, null, { _, _ -> }, {}, {}, {}) } }
 
@@ -127,9 +127,9 @@ class DecksScreenshots : LabScreenshotTest() {
     }
 
     @Config(qualifiers = UNFOLDED)
-    @Test fun unfolded() = shootInShell("decks-19-unfolded", TabId.DECKS) { DecksTabScreen(DecksSamples.list, DecksActions()) }
+    @Test fun unfolded() = shootInShell("decks-19-unfolded", TabId.MORE) { DecksTabScreen(DecksSamples.list, DecksActions()) }
 
-    @Test fun dark() = shootInShell("decks-20-dark", TabId.DECKS, dark = true) { DecksTabScreen(DecksSamples.list, DecksActions()) }
+    @Test fun dark() = shootInShell("decks-20-dark", TabId.MORE, dark = true) { DecksTabScreen(DecksSamples.list, DecksActions()) }
 
     @Test fun deckDark() = shoot("decks-21-deck-page-dark", dark = true) { DeckScreen(DecksSamples.deck, DeckActions()) }
 }

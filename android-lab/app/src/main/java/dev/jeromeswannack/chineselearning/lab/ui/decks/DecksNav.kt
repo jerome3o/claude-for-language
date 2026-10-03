@@ -91,6 +91,7 @@ private fun DecksRoute(nav: LabNav) {
     DecksTabScreen(
         ui,
         DecksActions(
+            onBack = nav::back,
             onQuery = vm::setQuery,
             onOpenDeck = { nav.open(Routes.deck(it)) },
             onStudy = { nav.open(Routes.study(it)) },

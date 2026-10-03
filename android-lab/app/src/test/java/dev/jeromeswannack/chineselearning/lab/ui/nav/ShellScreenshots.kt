@@ -33,7 +33,7 @@ class ShellScreenshots : LabScreenshotTest() {
         HomeScreen(HomeUi(loaded = true, userName = "Jerome Swannack", due = Samples.counts, decks = Samples.decks, reviewedToday = 31), Samples.sync(), online = true, actions = HomeActions())
     }
 
-    @Test fun decksTab() = shootInShell("shell-02-decks-tab", TabId.DECKS) {
+    @Test fun decksTab() = shootInShell("shell-02-decks-tab", TabId.MORE) {
         DecksTabScreen(dev.jeromeswannack.chineselearning.lab.ui.decks.DecksSamples.list, dev.jeromeswannack.chineselearning.lab.ui.decks.DecksActions())
     }
 

@@ -20,6 +20,8 @@ object Routes {
     const val PROGRESS = "/progress"
     const val CONNECTIONS = "/connections"
     const val LIBRARY = "/library"
+    /** The Chats tab inbox. */
+    const val CHATS = "/chats"
 
     // ---- study & home (packages A, B) ----
     fun study(deckId: String? = null) = "/study" + query("deck" to deckId)

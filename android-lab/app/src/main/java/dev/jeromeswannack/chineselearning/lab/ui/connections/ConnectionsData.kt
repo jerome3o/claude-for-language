@@ -63,6 +63,8 @@ object Connections {
         if (list != null && list.any { it.conversation_id == conversationId && !it.is_read }) {
             app.cache.put(ConnectionsKeys.NOTIFICATIONS, ConnectionsKeys.KIND, list.map { if (it.conversation_id == conversationId) it.copy(is_read = true) else it })
         }
+        // The Chats inbox row + the Chats tab badge (ui/chats).
+        runCatching { dev.jeromeswannack.chineselearning.lab.ui.chats.Chats.markRead(app, conversationId) }
         runCatching { app.repo.api.markNotificationsReadByConversation(conversationId) }
     }
 }

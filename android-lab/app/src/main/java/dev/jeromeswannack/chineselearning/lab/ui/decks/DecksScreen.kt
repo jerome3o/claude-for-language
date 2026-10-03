@@ -86,6 +86,8 @@ data class DecksActions(
     val onDismissNotice: () -> Unit = {},
     val onLift: () -> Unit = {},
     val onSlot: () -> Unit = {},
+    /** ← in the title: Decks is a page under More (and Home) since the Chats tab took its tab. */
+    val onBack: (() -> Unit)? = null,
 )
 
 /**
@@ -109,7 +111,7 @@ fun DecksTabScreen(
     val searching = ui.search != null
 
     LabScreenFrame {
-        ScreenTitle("Decks", subtitle = if (ui.decks.isEmpty()) null else "${ui.decks.size} decks · studied top to bottom")
+        ScreenTitle("Decks", subtitle = if (ui.decks.isEmpty()) null else "${ui.decks.size} decks · studied top to bottom", onBack = actions.onBack)
         LazyColumn(
             Modifier.fillMaxSize().dragReorderList(drag),
             state = listState,

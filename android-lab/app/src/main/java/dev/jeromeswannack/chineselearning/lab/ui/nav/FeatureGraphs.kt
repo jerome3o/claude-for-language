@@ -5,6 +5,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.catalogue.catalogueGraph
 import dev.jeromeswannack.chineselearning.lab.ui.today.todayGraph
 import dev.jeromeswannack.chineselearning.lab.ui.cards.cardsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.chat.chatGraph
+import dev.jeromeswannack.chineselearning.lab.ui.chats.chatsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.connections.connectionsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.decks.decksGraph
 import dev.jeromeswannack.chineselearning.lab.ui.editor.editorGraph
@@ -62,6 +63,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     pictureHuntGraph(nav)   // "/picture-hunt", "/picture-hunt/:id"  H
     todayGraph(nav)         // "/today/lessons[/:id]", "/today/reader" — Lab-only today split
     materialsGraph(nav)     // "/materials", "/materials/:id"  J (calls round 4 PR 5)
+    chatsGraph(nav)         // "/chats"       the Chats tab inbox
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }
