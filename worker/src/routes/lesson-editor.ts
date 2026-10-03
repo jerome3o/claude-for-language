@@ -10,6 +10,7 @@
  */
 
 import { Hono, Context } from 'hono';
+import { FolderError, fileItem, resolveFolderId } from '../services/folders';
 import {
   CustomLessonSpec,
   validateLessonSpec,
@@ -81,6 +82,7 @@ function libraryItemJson(row: lib.LessonLibraryRow, extra: Record<string, unknow
     created_at: row.created_at,
     updated_at: row.updated_at,
     archived_at: row.archived_at,
+    folder_id: row.folder_id ?? null,
     spec: parseSpec(row.spec),
     ...extra,
   };
@@ -232,6 +234,7 @@ lessonEditor.get('/lesson-library', async (c) => {
         updated_at: row.updated_at,
         assignment_count: row.assignment_count,
         exercise_count: exerciseCount(spec),
+        folder_id: row.folder_id ?? null,
       };
     }),
   });
@@ -241,10 +244,19 @@ interface CreateLibraryBody {
   spec?: unknown;
   generate?: { prompt?: string; learner?: string };
   tags?: unknown;
+  /** File it in this lesson folder (null / missing = Unfiled). */
+  folder_id?: unknown;
 }
 
 async function createFromBody(c: Ctx, body: CreateLibraryBody) {
   const userId = c.get('user').id;
+  let folderId: string | null;
+  try {
+    folderId = await resolveFolderId(c.env.DB, userId, 'lesson', body.folder_id);
+  } catch (err) {
+    if (err instanceof FolderError) return c.json({ error: err.message }, err.status);
+    throw err;
+  }
   let spec: CustomLessonSpec;
   if (body.generate) {
     const prompt = (body.generate.prompt ?? '').trim();
@@ -268,6 +280,10 @@ async function createFromBody(c: Ctx, body: CreateLibraryBody) {
     spec: JSON.stringify(spec),
     tags: cleanTags(body.tags),
   });
+  if (folderId) {
+    await fileItem(c.env.DB, userId, 'lesson', row.id, folderId);
+    row.folder_id = folderId;
+  }
   await prewarmLessonImages(c.env, spec);
   return c.json(libraryItemJson(row, { assignment_count: 0 }), 201);
 }
@@ -281,7 +297,7 @@ lessonEditor.post('/lesson-library', async (c) => {
 // can stay explicit.
 lessonEditor.post('/lesson-library/import', async (c) => {
   const body = await c.req.json<CreateLibraryBody>().catch(() => ({} as CreateLibraryBody));
-  return createFromBody(c, { spec: body.spec, tags: body.tags });
+  return createFromBody(c, { spec: body.spec, tags: body.tags, folder_id: body.folder_id });
 });
 
 lessonEditor.get('/lesson-library/:id', async (c) => {
@@ -334,6 +350,11 @@ lessonEditor.post('/lesson-library/:id/duplicate', async (c) => {
     spec: JSON.stringify(spec),
     tags: parseTags(existing.tags),
   });
+  // The copy sits next to the original.
+  if (existing.folder_id) {
+    await fileItem(c.env.DB, userId, 'lesson', row.id, existing.folder_id);
+    row.folder_id = existing.folder_id;
+  }
   return c.json(libraryItemJson(row, { assignment_count: 0 }), 201);
 });
 

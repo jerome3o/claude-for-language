@@ -146,4 +146,31 @@ class MigrationTest {
         }
         room.close()
     }
+
+    /** v5 adds decks.folderId (folders, migration 0105): existing decks are Unfiled (null). */
+    @Test fun v4ToV5AddsTheDeckFolderAndKeepsEverything() {
+        createFromExportedSchema(4).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt) VALUES ('d1', 'HSK 2', NULL, 3, 6, 4, '2026-10-01 10:00:00')")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt, longTerm) VALUES ('n1', 'd1', '文件夹', 'wénjiànjiā', 'folder', '2026-10-01 10:00:00', 1)")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'hanzi_to_meaning', 0, 0, 0, 0, 0, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-10-02T08:00:00.000Z', 4200, NULL, 0)")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            assertEquals(mapOf("n1" to 1), dao.noteLongTerm())
+            val deck = dao.decks().single()
+            assertEquals(null, deck.folderId)
+            assertEquals(4, deck.studyPriority)
+            dao.setDeckFolder(listOf("d1"), "f-hsk")
+            assertEquals("f-hsk", dao.decks().single().folderId)
+            dao.unfileDecks("f-hsk")
+            assertEquals(null, dao.decks().single().folderId)
+        }
+        room.close()
+    }
 }

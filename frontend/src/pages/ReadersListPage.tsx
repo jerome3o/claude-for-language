@@ -7,6 +7,7 @@ import { LessonApiError } from '../api/lessonEditor';
 import { Loading, EmptyState } from '../components/Loading';
 import { AnkiExportButton } from '../components/export/AnkiExportModal';
 import { Toast, useToast } from '../components/Toast';
+import { FolderGroups, FolderToolbar, SelectionBar, useFolderUi } from '../components/folders/FolderGroups';
 import { GradedReader, DifficultyLevel } from '../types';
 import { partitionReaders, friendlyReaderError, failedReadersLabel } from '../services/readerFailures';
 import './ReadersListPage.css';
@@ -69,7 +70,15 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () => void }) {
+function ReaderCard({ reader, onDelete, onMoveToFolder, selecting = false, selected = false, onToggleSelect }: {
+  reader: GradedReader;
+  onDelete: () => void;
+  onMoveToFolder: () => void;
+  /** Multi-select mode: a tap toggles the reader instead of opening it. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+}) {
   const navigate = useNavigate();
   const difficultyStyle = DIFFICULTY_COLORS[reader.difficulty_level];
   const isGenerating = reader.status === 'generating';
@@ -80,7 +89,10 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
 
   return (
     <div
-      className="card"
+      className={`card${selecting ? ` folder-selectable${selected ? ' folder-selectable--on' : ''}` : ''}`}
+      data-testid="reader-card"
+      aria-pressed={selecting ? selected : undefined}
+      onClickCapture={selecting ? (e) => { e.preventDefault(); e.stopPropagation(); onToggleSelect?.(); } : undefined}
       style={{
         padding: '1rem',
         opacity: isGenerating ? 0.8 : 1,
@@ -172,6 +184,17 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
             </AnkiExportButton>
           </div>
         )}
+        <span style={{ display: 'flex', gap: '0.375rem' }}>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={(e) => { e.stopPropagation(); onMoveToFolder(); }}
+          style={{ padding: '0.375rem 0.625rem', fontSize: '0.875rem' }}
+          aria-label="Move to folder…"
+          title="Move to folder…"
+          data-testid="reader-move-to-folder"
+        >
+          📁
+        </button>
         <button
           className="btn btn-secondary btn-sm"
           onClick={(e) => {
@@ -182,6 +205,7 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
         >
           {isGenerating ? 'Cancel' : 'Delete'}
         </button>
+        </span>
       </div>
     </div>
   );
@@ -313,6 +337,20 @@ export function ReadersListPage() {
   const [toast, showToast] = useToast();
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [deletingAll, setDeletingAll] = useState(false);
+  // Folders (organisation only) + multi-select + a filter that looks inside every folder.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState('');
+  const folderUi = useFolderUi('reader', {
+    onToast: showToast,
+    onChanged: () => { queryClient.invalidateQueries({ queryKey: ['readers'] }); setSelected(new Set()); setSelecting(false); },
+  });
+  const toggleSelect = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
 
   const readersQuery = useQuery({
     queryKey: ['readers'],
@@ -421,6 +459,11 @@ export function ReadersListPage() {
   }
 
   const { active, failed } = partitionReaders(readersQuery.data || []);
+  const needle = filter.trim().toLowerCase();
+  const visible = active.filter(r => !needle
+    || r.title_chinese.toLowerCase().includes(needle)
+    || r.title_english.toLowerCase().includes(needle)
+    || (r.topic ?? '').toLowerCase().includes(needle));
 
   return (
     <div className="page">
@@ -463,13 +506,58 @@ export function ReadersListPage() {
                 }
               />
             )}
-            {active.map((reader) => (
-              <ReaderCard
-                key={reader.id}
-                reader={reader}
-                onDelete={() => handleDelete(reader)}
-              />
-            ))}
+            {active.length > 0 && (
+              <>
+                {active.length > 5 && (
+                  <input
+                    type="search"
+                    className="form-input"
+                    style={{ width: '100%', fontSize: '1rem' }}
+                    placeholder="Find a story…"
+                    lang="zh-CN"
+                    value={filter}
+                    onChange={e => setFilter(e.target.value)}
+                    aria-label="Find a story"
+                    data-testid="readers-filter"
+                  />
+                )}
+                <FolderToolbar ui={folderUi} selecting={selecting} onSelect={() => setSelecting(true)} itemCount={active.length} />
+                <FolderGroups
+                  ui={folderUi}
+                  items={visible}
+                  folderIdOf={r => r.folder_id ?? null}
+                  flat={!!needle}
+                  emptyFolderText="Empty — move a story here with its 📁 button."
+                  renderItems={items => (
+                    <div className="flex flex-col gap-3">
+                      {items.map((reader) => (
+                        <ReaderCard
+                          key={reader.id}
+                          reader={reader}
+                          onDelete={() => handleDelete(reader)}
+                          onMoveToFolder={() => folderUi.openMove([reader.id], reader.folder_id ?? null)}
+                          selecting={selecting}
+                          selected={selected.has(reader.id)}
+                          onToggleSelect={() => toggleSelect(reader.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                />
+                {needle && visible.length === 0 && <p className="text-light">No story matches “{filter.trim()}”.</p>}
+                {selecting && (
+                  <SelectionBar
+                    count={selected.size}
+                    kindLabel="stories"
+                    onMove={() => {
+                      const shared = new Set(visible.filter(r => selected.has(r.id)).map(r => r.folder_id ?? null));
+                      folderUi.openMove([...selected], shared.size === 1 ? [...shared][0] : undefined);
+                    }}
+                    onCancel={() => { setSelecting(false); setSelected(new Set()); }}
+                  />
+                )}
+              </>
+            )}
             {failed.length > 0 && (
               <FailedReadersRow
                 readers={failed}
@@ -483,6 +571,7 @@ export function ReadersListPage() {
           </div>
         )}
 
+        {folderUi.sheets}
         <Toast message={toast} />
       </div>
     </div>

@@ -34,6 +34,9 @@ class DecksEnv(
     val requestSync: () -> Unit = {},
     val fx: DecksFx = DecksFx(),
     val nowMs: () -> Long = System::currentTimeMillis,
+    /** Folder writes for the Decks list (data/folders/); null = no folders (old tests / previews). */
+    val folderWrites: dev.jeromeswannack.chineselearning.lab.data.folders.FolderWrites? = null,
+    val folderFeel: dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel.None,
 ) {
     companion object {
         fun from(app: LabApp): DecksEnv {
@@ -68,6 +71,8 @@ class DecksEnv(
                     failure = { app.haptics.wrong() },
                     playAudio = { key, text -> app.audio.play(key, text, app.online.value) },
                 ),
+                folderWrites = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController.writes(app),
+                folderFeel = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel.of(app),
             )
         }
 

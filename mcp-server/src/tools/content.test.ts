@@ -68,7 +68,7 @@ describe('trimReader / filterReaders', () => {
   it('keeps only the fields the model needs and counts pages', () => {
     expect(trimReader(rows[0])).toEqual({
       id: 'r1', title_chinese: '小猫找家', title_english: 'Kitten', difficulty_level: 'beginner', topic: 'pets',
-      status: 'ready', page_count: 3, created_at: '2026-09-01', creator_role: 'tutor', is_published: true,
+      status: 'ready', page_count: 3, created_at: '2026-09-01', creator_role: 'tutor', is_published: true, folder_id: null,
     });
     expect(trimReader(rows[2])).toMatchObject({ page_count: 0, creator_role: 'student', error_message: 'boom', topic: null });
     expect(Object.keys(trimReader(rows[1]))).not.toContain('pages');
@@ -185,7 +185,10 @@ describe('reader tools', () => {
     });
     registerReaderTools(ctx);
     const result = await tools.get('list_readers')!({ status: 'ready' });
-    expect(calls).toEqual([{ method: 'GET', path: '/api/readers?include_pages=true', body: undefined }]);
+    expect(calls).toEqual([
+      { method: 'GET', path: '/api/readers?include_pages=true', body: undefined },
+      { method: 'GET', path: '/api/folders?kind=reader', body: undefined },
+    ]);
     const parsed = JSON.parse(text(result));
     expect(parsed.count).toBe(1);
     expect(parsed.readers[0]).toMatchObject({ id: 'r1', page_count: 2 });

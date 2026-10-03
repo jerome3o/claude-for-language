@@ -26,7 +26,13 @@ class DecksFixture {
     val cache = JsonCache(db.platform(), api.json)
     var afterWrites = 0
     val writes = DeckWrites(db.dao(), api, outbox, online = { online.value }, onLocalChange = { version.value++ }, afterWrite = { afterWrites++ })
-    val env = DecksEnv(db.dao(), api, writes, cache, online, version)
+    var queued = 0
+    val folderWrites = dev.jeromeswannack.chineselearning.lab.data.folders.FolderWrites(
+        db.dao(), api, cache, outbox, online = { online.value }, onLocalChange = { version.value++ }, onQueued = { queued++ },
+        newId = { "folder-${++folderIds}" },
+    )
+    private var folderIds = 0
+    val env = DecksEnv(db.dao(), api, writes, cache, online, version, folderWrites = folderWrites)
 
     suspend fun seed() {
         val dao = db.dao()

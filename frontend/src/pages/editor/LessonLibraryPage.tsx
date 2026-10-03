@@ -32,6 +32,7 @@ import { useToast } from './LessonEditorPage';
 import { DEFAULT_SEND_MODE, defaultHomeworkDueDate, hasOneOff, localDate, shortDay, type HomeworkMode } from '@shared/homework';
 import { assignHomework } from '../../api/homework';
 import { HomeworkModePicker } from '../../components/tutor/HomeworkModePicker';
+import { FolderGroups, FolderToolbar, SelectionBar, useFolderUi } from '../../components/folders/FolderGroups';
 import { track } from '../../services/analytics';
 import './LessonLibraryPage.css';
 
@@ -254,11 +255,16 @@ export function AssignSheet({ itemId, itemTitle, onClose, onDone }: {
 
 // ============ Library card ============
 
-function LibraryCard({ item, onAssign, onChanged, toast }: {
+function LibraryCard({ item, onAssign, onChanged, toast, onMoveToFolder, selecting = false, selected = false, onToggleSelect }: {
   item: LibraryItemSummary;
   onAssign: () => void;
   onChanged: () => void;
   toast: (m: string) => void;
+  onMoveToFolder: () => void;
+  /** Multi-select mode: a tap toggles the lesson instead of opening it. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -287,7 +293,12 @@ function LibraryCard({ item, onAssign, onChanged, toast }: {
   }
 
   return (
-    <div className="lib-card">
+    <div
+      className={`lib-card${selecting ? ` folder-selectable${selected ? ' folder-selectable--on' : ''}` : ''}`}
+      data-testid="library-card"
+      aria-pressed={selecting ? selected : undefined}
+      onClickCapture={selecting ? (e) => { e.preventDefault(); e.stopPropagation(); onToggleSelect?.(); } : undefined}
+    >
       <Link to={`/library/${item.id}`} className="lib-card-main">
         <span className="lib-card-icon">{item.icon || '🎓'}</span>
         <span className="lib-card-body">
@@ -320,6 +331,7 @@ function LibraryCard({ item, onAssign, onChanged, toast }: {
                   toast(err instanceof Error ? err.message : 'Could not duplicate');
                 }
               }}>⧉ Duplicate</button>
+              <button role="menuitem" onClick={() => { setOpen(false); onMoveToFolder(); }} data-testid="library-move-to-folder">📁 Move to folder…</button>
               <button role="menuitem" className="section" onClick={() => exportAs('md')}>⬇ Export Markdown</button>
               <button role="menuitem" onClick={() => { setOpen(false); navigate(`/library/${item.id}/print`); }}>🖨 Print view</button>
               <button role="menuitem" onClick={() => exportAs('json')}>⬇ Export JSON</button>
@@ -367,6 +379,26 @@ export function LessonLibraryPage() {
 
   const library = useQuery({ queryKey: ['lesson-library'], queryFn: listLibrary });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['lesson-library'] });
+
+  // Folders (organisation only) + multi-select + a filter that looks inside every folder.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState('');
+  const folderUi = useFolderUi('lesson', {
+    onToast: showToast,
+    onChanged: () => { refresh(); setSelected(new Set()); setSelecting(false); },
+  });
+  const toggleSelect = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const needle = filter.trim().toLowerCase();
+  const visibleItems = (library.data ?? []).filter(item => !needle
+    || item.title.toLowerCase().includes(needle)
+    || (item.description ?? '').toLowerCase().includes(needle)
+    || item.tags.some(t => t.toLowerCase().includes(needle)));
 
   useEffect(() => {
     if (!pageMenu) return;
@@ -444,15 +476,55 @@ export function LessonLibraryPage() {
             <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New lesson</button>
           </div>
         )}
-        {library.data?.map(item => (
-          <LibraryCard
-            key={item.id}
-            item={item}
-            onAssign={() => setAssigning(item)}
-            onChanged={refresh}
-            toast={showToast}
-          />
-        ))}
+        {library.data && library.data.length > 0 && (
+          <>
+            {library.data.length > 5 && (
+              <input
+                type="search"
+                className="form-input lib-filter"
+                placeholder="Find a lesson…"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+                aria-label="Find a lesson"
+                data-testid="library-filter"
+              />
+            )}
+            <FolderToolbar ui={folderUi} selecting={selecting} onSelect={() => setSelecting(true)} itemCount={library.data.length} />
+            <FolderGroups
+              ui={folderUi}
+              items={visibleItems}
+              folderIdOf={item => item.folder_id ?? null}
+              flat={!!needle}
+              emptyFolderText="Empty — move a lesson here from its ⋯ menu."
+              renderItems={items => items.map(item => (
+                <LibraryCard
+                  key={item.id}
+                  item={item}
+                  onAssign={() => setAssigning(item)}
+                  onChanged={refresh}
+                  toast={showToast}
+                  onMoveToFolder={() => folderUi.openMove([item.id], item.folder_id ?? null)}
+                  selecting={selecting}
+                  selected={selected.has(item.id)}
+                  onToggleSelect={() => toggleSelect(item.id)}
+                />
+              ))}
+            />
+            {needle && visibleItems.length === 0 && <p className="text-light">No lesson matches “{filter.trim()}”.</p>}
+            {selecting && (
+              <SelectionBar
+                count={selected.size}
+                kindLabel="lessons"
+                onMove={() => {
+                  const shared = new Set(visibleItems.filter(i => selected.has(i.id)).map(i => i.folder_id ?? null));
+                  folderUi.openMove([...selected], shared.size === 1 ? [...shared][0] : undefined);
+                }}
+                onCancel={() => { setSelecting(false); setSelected(new Set()); }}
+              />
+            )}
+          </>
+        )}
+        {folderUi.sheets}
       </div>
 
       {showNew && (

@@ -276,6 +276,10 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `deck.export_anki` | `kind` | Exported to Anki. |
 | `deck.search` | `results`, `server` | Searched cards on the Decks tab. |
 | `deck.share` | `update` | Shared / updated a deck copy for a student. |
+| `folder.create` | `kind`, `nested` | Made a folder of decks / library lessons / readers. |
+| `folder.rename` | `kind` | Renamed a folder. |
+| `folder.delete` | `kind`, `items` | Deleted a folder (its items go to Unfiled). |
+| `folder.move_items` | `kind`, `count`, `unfiled` | Moved items into a folder (or back to Unfiled). |
 
 ### settings
 

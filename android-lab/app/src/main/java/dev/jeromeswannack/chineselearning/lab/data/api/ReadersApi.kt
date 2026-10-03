@@ -78,6 +78,8 @@ data class GradedReaderDto(
     @SerialName("error_message") val errorMessage: String? = null,
     @SerialName("created_at") val createdAt: String = "",
     val pages: List<ReaderPageDto> = emptyList(),
+    /** The reader's folder (migration 0105; core Folders.kt), null = Unfiled. */
+    @SerialName("folder_id") val folderId: String? = null,
 ) {
     /** `isStudyableReader`. */
     val studyable: Boolean get() = status == "ready" && pages.isNotEmpty()

@@ -41,6 +41,11 @@ When a note is updated, its cards are automatically updated.
   "汉字 pinyin english" lines, or bare characters); separators and columns are detected, rows are
   matched to existing notes by hanzi (update / skip / duplicate), missing pinyin and English are
   filled in, and a tutor can push the changes into each student's copy of the deck
+- **Folders**: decks, Lesson Library lessons and graded readers can be filed in folders (one level of
+  nesting) shown as collapsible groups with an Unfiled group; create / rename / delete (items go back to
+  Unfiled, nothing is deleted), Move to folder… from an item's menu, multi-select move, drag to reorder
+  folders. Organisation only — the study queue order is unchanged. Works offline; Claude (MCP) can file
+  what it makes by folder name
 
 ### 3. Spaced Repetition (SM-2 Algorithm)
 

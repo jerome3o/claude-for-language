@@ -1,3 +1,4 @@
+import type { Folder } from '@shared/folders';
 import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
@@ -88,6 +89,8 @@ export interface LocalDeck {
   maximum_interval: number;
   /** Place in the new-card queue: higher goes first (missing on rows cached before migration 0069 = 0). */
   study_priority?: number;
+  /** Folder (shared/folders, organisation only); null / missing = Unfiled. */
+  folder_id?: string | null;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;
@@ -617,6 +620,9 @@ export class ChineseLearningDB extends Dexie {
   dailyStats!: Table<DailyStats, string>;
   characterDefinitions!: Table<CachedCharacterDefinition, string>;
 
+  // Folders (decks / lessons / readers), replaced whole on each sync
+  folders!: Table<Folder, string>;
+
   // Debug tables
   syncLogs!: Table<SyncLogEntry, string>;
 
@@ -1044,6 +1050,12 @@ export class ChineseLearningDB extends Dexie {
     this.version(25).stores({
       notes: 'id, deck_id, updated_at, _synced_at, long_term',
       pendingNotePrefs: 'note_id',
+    });
+
+    // Version 26: folders for decks / library lessons / readers (shared/folders;
+    // organisation only). Replaced whole from every /sync/changes response.
+    this.version(26).stores({
+      folders: 'id, kind',
     });
   }
 }

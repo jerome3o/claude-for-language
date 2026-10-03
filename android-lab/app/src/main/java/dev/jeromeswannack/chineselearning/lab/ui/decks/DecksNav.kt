@@ -90,6 +90,7 @@ private fun DecksRoute(nav: LabNav) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     var newDeck by remember { mutableStateOf(false) }
     var newDeckError by remember { mutableStateOf<String?>(null) }
+    val folderUi = vm.folders?.ui?.collectAsStateWithLifecycle()?.value
     DecksTabScreen(
         ui,
         DecksActions(
@@ -110,6 +111,8 @@ private fun DecksRoute(nav: LabNav) {
             onLift = env.fx.lift,
             onSlot = env.fx.tick,
         ),
+        folders = folderUi,
+        folderActions = remember(vm) { vm.folders?.let(dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions::of) ?: dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions() },
     )
     if (newDeck) {
         NewDeckSheet(

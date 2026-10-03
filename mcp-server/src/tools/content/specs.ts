@@ -70,6 +70,7 @@ export interface ReaderListRow {
   creator_role?: string;
   created_at: string;
   pages?: unknown[];
+  folder_id?: string | null;
 }
 
 export interface ReaderListItem {
@@ -84,6 +85,9 @@ export interface ReaderListItem {
   created_at: string;
   creator_role: string;
   is_published: boolean;
+  /** Folder id (null = Unfiled); `folder` = its name when known. */
+  folder_id?: string | null;
+  folder?: string | null;
 }
 
 export function trimReader(row: ReaderListRow): ReaderListItem {
@@ -98,6 +102,7 @@ export function trimReader(row: ReaderListRow): ReaderListItem {
     created_at: row.created_at,
     creator_role: row.creator_role ?? 'student',
     is_published: (row.is_published ?? 1) !== 0,
+    folder_id: row.folder_id ?? null,
   };
   if (row.error_message) item.error_message = row.error_message;
   return item;

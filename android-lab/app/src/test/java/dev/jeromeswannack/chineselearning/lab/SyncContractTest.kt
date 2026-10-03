@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -158,6 +159,49 @@ class SyncContractTest {
         val run = repo.status.value.lastRun!!
         assertTrue(run.ok && !run.full)
         assertTrue(run.phases.map { it.name }.containsAll(listOf("Changes", "Downloading reviews", "Card states")))
+        repo.awaitAudioPrefetch()
+        db.close()
+    }
+
+    /** Folders (migration 0105): a web move arrives with sync, a phone move reaches the server, a delete un-files. */
+    @Test
+    fun foldersRoundTrip() = runBlocking {
+        assumeTrue("set LAB_E2E_API to run against a local worker", base != null)
+        val token = json.parseToJsonElement(call("POST", "/api/test/auth", null, """{"email":"lab-${UUID.randomUUID()}@example.com","name":"Lab"}"""))
+            .jsonObject["session_token"]!!.jsonPrimitive.content
+        val deckA = json.parseToJsonElement(call("POST", "/api/decks", token, """{"name":"Folder deck A"}""")).jsonObject["id"]!!.jsonPrimitive.content
+        val deckB = json.parseToJsonElement(call("POST", "/api/decks", token, """{"name":"Folder deck B"}""")).jsonObject["id"]!!.jsonPrimitive.content
+        call("POST", "/api/decks/$deckA/notes", token, """{"hanzi":"文件夹","pinyin":"wénjiànjiā","english":"folder"}""")
+        // Made on the web: a folder with deck A in it.
+        val webFolder = "web-${UUID.randomUUID()}"
+        call("POST", "/api/folders", token, """{"kind":"deck","name":"HSK 2","id":"$webFolder"}""")
+        call("POST", "/api/folders/move", token, """{"kind":"deck","ids":["$deckA"],"folder_id":"$webFolder"}""")
+
+        val ctx = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val db = Room.inMemoryDatabaseBuilder(ctx, LabDatabase::class.java).allowMainThreadQueries().build()
+        val prefs = Prefs(ctx).apply { clearAccount(); sessionToken = token }
+        val repo = Repository(ctx, db, Api(base!!) { prefs.sessionToken }, prefs)
+        val cache = repo.platform.cache
+        repo.sync() // full: decks carry folder_id, the folder list comes from GET /api/folders
+        assertNull(repo.status.value.error)
+        assertEquals(webFolder, repo.dao.decks().first { it.id == deckA }.folderId)
+        assertEquals(listOf("HSK 2"), dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.all(cache).map { it.name })
+
+        // On the phone: a new folder (client id) and deck B into it.
+        val writes = dev.jeromeswannack.chineselearning.lab.data.folders.FolderWrites(repo.dao, repo.api, cache, repo.platform.outbox, online = { true })
+        val (created, folder) = writes.create("deck", "Food", null)
+        assertEquals(dev.jeromeswannack.chineselearning.lab.data.decks.WriteOutcome.Saved, created)
+        assertEquals(dev.jeromeswannack.chineselearning.lab.data.decks.WriteOutcome.Saved, writes.move("deck", listOf(deckB), folder!!.id))
+        val serverDecks = json.parseToJsonElement(call("GET", "/api/decks", token)).jsonArray.associate { it.jsonObject["id"]!!.jsonPrimitive.content to it.jsonObject["folder_id"]?.jsonPrimitive?.contentOrNull }
+        assertEquals(folder.id, serverDecks[deckB])
+
+        // Deleted on the web: deck A back to Unfiled on the next (incremental) sync, the folder gone.
+        call("DELETE", "/api/folders/$webFolder", token)
+        repo.sync()
+        assertNull(repo.status.value.error)
+        assertNull(repo.dao.decks().first { it.id == deckA }.folderId)
+        assertEquals(folder.id, repo.dao.decks().first { it.id == deckB }.folderId)
+        assertEquals(listOf("Food"), dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.all(cache).map { it.name })
         repo.awaitAudioPrefetch()
         db.close()
     }

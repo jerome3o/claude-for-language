@@ -99,9 +99,16 @@ class LibraryDeps(
     /** How long "Still drafting" waits before looking for the new lesson. */
     val draftRecheckMs: Long = 45_000,
     val noticeMs: Long = 3_000,
+    /** Folders of the Library list (data/folders/); null = none (tests / previews). */
+    val folderWrites: dev.jeromeswannack.chineselearning.lab.data.folders.FolderWrites? = null,
+    val folderFeel: dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel.None,
 ) {
     companion object {
-        fun from(app: LabApp) = LibraryDeps(app.repo.api, app.cache, { app.online.value }, LibraryFeel.of(app))
+        fun from(app: LabApp) = LibraryDeps(
+            app.repo.api, app.cache, { app.online.value }, LibraryFeel.of(app),
+            folderWrites = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController.writes(app),
+            folderFeel = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel.of(app),
+        )
     }
 }
 
@@ -263,6 +270,20 @@ class LibraryModel(scope: CoroutineScope, deps: LibraryDeps) : LibraryModelBase(
     val assign = AssignController(scope, deps) { message ->
         showSuccess(message)
         list.refresh()
+    }
+
+    /** Folders of the Library (shared with Decks and Readers: ui/folders/). */
+    val folders: dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController? = deps.folderWrites?.let { w ->
+        dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController(
+            scope, dev.jeromeswannack.chineselearning.lab.core.Folders.LESSON, deps.cache, w, deps.folderFeel,
+            currentFolderOf = { id -> list.state.value.data?.firstOrNull { it.id == id }?.folder_id },
+        )
+    }
+
+    /** ⋯ → Move to folder…. */
+    fun moveToFolder(item: LibraryItemSummary) {
+        local.update { it.copy(menuFor = null) }
+        folders?.openMove(listOf(item.id))
     }
 
     val ui: StateFlow<LibraryUi> = combine(list.state, local, assign.state) { l, s, a ->

@@ -51,6 +51,16 @@ object LabMigrations {
         }
     }
 
+    /**
+     * v5: decks.folderId — the deck's folder (server decks.folder_id, migration 0105; core
+     * Folders.kt). Nullable (= Unfiled), no index. Organisation only: the queue ignores it.
+     */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `decks` ADD COLUMN `folderId` TEXT")
+        }
+    }
+
     /** Every migration, oldest first. Append new ones here. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 }

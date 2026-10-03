@@ -73,6 +73,16 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.core.Folder
+import dev.jeromeswannack.chineselearning.lab.core.Folders
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderHeaderRow
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderOverlays
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderRow
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderToolbar
+import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderUi
+import dev.jeromeswannack.chineselearning.lab.ui.folders.SelectTick
+import dev.jeromeswannack.chineselearning.lab.ui.folders.folderRows
 
 data class DecksActions(
     val onQuery: (String) -> Unit = {},
@@ -107,70 +117,175 @@ fun DecksTabScreen(
     actions: DecksActions,
     listState: LazyListState = rememberLazyListState(),
     liftedPreview: String? = null,
+    /** Folders (ui/folders/): null = no folder features (previews of older states). */
+    folders: FolderUi? = null,
+    folderActions: FolderActions = FolderActions(),
 ) {
-    val ids = ui.decks.map { it.id }
-    val drag = rememberDragReorderState(listState, ids, onLift = actions.onLift, onSlot = actions.onSlot, onCommit = actions.onCommitOrder)
-    val order = drag.order()
-    val byId = ui.decks.associateBy { it.id }
     val searching = ui.search != null
+    val grouped = folders != null && folders.hasFolders && !searching
+    val byId = ui.decks.associateBy { it.id }
+    val allIds = ui.decks.map { it.id }
+    // The rows as they are (no drag): what can be dragged, and which group each deck is in.
+    val baseRows = if (grouped) deckRows(ui.decks, folders!!.folders, folders.collapsed) else emptyList()
+    val groupOfKey = baseRows.filterIsInstance<FolderRow.Item<DeckCardUi>>().associate { it.key to it.groupKey }
+    val dragIds = when {
+        folders?.selecting == true -> emptyList()
+        grouped -> baseRows.filter { it is FolderRow.Item<*> || (it is FolderRow.Header && it.depth == 0 && it.folder != null) }.map { it.key }
+        else -> allIds
+    }
+    val drag = rememberDragReorderState(
+        listState, dragIds, onLift = actions.onLift, onSlot = actions.onSlot,
+        onCommit = { final -> commitGrouped(grouped, final, dragIds, allIds, groupOfKey, actions, folderActions) },
+        sameGroup = { a, b ->
+            if (FolderRow.isHeaderKey(a)) FolderRow.isHeaderKey(b)
+            else !FolderRow.isHeaderKey(b) && groupOfKey[a] == groupOfKey[b]
+        },
+    )
+    val order = drag.order()
+    val dragged = drag.dragId
+    // While dragging: a deck moves inside its group (spliced into the global queue), a folder among folders.
+    val deckOrder = when {
+        !grouped -> order
+        dragged != null && !FolderRow.isHeaderKey(dragged) -> Folders.spliceGroupOrder(allIds, order.filter { !FolderRow.isHeaderKey(it) && groupOfKey[it] == groupOfKey[dragged] })
+        else -> allIds
+    }
+    val shownFolders = if (grouped && dragged != null && FolderRow.isHeaderKey(dragged)) {
+        val rank = order.filter{ FolderRow.isHeaderKey(it) }.withIndex().associate { FolderRow.folderIdOfKey(it.value) to it.index }
+        folders!!.folders.map { f -> rank[f.id]?.let { f.copy(position = it) } ?: f }
+    } else folders?.folders.orEmpty()
+    val rows = if (grouped) deckRows(deckOrder.mapNotNull(byId::get), shownFolders, folders!!.collapsed) else emptyList()
+    val position = allIds.withIndex().associate { it.value to it.index + 1 }.let { base ->
+        if (grouped) deckOrder.withIndex().associate { it.value to it.index + 1 } else base
+    }
 
     LabScreenFrame {
-        ScreenTitle("Decks", subtitle = if (ui.decks.isEmpty()) null else "${ui.decks.size} decks · studied top to bottom", onBack = actions.onBack)
-        LazyColumn(
-            Modifier.fillMaxSize().dragReorderList(drag),
-            state = listState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item(key = "search") { SearchField(ui.query, actions.onQuery) }
-            ui.notice?.let { n ->
-                item(key = "notice") {
-                    InlineNotice(n, kind = if (ui.noticeIsError) NoticeKind.Error else NoticeKind.Info, actionLabel = "OK", onAction = actions.onDismissNotice)
-                }
-            }
-            when {
-                searching -> searchResults(ui, actions)
-                !ui.loaded -> item(key = "loading") { LoadingState() }
-                ui.decks.isEmpty() -> item(key = "empty") {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        EmptyState("📖", "No decks yet", body = "Create your first deck, start with 15 everyday words, or let Claude write one.", actionLabel = "Create deck", onAction = actions.onNewDeck)
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SecondaryPill("🌱 Starter deck", enabled = !ui.busy && ui.online) { actions.onStarter() }
-                            SecondaryPill("✨ Generate") { actions.onGenerate() }
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize()) {
+                ScreenTitle("Decks", subtitle = if (ui.decks.isEmpty()) null else "${ui.decks.size} decks · studied top to bottom", onBack = actions.onBack)
+                LazyColumn(
+                    Modifier.fillMaxSize().dragReorderList(drag),
+                    state = listState,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = if (folders?.selecting == true) 110.dp else 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item(key = "search") { SearchField(ui.query, actions.onQuery) }
+                    ui.notice?.let { n ->
+                        item(key = "notice") {
+                            InlineNotice(n, kind = if (ui.noticeIsError) NoticeKind.Error else NoticeKind.Info, actionLabel = "OK", onAction = actions.onDismissNotice)
+                        }
+                    }
+                    when {
+                        searching -> searchResults(ui, actions)
+                        !ui.loaded -> item(key = "loading") { LoadingState() }
+                        ui.decks.isEmpty() -> item(key = "empty") {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                EmptyState("📖", "No decks yet", body = "Create your first deck, start with 15 everyday words, or let Claude write one.", actionLabel = "Create deck", onAction = actions.onNewDeck)
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    SecondaryPill("🌱 Starter deck", enabled = !ui.busy && ui.online) { actions.onStarter() }
+                                    SecondaryPill("✨ Generate") { actions.onGenerate() }
+                                }
+                            }
+                        }
+                        else -> {
+                            item(key = "caption") { QueueCaption(ui.newPerDay, actions.onSettings) }
+                            if (folders != null) {
+                                item(key = "folder-toolbar") {
+                                    FolderToolbar(folders, onNewFolder = { folderActions.onNewFolder(null) }, onSelect = folderActions.onSelect, onDone = folderActions.onDoneSelecting)
+                                }
+                            }
+                            if (grouped) {
+                                items(rows, key = { it.key }) { row ->
+                                    val lifted = dragged == row.key || liftedPreview == row.key
+                                    val mod = Modifier
+                                        .zIndex(if (lifted) 1f else 0f)
+                                        .graphicsLayer { translationY = if (dragged == row.key) drag.dragOffsetY else 0f }
+                                        .then(if (dragged == row.key) Modifier else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)))
+                                    when (row) {
+                                        is FolderRow.Header -> FolderHeaderRow(
+                                            row,
+                                            Folders.DECK,
+                                            onToggle = { folderActions.onToggle(row.folder?.id) },
+                                            onMenu = row.folder?.let { f -> { folderActions.onMenu(f, row.own, row.subfolders) } },
+                                            modifier = mod,
+                                            lifted = lifted,
+                                        )
+                                        is FolderRow.Item -> DeckQueueCard(
+                                            deck = row.item,
+                                            position = position[row.item.id] ?: 0,
+                                            total = allIds.size,
+                                            lifted = lifted,
+                                            actions = actions,
+                                            modifier = mod.padding(start = (row.depth * 16).dp),
+                                            selection = if (folders!!.selecting) row.item.id in folders.selected else null,
+                                            onSelect = { folderActions.onToggleSelected(row.item.id) },
+                                            onMoveToFolder = { folderActions.onOpenMove(listOf(row.item.id)) },
+                                        )
+                                    }
+                                }
+                            } else {
+                                items(order, key = { it }) { id ->
+                                    val deck = byId[id] ?: return@items
+                                    val lifted = drag.dragId == id || liftedPreview == id
+                                    DeckQueueCard(
+                                        deck = deck,
+                                        position = order.indexOf(id) + 1,
+                                        total = order.size,
+                                        lifted = lifted,
+                                        actions = actions,
+                                        modifier = Modifier
+                                            .zIndex(if (lifted) 1f else 0f)
+                                            .graphicsLayer { translationY = if (drag.dragId == id) drag.dragOffsetY else 0f }
+                                            .then(if (drag.dragId == id) Modifier else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))),
+                                        selection = if (folders?.selecting == true) id in folders.selected else null,
+                                        onSelect = { folderActions.onToggleSelected(id) },
+                                        onMoveToFolder = if (folders != null) ({ folderActions.onOpenMove(listOf(id)) }) else null,
+                                    )
+                                }
+                            }
+                            item(key = "actions") {
+                                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    PrimaryPill("+ New deck", Modifier.weight(1f).height(52.dp)) { actions.onNewDeck() }
+                                    SecondaryPill("✨ Generate", Modifier.weight(1f)) { actions.onGenerate() }
+                                    SecondaryPill("Analyze", Modifier.weight(0.8f)) { actions.onAnalyze() }
+                                }
+                            }
                         }
                     }
                 }
-                else -> {
-                    item(key = "caption") { QueueCaption(ui.newPerDay, actions.onSettings) }
-                    items(order, key = { it }) { id ->
-                        val deck = byId[id] ?: return@items
-                        val lifted = drag.dragId == id || liftedPreview == id
-                        val position = order.indexOf(id) + 1
-                        DeckQueueCard(
-                            deck = deck,
-                            position = position,
-                            total = order.size,
-                            lifted = lifted,
-                            actions = actions,
-                            modifier = Modifier
-                                .zIndex(if (lifted) 1f else 0f)
-                                .graphicsLayer { translationY = if (drag.dragId == id) drag.dragOffsetY else 0f }
-                                .then(if (drag.dragId == id) Modifier else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))),
-                        )
-                    }
-                    item(key = "actions") {
-                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            PrimaryPill("+ New deck", Modifier.weight(1f).height(52.dp)) { actions.onNewDeck() }
-                            SecondaryPill("✨ Generate", Modifier.weight(1f)) { actions.onGenerate() }
-                            SecondaryPill("Analyze", Modifier.weight(0.8f)) { actions.onAnalyze() }
-                        }
-                    }
-                }
             }
+            if (folders != null) FolderOverlays(folders, folderActions)
         }
     }
 }
 
+/** The decks (in queue order) grouped into their folders, as rows. */
+internal fun deckRows(decks: List<DeckCardUi>, folders: List<Folder>, collapsed: Set<String>): List<FolderRow<DeckCardUi>> =
+    folderRows(Folders.groupIntoFolders(decks, { it.folderId }, folders, Folders.DECK), collapsed) { it.id }
+
+/**
+ * The end of a press-and-hold drag. Without folders: the whole new queue. With folders: a
+ * folder header → the folders' new order; a deck → its folder's new order spliced into the
+ * global queue (`spliceGroupOrder`), so decks in other folders keep their #N.
+ */
+private fun commitGrouped(
+    grouped: Boolean,
+    final: List<String>,
+    before: List<String>,
+    allIds: List<String>,
+    groupOfKey: Map<String, String>,
+    actions: DecksActions,
+    folderActions: FolderActions,
+) {
+    if (!grouped) return actions.onCommitOrder(final)
+    val headersAfter = final.filter{ FolderRow.isHeaderKey(it) }
+    if (headersAfter != before.filter{ FolderRow.isHeaderKey(it) }) {
+        return folderActions.onReorder(headersAfter.mapNotNull { FolderRow.folderIdOfKey(it) })
+    }
+    for (g in groupOfKey.values.distinct()) {
+        val after = final.filter { groupOfKey[it] == g }
+        if (after != before.filter { groupOfKey[it] == g }) return actions.onCommitOrder(Folders.spliceGroupOrder(allIds, after))
+    }
+}
 
 @Composable
 private fun SearchField(query: String, onQuery: (String) -> Unit) {
@@ -212,7 +327,19 @@ private fun QueueCaption(newPerDay: Int, onSettings: () -> Unit) {
 
 /** The web's DeckCard, as a full-width row. */
 @Composable
-fun DeckQueueCard(deck: DeckCardUi, position: Int, total: Int, lifted: Boolean, actions: DecksActions, modifier: Modifier = Modifier) {
+fun DeckQueueCard(
+    deck: DeckCardUi,
+    position: Int,
+    total: Int,
+    lifted: Boolean,
+    actions: DecksActions,
+    modifier: Modifier = Modifier,
+    /** Select mode: null = off, else whether this deck is ticked (a tap toggles it). */
+    selection: Boolean? = null,
+    onSelect: () -> Unit = {},
+    /** "📁 Move to folder…" in the #N menu. */
+    onMoveToFolder: (() -> Unit)? = null,
+) {
     val scale by animateFloatAsState(if (lifted) 1.03f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "lift")
     val elevation by animateDpAsState(if (lifted) 14.dp else 0.dp, label = "lift-shadow")
     Column(
@@ -223,10 +350,15 @@ fun DeckQueueCard(deck: DeckCardUi, position: Int, total: Int, lifted: Boolean, 
             .clip(RoundedCornerShape(18.dp))
             .background(Lab.colors.card)
             .border(if (lifted) 2.dp else 0.dp, if (lifted) Lab.colors.accent else Color.Transparent, RoundedCornerShape(18.dp))
-            .bouncyClickable(pressedScale = 0.985f) { actions.onOpenDeck(deck.id) }
+            .border(if (selection == true) 2.dp else 0.dp, if (selection == true) Lab.colors.accent else Color.Transparent, RoundedCornerShape(18.dp))
+            .bouncyClickable(pressedScale = 0.985f) { if (selection != null) onSelect() else actions.onOpenDeck(deck.id) }
             .padding(start = 16.dp, end = 10.dp, top = 12.dp, bottom = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (selection != null) {
+                SelectTick(selection)
+                Spacer(Modifier.width(12.dp))
+            }
             Column(Modifier.weight(1f)) {
                 Text(deck.name, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
@@ -238,7 +370,7 @@ fun DeckQueueCard(deck: DeckCardUi, position: Int, total: Int, lifted: Boolean, 
                 }
             }
             Spacer(Modifier.width(8.dp))
-            QueueBadge(position, total) { to -> actions.onMove(deck.id, to) }
+            QueueBadge(position, total, extra = onMoveToFolder?.let { listOf("📁 Move to folder…" to it) }.orEmpty()) { to -> actions.onMove(deck.id, to) }
         }
         HorizontalDivider(Modifier.padding(top = 10.dp, bottom = 6.dp, end = 6.dp), color = Lab.colors.faint)
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -297,7 +429,7 @@ private fun SmallPill(label: String, filled: Boolean, onClick: () -> Unit) {
 
 /** "#N" with Move to top / up / down / bottom (the web's QueuePositionMenu). */
 @Composable
-fun QueueBadge(position: Int, total: Int, label: String = "the queue", onMove: (DeckQueue.Move) -> Unit) {
+fun QueueBadge(position: Int, total: Int, label: String = "the queue", extra: List<Pair<String, () -> Unit>> = emptyList(), onMove: (DeckQueue.Move) -> Unit) {
     var open by remember { mutableStateOf(false) }
     val first = position == 1
     Box {
@@ -326,6 +458,8 @@ fun QueueBadge(position: Int, total: Int, label: String = "the queue", onMove: (
                 val disabled = if (to == DeckQueue.Move.TOP || to == DeckQueue.Move.UP) first else position == total
                 DropdownMenuItem(text = { Text(text) }, enabled = !disabled, onClick = { open = false; onMove(to) })
             }
+            if (extra.isNotEmpty()) HorizontalDivider(color = Lab.colors.faint)
+            for ((text, run) in extra) DropdownMenuItem(text = { Text(text) }, onClick = { open = false; run() })
         }
     }
 }

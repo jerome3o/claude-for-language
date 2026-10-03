@@ -42,7 +42,17 @@ export interface LongPressReorder {
 export function useLongPressReorder(
   ids: string[],
   onCommit: (orderedIds: string[]) => void | Promise<void>,
-  { holdMs = 350, moveTolerance = 10 }: { holdMs?: number; moveTolerance?: number } = {}
+  {
+    holdMs = 350,
+    moveTolerance = 10,
+    selector = '[data-drag-id]',
+  }: {
+    holdMs?: number;
+    moveTolerance?: number;
+    /** The elements measured as drop slots (in DOM order = the preview order). Folder groups
+     * use `:scope > [data-folder-id]` so the deck cards inside them are not counted. */
+    selector?: string;
+  } = {}
 ): LongPressReorder {
   const [dragId, setDragId] = useState<string | null>(null);
   const [preview, setPreview] = useState<string[] | null>(null);
@@ -83,7 +93,7 @@ export function useLongPressReorder(
     const cur = previewRef.current;
     const id = dragIdRef.current;
     if (!list || !cur || !id) return;
-    const cards = Array.from(list.querySelectorAll<HTMLElement>('[data-drag-id]'));
+    const cards = Array.from(list.querySelectorAll<HTMLElement>(selector));
     const idx = indexUnderPointer(cards.map((c) => c.getBoundingClientRect()), x, y);
     if (idx < 0) return;
     // The DOM order IS the preview order, so the index under the pointer is the target slot.

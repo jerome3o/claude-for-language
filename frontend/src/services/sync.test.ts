@@ -318,6 +318,42 @@ describe('SyncService', () => {
       expect(decks[0].name).toBe('New Deck');
     });
 
+    it('replaces the local folders and files decks from an incremental sync', async () => {
+      const lastSync = Date.now() - 3600000;
+      await updateSyncMeta({ id: 'sync_state', last_full_sync: lastSync, last_incremental_sync: lastSync, user_id: null });
+      // A folder deleted on another device must disappear here.
+      await db.folders.clear();
+      await db.folders.put({ id: 'gone', user_id: 'user-1', kind: 'deck', name: 'Old', parent_id: null, position: 0, created_at: '', updated_at: '' });
+      const filed = { ...createMockDeck('deck-f', 'HSK 2 words'), folder_id: 'f-1' };
+      const folder = { id: 'f-1', user_id: 'user-1', kind: 'deck', name: 'HSK 2', parent_id: null, position: 0, created_at: '', updated_at: '' };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          decks: [filed],
+          notes: [],
+          cards: [],
+          deleted: { deck_ids: [], note_ids: [], card_ids: [] },
+          server_time: new Date().toISOString(),
+          folders: [folder],
+        }),
+      });
+
+      await syncService.incrementalSync();
+
+      expect((await db.folders.toArray()).map(f => f.id)).toEqual(['f-1']);
+      expect((await db.decks.get('deck-f'))?.folder_id).toBe('f-1');
+    });
+
+    it('keeps the local folders when the server sends none (older API)', async () => {
+      const lastSync = Date.now() - 3600000;
+      await updateSyncMeta({ id: 'sync_state', last_full_sync: lastSync, last_incremental_sync: lastSync, user_id: null });
+      await db.folders.clear();
+      await db.folders.put({ id: 'keep', user_id: 'user-1', kind: 'lesson', name: 'Grammar', parent_id: null, position: 0, created_at: '', updated_at: '' });
+      await syncService.incrementalSync();
+      expect((await db.folders.toArray()).map(f => f.id)).toEqual(['keep']);
+    });
+
     it('should apply deletions from incremental sync', async () => {
       // Pre-populate data
       await db.decks.put({

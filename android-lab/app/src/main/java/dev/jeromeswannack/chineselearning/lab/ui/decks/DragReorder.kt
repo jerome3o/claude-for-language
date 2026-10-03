@@ -38,6 +38,11 @@ class DragReorderState internal constructor(
     private val onLift: () -> Unit,
     private val onSlot: () -> Unit,
     private val onCommit: (List<String>) -> Unit,
+    /**
+     * Whether the lifted row may take [other]'s slot (folders: a deck stays inside its folder,
+     * a folder header only swaps with headers). Every row by default.
+     */
+    private val sameGroup: (dragged: String, other: String) -> Boolean = { _, _ -> true },
 ) {
     /** The live preview while dragging, else null (render [ids]). */
     var preview by mutableStateOf<List<String>?>(null)
@@ -93,7 +98,7 @@ class DragReorderState internal constructor(
         val current = preview ?: return
         val info = listState.layoutInfo
         val width = info.viewportSize.width.toDouble()
-        val rows = info.visibleItemsInfo.filter { it.key in current }
+        val rows = info.visibleItemsInfo.filter { it.key in current && (it.key == id || sameGroup(id, it.key as String)) }
         val rects = rows.map { DeckQueue.Rect(0.0, it.offset.toDouble(), width, it.size.toDouble()) }
         val idx = DeckQueue.indexUnderPointer(rects, width / 2, pointerY.toDouble())
         if (idx >= 0) {
@@ -136,13 +141,15 @@ fun rememberDragReorderState(
     onLift: () -> Unit,
     onSlot: () -> Unit,
     onCommit: (List<String>) -> Unit,
+    sameGroup: (dragged: String, other: String) -> Boolean = { _, _ -> true },
 ): DragReorderState {
     val scope = rememberCoroutineScope()
     val currentIds by rememberUpdatedState(ids)
     val lift by rememberUpdatedState(onLift)
     val slot by rememberUpdatedState(onSlot)
     val commit by rememberUpdatedState(onCommit)
-    return remember(listState) { DragReorderState(listState, scope, { currentIds }, { lift() }, { slot() }, { commit(it) }) }
+    val group by rememberUpdatedState(sameGroup)
+    return remember(listState) { DragReorderState(listState, scope, { currentIds }, { lift() }, { slot() }, { commit(it) }, { a, b -> group(a, b) }) }
 }
 
 /**

@@ -13,6 +13,9 @@ import { orderDecksForQueue, moveDeckInQueue, nudgeDeckInQueue, reorderQueue } f
 import { useLongPressReorder, type LongPressReorder } from '../services/dragReorder';
 import { readStudyBudget } from '../services/studyBudget';
 import type { LocalDeck } from '../db/database';
+import { spliceGroupOrder } from '@shared/folders';
+import { FolderGroups, FolderToolbar, SelectionBar, useFolderUi, type FolderUi } from '../components/folders/FolderGroups';
+import { Toast, useToast } from '../components/Toast';
 import { track } from '../services/analytics';
 
 // Queue counts display component
@@ -53,6 +56,10 @@ function DeckCard({
   total,
   onMove,
   drag,
+  onMoveToFolder,
+  selecting = false,
+  selected = false,
+  onToggleSelect,
 }: {
   deck: Deck;
   counts: DeckQueueCounts;
@@ -62,6 +69,11 @@ function DeckCard({
   total: number;
   onMove: (to: 'top' | 'up' | 'down' | 'bottom') => void;
   drag: LongPressReorder;
+  onMoveToFolder: () => void;
+  /** Multi-select mode: a tap toggles the deck instead of opening it. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -80,15 +92,23 @@ function DeckCard({
 
   return (
     <div
-      className={`deck-card${dragging ? ' deck-card--dragging' : ''}`}
+      className={`deck-card${dragging ? ' deck-card--dragging' : ''}${selecting ? ` folder-selectable${selected ? ' folder-selectable--on' : ''}` : ''}`}
       data-testid="deck-card"
       data-drag-id={deck.id}
+      aria-pressed={selecting ? selected : undefined}
       style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative', zIndex: menuOpen ? 20 : undefined }}
-      {...drag.cardProps(deck.id)}
+      {...(selecting ? {} : drag.cardProps(deck.id))}
+      onClickCapture={selecting ? (e) => { e.preventDefault(); e.stopPropagation(); onToggleSelect?.(); } : undefined}
     >
       {/* Queue position + reorder menu (the card is lifted above its siblings while the menu is open) */}
       <div style={{ position: 'absolute', top: '0.25rem', right: '0.25rem' }}>
-        <QueuePositionMenu position={position} total={total} onMove={onMove} onOpenChange={setMenuOpen} />
+        <QueuePositionMenu
+          position={position}
+          total={total}
+          onMove={onMove}
+          onOpenChange={setMenuOpen}
+          extraItems={[{ key: 'folder', label: '📁 Move to folder…', onSelect: onMoveToFolder }]}
+        />
       </div>
 
       <Link to={`/decks/${deck.id}`} onClick={drag.onLinkClick} draggable={false} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, paddingRight: '1.25rem' }}>
@@ -125,6 +145,65 @@ function DeckCard({
           <span className="text-light" style={{ fontSize: '0.7rem' }}>Done ✓</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One grid of decks (a folder's, or all of them). Press and hold to drag within the
+ * grid: the new order is spliced into the whole queue (`spliceGroupOrder`), so decks
+ * in other folders keep their places and the #N badges stay the global queue.
+ */
+function DeckGrid({
+  decks,
+  queueIds,
+  perDeck,
+  onAddMore,
+  onMove,
+  folderUi,
+  selecting,
+  selected,
+  onToggleSelect,
+}: {
+  decks: LocalDeck[];
+  queueIds: string[];
+  perDeck: Map<string, DeckQueueCounts>;
+  onAddMore: (deckId: string) => void;
+  onMove: (deckId: string, to: 'top' | 'up' | 'down' | 'bottom') => void;
+  folderUi: FolderUi;
+  selecting: boolean;
+  selected: Set<string>;
+  onToggleSelect: (deckId: string) => void;
+}) {
+  const ids = useMemo(() => decks.map(d => d.id), [decks]);
+  const drag = useLongPressReorder(ids, async (groupOrder) => {
+    try {
+      await reorderQueue(spliceGroupOrder(queueIds, groupOrder));
+      track('deck.reorder', { how: 'drag' });
+    } catch (err) {
+      console.error('[Decks] drag reorder failed', err);
+    }
+  });
+  const byId = new Map(decks.map(d => [d.id, d]));
+  const ordered = drag.order.map(id => byId.get(id)).filter((d): d is LocalDeck => !!d);
+  return (
+    <div className={`grid grid-cols-2 gap-1 deck-grid${drag.dragId ? ' deck-grid--dragging' : ''}`} ref={drag.listRef} data-testid="deck-grid">
+      {ordered.map((deck) => (
+        <DeckCard
+          key={deck.id}
+          deck={deck}
+          counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
+          onAddMore={() => onAddMore(deck.id)}
+          position={queueIds.indexOf(deck.id) + 1}
+          total={queueIds.length}
+          onMove={(to) => onMove(deck.id, to)}
+          drag={drag}
+          onMoveToFolder={() => folderUi.openMove([deck.id], deck.folder_id ?? null)}
+          selecting={selecting}
+          selected={selected.has(deck.id)}
+          onToggleSelect={() => onToggleSelect(deck.id)}
+        />
+      ))}
     </div>
   );
 }
@@ -180,16 +259,20 @@ export function DecksPage() {
   const { decks: offlineDecks, isLoading: offlineLoading, isSyncing } = useOfflineDecks(decksQuery.data);
   const decks = offlineDecks;
 
-  // Press-and-hold to drag a deck to a new place in the queue.
-  const orderedIds = useMemo(() => orderDecksForQueue(decks as LocalDeck[]).map(d => d.id), [decks]);
-  const drag = useLongPressReorder(orderedIds, async (ids) => {
-    try {
-      await reorderQueue(ids);
-      track('deck.reorder', { how: 'drag' });
-    } catch (err) {
-      console.error('[Decks] drag reorder failed', err);
-    }
+  // Decks in queue order; folders only group them (the queue is the same with or without).
+  const orderedDecks = useMemo(() => orderDecksForQueue(decks as LocalDeck[]), [decks]);
+  const orderedIds = useMemo(() => orderedDecks.map(d => d.id), [orderedDecks]);
+  const [toast, showToast] = useToast();
+  const folderUi = useFolderUi('deck', { onToast: showToast, onChanged: () => { setSelected(new Set()); setSelecting(false); } });
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
   });
+  const folderIdOf = useMemo(() => (d: LocalDeck) => d.folder_id ?? null, []);
 
   const handleMove = async (deckId: string, to: 'top' | 'up' | 'down' | 'bottom') => {
     try {
@@ -314,28 +397,43 @@ export function DecksPage() {
               }
             />
           ) : (() => {
-            const byId = new Map(decks.map(d => [d.id, d]));
-            const ordered = drag.order.map(id => byId.get(id)).filter((d): d is LocalDeck => !!d);
             return (
               <>
                 <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', color: 'var(--color-text-light)' }} data-testid="queue-caption">
                   Studied in this order: {budget.new_cards_per_day} new {budget.new_cards_per_day === 1 ? 'word' : 'words'} a day come from the top deck down
                   {' '}(<Link to="/settings" style={{ color: 'inherit' }}>change</Link>). <strong>Press and hold a deck to drag it</strong>, or tap its number to move it.
                 </p>
-                <div className={`grid grid-cols-2 gap-1 deck-grid${drag.dragId ? ' deck-grid--dragging' : ''}`} ref={drag.listRef} data-testid="deck-grid">
-                  {ordered.map((deck, i) => (
-                    <DeckCard
-                      key={deck.id}
-                      deck={deck}
-                      counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
-                      onAddMore={() => bumpBonus(deck.id)}
-                      position={i + 1}
-                      total={ordered.length}
-                      onMove={(to) => handleMove(deck.id, to)}
-                      drag={drag}
+                <FolderToolbar ui={folderUi} selecting={selecting} onSelect={() => setSelecting(true)} itemCount={orderedDecks.length} />
+                <FolderGroups
+                  ui={folderUi}
+                  items={orderedDecks}
+                  folderIdOf={folderIdOf}
+                  renderItems={(groupDecks) => (
+                    <DeckGrid
+                      decks={groupDecks}
+                      queueIds={orderedIds}
+                      perDeck={perDeck}
+                      onAddMore={bumpBonus}
+                      onMove={handleMove}
+                      folderUi={folderUi}
+                      selecting={selecting}
+                      selected={selected}
+                      onToggleSelect={toggleSelect}
                     />
-                  ))}
-                </div>
+                  )}
+                />
+                {selecting && (
+                  <SelectionBar
+                    count={selected.size}
+                    kindLabel="decks"
+                    onMove={() => {
+                      const ids = [...selected];
+                      const shared = new Set(orderedDecks.filter(d => selected.has(d.id)).map(d => d.folder_id ?? null));
+                      folderUi.openMove(ids, shared.size === 1 ? [...shared][0] : undefined);
+                    }}
+                    onCancel={() => { setSelecting(false); setSelected(new Set()); }}
+                  />
+                )}
 
                 {/* Action buttons */}
                 <div className="flex gap-2 justify-center flex-wrap" style={{ paddingTop: '0.75rem', marginTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
@@ -354,6 +452,9 @@ export function DecksPage() {
           })()}
         </div>
         )}
+
+        {folderUi.sheets}
+        <Toast message={toast} />
 
         {/* Create Deck Modal */}
         {showModal && (
