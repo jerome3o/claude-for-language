@@ -95,7 +95,7 @@ export async function editMessage(db: D1Database, messageId: string, userId: str
   if (kind && content.length > CAPTION_MAX) throw new ChatMessageError(`A caption can be at most ${CAPTION_MAX} characters`, 400);
   const at = laterThan(await currentUpdatedAt(db, messageId));
   await db
-    .prepare('UPDATE messages SET content = ?, edited_at = ?, updated_at = ?, translation = NULL, segmentation = NULL, words = NULL WHERE id = ?')
+    .prepare('UPDATE messages SET content = ?, edited_at = ?, updated_at = ?, translation = NULL, segmentation = NULL, words = NULL, auto_check = NULL WHERE id = ?')
     .bind(content, at, at, messageId)
     .run();
   return (await getMessageById(db, messageId, userId))!;
@@ -110,7 +110,7 @@ export async function deleteMessage(db: D1Database, messageId: string, userId: s
   await db
     .prepare(
       `UPDATE messages SET content = '', attachment = NULL, translation = NULL, segmentation = NULL,
-              words = NULL, correction = NULL, pinned_at = NULL, pinned_by = NULL, deleted_at = ?, updated_at = ?
+              words = NULL, correction = NULL, auto_check = NULL, pinned_at = NULL, pinned_by = NULL, deleted_at = ?, updated_at = ?
         WHERE id = ?`,
     )
     .bind(at, at, messageId)

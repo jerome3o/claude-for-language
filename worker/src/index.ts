@@ -453,6 +453,11 @@ app.get('/api/auth/me', async (c) => {
     call_alerts: (user as { call_alerts?: string | null }).call_alerts === 'silent' ? 'silent' : 'ring',
     // A new chat message also sends an e-mail (Settings → Notifications; the e-mail's own "Turn off" link).
     email_chat_messages: (user as { email_chat_messages?: number | null }).email_chat_messages !== 0,
+    // "Check my Chinese automatically" in the chat: true / false, null = the default (on for the learner side).
+    chat_auto_check: (() => {
+      const v = (user as { chat_auto_check?: number | null }).chat_auto_check;
+      return v === null || v === undefined ? null : v !== 0;
+    })(),
     // The learner's daily new-card budget across all decks (NULL = default).
     new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,

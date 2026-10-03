@@ -1,4 +1,5 @@
 import { looksLikeChinese } from './messageTools';
+import { sayBetterState } from './autoCheck';
 
 /**
  * The long-press (phone) / right-click + hover ⋯ (desktop) menu of one chat
@@ -6,7 +7,8 @@ import { looksLikeChinese } from './messageTools';
  * (components/chat/MessageMenu.tsx) and the Lab app (core `MessageMenu.kt`,
  * parity-tested). Bubbles carry no buttons any more: every tool lives here.
  *
- * Order (what someone reaches for first): Reply, Copy, Forward, Translate,
+ * Order (what someone reaches for first): How to say it better (my own message
+ * when the auto-check found something or the tutor corrected it — always FIRST), Reply, Copy, Forward, Translate,
  * Pinyin, Explain, Save as flashcard, Make flashcards from selection, Check my
  * Chinese, Correct, Read aloud, Word by word (Claude practice chat), Discuss with
  * Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top (`reactions`).
@@ -15,6 +17,7 @@ import { looksLikeChinese } from './messageTools';
 type RelationshipRole = 'tutor' | 'student';
 
 export type MenuActionId =
+  | 'say_better'
   | 'reply'
   | 'copy'
   | 'forward'
@@ -49,6 +52,8 @@ export interface MenuMessage {
   translation?: string | null;
   correction?: { text: string } | null;
   check_status?: 'correct' | 'needs_improvement' | null;
+  /** The background check (shared/chats/autoCheck.ts) — only the sender ever has it. */
+  auto_check?: { status: 'ok' | 'improvable'; text: string } | null;
   has_discussion?: boolean;
   pinned_at?: string | null;
 }
@@ -99,7 +104,14 @@ export function messageMenu(
   const isLearner = viewerRole === 'student' || isAiConversation;
   const zh = !!text && looksLikeChinese(text);
   const translated = kind === 'voice' ? !!msg.attachment?.translation : !!msg.translation;
-  const items: MenuItem[] = [{ id: 'reply', label: 'Reply', icon: '↩️', needsInternet: false }];
+  const items: MenuItem[] = [];
+  // Auto-check found something, or the tutor corrected it: the first thing to reach for.
+  if (sayBetterState({ ...msg, attachment: kind ? msg.attachment : null }, viewerId)) {
+    items.push({ id: 'say_better', label: 'How to say it better', icon: '✨', needsInternet: false });
+  }
+  // A current auto-check answers "Check my Chinese" already.
+  const autoChecked = !!msg.auto_check && msg.auto_check.text === msg.content;
+  items.push({ id: 'reply', label: 'Reply', icon: '↩️', needsInternet: false });
   if (text) items.push({ id: 'copy', label: 'Copy', icon: '📋', needsInternet: false });
   if (!isAiConversation) items.push({ id: 'forward', label: 'Forward', icon: '↪️', needsInternet: true });
   if (zh && (kind !== 'voice' || translated)) {
@@ -117,7 +129,7 @@ export function messageMenu(
     items.push({ id: 'save_card', label: 'Save as flashcard', icon: '🃏', needsInternet: true });
   }
   if (text) items.push({ id: 'select_cards', label: 'Make flashcards from selection', icon: '🗂️', needsInternet: true });
-  if (isMine && zh && isLearner && !kind) {
+  if (isMine && zh && isLearner && !kind && !autoChecked) {
     if (msg.check_status === 'needs_improvement') items.push({ id: 'view_corrections', label: 'View corrections', icon: '📝', needsInternet: false });
     else if (msg.check_status !== 'correct') items.push({ id: 'check', label: 'Check my Chinese', icon: '✅', needsInternet: true });
   }

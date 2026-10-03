@@ -13,6 +13,7 @@
  * Every change → `message_updated` on both people's ChatHubs.
  */
 
+import { autoCheckMessageInBackground } from '../services/chat/auto-check';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { findMessageByClientId, normalizeClientId, sendMessage, toggleReaction } from '../services/conversations';
@@ -238,7 +239,11 @@ chatMessages.patch('/messages/:id', async (c) => {
     await background(c, (async () => {
       await broadcastMessageUpdated(env, message.id);
       // Re-translated and re-split into words (the old ones were cleared with the edit).
-      await enrichMessageInBackground(env, message.id, message.content);
+      await Promise.all([
+        enrichMessageInBackground(env, message.id, message.content),
+        // An edit clears the auto-check; the new text is checked again.
+        autoCheckMessageInBackground(env, message.id),
+      ]);
     })());
     return c.json(message);
   } catch (err) {
