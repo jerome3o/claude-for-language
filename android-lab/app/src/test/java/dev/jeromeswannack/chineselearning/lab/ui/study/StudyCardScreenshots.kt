@@ -74,7 +74,6 @@ class StudyCardScreenshots : LabScreenshotTest() {
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
                     .background(Lab.colors.card)
-                    .verticalScroll(rememberScrollState())
                     .padding(top = 12.dp, bottom = 20.dp),
             ) {
                 Box(Modifier.align(Alignment.CenterHorizontally).width(36.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Lab.colors.muted.copy(alpha = 0.4f)))

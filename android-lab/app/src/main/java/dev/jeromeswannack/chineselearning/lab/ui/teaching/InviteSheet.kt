@@ -30,7 +30,9 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CreateInviteBody
 import dev.jeromeswannack.chineselearning.lab.data.api.InviteDto
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -63,15 +65,22 @@ fun InviteSheet(
     onDismiss: () -> Unit,
 ) {
     var invite by remember { mutableStateOf<InviteDto?>(null) }
-    LabBottomSheet(onDismiss = onDismiss, title = if (invite == null) "Invite a student" else "Your invite link") {
+    LabSheetFrame(onDismiss = onDismiss) {
         val done = invite
-        if (done == null) InviteForm(decks, online, create) { invite = it }
-        else InviteResult(done, onCopy, onShare, onDismiss)
+        if (done == null) InviteForm(decks, online, create, title = "Invite a student") { invite = it }
+        else SheetScaffold(header = { SheetTitle("Your invite link") }, footer = null) { InviteResult(done, onCopy, onShare, onDismiss) }
     }
 }
 
 @Composable
-fun InviteForm(decks: List<DeckOption>?, online: Boolean, create: (InviteRequest, (String?) -> Unit, (InviteDto?, String?) -> Unit) -> Unit, onCreated: (InviteDto) -> Unit) {
+fun InviteForm(
+    decks: List<DeckOption>?,
+    online: Boolean,
+    create: (InviteRequest, (String?) -> Unit, (InviteDto?, String?) -> Unit) -> Unit,
+    modifier: Modifier = Modifier,
+    title: String? = null,
+    onCreated: (InviteDto) -> Unit,
+) {
     val existingStarter = decks?.firstOrNull { it.name == STARTER_DECK_NAME }
     var role by remember { mutableStateOf("tutor") } // tutor | student | none
     var selected by remember(existingStarter?.id) { mutableStateOf(setOf(existingStarter?.id ?: STARTER_OPTION_ID)) }
@@ -88,8 +97,39 @@ fun InviteForm(decks: List<DeckOption>?, online: Boolean, create: (InviteRequest
     val needsDeck = role == "tutor"
     val canCreate = online && !creating && (!needsDeck || selected.isNotEmpty())
     fun toggle(id: String) { selected = if (id in selected) selected - id else selected + id }
+    fun submit() {
+        error = null; creating = true
+        val ids = if (role == "tutor") selected.filter { it != STARTER_OPTION_ID } else emptyList()
+        val body = CreateInviteBody(
+            inviter_role = if (role == "none") null else role,
+            share_deck_ids = ids,
+            welcome_message = if (role == "none") null else welcome.trim().ifEmpty { null },
+            email = email.trim().ifEmpty { null },
+            expires_in_days = expiresDays,
+            max_uses = if (multiUse) maxOf(2, maxUses) else 1,
+            note = note.trim().ifEmpty { null },
+        )
+        create(InviteRequest(body, role == "tutor" && STARTER_OPTION_ID in selected), { step = it }) { inv, err ->
+            creating = false; step = null
+            if (inv != null) onCreated(inv) else error = err ?: "Could not create the invite"
+        }
+    }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // A tutor with many decks: the deck list scrolls, "Create link" stays pinned (SheetScaffold).
+    SheetScaffold(
+        modifier,
+        spacing = 12.dp,
+        header = title?.let { t -> { SheetTitle(t) } },
+        footerAbove = if (error == null && online) null else {
+            {
+                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                if (!online) InlineNotice("You're offline. Invite links can't be created right now.", kind = NoticeKind.Offline)
+            }
+        },
+        footer = {
+            PrimaryPill(if (creating) (step ?: "Creating…") else "Create link", Modifier.weight(1f).height(56.dp), enabled = canCreate) { submit() }
+        },
+    ) {
         Text(
             "They scan this in class or tap the link, sign in with Google, and land straight in their first session. No email address needed.",
             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
@@ -145,25 +185,6 @@ fun InviteForm(decks: List<DeckOption>?, online: Boolean, create: (InviteRequest
                     OutlinedTextField(maxUses.toString(), { v -> maxUses = v.filter(Char::isDigit).take(4).toIntOrNull() ?: 2 }, Modifier.fillMaxWidth(), label = { Text("Max uses") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
                 OutlinedTextField(note, { if (it.length <= 200) note = it }, Modifier.fillMaxWidth(), label = { Text("Note to self") }, placeholder = { Text("e.g. Tuesday class") }, singleLine = true)
-            }
-        }
-        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        if (!online) InlineNotice("You're offline. Invite links can't be created right now.", kind = NoticeKind.Offline)
-        PrimaryPill(if (creating) (step ?: "Creating…") else "Create link", Modifier.fillMaxWidth().height(56.dp), enabled = canCreate) {
-            error = null; creating = true
-            val ids = if (role == "tutor") selected.filter { it != STARTER_OPTION_ID } else emptyList()
-            val body = CreateInviteBody(
-                inviter_role = if (role == "none") null else role,
-                share_deck_ids = ids,
-                welcome_message = if (role == "none") null else welcome.trim().ifEmpty { null },
-                email = email.trim().ifEmpty { null },
-                expires_in_days = expiresDays,
-                max_uses = if (multiUse) maxOf(2, maxUses) else 1,
-                note = note.trim().ifEmpty { null },
-            )
-            create(InviteRequest(body, role == "tutor" && STARTER_OPTION_ID in selected), { step = it }) { inv, err ->
-                creating = false; step = null
-                if (inv != null) onCreated(inv) else error = err ?: "Could not create the invite"
             }
         }
     }

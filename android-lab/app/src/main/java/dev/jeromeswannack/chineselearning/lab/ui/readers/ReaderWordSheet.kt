@@ -5,6 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,7 +42,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordExplanationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -87,8 +91,8 @@ fun ReaderWordSheet(
     initialExplanation: ReaderWordExplanationDto? = null,
     startAdding: Boolean = false,
 ) {
-    LabBottomSheet(onDismiss = onDismiss) {
-        ReaderWordPanel(word, sentence, known, actions, onAdded, initialExplanation, startAdding)
+    LabSheetFrame(onDismiss = onDismiss) {
+        ReaderWordPanel(word, sentence, known, actions, onAdded, initialExplanation, startAdding, pinnedFooter = true)
     }
 }
 
@@ -102,6 +106,11 @@ fun ReaderWordPanel(
     onAdded: () -> Unit = {},
     initialExplanation: ReaderWordExplanationDto? = null,
     startAdding: Boolean = false,
+    /**
+     * true (the sheet) = the word + deck chips scroll and "+ Add as card" / "Add to deck" stay
+     * pinned at the bottom (SheetScaffold); false = one plain column (embedding / tests).
+     */
+    pinnedFooter: Boolean = false,
 ) {
     var explain by remember(word.text, sentence) { mutableStateOf<Explain>(initialExplanation?.let { Explain.Ready(it) } ?: Explain.Idle) }
     var adding by remember { mutableStateOf(startAdding) }
@@ -144,11 +153,31 @@ fun ReaderWordPanel(
     val pinyin = ready?.pinyin?.takeIf { it.isNotBlank() } ?: word.pinyin
     val gloss = word.gloss.ifBlank { ready?.english.orEmpty() }
 
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp).testTag("reader-word-sheet"),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    fun addTo() {
+        val id = deckId ?: return
+        if (!actions.online()) {
+            error = "Adding a card needs a connection."
+            return
+        }
+        saving = true
+        error = null
+        scope.launch {
+            try {
+                val ex = loadExplanation()
+                if (ex == null && word.gloss.isBlank()) throw IllegalStateException("No meaning for this word yet — try \"More about this word\" first.")
+                actions.add(id, word, ex)
+                added = decks.firstOrNull { it.id == id }?.name ?: "your deck"
+                onAdded()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                error = e.userMessage()
+            } finally {
+                saving = false
+            }
+        }
+    }
+
+    val body: @Composable ColumnScope.() -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(word.text, fontSize = 52.sp, color = Lab.colors.ink)
             Spacer(Modifier.width(16.dp))
@@ -196,46 +225,55 @@ fun ReaderWordPanel(
             }
         }
 
-        when {
-            added != null -> InlineNotice("Added to $added ✓", kind = NoticeKind.Success)
-            !adding -> PrimaryPill("+ Add as card", Modifier.fillMaxWidth().height(54.dp)) { adding = true }
-            else -> {
-                Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
-                ChipRow(Modifier.fillMaxWidth()) {
-                    for (d in decks) LabChip(d.name, selected = d.id == deckId) { deckId = d.id }
-                }
-                if (duplicate) InlineNotice("This word is already in that deck.", kind = NoticeKind.Warning)
-                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+
+        if (adding && added == null) {
+            Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
+            ChipRow(Modifier.fillMaxWidth()) {
+                for (d in decks) LabChip(d.name, selected = d.id == deckId) { deckId = d.id }
+            }
+            if (duplicate) InlineNotice("This word is already in that deck.", kind = NoticeKind.Warning)
+        }
+    }
+    val notice: (@Composable ColumnScope.() -> Unit)? = when {
+        added != null -> { { InlineNotice("Added to $added ✓", kind = NoticeKind.Success) } }
+        adding && error != null -> { { InlineNotice(error!!, kind = NoticeKind.Error) } }
+        else -> null
+    }
+    val action: (@Composable RowScope.() -> Unit)? = when {
+        added != null -> null
+        !adding -> { { PrimaryPill("+ Add as card", Modifier.weight(1f).height(54.dp)) { adding = true } } }
+        else -> {
+            {
                 PrimaryPill(
                     if (saving) "Adding…" else if (duplicate) "Add anyway" else "Add to deck",
-                    Modifier.fillMaxWidth().height(54.dp).testTag("add-to-deck"),
+                    Modifier.weight(1f).height(54.dp).testTag("add-to-deck"),
                     enabled = !saving && deckId != null,
-                ) {
-                    val id = deckId ?: return@PrimaryPill
-                    if (!actions.online()) {
-                        error = "Adding a card needs a connection."
-                        return@PrimaryPill
-                    }
-                    saving = true
-                    error = null
-                    scope.launch {
-                        try {
-                            val ex = loadExplanation()
-                            if (ex == null && word.gloss.isBlank()) throw IllegalStateException("No meaning for this word yet — try \"More about this word\" first.")
-                            actions.add(id, word, ex)
-                            added = decks.firstOrNull { it.id == id }?.name ?: "your deck"
-                            onAdded()
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            error = e.userMessage()
-                        } finally {
-                            saving = false
-                        }
-                    }
-                }
+                ) { addTo() }
             }
         }
-        Spacer(Modifier.height(8.dp))
+    }
+
+    if (pinnedFooter) {
+        SheetScaffold(
+            Modifier.testTag("reader-word-sheet"),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
+            spacing = 10.dp,
+            footerAbove = notice,
+            footer = action,
+        ) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) { body() }
+        }
+    } else {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp).testTag("reader-word-sheet"),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            body()
+            notice?.invoke(this)
+            if (action != null) Row(Modifier.fillMaxWidth()) { action() }
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 
