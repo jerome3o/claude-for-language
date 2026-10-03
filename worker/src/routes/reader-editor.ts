@@ -15,6 +15,7 @@
  */
 
 import { Hono } from 'hono';
+import { FolderError, fileItem, resolveFolderId } from '../services/folders';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   ReaderSpec,
@@ -101,11 +102,22 @@ function wordsInBackground(c: { env: Env; executionCtx: { waitUntil(p: Promise<u
 
 readerEditor.post('/readers/import', async (c) => {
   const userId = c.get('user').id;
-  const body = await c.req.json<{ spec?: unknown }>().catch(() => ({} as { spec?: unknown }));
+  const body = await c.req.json<{ spec?: unknown; folder_id?: unknown }>().catch(() => ({} as { spec?: unknown; folder_id?: unknown }));
   const errors = validateReaderSpec(body.spec);
   if (errors.length > 0) return c.json({ error: 'Invalid reader spec', problems: errors }, 400);
+  let folderId: string | null;
+  try {
+    folderId = await resolveFolderId(c.env.DB, userId, 'reader', body.folder_id);
+  } catch (err) {
+    if (err instanceof FolderError) return c.json({ error: err.message }, err.status);
+    throw err;
+  }
   const spec = normalizeReaderSpec(body.spec as ReaderSpec);
   const { reader, imageJobs } = await createReaderFromSpec(c.env.DB, userId, spec);
+  if (folderId) {
+    await fileItem(c.env.DB, userId, 'reader', reader.id, folderId);
+    (reader as { folder_id?: string | null }).folder_id = folderId;
+  }
   const queued = await queueReaderImages(c.env, reader.id, imageJobs);
   wordsInBackground(c, reader.id);
   return c.json({ ...reader, spec: readerToSpec(reader), image_jobs: queued, warnings: readerPageWarnings(body.spec as ReaderSpec).map(w => w.message) }, 201);

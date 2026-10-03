@@ -26,14 +26,26 @@ export function QueuePositionMenu({
   extraItems?: Array<{ key: string; label: string; onSelect: () => void; danger?: boolean }>;
 }) {
   const [open, setOpenState] = useState(false);
+  // Open upward when the menu would run under the tab bar / off the screen (the last deck).
+  const [up, setUp] = useState(false);
   const setOpen = (v: boolean) => { setOpenState(v); onOpenChange?.(v); };
+  const menuHeight = (4 + extraItems.length) * 44 + 8;
   const first = position === 1;
 
   return (
     <span style={{ position: 'relative', display: 'inline-block', zIndex: open ? 20 : undefined }}>
       <button
         type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(!open); }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!open) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const tabBar = document.querySelector('[data-testid="tab-bar"]')?.getBoundingClientRect().height ?? 0;
+            setUp(window.innerHeight - tabBar - rect.bottom < menuHeight + 8 && rect.top > menuHeight + 8);
+          }
+          setOpen(!open);
+        }}
         style={{
           background: first ? '#fee2e2' : '#f3f4f6', border: 'none', cursor: 'pointer',
           padding: '0.125rem 0.375rem', fontSize: '0.7rem', fontWeight: 700, borderRadius: '999px',
@@ -48,7 +60,7 @@ export function QueuePositionMenu({
       </button>
       {open && (
         <div role="menu" className="deck-queue-menu" style={{
-          position: 'absolute', top: '1.5rem', right: 0, zIndex: 5,
+          position: 'absolute', ...(up ? { bottom: '1.5rem' } : { top: '1.5rem' }), right: 0, zIndex: 5,
           background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e5e7eb)',
           borderRadius: '0.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', minWidth: '10rem',
         }}>

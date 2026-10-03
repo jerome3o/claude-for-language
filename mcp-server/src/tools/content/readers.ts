@@ -16,6 +16,7 @@ import {
   filterReaders,
   type ReaderListRow,
 } from './specs.js';
+import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from '../folders.js';
 import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignmentSummary, describeSend, sendAsHomework } from '../homework-send.js';
 
 const READER_ID = z.string().describe('The reader id (from list_readers / generate_reader)');
@@ -51,13 +52,17 @@ export function registerReaderTools(ctx: ToolContext): void {
 
   server.tool(
     'list_readers',
-    `List the signed-in user's graded readers (short Chinese stories read page by page, with pinyin/English reveal and illustrations). Returns id, titles, difficulty, topic, status (ready | generating | failed), page_count, created_at and creator_role ('tutor' for readers written/imported by hand or shared by a tutor, 'student' for generated ones). Use it to find a reader id before get_reader, update_reader, share_reader_with_student or export_reader. Readers are per-user: a tutor sees their own readers here, not the students' — use list_student_readers for what a student has received.`,
+    `List the signed-in user's graded readers (short Chinese stories read page by page, with pinyin/English reveal and illustrations). Returns id, titles, difficulty, topic, status (ready | generating | failed), page_count, created_at and creator_role ('tutor' for readers written/imported by hand or shared by a tutor, 'student' for generated ones). Use it to find a reader id before get_reader, update_reader, share_reader_with_student or export_reader. Each row has its folder (folder_id + folder name; null = Unfiled — see list_folders / move_to_folder). Readers are per-user: a tutor sees their own readers here, not the students' — use list_student_readers for what a student has received.`,
     {
       status: z.enum(['ready', 'generating', 'failed', 'all']).optional().describe('Filter by status (default: all)'),
+      folder_id: z.string().optional().describe("Only this folder's readers (from list_folders), or 'unfiled'"),
     },
-    async ({ status }) => guard(async () => {
+    async ({ status, folder_id }) => guard(async () => {
       const rows = await api.get<ReaderListRow[]>('/api/readers', { include_pages: 'true' });
-      const readers = filterReaders(rows, status);
+      const names = folderNames(await listFolders(api, 'reader').catch(() => []));
+      const readers = filterReaders(rows, status)
+        .map(r => ({ ...r, folder_id: r.folder_id && names.has(r.folder_id) ? r.folder_id : null, folder: r.folder_id ? names.get(r.folder_id) ?? null : null }))
+        .filter(r => !folder_id || (folder_id === 'unfiled' ? !r.folder_id : r.folder_id === folder_id));
       return jsonResult({ count: readers.length, readers });
     }),
   );
@@ -81,18 +86,19 @@ export function registerReaderTools(ctx: ToolContext): void {
     'create_reader',
     `Write a new graded reader by hand from a ReaderSpec (owner = the signed-in user; it appears in their Readers list on the next sync and can be shared with a student via share_reader_with_student). Use this when you author the story yourself — for a story generated from the learner's known vocabulary use generate_reader instead. Every page with an image_prompt gets an illustration generated in the background (returns image_jobs). The spec is validated locally and by the API; problems come back as a list to fix.
 ${READER_SPEC_DOC}`,
-    { spec: readerSpecShape.describe('The complete ReaderSpec (see the tool description)') },
-    async ({ spec }) => guard(async () => {
+    { spec: readerSpecShape.describe('The complete ReaderSpec (see the tool description)'), ...folderParams },
+    async ({ spec, folder_id, folder }) => guard(async () => {
       const problems = readerSpecProblems(spec);
       if (problems.length > 0) return errorResult(formatProblems('Reader spec', problems));
-      const created = await api.post<{ id: string; status: string; image_jobs?: number; spec: unknown }>('/api/readers/import', { spec });
+      const filed = await resolveFolder(api, 'reader', { folder_id, folder });
+      const created = await api.post<{ id: string; status: string; image_jobs?: number; spec: unknown }>('/api/readers/import', { spec, folder_id: filed?.id });
       const warnings = readerPageWarnings(spec).map(w => w.message);
       return jsonResult({
         id: created.id,
         status: created.status,
         image_jobs: created.image_jobs ?? 0,
         warnings,
-        message: `Created reader "${spec.title_english}" (id=${created.id}).${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}`,
+        message: `Created reader "${spec.title_english}" (id=${created.id}).${filedNote(filed)}${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}`,
       });
     }),
   );
@@ -128,18 +134,21 @@ ${READER_SPEC_DOC}`,
       deck_ids: z.array(z.string()).min(1).describe('Deck ids (from list_decks) whose learned vocabulary the story is built from'),
       topic: z.string().optional().describe('What the story should be about, e.g. "a trip to the night market"'),
       difficulty: z.enum(['beginner', 'elementary', 'intermediate', 'advanced']).optional().describe('Reading level (default beginner)'),
+      ...folderParams,
     },
-    async ({ deck_ids, topic, difficulty }) => guard(async () => {
+    async ({ deck_ids, topic, difficulty, folder_id, folder }) => guard(async () => {
+      const filed = await resolveFolder(api, 'reader', { folder_id, folder });
       const created = await api.post<{ id: string; status: string; title_english?: string }>('/api/readers/generate', {
         source: 'decks',
         deck_ids,
         topic,
         difficulty: difficulty ?? 'beginner',
+        folder_id: filed?.id,
       });
       return jsonResult({
         id: created.id,
         status: created.status ?? 'generating',
-        message: `Reader ${created.id} is generating${topic ? ` (topic: ${topic})` : ''}. Poll get_reader(reader_id="${created.id}") every ~15 seconds until status is "ready".`,
+        message: `Reader ${created.id} is generating${topic ? ` (topic: ${topic})` : ''}.${filedNote(filed)} Poll get_reader(reader_id="${created.id}") every ~15 seconds until status is "ready".`,
       });
     }),
   );

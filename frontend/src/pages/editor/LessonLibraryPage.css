@@ -166,3 +166,7 @@
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
 }
+
+/* Folders: a lesson inside a folder group sits flush in the group's body. */
+.folder-body .lib-card:last-child { margin-bottom: 0; }
+.lib-filter { width: 100%; margin: 0 0 0.75rem; font-size: 1rem; }

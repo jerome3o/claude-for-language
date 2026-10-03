@@ -1,3 +1,5 @@
+import type { Folder } from '@shared/folders';
+import { replaceLocalFolders, syncFolders } from './folders';
 import type { StudyBudgetInfo } from '@shared/decks';
 import { writeStudyBudget } from './studyBudget';
 import {
@@ -88,6 +90,8 @@ interface SyncChangesResponse {
   server_time: string;
   /** The daily new-card budget (a tutor may have changed it; older servers omit it). */
   study_budget?: StudyBudgetInfo | null;
+  /** Every folder of the account (all kinds), sent whole; older servers omit it. */
+  folders?: Folder[] | null;
 }
 
 // Deletion tombstones (migration 0068) exist from 23 Sep 2026. A deck deleted
@@ -425,6 +429,9 @@ class SyncService {
 
     await recomputeCardsWithEvents(insertedCardIds);
 
+    // Folders for the grouped Decks / Library / Readers lists (never throws).
+    await syncFolders();
+
     // Sync graded readers (content + pages) so they can be studied offline
     this.notifyProgress({ phase: 'decks', message: 'Syncing readers...' });
     await this.syncReaders();
@@ -632,6 +639,8 @@ class SyncService {
     const changes: SyncChangesResponse = await response.json();
     // The study queue and Home counts read this mirror: the tutor's numbers apply the same day.
     if (changes.study_budget) writeStudyBudget(changes.study_budget);
+    // Folders (decks / lessons / readers): a short list, replaced whole.
+    if (changes.folders) await replaceLocalFolders(changes.folders).catch(err => console.error('[Sync] Folders failed:', err));
     const insertedCardIds: string[] = [];
     this.lastSyncDetails.decks_synced = changes.decks.length;
     this.lastSyncDetails.notes_synced = changes.notes.length;

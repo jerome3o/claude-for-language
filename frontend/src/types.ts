@@ -83,6 +83,8 @@ export interface Deck {
   user_id: string | null;
   name: string;
   description: string | null;
+  /** Folder (shared/folders, organisation only); null / missing = Unfiled. */
+  folder_id?: string | null;
   /** Place in the learner's new-card queue: higher goes first. */
   study_priority?: number;
   new_cards_per_day: number;
@@ -885,6 +887,8 @@ export type ReaderStatus = 'generating' | 'ready' | 'failed';
 export interface GradedReader {
   id: string;
   user_id: string;
+  /** Folder (shared/folders); null / missing = Unfiled. */
+  folder_id?: string | null;
   title_chinese: string;
   title_english: string;
   difficulty_level: DifficultyLevel;

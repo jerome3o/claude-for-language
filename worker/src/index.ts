@@ -107,6 +107,8 @@ import { homeworkRoutes } from './routes/homework';
 import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
 import studyTimeRoutes from './routes/study-time';
+import foldersRoutes from './routes/folders';
+import { FolderError, fileItem, listFolders, resolveFolderId } from './services/folders';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { deleteReaderWithImages } from './services/shared-readers';
 import {
@@ -537,6 +539,8 @@ app.route('/api', homeworkRoutes);
 app.route('/api', homeworkDraftRoutes);
 // Admin: inspect an account (decks incl. deleted, shares, sync state), set its role, delete it (routes/admin.ts)
 app.route('/api', adminRoutes);
+// Folders for decks / library lessons / readers (organisation only; routes/folders.ts).
+app.route('/api', foldersRoutes);
 
 // Study-state debug reports from the web + Lab apps, and their diff (routes/debug-reports.ts)
 app.route('/api', debugReportsRoutes);
@@ -692,15 +696,22 @@ app.get('/api/decks', async (c) => {
 
 app.post('/api/decks', async (c) => {
   const userId = c.get('user').id;
-  const body = await c.req.json<{ name: string; description?: string; settings?: Record<string, unknown> }>();
+  const body = await c.req.json<{ name: string; description?: string; settings?: Record<string, unknown>; folder_id?: string | null }>();
   try {
+    // A folder to file it in (organisation only; 400 when it isn't the caller's deck folder).
+    const folderId = await resolveFolderId(c.env.DB, userId, 'deck', body.folder_id);
     const deck = await content.createDeck(c.env.DB, userId, {
       name: body.name,
       description: body.description,
       settings: body.settings ? content.pickDeckSettingsOrThrow(body.settings) : undefined,
     });
+    if (folderId) {
+      await fileItem(c.env.DB, userId, 'deck', deck.id, folderId);
+      (deck as { folder_id?: string | null }).folder_id = folderId;
+    }
     return c.json(deck, 201);
   } catch (err) {
+    if (err instanceof FolderError) return c.json({ error: err.message }, err.status);
     return contentErrorResponse(c, err) ?? Promise.reject(err);
   }
 });
@@ -3264,10 +3275,17 @@ app.get('/api/readers/:id', async (c) => {
 //   best-effort (natural story > full coverage)
 app.post('/api/readers/generate', async (c) => {
   const userId = c.get('user').id;
-  const { source = 'decks', deck_ids, note_ids, topic, difficulty = 'beginner' } = await c.req.json<GenerateReaderRequest>();
+  const { source = 'decks', deck_ids, note_ids, topic, difficulty = 'beginner', folder_id } = await c.req.json<GenerateReaderRequest & { folder_id?: string | null }>();
 
   if (!c.env.ANTHROPIC_API_KEY) {
     return c.json({ error: 'AI generation is not configured' }, 500);
+  }
+  let readerFolderId: string | null;
+  try {
+    readerFolderId = await resolveFolderId(c.env.DB, userId, 'reader', folder_id);
+  } catch (err) {
+    if (err instanceof FolderError) return c.json({ error: err.message }, err.status);
+    throw err;
   }
 
   try {
@@ -3328,6 +3346,10 @@ app.post('/api/readers/generate', async (c) => {
     });
 
     console.log('[Readers] Pending reader created:', pendingReader.id);
+    if (readerFolderId) {
+      await fileItem(c.env.DB, userId, 'reader', pendingReader.id, readerFolderId);
+      (pendingReader as { folder_id?: string | null }).folder_id = readerFolderId;
+    }
 
     // Queue story generation (runs in background with 15 min timeout).
     // Only the readerId is sent — the consumer loads vocabulary_used from the
@@ -5707,6 +5729,9 @@ app.get('/api/sync/changes', async (c) => {
     server_time: serverTime,
     // The daily new-card budget, so a tutor's change reaches the device on the next sync.
     study_budget: await db.getStudyBudgetInfo(c.env.DB, userId).catch(() => null),
+    // Every folder (decks / lessons / readers) — a short list, sent whole so the
+    // device simply replaces its copy (deletions included). Decks carry folder_id.
+    folders: await listFolders(c.env.DB, userId).catch(() => null),
   });
 });
 

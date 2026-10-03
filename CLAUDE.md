@@ -123,6 +123,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP); inbox.ts = the Chats tab rules (sort, preview, relative time, search, badge, live updates) — parity-tested by the Lab app
 │   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts) — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
+│   ├── folders/           # Folders for decks / library lessons / readers: groupIntoFolders, one-level nesting rule (parentProblem), name rules, spliceGroupOrder, collapsed keys, copy (deleteFolderMessage, movedMessage) — parity-tested by the Lab app
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts (new characters first); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
@@ -329,6 +330,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
 - `student_profiles` - The tutor's PRIVATE profile of a student, one per `tutor_relationships` row (tutor_id, student_id, markdown `body` ≤ 8000, optional `level` / `handwriting` / `words_per_lesson`). Migration 0077. Only the tutor-only route, the dashboard's `has_profile` flag and the tutor-side content agents read it — never a student-facing path. See "Student profile" below
+- `folders` - Folders for organising decks, Lesson Library items and graded readers (migration 0098; `shared/folders`, `services/folders.ts`): user_id, `kind` deck|lesson|reader, name (≤ 60), `parent_id` (ONE level of nesting), `position`. Items carry a nullable `folder_id` (`decks`, `lesson_library`, `graded_readers`; NULL = Unfiled). Organisation only — the study queue never reads them. Deleting a folder unfiles its items and lifts its subfolders; nothing else is deleted. Copies made for a student never carry the tutor's folder_id
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
@@ -737,6 +739,22 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `GET|PUT /api/profile` - The editable profile (`routes/profile.ts`, `services/profile.ts`, validation `shared/profile`): `{ name?, bio?, about?, time_zone? }` (400 + `problems`; `name: null` = back to the Google name) → `{ name, picture_url, picture_source: google|upload|none, name_custom, google_name, google_picture_url, bio, about, time_zone }`
 - `POST /api/profile/picture` (raw image or multipart `picture`; JPEG/PNG/WebP sniffed from the bytes, ≤ 2 MB; the clients crop to a square and send ~512px JPEG) · `DELETE /api/profile/picture?use=google|none`
 - `DELETE /api/decks/:id` - Delete deck (tombstones for every device; audio clean-up in the background)
+
+### Folders (`worker/src/routes/folders.ts`, `services/folders.ts`, `shared/folders`)
+Per user, organisation only (the deck queue / `study_priority` is the same with or without folders). Web:
+`components/folders/` (`FolderGroups` + `useFolderUi`: collapsible groups with Unfiled last, ⋯ Rename / New folder
+inside / Delete, press-and-hold a folder header to reorder, "＋ Folder", "☑ Select" → Move N to folder…,
+`MoveToFolderSheet`) on More → Decks (deck #N menu → 📁 Move to folder…; dragging a deck inside a folder splices the
+group's new order into the whole queue, `spliceGroupOrder`), the Library (⋯ → Move to folder…, Find a lesson filter)
+and the Readers list (📁 button, Find a story filter); a filter shows a flat list. The folder list is in IndexedDB
+(`db.folders`, Dexie v26), replaced whole by every sync (`folders` on `/api/sync/changes`; full sync →
+`GET /api/folders`); decks carry `folder_id` (a deck move re-dates the deck so it syncs); collapsed groups per device
+in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Folders.kt`, parity-tested).
+- `GET /api/folders?kind=deck|lesson|reader` → `{ folders: [{ …, item_count }] }` (no kind = all)
+- `POST /api/folders` `{ kind, name, parent_id?, id? }` → 201 `{ folder }` (200 when the client id exists; 400 + `problems`)
+- `PATCH /api/folders/:id` `{ name?, parent_id? }` · `DELETE /api/folders/:id` → `{ deleted, unfiled, lifted }`
+- `PUT /api/folders/reorder` `{ kind, folder_ids }` · `POST /api/folders/move` `{ kind, ids, folder_id | null }` → `{ moved, not_found, folder_id }`
+- Create paths take `folder_id` (400 when it isn't the caller's folder of that kind): `POST /api/decks`, `POST /api/lesson-library` (+ `/import`; duplicate keeps the folder), `POST /api/readers/import`, `POST /api/readers/generate`
 
 ### Notes
 - `GET /api/notes/:id` - Get note with cards
@@ -1627,6 +1645,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
 | `list_picture_hunts` / `create_picture_hunt` | The user's picture hunts (status, objects, best score) / start one from a scene description (`tools/picture-hunts.ts`) |
+| `list_folders` / `create_folder` / `rename_folder` / `delete_folder` / `move_to_folder` | Folders for decks, library lessons and readers (`tools/folders.ts`): list with paths + item counts, create (one level inside a top-level folder), rename / re-parent, delete (items → Unfiled, nothing deleted), file items by `folder_id` or by folder name (found or made). `list_decks`, `list_lesson_library`, `list_readers` show each item's folder and take a `folder_id` filter (`'unfiled'`); `create_deck`, `create_library_lesson`, `create_reader`, `generate_reader` take `folder_id` / `folder` |
 | `list_materials` / `read_material` | Lesson materials the user owns or has been shared (PDFs, slides, pictures: title, pages, has text) / one material's text page by page with speaker notes (`tools/materials.ts`) |
 
 #### Tutor tools — students (`mcp-server/src/tools/students.ts`)
@@ -2006,7 +2025,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Chats · Library · More; student: Study · Chats · Tutor · Progress · More; account with students: Students · Chats · Study · More (+ Progress if they also study). The Chats tab carries an unread badge (conversations with unread messages); Decks is the first row of More (a `/decks` page lights More up). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
 - `/` - Study home (a tutor account gets the teaching home, `TutorHome`). On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
 - `/chats` - Chats tab: every conversation (tutors + students, Claude role-play in its own section), Signal-style rows with avatar / last message / time / unread, search, ✏️ new chat; cached offline, live while open (`pages/ChatsPage.tsx`, `hooks/useChatList.ts`)
-- `/decks` - Deck list + card search (`?q=`; `/search` redirects here) — More → Decks, Home "All decks →"
+- `/decks` - Deck list (grouped in folders when there are any) + card search (`?q=`; `/search` redirects here) — More → Decks, Home "All decks →"
 - `/more` - Grouped More page (Decks first, then Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
 - `/profile` - Profile (`pages/ProfilePage.tsx`, `components/profile/`): display name, photo (crop sheet → 512px JPEG → R2 `avatars/<user>/<id>.jpg`, served by the public `GET /api/audio/<key>`), About me (public: `PersonAbout` on the tutor / student page, the /join page), time zone (the other side sees your local time), and the learner's private bio. **`users.name` / `picture_url` stay the effective values every query reads** (migration 0076 adds `google_name`, `google_picture_url`, `name_custom`, `picture_source`, `picture_key`, `about`, `time_zone`); the Google sign-in (`touchExistingUser` → `googleProfileRefresh`, and the MCP server's OAuth callback) always refreshes the `google_*` columns but only overwrites name / picture while the user follows Google. Reached from More (user card + Account → Profile), Settings, and the tutor's Students dashboard header chip / "Introduce yourself" nudge
 - `/settings` - Profile link · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, conversation voices (`/settings/voices`), sentence coverage, feature requests, duplicate finder, full sync, update app, debug)

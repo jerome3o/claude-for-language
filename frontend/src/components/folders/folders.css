@@ -1,0 +1,62 @@
+/* Folders (decks / library / readers): grouped lists, sheets, selection bar. */
+.folder-groups { display: flex; flex-direction: column; gap: 0.5rem; }
+.folder-groups-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.folder-group { border: 1px solid var(--color-border, #e5e7eb); border-radius: 0.75rem; background: var(--color-surface, #fff); }
+.folder-group--sub { border-style: dashed; margin: 0.25rem 0 0.5rem; }
+.folder-group--unfiled { background: transparent; border-color: transparent; }
+.folder-head { display: flex; align-items: center; gap: 0.25rem; min-height: 44px; padding: 0 0.25rem 0 0; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+.folder-head--dragging { background: #eff6ff; border-radius: 0.75rem; box-shadow: 0 6px 18px rgba(37, 99, 235, 0.25); transform: scale(1.01); }
+.folder-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.5rem; background: none; border: none; padding: 0.5rem 0.625rem; min-height: 44px; cursor: pointer; color: inherit; font: inherit; text-align: left; }
+.folder-chevron { display: inline-block; transition: transform 0.15s ease; color: var(--color-text-light, #6b7280); font-size: 0.75rem; }
+.folder-chevron--open { transform: rotate(90deg); }
+.folder-name { font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-count { margin-left: auto; font-size: 0.75rem; color: var(--color-text-light, #6b7280); white-space: nowrap; }
+.folder-head--sub .folder-name { font-weight: 500; }
+.folder-body { padding: 0 0.5rem 0.5rem; }
+.folder-group--unfiled .folder-body { padding: 0; }
+.folder-empty { margin: 0.25rem 0.5rem 0.5rem; font-size: 0.8125rem; color: var(--color-text-light, #6b7280); }
+.folder-menu-wrap { position: relative; }
+.folder-menu-btn { background: none; border: none; min-width: 44px; min-height: 44px; font-size: 1.125rem; cursor: pointer; color: var(--color-text-light, #6b7280); border-radius: 0.5rem; }
+.folder-menu { position: absolute; right: 0; top: 2.5rem; z-index: 30; display: flex; flex-direction: column; min-width: 12rem; background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e5e7eb); border-radius: 0.5rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); }
+.folder-menu button { background: none; border: none; text-align: left; padding: 0.625rem 0.875rem; min-height: 44px; font-size: 0.875rem; cursor: pointer; color: inherit; }
+.folder-menu button:hover { background: #f3f4f6; }
+.folder-menu .folder-menu-danger { color: #dc2626; font-weight: 600; }
+
+.folder-toolbar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 0.5rem; }
+.folder-tool { background: #f3f4f6; border: 1px solid var(--color-border, #e5e7eb); border-radius: 999px; padding: 0.375rem 0.875rem; min-height: 36px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; color: inherit; }
+.folder-tool:hover { background: #e5e7eb; }
+
+.folder-select-bar { position: sticky; bottom: calc(var(--tab-bar-height, 64px) + 0.5rem); z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; padding: 0.625rem 0.75rem; background: #1e293b; color: #fff; border-radius: 0.75rem; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); font-size: 0.875rem; }
+.folder-select-actions { display: flex; gap: 0.5rem; }
+.folder-selectable { position: relative; cursor: pointer; }
+.folder-selectable::after { content: ''; position: absolute; top: 0.375rem; left: 0.375rem; width: 1.25rem; height: 1.25rem; border-radius: 50%; border: 2px solid #94a3b8; background: #fff; z-index: 3; }
+.folder-selectable--on { outline: 2px solid #2563eb; outline-offset: -2px; border-radius: 0.75rem; }
+.folder-selectable--on::after { background: #2563eb; border-color: #2563eb; box-shadow: inset 0 0 0 3px #fff; }
+
+.folder-sheet-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-end; justify-content: center; }
+.folder-sheet { width: 100%; max-width: 32rem; max-height: 85vh; overflow: auto; background: var(--color-surface, #fff); border-radius: 1rem 1rem 0 0; padding-bottom: env(safe-area-inset-bottom, 0); animation: folder-sheet-up 0.18s ease-out; }
+@keyframes folder-sheet-up { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+.folder-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1rem 0.5rem; font-weight: 700; font-size: 1rem; }
+.folder-sheet-close { background: none; border: none; min-width: 44px; min-height: 44px; font-size: 1rem; cursor: pointer; color: inherit; }
+.folder-sheet-body { padding: 0 1rem 1rem; }
+.folder-sheet-text { margin: 0 0 1rem; color: var(--color-text-light, #4b5563); line-height: 1.45; }
+.folder-field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75rem; font-size: 0.875rem; font-weight: 600; }
+.folder-field input, .folder-field select { font-size: 1rem; }
+.folder-error { color: #dc2626; font-size: 0.875rem; margin: 0.25rem 0 0.75rem; }
+.folder-sheet-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.folder-sheet-actions .btn-danger { background: #dc2626; color: #fff; border: none; }
+.folder-options { display: flex; flex-direction: column; border: 1px solid var(--color-border, #e5e7eb); border-radius: 0.75rem; overflow: hidden; margin-bottom: 0.5rem; }
+.folder-option { display: flex; align-items: center; gap: 0.625rem; width: 100%; min-height: 48px; padding: 0.5rem 0.875rem; background: none; border: none; border-bottom: 1px solid var(--color-border, #f1f5f9); text-align: left; font-size: 0.95rem; cursor: pointer; color: inherit; }
+.folder-options .folder-option:last-child { border-bottom: none; }
+.folder-option:hover { background: #f8fafc; }
+.folder-option--current { background: #eff6ff; font-weight: 600; }
+.folder-option-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-option-tick { color: #2563eb; font-weight: 700; }
+.folder-option--new { border: 1px dashed #cbd5e1; border-radius: 0.75rem; color: #2563eb; font-weight: 600; }
+.folder-new-inline { display: flex; gap: 0.5rem; }
+.folder-new-inline input { flex: 1; font-size: 1rem; }
+
+@media (min-width: 640px) {
+  .folder-sheet-overlay { align-items: center; }
+  .folder-sheet { border-radius: 1rem; }
+}

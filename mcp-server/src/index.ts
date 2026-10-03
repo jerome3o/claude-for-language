@@ -21,6 +21,7 @@ import { ApiClient, ApiError } from './api.js';
 import { errorResult, guard, textResult, type ToolContext } from './tools/context.js';
 import { registerStudentTools } from './tools/students.js';
 import { registerContentTools } from './tools/content.js';
+import { registerFolderTools, folderParams, resolveFolder, filedNote } from './tools/folders.js';
 import { registerHomeworkTools } from './tools/homework.js';
 import { registerAdminTools } from './tools/admin.js';
 import { registerDebugTools } from './tools/debug.js';
@@ -136,13 +137,32 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "list_decks",
-      "List all vocabulary decks with their stats",
-      {},
-      async () => {
-        const decks = await this.env.DB
+      "List all vocabulary decks with their stats and folder (folder_id + folder name; null = Unfiled). Pass folder_id to list one folder's decks ('unfiled' for decks in no folder).",
+      {
+        folder_id: z.string().optional().describe("Only this folder's decks (from list_folders), or 'unfiled'"),
+      },
+      async ({ folder_id }) => {
+        const all = await this.env.DB
           .prepare('SELECT * FROM decks WHERE user_id = ? ORDER BY updated_at DESC')
           .bind(userId)
-          .all<Deck>();
+          .all<Deck & { folder_id?: string | null }>();
+        const folderRows = await this.env.DB
+          .prepare("SELECT id, name, parent_id FROM folders WHERE user_id = ? AND kind = 'deck'")
+          .bind(userId)
+          .all<{ id: string; name: string; parent_id: string | null }>()
+          .catch(() => ({ results: [] as Array<{ id: string; name: string; parent_id: string | null }> }));
+        const folderById = new Map(folderRows.results.map((f) => [f.id, f]));
+        const folderName = (id: string | null | undefined) => {
+          const f = id ? folderById.get(id) : undefined;
+          if (!f) return null;
+          const parent = f.parent_id ? folderById.get(f.parent_id) : undefined;
+          return parent ? `${parent.name} › ${f.name}` : f.name;
+        };
+        const decks = {
+          results: all.results
+            .filter((d) => !folder_id || (folder_id === 'unfiled' ? !folderById.has(d.folder_id ?? '') : d.folder_id === folder_id))
+            .map((d) => ({ ...d, folder_id: folderById.has(d.folder_id ?? '') ? d.folder_id : null, folder: folderName(d.folder_id) })),
+        };
 
         const decksWithStats = await Promise.all(
           decks.results.map(async (deck) => {
@@ -306,10 +326,12 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       {
         name: z.string().describe("Name of the deck"),
         description: z.string().optional().describe("Description of the deck"),
+        ...folderParams,
       },
-      async ({ name, description }) => guard(async () => {
-        const deck = await api.post<Deck>('/api/decks', { name, description });
-        return textResult(`Created deck: ${JSON.stringify(deck, null, 2)}`);
+      async ({ name, description, folder_id, folder }) => guard(async () => {
+        const filed = await resolveFolder(api, 'deck', { folder_id, folder });
+        const deck = await api.post<Deck>('/api/decks', { name, description, folder_id: filed?.id });
+        return textResult(`Created deck:${filedNote(filed)} ${JSON.stringify(deck, null, 2)}`);
       })
     );
 
@@ -1918,6 +1940,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     // main API as this user, so ownership and tutor checks stay in one place.
     registerStudentTools(ctx);
     registerContentTools(ctx);
+    registerFolderTools(ctx);
     registerHomeworkTools(ctx);
     registerTutorApps(ctx);
     // Admin: accounts, roles, access requests, deletion (the API answers 403 to non-admins).

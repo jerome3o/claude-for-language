@@ -5,6 +5,7 @@
  * copies in place so completion history and FSRS scheduling survive.
  */
 import { z } from 'zod';
+import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from '../folders.js';
 import type { ToolContext } from '../context.js';
 import { jsonResult, textResult, errorResult, guard } from '../context.js';
 import { LESSON_SPEC_DOC, lessonSpecProblems, formatProblems } from './specs.js';
@@ -39,6 +40,7 @@ interface LibraryItem {
   spec?: unknown;
   assignment_count?: number;
   exercise_count?: number;
+  folder_id?: string | null;
 }
 
 export function registerLessonLibraryTools(ctx: ToolContext): void {
@@ -46,11 +48,17 @@ export function registerLessonLibraryTools(ctx: ToolContext): void {
 
   server.tool(
     'list_lesson_library',
-    `List the tutor's lesson library — the master copies of custom mini lessons they can assign to students (id, title, description, icon, tags, version, assignment_count, exercise_count, timestamps). Archived items are not shown. This is the tutor's own library; a student's lessons (assigned or self-made) come from list_student_lessons. Use get_library_lesson for the full spec.`,
-    {},
-    async () => guard(async () => {
+    `List the tutor's lesson library — the master copies of custom mini lessons they can assign to students (id, title, description, icon, tags, version, assignment_count, exercise_count, timestamps, folder_id + folder name; null = Unfiled). Archived items are not shown. This is the tutor's own library; a student's lessons (assigned or self-made) come from list_student_lessons. Use get_library_lesson for the full spec. Organise with list_folders / move_to_folder (kind 'lesson').`,
+    {
+      folder_id: z.string().optional().describe("Only this folder's lessons (from list_folders), or 'unfiled'"),
+    },
+    async ({ folder_id }) => guard(async () => {
       const res = await api.get<{ items: LibraryItem[] }>('/api/lesson-library');
-      return jsonResult({ count: res.items.length, items: res.items });
+      const names = folderNames(await listFolders(api, 'lesson').catch(() => []));
+      const items = res.items
+        .map(i => ({ ...i, folder_id: i.folder_id && names.has(i.folder_id) ? i.folder_id : null, folder: i.folder_id ? names.get(i.folder_id) ?? null : null }))
+        .filter(i => !folder_id || (folder_id === 'unfiled' ? !i.folder_id : i.folder_id === folder_id));
+      return jsonResult({ count: items.length, items });
     }),
   );
 
@@ -73,8 +81,9 @@ ${LESSON_SPEC_DOC}`,
       generate_prompt: z.string().optional().describe('Brief for Claude to draft the lesson from (omit when passing spec)'),
       learner: z.string().optional().describe('Optional note about the learner for generate_prompt, e.g. "adult beginner, 3 months in, struggles with tones"'),
       tags: tagsShape,
+      ...folderParams,
     },
-    async ({ spec, generate_prompt, learner, tags }) => guard(async () => {
+    async ({ spec, generate_prompt, learner, tags, folder_id, folder }) => guard(async () => {
       if (!spec && !generate_prompt?.trim()) return errorResult('Pass either spec or generate_prompt.');
       if (spec && generate_prompt?.trim()) return errorResult('Pass spec OR generate_prompt, not both.');
       let body: Record<string, unknown>;
@@ -85,6 +94,8 @@ ${LESSON_SPEC_DOC}`,
       } else {
         body = { generate: { prompt: generate_prompt!.trim(), learner }, tags };
       }
+      const filed = await resolveFolder(api, 'lesson', { folder_id, folder });
+      if (filed) body.folder_id = filed.id;
       const item = await api.post<LibraryItem>('/api/lesson-library', body);
       return jsonResult({
         id: item.id,
@@ -93,7 +104,7 @@ ${LESSON_SPEC_DOC}`,
         tags: item.tags,
         exercise_count: countExercises(item.spec),
         spec: spec ? undefined : item.spec,
-        message: `Added "${item.title}" to the library (id=${item.id}). Assign it with assign_lesson_to_students.`,
+        message: `Added "${item.title}" to the library (id=${item.id}).${filedNote(filed)} Assign it with assign_lesson_to_students.`,
       });
     }),
   );

@@ -17,6 +17,8 @@ export interface LibraryItemSummary {
   updated_at: string;
   assignment_count: number;
   exercise_count: number;
+  /** Folder (shared/folders); null / missing = Unfiled. */
+  folder_id?: string | null;
 }
 
 export interface LibraryItem {

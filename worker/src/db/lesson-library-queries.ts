@@ -23,6 +23,8 @@ export interface LessonLibraryRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  /** Folder (migration 0098); null = Unfiled. */
+  folder_id?: string | null;
 }
 
 export interface LessonLibraryListRow extends LessonLibraryRow {
