@@ -38,8 +38,7 @@ class LabNav(
      */
     fun open(path: String) {
         val p = if (path.startsWith("/")) path else "/$path"
-        // Study is single-instance: never a second session under the first (Jerome's "I click the
-        // X, it slides down, and reveals the same study screen again").
+        // Study always opens (closeStudy takes every stacked copy off at once).
         if (NavResume.isStudy(p)) return openStudy(p)
         // The same screen again (a double tap, the widget tapped twice, a repeated intent) stays one layer.
         if (currentFullPath() == p) return
@@ -55,16 +54,42 @@ class LabNav(
         return runCatching { controller.graph.findNode(route)?.let { it.route != Routes.PLACEHOLDER_ROUTE } == true }.getOrDefault(false)
     }
 
-    /** Switches to a tab's root, keeping each tab's own back stack (like the web's tab bar). */
+    /**
+     * Switches to a tab's root, keeping each tab's own back stack (like the web's tab bar) — and
+     * the tapped tab is ALWAYS what ends up on screen. A saved tab state could send the Study tab
+     * straight back to Chats (a cold-start stack rebuilt by [restore] then saved under Home's id
+     * and restored by `restoreState`: "Study won't open"); when the result is not the tapped tab,
+     * that saved state is dropped and the tab's root opened plainly.
+     */
     fun openTab(tab: TabSpec) {
         val route = Routes.routeForPath(tab.to)
-        val current = currentPath()
-        if (NavRules.activeTab(listOf(tab), current) == tab.id) {
-            // Re-selecting the active tab pops back to its root.
-            if (!controller.popBackStack(route, inclusive = false)) navigateTab(route)
-            return
+        runCatching {
+            if (onTab(tab)) {
+                // Re-selecting the active tab pops back to its root.
+                if (!controller.popBackStack(route, inclusive = false)) navigateTab(route)
+            } else {
+                navigateTab(route)
+            }
         }
-        navigateTab(route)
+        if (!onTab(tab)) forceTab(route)
+    }
+
+    private fun onTab(tab: TabSpec) = NavRules.activeTab(listOf(tab), currentPath()) == tab.id
+
+    /** The tab's root on screen with no saved state involved: the start screen popped back to, anything else pushed over it. */
+    private fun forceTab(route: String) {
+        runCatching { controller.clearBackStack(route) }
+        val start = runCatching { controller.graph.findStartDestination() }.getOrNull()
+        if (start != null && start.route == route) {
+            if (controller.popBackStack(start.id, inclusive = false)) return
+        }
+        val ok = runCatching {
+            controller.navigate(route) {
+                if (start != null) popUpTo(start.id)
+                launchSingleTop = true
+            }
+        }.isSuccess
+        if (!ok) controller.navigate(Routes.placeholder("/$route"))
     }
 
     /** Goes to a tab's root path ("/decks") as if its tab were tapped (e.g. Home's "All decks"). */
@@ -89,30 +114,48 @@ class LabNav(
     }
 
     /**
-     * Opens Study with at most one Study entry on the stack: one already there (with the same
-     * deck) comes back to the top, whatever was opened over it closed; a Study for another deck
-     * replaces it. Closing Study then returns to whatever was open before it.
+     * Opens Study — always, never refused: Jerome would "much rather have the bug and be able to
+     * study". Study already on top (a double tap, the widget twice) is reused (launchSingleTop);
+     * a Study under other screens may get a second copy on top, and [closeStudy] then takes every
+     * consecutive copy off at once, so ✕ returns to the screen before the first.
      */
     fun openStudy(path: String = Routes.study()) {
         val p = if (path.startsWith("/")) path else "/$path"
-        val existing = controller.currentBackStack.value.lastOrNull { it.destination.route == Routes.STUDY_ROUTE }
-        if (existing != null) {
-            if (fullPathOf(existing) == p) {
-                controller.popBackStack(existing.destination.id, inclusive = false)
-                return
-            }
-            controller.popBackStack(existing.destination.id, inclusive = true)
+        val route = Routes.routeForPath(p)
+        val ok = try {
+            controller.navigate(route) { launchSingleTop = true }
+            true
+        } catch (_: IllegalArgumentException) {
+            false
         }
-        if (!tryNavigate(Routes.routeForPath(p))) controller.navigate(Routes.placeholder(p))
+        if (!ok) controller.navigate(Routes.placeholder(p))
     }
 
     /**
-     * A link from outside the app (MainActivity). [NavRequest.soft] ("go study": the widget, a
-     * reminder notification) leaves a fresh resumable activity on screen (NavResume); explicit
-     * links (a chat, a call) always open.
+     * ✕ / back in a study session: every Study entry on top of the stack comes off, so stacked
+     * copies never show "the same study screen again"; nothing left under them → Home.
+     */
+    fun closeStudy() {
+        var guard = 0
+        while (controller.currentBackStackEntry?.destination?.route == Routes.STUDY_ROUTE && guard++ < 64) {
+            if (!controller.popBackStack()) {
+                controller.navigate(Routes.HOME_ROUTE)
+                return
+            }
+        }
+        if (controller.currentBackStackEntry == null || controller.currentBackStackEntry?.destination is NavGraph) controller.navigate(Routes.HOME_ROUTE)
+    }
+
+    /**
+     * A link from outside the app (MainActivity). Study always opens; another [NavRequest.soft]
+     * link (the homework reminder) leaves a fresh resumable activity on screen (NavResume);
+     * explicit links (a chat, a call) always open.
      */
     fun handle(request: NavRequest, seenAt: Long?, now: Long = System.currentTimeMillis()) {
-        if (request.soft && NavResume.softEntryStays(currentFullPath(), seenAt, now)) return
+        // A "go study" tap (widget, due-card reminder) ALWAYS opens Study — over a homework pass
+        // too, which stays underneath (✕ returns to it). Only a soft link to something else (the
+        // homework reminder) leaves a pass in progress on screen.
+        if (request.soft && !NavResume.isStudy(request.path) && NavResume.softEntryStays(currentFullPath(), seenAt, now)) return
         open(request.path)
     }
 

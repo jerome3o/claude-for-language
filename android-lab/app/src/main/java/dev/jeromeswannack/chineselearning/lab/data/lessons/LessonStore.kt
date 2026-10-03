@@ -19,10 +19,13 @@ import dev.jeromeswannack.chineselearning.lab.data.api.deleteCustomLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.putAttemptMedia
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
@@ -92,6 +95,7 @@ class LessonStore(
 
     fun observe(): Flow<List<LessonEntry>> =
         combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer)) { list, local -> merge(list.orEmpty(), local.orEmpty()) }
+            .flowOn(Dispatchers.Default)
 
     suspend fun entries(): List<LessonEntry> = merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty())
 
