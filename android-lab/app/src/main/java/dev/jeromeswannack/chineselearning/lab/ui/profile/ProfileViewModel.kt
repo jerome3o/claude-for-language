@@ -25,15 +25,22 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /** What the text fields hold (frontend services/profileForm.ts ProfileDraft). */
-data class ProfileDraft(val name: String = "", val about: String = "", val timeZone: String = "", val bio: String = "") {
+data class ProfileDraft(
+    val name: String = "",
+    val about: String = "",
+    val timeZone: String = "",
+    val bio: String = "",
+    /** male | female | other | null — "Your voice when your messages are read aloud" (core ChatVoice). */
+    val voiceGender: String? = null,
+) {
     companion object {
-        fun from(p: ProfileDto) = ProfileDraft(p.name.orEmpty(), p.about.orEmpty(), p.time_zone.orEmpty(), p.bio.orEmpty())
+        fun from(p: ProfileDto) = ProfileDraft(p.name.orEmpty(), p.about.orEmpty(), p.time_zone.orEmpty(), p.bio.orEmpty(), dev.jeromeswannack.chineselearning.lab.core.ChatVoice.parse(p.voice_gender))
     }
 }
 
 /** The fields that changed (profileChanges): name "" is sent so the server says why. */
-data class ProfileChanges(val name: String? = null, val about: ProfileField? = null, val timeZone: ProfileField? = null, val bio: ProfileField? = null) {
-    val any: Boolean get() = name != null || about != null || timeZone != null || bio != null
+data class ProfileChanges(val name: String? = null, val about: ProfileField? = null, val timeZone: ProfileField? = null, val bio: ProfileField? = null, val voiceGender: ProfileField? = null) {
+    val any: Boolean get() = name != null || about != null || timeZone != null || bio != null || voiceGender != null
 
     /** The same checks the server runs, live. */
     val problems: List<String> get() = ProfileRules.problems(name, about?.value.orEmpty().takeIf { about != null }, bio?.value.orEmpty().takeIf { bio != null })
@@ -44,7 +51,8 @@ data class ProfileChanges(val name: String? = null, val about: ProfileField? = n
             val about = ProfileRules.normalizeText(d.about).takeIf { it != saved.about.orEmpty() }?.let { ProfileField(it.ifEmpty { null }) }
             val bio = ProfileRules.normalizeText(d.bio).takeIf { it != saved.bio.orEmpty() }?.let { ProfileField(it.ifEmpty { null }) }
             val tz = d.timeZone.trim().takeIf { it != saved.time_zone.orEmpty() }?.let { ProfileField(it.ifEmpty { null }) }
-            return ProfileChanges(name, about, tz, bio)
+            val voice = if (d.voiceGender != dev.jeromeswannack.chineselearning.lab.core.ChatVoice.parse(saved.voice_gender)) ProfileField(d.voiceGender) else null
+            return ProfileChanges(name, about, tz, bio, voice)
         }
     }
 }
@@ -93,6 +101,7 @@ class ProfileViewModel(private val app: LabApp) : ViewModel() {
         app.cache.put(CACHE_KEY, "profile", p)
         app.prefs.userName = p.name
         app.prefs.userPicture = p.picture_url
+        app.prefs.voiceGender = dev.jeromeswannack.chineselearning.lab.core.ChatVoice.parse(p.voice_gender)
         _ui.update { it.copy(profile = p, loadError = null, draft = if (resetDraft) ProfileDraft.from(p) else it.draft) }
     }
 
@@ -106,7 +115,7 @@ class ProfileViewModel(private val app: LabApp) : ViewModel() {
         _ui.update { it.copy(saving = true, error = null, serverProblems = emptyList()) }
         try {
             val p = withContext(Dispatchers.IO) {
-                app.repo.api.saveProfile(name = c.name?.let { ProfileField(it) }, about = c.about, timeZone = c.timeZone, bio = c.bio)
+                app.repo.api.saveProfile(name = c.name?.let { ProfileField(it) }, about = c.about, timeZone = c.timeZone, bio = c.bio, voiceGender = c.voiceGender)
             }
             applySaved(p, resetDraft = true)
             _ui.update { it.copy(saving = false, flash = "Profile saved") }
