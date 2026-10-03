@@ -139,6 +139,7 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
   // ---- The tutor ends the call for everyone
   tp.on('dialog', (d) => d.accept());
   await tp.getByTestId('end-call').click();
+  await tp.getByTestId('end-confirm-end').click(); // round 4: End asks first (a sheet, not a dialog)
   await tp.getByTestId('call-ended').waitFor({ timeout: 20000 });
   await sp.getByTestId('call-ended').waitFor({ timeout: 20000 });
 

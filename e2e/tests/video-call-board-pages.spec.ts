@@ -130,6 +130,7 @@ test('board pages: a new page, follow, bring here, rename, delete — then the r
   // ---- End the call.
   tp.on('dialog', (d) => d.accept());
   await tp.getByTestId('end-call').click();
+  await tp.getByTestId('end-confirm-end').click(); // round 4: End asks first (a sheet, not a dialog)
   await tp.getByTestId('call-ended').waitFor({ timeout: 20000 });
 
   // The call remembers the pages it wrote on; the relationship keeps them.
