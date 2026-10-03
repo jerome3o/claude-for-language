@@ -97,30 +97,6 @@ export function batchNotesFrom(drafts: CardDraft[]): BatchNoteInput[] {
   return out;
 }
 
-const LAST_DECK_KEY = 'chat-flashcards-last-deck';
-
-export function loadLastDeck(): string | null {
-  try {
-    return localStorage.getItem(LAST_DECK_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function saveLastDeck(deckId: string): void {
-  try {
-    localStorage.setItem(LAST_DECK_KEY, deckId);
-  } catch {
-    // storage blocked: the picker just starts on the first deck next time
-  }
-}
-
-/** The deck the review sheet starts on: the last one used if it still exists, else the first. */
-export function initialDeck(decks: Array<{ id: string }>, last: string | null): string {
-  if (last && decks.some((d) => d.id === last)) return last;
-  return decks[0]?.id ?? '';
-}
-
 // ---------- Pinyin / translation toggles (per conversation, on the device) ----------
 
 export type DisplayKind = 'pinyin' | 'translate';

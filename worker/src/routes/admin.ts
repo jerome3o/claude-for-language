@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import type { Env, UserRole } from '../types';
 import { adminMiddleware } from '../middleware/auth';
 import { inspectUser, inspectUserDecks, resolveUserRef, setUserRole, USER_ROLES } from '../services/admin/inspect';
+import { pickVoiceGender } from '@shared/chats';
 import { AccountDeletionError, deleteUserAccount, previewUserDeletion } from '../services/admin/delete-user';
 
 const admin = new Hono<{ Bindings: Env }>();
@@ -42,6 +43,21 @@ admin.put('/admin/users/:user/role', async (c) => {
   await setUserRole(c.env.DB, ref.id, body.role as UserRole);
   console.log('[admin] role', ref.id, ref.email, '→', body.role, 'by', c.get('user').email);
   return c.json({ id: ref.id, email: ref.email, name: ref.name, role: body.role });
+});
+
+// The voice that person's chat messages are read aloud in (shared/chats/voice.ts):
+// 'male' | 'female' | 'other' | null (= not set). Same column as Profile → voice.
+admin.put('/admin/users/:user/voice-gender', async (c) => {
+  const ref = await target(c);
+  if (!ref) return c.json({ error: 'User not found' }, 404);
+  const body = await c.req.json<{ voice_gender?: unknown }>().catch(() => ({} as { voice_gender?: unknown }));
+  const picked = pickVoiceGender(body.voice_gender);
+  if (body.voice_gender === undefined || picked.problem || picked.value === undefined) {
+    return c.json({ error: 'voice_gender must be male, female, other or null' }, 400);
+  }
+  await c.env.DB.prepare('UPDATE users SET voice_gender = ? WHERE id = ?').bind(picked.value, ref.id).run();
+  console.log('[admin] voice_gender', ref.id, '→', picked.value, 'by', c.get('user').id);
+  return c.json({ id: ref.id, email: ref.email, name: ref.name, voice_gender: picked.value });
 });
 
 admin.get('/admin/users/:user/deletion-preview', async (c) => {

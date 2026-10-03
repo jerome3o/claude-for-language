@@ -213,8 +213,12 @@ ALTER TABLE messages ADD COLUMN correction TEXT;   -- JSON { text, note, by, at 
   `POST /api/conversations/:id/flashcards/propose { message_ids?, since?, focus?: 'correction' }` →
   `{ cards: [FlashcardItem + { already_have: boolean, source_message_id }] }` (structuredCall, CARD_STANDARD, the shared
   FLASHCARD_ITEM_SCHEMA; corrections and words the learner got wrong first; `already_have` = normalised hanzi already in
-  one of the caller's notes) → review sheet (edit fields, uncheck, deck picker, remembered last deck) →
+  one of the caller's notes) → review sheet (edit fields, uncheck, deck picker) →
   `POST /api/decks/:id/notes/batch` in one tap.
+- **Add-card deck pickers** (word sheet, Explain → word / Save as flashcard, Make flashcards, the correction's card, the
+  tap-to-save lists): decks in study-queue order (`decksInQueueOrder`, shared/decks/queue.ts) and the top deck of the
+  queue preselected (`defaultPickerDeckId`) every time — no remembered last deck, no pinned decks. The deck list scrolls
+  on its own and the Add / Save button stays pinned at the bottom of the sheet.
 - **Correct this** (the tutor of the relationship, on the other person's text message): `PUT /api/messages/:id/correction
   { text, note? }` / `DELETE`. Shown under the bubble as a character diff (`diffHanzi`, shared/lesson/answer-check.ts) +
   note; the student's ⋯ → "Make a card from the correction" (`propose` with `focus: 'correction'`). The student gets a

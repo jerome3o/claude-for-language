@@ -153,10 +153,18 @@ describe('profile (real SQLite)', () => {
     const student = await createUser(db, google({ id: 'g-2', email: 'jerome@example.com', name: 'Jerome' }), false);
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-1', ?, ?, 'student', 'active')", [student.id, user.id]);
     const { bucket } = fakeBucket();
-    await updateProfile(db, user.id, { name: '明慧老师', about: 'HSK 1–4', time_zone: 'Asia/Shanghai' });
+    await updateProfile(db, user.id, { name: '明慧老师', about: 'HSK 1–4', time_zone: 'Asia/Shanghai', voice_gender: 'female' });
     const withPic = (await setUploadedPicture(db, bucket, user.id, WEBP, ORIGIN))!;
     const rel = (await getRelationshipById(db, 'rel-1'))!;
-    expect(rel.recipient).toMatchObject({ name: '明慧老师', picture_url: withPic.picture_url, about: 'HSK 1–4', time_zone: 'Asia/Shanghai' });
+    expect(rel.recipient).toMatchObject({ name: '明慧老师', picture_url: withPic.picture_url, about: 'HSK 1–4', time_zone: 'Asia/Shanghai', voice_gender: 'female' });
+    expect(rel.requester.voice_gender).toBeNull();
+  });
+
+  it('voice_gender is saved, read back and cleared', async () => {
+    expect((await getProfile(db, user.id))!.voice_gender).toBeNull();
+    expect((await updateProfile(db, user.id, { voice_gender: 'male' }))!.voice_gender).toBe('male');
+    expect((await updateProfile(db, user.id, { bio: 'x' }))!.voice_gender).toBe('male');
+    expect((await updateProfile(db, user.id, { voice_gender: null }))!.voice_gender).toBeNull();
   });
 });
 
