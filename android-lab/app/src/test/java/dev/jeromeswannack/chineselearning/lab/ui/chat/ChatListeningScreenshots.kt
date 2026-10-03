@@ -33,6 +33,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.NavRules
 import dev.jeromeswannack.chineselearning.lab.ui.nav.ShellFrame
 import dev.jeromeswannack.chineselearning.lab.ui.nav.TabId
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
+import androidx.compose.ui.test.onRoot
+import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Test
 import org.robolectric.annotation.Config
 import java.time.Instant
@@ -50,11 +52,11 @@ object ListeningSamples {
     val old2 = msg("o2", me, "我去图书馆了，看了一下午的书。", 85)
     /** When listening mode was turned on: everything after this hides. */
     val since = at(80)
-    val h1 = msg("h1", mh, "图书馆人多吗？", 20).copy(audio_clip = "h1-3f2a9c")
-    val h2 = msg("h2", mh, "周末我们一起去爬山吧，天气预报说星期六是晴天。", 19).copy(audio_clip = "h2-77b0e1")
+    val h1 = msg("h1", mh, "图书馆人多吗？", 20)
+    val h2 = msg("h2", mh, "周末我们一起去爬山吧，天气预报说星期六是晴天。", 19)
     val photo = msg("p1", mh, "山上的风景", 18).copy(attachment = ChatAttachmentDto("image", width = 640, height = 480), media_url = "/api/chat-media/p1")
     val mine = msg("x1", me, "好啊！几点出发？", 10)
-    val h3 = msg("h3", mh, "早上八点，在地铁站见。", 4).copy(audio_clip = "h3-0c1d55")
+    val h3 = msg("h3", mh, "早上八点，在地铁站见。", 4)
     val thread = listOf(old1, old2, h1, h2, photo, mine, h3)
 
     val ui = ChatLearningSamples.student.copy(
@@ -109,7 +111,7 @@ class ChatListeningScreenshots : LabScreenshotTest() {
             }
         }
         compose.mainClock.advanceTimeBy(110)
-        compose.onRoot().captureRoboImageCompat("chat-listening-04-revealing")
+        compose.onRoot().captureRoboImage("screenshots/chat-listening-04-revealing.png")
     }
 
     @Test fun menu() = shoot("chat-listening-05-menu-toggle") {
@@ -128,7 +130,12 @@ class ChatListeningScreenshots : LabScreenshotTest() {
 
     @Test fun inbox() = shoot("chat-listening-09-inbox") {
         val rows = ChatsSamples.rows.map {
-            if (it.conversationId == "c-hw") it.copy(lastMessage = ChatListLastMessage("m1", "u-minghui", "你做完第三课的作业了吗？明天上课前发给我看看。", "2026-10-03T10:42:00Z"), myReadAt = "2026-10-03T09:00:00Z") else it
+            when (it.conversationId) {
+                "c-hw" -> it.copy(myReadAt = "2026-10-03T09:00:00Z")
+                // A photo stays as it is in listening mode.
+                "c-wei" -> it.copy(lastMessage = it.lastMessage!!.copy(attachmentKind = "image"))
+                else -> it
+            }
         }
         val state = ListeningStateDto(default_on = false, conversations = listOf(ListeningRowDto("c-hw", true, "2026-10-02T00:00:00.000Z"), ListeningRowDto("c-wei", true, "2026-10-01T00:00:00.000Z")))
         val tabs = NavRules.tabsFor(NavRole(hasTutor = true, loaded = true))
@@ -142,10 +149,4 @@ class ChatListeningScreenshots : LabScreenshotTest() {
             ChatListeningSection(on = true) {}
         }
     }
-
-    private fun androidx.compose.ui.test.SemanticsNodeInteraction.captureRoboImageCompat(name: String) {
-        com.github.takahirom.roborazzi.captureRoboImage(this, "screenshots/$name.png")
-    }
-
-    private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onRoot() = this.onRoot(useUnmergedTree = false)
 }

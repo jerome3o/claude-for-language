@@ -103,6 +103,8 @@ class ChatListeningMode(
     /** Stops the chat's other audio (voice messages, Read aloud) before a clip plays. */
     private val stopOthers: () -> Unit,
     private val notice: (String) -> Unit,
+    /** The read-aloud voice + speed of a message (ChatReadAloud — the same rule Read aloud uses). */
+    private val voiceOf: suspend (ChatMessageDto) -> Pair<String, Double>,
 ) {
     private val clips: ChatClips get() = ChatClips.of(app)
     private var player: ListeningPlayer? = null
@@ -156,7 +158,7 @@ class ChatListeningMode(
     fun prefetch(messages: List<ChatMessageDto>) {
         val me = ui.value.myId ?: return
         if (!available()) return
-        app.scope.launch { runCatching { clips.prefetchFor(messages, me) } }
+        app.scope.launch { runCatching { clips.prefetchFor(messages, me, voiceOf) } }
     }
 
     /** Header ⋯ → 🎧 Listening mode: on (anything newer than what's on screen hides) / off. */
@@ -192,10 +194,8 @@ class ChatListeningMode(
         stop()
         update { it.copy(loading = m.id) }
         scope.launch {
-            val file = clips.cachedFor(m.id, m.audio_clip) ?: run {
-                if (!app.online.value) null
-                else runCatching { clips.file(m.id, m.audio_clip) }.getOrNull()
-            }
+            // Exactly what Read aloud plays: the same voice, the same cached file (text + voice + speed).
+            val file = runCatching { voiceOf(m).let { (voice, speed) -> clips.clip(m.content, voice, speed) } }.getOrNull()
             if (ui.value.listening.loading != m.id) return@launch
             if (file == null) {
                 update { it.copy(loading = null) }
@@ -247,10 +247,13 @@ class ChatListeningMode(
 
     /** Durations of the hidden bubbles whose clips are already on the phone. */
     fun measureCached(messages: List<ChatMessageDto>) {
-        val l = ui.value.listening
-        for (m in messages) {
-            if (m.id in l.durations) continue
-            clips.cachedFor(m.id, m.audio_clip)?.let { measure(m.id, it) }
+        val me = ui.value.myId ?: return
+        scope.launch {
+            for (m in ChatListening.prefetchSelection(messages, me, ChatListening.LISTENING_PREFETCH_COUNT, ChatListeningStore::listeningMessage)) {
+                if (m.id in ui.value.listening.durations) continue
+                val (voice, speed) = voiceOf(m)
+                clips.cached(m.content, voice, speed)?.let { measure(m.id, it) }
+            }
         }
     }
 

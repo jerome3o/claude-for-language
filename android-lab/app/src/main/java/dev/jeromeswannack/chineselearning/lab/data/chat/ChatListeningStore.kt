@@ -4,6 +4,13 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListening
 import dev.jeromeswannack.chineselearning.lab.data.Api
+import dev.jeromeswannack.chineselearning.lab.core.ChatVoice
+import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
+import dev.jeromeswannack.chineselearning.lab.data.api.other
+import dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache
+import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
+import dev.jeromeswannack.chineselearning.lab.ui.connections.Connections
+import dev.jeromeswannack.chineselearning.lab.ui.connections.ConnectionsKeys
 import dev.jeromeswannack.chineselearning.lab.data.api.CHAT_LISTENING_DEFAULT_PATH
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ListeningBody
@@ -13,7 +20,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ListeningStateDto
 import dev.jeromeswannack.chineselearning.lab.data.api.chatClips
 import dev.jeromeswannack.chineselearning.lab.data.api.chatListening
 import dev.jeromeswannack.chineselearning.lab.data.api.chatListeningPath
-import dev.jeromeswannack.chineselearning.lab.data.api.messageAudio
 import dev.jeromeswannack.chineselearning.lab.data.platform.FeatureSync
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
@@ -31,7 +37,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Chat listening mode's data on the phone (docs/CHAT.md "Listening mode"):
@@ -144,94 +149,79 @@ object ChatListeningStore {
         deletedAt = m.deleted_at, attachmentKind = m.attachment?.kind?.takeIf { it.isNotEmpty() },
     )
 
-    /** Registered in FeatureSyncs: the settings, then the newest clips of every chat into the audio cache. */
+    /** Registered in FeatureSyncs: the settings, then the newest clips of every chat into the read-aloud cache. */
     object Sync : FeatureSync {
         override suspend fun sync(ctx: SyncContext) {
             refresh(ctx.api, ctx.cache, ctx.outbox)
             val clips = ChatClips.current ?: return
-            clips.prefetch(ctx.api.chatClips().clips.mapNotNull { c -> c.clip?.let { c.message_id to it } })
+            // The server already picked each clip's voice for me as the listener.
+            clips.prefetch(ctx.api.chatClips().clips.map { ChatClips.Item(it.text, it.voice_id, it.speed) })
         }
     }
 }
 
 /**
- * Message clips on the phone (docs/CHAT.md "Client prefetch"): cached by `audio_clip` in
- * files/chat-clips/, so a tap plays at once and offline. A message without a clip id yet is
- * fetched on tap (`GET /api/messages/:id/audio`) and kept under its `X-Clip-Id`.
+ * Chat read-aloud's voice (docs/CHAT.md; core ChatVoice = shared/chats/voice.ts): the sender's
+ * voice gender → the first voice of that gender in MY conversation voices; Claude's lines keep the
+ * chat's persona voice. Read aloud, listening mode's tap and every prefetch use this one rule.
  */
-class ChatClips(private val api: () -> Api, val dir: File, private val online: () -> Boolean) {
-    /** Messages fetched on tap → their clip id (`X-Clip-Id`), for this process. */
-    private val byMessage = ConcurrentHashMap<String, String>()
-    private val gate = Semaphore(3)
-    private val inFlight = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<File>>()
+object ChatReadAloud {
+    suspend fun voice(app: LabApp, senderIsMe: Boolean, otherGender: String?, fromAi: Boolean, personaVoice: String?, personaSpeed: Double?): Pair<String, Double> {
+        val gender = if (senderIsMe) app.prefs.voiceGender else otherGender
+        val enabled = ConversationVoiceCache.get(app.cache)
+        return ChatVoice.voice(gender, enabled, fromAi, personaVoice) to ChatVoice.speed(fromAi, personaSpeed)
+    }
 
-    private fun fileFor(clip: String) = File(dir, clip.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".mp3")
-
-    fun cached(clip: String?): File? = clip?.takeIf { it.isNotBlank() }?.let(::fileFor)?.takeIf { it.exists() && it.length() > 0 }
-
-    /** The clip of [messageId] when it is on the phone ([clip] = the message's `audio_clip`). */
-    fun cachedFor(messageId: String, clip: String?): File? = cached(clip) ?: cached(byMessage[messageId]) ?: cached("msg-$messageId")
-
-    /** Cache-first; else downloads it (throws when offline / the server can't make it). */
-    suspend fun file(messageId: String, clip: String?): File {
-        cachedFor(messageId, clip)?.let { return it }
-        return withContext(Dispatchers.IO) {
-            val audio = api().messageAudio(messageId)
-            val id = audio.clipId ?: clip ?: "msg-$messageId"
-            byMessage[messageId] = id
-            write(id, audio.bytes)
+    /** A message from the other person in a chat with a person: its voice from the cached relationship's voice gender. */
+    suspend fun voiceForIncoming(app: LabApp, relationshipId: String?, conversationId: String? = null): Pair<String, Double> {
+        val me = Connections.myId(app.cache)
+        // No relationship on the event (an update): the inbox knows the conversation's.
+        val relId = relationshipId ?: conversationId?.let { c ->
+            runCatching { app.cache.get<dev.jeromeswannack.chineselearning.lab.core.chat.ChatListResponse>(dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsKeys.LIST) }.getOrNull()
+                ?.conversations?.firstOrNull { it.conversationId == c }?.relationshipId
         }
+        val rel = relId?.let { runCatching { app.cache.get<RelationshipDto>(ConnectionsKeys.relationship(it)) }.getOrNull() }
+        return voice(app, senderIsMe = false, otherGender = rel?.other(me)?.voice_gender, fromAi = false, personaVoice = null, personaSpeed = null)
     }
+}
 
-    private fun write(clip: String, bytes: ByteArray): File {
-        dir.mkdirs()
-        val dest = fileFor(clip)
-        val tmp = File(dir, dest.name + ".part")
-        tmp.writeBytes(bytes)
-        if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true); tmp.delete() }
-        return dest
-    }
+/**
+ * Read-aloud clips on the phone (docs/CHAT.md "Client prefetch"): the lessons' cache-first TTS
+ * (`POST /api/practice/tts`, files keyed by text + voice + speed — LessonMedia), so Read aloud and
+ * a listening-mode tap play the same file at once, offline too.
+ */
+class ChatClips(private val app: LabApp) {
+    data class Item(val text: String, val voice: String, val speed: Double)
 
-    /** Downloads the clips not on the phone yet: ([messageId], clip) pairs; quiet on failure. */
-    suspend fun prefetch(items: List<Pair<String, String>>) = coroutineScope {
-        if (!online()) return@coroutineScope
-        items.distinctBy { it.second }.filter { cached(it.second) == null }.map { (messageId, clip) ->
-            async {
-                gate.withPermit {
-                    if (cached(clip) != null) return@withPermit
-                    runCatching {
-                        val audio = withContext(Dispatchers.IO) { api().messageAudio(messageId) }
-                        write(audio.clipId ?: clip, audio.bytes)
-                    }
-                }
-            }
+    private val media get() = LessonRuntime.of(app).media
+    private val gate = Semaphore(3)
+
+    fun cached(text: String, voice: String, speed: Double): File? = media.cachedTts(media.ttsKey(text, speed, voice))
+
+    /** Cache-first; else made and kept (null offline with nothing cached, or when the server can't). */
+    suspend fun clip(text: String, voice: String, speed: Double): File? = media.tts(text, voice, speed = speed, online = app.online.value)
+
+    /** Fetches the clips not on the phone yet (online only; quiet on failure). */
+    suspend fun prefetch(items: List<Item>) = coroutineScope {
+        if (!app.online.value) return@coroutineScope
+        items.filter { it.text.isNotBlank() }.distinct().filter { cached(it.text, it.voice, it.speed) == null }.map { item ->
+            async { gate.withPermit { runCatching { media.tts(item.text, item.voice, speed = item.speed, online = true) } } }
         }.awaitAll()
     }
 
-    /** The newest clips of [messages] a tap would play (`prefetchSelection(messages, me, 20)`). */
-    suspend fun prefetchFor(messages: List<ChatMessageDto>, myId: String) {
+    /** The newest messages a tap would play (`prefetchSelection(messages, me, 20)`), each in its voice. */
+    suspend fun prefetchFor(messages: List<ChatMessageDto>, myId: String, voiceOf: suspend (ChatMessageDto) -> Pair<String, Double>) {
         val pick = ChatListening.prefetchSelection(messages, myId, ChatListening.LISTENING_PREFETCH_COUNT, ChatListeningStore::listeningMessage)
-        prefetch(pick.mapNotNull { m -> m.audio_clip?.let { m.id to it } })
-    }
-
-    fun clear() {
-        dir.listFiles()?.forEach { it.delete() }
-        byMessage.clear()
+        prefetch(pick.map { m -> voiceOf(m).let { (v, s) -> Item(m.content, v, s) } })
     }
 
     companion object {
         @Volatile var current: ChatClips? = null
             private set
 
-        @Volatile private var owner: LabApp? = null
-
-        /** The app's one cache (files/chat-clips/, emptied on sign-out); ChatDelivery.install makes it. */
+        /** The app's one instance (ChatDelivery.install makes it, so the background sync can prefetch). */
         fun of(app: LabApp): ChatClips = synchronized(this) {
-            current?.takeIf { owner === app } ?: ChatClips({ app.repo.api }, File(app.filesDir, "chat-clips"), { app.online.value }).also { c ->
-                current = c
-                owner = app
-                app.repo.beforeSignOut += { c.clear() }
-            }
+            current?.takeIf { it.app === app } ?: ChatClips(app).also { current = it }
         }
     }
 }
