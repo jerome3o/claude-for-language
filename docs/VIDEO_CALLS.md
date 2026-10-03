@@ -471,6 +471,64 @@ both people as its own tile (`material`, transient like a shared screen: it exis
   `GET …/pages/:n/image`, `GET …/original`, `GET …/text`, `PATCH|DELETE /api/materials/:id`,
   `POST …/share`, `DELETE …/share/:relId`, `GET …/annotations?lesson_id=`.
 
+## In-call activities: two-person mini lessons (prototype)
+
+Mini lessons you do **together** in the call: **⋯ → 🎲 Activities** opens a picker of short two-person
+activities; picking one puts an `activity` tile on the stage for both people (transient like a presented
+material, `activityStarted` in `shared/calls/layout.ts`, key **A**). Each person has a role and sees their
+own side; the tutor runs it; the result is kept with the lesson.
+
+- **The framework** (`shared/call-activities/`): a SPEC (hand-written content, `catalogue.ts`, keyed by
+  level / topic) is played as a SESSION — one state machine (`engine.ts`) that the **CallRoom owns**.
+  Clients send actions; the room runs `reduceActivity(session, action, actor, now)` and broadcasts the whole
+  session (small JSON, `v` bumped per change) to both. A refused or stale action (wrong role / phase / old
+  session id) changes nothing and the room sends the sender the current session, so a confused screen
+  catches up. The spec rides inside the session (a client never needs the room's catalogue version; generated
+  activities can come later). The Lab app's `CallActivities.kt` is a port, parity-tested against vectors the
+  TS engine makes (`android-lab/parity/fixtures/call-activities.ts`).
+- **Roles** — `a` / `b`, named per activity (`role_names`: Describer / Guesser, Reader / Writer, 服务员 /
+  客人 …). The relationship's **tutor** takes the spec's `tutor_role` and is the **host** (skip, reset the
+  round, swap roles, restart, next); whoever started it doesn't matter. Either person may end it (the
+  summary shows) or close it. In a **solo** test call one person holds both roles and a "viewing as A / B"
+  switch shows either side; someone joining a solo-started activity takes a role (`joinActivity`). The UI
+  shows a button only when the engine would accept that action from me (`reduceActivity(…) !== null`), so
+  screen and room never disagree.
+- **Reconnect-safe** — the session lives in the room's storage (`activity`), comes back in
+  `welcome.activity` after a reload / rejoin, and is written to D1 when it finishes, is closed or replaced,
+  when someone leaves and when the call ends.
+- **Audio** — quiz questions with `audio` and dictation words: the asker's "Play for both" bumps
+  `data.play`; each device plays the clip (cache-first TTS, `/api/practice/tts`) when it sees the counter go
+  up — never on first sight, so a reload doesn't replay it. Everyone can replay locally.
+- **Protocol** (`shared/calls/protocol.ts`): `activity_start { activity_id }` (replaces any running one,
+  keeping its result), `activity_action { session_id, action }`, `activity_close { session_id }`; the room
+  answers `activity { session | null }`.
+- **Results** — `call_activities` (migration 0093, upsert by session id; `ActivitySummary`: played / scored /
+  correct, roles, one readable line per round like "你好 (nǐ hǎo, hello) — wrote 你号 ✗"). `GET /api/calls/:id`
+  returns the lesson's `activities` → the review page's **Activities** section; the homework agent's notes get
+  an **IN-CALL ACTIVITIES** block (`activitiesNotes`, `services/calls/activities.ts`), so homework can follow
+  up on what went wrong.
+
+The activities (9 samples in the catalogue):
+
+| Kind | How it works | Samples |
+|---|---|---|
+| 🎯 **Describe & guess** (`describe`) | A sees an emoji + word (+ hint words) and describes it in Chinese without saying it; B picks it from four (correct + three others, seeded shuffle); reveal ✓ / ✗; host Next. The student describes by default. | food (beginner), animals (elementary) |
+| 🧩 **Information gap** (`info_gap`) | A small table (weekend plans of 小明 / 小红); every cell is visible to one person only (`owner`), the other fills it from a choice list after asking ("小红星期六上午做什么？"). Each sees what the other filled in their visible cells; **Check answers** (either) scores the table. | weekend plans |
+| 🎭 **Role-play** (`roleplay`) | A scripted dialogue; lines appear turn by turn, the current one big; the speaker of the line (or the host) taps **Done ▸**; 拼 / EN toggles per device, ▶ per line; ◂ Back; swap roles and go again. | restaurant (13 lines), asking the way |
+| 🧱 **Sentence building** (`build`) | Scrambled word tiles (never already in order); **either** person taps them into the answer row (tap again to take one out); the host reveals the model answer; then each taps **I said it ✓** after saying it aloud. | 把 / 了 / 过 / 比 sentences |
+| ❓ **Quick quiz** (`quiz`) | The asker sees the next question with its answer and pushes it (**Ask ▸**); a listening question plays on both devices with the text hidden; the answerer's pick shows live on the asker's screen; Reveal auto-marks, the asker can override ✓ / ✗. | tones minimal pairs (买/卖, 汤/糖, 有/又…), measure words |
+| ✍️ **Dictation** (`dictation`) | The reader sees the word, says it (or plays it for both) and starts the round; the writer types it in characters — the reader watches it being typed (throttled `draft` actions); Submit; Reveal checks it (`isHanziAnswerCorrect`, punctuation ignored) and shows a character diff; the reader can override the mark. | everyday words |
+
+**Add an activity**: append a spec to `ACTIVITY_CATALOGUE` (`validateActivitySpec` + the catalogue test check
+it; the Lab parity test checks the Kotlin catalogue matches). A new KIND needs its types, `roundData` + a
+`step` case in `engine.ts`, a summary line, a view in `components/calls/activities/ActivityViews.tsx` and the
+Lab's `ActivityTile`.
+
+What I'd build next: "make one from this lesson's words" (Claude writes a spec from the board / report /
+student's struggling words — the spec already travels in the session); handwriting in dictation (the stroke
+pad); a shared drag for sentence tiles; a timer / points race; activities as homework afterwards (the same
+spec played solo).
+
 ## Finding the call (banners, ring, notifications)
 
 The person being called must notice. Every signal comes from ONE list, `GET /api/calls?live=1`,

@@ -44,6 +44,7 @@ import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
 import { DEFAULT_ANNOT_PERSIST, type AnnotStroke, type AnnotText } from '@shared/calls';
 import { materialTarget, type PresentedMaterial } from '@shared/materials';
+import type { ActivityAction, ActivitySession } from '@shared/call-activities';
 import {
   acquireMedia,
   loadDevicePrefs,
@@ -151,6 +152,15 @@ export function useCall(callId: string, myUserId: string) {
   // Drawings on a shared screen (mine and theirs), outside React so the mini window can redraw from it.
   const annotRef = useRef<AnnotationStore | null>(null);
   if (!annotRef.current) annotRef.current = new AnnotationStore();
+  // The in-call activity (shared/call-activities): the room's session, newest version wins.
+  const [activity, setActivityState] = useState<ActivitySession | null>(null);
+  const activityRef = useRef<ActivitySession | null>(null);
+  const takeActivity = (next: ActivitySession | null) => {
+    const cur = activityRef.current;
+    if (next && cur && next.session_id === cur.session_id && next.v < cur.v) return; // an older echo
+    activityRef.current = next;
+    setActivityState(next);
+  };
   // A presented lesson material (round 4): what is shown, and the drawings / text on its current page.
   const [presenting, setPresenting] = useState<PresentedMaterial | null>(null);
   const presentingRef = useRef<PresentedMaterial | null>(null);
@@ -415,6 +425,8 @@ export function useCall(callId: string, myUserId: string) {
         setPresenting(msg.material ?? null);
         materialAnnotRef.current?.clear();
         if (msg.material_annots) materialAnnotRef.current?.loadKept(msg.material_annots.annots);
+        activityRef.current = null; // the room's word is final after a (re)join
+        takeActivity(msg.activity ?? null);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
         flushDiag();
         if (msg.peers.length > 0) openLink(msg.peers[0]);
@@ -492,6 +504,9 @@ export function useCall(callId: string, myUserId: string) {
         if (!msg.presenting || !prev || prev.material_id !== msg.presenting.material_id || prev.page !== msg.presenting.page) materialAnnotRef.current?.clear();
         return;
       }
+      case 'activity':
+        takeActivity(msg.session);
+        return;
       case 'material_annots':
         if (msg.target === materialTargetNow()) {
           materialAnnotRef.current?.clear();
@@ -751,6 +766,18 @@ export function useCall(callId: string, myUserId: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
 
+  // ---- in-call activities: start one from the catalogue, act in it, close it
+  const startActivity = useCallback((activityId: string) => roomRef.current?.send({ type: 'activity_start', activity_id: activityId }) ?? false, []);
+  const actInActivity = useCallback((action: ActivityAction) => {
+    const cur = activityRef.current;
+    if (!cur) return;
+    roomRef.current?.send({ type: 'activity_action', session_id: cur.session_id, action });
+  }, []);
+  const closeActivity = useCallback(() => {
+    const cur = activityRef.current;
+    if (cur) roomRef.current?.send({ type: 'activity_close', session_id: cur.session_id });
+  }, []);
+
   /** A text box on the shared screen: placed, typed into, moved (round 4). */
   const sendAnnotText = useCallback((text: AnnotText) => {
     annotRef.current?.upsertText(text, 'me');
@@ -870,6 +897,7 @@ export function useCall(callId: string, myUserId: string) {
     annotations: annotRef.current,
     sendAnnotation, sendPing, clearAnnotations, annotPersist, setAnnotationsKept, sendAnnotText, deleteAnnotText,
     presenting, presentMaterial, turnMaterialPage, stopPresenting, materialAnnotations: materialAnnotRef.current, materialAnnot,
+    activity, startActivity, actInActivity, closeActivity,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
     myUserId,
