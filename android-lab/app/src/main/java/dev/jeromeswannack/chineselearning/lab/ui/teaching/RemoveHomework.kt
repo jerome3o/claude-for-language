@@ -191,6 +191,7 @@ class HomeworkRemovalController(
             }
                 .onSuccess { result ->
                     _sheet.value = null
+                    app.analytics.track("tutor.remove_homework", mapOf("kind" to t.kind))
                     app.haptics.correct()
                     app.sounds.play(Sounds.Sfx.POP)
                     showToast(HomeworkRemoval.removalToast(t.kind, t.title, s.studentName, result.source_deleted))

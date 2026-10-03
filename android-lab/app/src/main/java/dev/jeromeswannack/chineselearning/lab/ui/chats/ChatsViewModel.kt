@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.TimeZone
 
@@ -33,6 +34,10 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
 
     init {
         viewModelScope.launch { val me = Connections.myId(app.cache); local.update { it.copy(myId = me) } }
+        viewModelScope.launch {
+            val list = runCatching { Chats.observe(app.cache).first() }.getOrNull()
+            app.analytics.track("chat.inbox_open", mapOf("conversations" to list?.conversations?.size, "unread" to list?.conversations?.count { it.unread > 0 }))
+        }
         viewModelScope.launch { while (true) { delay(30_000); local.update { it.copy(now = System.currentTimeMillis()) } } }
         viewModelScope.launch {
             combine(Chats.observe(app.cache), app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS), local, app.online) { list, rels, l, online ->

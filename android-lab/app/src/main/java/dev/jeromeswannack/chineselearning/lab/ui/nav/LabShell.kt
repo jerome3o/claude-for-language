@@ -82,6 +82,8 @@ fun LabShell(
         onStopOrDispose { app.callAlerts.setForeground(false) }
     }
     LaunchedEffect(path) { app.callAlerts.path = path }
+    // Usage analytics: each route change records app.screen_view for the screen left (data/analytics/).
+    LaunchedEffect(entry) { entry?.let { e -> app.analytics.screen(dev.jeromeswannack.chineselearning.lab.data.analytics.AnalyticsScreens.routeOf(e), LabNav.pathOf(e)) } }
 
     LaunchedEffect(nav) { onNav(nav) }
     val lastRoutes = remember(app) { LastRouteStore(app) }

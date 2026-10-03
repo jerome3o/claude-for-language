@@ -175,6 +175,7 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
     fun start(text: String, action: CoachAction, onStarted: (String) -> Unit) {
         if (text.isEmpty() || local.value.starting) return
         local.update { it.copy(draft = text, starting = true, pendingAction = action, startError = null, savedBreakdown = null) }
+        app.analytics.track("coach.start", mapOf("action" to action.id))
         viewModelScope.launch {
             val cached = if (action == CoachAction.EXPLAIN) runCatching { tools.cachedTextExplanation(text) }.getOrNull() else null
             if (cached != null && !app.online.value) {

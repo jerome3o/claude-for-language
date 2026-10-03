@@ -242,6 +242,7 @@ class StudyViewModel(
         cards.forEach { practiceCards[it.id] = it }
         practiceQueue = spec.cardIds.filter { it in practiceCards }
         pinnedNotes = pinned
+        if (analyticsStartedAt == null) app.analytics.track("study.tutor_note_practice", mapOf("count" to practiceQueue.size))
         queue = practiceQueue.mapNotNull { practiceCards[it] }.toMutableList()
         reviewedNoteIds = HashSet()
         _ui.update { it.copy(practice = PracticeUi()) }
@@ -297,6 +298,11 @@ class StudyViewModel(
         }
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
+        // Usage analytics: once per visit to Study with cards to do.
+        if (analyticsStartedAt == null && queue.isNotEmpty()) {
+            analyticsStartedAt = now
+            app.analytics.track("study.session_start", mapOf("scope" to if (deckId == null) "all" else "deck", "due" to queue.size, "new_cards" to queue.count { it.queue == 0 }, "offline" to !app.online.value))
+        }
         if (resetRecent) recentNoteIds = emptyList()
         loadedDay = today()
         extrasMode = false // every visit starts with the cards (Lab today split)
@@ -939,6 +945,7 @@ class StudyViewModel(
         val q = question.trim()
         if (q.isEmpty() || _ui.value.extras.ask.asking) return
         updateAsk(v) { it.copy(asking = true, pendingQuestion = q, error = null) }
+        app.analytics.track("study.ask_claude", mapOf("card_type" to v.card.cardType))
         viewModelScope.launch {
             val typing = v.card.cardType != dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING
             val context = if (typing && !userAnswer.isNullOrEmpty()) dev.jeromeswannack.chineselearning.lab.data.api.AskContext(userAnswer, v.note.hanzi, v.card.cardType) else null
@@ -1005,7 +1012,7 @@ class StudyViewModel(
     /** Flag sheet → queue / send. */
     suspend fun flag(tutor: FlagTutor, message: String): Boolean {
         val v = currentView() ?: return false
-        return tools.flag(tutor, v.note.id, v.card.id, message).also { app.haptics.correct() }
+        return tools.flag(tutor, v.note.id, v.card.id, message).also { app.haptics.correct(); app.analytics.track("study.flag_card") }
     }
 
     /** Typed answer checked (or the answer revealed): feedback only, nothing recorded yet. */
@@ -1049,6 +1056,10 @@ class StudyViewModel(
         // an honest Again is worth exactly as much as an Easy (no streaks, no rising pitch).
         app.haptics.rated(rating)
         app.sounds.ratingPop()
+        app.analytics.track("study.card_rated", mapOf(
+            "rating" to RATING_NAMES.getOrNull(rating), "card_type" to card.cardType, "queue" to card.queue, "time_ms" to timeSpentMs,
+            "recorded" to (recorder.recording || _ui.value.extras.take.hasTake),
+        ))
 
         if (practice != null) return ratePractice(card, rating, timeSpentMs, userAnswer, stats)
 
@@ -1102,6 +1113,7 @@ class StudyViewModel(
             val summary = withContext(Dispatchers.IO) { repo.dao.reviewSummarySince(Js.toIsoString(dayStart)) }
             val celebrate = dayStore.claimCelebration(summary.reviews, queueEmpty = true)
             if (celebrate) {
+                app.analytics.track("study.celebration", mapOf("reviews" to summary.reviews, "active_ms" to dayStore.activeToday()))
                 app.sounds.play(Sounds.Sfx.FANFARE, 0.8f)
                 app.haptics.celebrate()
             }
@@ -1154,6 +1166,7 @@ class StudyViewModel(
     }
 
     fun studyMore() {
+        app.analytics.track("study.study_more", mapOf("count" to StudyQueue.BONUS_INCREMENT))
         val bonus = app.prefs.bonus(scopeKey, today()) + StudyQueue.BONUS_INCREMENT
         app.prefs.setBonus(scopeKey, today(), bonus)
         _ui.update { it.copy(phase = StudyPhase.Loading, today = null) }
@@ -1163,6 +1176,10 @@ class StudyViewModel(
     fun play(key: String?, text: String) = app.audio.play(key, text, aiAvailable)
 
     override fun onCleared() {
+        analyticsStartedAt?.let { started ->
+            val reviews = _ui.value.stats.reviews
+            app.analytics.track("study.session_end", mapOf("reviews" to reviews, "duration_ms" to System.currentTimeMillis() - started, "reason" to if (_ui.value.phase is StudyPhase.Done) "emptied" else "left"))
+        }
         app.audio.stop()
         liveStream?.abort()
         recorder.release()
@@ -1172,8 +1189,14 @@ class StudyViewModel(
         if (_ui.value.stats.reviews > 0) app.scheduleBackgroundUpload()
     }
 
+    /** When this visit's study.session_start was recorded (null = none yet). */
+    private var analyticsStartedAt: Long? = null
+
     class Factory(private val app: LabApp, private val deckId: String?, private val practice: PracticeSpec? = null) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = StudyViewModel(app, deckId, practice) as T
     }
 }
+
+/** `study.card_rated` rating names (0..3 → again / hard / good / easy). */
+private val RATING_NAMES = listOf("again", "hard", "good", "easy")

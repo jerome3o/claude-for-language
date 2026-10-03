@@ -37,6 +37,8 @@ data class MeDto(
     val email_chat_messages: Boolean = true,
     /** The budget with who set it (a tutor can change it: shared/decks/tutor-budget.ts); null from an older server. */
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
+    /** Usage analytics on (Settings → Advanced → "Share usage data"; data/analytics/). */
+    val share_usage: Boolean = true,
 )
 
 @Serializable

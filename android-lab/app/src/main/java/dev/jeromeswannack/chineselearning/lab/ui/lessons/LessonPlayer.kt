@@ -108,6 +108,14 @@ class LessonResumeHandle(
  * the same FSRS rating bar as cards and readers. [PlayerContext.Preview] records nothing
  * and offers Try again / Done instead of a rating.
  */
+/** `lesson.start` / `lesson.complete` source: where the player sits. */
+private fun lessonSource(context: PlayerContext): String = when (context) {
+    is PlayerContext.Session -> "session"
+    PlayerContext.Homework -> "homework"
+    PlayerContext.Preview -> "preview"
+    PlayerContext.Today -> "today"
+}
+
 @Composable
 fun LessonPlayer(
     title: String,
@@ -147,6 +155,8 @@ fun LessonPlayer(
     val done = idx >= items.size
 
     LaunchedEffect(done) { if (done) onCelebrate() }
+    // Usage analytics: a real run (previews record nothing — not even this).
+    LaunchedEffect(run) { if (!preview) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.start", mapOf("source" to lessonSource(context), "exercises" to items.size)) }
     LaunchedEffect(idx) { onIndex(idx) }
 
     fun advance(isCorrect: Boolean?, answer: dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer?, recording: java.io.File?) {
@@ -240,6 +250,7 @@ fun LessonPlayer(
                         if (rating) return@RatingBar
                         rating = true
                         val attempt = LessonAttemptData(Js.toIsoString(startedAt), System.currentTimeMillis() - startedAt, attempts.toList())
+                        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.complete", mapOf("rating" to listOf("again", "hard", "good", "easy").getOrNull(r), "source" to lessonSource(context), "duration_ms" to System.currentTimeMillis() - startedAt))
                         onComplete(LessonResult(correct, total, r, attempt, recordings.toList()))
                     }
                 }

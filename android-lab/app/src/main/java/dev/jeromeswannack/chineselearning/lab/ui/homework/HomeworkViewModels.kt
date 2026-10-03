@@ -67,12 +67,19 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     private val runtime by lazy { LessonRuntime.of(app) }
     private val targets: Flow<Targets?> = flow { emit(null); emitAll(combine(runtime.store.observe(), runtime.readers.observe()) { l, r -> Targets(l.associateBy { it.id }, r.associateBy { it.id }) }) }
     private var celebrated = false
+    /** homework.pass_start recorded for this visit. */
+    private var startTracked = false
     private var wasComplete: Boolean? = null
 
     val ui: StateFlow<PassUi> = combine(HomeworkStore.observe(app.cache), notes, local, app.online, targets) { data, notes, l, online, targets ->
         val a = data?.first?.firstOrNull { it.id == id } ?: return@combine if (data == null) PassUi.Loading else PassUi.Missing
         val progress = Homework.passProgress(Homework.passItemIds(a), data.second.filter { it.assignment_id == a.id })
-        noteComplete(progress.complete)
+        val items = Homework.passItemIds(a).size
+        if (!startTracked) {
+            startTracked = true
+            app.analytics.track("homework.pass_start", mapOf("kind" to a.kind, "items" to items))
+        }
+        noteComplete(progress.complete, a.kind, items)
         if (a.kind != "deck") return@combine playerUi(a, progress.complete, targets, l.finished)
         val parts = Homework.titleParts(a)
         val current = Homework.nextPassItem(progress)
@@ -117,11 +124,12 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     }
 
     /** Fanfare once, when the last word goes right in this sitting (not when opening a finished pass). */
-    private fun noteComplete(complete: Boolean) {
+    private fun noteComplete(complete: Boolean, kind: String, items: Int) {
         val before = wasComplete
         wasComplete = complete
         if (complete && before == false && !celebrated) {
             celebrated = true
+            app.analytics.track("homework.pass_done", mapOf("kind" to kind, "items" to items))
             app.haptics.celebrate()
             app.sounds.play(Sounds.Sfx.FANFARE)
         }
@@ -189,6 +197,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         if (local.value.busy) return
         if (right) { app.haptics.correct(); app.sounds.play(Sounds.Sfx.CORRECT) } else { app.haptics.wrong(); app.sounds.play(Sounds.Sfx.AGAIN, 0.6f) }
         local.value = local.value.copy(busy = true)
+        app.analytics.track("homework.pass_item", mapOf("result" to if (right) "right" else "wrong"))
         viewModelScope.launch {
             try {
                 HomeworkStore.recordPassEvent(app, id, note.id, if (right) "right" else "wrong")

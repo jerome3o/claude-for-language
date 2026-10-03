@@ -481,7 +481,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             refreshPending()
             readHere()
             startPolling()
+            app.analytics.track("chat.open", mapOf("is_ai" to _ui.value.isAi, "unread" to (unread != null)))
         } catch (e: Exception) {
+            app.analytics.track("chat.open", mapOf("is_ai" to _ui.value.isAi))
             ChatNotifier.cancel(app, convId)
             _ui.update {
                 if (cachedMsgs != null || it.messages.isNotEmpty()) it.copy(loading = false, offlineHistory = true)
@@ -661,6 +663,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         if (s.editing != null) return saveEdit()
         val content = s.draft.trim()
         if (content.isEmpty() || s.sending || s.waitingForAi) return
+        app.analytics.track("chat.send", mapOf("kind" to "text", "is_ai" to s.isAi, "reply" to (s.replyingTo != null), "offline" to !s.online))
         if (s.isAi) return sendToClaude(content)
         // Optimistic: the bubble is the outbox row (it shows at once, offline too, and survives a restart).
         val clientId = java.util.UUID.randomUUID().toString()
@@ -763,7 +766,10 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun openSearch() = _ui.update { it.copy(search = ChatSearchUi(), sheet = null) }
 
-    fun closeSearch() = _ui.update { it.copy(search = null, highlightId = null) }
+    fun closeSearch() {
+        _ui.value.search?.takeIf { it.query.isNotBlank() }?.let { app.analytics.track("chat.search", mapOf("results" to it.results.size)) }
+        _ui.update { it.copy(search = null, highlightId = null) }
+    }
 
     fun setSearchQuery(q: String) = setSearchResults(q, keepCurrent = false)
 
@@ -893,6 +899,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     /** Send: one message per photo (own client id, own outbox row), the caption and the reply with the first. */
     fun sendPhoto(caption: String) {
         val sheet = _ui.value.sheet as? ChatSheet.Photos ?: return
+        app.analytics.track("chat.send", mapOf("kind" to "photo", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
         val replyTo = _ui.value.replyingTo?.id
         _ui.update { it.copy(sheet = null, replyingTo = null) }
         app.sounds.play(Sounds.Sfx.POP, 0.5f)
@@ -921,6 +928,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
      */
     fun sendFile(context: android.content.Context, uri: android.net.Uri) {
         _ui.update { it.copy(sheet = null, notice = null) }
+        app.analytics.track("chat.send", mapOf("kind" to "file", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
         val replyTo = _ui.value.replyingTo
         viewModelScope.launch {
             try {
@@ -949,6 +957,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     /** A video clip (≤ 25 MB): its length and shape read on the phone, sent as `kind=video&duration_ms=&width=&height=`. */
     fun sendVideo(context: android.content.Context, uri: android.net.Uri) {
         _ui.update { it.copy(sheet = null, notice = null) }
+        app.analytics.track("chat.send", mapOf("kind" to "video", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
         val replyTo = _ui.value.replyingTo
         viewModelScope.launch {
             try {
@@ -1070,6 +1079,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         app.haptics.tick()
         app.sounds.play(Sounds.Sfx.POP, 0.5f)
         val ids = f.messageIds
+        app.analytics.track("chat.forward", mapOf("kind" to if (ids.size == 1) "single" else "multiple"))
         app.scope.launch {
             for (id in ids) {
                 val clientId = java.util.UUID.randomUUID().toString()
@@ -1153,6 +1163,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun sendRecording() {
         val p = _ui.value.recorder as? RecorderUi.Preview ?: return
+        app.analytics.track("chat.send", mapOf("kind" to "voice", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
         if (_ui.value.voice?.id == PREVIEW_ID) stopAudio()
         val clientId = java.util.UUID.randomUUID().toString()
         val replyTo = _ui.value.replyingTo?.id
@@ -1238,6 +1249,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
      */
     fun onMenuAction(id: String, m: ChatMessageDto) {
         _ui.update { it.copy(sheet = null) }
+        app.analytics.track("chat.menu_action", mapOf("action" to id, "kind" to (m.attachment?.kind ?: "text")))
         when (id) {
             MessageMenu.REPLY -> reply(m)
             MessageMenu.COPY -> copy(_ui.value.menuText(m))
@@ -1400,6 +1412,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     fun react(m: ChatMessageDto, emoji: String) {
+        app.analytics.track("chat.reaction")
         _ui.update { it.copy(sheet = null, recentEmojis = ChatLogic.pushRecent(it.recentEmojis, emoji)) }
         app.haptics.tick()
         viewModelScope.launch {
@@ -1855,6 +1868,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 val res = api.addNotesBatch(deckId, chosen.map { noteOf(it.second) })
                 val failed = res.failed.associate { it.index to it.error.ifBlank { "Couldn't add this card." } }
                 val added = res.created.size
+                app.analytics.track("chat.make_flashcards", mapOf("count" to added))
                 if (added > 0) {
                     app.haptics.celebrate()
                     app.sounds.play(Sounds.Sfx.MILESTONE, 0.7f)
