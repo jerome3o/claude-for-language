@@ -337,6 +337,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
+- `chat_listening` / `users.chat_listening_default` / `messages.audio_key` - Chat listening mode (migration 0098, docs/CHAT.md "Listening mode"): per person + conversation `{ listening, since }` (messages after `since` arrive hidden), the Settings default, and each message's pre-generated read-aloud clip (R2 `chat-tts/…`, exposed as `audio_clip`)
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
 - `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
@@ -1998,6 +1999,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
   sheet; drafts per conversation (`services/chatDrafts.ts`, Lab `core/…/ChatDrafts.kt` parity-tested) and the header's
   "🕓 N waiting for a connection" (`queueLabel`). Web: `FileBubble`, `VideoBubble`, `ForwardSheet`, `MessageInfoSheet`;
   Lab: `ui/chat/ChatForward.kt`, `ChatRound3Views.kt`, `core/…/ChatFiles.kt`.
+- **Listening mode** (docs/CHAT.md "Listening mode", `shared/chats/listening.ts`, Lab `ChatListening.kt` parity-tested): chat ⋯ → 🎧 Listening mode (+ 🙈 Hide all), Settings → Chat default; the other person's new Chinese text messages show as a hidden bubble — **tap plays** (0.75× chip), **long-press reveals** (no menu until revealed; 👁 too; revealed ids per device). Inbox / push / e-mail say "🎧 New message" (`notificationPreviewFor`). Clips are pre-generated on send / edit (`services/chat/message-audio.ts`, waitUntil; `GET /api/messages/:id/audio`) and prefetched on chat open, live updates and sync (`GET /api/me/chat-clips`); web `services/chatListening.ts`, `components/chat/ListeningBubble.tsx`.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics
