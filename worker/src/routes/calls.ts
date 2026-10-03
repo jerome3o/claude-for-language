@@ -36,6 +36,7 @@ import {
 } from '../services/calls/store';
 import { closePiece, forceClosePieces, listPieces, registerPiece, storeChunk } from '../services/calls/recording';
 import { advanceCallProcessing, reprocessCall } from '../services/calls/processing';
+import { listCallActivities } from '../services/calls/activities';
 import { advanceLessonProcessing, afterCallDeleted, lessonMaterial, lessonProcessingStatus, reportIsCurrent } from '../services/calls/lessons';
 import { createJoinTicket, verifyJoinTicket } from '../services/calls/ticket';
 import { getIceServers } from '../services/calls/ice';
@@ -124,7 +125,7 @@ calls.get('/calls/:id', async (c) => {
     // other, shared/calls/lessons.ts): transcript, recordings, board, chat and the one report.
     const material = call.lesson_id ? await lessonMaterial(c.env.DB, call.lesson_id) : null;
     const lessonCallIds = material ? material.calls.map((x) => x.id) : [call.id];
-    const [participants, pieces, segments] = await Promise.all([
+    const [participants, pieces, segments, activities] = await Promise.all([
       getParticipants(c.env.DB, call),
       listPieces(c.env.DB, ...lessonCallIds),
       material
@@ -133,6 +134,7 @@ calls.get('/calls/:id', async (c) => {
             .prepare('SELECT id, piece_id, user_id, start_ms, end_ms, text, language, pinyin, translation FROM call_transcript_segments WHERE call_id = ? ORDER BY start_ms')
             .bind(call.id)
             .all(),
+      listCallActivities(c.env.DB, lessonCallIds).catch(() => []),
     ]);
     const { board_json, chat_json, summary_json, board_text, diagnostics_json, ...rest } = call;
     const lessonReport = material?.lesson.summary_json ?? null;
@@ -167,6 +169,8 @@ calls.get('/calls/:id', async (c) => {
       /** Connection events both sides reported (ICE / socket changes, restarts, the route used) + the room's own lines. */
       diagnostics: material ? material.diagnostics : diagnostics_json ? (JSON.parse(diagnostics_json) as CallDiagEntry[]) : [],
       report: lessonReport ? (JSON.parse(lessonReport) as CallReport) : summary_json ? (JSON.parse(summary_json) as CallReport) : null,
+      /** In-call activities played in the lesson (shared/call-activities), oldest first. */
+      activities,
       pieces: pieces.map((p) => ({
         id: p.id,
         call_id: p.call_id,

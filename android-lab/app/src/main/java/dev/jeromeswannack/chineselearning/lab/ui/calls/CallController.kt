@@ -177,6 +177,8 @@ data class CallState(
     /** A lesson material being presented (round 4 PR 5; either person opened it), and the drawings / text on its current page. */
     val presenting: dev.jeromeswannack.chineselearning.lab.core.PresentedMaterial? = null,
     val materialAnnotations: Annotations = Annotations(),
+    /** The in-call activity being played (shared/call-activities; the room owns it), null = none. */
+    val activity: dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession? = null,
     val recording: Boolean = false,
     val recordSupported: Boolean = false,
     val pendingUploads: Int = 0,
@@ -294,6 +296,8 @@ class CallDeps(
     /** "Android 15; Google Pixel 9 Pro Fold" for the join line of the connection log. */
     val device: String = "",
     val now: () -> Long = System::currentTimeMillis,
+    /** In-call activities: say [text] on this device (cache-first TTS, `/api/practice/tts`) — the quiz / dictation audio both hear. */
+    val speak: (String) -> Unit = {},
     /** Every connection transition, for logcat (the connection log goes to the room too). */
     val log: (String) -> Unit = { runCatching { android.util.Log.i("CallController", it) } },
 )
@@ -320,6 +324,9 @@ class CallController(
     // On / off as I last left them (a muted mic stays muted; a camera that was on comes back on).
     private val _state = MutableStateFlow(CallState(myUserId = myUserId, recordSupported = deps.recorder.supported, screenShareSupported = deps.media.screenShareSupported, micOn = !prefs.micOff, camOn = !prefs.camOff))
     val state: StateFlow<CallState> = _state.asStateFlow()
+    private val _activity = MutableStateFlow<dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession?>(null)
+    /** The in-call activity being played (also on [state]); the room's latest session. */
+    val activity: StateFlow<dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession?> = _activity.asStateFlow()
 
     private val media = deps.media
     private val now = deps.now
@@ -743,6 +750,8 @@ class CallController(
                         materialAnnotations = Annotations(persist = msg.annotPersist).withKept(msg.materialAnnots?.annots, now()),
                     )
                 }
+                // The activity as the room has it (never plays its audio: only a play that happens while I'm here does).
+                applyActivity(msg.activity, live = false, force = true)
                 // Board pages: a first join shows the opening page; a rejoin goes back to mine (its text comes as a page_doc).
                 val step = BoardPages.welcome(_state.value.pages, msg.pages, msg.page, msg.pageViews, rejoin, msg.peers.firstOrNull()?.clientId)
                 if (step.loadWelcomeText) text().load(msg.text, msg.textCursors, msg.page, resendOthers = true)
@@ -811,6 +820,7 @@ class CallController(
                 val samePage = next != null && prev != null && prev.materialId == next.materialId && prev.page == next.page
                 s.copy(presenting = next, materialAnnotations = if (samePage) s.materialAnnotations else Annotations(persist = s.materialAnnotations.persist))
             }
+            is ServerMessage.Activity -> applyActivity(msg.session, live = true)
             is ServerMessage.MaterialAnnotsMsg -> _state.update { s ->
                 if (s.presenting?.target != msg.target) s
                 else s.copy(materialAnnotations = Annotations(persist = s.materialAnnotations.persist).withKept(msg.annots, now()))
@@ -1038,6 +1048,77 @@ class CallController(
     fun setAnnotationsKept(persist: Boolean) {
         _state.update { it.copy(annotations = it.annotations.withPersist(persist, now()), materialAnnotations = it.materialAnnotations.withPersist(persist, now())) }
         room?.send(CallProtocol.annotMode(persist))
+    }
+
+    // ------------------------------------------------------------ in-call activities
+
+    /**
+     * The room's latest session (it owns the state machine). One with the same session id and a lower
+     * `v` is stale and ignored ([force]: a welcome, whatever it says). [live]: the quiz / dictation audio
+     * plays here when `data.play` went up within the same session + round (never on first receipt).
+     */
+    private fun applyActivity(next: dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession?, live: Boolean, force: Boolean = false) {
+        val cur = _state.value.activity
+        if (!force && next != null && cur != null && next.sessionId == cur.sessionId && next.v < cur.v) return
+        if (live && next != null && cur != null && next.sessionId == cur.sessionId && next.round == cur.round && (next.data.play ?: 0) > (cur.data.play ?: 0)) {
+            activityAudio(next)?.let { runCatching { deps.speak(it) } }
+        }
+        if (next == null || next.sessionId != cur?.sessionId || next.round != cur.round) {
+            draftJob?.cancel()
+            pendingDraft = null
+        }
+        _activity.value = next
+        _state.update { it.copy(activity = next) }
+    }
+
+    /** What the quiz / dictation round says aloud: the question's `audio`, the dictation word. */
+    fun activityAudio(s: dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession): String? = when (s.spec.kind) {
+        dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds.QUIZ -> s.spec.questionList.getOrNull(s.round)?.audio?.takeIf { it.isNotBlank() }
+        dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds.DICTATION -> s.spec.itemList.getOrNull(s.round)?.hanzi?.takeIf { it.isNotBlank() }
+        else -> null
+    }
+
+    /** ⋯ → 🎲 Activities: start one (replaces a running one); the room answers with `activity` to both. */
+    fun startActivity(activityId: String) {
+        room?.send(CallProtocol.activityStart(activityId))
+    }
+
+    /** Act in the running activity; the room runs the engine and sends the new session to both of us. */
+    fun act(action: dev.jeromeswannack.chineselearning.lab.core.calls.ActivityAction) {
+        val cur = _state.value.activity ?: return
+        if (action is dev.jeromeswannack.chineselearning.lab.core.calls.ActivityAction.Draft) { draftActivity(action.text); return }
+        // A draft still waiting goes first (Submit must carry the last keystroke).
+        flushDraft()
+        room?.send(CallProtocol.activityAction(cur.sessionId, action))
+    }
+
+    /** ✕ on the activity tile (anyone): its result is kept with the lesson. */
+    fun closeActivity() {
+        val cur = _state.value.activity ?: return
+        room?.send(CallProtocol.activityClose(cur.sessionId))
+    }
+
+    private var pendingDraft: String? = null
+    private var lastDraftAt = Long.MIN_VALUE / 2
+    private var draftJob: Job? = null
+
+    /** Dictation: what the writer types, at most every [DRAFT_EVERY_MS] (the last one always goes, trailing). */
+    fun draftActivity(text: String) {
+        pendingDraft = text
+        val wait = lastDraftAt + DRAFT_EVERY_MS - now()
+        if (wait <= 0) { flushDraft(); return }
+        if (draftJob?.isActive == true) return
+        draftJob = scope.launch { delay(wait); flushDraft() }
+    }
+
+    private fun flushDraft() {
+        draftJob?.cancel()
+        draftJob = null
+        val text = pendingDraft ?: return
+        pendingDraft = null
+        val cur = _state.value.activity ?: return
+        lastDraftAt = now()
+        room?.send(CallProtocol.activityAction(cur.sessionId, dev.jeromeswannack.chineselearning.lab.core.calls.ActivityAction.Draft(text)))
     }
 
     // ------------------------------------------------------------ lesson materials (round 4 PR 5)
@@ -1313,6 +1394,8 @@ class CallController(
     }
 
     companion object {
+        /** In-call activities: a dictation draft goes out at most this often (≈ 6 a second). */
+        const val DRAFT_EVERY_MS = 170L
         const val STATS_EVERY_MS = 5_000L
         /** ≤ ~12 composition previews a second. */
         const val COMPOSE_MIN_GAP_MS = 84L

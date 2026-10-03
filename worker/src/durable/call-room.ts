@@ -83,6 +83,8 @@ import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
 import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAnnotations, shareMaterial } from '../services/materials';
 import { materialTarget, parseMaterialTarget, turnPage, type PresentedMaterial } from '@shared/materials';
 import { advanceCallProcessing } from '../services/calls/processing';
+import { relationshipTutor, saveActivityResult } from '../services/calls/activities';
+import { findActivity, joinActivity, reduceActivity, startActivity, type ActivitySession } from '@shared/call-activities';
 import { alertCallMissed } from '../services/calls/alerts';
 import { insertPage, linkCallPages, loadPageDoc, loadScopePages, savePages, type PageScope, type PageWrite, type RoomPage } from '../services/calls/pages';
 
@@ -317,6 +319,61 @@ export class CallRoom extends DurableObject<Env> {
     const row = await this.env.DB.prepare('SELECT id, relationship_id, lesson_id FROM calls WHERE id = ?').bind(callId).first<{ id: string; relationship_id: string | null; lesson_id: string | null }>();
     this.callMeta = row ?? null;
     return this.callMeta;
+  }
+
+  // ---------------------------------------------------------------- in-call activities
+
+  private tutorId: string | null | undefined = undefined;
+  /** The tutor of the call's relationship (null in a solo call), asked once per room instance. */
+  private async tutor(): Promise<string | null> {
+    if (this.tutorId !== undefined) return this.tutorId;
+    try {
+      this.tutorId = await relationshipTutor(this.env.DB, (await this.meta())?.relationship_id ?? null);
+    } catch (err) {
+      console.error('[call-room] tutor lookup failed:', err);
+      return null;
+    }
+    return this.tutorId;
+  }
+
+  private async activity(): Promise<ActivitySession | null> {
+    return (await this.ctx.storage.get<ActivitySession | null>('activity')) ?? null;
+  }
+
+  /** Write a session's summary to D1 (the lesson's record of it). Never throws. */
+  private async keepActivity(session: ActivitySession | null): Promise<void> {
+    if (!session) return;
+    try {
+      const m = await this.meta();
+      if (!m) return;
+      await saveActivityResult(this.env.DB, session, { callId: m.id, lessonId: m.lesson_id, relationshipId: m.relationship_id, startedBy: session.host });
+    } catch (err) {
+      console.error('[call-room] activity result save failed:', err);
+    }
+  }
+
+  private async startActivityFor(ws: WebSocket, a: Attachment, activityId: string): Promise<void> {
+    const spec = findActivity(activityId);
+    if (!spec) {
+      this.send(ws, { type: 'error', message: 'That activity isn’t available' });
+      return;
+    }
+    await this.keepActivity(await this.activity());
+    const present = this.presentSockets();
+    const names: Record<string, string> = {};
+    for (const { a: p } of present) names[p.userId] = p.name;
+    names[a.userId] = a.name;
+    const session = startActivity(spec, {
+      sessionId: crypto.randomUUID(),
+      starter: a.userId,
+      tutor: await this.tutor(),
+      present: present.map(({ a: p }) => p.userId),
+      names,
+      now: Date.now(),
+    });
+    await this.ctx.storage.put('activity', session);
+    this.broadcast({ type: 'activity', session, from: a.clientId, name: a.name });
+    await this.logRoom(`${a.name} started the activity “${spec.title}”`, a);
   }
 
   /** Material pages whose kept drawings changed since they were last written to D1 (per lesson). */
@@ -654,6 +711,17 @@ export class CallRoom extends DurableObject<Env> {
     }
     await this.reconcile();
 
+    // An activity started alone: the person joining takes a role in it.
+    let activity = await this.activity();
+    if (activity) {
+      const joined = joinActivity(activity, userId, attachment.name, await this.tutor(), Date.now());
+      if (joined) {
+        activity = joined;
+        await this.ctx.storage.put('activity', joined);
+        this.broadcast({ type: 'activity', session: joined }, server);
+      }
+    }
+
     this.send(server, {
       type: 'welcome',
       client_id: attachment.clientId,
@@ -667,6 +735,7 @@ export class CallRoom extends DurableObject<Env> {
       annot_persist: await this.annotPersist(),
       ...((await this.annotPersist()) ? { annots: (await this.ctx.storage.get<KeptAnnotations>('annots')) ?? emptyKept() } : {}),
       ...(await this.welcomeMaterial()),
+      activity,
       pages: this.pageMetas(),
       page: this.opening,
       page_views: Object.fromEntries(others.map(({ a }) => [a.clientId, this.viewOf(a)])),
@@ -908,6 +977,37 @@ export class CallRoom extends DurableObject<Env> {
         this.broadcast({ type: 'material', presenting: null, from: a.clientId, name: a.name });
         return;
       }
+      case 'activity_start': {
+        await this.startActivityFor(ws, a, typeof msg.activity_id === 'string' ? msg.activity_id : '');
+        return;
+      }
+      case 'activity_action': {
+        const cur = await this.activity();
+        // A stale / refused action: tell just the sender what is true now, so their screen catches up.
+        if (!cur || cur.session_id !== msg.session_id) {
+          this.send(ws, { type: 'activity', session: cur });
+          return;
+        }
+        const next = reduceActivity(cur, msg.action, a.userId, Date.now());
+        if (!next) {
+          this.send(ws, { type: 'activity', session: cur });
+          return;
+        }
+        // Relayed first, stored unconfirmed (like typing on the board): a dictation draft is one per keystroke.
+        this.broadcast({ type: 'activity', session: next, from: a.clientId, name: a.name });
+        await this.ctx.storage.put('activity', next, { allowUnconfirmed: true });
+        if (next.phase === 'done' && cur.phase !== 'done') await this.keepActivity(next);
+        return;
+      }
+      case 'activity_close': {
+        const cur = await this.activity();
+        if (!cur || (msg.session_id && msg.session_id !== cur.session_id)) return;
+        await this.keepActivity(cur);
+        await this.ctx.storage.put('activity', null);
+        this.broadcast({ type: 'activity', session: null, from: a.clientId, name: a.name });
+        await this.logRoom(`${a.name} closed the activity “${cur.spec.title}”`, a);
+        return;
+      }
       case 'board_live':
         this.broadcast({ type: 'board_live', from: a.userId, stroke: msg.stroke ?? null }, ws);
         return;
@@ -1021,6 +1121,7 @@ export class CallRoom extends DurableObject<Env> {
   private async snapshot(): Promise<void> {
     await this.persistNow();
     await this.saveMaterialAnnots();
+    await this.keepActivity(await this.activity());
     const callId = await this.ctx.storage.get<string>('callId');
     if (!callId) return;
     await this.load();

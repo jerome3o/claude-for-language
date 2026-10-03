@@ -25,9 +25,12 @@
  * layout stored before round 3 has no `pip` and reads as 'pair'.
  */
 
-/** `material` (round 4): a lesson material being presented — like a shared screen, while one is open. */
-export type TileId = 'remote' | 'self' | 'screen' | 'material' | 'text' | 'draw' | 'chat';
-export const ALL_TILES: TileId[] = ['remote', 'screen', 'material', 'text', 'draw', 'chat', 'self'];
+/**
+ * `material` (round 4): a lesson material being presented — like a shared screen, while one is open.
+ * `activity`: an in-call activity being played (shared/call-activities) — transient the same way.
+ */
+export type TileId = 'remote' | 'self' | 'screen' | 'material' | 'activity' | 'text' | 'draw' | 'chat';
+export const ALL_TILES: TileId[] = ['remote', 'screen', 'material', 'activity', 'text', 'draw', 'chat', 'self'];
 export type Corner = 'tl' | 'tr' | 'bl' | 'br';
 export type LayoutMode = 'focus' | 'split' | 'grid';
 export type PresetId = 'speaker' | 'board' | 'screen' | 'side' | 'grid';
@@ -104,14 +107,16 @@ export interface TileAvailability {
   screen: boolean;
   /** A lesson material is being presented (absent = no). */
   material?: boolean;
+  /** An in-call activity is running (absent = no). */
+  activity?: boolean;
 }
 
 export function isAvailable(t: TileId, a: TileAvailability): boolean {
-  return t === 'screen' ? a.screen : t === 'material' ? a.material === true : true;
+  return t === 'screen' ? a.screen : t === 'material' ? a.material === true : t === 'activity' ? a.activity === true : true;
 }
 
-/** Tiles that show only while they exist and are always "open" then: a shared screen, a presented material. */
-const isTransient = (t: TileId) => t === 'screen' || t === 'material';
+/** Tiles that show only while they exist and are always "open" then: a shared screen, a presented material, an activity. */
+const isTransient = (t: TileId) => t === 'screen' || t === 'material' || t === 'activity';
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
@@ -145,6 +150,8 @@ export type LayoutAction =
   | { type: 'shareStarted' }
   /** A lesson material is now presented (by either person): it goes on the stage, the cameras float. */
   | { type: 'materialStarted' }
+  /** An in-call activity started (by either person): it goes on the stage, the cameras float. */
+  | { type: 'activityStarted' }
   /** A tile dragged (or moved from its menu) onto a drop zone of the stage (`layoutForDrop`). */
   | { type: 'drop'; tile: TileId; zone: DropZone };
 
@@ -208,6 +215,8 @@ export function layoutReducer(l: CallLayout, action: LayoutAction): CallLayout {
       return layoutForDrop(l, action.tile, action.zone);
     case 'materialStarted':
       return { ...l, mode: 'focus', main: 'material', remoteFloat: true };
+    case 'activityStarted':
+      return { ...l, mode: 'focus', main: 'activity', remoteFloat: true };
     case 'close': {
       if (action.tile === 'remote' || action.tile === 'self') return l; // cameras can't be closed
       const open = l.open.filter((t) => t !== action.tile);
@@ -350,6 +359,8 @@ export function layoutShortcut(key: string): LayoutAction | null {
       return { type: 'focus', tile: 'screen' };
     case 'm':
       return { type: 'focus', tile: 'material' };
+    case 'a':
+      return { type: 'focus', tile: 'activity' };
     default:
       return null;
   }
@@ -425,7 +436,7 @@ export const PAIR_GAP = 4;
  * the drawing also its tool row (+56), on a shared screen the "✏️ Draw on it"
  * row (56): in a top corner the faces box sits below them, never over them.
  */
-export const TILE_HEADER: Partial<Record<TileId, number>> = { text: 48, draw: 104, screen: 56, material: 56 };
+export const TILE_HEADER: Partial<Record<TileId, number>> = { text: 48, draw: 104, screen: 56, material: 56, activity: 48 };
 
 /** A face's shape in the pair: the camera's, kept between portrait 3:4 and 16:9. */
 function faceAspect(a: number | undefined): number {
