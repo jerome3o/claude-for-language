@@ -30,3 +30,20 @@ Same confirm sheet from the job card.
 
 ![Job card after](09-job-card-after.png)
 Afterwards the job card says "removed from Jerome".
+
+## Lab app (native)
+
+![Lab menu](lab-01-menu.png)
+The homework deck's queue menu with **Remove from Jerome's decks**.
+
+![Lab confirm — not started](lab-02-confirm-not-started.png)
+Confirm sheet, HSK 1 not started (0/319), with "Also delete my copy".
+
+![Lab confirm — started](lab-03-confirm-started.png)
+Confirm sheet when 12 of 40 words were met.
+
+![Lab after](lab-04-after.png)
+After removal: the row is gone, the toast shows; Readers list with ⋯.
+
+![Lab job undo](lab-05-job-undo.png)
+Session-notes job card: **Undo — remove from Jerome** / "removed from Jerome".
