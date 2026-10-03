@@ -1,5 +1,6 @@
 import { useNetwork } from '../../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode, cycleOfflineMode, OfflineModeState } from '../../services/offlineMode';
+import { track } from '../../services/analytics';
 
 /** Short forms for phone widths (the full label is in the title / aria-label). */
 const SHORT_LABEL: Record<OfflineModeState, string> = {
@@ -25,7 +26,10 @@ export function OfflineModeToggle() {
     <button
       type="button"
       className={`study-offline-pill study-offline-pill--${mode.state}`}
-      onClick={() => cycleOfflineMode(isOnline)}
+      onClick={() => {
+        const next = cycleOfflineMode(isOnline);
+        track('settings.change', { setting: 'offline_mode', value: next.state });
+      }}
       aria-pressed={forced}
       aria-label={`Offline mode: ${mode.label}${pending ? `, ${pendingReviewsCount} reviews waiting to sync` : ''}. ${mode.description}`}
       title={mode.description}

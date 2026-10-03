@@ -331,7 +331,7 @@ fun CardStage(
                 StudyActionRow(
                     aiAvailable = ui.aiAvailable,
                     onAskClaude = { sheet = CardSheet.Ask },
-                    onEditCard = { sheet = CardSheet.Edit },
+                    onEditCard = { sheet = CardSheet.Edit; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.edit_card") },
                     onMore = { sheet = CardSheet.More },
                 )
                 Spacer(Modifier.height(10.dp))
@@ -347,7 +347,7 @@ fun CardStage(
     when (val s = sheet) {
         null -> Unit
         CardSheet.More -> StudyMoreSheet(
-            items = studyMenuItems(view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag }, onWrite = { sheet = CardSheet.Write }),
+            items = studyMenuItems(view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag }, onWrite = { sheet = CardSheet.Write; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.write_it") }),
             footer = CardExtrasLogic.formatAddedDate(note.createdAt),
             onDismiss = { if (sheet == CardSheet.More) sheet = null },
         )
@@ -422,7 +422,8 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                     Text("Voice ${ui.extras.voiceIndex + 1}/${voices.size} · tap for the next", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
                 }
                 OfflineAudioNote(view, ui)
-                if (ui.cardAudio.word != ClipState.READY) {
+                // "Audio coming…" only while there is no other voice to play (web: recordings.length === 0).
+                if (ui.cardAudio.word != ClipState.READY && !(ui.cardAudio.word == ClipState.COMING && voices.isNotEmpty())) {
                     Spacer(Modifier.height(8.dp))
                     AudioStatusLine(ui.cardAudio.word, actions.onRetryAudio)
                 }
@@ -542,7 +543,12 @@ private fun CardBack(
             val playing = isWordPlaying(playingKey, view, ui)
             val voices = ui.extras.voices
             val making = voices.isEmpty() && ui.cardAudio.word == ClipState.GENERATING
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Wraps when "Audio coming…" joins Play and Record again on a folded phone.
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Row(
                     Modifier.testTag(PLAY_WORD_TAG).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).clickable { actions.onPlayWord(true) }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -560,10 +566,12 @@ private fun CardBack(
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }
+                // The real clip is queued on the server: say so quietly; it plays itself when it lands.
+                if (voices.isEmpty() && ui.cardAudio.word == ClipState.COMING) AudioComingPill()
                 if (view.card.cardType == CardTypes.HANZI_TO_MEANING) RecordAgainPill(ui.extras.take, actions)
             }
             OfflineAudioNote(view, ui)
-            if (voices.isEmpty() && ui.cardAudio.word != ClipState.READY && !making) {
+            if (voices.isEmpty() && ui.cardAudio.word != ClipState.READY && ui.cardAudio.word != ClipState.COMING && !making) {
                 Spacer(Modifier.height(6.dp))
                 KeepTaps { AudioStatusLine(ui.cardAudio.word, actions.onRetryAudio) }
             }

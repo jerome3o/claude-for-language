@@ -1,4 +1,7 @@
 import { Env } from '../types';
+import { TTS_AUDIO_SETTING, TTS_MODEL, TTS_SPEED, TTS_VOICE, ttsSettings } from './tts/settings';
+import type { TtsPriority } from './tts/bucket';
+import { acquireTtsSlot, reportTts } from './tts/limiter';
 
 /**
  * Audio service for TTS generation and storage using MiniMax and Google Cloud TTS.
@@ -6,19 +9,28 @@ import { Env } from '../types';
 
 export type AudioProvider = 'minimax' | 'gtts';
 
-export const DEFAULT_TTS_SPEED = 0.6;
+/** services/tts/settings.ts is the one place these are set. */
+export const DEFAULT_TTS_SPEED = TTS_SPEED;
 // Radio Host: clearest enunciation of the MiniMax voices (Jerome's pick)
-export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Radio_Host';
+export const DEFAULT_MINIMAX_VOICE = TTS_VOICE;
 
 export interface TTSResult {
   audioKey: string;
   provider: AudioProvider;
+  model: string;
+  voice: string;
+  speed: number;
 }
 
 export interface TTSOptions {
   speed?: number;
+  /** Ignored for 'gtts': stored clips are MiniMax only (docs/AUDIO.md). Kept for old clients. */
   preferProvider?: AudioProvider;
   voiceId?: string;
+  /** Who is waiting (docs/AUDIO.md "Rate limit"). Default interactive. */
+  priority?: TtsPriority;
+  /** Interactive: how long to wait for a limiter slot. */
+  maxWaitMs?: number;
 }
 
 // ---------- R2 storage ----------
@@ -116,26 +128,30 @@ function decodeMiniMaxAudio(audioData: string): Uint8Array {
   return Uint8Array.from(atob(audioData), c => c.charCodeAt(0));
 }
 
-type MiniMaxOutcome =
-  | { ok: true; bytes: Uint8Array }
-  | { ok: false; permanent: boolean; reason: string };
-
 /**
- * MiniMax reports most failures inside a 200 response via base_resp; only a
- * few of them mean "stop trying". Everything else — rate limits above all —
- * is a reason to wait and retry, never a reason to hand the clip to a
- * different, worse-sounding voice.
+ * One MiniMax answer. `rateLimited` = MiniMax's RPM / TPM limit (1002, 1039,
+ * HTTP 429) or our own limiter said no: wait and try again later, never in the
+ * request. `permanent` = stop trying this text.
  */
+export type MiniMaxOutcome =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number };
+
 const MINIMAX_PERMANENT_CODES = new Set([
   1004, // invalid API key / auth
+  1042, // invalid characters exceed 10%
   2013, // invalid params (e.g. unsupported text)
 ]);
+export const MINIMAX_RATE_LIMIT_CODES = new Set([1002, 1039]);
+/** After MiniMax itself says rate limit: requeue this long (docs/AUDIO.md). */
+export const RATE_LIMIT_REQUEUE_MS = 60_000;
 
 async function callMiniMaxOnce(
   env: Env,
   text: string,
   speed: number,
-  voiceId: string
+  voiceId: string,
+  model: string = TTS_MODEL,
 ): Promise<MiniMaxOutcome> {
   try {
     const response = await fetch('https://api.minimax.io/v1/t2a_v2', {
@@ -145,20 +161,21 @@ async function callMiniMaxOnce(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'speech-02-hd',
+        model,
         text,
         stream: false,
         voice_setting: { voice_id: voiceId, speed },
         // Pin the encode: a service-side default change here is inaudible in
         // logs but very audible on the phone.
-        audio_setting: { format: 'mp3', sample_rate: 32000, bitrate: 128000, channel: 1 },
+        audio_setting: { ...TTS_AUDIO_SETTING },
       }),
     });
     if (!response.ok) {
       const body = await response.text();
-      console.error('[TTS] MiniMax HTTP error:', response.status, body);
+      console.error('[TTS] MiniMax HTTP error:', response.status, body.slice(0, 300));
+      const rateLimited = response.status === 429;
       const permanent = response.status === 401 || response.status === 403;
-      return { ok: false, permanent, reason: `http ${response.status}` };
+      return { ok: false, permanent, rateLimited, reason: `http ${response.status}`, retryAfterMs: rateLimited ? RATE_LIMIT_REQUEUE_MS : undefined };
     }
     const data = (await response.json()) as {
       data?: { audio?: string };
@@ -167,38 +184,55 @@ async function callMiniMaxOnce(
     const audioData = data.data?.audio;
     if (!audioData) {
       const code = data.base_resp?.status_code ?? -1;
-      console.error('[TTS] MiniMax: no audio in response', data.base_resp);
+      const rateLimited = MINIMAX_RATE_LIMIT_CODES.has(code);
+      if (!rateLimited) console.error('[TTS] MiniMax: no audio in response', data.base_resp);
       return {
         ok: false,
         permanent: MINIMAX_PERMANENT_CODES.has(code),
+        rateLimited,
         reason: `base_resp ${code} ${data.base_resp?.status_msg ?? ''}`.trim(),
+        retryAfterMs: rateLimited ? RATE_LIMIT_REQUEUE_MS : undefined,
       };
     }
     return { ok: true, bytes: decodeMiniMaxAudio(audioData) };
   } catch (error) {
     console.error('[TTS] MiniMax request failed:', error);
-    return { ok: false, permanent: false, reason: 'network' };
+    return { ok: false, permanent: false, rateLimited: false, reason: 'network' };
   }
 }
 
-const MINIMAX_ATTEMPTS = 3;
-const MINIMAX_BACKOFF_MS = [400, 1200];
-
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-/** MiniMax with retries on transient failure. Null key → permanent failure. */
-async function callMiniMaxTTS(
+/**
+ * The ONE way to call MiniMax: a slot from the shared limiter first, then the
+ * call. A rate limit is never retried here — the caller requeues (batch) or
+ * queues the clip (interactive). Interactive callers get one retry on a network
+ * blip / 5xx; batch callers none (the queue comes back to them).
+ */
+export async function callMiniMaxTTS(
   env: Env,
   text: string,
   speed: number,
-  voiceId: string
+  voiceId: string,
+  opts: { priority?: TtsPriority; maxWaitMs?: number; model?: string } = {},
 ): Promise<MiniMaxOutcome> {
-  if (!env.MINIMAX_API_KEY) return { ok: false, permanent: true, reason: 'not configured' };
-  let last: MiniMaxOutcome = { ok: false, permanent: false, reason: 'unattempted' };
-  for (let attempt = 0; attempt < MINIMAX_ATTEMPTS; attempt++) {
-    if (attempt > 0) await sleep(MINIMAX_BACKOFF_MS[attempt - 1] ?? 1200);
-    last = await callMiniMaxOnce(env, text, speed, voiceId);
-    if (last.ok || last.permanent) return last;
+  if (!env.MINIMAX_API_KEY) return { ok: false, permanent: true, rateLimited: false, reason: 'not configured' };
+  const priority = opts.priority ?? 'interactive';
+  const attempts = priority === 'interactive' ? 2 : 1;
+  let last: MiniMaxOutcome = { ok: false, permanent: false, rateLimited: false, reason: 'unattempted' };
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) await sleep(500);
+    const slot = await acquireTtsSlot(env, priority, opts.maxWaitMs);
+    if (!slot.granted) {
+      return { ok: false, permanent: false, rateLimited: true, reason: 'limiter', retryAfterMs: slot.retryAfterMs };
+    }
+    last = await callMiniMaxOnce(env, text, speed, voiceId, opts.model);
+    if (last.ok) {
+      await reportTts(env, 'ok');
+      return last;
+    }
+    await reportTts(env, last.rateLimited ? 'rate_limited' : 'failed');
+    if (last.permanent || last.rateLimited) return last;
   }
   return last;
 }
@@ -207,10 +241,10 @@ async function callGoogleTTS(env: Env, text: string, speed: number): Promise<Uin
   if (!env.GOOGLE_TTS_API_KEY) return null;
   try {
     const response = await fetch(
-      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${env.GOOGLE_TTS_API_KEY}`,
+      'https://texttospeech.googleapis.com/v1/text:synthesize',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GOOGLE_TTS_API_KEY },
         body: JSON.stringify({
           input: { text },
           voice: { languageCode: 'cmn-CN', name: 'cmn-CN-Wavenet-C', ssmlGender: 'FEMALE' },
@@ -236,55 +270,49 @@ async function callGoogleTTS(env: Env, text: string, speed: number): Promise<Uin
 
 // ---------- Public API ----------
 
+export type TTSOutcome =
+  | { ok: true; result: TTSResult }
+  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number };
+
 /**
- * Generate TTS audio, store it in R2, and return the key + provider used.
- * Tries MiniMax first (or `preferProvider`), falls back to the other.
+ * Generate a clip with MiniMax and store it in R2. MiniMax only: a stored clip
+ * is permanent, and the Google voice is "pretty terrible" — a clip that can't
+ * be made now waits in the queue for MiniMax (docs/AUDIO.md).
  */
-/**
- * Generate TTS audio, store it in R2, and return the key + provider used.
- *
- * MiniMax is the voice the learner hears everywhere else; Google is a last
- * resort with a different voice, half the bitrate, and time-stretched slow
- * speech that sounds crunchy. A stored clip is permanent, so a transient
- * MiniMax failure (rate limit during a bulk sentence-set run, a blip) returns
- * null and lets the caller retry later — never a quietly-worse clip. Google is
- * only used when MiniMax is unavailable for good, or the caller asked for it.
- */
+export async function generateTTSDetailed(
+  env: Env,
+  text: string,
+  keyId: string,
+  options: TTSOptions = {}
+): Promise<TTSOutcome> {
+  const settings = ttsSettings(env);
+  const speed = options.speed ?? settings.speed;
+  const voiceId = options.voiceId ?? settings.voice;
+  const mm = await callMiniMaxTTS(env, text, speed, voiceId, { priority: options.priority, maxWaitMs: options.maxWaitMs });
+  if (!mm.ok) {
+    if (!mm.rateLimited) console.warn('[TTS] MiniMax could not make the clip:', mm.reason);
+    return mm;
+  }
+  const key = getUniqueAudioKey(keyId);
+  await storeAudio(env.AUDIO_BUCKET, key, mm.bytes.buffer as ArrayBuffer, 'audio/mpeg');
+  return { ok: true, result: { audioKey: key, provider: 'minimax', model: TTS_MODEL, voice: voiceId, speed } };
+}
+
+/** `generateTTSDetailed` for callers that only need "a clip or nothing". */
 export async function generateTTS(
   env: Env,
   text: string,
   noteId: string,
   options: TTSOptions = {}
 ): Promise<TTSResult | null> {
-  const speed = options.speed ?? DEFAULT_TTS_SPEED;
-  const voiceId = options.voiceId ?? DEFAULT_MINIMAX_VOICE;
-
-  const store = async (bytes: Uint8Array, provider: AudioProvider): Promise<TTSResult> => {
-    const key = getUniqueAudioKey(noteId);
-    await storeAudio(env.AUDIO_BUCKET, key, bytes.buffer as ArrayBuffer, 'audio/mpeg');
-    return { audioKey: key, provider };
-  };
-
-  if (options.preferProvider === 'gtts') {
-    const google = await callGoogleTTS(env, text, speed);
-    if (google) return store(google, 'gtts');
-    const mm = await callMiniMaxTTS(env, text, speed, voiceId);
-    return mm.ok ? store(mm.bytes, 'minimax') : null;
-  }
-
-  const mm = await callMiniMaxTTS(env, text, speed, voiceId);
-  if (mm.ok) return store(mm.bytes, 'minimax');
-  if (!mm.permanent) {
-    console.warn('[TTS] MiniMax unavailable for now, leaving clip for retry:', mm.reason);
-    return null;
-  }
-  const google = await callGoogleTTS(env, text, speed);
-  return google ? store(google, 'gtts') : null;
+  const outcome = await generateTTSDetailed(env, text, noteId, options);
+  return outcome.ok ? outcome.result : null;
 }
 
 export interface ConversationTTSOptions {
   voiceId?: string;
   speed?: number;
+  priority?: TtsPriority;
 }
 
 export interface ConversationTTSResult {
@@ -304,7 +332,7 @@ export async function generateMiniMaxTTS(
   speed: number,
   voiceId: string,
 ): Promise<Uint8Array | null> {
-  const mm = await callMiniMaxTTS(env, text, speed, voiceId);
+  const mm = await callMiniMaxTTS(env, text, speed, voiceId, { priority: 'interactive' });
   if (!mm.ok) {
     console.error('[TTS] MiniMax only failed for', voiceId, mm.reason);
     return null;
@@ -329,12 +357,12 @@ export async function generateConversationTTS(
   const speed = options.speed ?? DEFAULT_TTS_SPEED;
   const voiceId = options.voiceId ?? DEFAULT_MINIMAX_VOICE;
 
-  const mm = await callMiniMaxTTS(env, text, speed, voiceId);
+  const mm = await callMiniMaxTTS(env, text, speed, voiceId, { priority: options.priority ?? 'interactive' });
   if (mm.ok) {
     return { audioBase64: bytesToBase64(mm.bytes), contentType: 'audio/mpeg', provider: 'minimax' };
   }
-  // Ephemeral (never stored), so a worse voice beats no voice — but only once
-  // MiniMax has been given its retries.
+  // Ephemeral (never stored — services/tts-cache.ts keeps only MiniMax clips),
+  // so a worse voice beats no voice in the moment.
   const google = await callGoogleTTS(env, text, speed);
   if (google) {
     return { audioBase64: bytesToBase64(google), contentType: 'audio/mpeg', provider: 'gtts' };

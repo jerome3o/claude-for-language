@@ -26,6 +26,7 @@ import { writeConversationVoices } from '../services/conversationVoices';
 import { base64ToBlob } from '../services/ttsCache';
 import { cacheAudio, getCachedAudio } from '../services/audioCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
+import { track } from '../services/analytics';
 import './ConversationVoicesPage.css';
 
 const AGE: Record<VoiceAge, string> = { child: 'Child', young: 'Young', adult: 'Adult', senior: 'Older' };
@@ -83,6 +84,7 @@ export function ConversationVoicesPage() {
       setData(saved);
       setEnabled(saved.enabled);
       writeConversationVoices(saved.enabled);
+      track('settings.change', { setting: 'voices', value: next ? saved.enabled.length : 'default' });
       if (!next) setNotice({ kind: 'success', text: 'Back to the default voices' });
     } catch (err) {
       if (seq !== saveSeq.current) return;

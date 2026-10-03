@@ -1,0 +1,194 @@
+/* Word checks: "⚠ Possible issue" blocks and the "Check for errors" sheet. */
+.check-issue {
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  text-align: left;
+}
+.check-issue-head {
+  font-weight: 600;
+  color: #9a3412;
+}
+.check-issue-change {
+  margin-top: 0.2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+.check-issue-current {
+  text-decoration: line-through;
+  color: var(--color-text-light);
+}
+.check-issue-proposed {
+  font-weight: 600;
+  color: #15803d;
+}
+.check-issue-reason {
+  margin-top: 0.2rem;
+  color: var(--color-text-light);
+}
+.check-issue-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.check-issue-actions .btn {
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.875rem;
+}
+.check-issue-error {
+  margin-top: 0.35rem;
+  color: var(--color-error);
+}
+
+.deck-check-sheet {
+  max-width: 560px;
+  max-height: 92dvh;
+  overflow-y: auto;
+}
+.deck-check-intro {
+  color: var(--color-text-light);
+  font-size: 0.9375rem;
+}
+.deck-check-estimate {
+  margin-top: 0.75rem;
+  font-weight: 600;
+  font-size: 1rem;
+}
+.deck-check-progress {
+  margin-top: 0.75rem;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+.deck-check-progress > div {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.4s ease;
+}
+.deck-check-summary {
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+.deck-check-list {
+  list-style: none;
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.deck-check-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.deck-check-row input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  margin-top: 0.15rem;
+  flex: none;
+}
+.deck-check-row.applied {
+  opacity: 0.7;
+}
+.deck-check-row-main {
+  min-width: 0;
+  flex: 1;
+  font-size: 0.875rem;
+}
+.deck-check-row-hanzi {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-right: 0.4rem;
+}
+.deck-check-row-field {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.deck-check-applied {
+  color: #15803d;
+  font-weight: 600;
+  flex: none;
+}
+.deck-check-source {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  min-height: 44px;
+}
+.deck-check-source input {
+  width: 20px;
+  height: 20px;
+}
+.deck-check-footer {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.deck-check-footer-wrap {
+  flex-direction: column;
+  align-items: stretch;
+}
+.deck-check-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.875rem;
+  padding: 0.5rem 0;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .check-issue {
+    background: #3b2414;
+    border-color: #7c2d12;
+  }
+  :root:not([data-theme='light']) .check-issue-head {
+    color: #fdba74;
+  }
+  :root:not([data-theme='light']) .check-issue-proposed,
+  :root:not([data-theme='light']) .deck-check-applied {
+    color: #4ade80;
+  }
+}
+:root[data-theme='dark'] .check-issue {
+  background: #3b2414;
+  border-color: #7c2d12;
+}
+:root[data-theme='dark'] .check-issue-head {
+  color: #fdba74;
+}
+:root[data-theme='dark'] .check-issue-proposed,
+:root[data-theme='dark'] .deck-check-applied {
+  color: #4ade80;
+}
+
+/* Deck page: a note row with open issues wraps, the issues take the full width under it. */
+.deck-note-progress-item.has-check-issues {
+  flex-wrap: wrap;
+}
+.deck-note-progress-item.has-check-issues .note-check-issues {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.note-check-issues .check-issue-actions .btn {
+  flex: 0 0 auto;
+}

@@ -3,6 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.folders
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Folder
 import dev.jeromeswannack.chineselearning.lab.core.Folders
+import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.data.decks.WriteOutcome
 import dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore
 import dev.jeromeswannack.chineselearning.lab.data.folders.FolderWrites
@@ -153,6 +154,7 @@ class FolderController(
                 return@launch
             }
             local.update { it.copy(sheet = null) }
+            Analytics.track("folder.create", mapOf("kind" to kind, "nested" to (parentId != null)))
             if (sheet.moveIds.isNotEmpty()) doMove(sheet.moveIds, folder.id, folder.name) else feel.moved()
         }
     }
@@ -161,17 +163,18 @@ class FolderController(
         scope.launch {
             when (val o = writes.rename(folder, name)) {
                 is WriteOutcome.Refused -> { feel.failed(); local.update { it.copy(sheet = FolderSheet.Rename(folder, o.message)) } }
-                else -> { feel.tick(); local.update { it.copy(sheet = null) } }
+                else -> { feel.tick(); local.update { it.copy(sheet = null) }; Analytics.track("folder.rename", mapOf("kind" to kind)) }
             }
         }
     }
 
     fun delete(folder: Folder) {
+        val items = (local.value.sheet as? FolderSheet.ConfirmDelete)?.takeIf { it.folder.id == folder.id }?.itemCount
         local.update { it.copy(sheet = null) }
         scope.launch {
             when (val o = writes.delete(folder)) {
                 is WriteOutcome.Refused -> refused(o.message)
-                else -> { feel.tick(); showToast("Deleted “${folder.name}”") }
+                else -> { feel.tick(); showToast("Deleted “${folder.name}”"); Analytics.track("folder.delete", mapOf("kind" to kind, "items" to items)) }
             }
         }
     }
@@ -189,7 +192,7 @@ class FolderController(
         scope.launch {
             when (val o = writes.move(kind, ids, folderId)) {
                 is WriteOutcome.Refused -> refused(o.message)
-                else -> { feel.moved(); showToast(Folders.movedMessage(kind, ids.size, name)) }
+                else -> { feel.moved(); showToast(Folders.movedMessage(kind, ids.size, name)); Analytics.track("folder.move_items", mapOf("kind" to kind, "count" to ids.size, "unfiled" to (folderId == null))) }
             }
         }
     }

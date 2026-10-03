@@ -1,5 +1,6 @@
 /**
- * Video calls round 4: lessons — calls within 20 minutes of each other (shared/calls/lessons.ts).
+ * Video calls round 4: lessons — calls within LESSON_GAP_MS of each other (two hours since round 5;
+ * shared/calls/lessons.ts).
  * Writes calls-lessons.json; checked by core/…/calls/CallsLessonsParityTest.kt.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';

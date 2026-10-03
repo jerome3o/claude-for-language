@@ -270,8 +270,11 @@ export async function resolveNoteAudioSource(
 /**
  * Hook for playing note audio - uses stored audio URL if available, falls back to browser TTS
  */
-export function useNoteAudio(label: string = 'note') {
+export function useNoteAudio(label: string = 'note', options: { onBroken?: (audioUrl: string) => void } = {}) {
   const [isPlaying, setIsPlaying] = useState(false);
+  // A stored clip that fails to play is reported (services/noteAudioEnsure.ts) so it can be remade.
+  const onBrokenRef = useRef(options.onBroken);
+  onBrokenRef.current = options.onBroken;
   const playerRef = useRef(createAudioPlayer());
   const playIdRef = useRef(0); // Track which play() call is current
 
@@ -315,6 +318,7 @@ export function useNoteAudio(label: string = 'note') {
         onError: () => {
           if (playIdRef.current === currentPlayId) {
             setIsPlaying(false);
+            if (!isEffectivelyOffline()) onBrokenRef.current?.(audioUrl);
             speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
           }
         },

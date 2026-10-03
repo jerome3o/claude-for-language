@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 4,
-    "identityHash": "3b13859eb95c92f9603564c076919bfb",
+    "identityHash": "da2125a033efe33ce2d9184ce554f032",
     "entities": [
       {
         "tableName": "decks",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT, `newCardsPerDay` INTEGER NOT NULL, `secondaryCardsPerDay` INTEGER, `studyPriority` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, `folderId` TEXT, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT, `newCardsPerDay` INTEGER NOT NULL, `secondaryCardsPerDay` INTEGER, `studyPriority` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -49,12 +49,6 @@
             "columnName": "createdAt",
             "affinity": "TEXT",
             "notNull": true
-          },
-          {
-            "fieldPath": "folderId",
-            "columnName": "folderId",
-            "affinity": "TEXT",
-            "notNull": false
           }
         ],
         "primaryKey": {
@@ -68,7 +62,7 @@
       },
       {
         "tableName": "notes",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `deckId` TEXT NOT NULL, `hanzi` TEXT NOT NULL, `pinyin` TEXT NOT NULL, `english` TEXT NOT NULL, `audioUrl` TEXT, `funFacts` TEXT, `context` TEXT, `sentenceClue` TEXT, `sentenceCluePinyin` TEXT, `sentenceClueTranslation` TEXT, `sentenceClueAudioUrl` TEXT, `alternatives` TEXT, `createdAt` TEXT, `longTerm` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `deckId` TEXT NOT NULL, `hanzi` TEXT NOT NULL, `pinyin` TEXT NOT NULL, `english` TEXT NOT NULL, `audioUrl` TEXT, `funFacts` TEXT, `context` TEXT, `sentenceClue` TEXT, `sentenceCluePinyin` TEXT, `sentenceClueTranslation` TEXT, `sentenceClueAudioUrl` TEXT, `alternatives` TEXT, `createdAt` TEXT, `longTerm` INTEGER, `checkIssues` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -158,6 +152,12 @@
             "fieldPath": "longTerm",
             "columnName": "longTerm",
             "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "checkIssues",
+            "columnName": "checkIssues",
+            "affinity": "TEXT",
             "notNull": false
           }
         ],
@@ -658,7 +658,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3b13859eb95c92f9603564c076919bfb')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'da2125a033efe33ce2d9184ce554f032')"
     ]
   }
 }

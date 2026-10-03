@@ -117,17 +117,18 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
 │   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
 │   │   └── index.ts       # Re-exports
-│   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge, video fit / PiP (videoFit.ts), the shared text board CRDT (textDoc.ts), board pages across lessons (pages.ts), call alerts (alerts.ts), drawing on a shared screen (annotate.ts), board tab-complete rules (gloss.ts) (see docs/VIDEO_CALLS.md)
+│   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge, video fit / PiP (videoFit.ts), the shared text board CRDT (textDoc.ts), board pages across lessons (pages.ts), call alerts (alerts.ts), drawing on a shared screen (annotate.ts), board tab-complete rules (gloss.ts), the tutor leads — Show for student / Stop their share (follow.ts), camera on at join (devices.ts) (see docs/VIDEO_CALLS.md)
 │   ├── call-activities/   # In-call activities: two-person mini lessons (describe & guess, info gap, role-play, sentence building, quick quiz, dictation) — spec types, the state machine the CallRoom runs (engine.ts), the sample catalogue; parity-tested by the Lab app
 │   ├── materials/         # Lesson materials: kinds, limits, page text, `material:<id>:<page>` annotation targets, presented-material shape, PPTX_RENDER_NOTE
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP); inbox.ts = the Chats tab rules (sort, preview, relative time, search, badge, live updates) — parity-tested by the Lab app
 │   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts) — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── folders/           # Folders for decks / library lessons / readers: groupIntoFolders, one-level nesting rule (parentProblem), name rules, spliceGroupOrder, collapsed keys, copy (deleteFolderMessage, movedMessage) — parity-tested by the Lab app
+│   ├── pinyin/            # applyYiBuToneChanges: the 一 / 不 tone changes every automatic pinyin goes through (Lab ToneChange.kt, parity-tested)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts (new characters first); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
-│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan, Home's compact card rows (home.ts) — pure, unit-tested
+│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan, Home's compact card rows (home.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts) — pure, unit-tested
 │   ├── tutor-notes/       # "Notes from your tutor": new / earlier merge, Home line, the practice rule (a rating counts only when the card is due) — parity-tested by the Lab app
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
@@ -313,6 +314,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `deleted_items` - Tombstones (`kind` deck|note, `item_id`, `deleted_at`) written whenever a deck or note is deleted (API routes, Ask Claude's delete_current_card, the MCP server's delete_deck/delete_note); `GET /api/sync/changes` returns them as `deleted.deck_ids` / `note_ids` so offline clients drop the rows (with their cards) on the next sync
 - `reader_pages.words` / `reader_word_explanations` - Reader word chips (migration 0087): the page split into `{ text, pinyin, gloss }` segments (JSON), and Haiku's cached "More about this word" answers keyed by a hash of word + sentence. See "Reader word chips"
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
+- `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0104): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
@@ -329,35 +331,51 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
+- `homework_links` - A tutor's link homework (migration 0102; docs/HOMEWORK.md §8): title, url, instructions, thumbnail_url (YouTube's public thumbnail only), soft `deleted_at`. Made in HER account, sent as an `assignments` row `kind: 'link'` whose `details` JSON keeps a snapshot `{ url, instructions, thumbnail_url }`; `assignment_events.note` = the student's note back on `done`
 - `student_profiles` - The tutor's PRIVATE profile of a student, one per `tutor_relationships` row (tutor_id, student_id, markdown `body` ≤ 8000, optional `level` / `handwriting` / `words_per_lesson`). Migration 0077. Only the tutor-only route, the dashboard's `has_profile` flag and the tutor-side content agents read it — never a student-facing path. See "Student profile" below
-- `folders` - Folders for organising decks, Lesson Library items and graded readers (migration 0100; `shared/folders`, `services/folders.ts`): user_id, `kind` deck|lesson|reader, name (≤ 60), `parent_id` (ONE level of nesting), `position`. Items carry a nullable `folder_id` (`decks`, `lesson_library`, `graded_readers`; NULL = Unfiled). Organisation only — the study queue never reads them. Deleting a folder unfiles its items and lifts its subfolders; nothing else is deleted. Copies made for a student never carry the tutor's folder_id
+- `folders` - Folders for organising decks, Lesson Library items and graded readers (migration 0105; `shared/folders`, `services/folders.ts`): user_id, `kind` deck|lesson|reader, name (≤ 60), `parent_id` (ONE level of nesting), `position`. Items carry a nullable `folder_id` (`decks`, `lesson_library`, `graded_readers`; NULL = Unfiled). Organisation only — the study queue never reads them. Deleting a folder unfiles its items and lifts its subfolders; nothing else is deleted. Copies made for a student never carry the tutor's folder_id
 - `users.voice_gender` - 'male' | 'female' | 'other' | NULL: the voice this person's chat messages are read aloud in (migration 0098; Profile → "Your voice when your messages are read aloud", admin `PUT /api/admin/users/:user/voice-gender`, MCP `admin_set_user_voice_gender`). See "Chat read-aloud voice"
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
+- `usage_events` - Usage analytics (migration 0100, docs/ANALYTICS.md): client + server events (id, user_id, ts, received_at, platform, app_version, session_id, event, screen = route pattern, props JSON of ids / enums / counts only); pruned after 180 days; `users.analytics_opt_out`
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
-- `conversations` - Chat threads within a tutor-student relationship
+- `conversations` - Chat threads within a relationship: ONE per tutor–student pair (migration 0102 merged the extras, `merged_into` = the chat an old id became, unique index on live human rows); Claude practice chats may be several
 - `messages` - Individual chat messages
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
 - `chat_listening` / `users.chat_listening_default` - Chat listening mode (migration 0099, docs/CHAT.md "Listening mode"): per person + conversation `{ listening, since }` (messages after `since` arrive hidden) and the Settings default
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
+- `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0101; docs/CHAT.md "Auto-check")
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
 - `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
 - `shared_decks` - Record of decks shared from tutor to student
 - `shared_readers` - Record of graded readers copied from tutor to student (source/target reader ids; the copies share R2 image keys)
 - `push_subscriptions` - Web Push subscriptions (endpoint, p256dh, auth, the VAPID key used; migration 0080) for call alerts; `users.call_alerts` ('silent' or NULL = ring); `app_keys` holds the generated VAPID pair when no `VAPID_*` secrets are set
-- `call_lessons` - Lessons: calls between the same two people within 20 min (migration 0089; `calls.lesson_id`; the lesson report + processing status)
+- `call_lessons` - Lessons: calls between the same two people within 2 hours (migration 0089; `calls.lesson_id`; the lesson report + processing status)
 - `calls` / `call_recording_pieces` / `call_recording_chunks` / `call_transcript_segments` - Video calls (experimental, migration 0071): the call (relationship, status live/ended, processing status, board/chat snapshot, Claude report JSON), each person's recorded mic pieces and their uploaded chunks, and the transcript segments (epoch-ms times on the server clock, text, language, pinyin, translation)
 - `board_pages` / `call_board_pages` - The call text board's pages per tutor relationship (a solo call: its caller's), across calls (migration 0086; docs/VIDEO_CALLS.md "Board pages"): position, title, `doc_json` (the page's text CRDT snapshot), `text`, `created_in_call_id`, `last_used_at` (the "continue today's page" rule), `deleted_at`; the link rows = the pages a call opened / wrote on with each page's text as it stood when that call ended
 - `call_activities` - In-call activities played (migration 0094): one row per session (call, lesson, relationship, activity_id, kind, title, host, `summary_json` = `ActivitySummary`), upserted by the CallRoom; read by the review page and the homework agent
 - `materials` / `material_pages` / `material_shares` / `material_annotations` / `call_materials` - Lesson materials (migration 0092; docs/VIDEO_CALLS.md "Lesson materials"): a tutor's PDFs / pictures / PowerPoints (original + page pictures drawn on the uploading device in R2 `materials/<owner>/<id>/`, protected), each page's text + speaker notes, shares per relationship (presenting in a call shares it), drawings / text per lesson × material × page (`KeptAnnotations`), which pages a call showed
 
-### Audio Storage
+### Audio Storage & the TTS pipeline (read docs/AUDIO.md before touching TTS)
 - Generated TTS audio and user recordings stored in Cloudflare R2
 - Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
 - Types: `generated` (TTS), `recordings` (user voice)
-- TTS is generated via Google Cloud Text-to-Speech API (Mandarin Wavenet voice)
+- **TTS is MiniMax only**: `speech-2.8-hd`, voice Radio Host, speed 0.6 — set ONLY in
+  `worker/src/services/tts/settings.ts`. No Google fallback for stored clips.
+- **Every MiniMax call goes through `callMiniMaxTTS`** (`services/audio.ts`), which asks the
+  `TtsLimiter` Durable Object for a slot (a LEARNED rate — AIMD: starts at 8/min, +2 per clean busy
+  minute, ×0.5 on a 1002, floor 2, capped by `MINIMAX_RPM` = 9 (Starter plan) and `MINIMAX_RPM_MAX` = 60;
+  interactive before batch, a waiting tap reserves the next token;
+  a 1002 / 429 is requeued 60 s later, never retried in the request). A new TTS path must use it.
+- **Stored clips** (word, card sentence, sentence-set row) are made by `ensureClip`
+  (`services/tts/clips.ts`): idempotent by a settings + text signature (`audio_settings`,
+  `audio_voice`, `audio_model`, migration 0103), fresh key, swap only while the row still
+  points at the old key, copies sharing the key move too, old object deleted only when
+  unreferenced, `updated_at` bumped. Background clips go through **`tts-queue`**
+  (`services/tts/queue.ts`); the backlog (missing → Google → old voice) drains via the pump,
+  nightly at London midnight + hourly crons. Admin: MCP `audio_backfill_status` / `audio_backfill_run`.
 
 ### AI Features
 Uses Anthropic Claude API for several features:
@@ -403,7 +421,39 @@ card that breaks them is refused with a message saying where the content belongs
   every character of a word then its usage; then the common mistake / contrast / register. No trivia.
 - **sentence_clue** is one short real sentence containing the word exactly; prefer a single clause;
   no brackets, slashes, ellipses or blanks.
+- **一 / 不 tone changes** are written (yí gè, yì tiān, bú shì, bù hǎo; neutral yi / bu in 看一看 / 要不要);
+  no other tone sandhi (nǐ hǎo stays). ONE function applies it: `applyYiBuToneChanges(hanzi, pinyin)`
+  (`shared/pinyin/toneChange.ts`, Lab `core/…/ToneChange.kt`, parity-tested) — every automatic pinyin
+  goes through it: the web's `utils/autoPinyin.ts` (pinyin-pro, whose own `toneSandhi` is close but not
+  ours), the Lab's `ToneChange.autoPinyin`, and Claude's pinyin in Generate / gloss / enrich (worker).
+  Existing notes are never mass-rewritten; the word check proposes fixes instead.
 Change the rules in `shared/cards/standard.ts` only; everything else reads from it.
+
+### Word checks — "⚠ Possible issue" (`worker/src/services/card-check.ts`, `routes/card-checks.ts`, `shared/cards/check.ts`)
+A cheap batched Haiku check (`structuredCall`, `CHECK_BATCH_SIZE` 40 words per call, forced `report_issues`
+tool) for likely-wrong pinyin (wrong tones, a missing 一/不 tone change, the wrong reading of a multi-reading
+character) or a wrong / misleading English gloss, plus the deterministic 一/不 rule (`mergeCheckIssues`).
+**Never applied automatically**: results are stored, shown, and only an explicit Apply goes through
+`content.updateNote` (`{ check: false }`, so a fix doesn't re-check itself).
+- New / edited words: the content service calls `queueNoteCheck` (create / batch / an edit of hanzi, pinyin or
+  english) when the account's switch is on — `users.card_check`, NULL = default ON for tutors (role tutor or
+  tutoring someone), Settings → Cards "Check new words for mistakes" (`PUT /api/profile/card-check`, `card_check` /
+  `card_check_setting` on `/api/auth/me`). Runs on **`card-check-queue`**; issues land in `notes.check_issues`
+  (JSON `NoteCheckIssue[]`) with `notes.check_at` (migration 0104) — `/api/sync/changes` also returns notes by
+  `check_at`, so `updated_at` (which the tutor→student copy rules compare) is never touched by a check. Deck page
+  note rows show each live issue (`liveCheckIssues`: stale once the field changed) with Apply fix / Dismiss
+  (`components/cardCheck/NoteCheckIssues.tsx`; Lab deck detail). Copies, the starter deck and `?check=none` skip it.
+- Paste a list: the preview calls `POST /api/ai/check-words` (≤ 60 rows, nothing stored) and shows ⚠ per row;
+  checked rows are saved with `?check=none`.
+- **Per-deck "Check for errors"** (deck ⋯ menu; the tutor's student page → homework row menu, on the STUDENT's
+  copy): `components/cardCheck/DeckCheckSheet.tsx` (Lab: same sheet) — cost estimate first (`estimateCheckCost`,
+  "~319 words · about $0.02"), then a `deck_check_jobs` row run on the queue in batches with progress saved per
+  batch (a redelivery resumes), then the review list (current → proposed, reason, checkboxes) and **Apply selected**
+  (`applyDeckCheck`: a word edited since is skipped; "Also fix my source deck" when the tutor owns the source,
+  matched by hanzi). Real token usage → `cost_usd` (`structuredCall`'s `onUsage`).
+- E2E_TEST_MODE uses a fake model (`services/card-check-fake.ts`: 银行 yínxíng, 苹果 "banana", 长大, 妈妈).
+- MCP: `check_deck_for_errors`, `apply_note_fixes` (`mcp-server/src/tools/checks.ts`); `add_note`, `batch_add_notes`,
+  `create_homework_deck`, `add_words_to_student_deck` create with `?check=sync` and return `check_warnings`.
 
 ### Reader page standard
 `shared/reader/standard.ts` — `READER_STANDARD`: a page is one picture and one moment, 1–2 sentences
@@ -724,7 +774,8 @@ npm run dev
 
 ### Environment Variables / Secrets
 - `ANTHROPIC_API_KEY`: For AI card generation and Ask Claude feature
-- `GOOGLE_TTS_API_KEY`: For Google Cloud Text-to-Speech audio generation
+- `MINIMAX_API_KEY`: MiniMax TTS (every stored clip; docs/AUDIO.md). `MINIMAX_RPM` (wrangler var) = hard cap on the learned rate (9 = Starter), `MINIMAX_RPM_MAX` = its ceiling (60)
+- `GOOGLE_TTS_API_KEY`: Google TTS, now only an in-the-moment fallback for ephemeral conversation audio (never stored)
 - D1 and R2 bindings are configured in `wrangler.toml`
 
 Set secrets via:
@@ -745,6 +796,7 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `PUT /api/decks/reorder` - `{ deck_ids }` the whole queue, first = studied first
 - `GET /api/me/chats` - The Chats tab inbox: every conversation of my active relationships (Claude role-play chats flagged `is_ai`) with the other person, last message preview, my unread count, `last_activity_at`, newest first — one query (`getChatList`, `services/chat/reads.ts`; rules in `shared/chats/inbox.ts`, docs/CHAT.md "Chats tab")
 - `PUT /api/profile/email-prefs` - `{ email_chat_messages: boolean }` chat e-mails on / off (on `/api/auth/me`); every chat e-mail also carries a sign-in-free "Turn off chat emails" link + RFC 8058 `List-Unsubscribe` headers → `GET|POST /api/email/unsubscribe?t=`, `POST /api/email/resubscribe?t=` (HMAC token, `services/email-unsubscribe.ts`, `routes/email-prefs.ts`; docs/CHAT.md "E-mail opt-out")
+- `PUT /api/profile/chat-prefs` - `{ chat_auto_check: boolean | null }` "Check my Chinese automatically" (Settings → Chat; on `/api/auth/me`); the check itself runs in the background after a send / edit (`services/chat/auto-check.ts`), its result rides on the sender's message as `auto_check` → the ✎ on the bubble and "✨ How to say it better" first in the message menu (docs/CHAT.md "Auto-check")
 - `PUT /api/profile/study-budget` - `{ new_cards_per_day?, secondary_cards_per_day? }` the account's global daily new-card budget (0–200, `null` = default; 400 with `problems`) → `StudyBudgetInfo`; current values on `/api/auth/me` and `/api/sync/changes` (`study_budget`)
 - `GET|PUT /api/relationships/:relId/student-study-budget` - tutor only: the student's budget (+ `top_deck` for the hint) / set it `{ new_cards_per_day?, secondary_cards_per_day? }` (null = default) → `{ budget, changed, message_sent }`; posts a chat message from the tutor
 - `GET|PUT /api/profile` - The editable profile (`routes/profile.ts`, `services/profile.ts`, validation `shared/profile`): `{ name?, bio?, about?, time_zone? }` (400 + `problems`; `name: null` = back to the Google name) → `{ name, picture_url, picture_source: google|upload|none, name_custom, google_name, google_picture_url, bio, about, time_zone }`
@@ -772,6 +824,11 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `POST /api/decks/:deckId/notes` - Create note (`hanzi`, `pinyin`, `english`, `fun_facts?`, `context?`, `sentence_clue?` + pinyin / translation, `alternatives?`); cards made, word + sentence TTS in the background, sentence set queued
 - `POST /api/decks/:deckId/notes/batch` - `{ notes: [...] }` (≤500) → `{ created, failed: [{ index, hanzi, error }] }`; audio queued
 - `PUT /api/notes/:id` - Update note (a changed hanzi gets a new word clip, a changed clue a new sentence clip)
+- `POST /api/notes/:id/check-issues/:issueId/apply` | `/dismiss` - a word check's "⚠ Possible issue" → `{ note }` (apply = the fix through updateNote)
+- `POST /api/notes/check` - `{ note_ids }` (≤ 100) run the word check now and store it → `{ issues: { [noteId]: NoteCheckIssue[] } }`
+- `POST /api/ai/check-words` - `{ words: [{ hanzi, pinyin, english }] }` (≤ 60) → `{ issues: [{ index, field, kind, current, proposed, reason }] }`, nothing stored (Paste a list's preview)
+- `GET|POST /api/decks/:id/check` - per-deck "Check for errors": `{ estimate, job }` / start → 202 `{ job }`; `GET|POST /api/relationships/:relId/shared-decks/:id/check` the same on the student's copy (tutor; `can_fix_source`); `GET /api/deck-checks/:jobId`; `POST /api/deck-checks/:jobId/apply` `{ proposal_ids, also_source? }` → `{ applied, source_applied, failed, job }`
+- `PUT /api/profile/card-check` - `{ card_check: boolean | null }` "Check new words for mistakes"
 - `PUT /api/notes/:id/long-term` - `{ long_term: true | false | null }` the learner's "Add to my long-term review" choice (idempotent; `long_term_at`, not `updated_at`)
 - `DELETE /api/notes/:id` - Delete note (tombstone; clips removed only if no copy references them)
 - `POST /api/notes/move` - `{ note_ids, deck_id }` move notes between your decks, cards and history kept
@@ -780,7 +837,7 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `GET /api/notes/:id/questions` - Get Q&A history
 - `GET /api/notes/search?q=&limit=` - Server-side search of my notes (hanzi / pinyin, tone-free too / english / card sentence) with `deck_name` + `total_notes` — the Decks tab search is local-first (`services/noteSearch.ts` `noteMatches`, cards + recent ratings loaded only for the notes on screen) and falls back to this when the device finds nothing, saying how many of the account's cards the device holds (`routes/note-search.ts`)
 - `POST /api/notes/:id/generate-audio` - Generate TTS audio for note
-- `POST /api/notes/:id/ensure-audio` - `{ broken?: string[] }` → `{ note, word, sentence }` (ok | copied | generated | failed | none). Idempotent: makes only the MISSING word / sentence clips (a reported 404 key only if R2 really lacks it; a student's copy first takes the tutor's clip). The Lab app's auto-audio (`data/audio/NoteAudioFixer.kt`: on the card, queued offline, background pass over the upcoming queue after sync); `content.ensureNoteClips`
+- `POST /api/notes/:id/ensure-audio` - `{ broken?: string[] }` → `{ note, word, sentence }` (ok | copied | generated | queued | failed | none). Idempotent: makes only the MISSING word / sentence clips (a reported 404 key only if R2 really lacks it; a student's copy first takes the tutor's clip), at interactive priority; `queued` = MiniMax is busy, the clip is on tts-queue and coming. Both apps' auto-audio: web `services/noteAudioEnsure.ts` (study card; "Audio coming…" instead of the device voice), Lab `data/audio/NoteAudioFixer.kt` (on the card, queued offline, background pass over the upcoming queue after sync); `content.ensureNoteClips`
 
 ### Sentence sets (graded example sentences per note)
 Each note can have a **set** of example sentences (separate from the single `sentence_clue`
@@ -929,7 +986,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`.
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue`.
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -1200,7 +1257,8 @@ summary, corrections, card-standard vocabulary). Processing is readiness-driven
 - **Board pages** (docs/VIDEO_CALLS.md "Board pages", `shared/calls/pages.ts`): the text board belongs to the relationship, as numbered pages across calls — a call opens on a new page, or continues the page used within 3 h on the same day; a thumbnail strip along the board's bottom (+, ⋯ Rename / Duplicate / Delete); each person turns pages on their own, **Follow <name>** / **Bring <name> here**; the room holds the pages (`page_*` messages) and writes them to `board_pages` + `call_board_pages`; `calls.board_text` = the pages written in that call (review page, report, homework agent unchanged). Outside a call the **Lesson board** `/connections/:relId/board` reads them (read-only, offline via IndexedDB `boardPages` / Lab JsonCache). `GET /api/relationships/:relId/board-pages`, `GET /api/me/board-pages`, `GET /api/calls/:id/board-pages` (`routes/board-pages.ts`). The drawing board stays per call.
 - **Board**: the board tile is a shared text document first (`shared/calls/textDoc.ts`, an RGA CRDT kept and relayed by the CallRoom; `text` / `text_cursor` messages; carets + selections of the other person; IME-safe), Draw second; the text is saved as `calls.board_text` (migration 0081) → review page, lesson report, session-notes agent
 - **Round 4 fixes** (docs/VIDEO_CALLS.md): the other person's board edits ALWAYS go into the document — the field shows a `TextView` (`shared/calls/textDoc.ts`, Lab `CallTextView`) and catches up when an IME composition ends, idles 1.5 s (`COMPOSE_IDLE_MS`; Gboard's lingering span) or blurs; remote carets are a line + dot, the name shows in the strip under the board; a failed / closed / never-started media link is renegotiated (`shouldAdoptPeer(…, pc)`, link ids + `hello`, `linkSignalAction`); mic / camera on-off are restored on rejoin (`DevicePrefs.micOff/camOff`, join waits ≤ 4 s for the preview); the room logs kind `call` lines (who entered / left / timed out / ended the call)
-- **Lessons** (round 4, docs/VIDEO_CALLS.md "Lessons"): calls between the same two people within 20 min (`LESSON_GAP_MS`, `shared/calls/lessons.ts`) are ONE lesson — `call_lessons` + `calls.lesson_id` (migration 0089, back-filled); the review page, report (per lesson, rewritten as each call is transcribed), Past calls list and Make homework (once per lesson) work on the lesson (`services/calls/lessons.ts`). In the call, 🚪 Leave (the call goes on, Rejoin) is separate from End (for everyone, confirmed); an empty call ends after 10 min
+- **Lessons** (round 4, docs/VIDEO_CALLS.md "Lessons"): calls between the same two people within 2 hours (`LESSON_GAP_MS`, 20 min until round 5, `shared/calls/lessons.ts`) are ONE lesson — `call_lessons` + `calls.lesson_id` (migration 0089, back-filled); the review page, report (per lesson, rewritten as each call is transcribed), Past calls list and Make homework (once per lesson) work on the lesson (`services/calls/lessons.ts`). In the call, 🚪 Leave (the call goes on, Rejoin) is separate from End (for everyone, confirmed); an empty call ends after 10 min
+- **The tutor leads** (round 5, docs/VIDEO_CALLS.md "The tutor leads"): **Show for student** (corner button on her stage tile; opening the board does it automatically) puts the same view on the student's stage once with a "Minghui is showing you this" pill — their own layout wins until she shows something new, board page turns follow while they're on the board; **Stop their share** on the student's screen tile. Room-enforced (relationship tutor only): `show` / `stop_share` → `shown` / `share_stopped`, `welcome.tutor_id` + `shown` (storage, reconnect-safe). Rules `shared/calls/follow.ts` (Lab `CallFollow.kt`, parity-tested). The camera always starts ON (`shared/calls/devices.ts`: never remembered off; a device opening while joining is announced)
 - **Board tab-complete**: after typing Chinese and a 500 ms pause (no IME composition), a grey ` - pīnyīn - meaning` after the caret — Tab (web) / a "⇥ …" chip (touch, Lab) types it in through the CRDT; rules in `shared/calls/gloss.ts` (Lab `CallGloss.kt`, parity-tested); `POST /api/calls/:id/gloss { text }` → `{ pinyin, english }` (call members; Haiku via `structuredCall`, cached per text, 30 uncached/min per user; 503 without a key) — see docs/VIDEO_CALLS.md
 - **Lesson materials** (docs/VIDEO_CALLS.md "Lesson materials", `shared/materials`, `routes/materials.ts`, `services/materials/`): More → 📑 Lesson materials (`/materials`, `/materials/:id`) uploads a PDF (pdf.js), PowerPoint (`frontend/src/services/materials/pptx.ts`: slide XML → text boxes + pictures on a canvas, `PPTX_RENDER_NOTE` = export as PDF for exact slides — no server converter / Container) or picture; the DEVICE draws the pages (1600 px JPEG) and uploads them. In a call ⋯ → 📑 Present material → the `material` tile for both (`material_open` / `material_page` / `material_close`; either turns pages), Pen / Text over the page with annot messages carrying `target: material:<id>:<page>`, kept per page per lesson. Page pictures cached in the Cache API `materials-v1` (offline). The homework agent reads the presented materials (+ `list_materials` / `read_material` tools); MCP `list_materials` / `read_material`. `GET|POST /api/materials`, `PUT /api/materials/:id/original|pages/:n`, `POST …/complete`, `GET /api/materials/:id[/pages/:n/image|/original|/text|/annotations?lesson_id=]`, `PATCH|DELETE /api/materials/:id`, `POST …/share` `{ relationship_id }`, `DELETE …/share/:relId`
 - **In-call activities** (docs/VIDEO_CALLS.md "In-call activities", `shared/call-activities`): ⋯ → 🎲 Activities starts a two-person activity from the catalogue for both (`activity` tile); the CallRoom runs the state machine (`activity_start` / `activity_action` / `activity_close` → `activity { session }`, `welcome.activity`), the relationship's tutor is host, roles a / b per activity, solo = both roles; results → `call_activities` → `GET /api/calls/:id` `activities` (review page) and the homework agent's notes. Web `components/calls/activities/`; Lab `ui/calls/ActivityTile.kt` + core `CallActivities.kt` (parity-tested)
@@ -1225,6 +1283,27 @@ reports plus the server's own `review_events` (which side is missing events / ho
 - `GET /api/debug/reports?client=&limit=` - index rows newest first (with `summary`)
 - `GET /api/debug/reports/:id?section=overview|decks|cards|events|full&offset&limit&deck_id&queue&in_due_queue&card_id`
 - `GET /api/debug/compare?a=&b=&max_cards=&server=0` - diff; defaults a = newest lab, b = newest web
+
+### Usage analytics (`docs/ANALYTICS.md`; `shared/analytics/`, `routes/analytics.ts`, `services/analytics/`)
+What people do in the apps, so Claude (MCP, admin) can say "Minghui hasn't used X yet" / "she still uses the old Y".
+**Every new user-facing feature must emit its catalogue event(s)**: one line in `shared/analytics/events.ts`
+(+ the Kotlin mirror `android-lab/core/…/analytics/AnalyticsEvents.kt`, parity-tested; `replacedBy` when it
+supersedes an older path) and one call — web `track('area.event', { … })` (`frontend/src/services/analytics.ts`),
+Lab `app.analytics.track(…)` (`data/analytics/`), worker `trackServer(…)`. **Privacy rule: ids, enums, counts,
+durations, booleans only — never message text, card content, answers, recordings, tokens, URLs or e-mails**;
+`sanitizeProps` (`shared/analytics/privacy.ts`) enforces it on the device and again on the server.
+- Clients queue events offline (web: own IndexedDB `usage-analytics`; Lab: own Room db) and upload in sync + every
+  ~60 s: `POST /api/analytics/events { events }` (idempotent by id) → D1 `usage_events` (migration 0100). Screen
+  views (route pattern + time on screen) come from ONE router hook per app.
+- Server: `trackServer` for content created / homework assigned / push / e-mail; every Anthropic + Gemini call's
+  tokens and estimated cost via a `fetch` wrapper (`services/analytics/ai-usage.ts`) and an AsyncLocalStorage
+  request scope (`scope.ts`, compat flag `nodejs_als`); one JSON log line per request with the route pattern
+  (`request-log.ts`, Workers Observability, sampling 1.0).
+- Switches: `ANALYTICS_LEVEL` = off | basic | verbose (default); per user Settings → Advanced → "Share usage data"
+  (`PUT /api/profile/analytics { share_usage }`, `users.analytics_opt_out`, off deletes their rows; `share_usage`
+  on `/api/auth/me`). The daily cron (`[triggers]`, `scheduled()` in index.ts) prunes rows older than 180 days.
+- Admin endpoints `GET /api/admin/usage/summary|adoption|timeline|counts|errors|ai` → MCP tools `usage_summary`,
+  `feature_adoption`, `user_timeline`, `event_counts`, `recent_errors`, `ai_usage` (`mcp-server/src/tools/usage.ts`).
 
 ### Conversation voices (`worker/src/routes/conversation-voices.ts`, `services/conversation-voices.ts`)
 - `GET /api/conversation-voices` - catalogue + `enabled`, `customised`, `default_enabled`, `default_source` (admin | app), `is_admin`, `speed`
@@ -1431,6 +1510,24 @@ Lesson types and future kinds plug into this model — never a second queue (con
 - `GET /api/relationships/:relId/homework?today=` - tutor: `{ assignments, load }`
 - `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors, copies }` (`copies`: the student's copy + share id per item). Every tutor send path defaults to `both`, due at the next logged lesson else in two days (`DEFAULT_SEND_MODE`, `defaultHomeworkDueDate`; docs/HOMEWORK.md §4a): the Send homework sheet, the library Assign sheet, the MCP send tools (`mcp-server/src/tools/homework-send.ts`)
 - `PATCH /api/relationships/:relId/homework/:id` - tutor: `{ due_date?, status?: 'cancelled' | 'active' }`
+
+**Homework library, link homework, updating students' copies** (`routes/homework-library.ts`, `services/homework-library.ts`,
+pure rules `shared/homework/library.ts` + `link.ts`; docs/HOMEWORK.md §8–10). The **library** is one row per thing a tutor
+sent (deck copy / lesson / reader / link) built by `buildHomeworkLibrary` from the share rows + the assignments on the same
+copy: sent, due, kind, % (pass words / words met / lesson completed / reader read / link done) and status Completed (green) ·
+In progress (blue, amber when due today / tomorrow) · Overdue (red) · Not started (grey) (`libraryStatus`, `statusTone`).
+Web: `/connections/:relId/homework` (one student) and `/homework-library` (all; More → Teaching, Students dashboard) —
+`pages/tutor/HomeworkLibraryPage.tsx`, `components/tutor/library/` (filters, row actions Open · Edit · Update their copy ·
+Change due date · Remove); **Most recent homework** (`mostRecentHomework`: newest + whatever was sent within 30 min, max 3)
+at the TOP of the student page (`RecentHomeworkCard`) and one line on each dashboard card. Students see the same statuses on
+`/homework` (`itemStatus`) and their tutor page lists that tutor's items. **Link homework** (tutor-first: made in her account,
+nothing reaches a student until she sends it): Send homework → 🔗 A link (`LinkHomeworkForm`), the student's `/homework/:id`
+is `components/homework/LinkPass.tsx` (Open link ↗ in the browser — nothing embedded —, Mark as done + optional note,
+offline-first). **Update copies on save**: after saving a sent deck word (deck page), library lesson (lesson editor), reader
+(reader editor) or link, `UpdateCopiesPrompt` offers "Also update <student>'s copy" per student, default on.
+- `GET /api/relationships/:relId/homework-library?today=` → `{ items, counts, today }` · `GET /api/tutor/homework-library?today=` → `{ students, items, counts, today }`
+- `GET|POST /api/homework-links` (`{ title, url, instructions? }`, 400 + `problems`) · `PUT /api/homework-links/:id` (+ `update_student_copies?: true | relId[]` → `copies`) · `DELETE` (soft); send with `POST …/homework` `{ items: [{ kind: 'link', source_id, due_date? (null = none) }] }`
+- `GET /api/student-copies?kind=deck|lesson|reader|link&source_id=` → `{ copies: [{ relationship_id, student_name, target_id, share_id, behind }] }` · `POST /api/student-copies/update` `{ kind, source_id, relationship_ids? }` → `{ updated, results }` (deck = `updateSharedDeckCopy`; lesson = `pushLibraryLessonUpdate`, `services/lesson-push.ts`; reader = `updateSharedReaderCopy`, pages matched by position, the copy's page ids kept; link = the sent assignments' snapshot)
 
 **Lesson notes → draft → review → assign** (`routes/homework-drafts.ts`, `services/homework-drafts.ts`): the student
 page's **Lesson notes** section (`components/tutor/LessonNotesSection.tsx`, replaces Session notes) lists
@@ -1654,6 +1751,8 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `update_card_settings` | Fine-grained control over card scheduling |
 | `batch_set_familiarity` | Set familiarity for multiple notes at once |
 | `get_note_history` | Get review history and Q&A for a note |
+| `check_deck_for_errors` | Word check of a whole deck (yours, or a student's copy with `relationship_id` + `shared_deck_id`): waits for the run, returns proposals (current → proposed + reason) and the cost; changes nothing |
+| `apply_note_fixes` | Apply ONLY the fixes the user approved: `job_id` + `proposal_ids` (+ `also_source`), or `fixes: [{ note_id, issue_id }]` from a create tool's `check_warnings` |
 | `create_custom_lesson` | Author a custom mini lesson (sections of exercises) for the user's next study session |
 | `list_custom_lessons` | List custom mini lessons (pending and completed) |
 | `get_custom_lesson` | Get one lesson with its full spec (fetch before editing) |
@@ -1709,8 +1808,8 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `list_student_recordings` | Pronunciation recordings in a range with `audio_url` and tutor marks; `only_unmarked` = the "recordings to hear" pile |
 | `mark_recording` / `clear_recording_mark` | `listened` or `needs_work` + comment (shown to the student once on the back of that card) / remove the mark |
 | `log_lesson` / `list_lesson_log` / `delete_lesson_log_entry` | Lesson log; the newest entry anchors "since last lesson"; notes are copied into the student's lesson notes |
-| `send_message_to_student` | Opens the latest conversation (creating one if none) and posts a chat message as the tutor |
-| `list_conversations` / `get_conversation_messages` | Read the chat (last N messages, `from: "me"` for the caller) |
+| `send_message_to_student` | Posts a chat message as the tutor into THE chat with the student (one per pair, created on first use) |
+| `list_conversations` / `get_conversation_messages` | Read the chat — `get_conversation_messages` takes the `relationship_id` (or a conversation id; old merged ids work); last N messages, `from: "me"` for the caller |
 | `send_install_howto` | Posts the install instructions (Obtainium / Add to Home screen) into the chat |
 | `list_student_homework` | Shared decks with completion + activity, and the student's mini lessons with completions |
 | `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
@@ -1722,6 +1821,8 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, all kept in the tutor's account — `auto_share: true` needs `confirm: true`) / poll one job's progress, steps, result and `not_sent` keys / list a student's jobs |
 | `send_session_notes_items` | **Send tool**: a finished job's unsent deck / lessons / reader (`items` keys from `not_sent`, none = all) → `POST …/session-notes/:id/send` |
 | `list_student_lesson_notes` / `add_student_lesson_notes` / `get_homework_draft` / `update_homework_draft_plan` / `revise_homework_draft` / `assign_homework_draft` (`tools/homework.ts`) | Lesson-notes entries and their homework state / add notes (+ draft by default, nothing sent) / the draft with skipped words, plan and load now → after / change modes, dates, split / ask the assistant to change it (same job) / assign it (send tool, `confirm: true`) |
+| `create_link_homework` / `assign_link_homework` / `list_link_homework` / `update_link_homework` (`tools/homework-hub.ts`) | Link homework (docs/HOMEWORK.md §8): save a video / song / article link with instructions in the tutor's OWN account (`POST /api/homework-links`, checked with `pickLinkHomework`; sends nothing) / send it (send tool, `confirm: true`) to one or more students as one-off homework (`POST …/homework`, `kind: 'link'`, optional due date) / list saved links / edit one (`PUT /api/homework-links/:id`, `update_student_copies` only when the tutor asked) |
+| `get_homework_library` (`tools/homework-hub.ts`) | Everything sent, one row per deck copy / lesson / reader / link (§9): student, sent, due, status completed / in_progress / overdue / not_started, %, progress, the student's note, `due_assignment_id`; one student (`…/homework-library`) or all (`/api/tutor/homework-library`); status / kind / text filters (`filterLibrary`) |
 | `get_student_homework` / `assign_homework` / `update_homework_assignment` (`tools/homework.ts`) | The load gauge + assignments with due labels and progress / assign (send tool, `confirm: true`) decks, library lessons and readers as `one_off` (due date, `split_days`, known words left out) / `fsrs` / `both` / move a due date or cancel |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
@@ -1806,6 +1907,8 @@ id or an email. Unit-tested in `tools/admin.test.ts`.
 | `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
 | `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
 
+Audio (same file, docs/AUDIO.md): `audio_backfill_status` (read-only: backlog by kind × state, clips by provider / model / voice, limiter, measured clips/min, ETA), `audio_backfill_run` (`limit?`: start the pump, queue that many clips now), `audio_tts_compare` (old vs current model durations — perceived speed check). API: `GET /api/admin/audio/backfill`, `POST /api/admin/audio/backfill/run`, `POST /api/admin/audio/compare` (`routes/audio-backfill.ts`).
+
 #### Debug tools (`mcp-server/src/tools/debug.ts`)
 
 The signed-in user's own study-state reports (see "Debug reports" above); nothing returns a whole report.
@@ -1815,6 +1918,19 @@ The signed-in user's own study-state reports (see "Debug reports" above); nothin
 | `list_debug_reports` | Reports newest first (`client` lab / web), each with its summary (home total + counts, queue size, cards, events, unsynced) |
 | `get_debug_report` | One report by id (or `latest_lab` / `latest_web`), a `section` at a time: overview (default), decks, cards (paged, filter by deck / queue / in_due_queue / card), events (paged hashes) |
 | `compare_debug_reports` | Server-side diff, default newest lab (a) vs newest web (b): hints, context, headline numbers, per-deck differences, differing cards with the server's event count, one-sided cards and events |
+
+#### Usage tools (`mcp-server/src/tools/usage.ts`)
+
+Admin only (the API answers 403 otherwise); `user` = id or e-mail; docs/ANALYTICS.md.
+
+| Tool | What it does |
+|------|--------------|
+| `usage_summary` | Active days, sessions, time in app per platform, top screens / events, last seen per platform + app version |
+| `feature_adoption` | Per catalogue event: first / last used + count (one user or everyone); never used, stale, old paths still in use |
+| `user_timeline` | One person's events in order for a day (`tz_offset_minutes`) or a range |
+| `event_counts` | An event or prefix (`chat.*`) by day / user / platform / event |
+| `recent_errors` | Errors shown to users + Lab crash reports |
+| `ai_usage` | Model calls, tokens, estimated cost by model / day / user / route / provider |
 
 ### Study Tool (MCP App)
 
@@ -1832,6 +1948,7 @@ cd mcp-server && npm run build:ui
 ```
 
 ### Notes on MCP Usage
+- **`update_student_copies`** (boolean, default false — a send: set it only when the tutor asked to update the students' copies; `tools/student-copies.ts`) on `update_note`, `add_note`, `batch_add_notes` (kind deck, the note's deck), `update_library_lesson` (kind lesson; replaces a separate `push_lesson_update`, which is kept), `update_reader` and `update_link_homework`: after the edit it calls `POST /api/student-copies/update` and lists per-student results ("Also updated Anna's copy"). A failed copy update never fails the edit.
 - The deck / note tools (`create_deck`, `update_deck`, `delete_deck`, `add_note`, `batch_add_notes`, `update_note`, `delete_note`, `move_notes`) call the main API, so the worker's content service makes the cards, generates TTS in the background (word + example sentence), queues the sentence set and writes deletion tombstones. The MCP server only reads D1 directly (lists, searches, duplicate pre-checks).
 - A deck created through MCP gets the shared new-deck defaults (3 new + 6 secondary cards a day)
 - Notes created via MCP have audio shortly after the call returns; the tool never waits for it
@@ -2005,9 +2122,14 @@ The app supports many-to-many tutor-student relationships where users can be tut
   with Claude, Copy) under ⋯ / long-press — a bottom sheet on phones, a popover ≥640px. The set is
   role-aware (`toolsForMessage` in `frontend/src/components/chat/messageTools.ts`, unit-tested):
   Check my Chinese only on the learner's own messages, Translate only on the other party's. Failures
-  show as Coach-style inline notices (`InlineNotice`), never `alert()`. `?new=1` on the chat route
-  (or `/chat/new`) opens a fresh untitled conversation; `PATCH /api/conversations/:id` `{ title }`
-  renames it (header ⋯ → Add a title / Rename).
+  show as Coach-style inline notices (`InlineNotice`), never `alert()`.
+- **One chat per pair** (docs/CHAT.md "One chat per pair", migration 0102, `routes/one-chat.ts`): a tutor and a
+  student have exactly ONE conversation — `openRelationshipConversation` (`services/conversations.ts`) is the
+  get-or-create every path posts through (`POST /api/relationships/:relId/conversations/open`; creating another
+  returns it). Older extras were merged into the most recently active one (messages moved, read markers max'd,
+  rows kept with `merged_into`); any `/api/conversations/<old id>/…` is served as the one chat, and
+  `GET /api/conversations/:id` says `merged_from`. No new conversation / titles / rename for people (PATCH → 410);
+  `/connections/:relId/chat` opens the chat; the inbox has one row per person. Claude practice chats stay many.
 - **Live delivery & notifications** (docs/CHAT.md — the contract): a per-user **ChatHub** Durable Object
   (`worker/src/durable/chat-hub.ts`, binding `CHAT_HUB`; `POST /api/live/ticket` → `GET /api/live/ws?ticket=`) pushes
   `message` / `read` / `typing` events to every open client; `services/chat/notify.ts` sends each new message to the
@@ -2083,7 +2205,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/settings` - Profile link · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, conversation voices (`/settings/voices`), sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
 - `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests
 - `/connections/:relId` - Student page (tutor: status, Message / Send homework, needs attention, homework, conversations, activity; new student: setup checklist) / tutor page (student)
-- `/connections/:relId/chat/:convId` - Chat interface
+- `/connections/:relId/chat/:convId` - Chat interface (a merged-away id swaps to the pair's one chat); `/connections/:relId/chat` opens THE chat with that person
 - `/connections/:relId/progress` - Student progress view (tutor only)
 - `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view
 - `/lessons/:id/edit`, `/lessons/:id/print` - Lesson editor / print view for a student's own lesson or one the tutor assigned

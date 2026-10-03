@@ -142,6 +142,7 @@ test('a dropped room socket reconnects without losing the picture (same link, sa
   // End: the connection log went to the review page.
   tp.on('dialog', (d) => void d.accept());
   await tp.getByTestId('end-call').click();
+  await tp.getByTestId('end-confirm-end').click(); // round 4: End asks first (a sheet, not a dialog)
   await tp.getByTestId('call-ended').waitFor({ timeout: 20000 });
   await tp.goto(`/calls/${callId}/review`);
   const log = tp.getByTestId('review-connection-log');

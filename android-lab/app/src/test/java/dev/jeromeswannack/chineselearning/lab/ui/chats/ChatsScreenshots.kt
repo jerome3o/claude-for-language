@@ -24,11 +24,12 @@ object ChatsSamples {
     private fun msg(id: String, from: String, text: String, at: String) = ChatListLastMessage(id, from, text, at)
 
     val rows = listOf(
+        // One chat per pair: one row per person (a merged chat may still carry an old title — never shown).
         ChatListRow("c-hw", "rel-minghui", "Homework", false, minghui, "tutor",
             msg("m1", "u-minghui", "你做完第三课的作业了吗？明天上课前发给我看看。", "2026-10-03T10:42:00Z"), unread = 2, lastActivityAt = "2026-10-03T10:42:00Z"),
         ChatListRow("c-wei", "rel-wei", null, false, ChatListPerson("u-wei", "Wei Chen", null), "student",
             msg("m2", "u-wei", "📷 Photo: 这是我的猫，它叫馒头", "2026-10-03T08:15:00Z"), unread = 1, lastActivityAt = "2026-10-03T08:15:00Z"),
-        ChatListRow("c-tue", "rel-minghui", "Tuesday lesson", false, minghui, "tutor",
+        ChatListRow("c-zhang", "rel-zhang", null, false, ChatListPerson("u-zhang", "张老师", null), "tutor",
             msg("m3", "me", "好的，明天见！", "2026-10-02T19:03:00Z"), lastActivityAt = "2026-10-02T19:03:00Z"),
         ChatListRow("c-anna", "rel-anna", null, false, ChatListPerson("u-anna", "Anna Müller", null), "student",
             msg("m4", "u-anna", "🎤 Voice message", "2026-09-28T16:20:00Z"), lastActivityAt = "2026-09-28T16:20:00Z"),

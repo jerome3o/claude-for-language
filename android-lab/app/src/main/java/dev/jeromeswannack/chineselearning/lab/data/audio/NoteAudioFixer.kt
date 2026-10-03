@@ -43,6 +43,10 @@ import java.time.ZoneId
  * - **on the card** ([checkCard]): a missing word or sentence clip, or one that 404s when it is
  *   fetched, is requested at once; the Play buttons show "Generating audio…" ([statuses]) and the
  *   new note arrives on [updates] (mirrored into Room, clips cached for offline);
+ * - **queued** (MiniMax rate-limited — the server put the clip on its tts-queue): the note is
+ *   [NoteAudio.Status.Coming], not failed; the card says "Audio coming…" and the study screen
+ *   re-asks every [NoteAudio.COMING_RETRY_MS] while it is up ([askAgain]), at most
+ *   [NoteAudio.COMING_MAX_ASKS] times (web `services/noteAudioEnsure.ts`);
  * - **offline**: the note waits in a queue (kept across restarts) and is made on the next sync;
  * - **ahead of time** ([Sync], after every sync, in the background so the sync never waits): the
  *   queued notes, then the upcoming study queue (today's cards, then the next new ones), a few
@@ -144,7 +148,14 @@ class NoteAudioFixer(
                 dto.applyTo(local).also { repo.dao.upsertNotes(listOf(it)) }
             } ?: note
             val stillMissing = NoteAudio.missing(clips(updated), brokenKeys())
-            change { if (res.failed || stillMissing.isNotEmpty()) tracker.failed(noteId, clock()) else tracker.succeeded(noteId) }
+            change {
+                when {
+                    stillMissing.isEmpty() -> tracker.succeeded(noteId)
+                    // Queued behind MiniMax's rate limit: on its way, not a failure — asked again in ~20 s.
+                    res.pending -> tracker.coming(noteId, clock())
+                    else -> tracker.failed(noteId, clock())
+                }
+            }
             if (updated != note) _updates.emit(updated)
             // Keep the new clips for the train (the card can already stream them).
             listOfNotNull(updated.audioUrl, updated.sentenceClueAudioUrl).filter { it.isNotBlank() }
@@ -162,6 +173,12 @@ class NoteAudioFixer(
             null
         }
     }
+
+    /** Ask about [noteId] again (a clip that is coming, re-checked while its card is up); runs in the fixer's scope so leaving the card doesn't cancel the request. */
+    fun askAgain(noteId: String): Job = scope.launch { ensure(noteId) }
+
+    /** The fixer's clock (the study screen times its re-asks with it). */
+    fun now(): Long = clock()
 
     /** The background pass after a sync (never blocks it; one at a time). */
     fun backfillInBackground(): Job = synchronized(this) {

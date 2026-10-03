@@ -41,6 +41,7 @@ import { isTutorAccountCached } from './accountRole';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 import { reportClientStateIfDue } from './clientState';
+import { flushAnalytics } from './analytics';
 import { reportStudyTimeIfDue } from './studyTime';
 import { topUpLessonImagesIfDue } from './lessonImages';
 import { syncBoardPagesIfDue } from './boardPages';
@@ -457,6 +458,8 @@ class SyncService {
     void reportClientStateIfDue();
     // Active study time per day (docs/STUDY_SESSION.md "Time"). Throttled, never throws.
     void reportStudyTimeIfDue();
+    // Usage analytics (docs/ANALYTICS.md): upload the queued events. Never throws.
+    void flushAnalytics();
 
     // Study-state debug report (web vs Lab app due counts). Every 30 min at most.
     void import('./debugReport').then(m => m.sendDebugReportIfDue()).catch(() => {});
@@ -784,6 +787,8 @@ class SyncService {
     void reportClientStateIfDue();
     // Active study time per day (docs/STUDY_SESSION.md "Time"). Throttled, never throws.
     void reportStudyTimeIfDue();
+    // Usage analytics (docs/ANALYTICS.md): upload the queued events. Never throws.
+    void flushAnalytics();
     void import('./debugReport').then(m => m.sendDebugReportIfDue()).catch(() => {});
     void syncBoardPagesIfDue();
     // Chat listening mode: the setting, and the clips of recent messages so a tap plays offline (never throws).

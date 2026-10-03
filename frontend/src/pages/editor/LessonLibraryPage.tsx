@@ -33,6 +33,7 @@ import { DEFAULT_SEND_MODE, defaultHomeworkDueDate, hasOneOff, localDate, shortD
 import { assignHomework } from '../../api/homework';
 import { HomeworkModePicker } from '../../components/tutor/HomeworkModePicker';
 import { FolderGroups, FolderToolbar, SelectionBar, useFolderUi } from '../../components/folders/FolderGroups';
+import { track } from '../../services/analytics';
 import './LessonLibraryPage.css';
 
 function formatDate(iso: string): string {
@@ -83,6 +84,7 @@ function NewLessonSheet({ onClose, onCreated }: { onClose: () => void; onCreated
         sections: [{ title: 'Warm-up', exercises: [{ type: 'note', title: 'What this lesson covers', body: 'Write a short explanation here.' }] }],
       };
       const item = await createLibraryItem(spec);
+      track('tutor.library_save', { created: true });
       onCreated(item.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create the lesson');
@@ -173,6 +175,7 @@ export function AssignSheet({ itemId, itemTitle, onClose, onDone }: {
     try {
       if (!hasOneOff(mode)) {
         const result = await assignLibraryItem(itemId, Array.from(selected));
+        if (result.assigned.length) track('tutor.library_assign', { students: result.assigned.length });
         const parts: string[] = [];
         if (result.assigned.length) parts.push(`assigned to ${result.assigned.length} student${result.assigned.length === 1 ? '' : 's'}`);
         if (result.already_had.length) parts.push(`${result.already_had.length} already had it`);
@@ -193,6 +196,7 @@ export function AssignSheet({ itemId, itemTitle, onClose, onDone }: {
         }
       }
       if (ok === 0) throw new Error(failures[0] ?? 'Could not assign');
+      track('tutor.library_assign', { students: ok });
       const base = `Assigned “${itemTitle}” to ${ok} student${ok === 1 ? '' : 's'} — due ${shortDay(dueDate)}`;
       onDone(failures.length ? `${base} · ${failures.length} failed: ${failures[0]}` : base);
     } catch (err) {

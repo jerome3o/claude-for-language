@@ -153,7 +153,12 @@ export type LayoutAction =
   /** An in-call activity started (by either person): it goes on the stage, the cameras float. */
   | { type: 'activityStarted' }
   /** A tile dragged (or moved from its menu) onto a drop zone of the stage (`layoutForDrop`). */
-  | { type: 'drop'; tile: TileId; zone: DropZone };
+  | { type: 'drop'; tile: TileId; zone: DropZone }
+  /**
+   * The tutor showed this tile to the student ("Show for student", shared/calls/follow.ts): it goes
+   * on the stage with the cameras floating — unless it is already there (a split keeps its partner).
+   */
+  | { type: 'shown'; tile: TileId };
 
 export function layoutReducer(l: CallLayout, action: LayoutAction): CallLayout {
   switch (action.type) {
@@ -217,6 +222,12 @@ export function layoutReducer(l: CallLayout, action: LayoutAction): CallLayout {
       return { ...l, mode: 'focus', main: 'material', remoteFloat: true };
     case 'activityStarted':
       return { ...l, mode: 'focus', main: 'activity', remoteFloat: true };
+    case 'shown': {
+      const open = withOpen(l, action.tile);
+      const onStage = l.mode === 'focus' ? l.main === action.tile : l.mode === 'split' ? l.main === action.tile || l.second === action.tile : false;
+      if (onStage) return { ...l, open };
+      return { ...l, mode: 'focus', main: action.tile, remoteFloat: true, open };
+    }
     case 'close': {
       if (action.tile === 'remote' || action.tile === 'self') return l; // cameras can't be closed
       const open = l.open.filter((t) => t !== action.tile);

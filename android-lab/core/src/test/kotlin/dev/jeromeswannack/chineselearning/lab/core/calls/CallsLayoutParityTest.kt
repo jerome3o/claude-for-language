@@ -68,6 +68,7 @@ class CallsLayoutParityTest {
         "materialStarted" -> Action.MaterialStarted
         "activityStarted" -> Action.ActivityStarted
         "drop" -> Action.Drop(tile(o["tile"]!!), zone(o["zone"]!!))
+        "shown" -> Action.Shown(tile(o["tile"]!!))
         else -> fail("action $o")
     }
 

@@ -12,6 +12,7 @@ import { getMyRelationships } from '../api/client';
 import { CLAUDE_AI_USER_ID, getOtherUserInRelationship } from '../types';
 import type { CallListItem } from '../types/calls';
 import { groupCallsByLesson } from '@shared/calls';
+import { track, trackError } from '../services/analytics';
 import './CallPage.css';
 import './CallReviewPage.css';
 
@@ -55,8 +56,10 @@ export function CallsListPage() {
     setError(null);
     try {
       const { call } = await createCall({ relationship_id: relationshipId });
+      track('call.start', { solo: !relationshipId });
       navigate(`/calls/${call.id}`);
     } catch (err) {
+      trackError('call_start', err);
       setError(err instanceof Error ? err.message : 'Could not start the call');
       setStarting(null);
     }
@@ -110,7 +113,7 @@ export function CallsListPage() {
             <p className="td-muted">No calls yet.</p>
           ) : (
             <div className="calls-list" data-testid="calls-list">
-              {/* One entry per lesson (calls within 20 minutes of each other), its calls inside. */}
+              {/* One entry per lesson (calls within two hours of each other), its calls inside. */}
               {groupCallsByLesson(calls).map(({ lessonId, calls: group }) => {
                 const live = group.find((c) => c.status === 'live');
                 const head = live ?? group[group.length - 1];

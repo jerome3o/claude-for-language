@@ -68,7 +68,8 @@ test('an IME span that never closes does not hold the other person back; the car
   await join(tp, call.call.id);
   await join(sp, call.call.id);
   await tp.getByTestId('open-board').click();
-  await sp.getByTestId('open-board').click();
+  // Round 5: the tutor opening the board shows it to the student (no click — a click would close it again).
+  await expect(sp.getByTestId('call-tiles')).toHaveAttribute('data-stage', /text/, { timeout: 10000 });
   const tBoard = tp.getByTestId('text-board');
   const sBoard = sp.getByTestId('text-board');
   await tBoard.click();

@@ -16,6 +16,7 @@ import type { LocalDeck } from '../db/database';
 import { spliceGroupOrder } from '@shared/folders';
 import { FolderGroups, FolderToolbar, SelectionBar, useFolderUi, type FolderUi } from '../components/folders/FolderGroups';
 import { Toast, useToast } from '../components/Toast';
+import { track } from '../services/analytics';
 
 // Queue counts display component
 function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
@@ -178,6 +179,7 @@ function DeckGrid({
   const drag = useLongPressReorder(ids, async (groupOrder) => {
     try {
       await reorderQueue(spliceGroupOrder(queueIds, groupOrder));
+      track('deck.reorder', { how: 'drag' });
     } catch (err) {
       console.error('[Decks] drag reorder failed', err);
     }
@@ -276,6 +278,7 @@ export function DecksPage() {
     try {
       if (to === 'top' || to === 'bottom') await moveDeckInQueue(deckId, to);
       else await nudgeDeckInQueue(decks as LocalDeck[], deckId, to);
+      track('deck.reorder', { how: to });
     } catch (err) {
       console.error('[Decks] reorder failed', err);
     }
@@ -309,6 +312,7 @@ export function DecksPage() {
   const createMutation = useMutation({
     mutationFn: () => createDeck(name, description || undefined),
     onSuccess: (deck) => {
+      track('deck.create', { source: 'manual' });
       queryClient.invalidateQueries({ queryKey: ['decks'] });
       setShowModal(false);
       setName('');

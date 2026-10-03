@@ -1,3 +1,4 @@
+import { autoCheckMessageInBackground } from '../services/chat/auto-check';
 import { Hono } from 'hono';
 import { Env, User } from '../types';
 import { createSession } from '../services/auth';
@@ -169,6 +170,32 @@ testAuth.post('/homework-draft', async (c) => {
 });
 
 /**
+ * POST /api/test/chat-auto-check — run the chat auto-check on a message with a
+ * canned answer instead of Claude (E2E + screenshots): the real store +
+ * `message_updated` path. Body: { message_id, result? } where result is the
+ * check_message tool input (default: one 了 too many).
+ */
+testAuth.post('/chat-auto-check', async (c) => {
+  const b = await c.req.json<{ message_id: string; result?: unknown }>();
+  const row = await c.env.DB.prepare('SELECT content FROM messages WHERE id = ?').bind(b.message_id).first<{ content: string }>();
+  if (!row) return c.json({ error: 'message not found' }, 404);
+  const canned = b.result ?? {
+    status: 'improvable',
+    severity: 'minor',
+    corrected: { hanzi: row.content.replace('去了', '去'), pinyin: 'wǒ zuótiān qù shāngdiàn mǎi dōngxi le', english: 'I went to the shop to buy things yesterday.' },
+    mistakes: [{
+      quote: '去了', fix: '去', why: 'One 了 at the end is enough here — 去 and 买 are one action.',
+      card: { hanzi: '去商店买东西', pinyin: 'qù shāngdiàn mǎi dōngxi', english: 'go to the shop to buy things', fun_facts: '去 (qù) go\n商店 (shāngdiàn) shop\n买 (mǎi) buy\n东西 (dōngxi) things\nVerb series: 去 + place + what you do there.' },
+    }],
+    alternative: { hanzi: '我昨天去商店买了点东西', pinyin: 'wǒ zuótiān qù shāngdiàn mǎi le diǎn dōngxi', english: 'I bought a few things at the shop yesterday.', note: 'Sounds more natural in conversation.' },
+    card: { hanzi: '我昨天去商店买东西了。', pinyin: 'wǒ zuótiān qù shāngdiàn mǎi dōngxi le', english: 'I went to the shop to buy things yesterday.', fun_facts: '我 (wǒ) I\n昨天 (zuótiān) yesterday\n去 (qù) go\n商店 (shāngdiàn) shop\n买 (mǎi) buy\n东西 (dōngxi) things\n了 (le) completed\nOne 了 at the end covers the whole series.' },
+  };
+  await c.env.DB.prepare('UPDATE messages SET auto_check = NULL WHERE id = ?').bind(b.message_id).run();
+  const outcome = await autoCheckMessageInBackground(c.env, b.message_id, { check: async () => canned });
+  return c.json({ outcome });
+});
+
+/**
  * POST /api/test/picture-hunt — a picture hunt without running the pipeline
  * (E2E + screenshots). Body: { user_id, title?, status?: ready|generating|error,
  * progress?, error?, objects?: HuntObject[], image_base64?, mime? }.
@@ -187,6 +214,42 @@ testAuth.post('/picture-hunt', async (c) => {
   else if (status === 'error') await huntDb.setPictureHuntError(c.env.DB, id, b.error ?? 'Finding the objects failed (Gemini 503)');
   if (b.progress) await huntDb.setPictureHuntProgress(c.env.DB, id, b.progress);
   return c.json({ id });
+});
+
+/**
+ * POST /api/test/merged-chats — a pair's chat as migration 0102 leaves it after
+ * merging older conversations (one chat per pair): the one conversation holding
+ * every message, plus the merged-away rows pointing at it (old links / ids).
+ * Body: { relationship_id, old_titles: string[], messages: [{ sender_id, content, created_at }] }
+ * → { conversation_id, merged_ids }.
+ */
+testAuth.post('/merged-chats', async (c) => {
+  const b = await c.req.json<{ relationship_id: string; old_titles?: string[]; messages?: Array<{ sender_id: string; content: string; created_at: string }> }>();
+  const db = c.env.DB;
+  const existing = await db
+    .prepare("SELECT id FROM conversations WHERE relationship_id = ? AND merged_into IS NULL AND COALESCE(is_ai_conversation, 0) = 0")
+    .bind(b.relationship_id)
+    .first<{ id: string }>();
+  const primary = existing?.id ?? crypto.randomUUID();
+  if (!existing) {
+    await db.prepare('INSERT INTO conversations (id, relationship_id, title) VALUES (?, ?, NULL)').bind(primary, b.relationship_id).run();
+  }
+  const mergedIds: string[] = [];
+  for (const title of b.old_titles ?? []) {
+    const id = crypto.randomUUID();
+    mergedIds.push(id);
+    await db.prepare('INSERT INTO conversations (id, relationship_id, title, merged_into) VALUES (?, ?, ?, ?)').bind(id, b.relationship_id, title, primary).run();
+  }
+  let last: string | null = null;
+  for (const m of b.messages ?? []) {
+    await db
+      .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), primary, m.sender_id, m.content, m.created_at)
+      .run();
+    if (!last || m.created_at > last) last = m.created_at;
+  }
+  if (last) await db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').bind(last, primary).run();
+  return c.json({ conversation_id: primary, merged_ids: mergedIds });
 });
 
 testAuth.post('/cleanup', async (c) => {

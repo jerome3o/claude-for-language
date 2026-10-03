@@ -1,6 +1,8 @@
 name = "chinese-learning-api"
 main = "src/index.ts"
 compatibility_date = "2024-05-29"
+# AsyncLocalStorage: the analytics request scope (services/analytics/scope.ts).
+compatibility_flags = ["nodejs_als"]
 
 # D1 Database
 # After running `wrangler d1 create chinese-learning-db`, replace the database_id below
@@ -29,6 +31,13 @@ bucket_name = "chinese-learning-audio"
 # - SENDGRID_API_KEY: SendGrid API key for email notifications (message alerts, invitations)
 [vars]
 ENVIRONMENT = "production"
+# MiniMax rate (docs/AUDIO.md "Rate limit"): the limiter LEARNS the rate
+# (starts at 8/min, +2 per clean busy minute, halves on a 1002 / 429).
+# MINIMAX_RPM is a HARD cap on what it may learn — 9 = under the Starter plan
+# (10/min). On pay-as-you-go (60/min), delete MINIMAX_RPM and it climbs to
+# MINIMAX_RPM_MAX by itself.
+MINIMAX_RPM = "9"
+MINIMAX_RPM_MAX = "60"
 
 # Local development settings
 [dev]
@@ -69,6 +78,8 @@ queue = "sentence-set-queue"
 max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
+# Its clips go to tts-queue; this only bounds the Claude calls.
+max_concurrency = 2
 
 # Queue for background quest generation. A quest world is one big Claude call
 # plus up to two repair rounds, which outlives a waitUntil() — the isolate gets
@@ -146,12 +157,60 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 2
 
+# Every background TTS clip (one per message) and the audio backfill pump
+# (docs/AUDIO.md). Small batches, at most 2 at once: MiniMax allows a fixed
+# number of requests per minute and the TtsLimiter paces every call.
+# Create with: `wrangler queues create tts-queue`
+[[queues.producers]]
+queue = "tts-queue"
+binding = "TTS_QUEUE"
+
+[[queues.consumers]]
+queue = "tts-queue"
+max_batch_size = 4
+max_batch_timeout = 2
+max_concurrency = 2
+max_retries = 3
+
+# One MiniMax rate limiter for every TTS call (token bucket, priorities,
+# backfill pump lease) — docs/AUDIO.md.
+[[durable_objects.bindings]]
+name = "TTS_LIMITER"
+class_name = "TtsLimiter"
+
+[[migrations]]
+tag = "v3-tts-limiter"
+new_sqlite_classes = ["TtsLimiter"]
+
 # Workers AI (for speech-to-text transcription)
 [ai]
 binding = "AI"
 
+# Workers Observability: every request logs one JSON line (services/analytics/request-log.ts).
+# Two-ish users, so keep every log (turn head_sampling_rate down if volume grows).
 [observability]
 enabled = true
+head_sampling_rate = 1
+
+# Daily at 03:17 UTC: prune usage_events older than 180 days (docs/ANALYTICS.md).
+# 23:00 + 00:00 UTC: the nightly audio backfill, acting only at London midnight
+# (so DST is handled); :37 hourly keeps the daytime drain going (docs/AUDIO.md).
+[triggers]
+crons = ["17 3 * * *", "0 23 * * *", "0 0 * * *", "37 * * * *"]
 
 # Frontend is deployed separately to Cloudflare Pages
 # See .github/workflows/deploy.yml
+
+# Queue for word checks (services/card-check.ts): new / edited notes when the
+# account's "Check new words" is on, and per-deck "Check for errors" runs (Haiku
+# in batches of 40, progress saved after each batch so a redelivery resumes).
+# Create with: `wrangler queues create card-check-queue`
+[[queues.producers]]
+queue = "card-check-queue"
+binding = "CARD_CHECK_QUEUE"
+
+[[queues.consumers]]
+queue = "card-check-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 2

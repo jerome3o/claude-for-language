@@ -10,6 +10,8 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { getCall } from '../api/calls';
+import { track, trackError } from '../services/analytics';
+import { ACTIVITY_CATALOGUE } from '@shared/call-activities';
 import { useCall, canShareScreen } from '../hooks/useCall';
 import { CallRecorder } from '../services/calls/recorder';
 import { Whiteboard } from '../components/calls/Whiteboard';
@@ -23,6 +25,18 @@ import {
   boardOnStage as isBoardOnStage,
   formatOffset,
   initialLinkHealth,
+  isAvailable,
+  followStep,
+  autoShowBoard,
+  isShowing,
+  showingBanner,
+  shareStoppedNote,
+  tileForShow,
+  SHOW_BUTTON_LABEL,
+  SHOWN_BUTTON_LABEL,
+  STOP_THEIR_SHARE_LABEL,
+  type AppliedShow,
+  type ShowView,
   layoutReducer,
   layoutShortcut,
   PRESETS,
@@ -124,6 +138,15 @@ export function CallPage() {
     }
   }, [layout, user]);
   const [layoutOpen, setLayoutOpen] = useState(false);
+  // Analytics: when I joined (call.leave / call.end carry the time in the call).
+  const joinedAtRef = useRef<number | null>(null);
+  const trackLeft = (event: 'call.leave' | 'call.end') => {
+    track(event, { duration_ms: joinedAtRef.current ? Date.now() - joinedAtRef.current : null });
+    joinedAtRef.current = null;
+  };
+  useEffect(() => {
+    if (call.phase === 'error') trackError('call', call.error ?? 'error');
+  }, [call.phase, call.error]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [endConfirm, setEndConfirm] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
@@ -218,7 +241,56 @@ export function CallPage() {
   useEffect(() => {
     if (activityId) dispatch({ type: 'activityStarted' });
   }, [activityId]);
-  const chatVisible = arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage.includes('chat') || (layout.open.includes('chat') && layout.mode === 'grid');
+  const stageTiles = arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage;
+  const chatVisible = stageTiles.includes('chat') || (layout.open.includes('chat') && layout.mode === 'grid');
+  const stageKey = stageTiles.join(',');
+
+  // ---- round 5 (shared/calls/follow.ts): the tutor leads the student's stage.
+  const iLead = !!call.tutorId && call.tutorId === user!.id;
+  // The board page I'm on (the text board's session changes it).
+  const [boardPage, setBoardPage] = useState(call.textBoard.page);
+  useEffect(() => call.textBoard.subscribe(() => setBoardPage(call.textBoard.page)), [call.textBoard]);
+  // Tutor: opening the board shows it to the student too; turning its page while it is shown follows.
+  const prevStageRef = useRef<string[]>(stageTiles);
+  useEffect(() => {
+    const prev = prevStageRef.current;
+    prevStageRef.current = stageTiles;
+    if (!iLead || call.phase !== 'live') return;
+    const kind = autoShowBoard(prev as TileId[], stageTiles);
+    if (kind) call.show(kind === 'text' ? { kind, page: call.textBoard.page || undefined } : { kind });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageKey, iLead, call.phase]);
+  useEffect(() => {
+    const sh = call.shown;
+    if (!iLead || !boardPage || !sh || sh.by !== user!.id || sh.view.kind !== 'text' || sh.view.page === boardPage) return;
+    if (stageTiles.includes('text')) call.show({ kind: 'text', page: boardPage }, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardPage, iLead]);
+  // Student: each new show goes on my stage once (then my own layout wins); page turns follow while I'm on the board.
+  const appliedShowRef = useRef<AppliedShow | null>(null);
+  const [bannerShow, setBannerShow] = useState<string | null>(null);
+  useEffect(() => {
+    const sh = call.shown;
+    if (!sh) return;
+    const tile = tileForShow(sh.view);
+    const step = followStep(appliedShowRef.current, sh, user!.id, isAvailable(tile, available), stageTiles.includes(tile));
+    if (step.kind === 'none') return;
+    appliedShowRef.current = { id: sh.id, v: sh.v };
+    if (step.kind === 'stage') {
+      dispatch({ type: 'shown', tile: step.tile });
+      setBannerShow(sh.id);
+    }
+    const page = step.kind === 'stage' ? step.page : step.page;
+    if (page && page !== call.textBoard.page) call.textBoard.openPage(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.shown, available.screen, available.material, available.activity]);
+  const bannerOn = !!call.shown && bannerShow === call.shown.id && call.shown.by !== user!.id && stageTiles.includes(tileForShow(call.shown.view));
+  // "Minghui stopped your screen share": a few seconds.
+  useEffect(() => {
+    if (!call.shareStoppedBy) return;
+    const t = setTimeout(call.dismissShareStopped, 6000);
+    return () => clearTimeout(t);
+  }, [call.shareStoppedBy, call.dismissShareStopped]);
   useEffect(() => {
     if (chatVisible) setSeenChat(call.chat.length);
   }, [chatVisible, call.chat.length]);
@@ -255,7 +327,7 @@ export function CallPage() {
             It goes on for {detail.participants.find((p) => p.id !== call.myUserId)?.name?.split(' ')[0] ?? 'the other person'} — rejoin from here or from another device. A call nobody is in ends by itself after 10 minutes.
           </p>
           <div className="call-ended-actions">
-            <button type="button" className="btn btn-primary" onClick={() => void call.rejoin()} data-testid="rejoin-call">Rejoin</button>
+            <button type="button" className="btn btn-primary" onClick={() => { joinedAtRef.current = Date.now(); track('call.join', { role: 'rejoin' }); void call.rejoin(); }} data-testid="rejoin-call">Rejoin</button>
             <Link to="/calls" className="btn btn-secondary">All calls</Link>
           </div>
         </div>
@@ -316,7 +388,12 @@ export function CallPage() {
           <button
             type="button"
             className="btn btn-primary call-join-btn"
-            onClick={() => void call.join({ record })}
+            onClick={() => {
+              joinedAtRef.current = Date.now();
+              const c = callQuery.data?.call;
+              track('call.join', { role: !c?.relationship_id ? 'solo' : c.created_by === user!.id ? 'host' : 'guest' });
+              void call.join({ record });
+            }}
             disabled={call.phase === 'joining'}
             data-testid="join-call"
           >
@@ -353,10 +430,23 @@ export function CallPage() {
   const chatOnStage = chatVisible;
   const first = otherName.split(' ')[0];
 
+  /** The tutor's corner button on a tile on her stage: "Show for student" / "Showing ✓". */
+  const showButton = (tile: TileId, view: ShowView) => {
+    if (!iLead || !stageTiles.includes(tile)) return null;
+    const on = isShowing(call.shown, call.myUserId, view);
+    // The boards have room in their tab row; elsewhere the top bar is full of controls → the bottom-left corner.
+    const corner = tile === 'text' || tile === 'draw' ? '' : ' bottom';
+    return (
+      <button type="button" className={`call-show-btn${corner}${on ? ' on' : ''}`} onClick={() => call.show(view)} data-testid={`show-${tile}`} title="Put this on the student's screen">
+        {on ? SHOWN_BUTTON_LABEL : `👁 ${SHOW_BUTTON_LABEL}`}
+      </button>
+    );
+  };
+
   const boardSwitch = (current: 'text' | 'draw') => (
     <div className="call-board-switch" role="tablist">
       <button type="button" role="tab" aria-selected={current === 'text'} className={current === 'text' ? 'active' : ''} onClick={() => dispatch({ type: 'swap', from: 'draw', to: 'text' })} data-testid={current === 'draw' ? 'board-tab-text' : undefined}>Board</button>
-      <button type="button" role="tab" aria-selected={current === 'draw'} className={current === 'draw' ? 'active' : ''} onClick={() => dispatch({ type: 'swap', from: 'text', to: 'draw' })} data-testid={current === 'text' ? 'board-tab-draw' : undefined}>Draw</button>
+      <button type="button" role="tab" aria-selected={current === 'draw'} className={current === 'draw' ? 'active' : ''} onClick={() => { if (current !== 'draw') track('call.board', { tile: 'draw' }); dispatch({ type: 'swap', from: 'text', to: 'draw' }); }} data-testid={current === 'text' ? 'board-tab-draw' : undefined}>Draw</button>
     </div>
   );
 
@@ -409,6 +499,12 @@ export function CallPage() {
             // My own shared screen, as big as any tile: I can draw on it too.
             <CallVideo stream={call.screenStream} muted screen className="call-self-screen" testId="my-screen" onVideoSize={setMyScreenSize} />
           )}
+          {iShare && showButton('screen', { kind: 'screen' })}
+          {remoteSharing && iLead && (
+            <button type="button" className="call-stop-their-share" onClick={() => call.stopTheirShare()} data-testid="stop-their-share">
+              ⏹ {STOP_THEIR_SHARE_LABEL}
+            </button>
+          )}
           <AnnotationLayer
             store={call.annotations}
             video={remoteSharing ? remoteSize : myScreenSize}
@@ -449,6 +545,8 @@ export function CallPage() {
     material: {
       label: call.presenting ? `📑 ${call.presenting.title}` : 'Material',
       content: call.presenting ? (
+        <div className="call-tile-body call-show-host">
+        {showButton('material', { kind: 'material' })}
         <MaterialTile
           presenting={call.presenting}
           store={call.materialAnnotations}
@@ -458,14 +556,18 @@ export function CallPage() {
           onTurn={call.turnMaterialPage}
           onStop={() => void call.stopPresenting()}
           annot={call.materialAnnot}
-          active={arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage.includes('material')}
+          active={stageTiles.includes('material')}
         />
+        </div>
       ) : null,
     },
     activity: {
       label: call.activity ? `🎲 ${call.activity.spec.title}` : 'Activity',
       content: call.activity ? (
-        <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
+        <div className="call-tile-body call-show-host">
+          {showButton('activity', { kind: 'activity' })}
+          <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
+        </div>
       ) : null,
     },
     text: {
@@ -474,6 +576,7 @@ export function CallPage() {
       content: (
         <div className="call-tile-body call-paper" data-testid="call-panel-text">
           {boardSwitch('text')}
+          {showButton('text', { kind: 'text', page: boardPage || undefined })}
           <TextBoard session={call.textBoard} gloss={{ callId, userId: call.myUserId }} />
         </div>
       ),
@@ -484,6 +587,7 @@ export function CallPage() {
       content: (
         <div className="call-tile-body call-paper" data-testid="call-panel-board">
           {boardSwitch('draw')}
+          {showButton('draw', { kind: 'draw' })}
           <Whiteboard items={call.board} live={call.liveStrokes} myUserId={call.myUserId} onCommit={call.commitBoard} onLive={call.sendLiveStroke} />
         </div>
       ),
@@ -509,6 +613,18 @@ export function CallPage() {
       </div>
 
       <div className="call-main">
+        {bannerOn && call.shown && (
+          <div className="call-showing-banner" role="status" data-testid="showing-banner">
+            <span>👁 {showingBanner(call.shown.name.split(' ')[0])}</span>
+            <button type="button" onClick={() => setBannerShow(null)} aria-label="Hide">✕</button>
+          </div>
+        )}
+        {call.shareStoppedBy && (
+          <div className="call-showing-banner note" role="status" data-testid="share-stopped-note">
+            <span>⏹ {shareStoppedNote(call.shareStoppedBy.name.split(' ')[0])}</span>
+            <button type="button" onClick={call.dismissShareStopped} aria-label="Dismiss">✕</button>
+          </div>
+        )}
         <CallTiles
           layout={layout}
           dispatch={dispatch}
@@ -568,6 +684,7 @@ export function CallPage() {
           running={call.activity && call.activity.phase !== 'done' ? call.activity.spec.title : null}
           onPick={(id) => {
             call.startActivity(id);
+            track('call.activity_start', { activity_kind: ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null });
             setActivitiesOpen(false);
           }}
           onClose={() => setActivitiesOpen(false)}
@@ -590,14 +707,17 @@ export function CallPage() {
         <button
           type="button"
           className={`call-btn${boardOnStage ? ' active' : ''}`}
-          onClick={() => dispatch(boardButton(layout, typeof window !== 'undefined' && window.innerWidth < 640))}
+          onClick={() => {
+            if (!boardOnStage) track('call.board', { tile: 'text' });
+            dispatch(boardButton(layout, typeof window !== 'undefined' && window.innerWidth < 640));
+          }}
           aria-label="Board"
           title="Board — type together, or draw (B)"
           data-testid="open-board"
         >
           📝
         </button>
-        <button type="button" className={`call-btn${chatOnStage ? ' active' : ''}`} onClick={() => dispatch({ type: 'focus', tile: chatOnStage ? 'remote' : 'chat' })} aria-label="Chat" title="Chat (C)" data-testid="open-chat">
+        <button type="button" className={`call-btn${chatOnStage ? ' active' : ''}`} onClick={() => { if (!chatOnStage) track('call.board', { tile: 'chat' }); dispatch({ type: 'focus', tile: chatOnStage ? 'remote' : 'chat' }); }} aria-label="Chat" title="Chat (C)" data-testid="open-chat">
           💬{unread > 0 && !chatOnStage && <span className="call-badge">{unread}</span>}
         </button>
         {canShareScreen() && (
@@ -609,7 +729,7 @@ export function CallPage() {
             <div className="call-more-menu call-layout-menu" role="menu" data-testid="layout-menu">
               <div className="call-layout-presets">
                 {PRESETS.filter((p) => p.id !== 'screen' || available.screen).map((p) => (
-                  <button key={p.id} type="button" role="menuitem" onClick={() => { dispatch({ type: 'preset', preset: p.id }); setLayoutOpen(false); }} data-testid={`preset-${p.id}`}>
+                  <button key={p.id} type="button" role="menuitem" onClick={() => { track('call.layout', { preset: p.id }); dispatch({ type: 'preset', preset: p.id }); setLayoutOpen(false); }} data-testid={`preset-${p.id}`}>
                     <span className={`call-preset-icon preset-${p.id}`} aria-hidden="true" />
                     <span>{p.label}</span>
                     <kbd>{p.key}</kbd>
@@ -646,7 +766,7 @@ export function CallPage() {
               <button type="button" role="menuitem" onClick={() => setPresentOpen(true)} data-testid="menu-present-material">📑 Present material</button>
               <button type="button" role="menuitem" onClick={() => setActivitiesOpen(true)} data-testid="menu-activities">🎲 Activities</button>
               <button type="button" role="menuitem" onClick={() => setDevicesOpen(true)} data-testid="menu-devices">🎛️ Camera, mic &amp; speaker</button>
-              <button type="button" role="menuitem" onClick={() => void call.leave()} data-testid="menu-leave">🚪 Leave — the call goes on</button>
+              <button type="button" role="menuitem" onClick={() => { trackLeft('call.leave'); void call.leave(); }} data-testid="menu-leave">🚪 Leave — the call goes on</button>
               {call.hasCamera && <button type="button" role="menuitem" onClick={() => void call.flipCamera()}>🔄 Flip camera</button>}
               {CallRecorder.supported() && (
                 <button type="button" role="menuitem" onClick={() => void (call.recording ? call.stopRecording() : call.startRecording())}>
@@ -660,7 +780,7 @@ export function CallPage() {
         <button
           type="button"
           className="call-btn leave"
-          onClick={() => void call.leave()}
+          onClick={() => { trackLeft('call.leave'); void call.leave(); }}
           aria-label="Leave — the call continues"
           title="Leave — the call continues (rejoin any time, e.g. from another device)"
           data-testid="leave-call"
@@ -686,8 +806,8 @@ export function CallPage() {
               To switch device or step away, <em>Leave</em> instead — the call goes on.
             </p>
             <div className="call-end-confirm-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => { setEndConfirm(false); void call.leave(); }} data-testid="end-confirm-leave">Just leave</button>
-              <button type="button" className="btn btn-danger" onClick={() => { setEndConfirm(false); void call.endForEveryone(); }} data-testid="end-confirm-end">End for everyone</button>
+              <button type="button" className="btn btn-secondary" onClick={() => { setEndConfirm(false); trackLeft('call.leave'); void call.leave(); }} data-testid="end-confirm-leave">Just leave</button>
+              <button type="button" className="btn btn-danger" onClick={() => { setEndConfirm(false); trackLeft('call.end'); void call.endForEveryone(); }} data-testid="end-confirm-end">End for everyone</button>
               <button type="button" className="btn btn-link" onClick={() => setEndConfirm(false)}>Cancel</button>
             </div>
           </div>

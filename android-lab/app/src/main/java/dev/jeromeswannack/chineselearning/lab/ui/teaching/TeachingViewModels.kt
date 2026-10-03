@@ -24,7 +24,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.lessonLibrary
 import dev.jeromeswannack.chineselearning.lab.data.api.lessonLog
 import dev.jeromeswannack.chineselearning.lab.data.api.liveCalls
 import dev.jeromeswannack.chineselearning.lab.data.api.moveSharedDeck
-import dev.jeromeswannack.chineselearning.lab.data.api.openConversation
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.data.api.relationshipHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.removeRelationship
 import dev.jeromeswannack.chineselearning.lab.data.api.reopenCardFlag
@@ -36,6 +36,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.sharedReaders
 import dev.jeromeswannack.chineselearning.lab.data.api.startCall
 import dev.jeromeswannack.chineselearning.lab.data.api.studentClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.api.studentLessons
+import dev.jeromeswannack.chineselearning.lab.data.api.createHomeworkLink
+import dev.jeromeswannack.chineselearning.lab.data.api.sendLinkHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.studentOverview
 import dev.jeromeswannack.chineselearning.lab.data.api.studentSharedDecks
 import dev.jeromeswannack.chineselearning.lab.data.api.teachingMe
@@ -70,7 +72,8 @@ object TeachingKeys {
     fun homework(relId: String) = "teaching/homework/$relId"
     fun flags(relId: String) = "teaching/flags/$relId"
     fun claude(relId: String) = "teaching/claude/$relId"
-    fun conversations(relId: String) = "teaching/conversations/$relId"
+    /** v2: one chat per pair (migration 0102) — lists cached before it held merged-away chats. */
+    fun conversations(relId: String) = "teaching/conversations-v2/$relId"
     fun lessons(relId: String) = "teaching/lessons/$relId"
     fun lessonLog(relId: String) = "teaching/lesson-log/$relId"
     fun readers(relId: String) = "teaching/shared-readers/$relId"
@@ -93,8 +96,11 @@ class DashboardViewModel(private val app: LabApp) : ViewModel() {
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
+    /** Every student's homework library: the newest item goes on each card. */
+    val library = HomeworkLibrarySource(app, viewModelScope, null)
+
     /** The Send-homework sheet opened from a student's card. */
-    val send = SendHomeworkController(app, viewModelScope) { dashboard.refresh() }
+    val send = SendHomeworkController(app, viewModelScope) { dashboard.refresh(); library.refresh() }
 
     fun revoke(invite: PendingInviteDto) = viewModelScope.launch {
         attempt { app.repo.api.revokeInvite(invite.id) }
@@ -106,12 +112,12 @@ class DashboardViewModel(private val app: LabApp) : ViewModel() {
             .onFailure { _notice.value = it.userMessage() }
     }
 
-    /** Message: the known conversation, else the most recent one (created if none). */
+    /** Message: THE chat with the student (one chat per pair) — the known id, else `/conversations/open`. */
     fun message(o: dev.jeromeswannack.chineselearning.lab.data.api.StudentOverviewDto, go: (String) -> Unit) {
         o.last_conversation_id?.let { go(it); return }
         viewModelScope.launch {
-            attempt { app.repo.api.openConversation(o.relationship_id) }
-                .onSuccess { go(it.conversation_id) }
+            attempt { ChatPair.theChat(app, o.relationship_id) }
+                .onSuccess { go(it) }
                 .onFailure { _notice.value = it.userMessage() }
         }
     }
@@ -199,6 +205,7 @@ class SendHomeworkController(private val app: LabApp, private val scope: Corouti
             if (res.assignments.isEmpty()) error(res.errors.firstOrNull()?.error ?: "Could not send the deck")
             res
         }.onSuccess { res ->
+            app.analytics.track("tutor.send_homework", mapOf("items" to 1, "mode" to o.mode.wire, "kind" to "deck", "split_days" to o.splitDays))
             val hanzi = res.skipped.flatMap { it.hanzi }
             val skipped = if (hanzi.isEmpty()) "" else " Left out ${TeachingFormat.plural(hanzi.size, "word")} they already have (${hanzi.take(6).joinToString("、")}${if (hanzi.size > 6) "…" else ""})."
             celebrate()
@@ -226,11 +233,26 @@ class SendHomeworkController(private val app: LabApp, private val scope: Corouti
             .onSuccess { res ->
                 if (res.errors.isNotEmpty()) done(SendOutcome(error = res.errors.first().error))
                 else {
+                    app.analytics.track("tutor.send_homework", mapOf("items" to 1, "mode" to o.mode.wire, "kind" to "lesson"))
                     celebrate()
                     done(SendOutcome(result = "Assigned ${item.title} to $studentName ${if (o.mode.hasOneOff) sendHow("lesson", o) else "— it will appear in their next study session"}."))
                 }
                 onChanged()
             }.onFailure { done(SendOutcome(error = it.userMessage())) }
+    }
+
+    /** 🔗 A link: POST /api/homework-links (my account), then POST …/homework { kind: 'link', mode: 'one_off' }. */
+    fun sendLink(relId: String, studentName: String, draft: LinkDraft, done: (SendOutcome) -> Unit) = scope.launch {
+        attempt {
+            val link = app.repo.api.createHomeworkLink(dev.jeromeswannack.chineselearning.lab.data.api.HomeworkLinkBody(draft.title, draft.url, draft.instructions))
+            val res = app.repo.api.sendLinkHomework(relId, link.id, draft.dueDate)
+            if (res.assignments.isEmpty()) error(res.errors.firstOrNull()?.error ?: "Could not send the link")
+            res
+        }.onSuccess {
+            celebrate()
+            done(SendOutcome(result = "Sent “${draft.title}” to $studentName" + (draft.dueDate?.let { " — due ${HomeworkPlan.shortDay(it)}" } ?: "") + ". They'll see it in their homework after their next sync."))
+            onChanged()
+        }.onFailure { done(SendOutcome(error = it.userMessage())) }
     }
 
     private fun celebrate() {
@@ -250,6 +272,8 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     val lessons = app.cachedResource(viewModelScope, TeachingKeys.lessons(relId), TeachingKeys.KIND) { studentLessons(relId) }
     val lessonLog = app.cachedResource(viewModelScope, TeachingKeys.lessonLog(relId), TeachingKeys.KIND) { lessonLog(relId) }
     val readers = app.cachedResource(viewModelScope, TeachingKeys.readers(relId), TeachingKeys.KIND) { sharedReaders(relId) }
+    /** The homework library of this student ("Most recent homework" at the top of the page). */
+    val library = HomeworkLibrarySource(app, viewModelScope, relId)
 
     /** Take homework back: the confirm sheet + toast; the row leaves the lists at once, then they refresh. */
     val removal = HomeworkRemovalController(app, viewModelScope, relId) { target, _ ->
@@ -263,7 +287,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
             }
             else -> readers.update { r -> r.orEmpty().filterNot { it.id == target.id || it.target_reader_id == target.id } }
         }
-        overview.refresh(); homework.refresh(); lessons.refresh(); readers.refresh()
+        overview.refresh(); homework.refresh(); lessons.refresh(); readers.refresh(); library.refresh()
         app.scope.launch {
             app.cache.delete(TeachingKeys.DASHBOARD)
             app.cache.delete("teaching/session-notes/$relId")
@@ -309,24 +333,24 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     }
 
     fun refresh() {
-        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh(); profile.resource.refresh(); budget.resource.refresh(); readers.refresh()
+        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh(); profile.resource.refresh(); budget.resource.refresh(); readers.refresh(); library.refresh()
     }
 
     private fun refreshAfterHomework() {
-        overview.refresh(); homework.refresh(); lessons.refresh()
+        overview.refresh(); homework.refresh(); lessons.refresh(); library.refresh()
         app.scope.launch { app.cache.delete(TeachingKeys.DASHBOARD) }
     }
 
     fun say(text: String, error: Boolean = false) = _t.update { it.copy(notice = text, noticeIsError = error) }
 
-    /** Message: the most recent conversation, created when there is none. */
+    /** Message: THE chat with the student (one chat per pair) — the known id, else `/conversations/open`. */
     fun message(go: (String) -> Unit) {
         val known = overview.state.value.data?.last_conversation_id ?: conversations.state.value.data?.firstOrNull()?.id
         if (known != null) { go(known); return }
         viewModelScope.launch {
             _t.update { it.copy(messageBusy = true) }
-            attempt { app.repo.api.openConversation(relId) }
-                .onSuccess { conversations.refresh(); go(it.conversation_id) }
+            attempt { ChatPair.theChat(app, relId) }
+                .onSuccess { conversations.refresh(); go(it) }
                 .onFailure { say(it.userMessage(), true) }
             _t.update { it.copy(messageBusy = false) }
         }

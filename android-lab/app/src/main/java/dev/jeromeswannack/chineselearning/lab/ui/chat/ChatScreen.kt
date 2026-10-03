@@ -286,7 +286,8 @@ private fun ChatHeader(ui: ChatUi, actions: ChatActions) {
             if (ui.typing) Text("typing…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
             else if (ui.listeningAvailable && ui.listening.setting.on) Text("🎧 Listening mode", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1, modifier = Modifier.testTag("chat-listening-subtitle"))
             else if (queue != null) Text(queue, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("chat-queue-status"))
-            else ui.conversation?.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            // A chat with a person has no title (one chat per pair); a Claude practice chat shows its own.
+            else if (ui.isAi) ui.conversation?.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             if (ui.proposingCards) Text("Claude is picking cards…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
         }
         if (!ui.isAi && !ui.otherIsClaude) {

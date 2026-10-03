@@ -120,6 +120,7 @@ export function MorePage() {
           <>
             <NavSection title="Teaching">
               <NavRow icon="👥" label="Students" desc="Progress, homework, messages" to="/connections" />
+              <NavRow icon="✅" label="Homework library" desc="Everything you sent, with progress and due dates" to="/homework-library" />
               <NavRow icon="🗂️" label="Lesson Library" desc="Mini lessons you assign — tap one to try it" to="/library" />
               <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
               <NavRow icon="📚" label="Readers" desc="Graded stories to share with students" to="/readers" />
@@ -164,6 +165,7 @@ export function MorePage() {
 
         {showTeaching && (
           <NavSection title="Teaching">
+            {role.hasStudents && <NavRow icon="✅" label="Homework library" desc="Everything you sent, with progress and due dates" to="/homework-library" />}
             <NavRow icon="🗂️" label="Lesson Library" desc="Lessons you assign to students" to="/library" />
             <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
           </NavSection>

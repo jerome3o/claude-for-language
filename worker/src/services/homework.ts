@@ -7,6 +7,7 @@
  */
 
 import type { Env } from '../types';
+import { trackServer } from './analytics/server-events';
 import {
   assignmentRowsFor,
   computeHomeworkLoad,
@@ -29,6 +30,8 @@ import * as content from './content';
 import { shareDeck } from './conversations';
 import { shareReader } from './shared-readers';
 import { queueLessonImages } from './custom-lesson';
+import { getLink } from '../db/homework-links-queries';
+import { cleanLinkNote } from '@shared/homework';
 
 export class HomeworkError extends Error {
   constructor(public status: 400 | 403 | 404 | 409, message: string) {
@@ -82,9 +85,10 @@ export function parseAssignItems(raw: unknown): AssignRequestItem[] {
   return raw.map((r, i) => {
     const it = (r ?? {}) as Record<string, unknown>;
     const kind = typeof it.kind === 'string' ? it.kind : '';
-    if (!['deck', 'lesson', 'reader'].includes(kind)) throw new HomeworkError(400, `items[${i}].kind must be deck, lesson or reader`);
+    if (!['deck', 'lesson', 'reader', 'link'].includes(kind)) throw new HomeworkError(400, `items[${i}].kind must be deck, lesson, reader or link`);
     if (typeof it.source_id !== 'string' || !it.source_id) throw new HomeworkError(400, `items[${i}].source_id is required`);
-    const mode = isHomeworkMode(it.mode) ? it.mode : null;
+    // A link is a single one-off item; its due date is optional (null = none).
+    const mode = kind === 'link' ? 'one_off' : isHomeworkMode(it.mode) ? it.mode : null;
     if (!mode) throw new HomeworkError(400, `items[${i}].mode must be one_off, fsrs or both`);
     if (it.due_date != null && !isDateString(it.due_date)) throw new HomeworkError(400, `items[${i}].due_date must be YYYY-MM-DD`);
     return {
@@ -169,6 +173,22 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
           rows.push({ ...base, target_id: targetId, ...r });
         }
         copies.push({ kind: 'lesson', source_id: item.source_id, target_id: targetId, target_name: spec.title, share_id: null });
+      } else if (item.kind === 'link') {
+        const link = await getLink(db, item.source_id, input.tutorId);
+        if (!link) throw new HomeworkError(404, 'Link not found in your account');
+        rows.push({
+          ...base,
+          mode: 'one_off',
+          target_id: link.id,
+          title: item.title ?? link.title,
+          due_date: item.due_date ?? null,
+          item_ids: null,
+          item_count: 1,
+          part_index: 0,
+          part_count: 1,
+          details: { url: link.url, instructions: link.instructions, thumbnail_url: link.thumbnail_url },
+        });
+        copies.push({ kind: 'link', source_id: link.id, target_id: link.id, target_name: link.title, share_id: null });
       } else if (item.kind === 'reader') {
         const { share, reader } = await shareReader(db, input.relationshipId, input.tutorId, item.source_id);
         const title = item.title ?? reader.title_english ?? reader.title_chinese ?? 'Reader';
@@ -183,6 +203,10 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
   }
 
   const assignments = await hw.insertAssignments(db, rows);
+  for (const kind of ['deck', 'lesson', 'reader'] as const) {
+    const mine = assignments.filter((a) => a.kind === kind);
+    if (mine.length) void trackServer('server.homework_assigned', { kind, mode: mine[0].mode, count: mine.length }, { env, userId: input.tutorId });
+  }
   return { assignments, skipped, errors, copies };
 }
 
@@ -196,7 +220,7 @@ export async function recordEvents(db: D1Database, studentId: string, raw: unkno
     if (typeof e.id !== 'string' || typeof e.assignment_id !== 'string' || typeof e.item_id !== 'string') continue;
     if (e.result !== 'right' && e.result !== 'wrong' && e.result !== 'done') continue;
     const createdAt = typeof e.created_at === 'string' && !isNaN(Date.parse(e.created_at)) ? new Date(e.created_at).toISOString() : new Date().toISOString();
-    events.push({ id: e.id.slice(0, 64), assignment_id: e.assignment_id, item_id: e.item_id, result: e.result, created_at: createdAt });
+    events.push({ id: e.id.slice(0, 64), assignment_id: e.assignment_id, item_id: e.item_id, result: e.result, created_at: createdAt, note: e.result === 'done' ? cleanLinkNote(e.note) : null });
   }
   const ids = Array.from(new Set(events.map((e) => e.assignment_id)));
   const owned = (await hw.getAssignmentsByIds(db, ids)).filter((a) => a.student_id === studentId);

@@ -28,6 +28,7 @@ import {
 } from '@shared/lesson';
 import { QueueCounts, Rating, IntervalPreview } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
+import { track } from '../services/analytics';
 import { RatingButtons } from './RatingButtons';
 import { ExerciseView } from './ExerciseView';
 import { getTTSWithCache } from '../services/ttsCache';
@@ -114,6 +115,12 @@ export function StudyCustomLesson({
   const exerciseStart = useRef(Date.now());
   const attempts = useRef<ExerciseAttempt[]>([]);
   const recordings = useRef<LessonRecording[]>([]);
+  // Analytics: where this lesson is taken (session / homework pass / a tutor's preview).
+  const lessonSource = preview ? 'preview' : counts ? 'session' : 'homework';
+  useEffect(() => {
+    track('lesson.start', { source: lessonSource, exercises: items.length });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson]);
 
   function advance(correct: boolean | null, answer?: ExerciseAnswer, recording?: Blob) {
     const item = items[idx];
@@ -243,6 +250,7 @@ export function StudyCustomLesson({
             onRate={rating => {
               if (isRating) return;
               setIsRating(true);
+              track('lesson.complete', { rating: (['again', 'hard', 'good', 'easy'] as const)[rating], source: lessonSource, duration_ms: Date.now() - startedAt.current.getTime() });
               onComplete(score.correct, score.total, rating, attemptData(), recordings.current);
             }}
             disabled={isRating}

@@ -163,7 +163,7 @@ class SyncContractTest {
         db.close()
     }
 
-    /** Folders (migration 0100): a web move arrives with sync, a phone move reaches the server, a delete un-files. */
+    /** Folders (migration 0105): a web move arrives with sync, a phone move reaches the server, a delete un-files. */
     @Test
     fun foldersRoundTrip() = runBlocking {
         assumeTrue("set LAB_E2E_API to run against a local worker", base != null)

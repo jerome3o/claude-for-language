@@ -21,6 +21,9 @@ hanzi — ONE clean form
 - No placeholders (…, X, 某, "sb", "sth"): fill the slot with a real word so the card is a real sentence, and describe the pattern in fun_facts.
 
 pinyin — tone marks (nǐ hǎo), never tone numbers; spaces between words, not syllables (zhège, xǐshǒujiān).
+- 一 and 不 carry their tone changes: 一 is yī alone, at the end of a word, as a number, ordinal or in dates (第一 dì yī, 十一, 一月一日); yí before a 4th tone (一个 yí gè, 一样 yíyàng), yì before a 1st / 2nd / 3rd tone (一天 yì tiān, 一年 yì nián, 一起 yìqǐ); neutral yi in reduplicated verbs (看一看 kàn yi kàn). 不 is bú before a 4th tone (不是 búshì, 不对 bú duì), otherwise bù (不好 bù hǎo); neutral bu in A不A questions (要不要 yào bu yào).
+- No other tone changes: third tones stay as written (nǐ hǎo, not ní hǎo).
+- A character with several readings takes the one this word uses (银行 yínháng, 长大 zhǎngdà, 觉得 juéde).
 
 english — one clear meaning, the one this card teaches. Further senses go in fun_facts after "Also:", not as a slash list in the field.
 
@@ -33,7 +36,7 @@ sentence_clue — one short natural sentence containing the word exactly as writ
 
 /** One paragraph for tool descriptions and short prompts. */
 export const CARD_STANDARD_SHORT =
-  'Card standard: hanzi is ONE clean form — no slashes, parentheses, brackets, ellipses or blanks (put alternatives and optional characters in fun_facts; the server rejects them); pinyin with tone marks, spaces between words; english = one clear meaning; fun_facts explains every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast; sentence_clue is one short real sentence containing the word, no brackets or slashes.';
+  'Card standard: hanzi is ONE clean form — no slashes, parentheses, brackets, ellipses or blanks (put alternatives and optional characters in fun_facts; the server rejects them); pinyin with tone marks, spaces between words, 一/不 tone changes written (yí gè, bú shì) but no third-tone sandhi; english = one clear meaning; fun_facts explains every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast; sentence_clue is one short real sentence containing the word, no brackets or slashes.';
 
 export interface CardProblem {
   field: 'hanzi' | 'pinyin' | 'english' | 'sentence_clue';

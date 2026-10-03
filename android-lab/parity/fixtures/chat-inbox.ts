@@ -88,6 +88,9 @@ const rows: ChatListRow[] = [
     last_message: { id: 'm5', sender_id: ME, preview: '🎤 Voice message', created_at: '2025-12-31T23:59:59.000Z' } }),
   row({ conversation_id: 'c-g', relationship_id: 'rel-5', is_ai: true, other_user: { id: 'claude', name: 'Claude', picture_url: null },
     last_activity_at: '2026-10-02T12:00:00.000Z', unread: 0 }),
+  // A second Claude practice chat in the same relationship as c-d: the only rows that still show a title.
+  row({ conversation_id: 'c-h', relationship_id: 'rel-3', is_ai: true, title: null, other_user: { id: 'claude', name: 'Claude', picture_url: null },
+    last_activity_at: '2026-10-01T09:00:00.000Z', unread: 0 }),
   row({ conversation_id: 'c-0', relationship_id: 'rel-6', other_user: { id: 'u-6', name: '王老师', picture_url: null },
     last_activity_at: '2026-10-03T08:00:00.000+00:00', unread: 5,
     last_message: { id: 'm6', sender_id: 'u-6', preview: 'Message deleted', created_at: '2026-10-03T08:00:00.000+00:00' } }),

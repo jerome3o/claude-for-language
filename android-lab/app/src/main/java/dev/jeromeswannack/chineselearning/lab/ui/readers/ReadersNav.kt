@@ -124,6 +124,8 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
     val playing by runtime.audio.playing.collectAsState()
     val clips = remember(app) { dev.jeromeswannack.chineselearning.lab.data.readers.ReaderClipAnalyzer(app.cache) }
     DisposableEffect(readerId) { onDispose { runtime.audio.stop() } }
+    // Usage analytics: every reading view (page, session, homework, today) builds this env once per reader.
+    androidx.compose.runtime.LaunchedEffect(readerId) { app.analytics.track("reader.open") }
     var knownVersion by remember { mutableStateOf(0) }
     val known by produceState(emptySet<String>(), knownVersion) {
         value = withContext(Dispatchers.IO) { app.repo.dao.allNotes().mapTo(HashSet()) { it.hanzi.trim() } }
@@ -145,13 +147,13 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
                 add = { deckId, word, ex -> tools.addNote(deckId, readerWordNote(word, ex)) },
             ),
             onDismiss = { tapped = null },
-            onAdded = { app.haptics.correct(); knownVersion++ },
+            onAdded = { app.haptics.correct(); knownVersion++; app.analytics.track("reader.word_add_card") },
         )
     }
     return ReaderEnv(
         words = { page -> runtime.readers.words(readerId, page, app.online.value) },
         known = known,
-        onWord = { w, sentence -> tapped = w to sentence; app.haptics.tick() },
+        onWord = { w, sentence -> tapped = w to sentence; app.haptics.tick(); app.analytics.track("reader.word_tap") },
         pageAudio = { page, regenerate -> runtime.audio.stop(); runtime.readers.pageAudio(page, app.online.value, regenerate) },
         analyze = { page, file -> clips.analyze(runtime.readers.pageTtsKey(page).removePrefix("reader-tts/"), file) },
         image = { page -> runtime.readers.pageImage(readerId, page, app.online.value) },

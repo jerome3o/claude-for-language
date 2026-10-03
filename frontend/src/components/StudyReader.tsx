@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { track } from '../services/analytics';
 import { LocalReader, LocalReaderPage } from '../db/database';
 import { Rating, IntervalPreview, QueueCounts } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
@@ -162,7 +163,13 @@ export function StudyReader({
   const page = reader.pages[currentPage];
   const isLastPage = currentPage === reader.pages.length - 1;
 
+  useEffect(() => {
+    track('reader.open', { source: counts ? 'session' : 'homework', pages: reader.pages.length });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reader.id]);
+
   const handleRate = (rating: Rating) => {
+    track('reader.finish', { rating: (['again', 'hard', 'good', 'easy'] as const)[rating], pages: reader.pages.length });
     onRate(rating, Date.now() - startTime);
   };
 

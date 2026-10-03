@@ -115,6 +115,8 @@ export interface LocalNote {
   alternatives: string | null;
   /** The learner's "long-term review" choice (shared/decks/long-term.ts): 1 in, 0 out, null = follow the deck. */
   long_term?: LongTermPref;
+  /** Open word-check issues (JSON NoteCheckIssue[], shared/cards/check.ts), synced from the server. */
+  check_issues?: string | null;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;

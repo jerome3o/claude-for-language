@@ -4,10 +4,21 @@
  * by services/homework.ts through the usual share / assign paths.
  */
 
-import type { HomeworkAssignment, HomeworkEvent, HomeworkMode, HomeworkStatus } from '@shared/homework';
+import type { HomeworkAssignment, HomeworkDetails, HomeworkEvent, HomeworkMode, HomeworkStatus } from '@shared/homework';
 
-interface AssignmentRow extends Omit<HomeworkAssignment, 'item_ids'> {
+interface AssignmentRow extends Omit<HomeworkAssignment, 'item_ids' | 'details'> {
   item_ids: string | null;
+  details?: string | null;
+}
+
+function parseDetails(raw: string | null | undefined): HomeworkDetails | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as HomeworkDetails) : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseRow(row: AssignmentRow): HomeworkAssignment {
@@ -20,7 +31,7 @@ function parseRow(row: AssignmentRow): HomeworkAssignment {
       itemIds = null;
     }
   }
-  return { ...row, item_ids: itemIds };
+  return { ...row, item_ids: itemIds, details: parseDetails(row.details) };
 }
 
 export interface NewAssignment {
@@ -38,6 +49,8 @@ export interface NewAssignment {
   item_count: number;
   part_index: number;
   part_count: number;
+  /** Link homework: the link snapshot. */
+  details?: HomeworkDetails | null;
 }
 
 const SELECT = `SELECT a.*, u.name AS tutor_name FROM assignments a LEFT JOIN users u ON u.id = a.tutor_id`;
@@ -50,8 +63,8 @@ export async function insertAssignments(db: D1Database, rows: NewAssignment[]): 
     ids.push(id);
     return db
       .prepare(
-        `INSERT INTO assignments (id, relationship_id, tutor_id, student_id, batch_id, kind, target_id, source_id, title, mode, due_date, item_ids, item_count, part_index, part_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO assignments (id, relationship_id, tutor_id, student_id, batch_id, kind, target_id, source_id, title, mode, due_date, item_ids, item_count, part_index, part_count, details)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         id,
@@ -68,7 +81,8 @@ export async function insertAssignments(db: D1Database, rows: NewAssignment[]): 
         r.item_ids ? JSON.stringify(r.item_ids) : null,
         r.item_count,
         r.part_index,
-        r.part_count
+        r.part_count,
+        r.details ? JSON.stringify(r.details) : null
       );
   });
   await db.batch(stmts);
@@ -121,7 +135,7 @@ export async function listEvents(db: D1Database, assignmentIds: string[]): Promi
   for (let i = 0; i < assignmentIds.length; i += 50) {
     const chunk = assignmentIds.slice(i, i + 50);
     const r = await db
-      .prepare(`SELECT id, assignment_id, item_id, result, created_at FROM assignment_events WHERE assignment_id IN (${chunk.map(() => '?').join(',')}) ORDER BY created_at`)
+      .prepare(`SELECT id, assignment_id, item_id, result, created_at, note FROM assignment_events WHERE assignment_id IN (${chunk.map(() => '?').join(',')}) ORDER BY created_at`)
       .bind(...chunk)
       .all<HomeworkEvent>();
     out.push(...r.results);
@@ -135,8 +149,8 @@ export async function insertEvents(db: D1Database, studentId: string, events: Ho
   const results = await db.batch(
     events.map((e) =>
       db
-        .prepare(`INSERT OR IGNORE INTO assignment_events (id, assignment_id, student_id, item_id, result, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
-        .bind(e.id, e.assignment_id, studentId, e.item_id, e.result, e.created_at)
+        .prepare(`INSERT OR IGNORE INTO assignment_events (id, assignment_id, student_id, item_id, result, created_at, note) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .bind(e.id, e.assignment_id, studentId, e.item_id, e.result, e.created_at, e.note ?? null)
     )
   );
   return results.reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
@@ -198,4 +212,41 @@ export async function listDeckNotes(db: D1Database, deckId: string): Promise<Arr
     .bind(deckId)
     .all<{ id: string; hanzi: string; pinyin: string; english: string }>();
   return r.results;
+}
+
+/** The newest note per assignment (from `done` events), for the homework library. */
+export async function listEventNotes(db: D1Database, assignmentIds: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (let i = 0; i < assignmentIds.length; i += 50) {
+    const chunk = assignmentIds.slice(i, i + 50);
+    const r = await db
+      .prepare(`SELECT assignment_id, note FROM assignment_events WHERE note IS NOT NULL AND note != '' AND assignment_id IN (${chunk.map(() => '?').join(',')}) ORDER BY created_at`)
+      .bind(...chunk)
+      .all<{ assignment_id: string; note: string }>();
+    for (const row of r.results) out[row.assignment_id] = row.note;
+  }
+  return out;
+}
+
+/** Rewrite the title + link snapshot of the sent copies of a link (not cancelled), optionally only some relationships. */
+export async function updateLinkAssignments(
+  db: D1Database,
+  linkId: string,
+  tutorId: string,
+  title: string,
+  details: HomeworkDetails,
+  relationshipIds: string[] | null
+): Promise<Array<{ relationship_id: string }>> {
+  const rows = await db
+    .prepare(`SELECT id, relationship_id FROM assignments WHERE kind = 'link' AND source_id = ? AND tutor_id = ? AND status != 'cancelled'`)
+    .bind(linkId, tutorId)
+    .all<{ id: string; relationship_id: string }>();
+  const chosen = rows.results.filter((r) => !relationshipIds || relationshipIds.includes(r.relationship_id));
+  if (chosen.length === 0) return [];
+  await db.batch(
+    chosen.map((r) =>
+      db.prepare(`UPDATE assignments SET title = ?, details = ?, updated_at = datetime('now') WHERE id = ?`).bind(title, JSON.stringify(details), r.id)
+    )
+  );
+  return chosen.map((r) => ({ relationship_id: r.relationship_id }));
 }

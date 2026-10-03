@@ -35,7 +35,7 @@ data class DeckEntity(
     val secondaryCardsPerDay: Int?,
     val studyPriority: Int,
     val createdAt: String,
-    /** The deck's folder (server decks.folder_id, migration 0100; core Folders.kt), null = Unfiled. v4. */
+    /** The deck's folder (server decks.folder_id, migration 0105; core Folders.kt), null = Unfiled. v5. */
     val folderId: String? = null,
 ) {
     fun toQueueDeck() = QueueDeck(id, studyPriority, createdAt, newCardsPerDay, secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP)
@@ -63,6 +63,11 @@ data class NoteEntity(
      * 1 in, 0 out, null = follow the deck. v3.
      */
     val longTerm: Int? = null,
+    /**
+     * Word checks (notes.check_issues): the JSON array of possible issues — "⚠ Possible issue"
+     * on the deck page (core CardCheck.parseCheckIssues / liveCheckIssues). v4.
+     */
+    val checkIssues: String? = null,
 )
 
 @Entity(tableName = "cards", indices = [Index("noteId"), Index("deckId")])
@@ -230,7 +235,7 @@ interface LabDao {
         // v2: generic feature tables (data/platform/) — features use these instead of new schema.
         JsonCacheEntity::class, OutboxEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

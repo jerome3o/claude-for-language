@@ -81,6 +81,11 @@ data class DeckActions(
     val onAddToDailyReview: () -> Unit = {},
     val onShareWithTutor: () -> Unit = {},
     val onUnshareTutor: (String) -> Unit = {},
+    /** "⚠ Possible issue" on a word: Apply fix / Dismiss. */
+    val onApplyIssue: (String, dev.jeromeswannack.chineselearning.lab.core.NoteCheckIssue) -> Unit = { _, _ -> },
+    val onDismissIssue: (String, dev.jeromeswannack.chineselearning.lab.core.NoteCheckIssue) -> Unit = { _, _ -> },
+    /** ⋯ → "🔎 Check for errors". */
+    val onCheckErrors: () -> Unit = {},
 )
 
 /** The deck page (web: DeckDetailPage.tsx). */
@@ -161,17 +166,21 @@ fun DeckScreen(ui: DeckUi, actions: DeckActions) {
             items(ui.notes, key = { it.id }) { row ->
                 val selecting = ui.selected != null
                 val checked = ui.selected?.contains(row.id) == true
-                Row(
+                Column(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
                         .background(if (checked) Lab.colors.accentSoft else Lab.colors.card)
+                        .animateItem(),
+                ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
                         .combinedClickable(
                             onClick = { if (selecting) actions.onToggleSelect(row.id) else actions.onEdit(row.id) },
                             onLongClick = { if (!selecting) actions.onStartSelect(row.id) },
                         )
-                        .padding(start = if (selecting) 4.dp else 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp)
-                        .animateItem(),
+                        .padding(start = if (selecting) 4.dp else 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (selecting) {
@@ -198,6 +207,21 @@ fun DeckScreen(ui: DeckUi, actions: DeckActions) {
                     } else {
                         Text("🔇", fontSize = 13.sp, color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 14.dp))
                     }
+                }
+                if (!selecting) for (issue in row.issues) {
+                    dev.jeromeswannack.chineselearning.lab.ui.checks.CheckIssueBlock(
+                        kind = issue.kind,
+                        current = issue.current,
+                        proposed = issue.proposed,
+                        reason = issue.reason,
+                        modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                        busy = ui.issueBusy == issue.id,
+                        enabled = ui.online && (ui.issueBusy == null || ui.issueBusy == issue.id),
+                        error = ui.issueError?.takeIf { it.first == issue.id }?.second,
+                        onApply = { actions.onApplyIssue(row.id, issue) },
+                        onDismiss = { actions.onDismissIssue(row.id, issue) },
+                    )
+                }
                 }
             }
         }
@@ -235,6 +259,9 @@ private fun DeckMenu(ui: DeckUi, actions: DeckActions, onDelete: () -> Unit) {
                 DropdownMenuItem(text = { Text("👩‍🏫 Share with tutor") }, onClick = { open = false; actions.onShareWithTutor() })
             }
             DropdownMenuItem(text = { Text("⚙️ Settings") }, onClick = { open = false; actions.onSettings() })
+            if (ui.notes.isNotEmpty()) {
+                DropdownMenuItem(text = { Text("🔎 Check for errors") }, onClick = { open = false; actions.onCheckErrors() })
+            }
             if (ui.missingAudio > 0) {
                 DropdownMenuItem(
                     text = { Text(ui.audioJob?.let { "🔊 Generating audio (${it.done}/${it.total})…" } ?: "🔊 Generate missing audio (${ui.missingAudio})") },

@@ -51,6 +51,30 @@ class CardAudioTest : LabScreenshotTest() {
         assertEquals(CardAudio(ClipState.WAITING_FOR_CONNECTION, ClipState.WAITING_FOR_CONNECTION), CardAudioRules.of(missingBoth, null, online = false))
         assertEquals(CardAudio(ClipState.WAITING_FOR_CONNECTION, ClipState.WAITING_FOR_CONNECTION), CardAudioRules.of(missingBoth, NoteAudio.Status.WaitingForConnection, online = true))
         assertEquals(CardAudio(ClipState.FAILED, ClipState.FAILED), CardAudioRules.of(missingBoth, NoteAudio.Status.Failed(1, 0), online = true))
+        // Queued on the server: "coming", also while it is asked about again — but offline the device voice is the last resort.
+        assertEquals(CardAudio(ClipState.COMING, ClipState.READY), CardAudioRules.of(setOf(NoteAudio.Clip.WORD), NoteAudio.Status.Coming(1, 0), online = true))
+        assertEquals(CardAudio(ClipState.COMING, ClipState.COMING), CardAudioRules.of(missingBoth, NoteAudio.Status.Coming(2, 0, asking = true), online = true))
+        assertEquals(CardAudio(ClipState.WAITING_FOR_CONNECTION, ClipState.READY), CardAudioRules.of(setOf(NoteAudio.Clip.WORD), NoteAudio.Status.Coming(1, 0), online = false))
+        // The clip landed (no longer missing): ready, whatever the status still says.
+        assertEquals(CardAudio(), CardAudioRules.of(emptySet(), NoteAudio.Status.Coming(1, 0), online = true))
+    }
+
+    @Test fun comingOnTheBack() {
+        screen(CardTypes.HANZI_TO_MEANING, CardAudio(ClipState.COMING, ClipState.READY), flipped = true, shot = "study-audio-05-coming-back")
+        compose.onNodeWithText(CardAudioRules.COMING).assertExists()
+        compose.onNodeWithText(CardAudioRules.GENERATING).assertDoesNotExist()
+        compose.onNodeWithText(CardAudioRules.FAILED).assertDoesNotExist()
+        // Play is a normal Play (the device voice meanwhile), not a spinner.
+        compose.onNodeWithText("Play").performClick()
+        assertEquals(1, played)
+    }
+
+    @Test fun comingOnTheListeningCardFront() {
+        screen(CardTypes.AUDIO_TO_HANZI, CardAudio(ClipState.COMING, ClipState.READY), shot = "study-audio-06-coming-front")
+        compose.onNodeWithText(CardAudioRules.COMING_FRONT).assertExists()
+        compose.onNodeWithContentDescription(CardAudioRules.GENERATING).assertDoesNotExist()
+        compose.onNodeWithTag(PLAY_WORD_TAG).performClick()
+        assertEquals(1, played)
     }
 
     @Test fun generatingOnTheListeningCardFront() {

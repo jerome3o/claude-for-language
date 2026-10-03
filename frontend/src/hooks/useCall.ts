@@ -42,7 +42,8 @@ import { endCall as endCallApi } from '../api/calls';
 import { TextBoardSession } from '../services/calls/textBoard';
 import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
-import { DEFAULT_ANNOT_PERSIST, type AnnotStroke, type AnnotText } from '@shared/calls';
+import { track as trackUsage } from '../services/analytics';
+import { DEFAULT_ANNOT_PERSIST, announceDevice, deviceOnWhenOpened, CAMERA_ON_AT_START, type AnnotStroke, type AnnotText, type ShowView, type ShownState } from '@shared/calls';
 import { materialTarget, type PresentedMaterial } from '@shared/materials';
 import type { ActivityAction, ActivitySession } from '@shared/call-activities';
 import {
@@ -54,6 +55,14 @@ import {
   videoConstraints,
   type MediaProblem,
 } from '../services/calls/mediaAccess';
+
+/** Analytics: one call.annotate per stroke (a stroke is re-sent while it is drawn). */
+let lastAnnotId: string | null = null;
+function trackAnnot(id: string, target: 'screen' | 'material'): void {
+  if (lastAnnotId === id) return;
+  lastAnnotId = id;
+  trackUsage('call.annotate', { target });
+}
 
 /** 'left' = I left; the call goes on for the other person (Rejoin brings me back). */
 export type CallPhase = 'prejoin' | 'joining' | 'live' | 'left' | 'ended' | 'error';
@@ -94,9 +103,9 @@ export function useCall(callId: string, myUserId: string) {
   const [mediaAsked, setMediaAsked] = useState(false);
   const [mediaPending, setMediaPending] = useState(false);
   const [devicePrefs, setDevicePrefs] = useState<DevicePrefs>(() => loadDevicePrefs());
-  // On / off as I last left them (a muted mic stays muted; a camera that was on comes back on).
+  // A muted mic stays muted (as I last left it); the camera always starts ON (shared/calls/devices.ts).
   const [micOn, setMicOn] = useState(() => !devicePrefs.micOff);
-  const [camOn, setCamOn] = useState(() => !devicePrefs.camOff);
+  const [camOn, setCamOn] = useState(CAMERA_ON_AT_START);
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [remote, setRemote] = useState<RemoteParticipant | null>(null);
@@ -132,9 +141,10 @@ export function useCall(callId: string, myUserId: string) {
   const retiredLinksRef = useRef<string[]>([]);
   const prefsRef = useRef<DevicePrefs>(devicePrefs);
   prefsRef.current = devicePrefs;
-  /** Remember a mic / camera switched on or off (restored on the next join). */
-  const rememberOnOff = useCallback((kind: 'mic' | 'cam', on: boolean) => {
-    const next = { ...prefsRef.current, [kind === 'mic' ? 'micOff' : 'camOff']: !on };
+  /** Remember the mic muted / unmuted (restored on the next join). The camera is never remembered: it starts on. */
+  const rememberMic = useCallback((on: boolean) => {
+    const { camOff: _legacy, ...rest } = prefsRef.current as DevicePrefs & { camOff?: boolean };
+    const next = { ...rest, micOff: !on };
     prefsRef.current = next;
     setDevicePrefs(next);
     saveDevicePrefs(next);
@@ -161,6 +171,11 @@ export function useCall(callId: string, myUserId: string) {
     activityRef.current = next;
     setActivityState(next);
   };
+  // Round 5 (shared/calls/follow.ts): the relationship's tutor, what she last showed, and a "she stopped your share" note.
+  const [tutorId, setTutorId] = useState<string | null>(null);
+  const [shown, setShown] = useState<ShownState | null>(null);
+  const [shareStoppedBy, setShareStoppedBy] = useState<{ name: string; at: number } | null>(null);
+  const stopScreenShareRef = useRef<() => Promise<void>>(async () => {});
   // A presented lesson material (round 4): what is shown, and the drawings / text on its current page.
   const [presenting, setPresenting] = useState<PresentedMaterial | null>(null);
   const presentingRef = useRef<PresentedMaterial | null>(null);
@@ -226,21 +241,23 @@ export function useCall(callId: string, myUserId: string) {
     }
     for (const track of result.stream?.getTracks() ?? []) {
       await installTrack(track);
-      // The preview / a rejoin restores what I had (a tap to turn a device on always turns it on).
-      const on = opts.restore ? !(track.kind === 'audio' ? prefsRef.current.micOff : prefsRef.current.camOff) : true;
-      if (!opts.restore) rememberOnOff(track.kind === 'audio' ? 'mic' : 'cam', true);
+      // The preview / a rejoin: the mic as I left it, the camera on; a tap turns a device on.
+      const on = deviceOnWhenOpened(track.kind === 'audio' ? 'mic' : 'cam', !!opts.restore, !!prefsRef.current.micOff);
+      if (!opts.restore && track.kind === 'audio') rememberMic(true);
+      // Announced from Join on — a camera that opens while the room is still connecting included
+      // (it used to wait for 'live', so the room kept cam: false: Minghui's "camera off", 2 Oct 2026).
+      const announce = announceDevice(phaseRef.current);
       if (track.kind === 'audio') {
         track.enabled = on;
         setMicOn(on);
-        if (phaseRef.current === 'live') {
-          broadcastStateRef.current({ mic: on });
-          if (wantRecordRef.current && !recorderRef.current?.recording) void startRecordingRef.current();
-        }
+        if (announce) broadcastStateRef.current({ mic: on });
+        if (phaseRef.current === 'live' && wantRecordRef.current && !recorderRef.current?.recording) void startRecordingRef.current();
       } else {
         track.enabled = on;
         setCamOn(on);
-        if (phaseRef.current === 'live') broadcastStateRef.current({ cam: on });
+        if (announce) broadcastStateRef.current({ cam: on });
       }
+      if (track.kind === 'video') diag('media', `camera opened${announce ? ` while ${phaseRef.current}` : ''}`);
     }
     setMediaProblems((p) => ({
       audio: want.audio ? result.audioProblem : p.audio,
@@ -427,6 +444,8 @@ export function useCall(callId: string, myUserId: string) {
         if (msg.material_annots) materialAnnotRef.current?.loadKept(msg.material_annots.annots);
         activityRef.current = null; // the room's word is final after a (re)join
         takeActivity(msg.activity ?? null);
+        setTutorId(msg.tutor_id ?? null);
+        setShown(msg.shown ?? null);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
         flushDiag();
         if (msg.peers.length > 0) openLink(msg.peers[0]);
@@ -507,6 +526,15 @@ export function useCall(callId: string, myUserId: string) {
       case 'activity':
         takeActivity(msg.session);
         return;
+      case 'shown':
+        setShown(msg.shown);
+        return;
+      case 'share_stopped':
+        // The tutor stopped my screen share: stop capturing, like my own Stop button.
+        void stopScreenShareRef.current();
+        setShareStoppedBy({ name: msg.name, at: Date.now() });
+        diag('media', `${msg.name} stopped my screen share`);
+        return;
       case 'material_annots':
         if (msg.target === materialTargetNow()) {
           materialAnnotRef.current?.clear();
@@ -553,6 +581,7 @@ export function useCall(callId: string, myUserId: string) {
     wantRecordRef.current = opts.record;
     finishedRef.current = false;
     setPhase('joining');
+    phaseRef.current = 'joining'; // at once: a camera answering during the wait below is announced
     // Joined before the camera / mic answered (or the preview never started): wait a little for them,
     // so a rejoin doesn't come in with everything off.
     if (!localRef.current?.getTracks().length) {
@@ -621,9 +650,9 @@ export function useCall(callId: string, myUserId: string) {
     const next = !micOn;
     if (track) track.enabled = next;
     setMicOn(next);
-    rememberOnOff('mic', next);
+    rememberMic(next);
     broadcastState({ mic: next });
-  }, [micOn, broadcastState, requestMedia, rememberOnOff]);
+  }, [micOn, broadcastState, requestMedia, rememberMic]);
 
   const toggleCam = useCallback(() => {
     const track = cameraTrack();
@@ -634,9 +663,8 @@ export function useCall(callId: string, myUserId: string) {
     const next = !camOn;
     track.enabled = next;
     setCamOn(next);
-    rememberOnOff('cam', next);
-    broadcastState({ cam: next });
-  }, [camOn, broadcastState, requestMedia, rememberOnOff]);
+    broadcastState({ cam: next }); // for this call only: the next join starts with the camera on
+  }, [camOn, broadcastState, requestMedia]);
 
   const flipCamera = useCallback(async () => {
     const stream = localRef.current;
@@ -682,12 +710,15 @@ export function useCall(callId: string, myUserId: string) {
   }, [micOn, camOn, installTrack, diag]);
 
   const stopScreenShare = useCallback(async () => {
+    if (screenRef.current) trackUsage('call.screen_share', { on: false });
     screenRef.current?.getTracks().forEach((t) => t.stop());
     screenRef.current = null;
     setScreenStream(null);
     await linkRef.current?.setScreenTrack(null);
     broadcastState({ screen: false });
   }, [broadcastState]);
+
+  stopScreenShareRef.current = stopScreenShare;
 
   const startScreenShare = useCallback(async () => {
     if (!canShareScreen() || screenRef.current) return;
@@ -698,6 +729,7 @@ export function useCall(callId: string, myUserId: string) {
       track.onended = () => void stopScreenShare();
       screenRef.current = stream;
       setScreenStream(stream);
+      trackUsage('call.screen_share', { on: true });
       await linkRef.current?.setScreenTrack(track);
       broadcastState({ screen: true });
     } catch {
@@ -715,6 +747,7 @@ export function useCall(callId: string, myUserId: string) {
   }, []);
 
   const sendAnnotation = useCallback((stroke: AnnotStroke) => {
+    trackAnnot(stroke.id, 'screen');
     annotRef.current?.upsert(stroke, 'me');
     roomRef.current?.send({ type: 'annot', stroke });
   }, []);
@@ -736,6 +769,7 @@ export function useCall(callId: string, myUserId: string) {
     stroke: (stroke: AnnotStroke) => {
       const target = materialTargetNow();
       if (!target) return;
+      trackAnnot(stroke.id, 'material');
       materialAnnotRef.current?.upsert(stroke, 'me');
       roomRef.current?.send({ type: 'annot', stroke, target });
     },
@@ -800,6 +834,13 @@ export function useCall(callId: string, myUserId: string) {
     setAnnotPersist(persist);
     roomRef.current?.send({ type: 'annot_mode', persist });
   }, []);
+
+  // ---- round 5: the tutor leads (the room refuses anyone else)
+  /** Put `view` on the student's stage (`follow`: a page turn of what is already shown). null = stop showing. */
+  const show = useCallback((view: ShowView | null, follow = false) => roomRef.current?.send({ type: 'show', view, ...(follow ? { follow: true } : {}) }) ?? false, []);
+  /** Stop the other person's screen share. */
+  const stopTheirShare = useCallback(() => roomRef.current?.send({ type: 'stop_share' }) ?? false, []);
+  const dismissShareStopped = useCallback(() => setShareStoppedBy(null), []);
 
   const sendChat = useCallback((text: string) => {
     const t = text.trim();
@@ -898,6 +939,7 @@ export function useCall(callId: string, myUserId: string) {
     sendAnnotation, sendPing, clearAnnotations, annotPersist, setAnnotationsKept, sendAnnotText, deleteAnnotText,
     presenting, presentMaterial, turnMaterialPage, stopPresenting, materialAnnotations: materialAnnotRef.current, materialAnnot,
     activity, startActivity, actInActivity, closeActivity,
+    tutorId, shown, show, stopTheirShare, shareStoppedBy, dismissShareStopped,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
     myUserId,

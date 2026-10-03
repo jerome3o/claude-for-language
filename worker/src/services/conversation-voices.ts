@@ -78,8 +78,8 @@ export async function setConversationVoices(db: D1Database, userId: string, enab
     .run();
 }
 
-/** Bump when VOICE_SAMPLE_TEXT or the sample speed changes, so samples regenerate. */
-export const VOICE_SAMPLE_VERSION = 1;
+/** Bump when VOICE_SAMPLE_TEXT, the sample speed or the model changes, so samples regenerate (2 = speech-2.8-hd). */
+export const VOICE_SAMPLE_VERSION = 2;
 
 export function voiceSampleKey(voiceId: string): string {
   const slug = voiceId.replace(/[^A-Za-z0-9_-]+/g, '_');

@@ -74,10 +74,12 @@ test.describe('Chats tab', () => {
     const relTutor = await connect(request, tutor, me);
     const relStudent = await connect(request, me, student);
 
+    // One chat per pair: asking for a second (titled) chat with her returns the same one.
     const homework = await newConversation(request, tutor, relTutor, 'Homework');
-    const smallTalk = await newConversation(request, tutor, relTutor, 'Small talk');
+    const again = await newConversation(request, tutor, relTutor, 'Small talk');
+    expect(again).toBe(homework);
     const lily = await newConversation(request, me, relStudent);
-    await say(request, tutor, smallTalk, '周末快乐！');
+    await say(request, tutor, homework, '周末快乐！');
     await say(request, me, lily, '明天见');
     await say(request, tutor, homework, '作业做完了吗？');
     await say(request, tutor, homework, '别忘了听写');
@@ -86,34 +88,33 @@ test.describe('Chats tab', () => {
     const bar = page.getByTestId('tab-bar');
     // Has a tutor AND a student, no decks: Students · Chats · Study · More (Decks is gone from the bar).
     await expect(bar.locator('.tab-bar-label')).toHaveText(['Students', 'Chats', 'Study', 'More']);
-    // Two conversations with unread messages.
-    await expect(page.getByTestId('chats-tab-badge')).toHaveText('2');
+    // One conversation with unread messages.
+    await expect(page.getByTestId('chats-tab-badge')).toHaveText('1');
 
     await bar.locator('[data-tab="chats"]').click();
     await expect(page).toHaveURL(/\/chats$/);
     await expect(bar.locator('[data-tab="chats"]')).toHaveAttribute('aria-current', 'page');
 
     const rows = page.getByTestId('chats-row');
-    await expect(rows).toHaveCount(3);
-    // Newest first; the title shows because there are two chats with her.
+    // One row per person, newest first, no titles.
+    await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toContainText('王明慧');
-    await expect(rows.nth(0)).toContainText('Homework');
+    await expect(rows.nth(0)).not.toContainText('Homework');
     await expect(rows.nth(0)).toContainText('别忘了听写');
-    await expect(rows.nth(0).locator('.chats-unread')).toHaveText('2');
+    await expect(rows.nth(0).locator('.chats-unread')).toHaveText('3');
     await expect(rows.nth(1)).toContainText('Lily');
     await expect(rows.nth(1)).toContainText('You: 明天见');
     await expect(rows.nth(1).locator('.chats-unread')).toHaveCount(0);
-    await expect(rows.nth(2)).toContainText('Small talk');
 
-    // Search by person, title and message.
+    // Search by person and message.
     const search = page.getByRole('searchbox', { name: 'Search chats' });
     await search.fill('lily');
     await expect(rows).toHaveCount(1);
-    await search.fill('周末');
+    await search.fill('听写');
     await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText('Small talk');
+    await expect(rows.first()).toContainText('王明慧');
     await search.fill('');
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(2);
 
     // Open → the chat; ← → back to the inbox, now read.
     await rows.nth(0).click();
@@ -129,11 +130,12 @@ test.describe('Chats tab', () => {
     await expect(rows.nth(0)).toContainText('老师好！', { timeout: 30000 });
     await expect(rows.nth(0).locator('.chats-unread')).toHaveText('1');
 
-    // New chat → pick the person when there are several.
+    // New chat → pick the person when there are several → THE chat with her (no second one).
     await page.getByRole('button', { name: 'New chat' }).click();
     await expect(page.getByRole('dialog', { name: 'New chat with' })).toContainText('Lily');
     await page.getByRole('dialog', { name: 'New chat with' }).getByRole('button', { name: /Lily/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/connections/${relStudent}/chat/(?!new)`), { timeout: 15000 });
+    await expect(page).toHaveURL(new RegExp(`/connections/${relStudent}/chat/${lily}$`), { timeout: 15000 });
+    await expect(page.getByText('明天见')).toBeVisible();
     await page.context().close();
   });
 

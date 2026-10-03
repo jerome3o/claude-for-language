@@ -58,7 +58,7 @@ export async function getStudentOverview(relId: string): Promise<StudentOverview
   return request<StudentOverview>(`/relationships/${relId}/overview${tzQuery()}`);
 }
 
-/** The most recent conversation in the relationship, created if there is none. */
+/** THE chat of the pair (one chat per pair), created on first use. */
 export async function openConversation(relId: string): Promise<{ conversation_id: string; created: boolean }> {
   return request(`/relationships/${relId}/conversations/open`, { method: 'POST' });
 }

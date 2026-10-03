@@ -44,6 +44,7 @@ import {
   Note,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+import { ensureAudioForNote, isPending, nextAskInMs, reportBrokenClip } from '../services/noteAudioEnsure';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
@@ -104,6 +105,7 @@ import {
 } from '../services/studyResume';
 import { activeMsToday, reportStudyTimeIfDue } from '../services/studyTime';
 import { useActiveStudyTime } from '../hooks/useActiveStudyTime';
+import { track, trackError } from '../services/analytics';
 import { playFanfare } from '../utils/fanfare';
 import { getTodayReviewSummary } from '../db/database';
 import { DEFAULT_TTS_SPEED } from '../types';
@@ -169,6 +171,10 @@ function canWriteHanzi(hanzi: string): boolean {
 function normalizeHanzi(s: string) { return s.trim().toLowerCase(); }
 
 const EMPTY_TUTOR_NOTES: LocalRecordingNote[] = [];
+
+/** Analytics names for a rating / a card's queue (shared/analytics/events.ts). */
+const RATING_KEYS = ['again', 'hard', 'good', 'easy'] as const;
+const QUEUE_KEYS = ['new', 'learning', 'review', 'relearning'] as const;
 
 function formatAddedDate(createdAt: string | null | undefined): string | null {
   if (!createdAt) return null;
@@ -552,7 +558,14 @@ export function StudyCard({
     });
   }, [scope, card.id, audioBlob, shuffledMcOptions, mcSelections, mcAnswered, showMultipleChoice]);
   useEffect(() => () => savePointRef.current(), []);
-  const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
+  // A clip that fails to load is reported, and the card asks for it again (docs/AUDIO.md).
+  const [brokenTick, setBrokenTick] = useState(0);
+  const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio('note', {
+    onBroken: useCallback((url: string) => {
+      reportBrokenClip(card.note.id, url);
+      setBrokenTick((t) => t + 1);
+    }, [card.note.id]),
+  });
   // Separate player for the user's own recording so it never fights with the
   // note audio for the single reusable element.
   const recordingPlayerRef = useRef(createAudioPlayer());
@@ -727,21 +740,51 @@ export function StudyCard({
     };
   }, [card.id]);
 
-  // Auto-generate audio if note has no audio_url (skipped while offline —
-  // automatic or forced — no network audio calls on a spotty connection)
-  const generatingAudioForRef = useRef<string | null>(null);
+  // Auto-audio (docs/AUDIO.md; the web twin of the Lab's NoteAudioFixer): a card
+  // without its word / sentence clip — or whose clip failed to load — asks the
+  // server to make it (interactive priority; queued when MiniMax is busy) and
+  // checks back while the card is up. Skipped offline: no network calls then.
+  const [audioComing, setAudioComing] = useState(false);
+  const onUpdateNoteRef = useRef(onUpdateNote);
+  onUpdateNoteRef.current = onUpdateNote;
   useEffect(() => {
-    if (!card.note.audio_url && aiAvailable && generatingAudioForRef.current !== card.note.id) {
-      generatingAudioForRef.current = card.note.id;
-      generateNoteAudio(card.note.id).then((updatedNote) => {
-        if (updatedNote.audio_url) {
-          onUpdateNote({ audio_url: updatedNote.audio_url, audio_provider: updatedNote.audio_provider });
+    setAudioComing(false);
+  }, [card.note.id]);
+  useEffect(() => {
+    if (!aiAvailable) return;
+    const noteId = card.note.id;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ask = () => {
+      ensureAudioForNote({
+        id: noteId,
+        audio_url: card.note.audio_url,
+        sentence_clue: card.note.sentence_clue,
+        sentence_clue_audio_url: card.note.sentence_clue_audio_url,
+      }).then((res) => {
+        if (cancelled) return;
+        if (!res) {
+          setAudioComing(false);
+          return;
         }
+        if (Object.keys(res.patch).length > 0) onUpdateNoteRef.current({ id: noteId, ...res.patch });
+        const pending = isPending(res.response.word) || isPending(res.response.sentence);
+        setAudioComing(pending);
+        const wait = nextAskInMs(noteId);
+        if (pending && wait !== null) timer = setTimeout(ask, Math.max(wait, 1000));
       }).catch((err) => {
-        console.error('[StudyCard] Auto-generate audio failed:', err);
+        if (!cancelled) setAudioComing(false);
+        console.error('[StudyCard] ensure-audio failed:', err);
       });
-    }
-  }, [card.note.id, card.note.audio_url, aiAvailable, onUpdateNote]);
+    };
+    ask();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [card.note.id, card.note.audio_url, card.note.sentence_clue, card.note.sentence_clue_audio_url, aiAvailable, brokenTick]);
+  // The word's own clip is the one we wait for; the sentence row shows its own ▶ when it lands.
+  const wordAudioComing = audioComing && !card.note.audio_url;
 
   // Load review history and enumerate mics when debug modal opens
   useEffect(() => {
@@ -768,16 +811,20 @@ export function StudyCard({
     }
   }, [isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe]);
 
-  // Auto-play audio when answer is revealed
+  // Auto-play audio when answer is revealed. While the real clip is on its way,
+  // wait for it instead of reading the word in the device's robotic voice: the
+  // effect runs again (and plays) when the clip arrives. A tap on ▶ still
+  // falls back to the device voice.
   useEffect(() => {
     if (flipped) {
+      if (wordAudioComing && recordingsRef.current.length === 0) return;
       // Small delay to ensure any previous audio is fully stopped
       const timer = setTimeout(() => {
         playRecordingAtIndex(0);
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [flipped, playRecordingAtIndex]);
+  }, [flipped, playRecordingAtIndex, wordAudioComing]);
 
   const handleFlip = () => {
     if (!flipped) {
@@ -1067,6 +1114,7 @@ export function StudyCard({
     for (const note of tutorNotes) {
       markRecordingNoteSeen(note.id).catch(() => {});
     }
+    track('study.card_rated', { rating: RATING_KEYS[rating], card_type: card.card_type, queue: QUEUE_KEYS[card.queue] ?? null, time_ms: timeSpent, recorded: !!audioBlob, multiple_choice: showMultipleChoice });
     // Call parent's rate function - handles both state update and DB write
     onRate(rating, timeSpent, userAnswer || undefined, audioBlob || undefined);
   };
@@ -1171,6 +1219,7 @@ export function StudyCard({
       }));
 
       const response = await askAboutNote(card.note.id, question.trim(), context, history);
+      track('study.ask_claude', { card_type: card.card_type });
       setConversation((prev) => [...prev, response]);
       setQuestion('');
 
@@ -1181,6 +1230,7 @@ export function StudyCard({
     } catch (error) {
       console.error('Failed to ask Claude:', error);
       setAskError(describeAskError(error));
+      trackError('study_ask_claude', error);
     } finally {
       setIsAsking(false);
     }
@@ -1242,6 +1292,11 @@ export function StudyCard({
                 Play Audio{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
               </button>
             </div>
+            {wordAudioComing && recordings.length === 0 && (
+              <p className="audio-coming-note" role="status">
+                <span className="audio-coming-dot" aria-hidden="true" /> Audio coming… (the device voice plays meanwhile)
+              </p>
+            )}
             {/* "+ New Voice" lives in the ⋯ menu on the back now (D8) */}
             <OfflineAudioNote audioUrl={card.note.audio_url} effectiveOffline={effectiveOffline} />
           </div>
@@ -1424,6 +1479,11 @@ export function StudyCard({
           >
             <span aria-hidden="true">🔊</span> Play{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
           </button>
+          {wordAudioComing && recordings.length === 0 && (
+            <span className="study-pill study-pill--pending" role="status" title="The clip is being made — tap Play for the device voice meanwhile">
+              <span className="audio-coming-dot" aria-hidden="true" /> Audio coming…
+            </span>
+          )}
           {isSpeakingCard && (
             isRecording ? (
               isRecordingDelayActive ? (
@@ -1466,6 +1526,7 @@ export function StudyCard({
       } : undefined;
 
       const response = await askAboutNote(card.note.id, questionText, context);
+      track('study.ask_claude', { card_type: card.card_type });
       setConversation((prev) => [...prev, response]);
       setQuestion('');
 
@@ -1476,6 +1537,7 @@ export function StudyCard({
     } catch (error) {
       console.error('Failed to ask Claude:', error);
       setAskError(describeAskError(error));
+      trackError('study_ask_claude', error);
     } finally {
       setIsAsking(false);
     }
@@ -2155,12 +2217,13 @@ export function StudyCard({
         // "Back to your card" returns here. Prefilled with the card's sentence, not sent.
         key: 'coach', label: 'Sentence coach', icon: '✏️', hint: needsInternet, onSelect: () => {
           savePointRef.current();
+          track('study.sentence_coach');
           if (scope) setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
           navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
         },
       },
       ...(canWriteHanzi(card.note.hanzi)
-        ? [{ key: 'write', label: 'Write it', icon: '✍️', hint: 'Preview', onSelect: () => setShowWriting(true) }]
+        ? [{ key: 'write', label: 'Write it', icon: '✍️', hint: 'Preview', onSelect: () => { track('study.write_it'); setShowWriting(true); } }]
         : []),
       ...(flagTutors.length > 0
         ? [{ key: 'flag', label: 'Flag for tutor', icon: '🚩', onSelect: () => setShowFlagSheet(true) }]
@@ -2183,7 +2246,7 @@ export function StudyCard({
           }
         }}
         askClaudeOpen={showAskClaude}
-        onEditCard={() => setShowEditModal(true)}
+        onEditCard={() => { track('study.edit_card'); setShowEditModal(true); }}
         aiDisabled={!aiAvailable}
         menuItems={menuItems}
         menuFooter={formatAddedDate(card.note.created_at)}
@@ -2750,6 +2813,7 @@ export function StudyCard({
             queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });
           }}
           onSave={(updatedNote) => {
+            track('deck.note_edit', { where: 'study' });
             onUpdateNote(updatedNote);
             // Also update IndexedDB for offline consistency
             db.notes.update(card.note.id, {
@@ -2886,7 +2950,10 @@ export function StudyPage() {
       const { reviews, correct } = await getTodayReviewSummary().catch(() => ({ reviews: 0, correct: 0 }));
       if (cancelled) return;
       const celebrate = claimCelebration(reviews, true);
-      if (celebrate) playFanfare();
+      if (celebrate) {
+        playFanfare();
+        track('study.celebration', { reviews, active_ms: activeMsToday() });
+      }
       setToday({ reviews, correct, activeMs: activeMsToday(), celebrate });
       // Other devices' time for today (and this device's reported), when online.
       await reportStudyTimeIfDue(true);
@@ -2905,8 +2972,37 @@ export function StudyPage() {
     }
   }, [autostart, studyStarted, sessionId, isOnline, deckId]);
 
+  // Analytics: one study.session_start when the queue has loaded with something to do, one
+  // study.session_end when Study is left (or the queue empties).
+  const sessionTrackRef = useRef<{ startedAt: number; reviews: number; ended: boolean } | null>(null);
+  useEffect(() => {
+    if (!studyStarted || isLoading || sessionTrackRef.current || isAllDone) return;
+    sessionTrackRef.current = { startedAt: Date.now(), reviews: 0, ended: false };
+    track('study.session_start', {
+      scope: deckId ? 'deck' : 'all',
+      due: counts.new + counts.secondaryNew + counts.learning + counts.review,
+      new_cards: counts.new + counts.secondaryNew,
+      offline: !isOnline,
+    });
+  }, [studyStarted, isLoading, isAllDone, deckId, counts, isOnline]);
+  useEffect(() => {
+    const t = sessionTrackRef.current;
+    if (isAllDone && t && !t.ended) {
+      t.ended = true;
+      track('study.session_end', { reviews: t.reviews, duration_ms: Date.now() - t.startedAt, reason: 'all_done' });
+    }
+  }, [isAllDone]);
+  useEffect(() => () => {
+    const t = sessionTrackRef.current;
+    if (t && !t.ended) {
+      t.ended = true;
+      track('study.session_end', { reviews: t.reviews, duration_ms: Date.now() - t.startedAt, reason: 'leave' });
+    }
+  }, []);
+
   // Handle rating a card (called from StudyCard)
   const handleRateCard = useCallback((rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
+    if (sessionTrackRef.current) sessionTrackRef.current.reviews++;
     rateCard(rating, timeSpentMs, userAnswer, recordingBlob);
   }, [rateCard]);
 
@@ -2944,6 +3040,7 @@ export function StudyPage() {
 
     const handleStudyMoreNewCards = () => {
       // Add more new cards to today's limit and reload the queue
+      track('study.study_more', { count: BONUS_NEW_CARDS_INCREMENT });
       setBonusNewCards(prev => prev + BONUS_NEW_CARDS_INCREMENT);
       // Note: reloadQueue will be called when bonusNewCards changes via useEffect in the hook
       reloadQueue();

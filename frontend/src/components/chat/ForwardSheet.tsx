@@ -13,7 +13,7 @@ export interface ForwardTarget {
 /**
  * Forward to… (round 2 PR 3): every conversation I am in with a person (tutor
  * or student; not the Claude practice chats), newest first. Picking one sends
- * the message(s) there as forwarded copies.
+ * the message(s) there as forwarded copies. One row per person (one chat per pair).
  */
 export function ForwardSheet({ myId, count, currentConversationId, onPick, onClose }: { myId: string; count: number; currentConversationId?: string; onPick: (t: ForwardTarget) => void; onClose: () => void }) {
   const [targets, setTargets] = useState<ForwardTarget[] | null>(null);
@@ -35,7 +35,7 @@ export function ForwardSheet({ myId, count, currentConversationId, onPick, onClo
                 conversationId: cv.id,
                 relationshipId: rel.id,
                 label: other.name || other.email || 'Someone',
-                sub: cv.title || null,
+                sub: null, // one chat per pair: the person is the whole label
                 at: cv.last_message_at || cv.created_at || '',
               }));
           }),

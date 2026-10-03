@@ -1,5 +1,9 @@
 import { OneOffDeckBanner } from '../components/homework/OneOffDeckBanner';
+import { UpdateCopiesPrompt } from '../components/tutor/library/UpdateCopiesSheet';
 import { useQuery, useMutation, useQueryClient, QueryClient } from '@tanstack/react-query';
+import { NoteCheckIssues } from '../components/cardCheck/NoteCheckIssues';
+import { DeckCheckSheet } from '../components/cardCheck/DeckCheckSheet';
+import { syncService } from '../services/sync';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck, apiErrorStatus } from '../api/client';
@@ -17,6 +21,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import './SharedDeckProgressPage.css';
 import { masteryLevel, type MasteryLevel } from '@shared/progress';
+import { track } from '../services/analytics';
 import './DeckDetailPage.css';
 
 // ============ Deck ⋯ menu ============
@@ -1576,6 +1581,8 @@ export function DeckDetailPage() {
   const { user } = useAuth();
 
   const [showAddModal, setShowAddModal] = useState(false);
+  // After adding / editing a word in a deck that was sent: "Also update <student>'s copy" (docs/HOMEWORK.md §10).
+  const [copiesPrompt, setCopiesPrompt] = useState(0);
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteWithCards | null>(null);
   const [historyNote, setHistoryNote] = useState<NoteWithCards | null>(null);
@@ -1587,6 +1594,7 @@ export function DeckDetailPage() {
   const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
   const [showShareTutorModal, setShowShareTutorModal] = useState(false);
   const [showAnkiExport, setShowAnkiExport] = useState(false);
+  const [showCheck, setShowCheck] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
   const [toast, showToast] = useToast();
@@ -1785,9 +1793,11 @@ export function DeckDetailPage() {
   const createNoteMutation = useMutation({
     mutationFn: (data: NoteFormData) => createNote(id!, data),
     onSuccess: () => {
+      track('deck.note_add');
       queryClient.invalidateQueries({ queryKey: ['deck', id] });
       queryClient.invalidateQueries({ queryKey: ['deckStats', id] });
       setShowAddModal(false);
+      setCopiesPrompt((n) => n + 1);
     },
   });
 
@@ -1795,8 +1805,10 @@ export function DeckDetailPage() {
     mutationFn: ({ noteId, data }: { noteId: string; data: NoteFormData }) =>
       updateNote(noteId, data),
     onSuccess: () => {
+      track('deck.note_edit', { where: 'deck' });
       queryClient.invalidateQueries({ queryKey: ['deck', id] });
       setEditingNote(null);
+      setCopiesPrompt((n) => n + 1);
     },
   });
 
@@ -1923,6 +1935,9 @@ export function DeckDetailPage() {
       ? [{ key: 'share', label: '👩‍🏫 Share with tutor', onSelect: () => setShowShareTutorModal(true) }]
       : []),
     { key: 'settings', label: '⚙️ Settings', onSelect: () => setShowSettings(true) },
+    ...(deck.notes.length > 0
+      ? [{ key: 'check', label: '🔎 Check for errors', onSelect: () => setShowCheck(true) }]
+      : []),
     ...(missingAudioCount > 0
       ? [{
           key: 'gen-audio',
@@ -2184,7 +2199,7 @@ export function DeckDetailPage() {
                   return (
                     <div
                       key={noteProgress.noteId}
-                      className={`deck-note-progress-item${selectMode && noteData?.audio_url ? ' selectable' : ''}`}
+                      className={`deck-note-progress-item${selectMode && noteData?.audio_url ? ' selectable' : ''}${noteData?.check_issues && !selectMode ? ' has-check-issues' : ''}`}
                       role="button"
                       tabIndex={0}
                       aria-label={`Edit ${noteProgress.hanzi}`}
@@ -2276,6 +2291,16 @@ export function DeckDetailPage() {
                       </div>
                       <span className="deck-note-mastery">{noteProgress.mastery_percent}%</span>
                       {!selectMode && <span className="deck-note-chevron" aria-hidden="true">›</span>}
+                        {noteData?.check_issues && !selectMode && (
+                          <NoteCheckIssues
+                            note={noteData}
+                            onChanged={(n) => {
+                              // The list reads IndexedDB: write the fix there at once, then refresh the deck.
+                              void db.notes.update(n.id, { pinyin: n.pinyin, english: n.english, check_issues: n.check_issues ?? null }).catch(() => {});
+                              void deckQuery.refetch();
+                            }}
+                          />
+                        )}
                     </div>
                   );
                 })}
@@ -2290,6 +2315,7 @@ export function DeckDetailPage() {
             card={cardEditNote}
             onClose={() => setCardEditNote(null)}
             onSave={() => {
+              track('deck.note_edit', { where: 'deck_card' });
               setCardEditNote(null);
               queryClient.invalidateQueries({ queryKey: ['deck', id] });
             }}
@@ -2420,6 +2446,19 @@ export function DeckDetailPage() {
           />
         )}
 
+        {showCheck && (
+          <DeckCheckSheet
+            target={{ kind: 'own', deckId: deck.id }}
+            title={deck.name}
+            onClose={() => setShowCheck(false)}
+            onApplied={(n) => {
+              showToast(`Fixed ${n} word${n === 1 ? '' : 's'}`);
+              void deckQuery.refetch();
+              void syncService.incrementalSync().catch(() => {});
+            }}
+          />
+        )}
+
         {/* Anki export (from the ⋯ menu) */}
         {showAnkiExport && (
           <AnkiExportModal
@@ -2542,6 +2581,7 @@ export function DeckDetailPage() {
             </div>
           </div>
         )}
+        {copiesPrompt > 0 && navigator.onLine && <UpdateCopiesPrompt key={copiesPrompt} kind="deck" sourceId={id!} onDone={() => setCopiesPrompt(0)} />}
       </div>
     </div>
   );

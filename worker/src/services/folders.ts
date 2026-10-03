@@ -1,6 +1,6 @@
 /**
  * Folders for decks, Lesson Library items and graded readers — organisation only
- * (shared/folders; migration 0100). Every folder write goes through here.
+ * (shared/folders; migration 0105). Every folder write goes through here.
  *
  * - A folder belongs to one user and one kind; nothing reads or writes another
  *   user's folders (every query is scoped by user_id; a foreign id is "not found").

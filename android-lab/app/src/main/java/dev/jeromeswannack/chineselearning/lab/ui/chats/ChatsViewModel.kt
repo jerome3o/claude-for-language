@@ -10,6 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.other
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.ui.connections.Connections
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import kotlinx.coroutines.delay
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.TimeZone
 
@@ -34,6 +36,10 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
 
     init {
         viewModelScope.launch { val me = Connections.myId(app.cache); local.update { it.copy(myId = me) } }
+        viewModelScope.launch {
+            val list = runCatching { Chats.observe(app.cache).first() }.getOrNull()
+            app.analytics.track("chat.inbox_open", mapOf("conversations" to list?.conversations?.size, "unread" to list?.conversations?.count { it.unread > 0 }))
+        }
         viewModelScope.launch { while (true) { delay(30_000); local.update { it.copy(now = System.currentTimeMillis()) } } }
         // Listening mode: the settings + what was revealed on this phone (the "🎧 New message" previews).
         val listening = combine(ChatListeningStore.observe(app.cache), ChatListeningStore.observeRevealed(app.cache)) { state, _ -> state }
@@ -74,7 +80,23 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
 
     fun setQuery(q: String) = local.update { it.copy(query = q) }
 
-    /** ✏️: one person → straight into a new conversation; several → the picker; nobody → null (Connections). */
+    /**
+     * THE chat with the person of [relId] (one chat per pair): their inbox row when it's listed
+     * (instant, offline), else `POST …/conversations/open` (get-or-create).
+     */
+    fun openChat(relId: String, go: (String) -> Unit) {
+        _ui.value.rows.firstOrNull { it.relationshipId == relId && !it.isAi }?.let { go(it.conversationId); return }
+        viewModelScope.launch {
+            try {
+                go(ChatPair.theChat(app, relId))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                local.update { it.copy(error = "Couldn't open that chat. ${e.userMessage()}") }
+            }
+        }
+    }
+
+    /** ✏️: one person → straight into THE chat with them; several → the picker; nobody → Connections. */
     fun newChatTarget(): NewChat {
         val people = _ui.value.people
         return when (people.size) {

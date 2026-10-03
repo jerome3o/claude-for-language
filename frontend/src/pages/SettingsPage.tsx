@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { NotificationsSection } from '../components/NotificationsSection';
 import { ChatListeningSettings } from '../components/chat/ChatListeningSettings';
+import { ChatSettingsSection } from '../components/ChatSettingsSection';
+import { CardCheckSettingsSection } from '../components/CardCheckSettingsSection';
 import { Link } from 'react-router-dom';
-import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget } from '../api/client';
+import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget, updateShareUsage } from '../api/client';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
+import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
 import { BudgetStepper } from '../components/BudgetStepper';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
@@ -402,6 +405,7 @@ function NativePlaybackPanel() {
               checked={compression}
               onChange={(e) => {
                 setNativeCompressionPref(e.target.checked);
+                track('settings.change', { setting: 'audio_compression', value: e.target.checked });
                 setState(describeNativeBridge());
               }}
             />
@@ -416,6 +420,7 @@ function NativePlaybackPanel() {
               checked={keepAwake}
               onChange={(e) => {
                 setNativeKeepAwakePref(e.target.checked);
+                track('settings.change', { setting: 'audio_keep_awake', value: e.target.checked });
                 setState(describeNativeBridge());
               }}
             />
@@ -591,6 +596,62 @@ const LANDING_OPTIONS: { value: LandingPage | ''; label: string; tutorOnly?: boo
  * the top of the deck queue down (shared/decks/budget.ts). This is the lever
  * that controls the daily workload; a tutor can send any amount of homework.
  */
+/**
+ * Settings → Advanced → "Share usage data to help improve the app" (on by default):
+ * which screens and features are used, never content (docs/ANALYTICS.md). Off
+ * stops recording on this device at once and deletes what the server holds.
+ */
+function UsageDataSection() {
+  const { user, refreshUser } = useAuth();
+  const [on, setOn] = useState(() => user?.share_usage ?? isSharingUsage());
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof user?.share_usage === 'boolean') setOn(user.share_usage);
+  }, [user?.share_usage]);
+
+  const change = async (next: boolean) => {
+    setSaving(true);
+    setError(null);
+    const before = on;
+    setOn(next);
+    if (!next) track('settings.analytics', { on: false });
+    try {
+      await updateShareUsage(next);
+      setSharingUsage(next);
+      if (next) track('settings.analytics', { on: true });
+      await refreshUser();
+    } catch (err) {
+      setOn(before);
+      setError(err instanceof Error && navigator.onLine ? err.message : 'You are offline — try again when you have a connection.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="settings-section" data-testid="usage-data">
+      <h2>Usage data</h2>
+      <label className="settings-toggle-row">
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={saving}
+          onChange={(e) => void change(e.target.checked)}
+          data-testid="usage-data-toggle"
+        />
+        <span>Share usage data to help improve the app</span>
+      </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
+        {on
+          ? 'Which screens and features you use — never your messages, cards or recordings.'
+          : 'Off — nothing is recorded, and what was collected has been deleted.'}
+      </p>
+      {error && <div className="export-error">{error}</div>}
+    </div>
+  );
+}
+
 function DailyBudgetSection() {
   const { user, refreshUser } = useAuth();
   const initial = useMemo(() => ({
@@ -613,6 +674,7 @@ function DailyBudgetSection() {
     setError(null);
     try {
       const next = await updateStudyBudget({ new_cards_per_day: primary, secondary_cards_per_day: secondary });
+      track('settings.change', { setting: 'study_budget', value: primary });
       writeStudyBudget(next);
       await refreshUser();
       setSaved(true);
@@ -658,6 +720,7 @@ function StartOnSection({ hasStudents }: { hasStudents: boolean }) {
     setError(null);
     try {
       await updateLandingPage(next === '' ? null : next);
+      track('settings.change', { setting: 'landing_page', value: next || 'auto' });
       await refreshUser();
     } catch (err) {
       setValue(prev);
@@ -791,6 +854,10 @@ export function SettingsPage() {
         <NotificationsSection />
         <ChatListeningSettings />
 
+        <ChatSettingsSection />
+
+        <CardCheckSettingsSection />
+
         <div className="settings-section">
           <button className="btn btn-secondary export-btn settings-signout" onClick={() => { logout(); }}>
             Sign out
@@ -808,13 +875,14 @@ export function SettingsPage() {
           >
             <span className="nav-section-title" style={{ margin: 0 }}>Advanced</span>
             <span className="nav-section-toggle-hint">
-              {showAdvanced ? 'Hide' : 'Audio quality · Conversation voices · Sentence coverage · Feature requests · Sync · Debug'}
+              {showAdvanced ? 'Hide' : 'Usage data · Audio quality · Conversation voices · Sentence coverage · Feature requests · Sync · Debug'}
             </span>
             <span className={`nav-row-chevron nav-section-toggle-chevron${showAdvanced ? ' open' : ''}`} aria-hidden="true">›</span>
           </button>
 
           {showAdvanced && (
             <div id="settings-advanced">
+              <UsageDataSection />
               <AudioQualityPanel />
               <NativePlaybackPanel />
               <AudioDiagnosticsPanel />

@@ -113,6 +113,8 @@ data class StudentPageUi(
     val studentProfile: (@Composable () -> Unit)? = null,
     /** "Daily new cards" — the student's budget row (DailyBudgetRow), rendered just before Homework. */
     val dailyBudget: (@Composable () -> Unit)? = null,
+    /** "Most recent homework" (docs/HOMEWORK.md §9) — the first thing on the page. */
+    val recentHomework: (@Composable () -> Unit)? = null,
 )
 
 data class StudentPageActions(
@@ -135,6 +137,8 @@ data class StudentPageActions(
     val refresh: () -> Unit = {},
     /** Take homework back: opens the confirm sheet for that deck / lesson / reader. */
     val removeHomework: (RemovalTarget) -> Unit = {},
+    /** Homework deck menu → "🔎 Check for errors" on the student's copy (word checks). */
+    val checkDeck: (HomeworkDeckDto) -> Unit = {},
     val removalSheet: RemovalSheetActions = RemovalSheetActions(),
 )
 
@@ -231,6 +235,7 @@ private fun headerLine(ui: StudentPageUi, now: Instant): String {
 
 private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, onShowQr: () -> Unit) {
     val o = ui.overview.data
+    ui.recentHomework?.let { card -> item(key = "recent-homework") { card() } }
     if (!ui.about.isNullOrBlank() || !ui.timeZone.isNullOrBlank()) item(key = "about") {
         dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard {
             dev.jeromeswannack.chineselearning.lab.ui.profile.PersonAbout(ui.about, ui.timeZone, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), now = now)
@@ -310,6 +315,7 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
                 ui.relId, d, ui.updatingShare == d.shared_deck_id, { to -> actions.moveShare(d, to) }, { actions.updateShare(d) }, actions.open, now,
                 removeLabel = HomeworkRemoval.removalMenuLabel(HomeworkRemoval.DECK, name),
                 onRemove = { actions.removeHomework(RemovalTarget(HomeworkRemoval.DECK, d.shared_deck_id, d.source_deck_name)) },
+                onCheck = if (d.target_deck_name != null) ({ actions.checkDeck(d) }) else null,
             )
         }
     }
@@ -342,7 +348,7 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
             }
         }
     }
-    item(key = "conversations") { ConversationsCard(ui.relId, ui.conversations.data, actions.message, actions.open, now) }
+    item(key = "conversations") { ConversationsCard(name, ui.conversations.data, actions.message, now) }
     if (o != null && !o.is_new) item(key = "activity") { ActivityCard(ui.relId, o.activity, actions.open) }
     item(key = "end") { Spacer(Modifier.height(8.dp)) }
 }

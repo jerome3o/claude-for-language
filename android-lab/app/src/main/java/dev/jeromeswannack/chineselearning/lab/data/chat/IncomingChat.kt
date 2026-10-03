@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.data.chat
 
-import dev.jeromeswannack.chineselearning.lab.core.Pinyin
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.InboxMessageDto
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
@@ -134,7 +133,7 @@ object ChatPinyin {
         val run = StringBuilder()
         fun flush() {
             if (run.isEmpty()) return
-            val p = runCatching { Pinyin.toPinyin(run.toString()) }.getOrNull() ?: return run.setLength(0)
+            val p = runCatching { dev.jeromeswannack.chineselearning.lab.core.ToneChange.autoPinyin(run.toString()) }.getOrNull() ?: return run.setLength(0)
             if (out.isNotEmpty() && !out.endsWith(" ")) out.append(' ')
             out.append(p)
             run.setLength(0)

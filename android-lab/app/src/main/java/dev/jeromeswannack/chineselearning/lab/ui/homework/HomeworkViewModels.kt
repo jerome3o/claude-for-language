@@ -38,8 +38,9 @@ class HomeworkListViewModel(app: LabApp) : ViewModel() {
     val ui: StateFlow<HomeworkListUi> = HomeworkStore.observe(app.cache).map { data ->
         if (data == null) HomeworkListUi(loaded = true)
         else {
-            val sorted = Homework.sortHomeworkItems(Homework.toHomeworkItems(data.first, data.second, Homework.localDate()))
-            HomeworkListUi(true, sorted.todo, sorted.done)
+            val today = Homework.localDate()
+            val sorted = Homework.sortHomeworkItems(Homework.toHomeworkItems(data.first, data.second, today))
+            HomeworkListUi(true, sorted.todo, sorted.done, today)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeworkListUi())
 
@@ -55,7 +56,15 @@ class HomeworkListViewModel(app: LabApp) : ViewModel() {
  * uploaded through the outbox. A lesson / reader: the regular player, once.
  */
 class HomeworkPassViewModel(private val app: LabApp, private val id: String) : ViewModel() {
-    private data class Local(val revealedFor: String? = null, val busy: Boolean = false, val add: AddState = AddState.Idle, val finished: Boolean = false)
+    private data class Local(
+        val revealedFor: String? = null,
+        val busy: Boolean = false,
+        val add: AddState = AddState.Idle,
+        val finished: Boolean = false,
+        /** Link homework: "Mark as done" in flight / done in this sitting. */
+        val linkBusy: Boolean = false,
+        val linkJustDone: Boolean = false,
+    )
 
     /** The lessons / readers on this phone (package B's stores); null until read. */
     private data class Targets(val lessons: Map<String, LessonEntry>, val readers: Map<String, ReaderEntry>)
@@ -67,12 +76,20 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     private val runtime by lazy { LessonRuntime.of(app) }
     private val targets: Flow<Targets?> = flow { emit(null); emitAll(combine(runtime.store.observe(), runtime.readers.observe()) { l, r -> Targets(l.associateBy { it.id }, r.associateBy { it.id }) }) }
     private var celebrated = false
+    /** homework.pass_start recorded for this visit. */
+    private var startTracked = false
     private var wasComplete: Boolean? = null
 
     val ui: StateFlow<PassUi> = combine(HomeworkStore.observe(app.cache), notes, local, app.online, targets) { data, notes, l, online, targets ->
         val a = data?.first?.firstOrNull { it.id == id } ?: return@combine if (data == null) PassUi.Loading else PassUi.Missing
         val progress = Homework.passProgress(Homework.passItemIds(a), data.second.filter { it.assignment_id == a.id })
-        noteComplete(progress.complete)
+        val items = Homework.passItemIds(a).size
+        if (!startTracked) {
+            startTracked = true
+            app.analytics.track("homework.pass_start", mapOf("kind" to a.kind, "items" to items))
+        }
+        noteComplete(progress.complete, a.kind, items)
+        if (a.kind == "link") return@combine linkUi(a, progress.complete, data.second, l)
         if (a.kind != "deck") return@combine playerUi(a, progress.complete, targets, l.finished)
         val parts = Homework.titleParts(a)
         val current = Homework.nextPassItem(progress)
@@ -117,11 +134,12 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     }
 
     /** Fanfare once, when the last word goes right in this sitting (not when opening a finished pass). */
-    private fun noteComplete(complete: Boolean) {
+    private fun noteComplete(complete: Boolean, kind: String, items: Int) {
         val before = wasComplete
         wasComplete = complete
         if (complete && before == false && !celebrated) {
             celebrated = true
+            app.analytics.track("homework.pass_done", mapOf("kind" to kind, "items" to items))
             app.haptics.celebrate()
             app.sounds.play(Sounds.Sfx.FANFARE)
         }
@@ -140,6 +158,46 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             SessionReader(it.reader, CardScheduler.intervalPreviews(it.state, now), key = 1)
         }
         return PassUi.Player(a.kind, title, complete, loaded = targets != null, lesson = lesson, reader = reader, finished = finished)
+    }
+
+    /** Link homework (web: LinkPass): the assignment's snapshot of the link + whether it is done (and the note sent). */
+    private fun linkUi(a: HomeworkAssignment, complete: Boolean, events: List<dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent>, l: Local): PassUi.Link {
+        val done = a.status == "done" || complete
+        val note = events.filter { it.assignment_id == a.id && it.result == "done" && !it.note.isNullOrBlank() }.maxByOrNull { it.created_at }?.note
+        val url = a.details?.url?.takeIf { it.isNotBlank() }
+        return PassUi.Link(
+            LinkPassUi(
+                title = a.title.ifEmpty { "Link" },
+                url = url,
+                instructions = a.details?.instructions,
+                thumbnailUrl = a.details?.thumbnail_url ?: url?.let { dev.jeromeswannack.chineselearning.lab.core.HomeworkLinks.linkThumbnail(it) },
+                due = Homework.dueLabel(a.due_date, Homework.localDate()),
+                tutorName = a.tutor_name,
+                done = done,
+                note = note,
+                busy = l.linkBusy,
+                justDone = l.linkJustDone,
+            ),
+        )
+    }
+
+    /** "Mark as done" on link homework: a `done` event with the optional note, written locally and uploaded through the outbox. */
+    fun markLinkDone(note: String?) {
+        val a = (ui.value as? PassUi.Link) ?: return
+        if (a.link.done || local.value.linkBusy) return
+        viewModelScope.launch {
+            local.value = local.value.copy(linkBusy = true)
+            val assignment = app.cache.get<List<HomeworkAssignment>>(dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys.ASSIGNMENTS)?.firstOrNull { it.id == id }
+            if (assignment != null) {
+                runCatching { HomeworkStore.recordPassEvent(app, id, assignment.target_id, "done", note = note) }
+            }
+            local.value = local.value.copy(linkBusy = false, linkJustDone = assignment != null)
+        }
+    }
+
+    /** The tap on "Open link ↗" (the route starts the browser). */
+    fun linkOpened() {
+        app.haptics.tick()
     }
 
     /**
@@ -189,6 +247,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         if (local.value.busy) return
         if (right) { app.haptics.correct(); app.sounds.play(Sounds.Sfx.CORRECT) } else { app.haptics.wrong(); app.sounds.play(Sounds.Sfx.AGAIN, 0.6f) }
         local.value = local.value.copy(busy = true)
+        app.analytics.track("homework.pass_item", mapOf("result" to if (right) "right" else "wrong"))
         viewModelScope.launch {
             try {
                 HomeworkStore.recordPassEvent(app, id, note.id, if (right) "right" else "wrong")

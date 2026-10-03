@@ -15,7 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-/** Calls round 4: lessons (calls within 20 minutes) reproduce shared/calls/lessons.ts exactly (parity/fixtures/calls-lessons.ts). */
+/** Calls round 4 (+ round 5's two-hour gap): lessons (calls within two hours of each other) reproduce shared/calls/lessons.ts exactly (parity/fixtures/calls-lessons.ts). */
 class CallsLessonsParityTest {
     private val root: JsonObject by lazy {
         val dir = System.getProperty("parity.dir") ?: fail("parity.dir not set — run through Gradle")
@@ -26,7 +26,10 @@ class CallsLessonsParityTest {
     private fun lng(e: JsonElement?): Long? = if (e == null || e is JsonNull) null else e.jsonPrimitive.long
 
     @Test
-    fun gapIsTwentyMinutes() = assertEquals(root["gap"]!!.jsonPrimitive.long, CallLessons.LESSON_GAP_MS)
+    fun gapIsTwoHours() {
+        assertEquals(root["gap"]!!.jsonPrimitive.long, CallLessons.LESSON_GAP_MS)
+        assertEquals(2 * 60 * 60_000L, CallLessons.LESSON_GAP_MS)
+    }
 
     @Test
     fun groupIntoLessonsMatches() {

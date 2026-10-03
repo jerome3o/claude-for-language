@@ -6,8 +6,7 @@
 
 import { generateId } from '../cards';
 import { verifyRelationshipAccess, getOtherUserId } from '../relationships';
-import { createConversation, sendMessage } from '../conversations';
-import { fetchLastConversationId } from '../../db/tutor-dashboard-queries';
+import { openRelationshipConversation, sendMessage } from '../conversations';
 import type { BoardItem, CallChatMessage, CallDiagEntry } from '@shared/calls';
 import { CLAUDE_AI_USER_ID } from '../../types';
 import { lessonForNewCall, refreshLessonEnd } from './lessons';
@@ -114,7 +113,7 @@ export async function createCall(
   }
   const id = generateId();
   const title = (input.title || '').trim().slice(0, 120) || null;
-  // Within 20 minutes of the last call between these people: the same lesson.
+  // Within two hours (LESSON_GAP_MS) of the last call between these people: the same lesson.
   const lessonId = await lessonForNewCall(db, relId, userId);
   if (relId) {
     // Both people pressing "Video call" at the same moment used to make two calls: each joined
@@ -146,8 +145,7 @@ export async function createCall(
   }
   if (relId && opts.joinUrl) {
     try {
-      let conversationId = await fetchLastConversationId(db, relId);
-      if (!conversationId) conversationId = (await createConversation(db, relId, userId, {})).id;
+      const conversationId = (await openRelationshipConversation(db, relId, userId)).conversation.id;
       await sendMessage(db, conversationId, userId, `📹 I started a video call — join here: ${opts.joinUrl(id)}`);
     } catch (err) {
       console.error('[calls] chat notice failed:', err);

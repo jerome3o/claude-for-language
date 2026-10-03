@@ -196,11 +196,12 @@ export async function fetchRedeemedInvite(
 
 // ---------- Conversations ----------
 
+/** THE conversation of the pair (one chat per pair, migration 0102), or null when none yet. */
 export async function fetchLastConversationId(db: D1Database, relationshipId: string): Promise<string | null> {
   const row = await db
     .prepare(
-      `SELECT id FROM conversations WHERE relationship_id = ?
-       ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT 1`
+      `SELECT id FROM conversations WHERE relationship_id = ? AND merged_into IS NULL
+       ORDER BY COALESCE(is_ai_conversation, 0) ASC, COALESCE(last_message_at, created_at) DESC LIMIT 1`
     )
     .bind(relationshipId)
     .first<{ id: string }>();

@@ -13,6 +13,7 @@ import { exercisePrimaryText } from '@shared/lesson';
 import { AssignSheet } from './LessonLibraryPage';
 import { AnkiExportButton } from '../../components/export/AnkiExportModal';
 import { useToast } from './LessonEditorPage';
+import { track } from '../../services/analytics';
 import './LessonLibraryPage.css';
 
 const RATING_LABELS: Record<number, string> = { 0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy' };
@@ -47,6 +48,7 @@ export function LibraryItemPage() {
     setPushing(true);
     try {
       const r = await pushLibraryUpdate(id);
+      track('tutor.library_push_update');
       showToast(`Updated ${r.updated} student cop${r.updated === 1 ? 'y' : 'ies'}${r.skipped ? `, ${r.skipped} already current` : ''}`);
       queryClient.invalidateQueries({ queryKey: ['library-assignments', id] });
     } catch (err) {

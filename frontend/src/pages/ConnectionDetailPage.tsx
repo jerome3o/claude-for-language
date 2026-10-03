@@ -38,7 +38,12 @@ import { LessonNotesSection } from '../components/tutor/LessonNotesSection';
 import { StudentProfileSection } from '../components/tutor/StudentProfileSection';
 import { DailyBudgetSection } from '../components/tutor/DailyBudgetSection';
 import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
+import { HomeworkRow } from '../components/homework/HomeworkRow';
+import { useHomeworkItems } from '../components/homework/useHomeworkItems';
+import { RecentHomeworkCard } from '../components/tutor/library/RecentHomeworkCard';
+import { getRelationshipLibrary } from '../api/homeworkLibrary';
 import { RemoveHomeworkSheet, type RemovalTarget } from '../components/tutor/RemoveHomeworkSheet';
+import { DeckCheckSheet } from '../components/cardCheck/DeckCheckSheet';
 import { SharedReadersSection } from '../components/tutor/SharedReadersSection';
 import { Toast, useToast } from '../components/Toast';
 import { removalMenuLabel } from '@shared/homework';
@@ -47,6 +52,7 @@ import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTi
 import '../components/tutor/tutor-dashboard.css';
 import './ConnectionDetailPage.css';
 import { lastMessagePreview } from '../services/chatThread';
+import { track } from '../services/analytics';
 
 function formatConversationDate(dateStr: string) {
   const date = new Date(dateStr);
@@ -108,6 +114,39 @@ function ConversationsList({ relId, conversations, isLoading, onStart }: { relId
   );
 }
 
+/**
+ * THE chat with a person (one chat per pair, docs/CHAT.md): a single row with
+ * the last message and the unread count — no list of conversations.
+ */
+function OneChatRow({ name, conversation, isLoading, onOpen }: { name: string; conversation: ConversationWithLastMessage | null; isLoading: boolean; onOpen: () => void }) {
+  const preview = conversation ? lastMessagePreview(conversation.last_message) : null;
+  const unread = conversation?.unread ?? 0;
+  const when = conversation ? conversation.last_message?.created_at ?? conversation.last_message_at ?? null : null;
+  return (
+    <button
+      type="button"
+      className={`conversation-item one-chat-row${unread > 0 ? ' has-unread' : ''}`}
+      onClick={onOpen}
+      data-testid="one-chat-row"
+    >
+      <div className="conversation-info">
+        <span className="conversation-title">💬 Chat with {name}</span>
+        <span className="conversation-preview">
+          {isLoading && !conversation ? 'Loading…' : preview ? `${preview.slice(0, 60)}${preview.length > 60 ? '…' : ''}` : 'No messages yet — say hello'}
+        </span>
+      </div>
+      <span className="conversation-side">
+        {when && <span className="conversation-time">{formatConversationDate(when)}</span>}
+        {unread > 0 && (
+          <span className="conversation-unread" aria-label={`${unread} unread`} data-testid="conversation-unread">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
 /** "Last studied today, 12:32 AM · 🔥 1 day · 7 active days / 30" */
 function studentStatusLine(o: StudentOverview): string {
   if (o.is_new) {
@@ -140,6 +179,8 @@ export function ConnectionDetailPage() {
   const [updatingShare, setUpdatingShare] = useState<string | null>(null);
   const [updateNote, setUpdateNote] = useState<string | null>(null);
   const [removal, setRemoval] = useState<RemovalTarget | null>(null);
+  // "Check for errors" on the student's copy of a homework deck I sent (components/cardCheck).
+  const [checking, setChecking] = useState<{ id: string; title: string } | null>(null);
   const [toast, showToast] = useToast(4500);
 
   const relationshipQuery = useQuery({
@@ -159,6 +200,12 @@ export function ConnectionDetailPage() {
     queryFn: () => getStudentOverview(relId!),
     enabled: !!relId && tutorView,
     staleTime: 60_000,
+  });
+  const libraryQuery = useQuery({
+    queryKey: ['homework-library', relId],
+    queryFn: () => getRelationshipLibrary(relId!),
+    enabled: !!relId && tutorView,
+    staleTime: 30_000,
   });
 
   const conversationsQuery = useQuery({
@@ -204,6 +251,7 @@ export function ConnectionDetailPage() {
     setPageError(null);
     try {
       const { call } = await createCall({ relationship_id: relId! });
+      track('call.start', { solo: false });
       navigate(`/calls/${call.id}`);
     } catch (err) {
       setPageError(err instanceof Error ? err.message : 'Could not start the call');
@@ -237,13 +285,13 @@ export function ConnectionDetailPage() {
     },
   });
 
-  /** Message: most recent conversation, created when there is none (H3). */
+  /** Message: THE chat with this person (one chat per pair), created when there is none. */
   const handleMessage = async () => {
     if (isClaudeRelationship) {
       setShowNewConvModal(true);
       return;
     }
-    const known = overviewQuery.data?.last_conversation_id ?? conversationsQuery.data?.[0]?.id ?? null;
+    const known = conversationsQuery.data?.find((c) => !c.is_ai_conversation)?.id ?? overviewQuery.data?.last_conversation_id ?? null;
     if (known) {
       navigate(`/connections/${relId}/chat/${known}`);
       return;
@@ -265,6 +313,7 @@ export function ConnectionDetailPage() {
     setUpdateNote(null);
     try {
       const res = await moveSharedDeck(relId!, sharedDeckId, to);
+      track('tutor.queue_move', { to });
       setUpdateNote(
         res.queue_position === 1
           ? `${name} is now first in their queue — the next new words come from it.`
@@ -282,6 +331,7 @@ export function ConnectionDetailPage() {
     setUpdateNote(null);
     try {
       const res = await updateSharedDeckCopy(relId!, sharedDeckId);
+      track('deck.share', { update: true });
       const updated = res.updated ?? 0;
       const parts = [
         res.added > 0 ? `added ${plural(res.added, 'new word')}` : null,
@@ -322,6 +372,19 @@ export function ConnectionDetailPage() {
   const otherUser = getOtherUserInRelationship(relationship, user!.id);
   const otherName = otherUser.name || otherUser.email || 'Unknown';
   const conversations = conversationsQuery.data || [];
+  const oneChat = conversations.find((c) => !c.is_ai_conversation) ?? null;
+  // A person: one "Message" row. Claude: its practice chats (several allowed).
+  const chatSection = isClaudeRelationship ? (
+    <section className="detail-section">
+      <h2>Practice chats</h2>
+      <ConversationsList relId={relId!} conversations={conversations} isLoading={conversationsQuery.isLoading} onStart={handleMessage} />
+    </section>
+  ) : (
+    <section className="detail-section">
+      <h2>Messages</h2>
+      <OneChatRow name={otherUser.name?.split(' ')[0] || otherName} conversation={oneChat} isLoading={conversationsQuery.isLoading} onOpen={() => void handleMessage()} />
+    </section>
+  );
   const sharedDecks = sharedDecksQuery.data || [];
   const studentSharedDecks = studentSharedDecksQuery.data || [];
   const overview = overviewQuery.data ?? null;
@@ -373,6 +436,11 @@ export function ConnectionDetailPage() {
             </div>
           )}
 
+          {/* Most recent homework: %, due date, status colour (docs/HOMEWORK.md §9) */}
+          {libraryQuery.data && (
+            <RecentHomeworkCard items={libraryQuery.data.items} today={libraryQuery.data.today} relId={relId!} onSend={() => setShowHomeworkSheet(true)} />
+          )}
+
           {liveCallBanner}
           <div className="td-actions">
             <button type="button" className="btn btn-primary" onClick={handleMessage} disabled={messageBusy}>💬 Message</button>
@@ -417,6 +485,7 @@ export function ConnectionDetailPage() {
               Recordings{overview && overview.pills.recordings_to_hear > 0 ? ` (${overview.pills.recordings_to_hear})` : ''}
             </Link>
             <Link to={`/connections/${relId}/progress`}>Progress</Link>
+            <Link to={`/connections/${relId}/homework`}>Homework library</Link>
           </nav>
 
           {/* The tutor's private profile of the student: every homework / lesson / reader agent reads it */}
@@ -467,12 +536,18 @@ export function ConnectionDetailPage() {
                           total={d.queue_total}
                           label="their queue"
                           onMove={(to) => handleMoveShare(d.shared_deck_id, d.source_deck_name, to)}
-                          extraItems={[{ key: 'remove', label: removalMenuLabel('deck', otherName), danger: true, onSelect: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) }]}
+                          extraItems={[
+                            { key: 'check', label: '🔎 Check for errors', onSelect: () => setChecking({ id: d.shared_deck_id, title: d.source_deck_name }) },
+                            { key: 'remove', label: removalMenuLabel('deck', otherName), danger: true, onSelect: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) },
+                          ]}
                         />
                       ) : (
                         <OverflowMenu
                           label={`More for ${d.source_deck_name}`}
-                          items={[{ label: removalMenuLabel('deck', otherName), danger: true, onClick: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) }]}
+                          items={[
+                            ...(d.target_deck_name != null ? [{ label: '🔎 Check for errors', onClick: () => setChecking({ id: d.shared_deck_id, title: d.source_deck_name }) }] : []),
+                            { label: removalMenuLabel('deck', otherName), danger: true, onClick: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) },
+                          ]}
                         />
                       )}
                       {d.notes_missing > 0 && d.target_deck_name != null ? (
@@ -524,11 +599,8 @@ export function ConnectionDetailPage() {
             </section>
           )}
 
-          {/* Conversations */}
-          <section className="detail-section">
-            <h2>Conversations</h2>
-            <ConversationsList relId={relId!} conversations={conversations} isLoading={conversationsQuery.isLoading} onStart={handleMessage} />
-          </section>
+          {/* The one chat with this student */}
+          {chatSection}
 
           {/* Activity: last two days, more in Progress */}
           {overview && !overview.is_new && (
@@ -554,6 +626,15 @@ export function ConnectionDetailPage() {
             </section>
           )}
         </div>
+
+        {checking && (
+          <DeckCheckSheet
+            target={{ kind: 'student', relId: relId!, sharedDeckId: checking.id }}
+            title={`${otherName.split(' ')[0] || 'Their'}’s copy of ${checking.title}`}
+            onClose={() => setChecking(null)}
+            onApplied={(n) => showToast(`Fixed ${n} word${n === 1 ? '' : 's'} in ${otherName.split(' ')[0] || 'their'}’s copy`)}
+          />
+        )}
 
         {removal && (
           <RemoveHomeworkSheet
@@ -631,16 +712,15 @@ export function ConnectionDetailPage() {
         {!isClaudeRelationship && <LessonBoardLink relId={relId!} />}
         {pageError && <div className="td-error">{pageError}</div>}
 
-        <section className="detail-section">
-          <h2>Conversations</h2>
-          <ConversationsList relId={relId!} conversations={conversations} isLoading={conversationsQuery.isLoading} onStart={handleMessage} />
-        </section>
+        {chatSection}
 
         {!isClaudeRelationship && <FlaggedCardsSection relId={relId!} role="student" />}
 
         {!isClaudeRelationship && (
           <section className="detail-section">
             <h2>Homework from your tutor</h2>
+            {/* The same items and statuses as My homework (/homework), from this tutor */}
+            <TutorHomeworkRows relId={relId!} />
             {sharedDecksQuery.isLoading ? (
               <Loading message="Loading shared decks..." />
             ) : sharedDecks.length === 0 ? (
@@ -679,7 +759,7 @@ export function ConnectionDetailPage() {
       {showNewConvModal && (
         <div className="modal-overlay" onClick={() => setShowNewConvModal(false)}>
           <div className="modal connection-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{isClaudeRelationship ? 'New Practice Conversation' : 'New Conversation'}</h3>
+            <h3>New Practice Conversation</h3>
             <form onSubmit={handleCreateConversation}>
               <div className="form-group">
                 <label htmlFor="conv-title">Title (optional)</label>
@@ -738,6 +818,23 @@ export function ConnectionDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The student's homework from this tutor (to do first, the latest done ones), linking to My homework. */
+function TutorHomeworkRows({ relId }: { relId: string }) {
+  const items = useHomeworkItems();
+  if (!items) return null;
+  const todo = items.todo.filter((i) => i.assignment.relationship_id === relId);
+  const done = items.done.filter((i) => i.assignment.relationship_id === relId).slice(0, 3);
+  if (todo.length === 0 && done.length === 0) return null;
+  return (
+    <div className="hw-list" style={{ marginBottom: '0.75rem' }} data-testid="tutor-page-homework">
+      {[...todo, ...done].map((item) => (
+        <HomeworkRow key={item.assignment.id} item={item} />
+      ))}
+      <Link to="/homework" className="btn-link">My homework ›</Link>
     </div>
   );
 }

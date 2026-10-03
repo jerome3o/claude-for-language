@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { pinyin as toPinyin } from 'pinyin-pro';
+import { autoPinyin as toPinyin } from '../utils/autoPinyin';
 import { writableCharacters } from '@shared/strokes';
 import { db, type LocalNote } from '../db/database';
 import { WritingExercise } from '../components/strokes/WritingExercise';

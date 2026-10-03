@@ -40,6 +40,16 @@ data class HomeworkAssignment(
     val created_at: String = "",
     val updated_at: String = "",
     val tutor_name: String? = null,
+    /** Link homework (docs/HOMEWORK.md §8): the link, instructions and thumbnail; null for other kinds. */
+    val details: HomeworkDetails? = null,
+)
+
+/** Port of HomeworkDetails (assignments.details): a snapshot of the tutor's link. */
+@Serializable
+data class HomeworkDetails(
+    val url: String? = null,
+    val instructions: String? = null,
+    val thumbnail_url: String? = null,
 )
 
 @Serializable
@@ -52,6 +62,8 @@ data class HomeworkEvent(
     /** 'right' | 'wrong' | 'done'. */
     val result: String,
     val created_at: String,
+    /** Optional note back to the tutor (a `done` event on link homework, ≤ 1000 chars). */
+    val note: String? = null,
 )
 
 data class DueLabel(val text: String, val tone: String, val days: Int?)
@@ -191,8 +203,8 @@ object Homework {
         return TitleParts(if (a.title.endsWith(suffix)) a.title.dropLast(suffix.length) else a.title, part)
     }
 
-    private val KIND_WORD = mapOf("lesson" to "mini lesson", "reader" to "reader")
-    val KIND_ICON = mapOf("deck" to "📚", "lesson" to "🎓", "reader" to "📖")
+    private val KIND_WORD = mapOf("lesson" to "mini lesson", "reader" to "reader", "link" to "link")
+    val KIND_ICON = mapOf("deck" to "📚", "lesson" to "🎓", "reader" to "📖", "link" to "🔗")
 
     fun kindIcon(kind: String): String = KIND_ICON[kind] ?: "📝"
 

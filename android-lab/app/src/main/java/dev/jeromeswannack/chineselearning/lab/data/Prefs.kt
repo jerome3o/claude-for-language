@@ -43,6 +43,10 @@ class Prefs(context: Context) {
         get() = sp.getString("landing_page", null)
         set(v) = sp.edit().putString("landing_page", v).apply()
 
+    /** Settings → Advanced → "Share usage data" (users opt out; data/analytics/Analytics.kt). Default on. */
+    var shareUsage: Boolean
+        get() = sp.getBoolean("share_usage", true)
+        set(v) = sp.edit().putBoolean("share_usage", v).apply()
     /** My users.voice_gender (male | female | other | null): the voice my own chat messages are read in. */
     var voiceGender: String?
         get() = sp.getString("voice_gender", null)
@@ -57,9 +61,20 @@ class Prefs(context: Context) {
             .putString("account_role", me.role)
             .putBoolean("is_admin", me.is_admin)
             .putString("landing_page", me.landing_page)
+            .putBoolean("share_usage", me.share_usage)
             .putString("voice_gender", me.voice_gender)
             .apply()
+        me.card_check?.let { cardCheck = it }
     }
+
+    /**
+     * Word checks (Settings → "Check new words for mistakes"): Paste a list asks Claude to
+     * double-check the preview. The server's effective value from /api/auth/me; before the
+     * first answer, on for a tutor account (the server's default).
+     */
+    var cardCheck: Boolean
+        get() = if (sp.contains("card_check")) sp.getBoolean("card_check", false) else accountRole == "tutor"
+        set(v) = sp.edit().putBoolean("card_check", v).apply()
 
     var budget: StudyBudget
         get() = StudyBudget(

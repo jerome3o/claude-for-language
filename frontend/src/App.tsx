@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
+import { startAnalytics, track, trackScreen } from './services/analytics';
+import { BUILD_TIME } from './utils/appUpdates';
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -19,6 +21,7 @@ import { SplashPage } from './pages/SplashPage';
 // Lazy-loaded pages
 const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ default: m.DeckDetailPage })));
 const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
+const HomeworkLibraryPage = lazy(() => import('./pages/tutor/HomeworkLibraryPage').then(m => ({ default: m.HomeworkLibraryPage })));
 const HomeworkDraftPage = lazy(() => import('./pages/tutor/HomeworkDraftPage').then(m => ({ default: m.HomeworkDraftPage })));
 const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
 const TutorNotesPage = lazy(() => import('./pages/TutorNotesPage').then(m => ({ default: m.TutorNotesPage })));
@@ -156,6 +159,43 @@ function NativeNavigationListener() {
     window.addEventListener('native-navigate', handler);
     return () => window.removeEventListener('native-navigate', handler);
   }, [navigate]);
+  return null;
+}
+
+/**
+ * Usage analytics (docs/ANALYTICS.md): one hook on the router records every
+ * screen change (screen views with time on screen).
+ */
+function AnalyticsListener() {
+  const location = useLocation();
+  useEffect(() => {
+    startAnalytics();
+    // A new app version is running (the previous launch had another build): app.update_applied.
+    try {
+      const last = localStorage.getItem('analytics-last-build');
+      if (last !== BUILD_TIME) {
+        if (last) track('app.update_applied');
+        localStorage.setItem('analytics-last-build', BUILD_TIME);
+      }
+    } catch {
+      // private mode
+    }
+    // Opened from a notification (public/push-sw.js adds ?notif=<kind>): record it, then drop the marker.
+    try {
+      const url = new URL(window.location.href);
+      const kind = url.searchParams.get('notif');
+      if (kind) {
+        track('notification.tapped', { kind });
+        url.searchParams.delete('notif');
+        window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+      }
+    } catch {
+      // never
+    }
+  }, []);
+  useEffect(() => {
+    trackScreen(location.pathname);
+  }, [location.pathname]);
   return null;
 }
 
@@ -334,6 +374,17 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* The one chat with that person (docs/CHAT.md "One chat per pair") */}
+      <Route
+        path="/connections/:relId/chat"
+        element={
+          <ProtectedRoute>
+            <ErrorBoundary fallbackTitle="Chat couldn't load">
+              <ChatPage />
+            </ErrorBoundary>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/connections/:relId/progress"
         element={
@@ -343,7 +394,9 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/connections/:relId/homework" element={<ProtectedRoute><Header /><HomeworkLibraryPage /></ProtectedRoute>} />
       <Route path="/connections/:relId/homework/:jobId" element={<ProtectedRoute><Header /><HomeworkDraftPage /></ProtectedRoute>} />
+      <Route path="/homework-library" element={<ProtectedRoute><Header /><HomeworkLibraryPage /></ProtectedRoute>} />
       <Route
         path="/connections/:relId/session-notes"
         element={
@@ -612,6 +665,7 @@ function App() {
         <NetworkProvider>
           <BrowserRouter>
             <NativeNavigationListener />
+            <AnalyticsListener />
             <AppRoutes />
             <OfflineBanner />
             <FeedbackFAB />

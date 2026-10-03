@@ -19,7 +19,8 @@
  *   4. For a tutor whose deck is shared, "Update their copy" per student.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { pinyin as toPinyin, polyphonic } from 'pinyin-pro';
+import { polyphonic } from 'pinyin-pro';
+import { autoPinyin as toPinyin } from '../../utils/autoPinyin';
 import {
   parseWordList,
   planImport,
@@ -36,7 +37,12 @@ import { glossWords, enrichWords, getDeckStudentShares, type DeckStudentShare } 
 import { updateSharedDeckCopy } from '../../api/tutorDashboard';
 import { runImport, type ImportOutcome, type ImportProgress } from '../../services/wordImport';
 import { useNetwork } from '../../contexts/NetworkContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { checkWords } from '../../api/cardChecks';
+import { CheckIssueBlock } from '../cardCheck/CheckIssueBlock';
+import type { IndexedCheckIssue } from '@shared/cards/check';
 import type { Note } from '../../types';
+import { track, trackError } from '../../services/analytics';
 import './PasteWordsModal.css';
 
 interface Props {
@@ -98,6 +104,12 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
   const [shares, setShares] = useState<DeckStudentShare[]>([]);
   const [shareState, setShareState] = useState<Map<string, { busy: boolean; note?: string }>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { user } = useAuth();
+  // Word check of the preview ("Check new words for mistakes", shared/cards/check.ts):
+  // issues by row key, the rows already checked (their exact text), dismissed issues.
+  const [rowIssues, setRowIssues] = useState<Map<string, IndexedCheckIssue[]>>(new Map());
+  const [checkedRows, setCheckedRows] = useState<Map<string, string>>(new Map());
+  const [dismissedIssues, setDismissedIssues] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -164,6 +176,40 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
   const summary = useMemo(() => summarizePlan(plan), [plan]);
   const byIndex = useMemo(() => new Map(rows.map(x => [x.row.index, x])), [rows]);
 
+  // Check new / updated rows once they have hanzi, pinyin and English — debounced, at most
+  // 60 at a time, each exact (hanzi, pinyin, english) only once. Never blocks saving.
+  const rowSig = (r: { hanzi: string; pinyin: string; english: string }) => `${r.hanzi}|${r.pinyin}|${r.english}`;
+  const toCheck = plan
+    .filter(p => (p.action === 'add' || p.action === 'update') && p.row.hanzi && p.row.pinyin && p.row.english)
+    .map(p => ({ key: byIndex.get(p.row.index)?.key ?? rowKey(p.row), row: p.row }))
+    .filter(x => checkedRows.get(x.key) !== rowSig(x.row))
+    .slice(0, 60);
+  const toCheckSig = toCheck.map(x => `${x.key}=${rowSig(x.row)}`).join('\n');
+  useEffect(() => {
+    if (!user?.card_check || !isOnline || stage !== 'edit' || toCheck.length === 0) return;
+    const batch = toCheck;
+    const t = window.setTimeout(() => {
+      checkWords(batch.map(x => ({ hanzi: x.row.hanzi, pinyin: x.row.pinyin, english: x.row.english })))
+        .then(found => {
+          setRowIssues(prev => {
+            const next = new Map(prev);
+            batch.forEach((x, i) => next.set(x.key, found.filter(f => f.index === i)));
+            return next;
+          });
+          setCheckedRows(prev => {
+            const next = new Map(prev);
+            for (const x of batch) next.set(x.key, rowSig(x.row));
+            return next;
+          });
+        })
+        .catch(() => {}); // a check is a nicety: no warnings, saving still works
+    }, 1200);
+    return () => window.clearTimeout(t);
+  }, [toCheckSig, user?.card_check, isOnline, stage]); // eslint-disable-line react-hooks/exhaustive-deps
+  const issueId = (key: string, i: IndexedCheckIssue) => `${key}|${i.field}|${i.proposed}`;
+  const openIssues = (key: string, row: { pinyin: string; english: string }) =>
+    (rowIssues.get(key) ?? []).filter(i => !dismissedIssues.has(issueId(key, i)) && (i.field === 'pinyin' ? row.pinyin : row.english) === i.current);
+
   // Rows whose card would be saved without an explanation or an example
   // sentence (and whose existing note, if any, has none either).
   const enrichable = plan.filter(p => {
@@ -214,7 +260,9 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
       }
       setEnrich('idle');
       setEnrichedText(text);
+      track('deck.enrich_words', { words: targets.length });
     } catch (err) {
+      trackError('enrich_words', err);
       const message = err instanceof Error ? err.message : '';
       setEnrich(/not configured|503/i.test(message) ? 'unavailable' : 'error');
     }
@@ -270,7 +318,10 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
   const save = async () => {
     setSavedBare(plan.filter(p => (p.action === 'add' || p.action === 'update') && !p.row.notes && !p.existing?.fun_facts).length);
     setStage('running');
-    const result = await runImport(deckId, plan, setProgress);
+    const checked = new Set(plan.filter(p => checkedRows.get(byIndex.get(p.row.index)?.key ?? rowKey(p.row)) === rowSig(p.row)).map(p => p.row.index));
+    const result = await runImport(deckId, plan, setProgress, checked);
+    track('deck.paste_list', { added: result.added, updated: result.updated, skipped: plan.filter(p => p.action === 'skip').length, failed: result.failed.length });
+    if (result.failed.length > 0) trackError('paste_list', result.failed[0].error);
     setOutcome(result);
     setStage('done');
     onImported(result);
@@ -281,6 +332,7 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
     setShareState(prev => new Map(prev).set(share.shared_deck_id, { busy: true }));
     try {
       const res = await updateSharedDeckCopy(share.relationship_id, share.shared_deck_id);
+      track('deck.share', { update: true });
       const parts = [res.added ? `added ${res.added}` : '', res.updated ? `updated ${res.updated}` : ''].filter(Boolean);
       setShareState(prev => new Map(prev).set(share.shared_deck_id, { busy: false, note: parts.length ? `${parts.join(', ')} — their progress is kept` : 'Already up to date' }));
       loadShares();
@@ -359,6 +411,21 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
           )}
         </button>
         <span className="pw-row-side">{chip}</span>
+        {openIssues(key, row).map(issue => (
+          <div key={issueId(key, issue)} className="pw-check">
+            <CheckIssueBlock
+              issue={issue}
+              onApply={() => {
+                setEdit(key, issue.field === 'pinyin' ? { pinyin: issue.proposed } : { english: issue.proposed });
+                track('deck.check_issue_applied', { field: issue.field, kind: issue.kind, where: 'paste' });
+              }}
+              onDismiss={() => {
+                setDismissedIssues(prev => new Set(prev).add(issueId(key, issue)));
+                track('deck.check_issue_dismissed', { field: issue.field, kind: issue.kind, where: 'paste' });
+              }}
+            />
+          </div>
+        ))}
         {isEditing && (
           <div className="pw-editor">
             <label>

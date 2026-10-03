@@ -12,6 +12,7 @@ import { loadTutorNotes } from '../services/tutorNotes';
 import { practiceCounts, ratePracticeCard } from '../services/tutorNotesPractice';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
+import { track } from '../services/analytics';
 import { StudyCard } from './StudyPage';
 import { CardQueue, type CardWithNote, type IntervalPreview, type Note, type QueueCounts, type Rating } from '../types';
 import './StudyPage.css';
@@ -66,7 +67,9 @@ export function TutorNotesPracticePage() {
         decks: new Map(decks.map((d) => [d.id, d])),
         tutorNotes: [...list.fresh, ...list.earlier].filter((n) => noteIds.has(n.id)),
       });
-      setQueue(cardIds.filter((id) => cards.some((c) => c.id === id && noteById.has(c.note_id))));
+      const ids = cardIds.filter((id) => cards.some((c) => c.id === id && noteById.has(c.note_id)));
+      setQueue(ids);
+      if (ids.length) track('study.tutor_note_practice', { count: ids.length });
     })();
     return () => { cancelled = true; };
   }, [cardIds, noteIds]);

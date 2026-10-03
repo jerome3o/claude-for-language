@@ -25,7 +25,9 @@ const CONCURRENCY = 3;
 export async function runImport(
   deckId: string,
   plan: PlannedRow[],
-  onProgress?: (p: ImportProgress) => void
+  onProgress?: (p: ImportProgress) => void,
+  /** Row indexes the preview already word-checked: the server skips its own check for them. */
+  checkedRows: Set<number> = new Set()
 ): Promise<ImportOutcome> {
   const work = plan.filter(p => p.action === 'add' || p.action === 'update');
   const outcome: ImportOutcome = { added: 0, updated: 0, failed: [] };
@@ -44,7 +46,7 @@ export async function runImport(
         sentence_clue: r.sentence || undefined,
         sentence_clue_pinyin: r.sentence ? r.sentencePinyin || undefined : undefined,
         sentence_clue_translation: r.sentence ? r.sentenceTranslation || undefined : undefined,
-      });
+      }, { skipCheck: checkedRows.has(r.index) });
       outcome.added++;
     } else if (item.action === 'update' && item.existing) {
       const updates: Parameters<typeof updateNote>[1] = {};

@@ -8,6 +8,7 @@
  * Route: /readers/:id/edit (owner only — readers are per-user).
  */
 
+import { UpdateCopiesPrompt } from '../../components/tutor/library/UpdateCopiesSheet';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -40,6 +41,7 @@ import { useLessonSpeak } from '../../components/editor/useLessonSpeak';
 import { downloadText } from '../../components/editor/download';
 import { Loading, ErrorMessage } from '../../components/Loading';
 import { useToast } from './LessonEditorPage';
+import { track, trackError } from '../../services/analytics';
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -91,6 +93,8 @@ export function ReaderEditorPage() {
   const [spec, setSpec] = useState<ReaderSpec | null>(null);
   const [savedSpec, setSavedSpec] = useState<ReaderSpec | null>(null);
   const [saving, setSaving] = useState(false);
+  // After saving a reader that was sent: "Also update <student>'s copy" (docs/HOMEWORK.md §10).
+  const [copiesPrompt, setCopiesPrompt] = useState(0);
   const [showJson, setShowJson] = useState(false);
   const [showAnki, setShowAnki] = useState(false);
   const [pollImages, setPollImages] = useState(0);
@@ -155,6 +159,7 @@ export function ReaderEditorPage() {
     setSaving(true);
     try {
       const result = await saveReaderSpec(id, spec);
+      track('reader.editor_save', { pages: result.spec.pages.length });
       setSpec(clone(result.spec));
       setSavedSpec(clone(result.spec));
       queryClient.invalidateQueries({ queryKey: ['reader-spec', id] });
@@ -162,6 +167,7 @@ export function ReaderEditorPage() {
       queryClient.invalidateQueries({ queryKey: ['readers'] });
       // Keep the offline study copy current on this device.
       syncReadersFromServer().catch(() => { /* sync will rebuild it */ });
+      setCopiesPrompt((n) => n + 1);
       if (result.image_jobs) {
         setPollImages(n => n + 1);
         showToast(`Saved — ${result.image_jobs} illustration${result.image_jobs === 1 ? '' : 's'} drawing in the background`);
@@ -172,6 +178,7 @@ export function ReaderEditorPage() {
       const msg = err instanceof LessonApiError && err.problems.length
         ? `Not saved: ${err.problems.join('; ')}`
         : `Not saved: ${err instanceof Error ? err.message : 'unknown error'}`;
+      trackError('reader_editor_save', err);
       showToast(msg);
     } finally {
       setSaving(false);
@@ -298,6 +305,7 @@ export function ReaderEditorPage() {
         />
       )}
       {toast && <div className="ed-toast" role="status">{toast}</div>}
+      {copiesPrompt > 0 && <UpdateCopiesPrompt key={copiesPrompt} kind="reader" sourceId={id} onDone={() => setCopiesPrompt(0)} />}
     </>
   );
 }

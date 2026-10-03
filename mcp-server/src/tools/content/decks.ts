@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { ToolContext } from '../context.js';
 import type { ApiClient } from '../../api.js';
 import { jsonResult, errorResult, guard } from '../context.js';
+import { checkWarningsMessage, type CheckWarning } from '../checks.js';
 import { normalizeNotes, notesMissingAudio, type NoteInput } from './specs.js';
 import { CARD_STANDARD_SHORT } from '../../../../shared/cards/standard';
 import { NOT_SENT, SEND_DUE_DATE, SEND_MODE, SEND_TODAY, STUDENT_NAME, assignmentSummary, describeSend, resolveStudent, sendAsHomework, sentTo, type ResolvedStudent, type Sent } from '../homework-send.js';
@@ -43,12 +44,15 @@ interface DeckWithNotes extends ApiDeck { notes: ApiNote[] }
 interface CreateNotesOutcome {
   created: Array<{ id: string; hanzi: string }>;
   failed: Array<{ hanzi: string; error: string }>;
+  /** The word check's possible issues (nothing is changed by it). */
+  check_warnings?: CheckWarning[];
 }
 
 /** What POST /api/decks/:id/notes/batch returns: each row stands alone. */
 interface BatchCreateResponse {
   created: ApiNote[];
   failed: Array<{ index: number; hanzi: string; error: string }>;
+  check_warnings?: CheckWarning[];
 }
 
 /**
@@ -61,7 +65,8 @@ interface BatchCreateResponse {
 async function createNotes(api: ApiClient, deckId: string, notes: NoteInput[]): Promise<CreateNotesOutcome> {
   if (notes.length === 0) return { created: [], failed: [] };
   try {
-    const result = await api.post<BatchCreateResponse>(`/api/decks/${encodeURIComponent(deckId)}/notes/batch`, {
+    // ?check=sync: the word check runs now and its warnings come back with the notes.
+    const result = await api.post<BatchCreateResponse>(`/api/decks/${encodeURIComponent(deckId)}/notes/batch?check=sync`, {
       notes: notes.map(note => ({
         hanzi: note.hanzi,
         pinyin: note.pinyin,
@@ -73,6 +78,7 @@ async function createNotes(api: ApiClient, deckId: string, notes: NoteInput[]): 
     return {
       created: (result.created ?? []).map(n => ({ id: n.id, hanzi: n.hanzi })),
       failed: (result.failed ?? []).map(f => ({ hanzi: f.hanzi, error: f.error })),
+      check_warnings: result.check_warnings ?? [],
     };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
@@ -168,7 +174,8 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
         failed: outcome.failed,
         rejected,
         audio_generating: audioMissing,
-        message: `Deck "${deck.name}" with ${outcome.created.length} word(s) — ${NOT_SENT.replace('<student>', who)}${audioNote} When the tutor asks, send it with share_deck_with_student(relationship_id${intendedFor ? `="${intendedFor.relationship_id}"` : ''}, deck_id="${deck.id}", confirm: true).`,
+        check_warnings: outcome.check_warnings ?? [],
+        message: `Deck "${deck.name}" with ${outcome.created.length} word(s) — ${NOT_SENT.replace('<student>', who)}${audioNote} When the tutor asks, send it with share_deck_with_student(relationship_id${intendedFor ? `="${intendedFor.relationship_id}"` : ''}, deck_id="${deck.id}", confirm: true).${checkWarningsMessage(outcome.check_warnings ?? [])}`,
       });
     }
 
@@ -195,7 +202,8 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
       failed: outcome.failed,
       rejected,
       audio_generating: audioMissing,
-      message: sentTo(target.name, `deck "${deck.name}" with ${outcome.created.length} word(s) as "${studentDeckName}", ${describeSend(sent.mode, sent.due_date)}.${skippedKnown.length ? ` Left out ${skippedKnown.length} word(s) they already have.` : ''}${audioNote}`),
+      check_warnings: outcome.check_warnings ?? [],
+      message: sentTo(target.name, `deck "${deck.name}" with ${outcome.created.length} word(s) as "${studentDeckName}", ${describeSend(sent.mode, sent.due_date)}.${skippedKnown.length ? ` Left out ${skippedKnown.length} word(s) they already have.` : ''}${audioNote}`) + checkWarningsMessage(outcome.check_warnings ?? []),
     });
   });
 
@@ -241,7 +249,7 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
         return errorResult(`No shared deck ${shared_deck_id} in this relationship. Shared decks: ${known}.`);
       }
       const { notes: clean, rejected } = normalizeNotes(notes);
-      const outcome = clean.length > 0 ? await createNotes(api, share.source_deck_id, clean) : { created: [], failed: [] };
+      const outcome: CreateNotesOutcome = clean.length > 0 ? await createNotes(api, share.source_deck_id, clean) : { created: [], failed: [] };
       const audioMissing = await countNotesMissingAudio(api, share.source_deck_id, outcome.created.map(n => n.id), wait);
       if (!target) {
         return jsonResult({
@@ -251,7 +259,8 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
           failed: outcome.failed,
           rejected,
           audio_generating: audioMissing,
-          message: `${outcome.created.length} word(s) added to your deck "${share.source_deck_name}". ${NOT_SENT} The student's copy is unchanged until the tutor asks — then update_student_deck_copy(relationship_id="${relationship_id}", shared_deck_id="${shared_deck_id}", confirm: true).`,
+          check_warnings: outcome.check_warnings ?? [],
+          message: `${outcome.created.length} word(s) added to your deck "${share.source_deck_name}". ${NOT_SENT} The student's copy is unchanged until the tutor asks — then update_student_deck_copy(relationship_id="${relationship_id}", shared_deck_id="${shared_deck_id}", confirm: true).${checkWarningsMessage(outcome.check_warnings ?? [])}`,
         });
       }
       const update = await api.post<{ added: number; kept: number; audio_filled: number; updated?: number }>(

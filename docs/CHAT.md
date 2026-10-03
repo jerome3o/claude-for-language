@@ -291,8 +291,8 @@ The bubbles carry **no buttons**; every tool is in the message menu. Same rules 
   title, 2-line description; tap opens the link. `GET /api/link-preview?url=` → `{ url, title, description, image, site_name }`
   (worker fetches the page — http(s) only, public hosts only, ≤ 512 KB, 5 s, Open Graph / Twitter / <title>; cached a day;
   404 when nothing usable). Clients cache previews per URL (web localStorage LRU 200; Lab JsonCache `chat/link/<hash>`).
-- **Header**: ← · name (+ "typing…" / title) · 📹 call · ⋯ (search, make flashcards, pinyin for all, translations for
-  all, rename, new conversation, …). No "+ Cards" button any more (it is in ⋯ and in the message menu).
+- **Header**: ← · name (+ "typing…") · 📹 call · ⋯ (make flashcards, pinyin for all, translations for all; a Claude
+  practice chat adds voice settings and "All practice chats"). No rename / new conversation: one chat per pair. No "+ Cards" button any more (it is in ⋯ and in the message menu).
 - **Jump to latest**: the round ↓ button bottom-right while scrolled up, with the "N new" badge.
 
 ## Message menu (`messageMenu`, `shared/chats/messageMenu.ts`; Lab `MessageMenu.kt` parity-tested)
@@ -355,8 +355,8 @@ type ChatAttachment = /* image | voice as before */
   MOV by their magic bytes. Bubble: the platform player, sized by the clip's shape.
 - **Several photos at once** — the photo picker takes up to 10; the compose sheet shows them as a grid (✕ drops one),
   the caption goes with the first; each photo is its own message (own client_id, own outbox row).
-- **Forward** — menu → Forward (or Select → Forward for several, oldest first) → "Forward to…" lists every conversation
-  I have with a person (newest first, "· this chat" marked; not the Claude practice chats) →
+- **Forward** — menu → Forward (or Select → Forward for several, oldest first) → "Forward to…" lists every person I
+  chat with (one chat each, newest first, "· this chat" marked; not the Claude practice chats) →
   `POST /api/messages/:id/forward { conversation_id, client_id }` → a new message from ME there, same text / caption,
   the media copied to its own `chat-media/<conv>/<newId>.<ext>` (a voice message keeps its transcript), `forwarded_from`
   set, idempotent by client_id; 400 no conversation, 403 not a member of either, 409 deleted, 410 the file is gone.
@@ -375,13 +375,13 @@ type ChatAttachment = /* image | voice as before */
 
 The bottom tab bar's **Chats** tab (it replaced Decks; Decks is now the first row of More, Home's
 "All decks →" and `/decks` as before) opens `/chats` (web `pages/ChatsPage.tsx`, Lab `ui/chats/`):
-one row per conversation across every active relationship — round avatar (picture, else an initial
-on a colour), the person's name (+ the conversation title only when there are several chats with
-that person), the last message preview ("You: …", 📷 Photo, 🎤 Voice message, Message deleted),
+one row per person (one chat per pair) across every active relationship — round avatar (picture,
+else an initial on a colour), the person's name (Claude practice chats add their title when there
+are several), the last message preview ("You: …", 📷 Photo, 🎤 Voice message, Message deleted),
 a relative time (14:32 / Yesterday / Mon / 28 Sep / 28 Sep 2025) and a bold unread count. Newest
 activity first; Claude role-play chats (the same `conversations` rows) in their own "Practice with
 Claude" section. Search filters by name, title and last message. ✏️ → the person picker (when
-there's more than one) → `/connections/:relId/chat/new`. A row opens the chat with router state
+there's more than one) → `/connections/:relId/chat` → THE chat with them. A row opens the chat with router state
 `{ from: '/chats' }`, so ← returns to the inbox (`chatBackTarget`).
 
 - `GET /api/me/chats` → `{ server_time, conversations: ChatListRow[] }` — ONE query
@@ -390,12 +390,60 @@ there's more than one) → `/connections/:relId/chat/new`. A row opens the chat 
 - The rules (sorting, title, preview, relative time with an explicit UTC offset, search, the badge
   count, live updates) are `shared/chats/inbox.ts`; the Lab's `core/…/chat/ChatInbox.kt` is
   parity-tested against it. `chatMessagePreview` is also the server's `messagePreviewText`.
-- Offline: the list is cached (web localStorage `chat-list-v1:<user>`, `hooks/useChatList.ts`; Lab
+- Offline: the list is cached (web localStorage `chat-list-v2:<user>` (v2 since one chat per pair), `hooks/useChatList.ts`; Lab
   JsonCache) and renders instantly; refreshed on open, focus and every minute. While the inbox is
   open it holds the ChatHub socket: `message` / `message_updated` / `read` events update the cached
   list (`applyIncomingMessage` / `applyReadMarker`; an unknown conversation → refetch).
 - The tab badge = conversations with people (not Claude) that have unread messages
   (`unreadConversationCount`).
+
+## One chat per pair (migration 0102_one_chat_per_pair.sql)
+
+Jerome: "Make it so there's only one chat between each pair of people — each student–tutor combination."
+A tutor relationship has exactly **one** human conversation. (Claude role-play / practice chats are not
+tutor–student chats: they stay in "Practice with Claude" and may be several.)
+
+```sql
+ALTER TABLE conversations ADD COLUMN merged_into TEXT;   -- set on a conversation merged into its pair's one chat
+CREATE UNIQUE INDEX idx_conversations_one_human_per_relationship
+  ON conversations(relationship_id) WHERE merged_into IS NULL AND COALESCE(is_ai_conversation, 0) = 0;
+```
+
+**The merge** (in the migration, run once by CI): per relationship with several human conversations the
+**primary is the most recently active one** (newest message, else last_message_at, else created_at;
+ties → oldest) — the chat both people were last using, so the device state keyed by its id (drafts,
+pinyin / translation toggles, notification grouping) carries on. Every message moves into it (`UPDATE
+messages SET conversation_id`) and with them everything keyed by message: reactions, pins, corrections,
+words, replies, discussions, forwards, attachments (the R2 key `chat-media/<oldConv>/<msg>.<ext>` lives in
+`messages.attachment` and is served by message id, so it never moves). Read markers: the furthest per
+person (`max`). In-app notifications point at the primary. The rest are marked `merged_into = <primary>`
+(never deleted). Times are compared with `julianday()` (old rows use `datetime('now')`, new ones ISO).
+A conversation in a relationship with the Claude user is flagged `is_ai_conversation = 1` first.
+
+**API**
+- `POST /api/relationships/:relId/conversations/open` → `{ conversation_id, created }` — THE chat (get-or-create,
+  race-safe through the unique index: `INSERT OR IGNORE`, then read). `services/conversations.ts`
+  `openRelationshipConversation` is the one server path: call Join links, card-flag mirrors, the welcome
+  message, the install how-to, budget changes, the session-notes agent and the MCP all post through it.
+- `POST /api/relationships/:relId/conversations` — with a person returns the one chat (200; 201 when made now;
+  `title` ignored); with Claude a new practice chat (201).
+- `GET /api/conversations/:id` → the conversation; a merged-away id answers with the primary and
+  `merged_from: <the id asked for>`.
+- **Every `/api/conversations/<merged id>/…` request is served as the primary** (`mountMergedConversations`,
+  `routes/one-chat.ts`): re-dispatched inside the worker with the new id — no redirect, so POST bodies and the
+  Authorization header survive (old pushes, e-mail links, cached ids, outbox sends). Response header
+  `X-Conversation-Id: <primary>`. `POST /api/messages/:id/forward` resolves a merged target the same way.
+- `PATCH /api/conversations/:id { title }` → 410 on a chat with a person (Claude practice chats can still be renamed).
+- `GET /api/relationships/:relId/conversations`, `/api/me/chats`, `/api/me/chat-inbox` never list merged rows.
+
+**Clients** (web + Lab): no "New conversation", "Add a title / Rename" or "All conversations"; the inbox has
+one row per person (`chatRowTitle` drops the title for people); ✏️ → pick a person → their chat; the
+student / tutor page shows ONE "Messages" row (last message, unread) instead of a list; `/connections/:relId/chat`
+opens the one chat (`/chat/new` and `?new=1` land there too; with Claude they still start a practice chat).
+Opening `/connections/:relId/chat/<merged id>` swaps the URL to the primary (carrying an unsent draft along),
+so live events, read markers and notifications line up.
+
+---
 
 ## Listening mode (migration 0099_chat_listening.sql)
 
@@ -457,3 +505,41 @@ cache by the same triple (`getTTSWithCache`; Lab the same cache as Read aloud).
   un-blur animation (blur 8 px → 0, 260 ms) — it does NOT open the message menu; once revealed, long-press opens the
   menu again. A small **👁** button beside the bubble reveals it too (accessibility). Offline with no cached clip:
   "Audio not downloaded yet" notice.
+---
+
+# Auto-check — "How to say it better" (migration 0101_chat_auto_check.sql)
+
+Jerome: "When a student sends a message, automatically check if there can be improvements. If so, show a slight visual
+indicator… When they long-press the message, the top option should be 'understand how to make it better'."
+
+```sql
+ALTER TABLE messages ADD COLUMN auto_check TEXT;        -- JSON AutoCheckResult (shared/chats/autoCheck.ts) incl. the text it was about
+ALTER TABLE users ADD COLUMN chat_auto_check INTEGER;   -- NULL = default (on for the learner side), 1 = always, 0 = never
+```
+- **When**: after a text message is sent (live or replayed from the outbox — same `POST …/messages`, a repeated client_id is
+  not checked again) or edited, `autoCheckMessageInBackground` (`worker/src/services/chat/auto-check.ts`) runs in
+  `waitUntil` beside the translation / word chips. One `structuredCall` (`claude-sonnet-5`, Haiku on the last try, forced
+  `check_message` tool, thinking off, the chat's last 6 lines as context, `CARD_STANDARD` for the cards). ≈ 2k tokens in,
+  80–500 out ≈ $0.005–0.009 per check.
+- **Who** (`autoCheckApplies`): the student side of a tutor chat and the person in a Claude practice chat by default; the
+  account switch wins either way. **Skipped** (`autoCheckSkipReason`): no Chinese / emoji only, ≤ 2 content characters,
+  more English words than Han characters, > 400 characters, photos / voice / files.
+- **Result** `{ text, status: ok | improvable, corrected, corrected_pinyin, corrected_english, mistakes: [{ quote, fix, why,
+  card }], alternative, severity: minor | moderate | major, card, checked_at }`. The prompt flags only grammar errors, wrong
+  words and clearly unnatural phrasing; `normalizeAutoCheck` turns an "improvable" that only changes punctuation into ok and
+  drops cards that break a HARD card rule. Written only while the message still has that text; an edit clears it
+  (`auto_check = NULL`) and re-checks; delete clears it. Idempotent: a stored result for the current text is not redone.
+- **Delivery**: the message's `auto_check` (served only while `text` = content, and ONLY on the sender's own view — the
+  tutor never gets it) through `message_updated` and `?since=`, so both apps get it live and offline.
+- **Indicator** (`sayBetterState`, Lab `SayBetter.kt` parity-tested): on my own bubble a small amber ✎ in the meta row
+  (shown even when the bubble isn't the last of its group), label "Could be better — hold to see". The tutor's correction
+  takes precedence: state `corrected`, "<tutor> corrected this — hold to see".
+- **Menu**: `say_better` "✨ How to say it better" is the FIRST item when improvable or corrected; a current auto-check
+  (ok or improvable) replaces "Check my Chinese".
+- **Sheet** (web `components/chat/SayBetterSheet.tsx`, Lab `ui/chat/`): You wrote (character diff, highlighted not struck —
+  a line through 了 reads as 子) · Better (pinyin, English, ▶ via the conversation TTS) · each mistake "你说 X → Y" + why
+  (+ card) · More natural · **+ Add as flashcard** (the add-card sheet with `card`) · **Ask Claude about this** (Discuss
+  with Claude). Built from the stored result, so it works offline.
+- **Setting**: `PUT /api/profile/chat-prefs { chat_auto_check: true | false | null }`; `/api/auth/me` → `chat_auto_check`
+  (null = default). Settings → Chat → "Check my Chinese automatically" shows `autoCheckSettingShown` (on unless a tutor account).
+- E2E seam: `POST /api/test/chat-auto-check { message_id, result? }` runs the real store + broadcast with a canned answer.

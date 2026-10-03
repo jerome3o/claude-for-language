@@ -200,3 +200,9 @@ export async function refreshPushSubscription(force = false): Promise<void> {
     console.warn('[push] refresh failed:', err);
   }
 }
+
+/** "Check my Chinese automatically" in the chat (docs/CHAT.md "Auto-check"); null = back to the default. */
+export async function setChatAutoCheck(on: boolean | null): Promise<boolean | null> {
+  const r = await api<{ chat_auto_check: boolean | null }>('/profile/chat-prefs', { method: 'PUT', body: JSON.stringify({ chat_auto_check: on }) });
+  return r.chat_auto_check;
+}

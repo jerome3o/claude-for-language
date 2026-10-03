@@ -20,7 +20,7 @@ data class LibraryItemSummary(
     val updated_at: String = "",
     val assignment_count: Int = 0,
     val exercise_count: Int = 0,
-    /** The item's folder (migration 0100; core Folders.kt), null = Unfiled. */
+    /** The item's folder (migration 0105; core Folders.kt), null = Unfiled. */
     val folder_id: String? = null,
 )
 

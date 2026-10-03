@@ -49,6 +49,8 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                     dev.jeromeswannack.chineselearning.lab.ui.calls.CallAlertsSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.chat.ChatEmailsSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.chat.ChatListeningSettings(app)
+                    dev.jeromeswannack.chineselearning.lab.ui.chat.ChatAutoCheckSettings(app)
+                    dev.jeromeswannack.chineselearning.lab.ui.checks.CardCheckSettings(app)
                 }
             },
             ui = ui,
@@ -64,24 +66,25 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
             actions = SettingsActions(
                 onBack = if (nav.controller.previousBackStackEntry != null) nav::back else null,
                 downloadAudio = { app.repo.prefetchAudioInBackground() },
-                setForcedOffline = { store.setForcedOffline(it); app.haptics.tick() },
+                setForcedOffline = { store.setForcedOffline(it); app.haptics.tick(); app.analytics.track("settings.change", mapOf("setting" to "offline_mode", "value" to if (it) "forced" else "auto")) },
                 exportBackup = { vm.startExport { name -> saveAs.launch(name) } },
                 setBudget = vm::setBudgetDraft,
-                saveBudget = { vm.saveBudget() },
-                chooseLanding = { vm.chooseLanding(it) },
-                toggleSound = { sound = it; app.prefs.soundOn = it },
-                toggleHaptics = { haptics = it; app.prefs.hapticsOn = it; if (it) app.haptics.tick() },
+                saveBudget = { vm.saveBudget(); app.analytics.track("settings.change", mapOf("setting" to "study_budget", "value" to "${ui.budgetDraft.newCardsPerDay}_${ui.budgetDraft.secondaryCardsPerDay}")) },
+                chooseLanding = { vm.chooseLanding(it); app.analytics.track("settings.change", mapOf("setting" to "landing_page", "value" to (it ?: "auto"))) },
+                toggleSound = { sound = it; app.prefs.soundOn = it; app.analytics.track("settings.change", mapOf("setting" to "sound", "value" to if (it) "on" else "off")) },
+                toggleHaptics = { haptics = it; app.prefs.hapticsOn = it; if (it) app.haptics.tick(); app.analytics.track("settings.change", mapOf("setting" to "haptics", "value" to if (it) "on" else "off")) },
                 signOut = { app.scope.launch { app.repo.signOut(); nav.onSignedOut() } },
                 openAdvanced = { vm.loadAudioQuality(); vm.loadRequests() },
                 classifyAudio = { vm.classifyAudio() },
                 regenerateAudio = { vm.regenerateAudio() },
                 open = nav::open,
                 openRequest = { vm.openRequest(it) },
-                fullSync = { app.scope.launch { app.repo.sync(forceFull = true) } },
+                fullSync = { app.analytics.track("settings.full_sync"); app.scope.launch { app.repo.sync(forceFull = true) } },
                 checkForUpdates = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(RELEASES_URL))) } },
                 newFeedback = { feedback = true },
             ),
             debugRow = { DebugReportRow(app) },
+            shareUsage = { ShareUsageSettings(app) },
         )
 
         ui.openRequest?.let { detail ->

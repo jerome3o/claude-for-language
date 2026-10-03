@@ -10,6 +10,7 @@ import type { ToolContext } from '../context.js';
 import { jsonResult, textResult, errorResult, guard } from '../context.js';
 import { LESSON_SPEC_DOC, lessonSpecProblems, formatProblems } from './specs.js';
 import { CONFIRM_SEND, NEEDS_CONFIRM, NOT_SENT, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_TODAY, assignLessonAsHomework, describeSend, resolveStudent, sentTo, type ResolvedStudent } from '../homework-send.js';
+import { UPDATE_STUDENT_COPIES, copiesForReply, updateStudentCopies } from '../student-copies.js';
 
 const LIBRARY_ID = z.string().describe('The library item id (from list_lesson_library)');
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
@@ -112,23 +113,32 @@ ${LESSON_SPEC_DOC}`,
 
   server.tool(
     'update_library_lesson',
-    `Replace a library lesson's content with a FULL spec (and optionally its tags). The library version bumps when the content changed; students who already have a copy keep the OLD content until push_lesson_update (only when the tutor asks) (get_lesson_assignments shows who is behind). Fetch with get_library_lesson first and edit. Same exercise types and rules as create_library_lesson.`,
+    `Replace a library lesson's content with a FULL spec (and optionally its tags). The library version bumps when the content changed; students who already have a copy keep the OLD content unless the tutor asked to update their copies too — then pass update_student_copies: true (same lesson ids, history + FSRS kept); otherwise push_lesson_update later, only when the tutor asks (get_lesson_assignments shows who is behind). Fetch with get_library_lesson first and edit. Same exercise types and rules as create_library_lesson.`,
     {
       library_id: LIBRARY_ID,
       spec: lessonSpecShape.describe('The complete revised spec — it replaces the stored one entirely'),
       tags: tagsShape.describe('New tags (omit to keep the current ones)'),
+      update_student_copies: UPDATE_STUDENT_COPIES,
     },
-    async ({ library_id, spec, tags }) => guard(async () => {
+    async ({ library_id, spec, tags, update_student_copies }) => guard(async () => {
       const problems = lessonSpecProblems(spec);
       if (problems.length > 0) return errorResult(formatProblems('Lesson spec', problems));
       const item = await api.put<LibraryItem>(`/api/lesson-library/${encodeURIComponent(library_id)}`, tags === undefined ? { spec } : { spec, tags });
+      const copies = item.assignment_count ? await updateStudentCopies(api, 'lesson', library_id, update_student_copies) : null;
       return jsonResult({
         id: item.id,
         title: item.title,
         version: item.version,
         tags: item.tags,
         assignment_count: item.assignment_count,
-        message: `Updated "${item.title}" (version ${item.version}).${item.assignment_count ? ` ${item.assignment_count} student copy/copies still have the previous content — push_lesson_update to bring them up to date.` : ''}`,
+        ...(copies ? { student_copies: copiesForReply(copies) } : {}),
+        message: `Updated "${item.title}" (version ${item.version}).${
+          copies && (copies.results.length > 0 || copies.error)
+            ? ` ${copies.message}`
+            : !copies && item.assignment_count
+              ? ` ${item.assignment_count} student copy/copies still have the previous content — push_lesson_update to bring them up to date.`
+              : ''
+        }`,
       });
     }),
   );

@@ -12,6 +12,13 @@ const sendMessageMock = vi.fn();
 vi.mock('../conversations', () => ({
   shareDeck: (...args: unknown[]) => shareDeckMock(...args),
   createConversation: (...args: unknown[]) => createConversationMock(...args),
+  // One chat per pair: the welcome goes into the pair's one conversation (get-or-create).
+  openRelationshipConversation: async (...args: unknown[]) => {
+    const db = args[0] as { prepare: (sql: string) => { bind: (...a: unknown[]) => { first: () => Promise<{ id: string } | null> } } };
+    const existing = await db.prepare('SELECT id FROM conversations WHERE relationship_id = ?').bind(args[1]).first();
+    if (existing) return { conversation: existing, created: false };
+    return { conversation: await createConversationMock(...args), created: true };
+  },
   sendMessage: (...args: unknown[]) => sendMessageMock(...args),
 }));
 const createNotificationMock = vi.fn();
@@ -324,7 +331,7 @@ describe('welcome message', () => {
     const r = await redeemInvite(db, student as any, makeInvite({ welcome_message: '欢迎！先学这几个词。' }));
     expect(r.redeemed).toBe(true);
     expect(r.welcomeConversationId).toBe('conv-new');
-    expect(createConversationMock).toHaveBeenCalledWith(db, 'uuid-1', 'tutor-1', { title: 'Welcome' });
+    expect(createConversationMock).toHaveBeenCalledWith(db, 'uuid-1', 'tutor-1'); // the pair's one chat, untitled
     expect(sendMessageMock).toHaveBeenCalledWith(db, 'conv-new', 'tutor-1', '欢迎！先学这几个词。');
     expect(createNotificationMock).toHaveBeenCalledTimes(1);
     const [, userId, type, title, , opts] = createNotificationMock.mock.calls[0];

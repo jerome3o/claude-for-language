@@ -22,20 +22,26 @@ object ShellLinks {
         Intent(Intent.ACTION_VIEW, uri(path), context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
-    fun pending(context: Context, requestCode: Int, path: String): PendingIntent =
-        PendingIntent.getActivity(context, requestCode, intent(context, path), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    /** [notification] = the kind of notification it opens from (usage analytics `notification.tapped`). */
+    fun pending(context: Context, requestCode: Int, path: String, notification: String? = null): PendingIntent =
+        PendingIntent.getActivity(context, requestCode, intent(context, path).withNotification(notification), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+    /** Marks an intent as opened from a notification of [kind] (an id token: chat_message, call, due_card…). */
+    const val EXTRA_NOTIFICATION = "lab_notification"
+
+    private fun Intent.withNotification(kind: String?): Intent = if (kind != null) putExtra(EXTRA_NOTIFICATION, kind) else this
 
     /**
-     * A "go study" entry (the widget, a due-card / homework reminder): opens its path unless a
-     * homework pass, reader, lesson, picture hunt or quest is in progress — then that stays on
-     * screen (ui/nav/NavResume.kt). Study itself is single-instance either way.
+     * A "go study" entry (the widget, a due-card / homework reminder). Study ALWAYS opens (over a
+     * pass, which stays underneath); any other soft path (the homework reminder) is skipped while a
+     * homework pass, reader, lesson, picture hunt or quest is in progress (ui/nav/NavResume.kt).
      */
     const val EXTRA_SOFT = "lab_soft"
 
     fun softIntent(context: Context, path: String): Intent = intent(context, path).putExtra(EXTRA_SOFT, true)
 
-    fun softPending(context: Context, requestCode: Int, path: String): PendingIntent =
-        PendingIntent.getActivity(context, requestCode, softIntent(context, path), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    fun softPending(context: Context, requestCode: Int, path: String, notification: String? = null): PendingIntent =
+        PendingIntent.getActivity(context, requestCode, softIntent(context, path).withNotification(notification), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
     /** The in-app path an outside intent asks for: the hybrid-style `route` extra (web path). */
     fun routeExtra(intent: Intent?): String? =

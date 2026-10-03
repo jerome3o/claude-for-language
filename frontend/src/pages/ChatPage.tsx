@@ -16,7 +16,7 @@ import {
   getAIResponse,
   checkMessage,
   updateConversationVoiceSettings,
-  updateConversationTitle,
+  getConversation,
   getConversations,
   markNotificationsReadByConversation,
   toggleMessageReaction,
@@ -48,6 +48,7 @@ import { ForwardSheet, type ForwardTarget } from '../components/chat/ForwardShee
 import { MessageInfoSheet } from '../components/chat/MessageInfoSheet';
 import { newClientId } from '../services/chatOutbox';
 import { loadDraft, queueLabel, saveDraft } from '../services/chatDrafts';
+import { openConversation } from '../api/tutorDashboard';
 import { createCall } from '../api/calls';
 import { InlineNotice, describeError } from '../components/chat/InlineNotice';
 import type { Notice } from '../components/chat/InlineNotice';
@@ -78,6 +79,8 @@ import { ListeningBubble, useListeningPlayer } from '../components/chat/Listenin
 import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrection, clearMessageCorrection, forwardChatMessage } from '../api/chat';
 import { ChatWordsText, type TappedWord } from '../components/chat/ChatWords';
 import { CorrectionBlock, CorrectMessageSheet } from '../components/chat/ChatCorrection';
+import { SayBetterSheet } from '../components/chat/SayBetterSheet';
+import { sayBetterLabel, sayBetterState } from '@shared/chats/autoCheck';
 import { MakeFlashcardsSheet } from '../components/chat/MakeFlashcardsSheet';
 import { CheckDraftPanel, type DraftCheck } from '../components/chat/CheckDraftPanel';
 import { ReaderWordSheet } from '../components/reader/ReaderWordSheet';
@@ -101,6 +104,7 @@ import { VoiceComposer, type VoiceCommand } from '../components/chat/VoiceCompos
 import { PhotoComposeSheet } from '../components/chat/PhotoComposeSheet';
 import { PinnedBar } from '../components/chat/PinnedBar';
 import { ChatSearchBar } from '../components/chat/ChatSearchBar';
+import { track, trackError } from '../services/analytics';
 import {
   ConfirmDeleteSheet,
   EditMessageSheet,
@@ -127,9 +131,12 @@ export function ChatPage() {
   const { isOnline } = useNetwork();
   const queryClient = useQueryClient();
 
-  // `?new=1` (or `/chat/new`) opens a fresh, untitled conversation for the
-  // relationship and replaces the URL with the new conversation's id.
-  const wantsNew = searchParams.get('new') === '1' || convId === 'new';
+  // One chat per pair (docs/CHAT.md "One chat per pair"): `/connections/:relId/chat`
+  // (no id) opens THE chat with that person; old links `/chat/new` and `?new=1`
+  // do the same (with Claude they start a new practice chat). The URL is then
+  // replaced with the conversation's id.
+  const wantsNew = !convId || searchParams.get('new') === '1' || convId === 'new';
+  const startPractice = convId === 'new' || searchParams.get('new') === '1';
   const creatingRef = useRef(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -201,8 +208,10 @@ export function ChatPage() {
   const [modalNotice, setModalNotice] = useState<Notice | null>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
   const clearModalNotice = useCallback(() => setModalNotice(null), []);
-  const showError = (fallback: string, error: unknown) =>
+  const showError = (fallback: string, error: unknown) => {
+    trackError('chat', error);
     setNotice({ kind: 'error', text: describeError(error, fallback) });
+  };
   const showModalError = (fallback: string, error: unknown) =>
     setModalNotice({ kind: 'error', text: describeError(error, fallback) });
   const showSuccess = (text: string) => setNotice({ kind: 'success', text });
@@ -236,6 +245,8 @@ export function ChatPage() {
 
   // Message discussion state
   const [discussingMessage, setDiscussingMessage] = useState<MessageWithSender | null>(null);
+  // "✨ How to say it better" (docs/CHAT.md "Auto-check").
+  const [sayBetterFor, setSayBetterFor] = useState<MessageWithSender | null>(null);
 
   // Translate + flashcard state
 
@@ -250,11 +261,8 @@ export function ChatPage() {
   // Voice settings state
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
 
-  // Header ⋯ menu + rename
+  // Header ⋯ menu
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
-  const [showRenameModal, setShowRenameModal] = useState(false);
-  const [renameValue, setRenameValue] = useState('');
-  const [isRenaming, setIsRenaming] = useState(false);
 
   // Reply state
   const [replyingTo, setReplyingTo] = useState<MessageWithSender | null>(null);
@@ -306,18 +314,19 @@ export function ChatPage() {
     if (!wantsNew || !relId || creatingRef.current) return;
     creatingRef.current = true;
     setCreateError(null);
-    createConversation(relId)
-      .then((conv) => {
+    // With a person both calls return the one chat; with Claude `new` makes a new practice chat.
+    (startPractice ? createConversation(relId).then((conv) => conv.id) : openConversation(relId).then((r) => r.conversation_id))
+      .then((id) => {
         queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-        navigate(`/connections/${relId}/chat/${conv.id}`, { replace: true, state: location.state });
+        navigate(`/connections/${relId}/chat/${id}`, { replace: true, state: location.state });
       })
       .catch((error) => {
-        setCreateError(describeError(error, "Couldn't start a new conversation."));
+        setCreateError(describeError(error, "Couldn't open the chat."));
       })
       .finally(() => {
         creatingRef.current = false;
       });
-  }, [wantsNew, relId, navigate, queryClient]);
+  }, [wantsNew, startPractice, relId, navigate, queryClient]);
 
   // Escape closes the header menu
   useEffect(() => {
@@ -343,6 +352,27 @@ export function ChatPage() {
   });
 
   const conversation = conversationsQuery.data?.find((c) => c.id === convId);
+
+  // An old conversation id (merged into the pair's one chat by migration 0102 —
+  // a notification, an e-mail, a bookmark) → swap to the chat it became, carrying
+  // the unsent draft along, so live events and read markers line up.
+  const listedIds = conversationsQuery.data?.map((c) => c.id).join(',');
+  useEffect(() => {
+    if (wantsNew || !convId || !relId || listedIds === undefined || listedIds.split(',').includes(convId)) return;
+    let cancelled = false;
+    getConversation(convId)
+      .then((conv) => {
+        if (cancelled || !conv || conv.id === convId) return;
+        const draft = loadDraft(convId);
+        if (draft && !loadDraft(conv.id)) saveDraft(conv.id, draft);
+        saveDraft(convId, '');
+        navigate(`/connections/${conv.relationship_id}/chat/${conv.id}${location.search}`, { replace: true, state: location.state });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsNew, convId, relId, listedIds, navigate, location.search, location.state]);
   const isAIConversation = conversation?.is_ai_conversation ?? false;
 
   const me = useMemo(
@@ -436,6 +466,19 @@ export function ChatPage() {
   };
 
   const showTyping = thread.otherTyping && !isAIConversation;
+
+  // Analytics: chat.open once per conversation, when the first load has the read marker.
+  const openTrackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!convId || thread.openedAt === null || !conversation || openTrackedRef.current === convId) return;
+    openTrackedRef.current = convId;
+    const marker = thread.readMarkerAtOpen;
+    const unread = serverMessages.filter((m) => m.sender_id !== myId && (!marker || m.created_at > marker)).length;
+    track('chat.open', { is_ai: isAIConversation, unread });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId, thread.openedAt, conversation]);
+  const trackSend = (kind: 'text' | 'image' | 'voice' | 'file' | 'video') =>
+    track('chat.send', { kind, is_ai: isAIConversation, reply: !!replyingTo, offline: !isOnline });
   const scroll = useChatScroll({
     messages,
     myId,
@@ -543,6 +586,7 @@ export function ChatPage() {
     if (!text || isWaitingForAI || !convId) return;
     setNotice(null);
     setDraftCheck(null);
+    trackSend('text');
     void thread.sendText(text, replyingTo).catch((error) => showError("Couldn't queue your message.", error));
     setNewMessage('');
     setReplyingTo(null);
@@ -572,6 +616,7 @@ export function ChatPage() {
 
   const sendPhoto = (caption: string) => {
     if (!pendingPhotos?.length) return;
+    trackSend('image');
     pendingPhotos.forEach((p, i) => {
       void thread
         .sendMedia({ kind: 'image', blob: p.blob, width: p.width, height: p.height, caption: i === 0 ? caption : '', replyTo: i === 0 ? replyingTo : null })
@@ -591,6 +636,7 @@ export function ChatPage() {
       return;
     }
     setNotice(null);
+    trackSend('file');
     void thread
       .sendMedia({ kind: 'file', blob: file, name: file.name, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the file.", error));
@@ -607,6 +653,7 @@ export function ChatPage() {
     }
     setNotice(null);
     const info = await videoInfo(file);
+    trackSend('video');
     void thread
       .sendMedia({ kind: 'video', blob: file, width: info.width ?? undefined, height: info.height ?? undefined, duration_ms: info.duration_ms ?? undefined, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the video.", error));
@@ -628,11 +675,13 @@ export function ChatPage() {
       }
     }
     if (target.conversationId === convId) void thread.pollNow();
+    track('chat.forward', { kind: serverMessages.find((m) => m.id === ids[0])?.attachment?.kind ?? 'text' });
     showSuccess(`Forwarded ${sent === 1 ? 'the message' : `${sent} messages`} to ${target.label}${target.sub ? ` · ${target.sub}` : ''}.`);
   };
 
   const sendVoice = (blob: Blob, durationMs: number) => {
     setRecording(false);
+    trackSend('voice');
     void thread
       .sendMedia({ kind: 'voice', blob, duration_ms: durationMs, replyTo: replyingTo })
       .catch((error) => showError("Couldn't queue the voice message.", error));
@@ -698,6 +747,7 @@ export function ChatPage() {
     saveRecentEmoji(emoji);
     try {
       await toggleMessageReaction(messageId, emoji);
+      track('chat.reaction');
       queryClient.invalidateQueries({ queryKey: ['messages', convId] });
     } catch (error) {
       console.error('Failed to toggle reaction:', error);
@@ -729,18 +779,24 @@ export function ChatPage() {
     return { voice, speed, senderGender };
   }
 
-  const handlePlayMessageAudio = async (msg: MessageWithSender) => {
-    if (playingAudioMessageId === msg.id) {
+  const handlePlayMessageAudio = (msg: MessageWithSender) => playTextAudio(msg.id, msg.content, msg.sender_id);
+
+  /**
+   * Read `text` aloud in the voice of `senderId` (a message, or the better sentence of
+   * "How to say it better" in my own voice); `key` marks what is playing (a tap again stops it).
+   */
+  const playTextAudio = async (key: string, text: string, senderId: string) => {
+    if (playingAudioMessageId === key) {
       // Stop playing
       playerRef.current.stop();
       setPlayingAudioMessageId(null);
       return;
     }
 
-    setPlayingAudioMessageId(msg.id);
-    const { voice, speed, senderGender } = readAloudParams(msg);
+    setPlayingAudioMessageId(key);
+    const { voice, speed, senderGender } = readAloudParams({ sender_id: senderId });
     try {
-      const blob = await getTTSWithCache(msg.content, speed, voice);
+      const blob = await getTTSWithCache(text, speed, voice);
       if (blob) {
         playerRef.current.play(blob, {
           onEnded: () => setPlayingAudioMessageId(null),
@@ -750,7 +806,7 @@ export function ChatPage() {
       }
       if (navigator.onLine) throw new Error('No audio came back');
       // Offline and never fetched: a Mandarin device voice of the sender's gender.
-      await speakWithBrowserTTS(msg.content, senderGender === 'other' ? null : senderGender);
+      await speakWithBrowserTTS(text, senderGender === 'other' ? null : senderGender);
       setPlayingAudioMessageId(null);
     } catch (error) {
       console.error('Failed to generate TTS:', error);
@@ -846,8 +902,10 @@ export function ChatPage() {
           : { ...msg, correction: { text, note: note || null, by: myId, at: new Date().toISOString() } },
       );
       setCorrecting(null);
+      track('chat.correction');
       void thread.pollNow();
     } catch (error) {
+      trackError('chat_correction', error);
       setCorrectError(describeError(error, "Couldn't save the correction."));
     } finally {
       setCorrectBusy(false);
@@ -871,6 +929,7 @@ export function ChatPage() {
       return;
     }
     setDraftCheck({ kind: 'loading', draft });
+    track('chat.check_draft');
     try {
       const result = await coachSentence(draft);
       setDraftCheck((cur) => (cur && cur.draft === draft ? { kind: 'ready', draft, result } : cur));
@@ -1035,22 +1094,6 @@ export function ChatPage() {
     }
   };
 
-  const handleRename = async () => {
-    if (!convId) return;
-    setIsRenaming(true);
-    setModalNotice(null);
-    try {
-      await updateConversationTitle(convId, renameValue.trim());
-      queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-      setShowRenameModal(false);
-    } catch (error) {
-      console.error('Failed to rename conversation:', error);
-      showModalError("Couldn't save the title.", error);
-    } finally {
-      setIsRenaming(false);
-    }
-  };
-
   const handleCopy = async (msg: MessageWithSender) => {
     try {
       await navigator.clipboard.writeText(msg.content);
@@ -1137,7 +1180,11 @@ export function ChatPage() {
     if (!sheet) return;
     const msg = sheet.message;
     setSheet(null);
+    track('chat.menu_action', { action: id, kind: msg.attachment?.kind ?? 'text' });
     switch (id) {
+      case 'say_better':
+        setSayBetterFor(msg);
+        break;
       case 'reply':
         setReplyingTo(msg);
         inputRef.current?.focus();
@@ -1185,6 +1232,7 @@ export function ChatPage() {
         });
         break;
       case 'discuss':
+        track('chat.discuss');
         setDiscussingMessage(msg);
         break;
       case 'pin':
@@ -1232,6 +1280,7 @@ export function ChatPage() {
     setCallBusy(true);
     try {
       const { call } = await createCall({ relationship_id: relId });
+      track('call.start', { solo: false });
       navigate(`/calls/${call.id}`);
     } catch (error) {
       showError("Couldn't start the call.", error);
@@ -1310,7 +1359,7 @@ export function ChatPage() {
         <div className="chat-page">
           <div className="chat-header">
             <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
-            <span className="chat-header-name">New conversation</span>
+            <span className="chat-header-name">Chat</span>
           </div>
           <div className="chat-messages">
             <div className="chat-notice chat-notice-error" role="alert">
@@ -1320,7 +1369,7 @@ export function ChatPage() {
         </div>
       );
     }
-    return <Loading message="Starting a new conversation..." />;
+    return <Loading message="Opening the chat..." />;
   }
 
   if (thread.isLoading || relationshipQuery.isLoading) {
@@ -1394,6 +1443,7 @@ export function ChatPage() {
         translation: translationOf(msg),
         correction: msg.correction,
         check_status: msg.check_status,
+        auto_check: msg.auto_check ? { status: msg.auto_check.status, text: msg.auto_check.text } : null,
         has_discussion: msg.has_discussion,
         pinned_at: msg.pinned_at,
       },
@@ -1523,7 +1573,7 @@ export function ChatPage() {
             )}
           </span>
         )}
-        {isMe && checkStatus && (
+        {isMe && checkStatus && !msg.auto_check && (
           <button
             type="button"
             className={`check-status ${checkStatus}`}
@@ -1560,7 +1610,10 @@ export function ChatPage() {
     const translateOn = canTranslate && isShown(displayPrefs, 'translate', msg.id);
     const selectable = selecting && interactive && !!wordsText;
     const selected = selectable && selectedIds.has(msg.id);
-    const showMeta = layout.lastInGroup || shownTimes.has(msg.id) || !!pending;
+    const showTime = layout.lastInGroup || shownTimes.has(msg.id) || !!pending;
+    // My message could be better (auto-check) or was corrected by the tutor: a calm ✎ next to the time.
+    const better = pending ? null : sayBetterState(msg, myId);
+    const showMeta = showTime || !!better;
     const swipeDx = swipeState?.id === msg.id ? swipeState.dx : 0;
     const hidden = interactive && !selecting && isHidden(rawMsg);
     const classes = [
@@ -1678,9 +1731,21 @@ export function ChatPage() {
                 {showMeta && (
                   <span className="chat-bubble-meta" data-testid="chat-bubble-meta">
                     {msg.pinned_at && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
-                    {msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
-                    <span className="chat-time">{formatTime(msg.created_at)}</span>
-                    {layout.tick === 'pending' ? (
+                    {better && (
+                      <span
+                        className={`chat-saybetter-mark ${better}`}
+                        data-testid="chat-saybetter-mark"
+                        data-state={better}
+                        role="img"
+                        aria-label={sayBetterLabel(better, otherUser.name)}
+                        title={sayBetterLabel(better, otherUser.name)}
+                      >
+                        ✎
+                      </span>
+                    )}
+                    {showTime && msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
+                    {showTime && <span className="chat-time">{formatTime(msg.created_at)}</span>}
+                    {!showTime ? null : layout.tick === 'pending' ? (
                       <span className="chat-tick pending" data-testid="chat-send-pending" aria-label="Sending" title="Sending…">
                         {tickGlyph('pending')}
                       </span>
@@ -1816,7 +1881,7 @@ export function ChatPage() {
                 🎧 Listening mode{conversation?.title ? ` · ${conversation.title}` : ''}
               </span>
             ) : (
-              conversation?.title && <span className="chat-header-title">{conversation.title}</span>
+              isAIConversation && conversation?.title && <span className="chat-header-title">{conversation.title}</span>
             )}
           </div>
         </div>
@@ -1872,6 +1937,7 @@ export function ChatPage() {
           onOlder={() => setSearchIndex((i) => Math.min(i + 1, Math.max(0, searchHits.length - 1)))}
           onNewer={() => setSearchIndex((i) => Math.max(0, i - 1))}
           onClose={() => {
+            if (searchQuery.trim()) track('chat.search', { results: searchHits.length });
             setSearchOpen(false);
             setSearchQuery('');
           }}
@@ -1897,33 +1963,6 @@ export function ChatPage() {
       {showHeaderMenu && (
         <div className="chat-header-menu-overlay" onClick={() => setShowHeaderMenu(false)}>
           <div className="chat-header-menu" role="menu" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              role="menuitem"
-              className="chat-header-menu-item"
-              disabled={!isOnline}
-              onClick={() => {
-                setShowHeaderMenu(false);
-                navigate(`/connections/${relId}/chat/${convId}?new=1`);
-              }}
-            >
-              <span aria-hidden="true">＋</span> New conversation
-              {!isOnline && <span className="msg-sheet-action-hint">Needs internet</span>}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="chat-header-menu-item"
-              disabled={!isOnline}
-              onClick={() => {
-                setShowHeaderMenu(false);
-                setRenameValue(conversation?.title || '');
-                setModalNotice(null);
-                setShowRenameModal(true);
-              }}
-            >
-              <span aria-hidden="true">✏️</span> {conversation?.title ? 'Rename conversation' : 'Add a title'}
-            </button>
             <button
               type="button"
               role="menuitem"
@@ -1971,6 +2010,7 @@ export function ChatPage() {
               className="chat-header-menu-item"
               onClick={() => {
                 setShowHeaderMenu(false);
+                track('chat.pinyin_toggle', { aid: 'pinyin', on: !displayPrefs.pinyinAll });
                 setDisplayForAll('pinyin', !displayPrefs.pinyinAll);
               }}
             >
@@ -1983,6 +2023,7 @@ export function ChatPage() {
               className="chat-header-menu-item"
               onClick={() => {
                 setShowHeaderMenu(false);
+                track('chat.pinyin_toggle', { aid: 'translate', on: !displayPrefs.translateAll });
                 setDisplayForAll('translate', !displayPrefs.translateAll);
               }}
             >
@@ -2002,9 +2043,11 @@ export function ChatPage() {
                 <span aria-hidden="true">🔊</span> Voice settings
               </button>
             )}
-            <Link role="menuitem" className="chat-header-menu-item" to={`/connections/${relId}`}>
-              <span aria-hidden="true">☰</span> All conversations
-            </Link>
+            {isAIConversation && (
+              <Link role="menuitem" className="chat-header-menu-item" to={`/connections/${relId}`}>
+                <span aria-hidden="true">☰</span> All practice chats
+              </Link>
+            )}
           </div>
         </div>
       )}
@@ -2570,6 +2613,22 @@ export function ChatPage() {
       )}
 
       {/* Message Discussion Modal */}
+      {sayBetterFor && (
+        <SayBetterSheet
+          message={serverMessages.find((m) => m.id === sayBetterFor.id) ?? sayBetterFor}
+          viewerId={myId}
+          tutorName={otherUser.name || 'Your tutor'}
+          playing={playingAudioMessageId === `better:${sayBetterFor.id}`}
+          onPlay={(text) => void playTextAudio(`better:${sayBetterFor.id}`, text, myId)}
+          onDiscuss={() => {
+            const msg = sayBetterFor;
+            setSayBetterFor(null);
+            setDiscussingMessage(msg);
+          }}
+          onClose={() => setSayBetterFor(null)}
+        />
+      )}
+
       {discussingMessage && (
         <MessageDiscussionModal
           message={discussingMessage}
@@ -2600,43 +2659,6 @@ export function ChatPage() {
               <button className="btn btn-secondary" onClick={() => { setShowWordSaveModal(false); setModalNotice(null); }}>
                 Cancel
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Rename conversation modal */}
-      {showRenameModal && (
-        <div className="modal-overlay" onClick={() => { setShowRenameModal(false); setModalNotice(null); }}>
-          <div className="modal idk-dialog-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{conversation?.title ? 'Rename conversation' : 'Add a title'}</h3>
-            <div className="idk-field">
-              <label htmlFor="conv-title-input">Title (optional)</label>
-              <input
-                id="conv-title-input"
-                type="text"
-                className="new-deck-input chat-title-input"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                placeholder="e.g. This week's homework"
-                maxLength={120}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleRename();
-                  }
-                }}
-              />
-            </div>
-            <InlineNotice notice={modalNotice} onDismiss={clearModalNotice} className="chat-modal-notice" />
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => { setShowRenameModal(false); setModalNotice(null); }}>
-                Cancel
-              </button>
-              <SpinnerButton type="button" className="btn btn-primary" busy={isRenaming} onClick={handleRename}>
-                Save
-              </SpinnerButton>
             </div>
           </div>
         </div>

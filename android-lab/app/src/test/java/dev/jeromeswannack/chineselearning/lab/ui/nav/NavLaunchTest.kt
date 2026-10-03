@@ -103,7 +103,7 @@ class NavLaunchTest {
         c.newIntent(widgetStudy())
         c.foreground()
         assertEquals(listOf("/", "/study"), c.stack())
-        c.nav().back(); settle()
+        c.nav().closeStudy(); settle()
         assertEquals("/", c.nav().currentFullPath())
         c.pause().stop().destroy()
     }
@@ -160,14 +160,14 @@ class NavLaunchTest {
         c.newIntent(widgetStudy())
         c.foreground()
         assertEquals("/study", c.nav().currentFullPath())
-        c.nav().back(); settle()
+        c.nav().closeStudy(); settle()
         assertEquals("/decks/abc", c.nav().currentFullPath())
         c.pause().stop().destroy()
     }
 
-    /** Homework pass open → the due-card reminder is tapped → still on the pass, back stack unchanged. */
+    /** Homework pass open → the due-card reminder (body or "Open study") and the widget ALWAYS open Study; ✕ → the pass again. */
     @Test
-    fun aReminderNotificationTapLeavesTheHomeworkPassOnScreen() {
+    fun aStudyReminderOpensStudyOverTheHomeworkPass() {
         val c = launch()
         c.nav().open(Routes.homework()); settle()
         c.nav().open(Routes.homeworkPass("hw1")); settle()
@@ -175,17 +175,35 @@ class NavLaunchTest {
         c.background()
         ShellNotifier.showFront(app, NotifyContent("card1", "打算", "dǎsuàn", "to plan"), dueTotal = 12)
         val n = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications.single { it.channelId == ShellNotifier.CHANNEL_CARDS }
-        // The body and its "Open study" action are both "go study" entries.
         val body = shadowOf(n.contentIntent).savedIntent
         val openStudy = shadowOf(n.actions.single { it.title == "Open study" }.actionIntent).savedIntent
         assertTrue(body.getBooleanExtra(ShellLinks.EXTRA_SOFT, false) && openStudy.getBooleanExtra(ShellLinks.EXTRA_SOFT, false))
-        c.newIntent(body)
+        for (intent in listOf(body, openStudy, widgetStudy())) {
+            c.newIntent(intent)
+            c.foreground()
+            waitFor("study (stack ${c.stack()})") { c.nav().currentFullPath() == "/study" }
+            c.nav().closeStudy(); settle()
+            assertEquals(before, c.stack())
+            c.background()
+        }
         c.foreground()
-        assertEquals(before, c.stack())
-        c.background()
-        c.newIntent(openStudy)
-        c.foreground()
-        assertEquals(before, c.stack())
+        c.pause().stop().destroy()
+    }
+
+    /** A cold start rebuilt onto Chats (with Study over it) → ✕ → the Study tab opens Home (the v0.456 "Study won't open"). */
+    @Test
+    fun theStudyTabOpensAfterAColdStartRestoredChats() {
+        LastRouteStore(app).save(listOf("/", "/chats", "/study"), System.currentTimeMillis() - 60_000L)
+        val c = launch()
+        waitFor("the stack restored (${c.stack()})") { c.nav().currentFullPath() == "/study" }
+        c.nav().closeStudy(); settle()
+        assertEquals("/chats", c.nav().currentFullPath())
+        val tabs = NavRules.tabsFor(NavRole(loaded = true))
+        c.nav().openTab(tabs.first { it.id == TabId.STUDY }); settle()
+        assertEquals("/", c.nav().currentFullPath())
+        c.nav().openTab(tabs.first { it.id == TabId.MORE }); settle()
+        c.nav().openTab(tabs.first { it.id == TabId.STUDY }); settle()
+        assertEquals("/", c.nav().currentFullPath())
         c.pause().stop().destroy()
     }
 

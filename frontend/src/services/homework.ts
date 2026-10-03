@@ -33,7 +33,7 @@ async function uploadEvents(): Promise<number> {
     method: 'POST',
     headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      events: pending.map(({ id, assignment_id, item_id, result, created_at }) => ({ id, assignment_id, item_id, result, created_at })),
+      events: pending.map(({ id, assignment_id, item_id, result, created_at, note }) => ({ id, assignment_id, item_id, result, created_at, note: note ?? null })),
     }),
   });
   if (!response.ok) throw new Error(`Failed to upload homework progress: ${response.status}`);
@@ -66,13 +66,15 @@ export async function syncHomework(): Promise<{ uploaded: number; assignments: n
 }
 
 /** Record one pass event locally; upload straight away when online (the sync retries otherwise). */
-export async function recordPassEvent(assignmentId: string, itemId: string, result: HomeworkResult): Promise<LocalHomeworkEvent> {
+export async function recordPassEvent(assignmentId: string, itemId: string, result: HomeworkResult, note?: string | null): Promise<LocalHomeworkEvent> {
   const event: LocalHomeworkEvent = {
     id: crypto.randomUUID(),
     assignment_id: assignmentId,
     item_id: itemId,
     result,
     created_at: new Date().toISOString(),
+    // A note back to the tutor (link homework, docs/HOMEWORK.md §8).
+    note: note ?? null,
     _synced: 0,
   };
   await db.homeworkEvents.put(event);

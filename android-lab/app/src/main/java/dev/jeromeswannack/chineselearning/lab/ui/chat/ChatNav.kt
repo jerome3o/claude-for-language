@@ -14,6 +14,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.ui.connections.factory
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ErrorState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
@@ -23,7 +24,10 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 
 /**
  * `/connections/:relId/chat/:convId` (immersive) — `?new=1` or `chat/new` opens a fresh untitled
- * conversation first (web: ChatPage `wantsNew`). Package E.
+ * Claude practice conversation first (web: ChatPage `wantsNew`; with a person the server answers
+ * with THE chat of the pair). `/connections/:relId/chat` (no id) opens the one chat with that
+ * person (one chat per pair, docs/CHAT.md). An id merged away on the server is swapped for the
+ * chat it went into ([ChatPair]). Package E.
  */
 fun NavGraphBuilder.chatGraph(nav: LabNav) {
     composable(
@@ -33,7 +37,39 @@ fun NavGraphBuilder.chatGraph(nav: LabNav) {
         val relId = entry.arguments?.getString("relId").orEmpty()
         val convId = entry.arguments?.getString("convId").orEmpty()
         val wantsNew = convId == "new" || entry.arguments?.getString("new") == "1"
-        if (wantsNew) NewConversation(nav, relId) else ChatRoute(nav, relId, convId)
+        if (wantsNew) NewConversation(nav, relId) else ResolvedChatRoute(nav, relId, convId)
+    }
+    composable(Routes.route("/connections/{relId}/chat")) { entry ->
+        TheChat(nav, entry.arguments?.getString("relId").orEmpty())
+    }
+}
+
+/** `/connections/:relId/chat`: THE chat with that person (`/conversations/open`, cached offline), then that chat in its place. */
+@Composable
+private fun TheChat(nav: LabNav, relId: String) {
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(relId) {
+        runCatching { ChatPair.theChat(nav.app, relId) }
+            .onSuccess { id -> nav.back(); nav.open(Routes.chat(relId, id)) }
+            .onFailure { error = "Couldn't open the chat. ${it.userMessage()}" }
+    }
+    LabScreen("Chat", onBack = nav::back) {
+        item { if (error != null) ErrorState(error!!) else LoadingState(text = "Opening the chat…") }
+    }
+}
+
+/**
+ * An id the phone already knows was merged away opens the chat it went into at once (offline
+ * too); one the server reveals while loading ([ChatUi.mergedInto]) is recorded (draft and
+ * notification move along) and the screen swaps to the primary.
+ */
+@Composable
+private fun ResolvedChatRoute(nav: LabNav, relId: String, convId: String) {
+    val primary by androidx.compose.runtime.produceState<String?>(null, convId) { value = runCatching { ChatPair.primaryOf(nav.app, convId) }.getOrDefault(convId) }
+    when (val p = primary) {
+        null -> Unit
+        convId -> ChatRoute(nav, relId, convId)
+        else -> LaunchedEffect(p) { nav.back(); nav.open(Routes.chat(relId, p)) }
     }
 }
 
@@ -54,6 +90,14 @@ private fun NewConversation(nav: LabNav, relId: String) {
 private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
     val vm: ChatViewModel = viewModel(key = "chat-$convId", factory = factory { ChatViewModel(nav.app, relId, convId) })
     val ui by vm.ui.collectAsStateWithLifecycle()
+    // One chat per pair: the server served this old id as another chat — remember it, go there.
+    ui.mergedInto?.let { primary ->
+        LaunchedEffect(primary) {
+            ChatPair.record(nav.app, convId, primary)
+            nav.back()
+            nav.open(Routes.chat(relId, primary))
+        }
+    }
     // No notification for the chat on screen (data/chat/ChatPresence.kt).
     DisposableEffect(convId) {
         dev.jeromeswannack.chineselearning.lab.data.chat.ChatPresence.chatOpened(convId)
@@ -252,6 +296,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onOpenHelp = { vm.openSheet(ChatSheet.HelpMeSayIt) },
                 onToggleListening = vm.listening::toggle,
                 onHideAll = vm.listening::hideAll,
+                onPlayText = vm::playText,
             ),
         )
     }

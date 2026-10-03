@@ -53,7 +53,7 @@ async function join(page: Page, callId: string) {
   await page.getByTestId('call-live').waitFor({ timeout: 20000 });
 }
 
-test('Leave keeps the call; End confirms; the next call within 20 minutes is the same lesson', async ({ browser, request }) => {
+test('Leave keeps the call; End confirms; the next call within two hours is the same lesson', async ({ browser, request }) => {
   test.setTimeout(150_000);
   const tutor = await seedUser(request, 'tutor', '明慧');
   const student = await seedUser(request, 'student', 'Jerome');

@@ -16,12 +16,14 @@ const TUTOR = 'tutor-1';
 const STUDENT = 'student-1';
 
 function seed(db: SqliteD1) {
-  for (const [id, name] of [[TUTOR, 'Minghui'], [STUDENT, 'Jerome'], ['stranger', 'Nobody']]) {
+  for (const [id, name] of [[TUTOR, 'Minghui'], [STUDENT, 'Jerome'], ['stranger', 'Nobody'], ['tutor-2', 'Li']]) {
     db.raw.run('INSERT INTO users (id, email, name, role) VALUES (?, ?, ?, ?)', [id, `${id}@x.test`, name, 'student']);
   }
   db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-1', ?, ?, 'tutor', 'active')", [TUTOR, STUDENT]);
   db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('conv-1', 'rel-1')");
-  db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('conv-2', 'rel-1')");
+  // One chat per pair: the student's second chat is with a second tutor.
+  db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-2', 'tutor-2', ?, 'tutor', 'active')", [STUDENT]);
+  db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('conv-2', 'rel-2')");
 }
 
 function message(over: Partial<MessageWithSender> = {}): MessageWithSender {
@@ -119,7 +121,7 @@ describe('message clips', () => {
   beforeEach(async () => {
     db = await createSqliteD1();
     seed(db);
-    db.raw.run("UPDATE users SET voice_gender = 'female' WHERE id = ?", [TUTOR]);
+    db.raw.run("UPDATE users SET voice_gender = 'female' WHERE id IN (?, 'tutor-2')", [TUTOR]);
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-ai', ?, 'claude-ai', 'student', 'active')", [STUDENT]);
     db.raw.run("INSERT INTO conversations (id, relationship_id, is_ai_conversation) VALUES ('conv-ai', 'rel-ai', 1)");
     make = vi.fn(async () => null);
@@ -131,7 +133,7 @@ describe('message clips', () => {
     expect(make).toHaveBeenCalledWith(expect.anything(), '明天见', expected);
     expect(readAloudFor('female', null)).toEqual(expected);
     // The cache key is the read-aloud one: same text + voice + speed → same clip for Read aloud and the tap.
-    expect(await ttsCacheKey('明天见', expected.voiceId, expected.speed)).toMatch(/^tts-cache\/v1\//);
+    expect(await ttsCacheKey('明天见', expected.voiceId, expected.speed)).toMatch(/^tts-cache\/v2\//);
   });
 
   it('skips English, photos, deleted messages, Claude chats; a failing TTS never throws', async () => {
@@ -150,7 +152,7 @@ describe('message clips', () => {
     insert('b', 'hello', TUTOR, 'conv-1', '2026-10-02T09:01:00.000Z');
     insert('c', '我很好', STUDENT, 'conv-1', '2026-10-02T09:02:00.000Z');
     insert('d', '看', TUTOR, 'conv-1', '2026-10-02T09:03:00.000Z', JSON.stringify({ kind: 'image', key: 'k', bytes: 1, mime: 'image/jpeg' }));
-    insert('e', '明天见', TUTOR, 'conv-2', '2026-10-02T09:04:00.000Z');
+    insert('e', '明天见', 'tutor-2', 'conv-2', '2026-10-02T09:04:00.000Z');
     const clips = await chatClipsFor(env(), STUDENT);
     const voice = chatReadAloudVoice({ senderGender: 'female', enabled: null });
     expect(clips.sort((x, y) => x.message_id.localeCompare(y.message_id))).toEqual([

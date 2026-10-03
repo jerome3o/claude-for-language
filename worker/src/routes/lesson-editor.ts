@@ -32,6 +32,7 @@ import { getGradedReader } from '../db/queries';
 import { readerToSpec } from '../db/reader-editor-queries';
 import { queueLessonImages, mergeKeptImages } from '../services/custom-lesson';
 import { prewarmLessonImages } from '../services/lesson-images';
+import { pushLibraryLessonUpdate } from '../services/lesson-push';
 import { generateLessonSpec, proposeLessonRevision, CoEditTurn } from '../services/lesson-editor';
 import { proposeReaderRevision, mergeKeptReaderImages } from '../services/reader-editor';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
@@ -452,36 +453,13 @@ lessonEditor.get('/lesson-library/:id/assignments', async (c) => {
  * illustrations carry over; new image prompts are queued. */
 lessonEditor.post('/lesson-library/:id/push-update', async (c) => {
   const userId = c.get('user').id;
-  const item = await lib.getLibraryItem(c.env.DB, c.req.param('id'), userId);
-  if (!item) return c.json({ error: 'Library item not found' }, 404);
   const body = await c.req.json<{ relationship_ids?: unknown }>().catch(() => ({} as { relationship_ids?: unknown }));
   const only = Array.isArray(body.relationship_ids)
     ? new Set(body.relationship_ids.filter((r): r is string => typeof r === 'string'))
     : null;
-
-  const itemSpec = parseSpec(item.spec);
-  const rows = await lib.listAssignmentsForItem(c.env.DB, item.id);
-  let updated = 0;
-  let skipped = 0;
-  let imageJobs = 0;
-  for (const row of rows) {
-    if (only && (!row.assigned_relationship_id || !only.has(row.assigned_relationship_id))) continue;
-    const copySpec = parseSpec(row.spec);
-    if (sameContent(copySpec, itemSpec)) {
-      skipped++;
-      continue;
-    }
-    const next = mergeKeptImages(copySpec, JSON.parse(JSON.stringify(itemSpec)) as CustomLessonSpec);
-    await lib.updateLessonSpecById(c.env.DB, row.id, {
-      title: next.title,
-      description: next.description ?? null,
-      icon: next.icon ?? null,
-      spec: JSON.stringify(next),
-    });
-    imageJobs += await queueLessonImages(c.env, row.id, next);
-    updated++;
-  }
-  return c.json({ updated, skipped, image_jobs: imageJobs });
+  const result = await pushLibraryLessonUpdate(c.env, userId, c.req.param('id'), only);
+  if (!result) return c.json({ error: 'Library item not found' }, 404);
+  return c.json({ updated: result.updated, skipped: result.skipped, image_jobs: result.image_jobs });
 });
 
 // ============ Lessons (owner or the tutor who assigned it) ============

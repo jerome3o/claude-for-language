@@ -166,6 +166,21 @@ cut into 5-min pieces and 10 s chunks (`PieceRecorder`), uploaded through the Ou
 (`CallUploads`). `CallService` is the foreground service that keeps a call alive with the screen off.
 The first time the call screen opens it asks for the microphone, camera, Bluetooth (sound routing)
 and notifications (the call's ongoing notification).
+The camera always starts on (only a muted mic is remembered, `core/…/calls/CallDevices.kt`). Round 5:
+the relationship's tutor leads — "Show for student" puts her stage tile on the student's stage once per
+new show (`core/…/calls/CallFollow.kt`, driven by `CallController` through `CallLayoutHolder`), and she
+can stop the student's screen share (`ui/calls/CallLead.kt`).
+
+## Usage analytics (`data/analytics/`)
+
+Which screens and features are used — never messages, cards, answers or recordings — so the
+admin can ask "has Minghui used feature X?" (docs/ANALYTICS.md). `app.analytics.track("chat.send",
+mapOf("kind" to "text"))` (or `Analytics.track(…)` where there is no `app`); the event and its props
+must be in the shared catalogue (`core/…/analytics/AnalyticsEvents.kt`, parity-tested against
+`shared/analytics/events.ts` — a new event is one line in each) and go through `AnalyticsPrivacy`
+before they are queued. Screen views come from the shell's back stack; events wait in their own
+`analytics.db` and go up after every sync and every minute in front. Settings → Advanced has the
+opt-out switch.
 
 ## Parity: proving the logic matches
 

@@ -11,6 +11,7 @@
  * The rules (what hides, which clips to prefetch) are shared/chats/listening.ts.
  */
 
+import { track } from './analytics';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   addRevealed,
@@ -104,6 +105,7 @@ export function useAllChatListening(): Stored {
 
 /** Change one conversation's setting: on this device at once, then on the server (kept dirty until accepted). */
 export async function setConversationListening(conversationId: string, on: boolean, since: string | null): Promise<void> {
+  track('chat.listening_mode', { scope: 'conversation', on });
   const cur = read();
   write({ ...cur, conversations: { ...cur.conversations, [conversationId]: { on, since, updated_at: new Date().toISOString(), dirty: true } } });
   try {
@@ -121,6 +123,7 @@ export async function setConversationListening(conversationId: string, on: boole
 
 /** Settings → Chat → "Listening mode in new chats". */
 export async function setListeningDefault(on: boolean): Promise<void> {
+  track('chat.listening_mode', { scope: 'default', on });
   write({ ...read(), default_on: on, default_dirty: true });
   try {
     const res = await putChatListeningDefault(on);
@@ -174,6 +177,7 @@ export function loadRevealed(conversationId: string | undefined): string[] {
 }
 
 export function revealMessage(conversationId: string, messageId: string): string[] {
+  track('chat.listening_reveal');
   const next = addRevealed(loadRevealed(conversationId), messageId);
   revealedMemo.set(conversationId, next);
   try {

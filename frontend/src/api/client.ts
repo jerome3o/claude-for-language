@@ -286,10 +286,12 @@ export async function createNote(
     sentence_clue?: string;
     sentence_clue_pinyin?: string;
     sentence_clue_translation?: string;
-  }
+  },
+  options: { skipCheck?: boolean } = {}
 ): Promise<NoteWithCards> {
-  // The server makes the cards, the word and sentence clips, and queues the sentence set.
-  return fetchJSON<NoteWithCards>(`/decks/${deckId}/notes`, {
+  // The server makes the cards, the word and sentence clips, and queues the sentence set
+  // (and a word check, unless the caller already checked the row — Paste a list's preview).
+  return fetchJSON<NoteWithCards>(`/decks/${deckId}/notes${options.skipCheck ? '?check=none' : ''}`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -382,6 +384,27 @@ export async function generateNoteAudio(noteId: string, options?: GenerateAudioO
   return fetchJSON<Note>(`/notes/${noteId}/generate-audio`, {
     method: 'POST',
     body: options ? JSON.stringify(options) : undefined,
+  });
+}
+
+/** What `POST /api/notes/:id/ensure-audio` did with each clip (docs/AUDIO.md). */
+export type EnsureClipOutcome = 'ok' | 'copied' | 'generated' | 'queued' | 'failed' | 'none';
+
+export interface EnsureNoteAudioResponse {
+  note: Note | null;
+  word: EnsureClipOutcome;
+  sentence: EnsureClipOutcome;
+}
+
+/**
+ * Make sure a note's word + example-sentence clips exist (idempotent). `broken`:
+ * clip keys this device got an error for — only really missing ones are remade.
+ * A clip MiniMax can't make right now comes back `queued`: it is coming.
+ */
+export async function ensureNoteAudio(noteId: string, broken: string[] = []): Promise<EnsureNoteAudioResponse> {
+  return fetchJSON<EnsureNoteAudioResponse>(`/notes/${noteId}/ensure-audio`, {
+    method: 'POST',
+    body: JSON.stringify(broken.length ? { broken } : {}),
   });
 }
 
@@ -1264,14 +1287,9 @@ export async function textToFlashcard(
   });
 }
 
-export async function updateConversationTitle(
-  conversationId: string,
-  title: string
-): Promise<Conversation> {
-  return fetchJSON<Conversation>(`/conversations/${conversationId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ title }),
-  });
+/** One conversation; a merged-away id (one chat per pair) answers with the chat it became (`merged_from` = the id asked for). */
+export async function getConversation(conversationId: string): Promise<Conversation & { merged_from?: string | null }> {
+  return fetchJSON<Conversation & { merged_from?: string | null }>(`/conversations/${conversationId}`);
 }
 
 export async function updateConversationVoiceSettings(
@@ -1635,6 +1653,15 @@ export async function updateUserBio(bio: string | null): Promise<string | null> 
 }
 
 /** Set the "Start on" tab (null = automatic). */
+/** Settings → Advanced → "Share usage data" (docs/ANALYTICS.md). Off also deletes what was collected. */
+export async function updateShareUsage(share_usage: boolean): Promise<boolean> {
+  const data = await fetchJSON<{ share_usage: boolean }>('/profile/analytics', {
+    method: 'PUT',
+    body: JSON.stringify({ share_usage }),
+  });
+  return data.share_usage;
+}
+
 export async function updateLandingPage(landing_page: LandingPage | null): Promise<LandingPage | null> {
   const data = await fetchJSON<{ landing_page: LandingPage | null }>('/profile/landing-page', {
     method: 'PUT',

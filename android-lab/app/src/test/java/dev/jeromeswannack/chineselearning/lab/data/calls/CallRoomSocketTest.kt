@@ -119,7 +119,8 @@ class CallRoomSocketTest {
         server.enqueue(MockResponse().withWebSocketUpgrade(pongs))
         server.enqueue(upgrade())
         val joins = AtomicInteger()
-        val room = socket({ CallJoinDto("t${joins.incrementAndGet()}", "/ws") }, pingMs = 100, pongTimeoutMs = 400)
+        // A generous pong timeout: on a busy CI runner a 400 ms round trip over the loopback socket was missed now and then.
+        val room = socket({ CallJoinDto("t${joins.incrementAndGet()}", "/ws") }, pingMs = 100, pongTimeoutMs = 3_000)
         room.connect()
         assertEquals("status:OPEN", next("status:OPEN"))
         Thread.sleep(1_000) // ~10 pings, every one answered

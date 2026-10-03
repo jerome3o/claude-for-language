@@ -6,6 +6,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.core.DeckSettings
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.core.CardCheck
+import dev.jeromeswannack.chineselearning.lab.core.NoteCheckIssue
+import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
+import dev.jeromeswannack.chineselearning.lab.data.api.applyCheckIssue
+import dev.jeromeswannack.chineselearning.lab.data.api.dismissCheckIssue
 import dev.jeromeswannack.chineselearning.lab.data.api.DeckTutorShareDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.deckTutorShares
@@ -39,6 +44,8 @@ data class NoteRowUi(
     /** card type → most recent first, up to 8. */
     val ratings: Map<String, List<Int>>,
     val mastery: Int,
+    /** Word checks still about the word as it is now (core CardCheck.liveCheckIssues). */
+    val issues: List<NoteCheckIssue> = emptyList(),
 )
 
 data class DeckHeaderUi(
@@ -84,6 +91,10 @@ data class DeckUi(
     val tutors: List<TutorOptionUi> = emptyList(),
     val shareBusy: Boolean = false,
     val shareError: String? = null,
+    /** The word-check issue whose Apply fix / Dismiss is in flight. */
+    val issueBusy: String? = null,
+    /** issue id → why Apply fix / Dismiss failed. */
+    val issueError: Pair<String, String>? = null,
 ) {
     /**
      * The one-off banner: a live one-off assignment AND caps 0 + 0, so the daily budget never
@@ -199,6 +210,7 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
                     notice = s.notice, noticeIsError = s.noticeIsError, settingsError = s.settingsError, busy = s.busy,
                     oneOffAssignmentId = s.oneOffAssignmentId, dailyReviewBusy = s.dailyReviewBusy, dailyReviewError = s.dailyReviewError,
                     tutorShares = s.tutorShares, tutors = s.tutors, shareBusy = s.shareBusy, shareError = s.shareError,
+                    issueBusy = s.issueBusy, issueError = s.issueError,
                 )
             }
         }
@@ -215,7 +227,10 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
         val ratings = DeckStats.recentRatings(cards, events)
         val cardsByNote = cards.groupBy { it.noteId }
         val rows = notes.map { n ->
-            NoteRowUi(n.id, n.hanzi, n.pinyin, n.english, n.sentenceClue, n.audioUrl, ratings[n.id].orEmpty(), DeckStats.notePercent(cardsByNote[n.id].orEmpty()))
+            NoteRowUi(
+                n.id, n.hanzi, n.pinyin, n.english, n.sentenceClue, n.audioUrl, ratings[n.id].orEmpty(), DeckStats.notePercent(cardsByNote[n.id].orEmpty()),
+                issues = if (n.checkIssues == null) emptyList() else CardCheck.liveCheckIssues(CardCheck.parseCheckIssues(n.checkIssues), n.pinyin, n.english),
+            )
         }.sortedByDescending { it.mastery } // stable: equal mastery keeps Room order
 
         // Due today with the same allocation as the Decks tab / Home.
@@ -239,6 +254,40 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
     }
 
     fun play(row: NoteRowUi) = env.fx.playAudio(row.audioUrl, row.hanzi)
+
+    // ---------------- word checks ----------------
+
+    /** "⚠ Possible issue" → Apply fix (POST …/check-issues/:id/apply; the note comes back fixed). */
+    fun applyIssue(noteId: String, issue: NoteCheckIssue) = resolveIssue(noteId, issue, apply = true)
+
+    /** "⚠ Possible issue" → Dismiss (POST …/check-issues/:id/dismiss). */
+    fun dismissIssue(noteId: String, issue: NoteCheckIssue) = resolveIssue(noteId, issue, apply = false)
+
+    private fun resolveIssue(noteId: String, issue: NoteCheckIssue, apply: Boolean) {
+        if (_ui.value.issueBusy != null) return
+        if (!_ui.value.online) {
+            _ui.update { it.copy(issueError = issue.id to "You're offline — fixes need a connection.") }
+            return
+        }
+        _ui.update { it.copy(issueBusy = issue.id, issueError = null) }
+        viewModelScope.launch {
+            try {
+                val res = if (apply) env.api.applyCheckIssue(noteId, issue.id) else env.api.dismissCheckIssue(noteId, issue.id)
+                res.note?.let { env.writes.mirrorCheckedNote(it, issue.id) }
+                Analytics.track(
+                    if (apply) "deck.check_issue_applied" else "deck.check_issue_dismissed",
+                    mapOf("field" to issue.field, "kind" to issue.kind, "where" to "deck"),
+                )
+                if (apply) env.fx.success() else env.fx.tick()
+                _ui.update { it.copy(issueBusy = null) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                env.fx.failure()
+                _ui.update { it.copy(issueBusy = null, issueError = issue.id to e.userMessage()) }
+            }
+        }
+    }
 
     // ---------------- selection ----------------
 

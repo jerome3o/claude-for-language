@@ -37,8 +37,16 @@ data class MeDto(
     val voice_gender: String? = null,
     /** A new chat message also sends an e-mail (Settings → Notifications → Chat e-mails; docs/CHAT.md). */
     val email_chat_messages: Boolean = true,
+    /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account; core SayBetter.settingShown). */
+    val chat_auto_check: Boolean? = null,
     /** The budget with who set it (a tutor can change it: shared/decks/tutor-budget.ts); null from an older server. */
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
+    /** Usage analytics on (Settings → Advanced → "Share usage data"; data/analytics/). */
+    val share_usage: Boolean = true,
+    /** Word checks: "Check new words for mistakes" — the effective switch (on by default for tutors); null from an older server. */
+    val card_check: Boolean? = null,
+    /** The account's own choice (null = the default). */
+    val card_check_setting: Boolean? = null,
 )
 
 @Serializable
@@ -63,6 +71,8 @@ data class NoteDto(
     val updated_at: String? = null,
     /** The learner's "long-term review" choice (1 in, 0 out, null = follow the deck). */
     val long_term: Int? = null,
+    /** Word checks: JSON string of NoteCheckIssue[] (shared/cards/check.ts), or null. */
+    val check_issues: String? = null,
     val cards: List<CardDto> = emptyList(),
 )
 
@@ -76,7 +86,7 @@ data class DeckDto(
     val study_priority: Int = 0,
     val created_at: String = "",
     val updated_at: String? = null,
-    /** The deck's folder (migration 0100), null = Unfiled. */
+    /** The deck's folder (migration 0105), null = Unfiled. */
     val folder_id: String? = null,
     val notes: List<NoteDto> = emptyList(),
 )

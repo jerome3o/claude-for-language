@@ -18,6 +18,7 @@ import {
 } from './specs.js';
 import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from '../folders.js';
 import { CONFIRM_SEND, NEEDS_CONFIRM, NOT_SENT, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_TODAY, STUDENT_NAME, assignmentSummary, describeSend, resolveStudent, sendAsHomework, sentTo } from '../homework-send.js';
+import { UPDATE_STUDENT_COPIES, copiesForReply, updateStudentCopies } from '../student-copies.js';
 
 const READER_ID = z.string().describe('The reader id (from list_readers / generate_reader)');
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
@@ -106,24 +107,28 @@ ${READER_SPEC_DOC}`,
 
   server.tool(
     'update_reader',
-    `Replace a graded reader's content in place with a FULL ReaderSpec (same reader id, so the learner's reading history and FSRS schedule carry over). Fetch the current spec with get_reader, edit it, and send the whole thing back — pages are matched by id: keep a page's "id" to update that page (its illustration is kept when image_prompt is unchanged, regenerated when the prompt changed), omit the id for a brand-new page, leave a page out to delete it, and reorder the array to reorder pages. A page sent without its id is a NEW page — its old illustration is dropped. Returns image_jobs for prompts queued. Validated locally and by the API; problems come back as a list.
+    `Replace a graded reader's content in place with a FULL ReaderSpec (same reader id, so the learner's reading history and FSRS schedule carry over). Fetch the current spec with get_reader, edit it, and send the whole thing back — pages are matched by id: keep a page's "id" to update that page (its illustration is kept when image_prompt is unchanged, regenerated when the prompt changed), omit the id for a brand-new page, leave a page out to delete it, and reorder the array to reorder pages. A page sent without its id is a NEW page — its old illustration is dropped. Returns image_jobs for prompts queued. Validated locally and by the API; problems come back as a list. When the reader was sent to students, their copies get the new content too only with update_student_copies: true, when the tutor asked (pages matched by position, reading progress kept).
 ${READER_SPEC_DOC}`,
     {
       reader_id: READER_ID,
       spec: readerSpecShape.describe('The complete revised ReaderSpec — it replaces the stored one entirely'),
+      update_student_copies: UPDATE_STUDENT_COPIES,
     },
-    async ({ reader_id, spec }) => guard(async () => {
+    async ({ reader_id, spec, update_student_copies }) => guard(async () => {
       const problems = readerSpecProblems(spec);
       if (problems.length > 0) return errorResult(formatProblems('Reader spec', problems));
       const res = await api.put<SpecResponse>(`/api/readers/${encodeURIComponent(reader_id)}/spec`, { spec });
       const warnings = readerPageWarnings(spec).map(w => w.message);
+      const copies = await updateStudentCopies(api, 'reader', reader_id, update_student_copies);
+      const studentCopies = copiesForReply(copies);
       return jsonResult({
         id: res.id,
         status: res.status,
+        ...(studentCopies ? { student_copies: studentCopies } : {}),
         image_jobs: res.image_jobs ?? 0,
         warnings,
         page_count: Array.isArray((res.spec as { pages?: unknown[] })?.pages) ? (res.spec as { pages: unknown[] }).pages.length : undefined,
-        message: `Updated reader ${res.id}. The device picks up the new content on its next sync; reading history is unchanged.${res.image_jobs ? ` ${res.image_jobs} illustration(s) generating in the background.` : ''}`,
+        message: `Updated reader ${res.id}. The device picks up the new content on its next sync; reading history is unchanged.${res.image_jobs ? ` ${res.image_jobs} illustration(s) generating in the background.` : ''}${copies?.message ? ` ${copies.message}` : ''}`,
       });
     }),
   );

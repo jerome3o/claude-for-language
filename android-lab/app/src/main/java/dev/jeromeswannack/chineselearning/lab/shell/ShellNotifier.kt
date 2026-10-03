@@ -114,7 +114,7 @@ object ShellNotifier {
             .setContentTitle(ShellRules.homeworkTitle(due))
             .setContentText(lines.first())
             .setStyle(style)
-            .setContentIntent(ShellLinks.softPending(ctx, 30, path))
+            .setContentIntent(ShellLinks.softPending(ctx, 30, path, notification = "homework"))
             .setShowWhen(false)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -138,7 +138,7 @@ object ShellNotifier {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setShowWhen(false) // a card isn't an event with a time
             // Tapping the body opens a full study session (the hybrid's /study?autostart=true).
-            .setContentIntent(ShellLinks.softPending(ctx, 0, ShellLinks.STUDY))
+            .setContentIntent(ShellLinks.softPending(ctx, 0, ShellLinks.STUDY, notification = "due_card"))
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
             .also { b -> if (cardId != null) b.addExtras(android.os.Bundle().apply { putString(EXTRA_CARD_ID, cardId) }) }

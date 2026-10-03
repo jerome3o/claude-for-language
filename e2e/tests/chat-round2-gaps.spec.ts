@@ -31,8 +31,13 @@ async function seedChat(request: APIRequestContext) {
   const relId = rel.body.data.id;
   await api(request, `/api/relationships/${relId}/accept`, { method: 'POST', token: student.token });
   const conv = await api<{ id: string }>(request, `/api/relationships/${relId}/conversations`, { method: 'POST', token: tutor.token, data: {} });
-  const conv2 = await api<{ id: string }>(request, `/api/relationships/${relId}/conversations`, { method: 'POST', token: tutor.token, data: { title: '作业' } });
-  return { tutor, student, relId, convId: conv.body.id, conv2: conv2.body.id };
+  // One chat per pair: the "other conversation" is the student's chat with a second tutor.
+  const tutor2 = await seedUser(request, 'tutor2', '李老师');
+  const rel2 = await api<{ data: { id: string } }>(request, '/api/relationships', { method: 'POST', token: tutor2.token, data: { recipient_email: student.email, role: 'tutor' } });
+  const relId2 = rel2.body.data.id;
+  await api(request, `/api/relationships/${relId2}/accept`, { method: 'POST', token: student.token });
+  const conv2 = await api<{ id: string }>(request, `/api/relationships/${relId2}/conversations`, { method: 'POST', token: tutor2.token, data: {} });
+  return { tutor, student, relId, relId2, convId: conv.body.id, conv2: conv2.body.id };
 }
 
 async function openAs(browser: Browser, user: SeededUser, path: string): Promise<Page> {
@@ -110,7 +115,7 @@ test('a PDF and several photos go out; the file opens; info shows what it is', a
 
 test('forward a message into the other conversation; it is marked Forwarded', async ({ browser, request }) => {
   test.setTimeout(120_000);
-  const { tutor, student, relId, convId, conv2 } = await seedChat(request);
+  const { tutor, student, relId, relId2, convId, conv2 } = await seedChat(request);
   await api(request, `/api/conversations/${convId}/messages`, { method: 'POST', token: tutor.token, data: { content: '记得复习第三课的生词' } });
   const page = await openAs(browser, student, `/connections/${relId}/chat/${convId}`);
   const msg = page.getByTestId('chat-message').filter({ hasText: '记得复习第三课的生词' });
@@ -118,27 +123,27 @@ test('forward a message into the other conversation; it is marked Forwarded', as
   await msg.getByRole('button', { name: 'More actions' }).click();
   await page.locator('[data-tool="forward"]').click();
   const sheet = page.getByTestId('chat-forward-sheet');
-  await sheet.getByRole('button', { name: /作业/ }).click();
-  await expect(page.getByText(/Forwarded the message to 王明慧 · 作业/)).toBeVisible({ timeout: 10000 });
+  await sheet.getByRole('button', { name: /李老师/ }).click();
+  await expect(page.getByText(/Forwarded the message to 李老师/)).toBeVisible({ timeout: 10000 });
 
   const there = await api<{ messages: Array<{ content: string; forwarded_from: string | null; sender_id: string }> }>(request, `/api/conversations/${conv2}/messages`, { token: student.token });
   expect(there.body.messages).toHaveLength(1);
   expect(there.body.messages[0]).toMatchObject({ content: '记得复习第三课的生词', sender_id: student.id });
   expect(there.body.messages[0].forwarded_from).toBeTruthy();
-  await page.goto(`/connections/${relId}/chat/${conv2}`);
+  await page.goto(`/connections/${relId2}/chat/${conv2}`);
   await expect(page.getByTestId('chat-message').filter({ hasText: '记得复习第三课的生词' }).locator('.chat-forwarded')).toHaveText('↪ Forwarded', { timeout: 20000 });
   await page.context().close();
 });
 
 test('drafts stay per conversation; offline sends show as waiting in the header', async ({ browser, request }) => {
   test.setTimeout(120_000);
-  const { tutor, student, relId, convId, conv2 } = await seedChat(request);
+  const { tutor, student, relId, relId2, convId, conv2 } = await seedChat(request);
   await api(request, `/api/conversations/${convId}/messages`, { method: 'POST', token: tutor.token, data: { content: '你好' } });
   const page = await openAs(browser, student, `/connections/${relId}/chat/${convId}`);
   await expect(page.getByText('你好')).toBeVisible({ timeout: 20000 });
   const box = page.getByRole('textbox', { name: 'Message' });
   await box.fill('我还没写完');
-  await page.goto(`/connections/${relId}/chat/${conv2}`);
+  await page.goto(`/connections/${relId2}/chat/${conv2}`);
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('');
   await page.goto(`/connections/${relId}/chat/${convId}`);
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('我还没写完', { timeout: 20000 });

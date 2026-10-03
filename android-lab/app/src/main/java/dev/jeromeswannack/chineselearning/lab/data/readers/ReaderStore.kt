@@ -29,10 +29,13 @@ import dev.jeromeswannack.chineselearning.lab.data.lessons.HomeworkLink
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonMedia
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
@@ -64,10 +67,15 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
 
     fun observe(): Flow<List<ReaderEntry>> =
         combine(cache.observe(LIST, listSerializer), cache.observe(EVENTS, eventsSerializer)) { list, events -> merge(list.orEmpty(), events.orEmpty()) }
+            .flowOn(Dispatchers.Default)
 
     suspend fun hasCache(): Boolean = cache.entry(LIST) != null
 
-    suspend fun entries(): List<ReaderEntry> = merge(cache.get(LIST, listSerializer).orEmpty(), events())
+    suspend fun entries(): List<ReaderEntry> {
+        val list = cache.get(LIST, listSerializer).orEmpty()
+        val events = events()
+        return withContext(Dispatchers.Default) { merge(list, events) }
+    }
 
     suspend fun entry(id: String): ReaderEntry? = entries().firstOrNull { it.id == id }
 
@@ -95,6 +103,7 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
      * Returns the new state (a reader rated back into learning stays in the session).
      */
     suspend fun rate(readerId: String, rating: Int, timeSpentMs: Long, nowMs: Long = System.currentTimeMillis()): ComputedCardState = lock.withLock {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("reader.finish", mapOf("rating" to listOf("again", "hard", "good", "easy").getOrNull(rating)))
         val now = Js.toIsoString(nowMs)
         val before = events().filter { it.readerId == readerId }.map { ItemEvent(it.id, it.readerId, it.rating, it.reviewedAt) }
         val state = ItemSchedule.afterRating(before, rating, now)

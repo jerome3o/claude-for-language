@@ -44,7 +44,11 @@ data class TodaySnapshot(
 class TodayData(private val app: LabApp) {
     private val runtime get() = LessonRuntime.of(app)
 
-    suspend fun snapshot(nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): TodaySnapshot {
+    /** Off the main thread: it decodes the whole readers / lessons lists (MBs), which froze Home and Study. */
+    suspend fun snapshot(nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): TodaySnapshot =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { snapshotNow(nowMs, zone) }
+
+    private suspend fun snapshotNow(nowMs: Long, zone: ZoneId): TodaySnapshot {
         val cutoff = StudyQueue.cutoff(nowMs, zone)
         val entries = runtime.store.entries()
         val oneOff = runtime.store.homework.oneOffOnly()

@@ -110,6 +110,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
 
   // Relationship-scoped rows without foreign keys.
   { label: 'card_flags', sql: `DELETE FROM card_flags WHERE student_id = ?1 OR tutor_id = ?1 OR relationship_id IN ${REL}` },
+  { label: 'deck_check_jobs', sql: `DELETE FROM deck_check_jobs WHERE user_id = ?1 OR deck_owner_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'tutor_note_jobs', sql: `DELETE FROM tutor_note_jobs WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'notifications', sql: `DELETE FROM notifications WHERE user_id = ?1 OR relationship_id IN ${REL} OR homework_id IN ${HOMEWORK}` },
 
@@ -127,6 +128,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'daily_activities', sql: `DELETE FROM daily_activities WHERE user_id = ?1` },
   { label: 'daily_counts', sql: `DELETE FROM daily_counts WHERE user_id = ?1` },
   { label: 'study_time_days', sql: `DELETE FROM study_time_days WHERE user_id = ?1` },
+  { label: 'usage_events', sql: `DELETE FROM usage_events WHERE user_id = ?1` },
   { label: 'daily_readers', sql: `DELETE FROM daily_readers WHERE user_id = ?1 OR reader_id IN ${READERS}` },
   { label: 'sync_metadata', sql: `DELETE FROM sync_metadata WHERE user_id = ?1` },
   { label: 'deleted_items', sql: `DELETE FROM deleted_items WHERE user_id = ?1` },
@@ -153,6 +155,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'custom_lesson_completions', sql: `DELETE FROM custom_lesson_completions WHERE user_id = ?1 OR lesson_id IN ${LESSONS}` },
   { label: 'custom_lessons', sql: `DELETE FROM custom_lessons WHERE user_id = ?1` },
   { label: 'lesson_library', sql: `DELETE FROM lesson_library WHERE owner_id = ?1` },
+  { label: 'homework_links', sql: `DELETE FROM homework_links WHERE user_id = ?1` },
   { label: 'editor_chat_messages', sql: `DELETE FROM editor_chat_messages WHERE chat_id IN (SELECT id FROM editor_chats WHERE owner_id = ?1)` },
   { label: 'editor_chats', sql: `DELETE FROM editor_chats WHERE owner_id = ?1` },
 

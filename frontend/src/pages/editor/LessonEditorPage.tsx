@@ -7,6 +7,7 @@
  * Routes: /lessons/:id/edit (target "lesson"), /library/:id/edit ("library").
  */
 
+import { UpdateCopiesPrompt } from '../../components/tutor/library/UpdateCopiesSheet';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -40,6 +41,7 @@ import { useLessonSpeak } from '../../components/editor/useLessonSpeak';
 import { downloadText } from '../../components/editor/download';
 import { AnkiExportModal } from '../../components/export/AnkiExportModal';
 import { Loading, ErrorMessage } from '../../components/Loading';
+import { track, trackError } from '../../services/analytics';
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -87,6 +89,8 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
   const [spec, setSpec] = useState<CustomLessonSpec | null>(null);
   const [saved, setSaved] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  // After saving a library lesson that was sent: "Also update <student>'s copy" (docs/HOMEWORK.md §10).
+  const [copiesPrompt, setCopiesPrompt] = useState(0);
   const [showJson, setShowJson] = useState(false);
   const [showAnki, setShowAnki] = useState(false);
 
@@ -115,12 +119,15 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
     try {
       if (target === 'library') {
         const item = await updateLibraryItem(id, spec);
+        track('tutor.library_save', { created: false });
         setSpec(clone(item.spec));
         setSaved(canonicalJson(item.spec));
         queryClient.invalidateQueries({ queryKey: ['library-item', id] });
         queryClient.invalidateQueries({ queryKey: ['lesson-library'] });
+        setCopiesPrompt((n) => n + 1);
       } else {
         const lesson = await saveEditableLesson(id, spec);
+        track('lesson.editor_save');
         setSpec(clone(lesson.spec));
         setSaved(canonicalJson(lesson.spec));
         queryClient.invalidateQueries({ queryKey: ['editable-lesson', id] });
@@ -144,6 +151,7 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
       const msg = err instanceof LessonApiError && err.problems.length
         ? `Not saved: ${err.problems.join('; ')}`
         : `Not saved: ${err instanceof Error ? err.message : 'unknown error'}`;
+      trackError(target === 'library' ? 'library_save' : 'lesson_editor_save', err);
       showToast(msg);
     } finally {
       setSaving(false);
@@ -264,6 +272,9 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
       {showJson && <RawJsonModal spec={spec} onApply={next => { setSpec(next); setShowJson(false); }} onClose={() => setShowJson(false)} />}
       {showAnki && <AnkiExportModal target={{ kind: 'lesson', spec, sourceId: id }} onClose={() => setShowAnki(false)} />}
       {toast && <div className="ed-toast" role="status">{toast}</div>}
+      {copiesPrompt > 0 && target === 'library' && (
+        <UpdateCopiesPrompt key={copiesPrompt} kind="lesson" sourceId={id} onDone={() => setCopiesPrompt(0)} />
+      )}
     </>
   );
 }

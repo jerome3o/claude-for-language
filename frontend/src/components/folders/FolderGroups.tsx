@@ -19,6 +19,7 @@ import {
   type FolderKind,
 } from '@shared/folders';
 import { useLongPressReorder } from '../../services/dragReorder';
+import { track } from '../../services/analytics';
 import {
   createFolder,
   deleteFolder,
@@ -77,8 +78,13 @@ export function useFolderUi(kind: FolderKind, { onChanged, onToast }: { onChange
         initialParent={sheet.type === 'create' ? sheet.parentId : null}
         onClose={close}
         onSave={async (name, parentId) => {
-          if (sheet.type === 'rename') await renameFolder(sheet.folder.id, name);
-          else await createFolder(kind, name, parentId);
+          if (sheet.type === 'rename') {
+            await renameFolder(sheet.folder.id, name);
+            track('folder.rename', { kind });
+          } else {
+            await createFolder(kind, name, parentId);
+            track('folder.create', { kind, nested: !!parentId });
+          }
           close();
         }}
       />
@@ -93,6 +99,7 @@ export function useFolderUi(kind: FolderKind, { onChanged, onToast }: { onChange
         onClose={close}
         onConfirm={async () => {
           await deleteFolder(sheet.folder);
+          track('folder.delete', { kind, items: sheet.itemCount });
           close();
           onChanged?.();
         }}
@@ -108,11 +115,13 @@ export function useFolderUi(kind: FolderKind, { onChanged, onToast }: { onChange
         onClose={close}
         onCreate={async (name) => {
           const folder = await createFolder(kind, name);
+          track('folder.create', { kind, nested: false });
           justCreated.current = folder;
           return folder;
         }}
         onMove={async (folderId) => {
           const moved = await moveItemsToFolder(kind, sheet.ids, folderId);
+          track('folder.move_items', { kind, count: moved || sheet.ids.length, unfiled: !folderId });
           close();
           onChanged?.();
           const name = folderId ? (byId.get(folderId) ?? (justCreated.current?.id === folderId ? justCreated.current : null))?.name ?? null : null;

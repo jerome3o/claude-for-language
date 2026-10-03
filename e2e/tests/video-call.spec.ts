@@ -91,7 +91,8 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
   const tBoard = tp.getByTestId('text-board');
   await tBoard.click();
   await tp.keyboard.type('一杯咖啡');
-  await sp.getByTestId('open-board').click();
+  // Round 5: the tutor opening the board shows it to the student (no click — a click would close it again).
+  await expect(sp.getByTestId('call-tiles')).toHaveAttribute('data-stage', /text/, { timeout: 10000 });
   const sBoard = sp.getByTestId('text-board');
   await expect(sBoard).toHaveValue('一杯咖啡', { timeout: 10000 });
   await sBoard.click();
@@ -138,6 +139,7 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
   // ---- The tutor ends the call for everyone
   tp.on('dialog', (d) => d.accept());
   await tp.getByTestId('end-call').click();
+  await tp.getByTestId('end-confirm-end').click(); // round 4: End asks first (a sheet, not a dialog)
   await tp.getByTestId('call-ended').waitFor({ timeout: 20000 });
   await sp.getByTestId('call-ended').waitFor({ timeout: 20000 });
 

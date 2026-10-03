@@ -122,4 +122,27 @@ export function registerAdminTools(ctx: ToolContext): void {
     async ({ request_id, action }) =>
       guard(async () => jsonResult(await api.post(`/api/admin/access-requests/${encodeURIComponent(request_id)}/${action}`)))
   );
+
+  // ---------- Audio backfill (docs/AUDIO.md; worker/src/routes/audio-backfill.ts) ----------
+
+  server.tool(
+    'audio_backfill_status',
+    'ADMIN ONLY. Read-only state of the TTS audio pipeline: current settings (MiniMax model, voice, speed), the backlog of stored clips by kind (word / card sentence / sentence set) and state (current, missing, Google-made, old voice/model, waiting to retry), clips by provider / model / voice, recent failures, the MiniMax rate limiter (the LEARNED RPM — adaptive, starts at 8/min, +2 per clean busy minute, halves on a 1002 — with its cap, last_rate_limited_at and recent changes; night mode, tokens, last-hour calls by priority, rate-limited count, whether the backfill pump is running), measured throughput (clips/min), an ETA for the whole backlog, and eta_at_learned_rpm (the ETA at the batch share of the learned rate).',
+    {},
+    async () => guard(async () => jsonResult(await api.get('/api/admin/audio/backfill')))
+  );
+
+  server.tool(
+    'audio_backfill_run',
+    'ADMIN ONLY. Kick the audio backfill: starts the pump (a no-op when one is running). With `limit`, also queues the next `limit` clips of the backlog (priority order, ≤ 500) right away. Everything still goes through the shared MiniMax rate limiter.',
+    { limit: z.number().int().min(0).max(500).optional().describe('Also queue this many backlog clips now (default 0 = just the pump).') },
+    async ({ limit }) => guard(async () => jsonResult(await api.post('/api/admin/audio/backfill/run', limit ? { limit } : {})))
+  );
+
+  server.tool(
+    'audio_tts_compare',
+    'ADMIN ONLY. Calibration (4 MiniMax calls): the same sentence in the house voice with the old model (speech-02-hd) and the current one, at the house speed and at 1.0, with each clip\'s duration — to check the current model speaks at the same perceived speed.',
+    { text: z.string().max(200).optional().describe('A Chinese sentence (default: a 16-character everyday sentence).') },
+    async ({ text }) => guard(async () => jsonResult(await api.post('/api/admin/audio/compare', text ? { text } : {})))
+  );
 }
