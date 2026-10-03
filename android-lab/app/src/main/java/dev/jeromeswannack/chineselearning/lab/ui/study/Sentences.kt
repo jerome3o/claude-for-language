@@ -51,9 +51,10 @@ import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
-import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
+import dev.jeromeswannack.chineselearning.lab.ui.kit.DeckChipList
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.PinnedFooterColumn
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -462,10 +463,15 @@ private fun ToolLink(label: String, enabled: Boolean, modifier: Modifier = Modif
     )
 }
 
-/** AddChunkModal: pick a deck (this card's first), warn on a duplicate, add. */
+/**
+ * AddChunkModal: pick a deck, warn on a duplicate, add. [actions] lists the decks in queue
+ * order; the sheet starts on [preferredDeck] when given (the study card's own deck), else on
+ * the top of the queue (chat, Coach). The deck chips scroll on their own and Cancel / Add stay
+ * pinned at the bottom, however many decks there are.
+ */
 @Composable
 fun AddChunkSheet(chunk: Chunk, preferredDeck: String, actions: SentenceActions, onDismiss: () -> Unit) {
-    LabBottomSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss) }
+    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss) }
 }
 
 @Composable
@@ -478,27 +484,35 @@ fun AddChunkBody(chunk: Chunk, preferredDeck: String, actions: SentenceActions, 
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
+        // Queue order from the caller; the preferred deck (if any) leads, else the top deck is the default.
         decks = actions.decks().sortedByDescending { it.first == preferredDeck }
         if (decks.none { it.first == deckId }) deckId = decks.firstOrNull()?.first.orEmpty()
     }
     LaunchedEffect(deckId) { duplicate = deckId.isNotEmpty() && runCatching { actions.deckHas(deckId, chunk.hanzi) }.getOrDefault(false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(chunk.hanzi, style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink)
-        Text(chunk.pinyin, style = MaterialTheme.typography.titleMedium, color = Lab.colors.accent)
-        Text(chunk.english, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
-        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-        if (duplicate) InlineNotice("This word is already in the selected deck.", kind = NoticeKind.Warning)
-        Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
-        ChipRow(Modifier.fillMaxWidth()) { for ((id, name) in decks) LabChip(name, selected = id == deckId) { deckId = id } }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
-            PrimaryPill(if (done) "✓ Added" else if (busy) "Adding…" else if (duplicate) "Add anyway" else "Add to deck", Modifier.weight(1f).height(50.dp), enabled = !busy && !done && deckId.isNotEmpty()) {
-                busy = true
-                error = null
-                scope.launch {
-                    try { actions.addCard(deckId, chunk); done = true; delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+    PinnedFooterColumn(
+        Modifier.testTag("add-chunk-sheet"),
+        body = {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(chunk.hanzi, style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink)
+                Text(chunk.pinyin, style = MaterialTheme.typography.titleMedium, color = Lab.colors.accent)
+                Text(chunk.english, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
+                error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                if (duplicate) InlineNotice("This word is already in the selected deck.", kind = NoticeKind.Warning)
+                Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
+                DeckChipList(Modifier.testTag("add-chunk-decks")) { for ((id, name) in decks) LabChip(name, selected = id == deckId) { deckId = id } }
+            }
+        },
+        footer = {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
+                PrimaryPill(if (done) "✓ Added" else if (busy) "Adding…" else if (duplicate) "Add anyway" else "Add to deck", Modifier.weight(1f).height(50.dp).testTag("add-chunk-add"), enabled = !busy && !done && deckId.isNotEmpty()) {
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try { actions.addCard(deckId, chunk); done = true; delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                    }
                 }
             }
-        }
-    }
+        },
+    )
 }
