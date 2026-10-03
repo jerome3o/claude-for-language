@@ -20,7 +20,7 @@ data class CallListItemDto(
     val started_at: Long? = null,
     val ended_at: Long? = null,
     val created_at: String = "",
-    /** The lesson it belongs to (calls within 20 minutes, shared/calls/lessons.ts): the list shows one entry per lesson. */
+    /** The lesson it belongs to (calls within two hours of each other since round 5, shared/calls/lessons.ts): the list shows one entry per lesson. */
     val lesson_id: String? = null,
     val other_user_name: String? = null,
     val segment_count: Int = 0,

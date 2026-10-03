@@ -166,6 +166,10 @@ cut into 5-min pieces and 10 s chunks (`PieceRecorder`), uploaded through the Ou
 (`CallUploads`). `CallService` is the foreground service that keeps a call alive with the screen off.
 The first time the call screen opens it asks for the microphone, camera, Bluetooth (sound routing)
 and notifications (the call's ongoing notification).
+The camera always starts on (only a muted mic is remembered, `core/…/calls/CallDevices.kt`). Round 5:
+the relationship's tutor leads — "Show for student" puts her stage tile on the student's stage once per
+new show (`core/…/calls/CallFollow.kt`, driven by `CallController` through `CallLayoutHolder`), and she
+can stop the student's screen share (`ui/calls/CallLead.kt`).
 
 ## Parity: proving the logic matches
 

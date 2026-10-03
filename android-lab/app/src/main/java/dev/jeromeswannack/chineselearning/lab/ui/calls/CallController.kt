@@ -9,6 +9,9 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.BoardOp
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallBoard
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallDevices
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallLayout
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.LinkEvent
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.PcState
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.TileStatus
@@ -29,6 +32,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -93,16 +99,16 @@ data class TextBoardUi(
 )
 
 /**
- * Mic / camera switched off when I last left a call, remembered per device (web DevicePrefs
- * micOff / camOff): a rejoin comes back the same way instead of with everything on.
+ * The mic muted when I last left a call, remembered per device (web DevicePrefs micOff): a rejoin
+ * comes back muted. The camera is never remembered — it always starts ON (round 5, core CallDevices:
+ * a camera switched off at the end of one lesson used to start every later call dark).
  */
 interface CallDevicePrefs {
     var micOff: Boolean
-    var camOff: Boolean
 }
 
 /** In memory (tests, screenshots); the app uses the SharedPreferences one (data/calls/CallDevicePrefsStore). */
-class MemoryCallDevicePrefs(override var micOff: Boolean = false, override var camOff: Boolean = false) : CallDevicePrefs
+class MemoryCallDevicePrefs(override var micOff: Boolean = false) : CallDevicePrefs
 
 /** A short notice over the call ("Minghui brought you to page 3"); [id] makes the same text show again. */
 data class BoardNotice(val id: Long, val text: String)
@@ -187,7 +193,19 @@ data class CallState(
     val turn: Boolean = true,
     val screenShareSupported: Boolean = false,
     val myUserId: String = "",
+    /** Round 5: the relationship's tutor (null = a solo call / an older room) — she leads "Show for student" / "Stop their share". */
+    val tutorId: String? = null,
+    /** Round 5: what the tutor last showed (the room's record; core CallFollow). */
+    val shown: CallFollow.ShownState? = null,
+    /** Round 5, the student: "Minghui is showing you this" while the shown tile is on my stage (null = hidden). */
+    val showingBanner: String? = null,
+    /** Round 5, the student: "Minghui stopped your screen share" — a transient note. */
+    val shareStoppedNote: BoardNotice? = null,
 ) {
+    /** I am the relationship's tutor (never in a solo call). */
+    val isTutor: Boolean get() = tutorId != null && myUserId.isNotEmpty() && tutorId == myUserId
+    /** Round 5: the tutor's controls (Show for student, Stop their share) — she is the tutor and the student is here. */
+    val leads: Boolean get() = isTutor && remote != null
     val sharingScreen: Boolean get() = screenVideo != null
     /** I share and they don't (web `iShare`): the screen tile shows MY screen and my pen defaults to the sharer's colour. */
     val iShareScreen: Boolean get() = sharingScreen && remote?.sharing != true
@@ -300,6 +318,11 @@ class CallDeps(
     val speak: (String) -> Unit = {},
     /** Every connection transition, for logcat (the connection log goes to the room too). */
     val log: (String) -> Unit = { runCatching { android.util.Log.i("CallController", it) } },
+    /**
+     * Round 5: the call's tile layout (the ViewModel's). The student's device puts what the tutor shows on
+     * its stage through it; the tutor's opening the board shows it to the student. Null = no following.
+     */
+    val layout: CallLayoutHolder? = null,
 )
 
 /**
@@ -321,8 +344,8 @@ class CallController(
     private val scope: CoroutineScope,
 ) {
     private val prefs = deps.devicePrefs
-    // On / off as I last left them (a muted mic stays muted; a camera that was on comes back on).
-    private val _state = MutableStateFlow(CallState(myUserId = myUserId, recordSupported = deps.recorder.supported, screenShareSupported = deps.media.screenShareSupported, micOn = !prefs.micOff, camOn = !prefs.camOff))
+    // A muted mic stays muted (as I last left it); the camera always starts on (core CallDevices, round 5).
+    private val _state = MutableStateFlow(CallState(myUserId = myUserId, recordSupported = deps.recorder.supported, screenShareSupported = deps.media.screenShareSupported, micOn = !prefs.micOff, camOn = CallDevices.CAMERA_ON_AT_START))
     val state: StateFlow<CallState> = _state.asStateFlow()
     private val _activity = MutableStateFlow<dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession?>(null)
     /** The in-call activity being played (also on [state]); the room's latest session. */
@@ -363,6 +386,14 @@ class CallController(
     var instance: String = CallConnection.newInstanceId()
         private set
 
+    // Round 5 (see "the tutor leads" below); declared before init, which starts watching the stage.
+    /** The last show this device acted on — for the controller's lifetime, so a reconnect's welcome with the same show changes nothing. */
+    private var applied: CallFollow.AppliedShow? = null
+    /** My stage as last computed (the tutor's auto-show compares with it). */
+    private var lastStage: List<CallLayout.TileId> = emptyList()
+    /** The call screen's width in dp (the stage depends on it: phones focus one tile). */
+    private var stageWidth = 412.0
+
     init {
         uploadsLoop = scope.launch {
             runCatching { deps.closeOrphans() }
@@ -372,6 +403,14 @@ class CallController(
             }
         }
         media.onProblem { detail -> scope.launch { diag("media", detail) } }
+        // Round 5: the stage changes (my layout, or a tile appearing / going) → the banner, auto-show, following.
+        deps.layout?.let { holder ->
+            scope.launch {
+                combine(holder.layout, _state.map { availability(it) }.distinctUntilChanged()) { _, _ -> }.collect { stageChanged() }
+            }
+        }
+        // The tutor turns her board page while she is showing the board: the student follows the page.
+        scope.launch { _state.map { it.pages.shown }.distinctUntilChanged().collect { page -> myBoardPageTurned(page) } }
     }
 
     fun setPendingUploads(n: Int) = _state.update { it.copy(pendingUploads = n) }
@@ -429,17 +468,15 @@ class CallController(
                 hasCamera = media.hasCamera,
                 micProblem = if (media.hasMic) null else r.micProblem ?: MediaProblem.NO_DEVICE,
                 camProblem = if (media.hasCamera) null else r.cameraProblem ?: MediaProblem.NO_DEVICE,
-                micOn = if (gotMic) !restore || !prefs.micOff else it.micOn,
-                camOn = if (gotCam) !restore || !prefs.camOff else if (!media.hasCamera) false else it.camOn,
+                micOn = if (gotMic) CallDevices.deviceOnWhenOpened(CallDevices.Device.MIC, restore, prefs.micOff) else it.micOn,
+                // Round 5: a camera that opens is ON — the preview, a rejoin, the next call (never remembered off).
+                camOn = if (gotCam) CallDevices.deviceOnWhenOpened(CallDevices.Device.CAM, restore, prefs.micOff) else if (!media.hasCamera) false else it.camOn,
                 localVideo = media.cameraVideo,
                 frontCamera = media.frontCamera,
                 mediaError = null,
             )
         }
-        if (!restore) {
-            if (gotMic) prefs.micOff = false
-            if (gotCam) prefs.camOff = false
-        }
+        if (!restore && gotMic) prefs.micOff = false
         if (!media.hasMic) diag("media", "microphone: ${(r.micProblem ?: MediaProblem.NO_DEVICE).name.lowercase()}")
         if (!media.hasCamera) diag("media", "camera: ${(r.cameraProblem ?: MediaProblem.NO_DEVICE).name.lowercase()}")
         if (gotMic && _state.value.phase == CallPhase.LIVE) diag("media", "microphone added mid-call")
@@ -451,16 +488,21 @@ class CallController(
             link?.setAudio(media.micAudio)
             deps.recorder.muted = !_state.value.micOn
             // Joined while the mic was still opening: the state the room has (or gets with the welcome) says so.
-            if (_state.value.phase == CallPhase.LIVE || _state.value.phase == CallPhase.JOINING) broadcastState { it.copy(mic = _state.value.micOn) }
+            if (announce()) broadcastState { it.copy(mic = _state.value.micOn) }
             if (_state.value.phase == CallPhase.LIVE && wantRecord && !deps.recorder.recording) startRecording()
         }
         if (gotCam) {
             link?.setVideo(media.cameraVideo) // a legacy share in progress keeps the screen (PeerLink)
             lastEncoding = null
             applyEncoding()
-            if (_state.value.phase == CallPhase.LIVE || _state.value.phase == CallPhase.JOINING) broadcastState { it.copy(cam = _state.value.camOn) }
+            // From Join on — a camera that opens while the room is still connecting included (core CallDevices.announceDevice).
+            if (announce()) broadcastState { it.copy(cam = _state.value.camOn) }
+            diag("media", "camera opened" + if (announce()) " while ${_state.value.phase.name.lowercase()}" else "")
         }
     }.also { opening = it }
+
+    /** Must a device that opened now be told to the room (core CallDevices.announceDevice: joining or live)? */
+    private fun announce(): Boolean = CallDevices.announceDevice(_state.value.phase.name.lowercase())
 
     /** The permissions were refused (kept for older callers; the pre-join screen explains per device). */
     fun mediaBlocked(message: String) = _state.update { it.copy(mediaError = message, mediaReady = true) }
@@ -765,6 +807,9 @@ class CallController(
                 _state.update { it.copy(phase = CallPhase.LIVE) }
                 if (wantRecord && !deps.recorder.recording) startRecording()
                 flushDiag()
+                // Round 5: who leads, and what she last showed (a new show is applied once; the same one after a reconnect is not).
+                _state.update { it.copy(tutorId = msg.tutorId, shown = msg.shown, showingBanner = if (msg.shown == null) null else it.showingBanner) }
+                follow()
             }
             is ServerMessage.PeerJoined -> {
                 _state.update { it.copy(pages = BoardPages.peerJoined(it.pages, msg.peer.clientId)) }
@@ -805,7 +850,7 @@ class CallController(
             }
             is ServerMessage.PageSummon -> applyPages(BoardPages.summoned(_state.value.pages, msg.name, msg.page))
             // The room refuses a page action (the last page, too many pages): say why.
-            is ServerMessage.Error -> if (now() - pageActionAt < PAGE_ERROR_WINDOW_MS) notice(msg.message)
+            is ServerMessage.Error -> if (now() - pageActionAt < PAGE_ERROR_WINDOW_MS) notice(msg.message) else diag("room", "error: ${msg.message}")
             // Annotations go to the shared screen's store (no target), the current material page's, or nowhere (another page).
             is ServerMessage.Annot -> slotFor(msg.target)?.let { upsertAnnot(it, msg.stroke, msg.from, msg.name) }
             is ServerMessage.AnnotClear -> slotFor(msg.target)?.let { slot -> editSlot(slot) { it.copy(strokes = emptyMap(), texts = emptyMap(), pings = emptyList()) } }
@@ -835,6 +880,16 @@ class CallController(
                 s.copy(liveStrokes = if (stroke == null) s.liveStrokes - msg.from else s.liveStrokes + (msg.from to stroke))
             }
             is ServerMessage.Chat -> _state.update { s -> if (s.chat.any { it.id == msg.message.id }) s else s.copy(chat = s.chat + msg.message) }
+            is ServerMessage.Shown -> {
+                _state.update { it.copy(shown = msg.shown, showingBanner = if (msg.shown == null) null else it.showingBanner) }
+                follow()
+            }
+            is ServerMessage.ShareStopped -> {
+                // The tutor stopped my screen share: stop capturing, exactly like my own Stop sharing.
+                stopScreenShare()
+                _state.update { it.copy(shareStoppedNote = BoardNotice(now(), CallFollow.shareStoppedNote(msg.name))) }
+                diag("media", "${msg.name.ifBlank { "The tutor" }} stopped my screen share")
+            }
             is ServerMessage.Ended -> finish(CallPhase.ENDED)
             ServerMessage.Replaced -> finish(CallPhase.ERROR, "You joined this call from another tab or device.")
             else -> Unit
@@ -919,7 +974,7 @@ class CallController(
         if (!media.hasCamera) { refreshDevices(restore = false); return }
         val next = !_state.value.camOn
         media.setCameraEnabled(next)
-        prefs.camOff = !next
+        // For this call only: the next join starts with the camera on (core CallDevices).
         _state.update { it.copy(camOn = next) }
         broadcastState { it.copy(cam = next) }
     }
@@ -1120,6 +1175,119 @@ class CallController(
         lastDraftAt = now()
         room?.send(CallProtocol.activityAction(cur.sessionId, dev.jeromeswannack.chineselearning.lab.core.calls.ActivityAction.Draft(text)))
     }
+
+    // ------------------------------------------------------------ round 5: the tutor leads (core CallFollow)
+
+    private fun myId(): String = deps.userId().ifEmpty { _state.value.myUserId }
+
+    private fun availability(s: CallState) = CallLayout.Availability(screen = s.remote?.sharing == true || s.sharingScreen, material = s.presenting != null, activity = s.activity != null)
+
+    private fun available(tile: CallLayout.TileId, s: CallState): Boolean {
+        val a = availability(s)
+        return when (tile) {
+            CallLayout.TileId.SCREEN -> a.screen
+            CallLayout.TileId.MATERIAL -> a.material
+            CallLayout.TileId.ACTIVITY -> a.activity
+            else -> true
+        }
+    }
+
+    /** The tiles on my stage now (the screen's own arrangement: core CallLayout.arrangeTiles). */
+    fun stage(): List<CallLayout.TileId> {
+        val holder = deps.layout ?: return emptyList()
+        return CallLayout.arrangeTiles(holder.layout.value, availability(_state.value), stageWidth).stage
+    }
+
+    /** The call screen's width (dp), so the stage here is the one on the screen. */
+    fun setStageWidth(widthDp: Double) {
+        if (widthDp <= 0 || widthDp == stageWidth) return
+        stageWidth = widthDp
+        stageChanged()
+    }
+
+    private val leads: Boolean get() = _state.value.let { it.tutorId != null && it.tutorId == myId() && it.remote != null }
+
+    private fun stageChanged() {
+        val stage = stage()
+        val prev = lastStage
+        lastStage = stage
+        val s = _state.value
+        // The banner goes once the shown tile is no longer on my stage.
+        if (s.showingBanner != null) {
+            val t = s.shown?.let { CallFollow.tileForShow(it.view) }
+            if (t == null || t !in stage) _state.update { it.copy(showingBanner = null) }
+        }
+        // The tutor opening the board shows it to the student without the button.
+        if (prev != stage && leads) CallFollow.autoShowBoard(prev, stage)?.let { kind -> show(viewOf(kind)) }
+        // A tile that appeared (a material, their share, an activity): a show that waited for it applies now.
+        follow()
+    }
+
+    /** What the tutor's button shows for [kind]: the board with the page she is on. */
+    private fun viewOf(kind: CallFollow.ShowKind): CallFollow.ShowView =
+        if (kind == CallFollow.ShowKind.TEXT) CallFollow.ShowView.text(_state.value.pages.shown) else CallFollow.ShowView(kind)
+
+    /** The student's device: act on the room's latest show, once per new show (core CallFollow.followStep). */
+    private fun follow() {
+        val holder = deps.layout ?: return
+        val s = _state.value
+        val shown = s.shown ?: return
+        val tile = CallFollow.tileForShow(shown.view)
+        when (val step = CallFollow.followStep(applied, shown, myId(), available(tile, s), tile in stage())) {
+            CallFollow.FollowStep.None -> Unit
+            is CallFollow.FollowStep.Stage -> {
+                applied = CallFollow.AppliedShow(shown.id, shown.v)
+                holder.dispatch(CallLayout.Action.Shown(step.tile))
+                step.page?.let { openShownPage(it) }
+                _state.update { it.copy(showingBanner = CallFollow.showingBanner(shown.name)) }
+                diag("follow", "${shown.name.ifBlank { "The tutor" }} showed ${shown.view.kind.wire}" + (step.page?.let { " (page $it)" } ?: ""))
+            }
+            is CallFollow.FollowStep.Page -> {
+                applied = CallFollow.AppliedShow(shown.id, shown.v)
+                openShownPage(step.page)
+            }
+        }
+    }
+
+    /** The board page the tutor shows (my following of her pages is left as it was). */
+    private fun openShownPage(page: String) {
+        val p = _state.value.pages
+        if (p.shown == page || (p.pages.isNotEmpty() && p.pages.none { it.id == page })) return
+        val step = BoardPages.turnTo(p, page)
+        applyPages(step.copy(state = step.state.copy(following = p.following)))
+    }
+
+    /** The tutor's board page changed while she shows the board: the student's board follows (the same show, `follow`). */
+    private fun myBoardPageTurned(page: String?) {
+        val s = _state.value
+        val shown = s.shown ?: return
+        if (page == null || !leads || shown.by != myId() || shown.view.kind != CallFollow.ShowKind.TEXT || shown.view.page == page) return
+        show(CallFollow.ShowView.text(page), follow = true)
+    }
+
+    /** The tutor's "Show for student" (the room refuses anyone else). [follow]: a page turn of what is shown. */
+    fun show(view: CallFollow.ShowView?, follow: Boolean = false): Boolean {
+        if (!leads) return false
+        return room?.send(CallProtocol.show(view, follow)) ?: false
+    }
+
+    /** The corner button on a stage tile: show that tile (the board with my page). */
+    fun showTile(tile: CallLayout.TileId): Boolean {
+        val kind = CallFollow.ShowKind.of(tile.wire) ?: return false
+        return show(viewOf(kind))
+    }
+
+    /** The tutor's "Stop their share" on the student's shared screen. */
+    fun stopTheirShare(): Boolean {
+        val s = _state.value
+        if (!leads || s.remote?.sharing != true) return false
+        return room?.send(CallProtocol.stopShare()) ?: false
+    }
+
+    /** ✕ on "Minghui is showing you this" (the layout stays). */
+    fun dismissShowingBanner() = _state.update { it.copy(showingBanner = null) }
+
+    fun dismissShareStopped() = _state.update { it.copy(shareStoppedNote = null) }
 
     // ------------------------------------------------------------ lesson materials (round 4 PR 5)
 
