@@ -177,6 +177,14 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     collectable: false,
     protectedReason: 'a cache no table refers to — regenerating costs TTS calls',
   },
+  {
+    prefix: 'tts-cache/',
+    what: 'MiniMax clips for lesson lines and chat read-aloud, one per (text, voice, speed), shared by every account',
+    writtenBy: 'services/tts-cache.ts (TTS_CACHE_PREFIX)',
+    referencedBy: [],
+    collectable: false,
+    protectedReason: 'a cache no table refers to — regenerating costs TTS calls',
+  },
 ];
 
 export interface ReferenceSource {

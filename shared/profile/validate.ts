@@ -7,6 +7,8 @@
  * server's problems.
  */
 
+import { pickVoiceGender, type VoiceGender } from '../chats/voice';
+
 export const PROFILE_LIMITS = {
   name: 60,
   bio: 500,
@@ -25,6 +27,8 @@ export interface ProfileUpdate {
   bio?: string | null;
   about?: string | null;
   time_zone?: string | null;
+  /** Voice for reading my chat messages aloud (shared/chats/voice.ts); null = not set. */
+  voice_gender?: VoiceGender | null;
 }
 
 export type PictureSource = 'google' | 'upload' | 'none';
@@ -43,6 +47,7 @@ export interface Profile {
   bio: string | null;
   about: string | null;
   time_zone: string | null;
+  voice_gender: VoiceGender | null;
 }
 
 // C0 / C1 control characters except tab and newline, plus zero-width / bidi overrides.
@@ -127,6 +132,10 @@ export function pickProfileUpdate(input: Record<string, unknown> | null | undefi
     else if (typeof v !== 'string' || !isValidTimeZone(v.trim())) problems.push('Time zone must be an IANA zone such as Asia/Shanghai');
     else update.time_zone = v.trim();
   }
+
+  const gender = pickVoiceGender(src.voice_gender);
+  if (gender.problem) problems.push(gender.problem);
+  else if (gender.value !== undefined) update.voice_gender = gender.value;
 
   return { update, problems };
 }

@@ -4,3 +4,4 @@ export * from './search';
 export * from './inbox';
 export * from './messageMenu';
 export * from './bubbles';
+export * from './voice';
