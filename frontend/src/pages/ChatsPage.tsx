@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getMyRelationships } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useChatList } from '../hooks/useChatList';
+import { track } from '../services/analytics';
 import { CLAUDE_AI_USER_ID, getOtherUserInRelationship } from '../types';
 import {
   chatInitial,
@@ -121,6 +122,14 @@ export function ChatsPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [picking]);
+
+  // Analytics: chat.inbox_open once, when the list first has rows (cached or fetched).
+  const inboxTracked = useRef(false);
+  useEffect(() => {
+    if (rows === null || inboxTracked.current) return;
+    inboxTracked.current = true;
+    track('chat.inbox_open', { conversations: rows.length, unread: rows.filter((r) => r.unread > 0).length });
+  }, [rows]);
 
   const startNewChat = () => {
     if (people.length === 1) navigate(`/connections/${people[0].relId}/chat/new`, { state: { from: '/chats' } });

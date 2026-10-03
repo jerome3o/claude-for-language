@@ -4,6 +4,7 @@ import { createDeck, createNotesBatch, getDecks } from '../../api/client';
 import { proposeChatFlashcards } from '../../api/chat';
 import { usePinnedDecks } from '../../hooks/usePinnedDecks';
 import { invalidateKnownHanzi } from '../../services/readerWords';
+import { track } from '../../services/analytics';
 import {
   batchNotesFrom,
   draftsFromProposal,
@@ -125,6 +126,7 @@ export function MakeFlashcardsSheet({
       invalidateKnownHanzi();
       void queryClient.invalidateQueries({ queryKey: ['decks'] });
       const created = res.created?.length ?? 0;
+      track('chat.make_flashcards', { count: created, focus: scope.kind });
       if (!res.failed || res.failed.length === 0) {
         onAdded(`Added ${created} card${created === 1 ? '' : 's'} to ${deckName || 'your deck'}.`);
         return;

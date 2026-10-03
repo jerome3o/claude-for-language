@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { submitSessionNotes } from '../../api/tutorNotes';
 import type { SessionNotesJob, SessionNotesPriority } from '../../types/tutorNotes';
 import { useNetwork } from '../../contexts/NetworkContext';
+import { track } from '../../services/analytics';
 import './tutor-dashboard.css';
 import './session-notes.css';
 
@@ -67,6 +68,7 @@ export function SessionNotesSheet({ relId, studentName, onClose, onSubmitted }: 
         log_lesson: logLesson,
       }),
     onSuccess: (job) => {
+      track('tutor.session_notes');
       queryClient.invalidateQueries({ queryKey: ['session-notes', relId] });
       queryClient.invalidateQueries({ queryKey: ['lesson-log', relId] });
       onSubmitted?.(job);

@@ -16,6 +16,7 @@ import {
 } from '@shared/students';
 import { saveStudentProfile } from '../../api/studentProfile';
 import { useNetwork } from '../../contexts/NetworkContext';
+import { track } from '../../services/analytics';
 import './tutor-dashboard.css';
 import './student-profile.css';
 
@@ -124,6 +125,7 @@ export function StudentProfileSheet({ relId, studentName, saved, initial = saved
   const save = useMutation({
     mutationFn: (fields: StudentProfileFields) => saveStudentProfile(relId, fields),
     onSuccess: (profile) => {
+      track('tutor.student_profile_save');
       queryClient.setQueryData(['student-profile', relId], profile);
       queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });

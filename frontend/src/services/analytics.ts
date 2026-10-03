@@ -315,6 +315,14 @@ export function startAnalytics(): void {
     }, FLUSH_INTERVAL_MS);
     window.addEventListener('online', () => void flushAnalytics());
     document.addEventListener('visibilitychange', onVisibility);
+    // A reload / closed tab: keep the last screen's time.
+    window.addEventListener('pagehide', () => {
+      closeScreen();
+      currentScreen = null;
+      void flushAnalytics({ keepalive: true });
+    });
+    // Opening the app starts (or continues) a session: app.open when it is a new one.
+    if (isSharingUsage()) sessionId();
   } catch {
     // never
   }

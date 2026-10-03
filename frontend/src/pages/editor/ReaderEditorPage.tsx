@@ -40,6 +40,7 @@ import { useLessonSpeak } from '../../components/editor/useLessonSpeak';
 import { downloadText } from '../../components/editor/download';
 import { Loading, ErrorMessage } from '../../components/Loading';
 import { useToast } from './LessonEditorPage';
+import { track } from '../../services/analytics';
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -155,6 +156,7 @@ export function ReaderEditorPage() {
     setSaving(true);
     try {
       const result = await saveReaderSpec(id, spec);
+      track('reader.editor_save', { pages: result.spec.pages.length });
       setSpec(clone(result.spec));
       setSavedSpec(clone(result.spec));
       queryClient.invalidateQueries({ queryKey: ['reader-spec', id] });

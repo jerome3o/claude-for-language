@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { addLessonNotes, draftFromLessonNotes, listLessonNotes, type LessonNotesEntry } from '../../api/homework';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { shortDate } from './format';
+import { track } from '../../services/analytics';
 import './tutor-dashboard.css';
 import './session-notes.css';
 import './homework-tutor.css';
@@ -174,6 +175,7 @@ export function LessonNotesSheet({ relId, studentName, onClose }: { relId: strin
   const save = useMutation({
     mutationFn: () => addLessonNotes(relId, { notes: notes.trim(), title: title.trim() || undefined, lesson_at: lessonAt || undefined, draft }),
     onSuccess: (r) => {
+      track('tutor.lesson_notes_add', { draft: !!r.job });
       queryClient.invalidateQueries({ queryKey: ['lesson-notes', relId] });
       queryClient.invalidateQueries({ queryKey: ['lessonLog', relId] });
       onClose();

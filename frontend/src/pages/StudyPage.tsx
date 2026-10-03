@@ -104,6 +104,7 @@ import {
 } from '../services/studyResume';
 import { activeMsToday, reportStudyTimeIfDue } from '../services/studyTime';
 import { useActiveStudyTime } from '../hooks/useActiveStudyTime';
+import { track, trackError } from '../services/analytics';
 import { playFanfare } from '../utils/fanfare';
 import { getTodayReviewSummary } from '../db/database';
 import { DEFAULT_TTS_SPEED } from '../types';
@@ -169,6 +170,10 @@ function canWriteHanzi(hanzi: string): boolean {
 function normalizeHanzi(s: string) { return s.trim().toLowerCase(); }
 
 const EMPTY_TUTOR_NOTES: LocalRecordingNote[] = [];
+
+/** Analytics names for a rating / a card's queue (shared/analytics/events.ts). */
+const RATING_KEYS = ['again', 'hard', 'good', 'easy'] as const;
+const QUEUE_KEYS = ['new', 'learning', 'review', 'relearning'] as const;
 
 function formatAddedDate(createdAt: string | null | undefined): string | null {
   if (!createdAt) return null;
@@ -1067,6 +1072,7 @@ export function StudyCard({
     for (const note of tutorNotes) {
       markRecordingNoteSeen(note.id).catch(() => {});
     }
+    track('study.card_rated', { rating: RATING_KEYS[rating], card_type: card.card_type, queue: QUEUE_KEYS[card.queue] ?? null, time_ms: timeSpent, recorded: !!audioBlob, multiple_choice: showMultipleChoice });
     // Call parent's rate function - handles both state update and DB write
     onRate(rating, timeSpent, userAnswer || undefined, audioBlob || undefined);
   };
@@ -1171,6 +1177,7 @@ export function StudyCard({
       }));
 
       const response = await askAboutNote(card.note.id, question.trim(), context, history);
+      track('study.ask_claude', { card_type: card.card_type });
       setConversation((prev) => [...prev, response]);
       setQuestion('');
 
@@ -1181,6 +1188,7 @@ export function StudyCard({
     } catch (error) {
       console.error('Failed to ask Claude:', error);
       setAskError(describeAskError(error));
+      trackError('study_ask_claude', error);
     } finally {
       setIsAsking(false);
     }
@@ -1466,6 +1474,7 @@ export function StudyCard({
       } : undefined;
 
       const response = await askAboutNote(card.note.id, questionText, context);
+      track('study.ask_claude', { card_type: card.card_type });
       setConversation((prev) => [...prev, response]);
       setQuestion('');
 
@@ -1476,6 +1485,7 @@ export function StudyCard({
     } catch (error) {
       console.error('Failed to ask Claude:', error);
       setAskError(describeAskError(error));
+      trackError('study_ask_claude', error);
     } finally {
       setIsAsking(false);
     }
@@ -2155,12 +2165,13 @@ export function StudyCard({
         // "Back to your card" returns here. Prefilled with the card's sentence, not sent.
         key: 'coach', label: 'Sentence coach', icon: '✏️', hint: needsInternet, onSelect: () => {
           savePointRef.current();
+          track('study.sentence_coach');
           if (scope) setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
           navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
         },
       },
       ...(canWriteHanzi(card.note.hanzi)
-        ? [{ key: 'write', label: 'Write it', icon: '✍️', hint: 'Preview', onSelect: () => setShowWriting(true) }]
+        ? [{ key: 'write', label: 'Write it', icon: '✍️', hint: 'Preview', onSelect: () => { track('study.write_it'); setShowWriting(true); } }]
         : []),
       ...(flagTutors.length > 0
         ? [{ key: 'flag', label: 'Flag for tutor', icon: '🚩', onSelect: () => setShowFlagSheet(true) }]
@@ -2183,7 +2194,7 @@ export function StudyCard({
           }
         }}
         askClaudeOpen={showAskClaude}
-        onEditCard={() => setShowEditModal(true)}
+        onEditCard={() => { track('study.edit_card'); setShowEditModal(true); }}
         aiDisabled={!aiAvailable}
         menuItems={menuItems}
         menuFooter={formatAddedDate(card.note.created_at)}
@@ -2750,6 +2761,7 @@ export function StudyCard({
             queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });
           }}
           onSave={(updatedNote) => {
+            track('deck.note_edit', { where: 'study' });
             onUpdateNote(updatedNote);
             // Also update IndexedDB for offline consistency
             db.notes.update(card.note.id, {
@@ -2886,7 +2898,10 @@ export function StudyPage() {
       const { reviews, correct } = await getTodayReviewSummary().catch(() => ({ reviews: 0, correct: 0 }));
       if (cancelled) return;
       const celebrate = claimCelebration(reviews, true);
-      if (celebrate) playFanfare();
+      if (celebrate) {
+        playFanfare();
+        track('study.celebration', { reviews, active_ms: activeMsToday() });
+      }
       setToday({ reviews, correct, activeMs: activeMsToday(), celebrate });
       // Other devices' time for today (and this device's reported), when online.
       await reportStudyTimeIfDue(true);
@@ -2905,8 +2920,37 @@ export function StudyPage() {
     }
   }, [autostart, studyStarted, sessionId, isOnline, deckId]);
 
+  // Analytics: one study.session_start when the queue has loaded with something to do, one
+  // study.session_end when Study is left (or the queue empties).
+  const sessionTrackRef = useRef<{ startedAt: number; reviews: number; ended: boolean } | null>(null);
+  useEffect(() => {
+    if (!studyStarted || isLoading || sessionTrackRef.current || isAllDone) return;
+    sessionTrackRef.current = { startedAt: Date.now(), reviews: 0, ended: false };
+    track('study.session_start', {
+      scope: deckId ? 'deck' : 'all',
+      due: counts.new + counts.secondaryNew + counts.learning + counts.review,
+      new_cards: counts.new + counts.secondaryNew,
+      offline: !isOnline,
+    });
+  }, [studyStarted, isLoading, isAllDone, deckId, counts, isOnline]);
+  useEffect(() => {
+    const t = sessionTrackRef.current;
+    if (isAllDone && t && !t.ended) {
+      t.ended = true;
+      track('study.session_end', { reviews: t.reviews, duration_ms: Date.now() - t.startedAt, reason: 'all_done' });
+    }
+  }, [isAllDone]);
+  useEffect(() => () => {
+    const t = sessionTrackRef.current;
+    if (t && !t.ended) {
+      t.ended = true;
+      track('study.session_end', { reviews: t.reviews, duration_ms: Date.now() - t.startedAt, reason: 'leave' });
+    }
+  }, []);
+
   // Handle rating a card (called from StudyCard)
   const handleRateCard = useCallback((rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
+    if (sessionTrackRef.current) sessionTrackRef.current.reviews++;
     rateCard(rating, timeSpentMs, userAnswer, recordingBlob);
   }, [rateCard]);
 
@@ -2944,6 +2988,7 @@ export function StudyPage() {
 
     const handleStudyMoreNewCards = () => {
       // Add more new cards to today's limit and reload the queue
+      track('study.study_more', { count: BONUS_NEW_CARDS_INCREMENT });
       setBonusNewCards(prev => prev + BONUS_NEW_CARDS_INCREMENT);
       // Note: reloadQueue will be called when bonusNewCards changes via useEffect in the hook
       reloadQueue();

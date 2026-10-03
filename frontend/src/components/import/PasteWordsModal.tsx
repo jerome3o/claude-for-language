@@ -37,6 +37,7 @@ import { updateSharedDeckCopy } from '../../api/tutorDashboard';
 import { runImport, type ImportOutcome, type ImportProgress } from '../../services/wordImport';
 import { useNetwork } from '../../contexts/NetworkContext';
 import type { Note } from '../../types';
+import { track, trackError } from '../../services/analytics';
 import './PasteWordsModal.css';
 
 interface Props {
@@ -214,7 +215,9 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
       }
       setEnrich('idle');
       setEnrichedText(text);
+      track('deck.enrich_words', { words: targets.length });
     } catch (err) {
+      trackError('enrich_words', err);
       const message = err instanceof Error ? err.message : '';
       setEnrich(/not configured|503/i.test(message) ? 'unavailable' : 'error');
     }
@@ -271,6 +274,8 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
     setSavedBare(plan.filter(p => (p.action === 'add' || p.action === 'update') && !p.row.notes && !p.existing?.fun_facts).length);
     setStage('running');
     const result = await runImport(deckId, plan, setProgress);
+    track('deck.paste_list', { added: result.added, updated: result.updated, skipped: plan.filter(p => p.action === 'skip').length, failed: result.failed.length });
+    if (result.failed.length > 0) trackError('paste_list', result.failed[0].error);
     setOutcome(result);
     setStage('done');
     onImported(result);

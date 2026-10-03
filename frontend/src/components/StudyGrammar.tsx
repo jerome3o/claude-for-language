@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LocalGrammarLesson, GrammarExampleSentence } from '../db/database';
 import { QueueCounts } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
+import { track } from '../services/analytics';
 import { ScrambleExercise, ChoiceExercise, TranslateExercise } from './lesson-exercises';
 import { getTTSWithCache } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
@@ -77,6 +78,7 @@ export function StudyGrammar({
   const exercises = lesson.exercises!;
 
   const [phase, setPhase] = useState<Phase>('flood');
+  useEffect(() => { track('lesson.grammar_start'); }, [lesson.grammar_point_id]);
   const [idx, setIdx] = useState(0);
   const [score, setScore] = useState({ correct: 0, total: 0 });
 

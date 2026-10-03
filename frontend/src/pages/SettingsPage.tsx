@@ -627,7 +627,7 @@ function UsageDataSection() {
   return (
     <div className="settings-section" data-testid="usage-data">
       <h2>Usage data</h2>
-      <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minHeight: '44px', fontSize: '0.9rem' }}>
+      <label className="settings-toggle-row">
         <input
           type="checkbox"
           checked={on}
@@ -635,11 +635,13 @@ function UsageDataSection() {
           onChange={(e) => void change(e.target.checked)}
           data-testid="usage-data-toggle"
         />
-        <span>
-          <strong>Share usage data to help improve the app</strong> — which screens and features you use,
-          never your messages, cards or recordings.
-        </span>
+        <span>Share usage data to help improve the app</span>
       </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
+        {on
+          ? 'Which screens and features you use — never your messages, cards or recordings.'
+          : 'Off — nothing is recorded, and what was collected has been deleted.'}
+      </p>
       {error && <div className="export-error">{error}</div>}
     </div>
   );

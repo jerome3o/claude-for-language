@@ -6,6 +6,7 @@ import type { Invite } from '../../types/invites';
 import { QRCode } from './QRCode';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { OfflineWarning } from '../OfflineWarning';
+import { track } from '../../services/analytics';
 import './invites.css';
 
 type RoleChoice = 'tutor' | 'student' | 'none';
@@ -96,6 +97,7 @@ export function InviteSheet({ onClose, onCreated }: InviteSheetProps) {
         if (selectedDecks.has(STARTER_OPTION_ID)) {
           setCreatingStep('Creating your Starter Chinese deck…');
           const starter = await createStarterDeck();
+          track('deck.create', { source: 'starter' });
           shareDeckIds.unshift(starter.deck.id);
           queryClient.invalidateQueries({ queryKey: ['decks'] });
         }
@@ -111,6 +113,7 @@ export function InviteSheet({ onClose, onCreated }: InviteSheetProps) {
         note: note.trim() || null,
       });
       setInvite(created);
+      track('tutor.invite_create', { decks: shareDeckIds.length });
       onCreated?.(created);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create the invite');

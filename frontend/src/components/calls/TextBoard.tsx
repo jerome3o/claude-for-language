@@ -33,6 +33,7 @@ import { explainSentenceText } from '../../api/client';
 import type { SentenceBriefExplanation } from '../../types';
 import { useBoardGloss, type GlossFetcher, type GlossSuggestion } from './useBoardGloss';
 import { BoardPageStrip } from './BoardPageStrip';
+import { track } from '../../services/analytics';
 
 interface Decoration {
   caret: RemoteCaret;
@@ -533,11 +534,11 @@ export function TextBoard({
           pages={session.pages}
           current={session.page}
           people={session.others.map((o) => ({ key: o.clientId, name: o.name, color: o.color, page: o.page }))}
-          onOpen={(id) => session.openPage(id)}
-          onNew={() => session.newPage()}
-          onRename={(id, title) => session.renamePage(id, title)}
-          onDuplicate={(id) => session.duplicatePage(id)}
-          onDelete={(id) => session.deletePage(id)}
+          onOpen={(id) => { track('call.board_page', { action: 'open' }); session.openPage(id); }}
+          onNew={() => { track('call.board_page', { action: 'new' }); session.newPage(); }}
+          onRename={(id, title) => { track('call.board_page', { action: 'rename' }); session.renamePage(id, title); }}
+          onDuplicate={(id) => { track('call.board_page', { action: 'duplicate' }); session.duplicatePage(id); }}
+          onDelete={(id) => { track('call.board_page', { action: 'delete' }); session.deletePage(id); }}
         />
       )}
     </div>
@@ -565,13 +566,13 @@ function FollowBar({ session }: { session: TextBoardSession }) {
         </button>
       ) : (
         <>
-          <button type="button" data-testid="board-go-there" onClick={() => session.openPage(other.page)}>
+          <button type="button" data-testid="board-go-there" onClick={() => { track('call.board_page', { action: 'go_there' }); session.openPage(other.page); }}>
             Go there
           </button>
-          <button type="button" data-testid="board-follow" onClick={() => session.follow(other.userId)}>
+          <button type="button" data-testid="board-follow" onClick={() => { track('call.board_page', { action: 'follow' }); session.follow(other.userId); }}>
             Follow {other.name}
           </button>
-          <button type="button" data-testid="board-summon" onClick={() => session.summon()}>
+          <button type="button" data-testid="board-summon" onClick={() => { track('call.board_page', { action: 'bring' }); session.summon(); }}>
             Bring {other.name} here
           </button>
         </>

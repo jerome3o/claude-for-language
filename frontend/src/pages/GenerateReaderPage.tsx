@@ -7,6 +7,7 @@ import { getDueNoteIds } from '../db/database';
 import { Loading } from '../components/Loading';
 import { InlineError } from '../components/Toast';
 import { DifficultyLevel } from '../types';
+import { track, trackError } from '../services/analytics';
 import './GenerateReaderPage.css';
 
 const DIFFICULTY_OPTIONS: { value: DifficultyLevel; label: string; description: string }[] = [
@@ -54,11 +55,13 @@ export function GenerateReaderPage() {
       });
     },
     onSuccess: () => {
+      track('reader.generate');
       // Invalidate readers query to show the new generating reader
       queryClient.invalidateQueries({ queryKey: ['readers'] });
       // Navigate immediately to readers list
       navigate('/readers');
     },
+    onError: (err) => trackError('reader_generate', err),
   });
 
   const toggleDeck = (deckId: string) => {

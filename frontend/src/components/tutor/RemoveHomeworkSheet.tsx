@@ -9,6 +9,7 @@ import {
   removeStudentReader,
 } from '../../api/tutorDashboard';
 import type { HomeworkRemovalResult, RemovalPreview } from '../../types/tutorDashboard';
+import { track } from '../../services/analytics';
 import './homework-tutor.css';
 
 /** What to take back: `id` = the share id or the student's copy id (deck / reader), the student's lesson id (lesson). */
@@ -90,6 +91,7 @@ export function RemoveHomeworkSheet({
     setError(null);
     try {
       const result = await remove(relId, target, deleteSource && !!copy?.sourceOption);
+      track('tutor.remove_homework', { kind: target.kind });
       onRemoved(removalToast(target.kind, target.title, studentName, result.source_deleted), result);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not remove it');

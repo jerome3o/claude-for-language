@@ -17,6 +17,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import './SharedDeckProgressPage.css';
 import { masteryLevel, type MasteryLevel } from '@shared/progress';
+import { track } from '../services/analytics';
 import './DeckDetailPage.css';
 
 // ============ Deck ⋯ menu ============
@@ -1786,6 +1787,7 @@ export function DeckDetailPage() {
   const createNoteMutation = useMutation({
     mutationFn: (data: NoteFormData) => createNote(id!, data),
     onSuccess: () => {
+      track('deck.note_add');
       queryClient.invalidateQueries({ queryKey: ['deck', id] });
       queryClient.invalidateQueries({ queryKey: ['deckStats', id] });
       setShowAddModal(false);
@@ -1796,6 +1798,7 @@ export function DeckDetailPage() {
     mutationFn: ({ noteId, data }: { noteId: string; data: NoteFormData }) =>
       updateNote(noteId, data),
     onSuccess: () => {
+      track('deck.note_edit', { where: 'deck' });
       queryClient.invalidateQueries({ queryKey: ['deck', id] });
       setEditingNote(null);
     },
@@ -2291,6 +2294,7 @@ export function DeckDetailPage() {
             card={cardEditNote}
             onClose={() => setCardEditNote(null)}
             onSave={() => {
+              track('deck.note_edit', { where: 'deck_card' });
               setCardEditNote(null);
               queryClient.invalidateQueries({ queryKey: ['deck', id] });
             }}

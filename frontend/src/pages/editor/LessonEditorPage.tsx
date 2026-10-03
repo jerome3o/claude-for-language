@@ -40,6 +40,7 @@ import { useLessonSpeak } from '../../components/editor/useLessonSpeak';
 import { downloadText } from '../../components/editor/download';
 import { AnkiExportModal } from '../../components/export/AnkiExportModal';
 import { Loading, ErrorMessage } from '../../components/Loading';
+import { track, trackError } from '../../services/analytics';
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -115,12 +116,14 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
     try {
       if (target === 'library') {
         const item = await updateLibraryItem(id, spec);
+        track('tutor.library_save', { created: false });
         setSpec(clone(item.spec));
         setSaved(canonicalJson(item.spec));
         queryClient.invalidateQueries({ queryKey: ['library-item', id] });
         queryClient.invalidateQueries({ queryKey: ['lesson-library'] });
       } else {
         const lesson = await saveEditableLesson(id, spec);
+        track('lesson.editor_save');
         setSpec(clone(lesson.spec));
         setSaved(canonicalJson(lesson.spec));
         queryClient.invalidateQueries({ queryKey: ['editable-lesson', id] });
@@ -144,6 +147,7 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
       const msg = err instanceof LessonApiError && err.problems.length
         ? `Not saved: ${err.problems.join('; ')}`
         : `Not saved: ${err instanceof Error ? err.message : 'unknown error'}`;
+      trackError(target === 'library' ? 'library_save' : 'lesson_editor_save', err);
       showToast(msg);
     } finally {
       setSaving(false);

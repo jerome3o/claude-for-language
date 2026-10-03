@@ -13,6 +13,7 @@ import { orderDecksForQueue, moveDeckInQueue, nudgeDeckInQueue, reorderQueue } f
 import { useLongPressReorder, type LongPressReorder } from '../services/dragReorder';
 import { readStudyBudget } from '../services/studyBudget';
 import type { LocalDeck } from '../db/database';
+import { track } from '../services/analytics';
 
 // Queue counts display component
 function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
@@ -184,6 +185,7 @@ export function DecksPage() {
   const drag = useLongPressReorder(orderedIds, async (ids) => {
     try {
       await reorderQueue(ids);
+      track('deck.reorder', { how: 'drag' });
     } catch (err) {
       console.error('[Decks] drag reorder failed', err);
     }
@@ -193,6 +195,7 @@ export function DecksPage() {
     try {
       if (to === 'top' || to === 'bottom') await moveDeckInQueue(deckId, to);
       else await nudgeDeckInQueue(decks as LocalDeck[], deckId, to);
+      track('deck.reorder', { how: to });
     } catch (err) {
       console.error('[Decks] reorder failed', err);
     }
@@ -226,6 +229,7 @@ export function DecksPage() {
   const createMutation = useMutation({
     mutationFn: () => createDeck(name, description || undefined),
     onSuccess: (deck) => {
+      track('deck.create', { source: 'manual' });
       queryClient.invalidateQueries({ queryKey: ['decks'] });
       setShowModal(false);
       setName('');
