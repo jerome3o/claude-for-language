@@ -17,7 +17,7 @@ import {
   type ReaderListRow,
 } from './specs.js';
 import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from '../folders.js';
-import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignmentSummary, describeSend, sendAsHomework } from '../homework-send.js';
+import { CONFIRM_SEND, NEEDS_CONFIRM, NOT_SENT, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_TODAY, STUDENT_NAME, assignmentSummary, describeSend, resolveStudent, sendAsHomework, sentTo } from '../homework-send.js';
 
 const READER_ID = z.string().describe('The reader id (from list_readers / generate_reader)');
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
@@ -84,7 +84,7 @@ export function registerReaderTools(ctx: ToolContext): void {
 
   server.tool(
     'create_reader',
-    `Write a new graded reader by hand from a ReaderSpec (owner = the signed-in user; it appears in their Readers list on the next sync and can be shared with a student via share_reader_with_student). Use this when you author the story yourself — for a story generated from the learner's known vocabulary use generate_reader instead. Every page with an image_prompt gets an illustration generated in the background (returns image_jobs). The spec is validated locally and by the API; problems come back as a list to fix.
+    `Write a new graded reader by hand from a ReaderSpec (owner = the signed-in user — the tutor's own account; nothing is sent: share_reader_with_student only when the tutor asks). Use this when you author the story yourself — for a story generated from the learner's known vocabulary use generate_reader instead. Every page with an image_prompt gets an illustration generated in the background (returns image_jobs). The spec is validated locally and by the API; problems come back as a list to fix.
 ${READER_SPEC_DOC}`,
     { spec: readerSpecShape.describe('The complete ReaderSpec (see the tool description)'), ...folderParams },
     async ({ spec, folder_id, folder }) => guard(async () => {
@@ -98,7 +98,8 @@ ${READER_SPEC_DOC}`,
         status: created.status,
         image_jobs: created.image_jobs ?? 0,
         warnings,
-        message: `Created reader "${spec.title_english}" (id=${created.id}).${filedNote(filed)}${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}`,
+        sent: false,
+        message: `Created reader "${spec.title_english}" (id=${created.id}).${filedNote(filed)} ${NOT_SENT}${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}`,
       });
     }),
   );
@@ -129,7 +130,7 @@ ${READER_SPEC_DOC}`,
 
   server.tool(
     'generate_reader',
-    `Ask Claude (server-side, on a queue) to write a graded reader from vocabulary the signed-in user has ALREADY LEARNED in the given decks — a story that only uses words they know, at the chosen difficulty, optionally about a topic. Returns immediately with the reader id and status "generating"; the story, pinyin, English and illustrations arrive over the next minute or two — poll get_reader until status is "ready" (or "failed", then retry_reader). Needs at least 5 learned words in the decks (the API says so if not — then create_reader by hand is the alternative). The reader belongs to the caller: a tutor who wants a story for a student generates it from their OWN decks (e.g. the homework deck they share) and then share_reader_with_student.`,
+    `Ask Claude (server-side, on a queue) to write a graded reader from vocabulary the signed-in user has ALREADY LEARNED in the given decks — a story that only uses words they know, at the chosen difficulty, optionally about a topic. Returns immediately with the reader id and status "generating"; the story, pinyin, English and illustrations arrive over the next minute or two — poll get_reader until status is "ready" (or "failed", then retry_reader). Needs at least 5 learned words in the decks (the API says so if not — then create_reader by hand is the alternative). The reader belongs to the caller: a tutor who wants a story for a student generates it from their OWN decks (e.g. the homework deck they share); it stays in the tutor's account until the tutor asks to send it (share_reader_with_student).`,
     {
       deck_ids: z.array(z.string()).min(1).describe('Deck ids (from list_decks) whose learned vocabulary the story is built from'),
       topic: z.string().optional().describe('What the story should be about, e.g. "a trip to the night market"'),
@@ -148,7 +149,8 @@ ${READER_SPEC_DOC}`,
       return jsonResult({
         id: created.id,
         status: created.status ?? 'generating',
-        message: `Reader ${created.id} is generating${topic ? ` (topic: ${topic})` : ''}.${filedNote(filed)} Poll get_reader(reader_id="${created.id}") every ~15 seconds until status is "ready".`,
+        sent: false,
+        message: `Reader ${created.id} is generating${topic ? ` (topic: ${topic})` : ''} in your account.${filedNote(filed)} Poll get_reader(reader_id="${created.id}") every ~15 seconds until status is "ready". ${NOT_SENT}`,
       });
     }),
   );
@@ -175,25 +177,31 @@ ${READER_SPEC_DOC}`,
 
   server.tool(
     'share_reader_with_student',
-    `Send one of your readers to a student AS HOMEWORK (a real homework assignment, like the app's Send homework sheet): copies the reader (title, pages, pinyin, English, illustrations) into the student's account as a new reader that appears on their next sync. By default (\`mode: "both"\`) it is on their Homework list due by \`due_date\` (default: the student's next logged lesson, else in two days) AND scheduled like their other readers; "one_off" = read once for the homework only (left out of their daily-reader rotation), "fsrs" = the rotation only, no date. You must be the TUTOR in the relationship and own the reader, and the reader must be "ready" (not generating/failed). The copy is independent — later edits to your reader do not reach it (share again for a second copy); the student's reading history lives on their copy. Returns the share id, the student's copy (target_reader_id) and the assignment.`,
+    `${SEND_RULE} Send one of your readers to a student AS HOMEWORK (a real homework assignment, like the app's Send homework sheet): copies the reader (title, pages, pinyin, English, illustrations) into the student's account as a new reader that appears on their next sync. By default (\`mode: "both"\`) it is on their Homework list due by \`due_date\` (default: the student's next logged lesson, else in two days) AND scheduled like their other readers; "one_off" = read once for the homework only (left out of their daily-reader rotation), "fsrs" = the rotation only, no date. You must be the TUTOR in the relationship and own the reader, and the reader must be "ready" (not generating/failed). The copy is independent — later edits to your reader do not reach it (share again for a second copy); the student's reading history lives on their copy. Returns the share id, the student's copy (target_reader_id) and the assignment.`,
     {
       relationship_id: RELATIONSHIP_ID,
       reader_id: READER_ID,
       mode: SEND_MODE,
       due_date: SEND_DUE_DATE,
       today: SEND_TODAY,
+      student_name: STUDENT_NAME,
+      confirm: CONFIRM_SEND,
     },
-    async ({ relationship_id, reader_id, mode, due_date, today }) => guard(async () => {
+    async ({ relationship_id, reader_id, mode, due_date, today, student_name, confirm }) => guard(async () => {
+      if (confirm !== true) return errorResult(NEEDS_CONFIRM);
+      const student = await resolveStudent(api, ctx.userId, relationship_id, student_name);
       const sent = await sendAsHomework(api, relationship_id, 'reader', reader_id, { mode, due_date, today });
       const first = sent.result.assignments[0];
       const title = sent.copy?.target_name ?? first.title;
       return jsonResult({
+        sent: true,
+        sent_to: student,
         share: { id: sent.copy?.share_id ?? null, relationship_id, source_reader_id: reader_id, target_reader_id: sent.copy?.target_id ?? first.target_id, shared_at: first.created_at },
         student_reader: { id: sent.copy?.target_id ?? first.target_id, title },
         mode: sent.mode,
         due_date: sent.due_date,
         assignments: assignmentSummary(sent.result.assignments),
-        message: `Shared "${title}" ${describeSend(sent.mode, sent.due_date)} — the student's copy (id=${sent.copy?.target_id ?? first.target_id}) shows up on their device at the next sync.`,
+        message: sentTo(student.name, `"${title}" ${describeSend(sent.mode, sent.due_date)} — their copy (id=${sent.copy?.target_id ?? first.target_id}) shows up on their device at the next sync.`),
       });
     }),
   );

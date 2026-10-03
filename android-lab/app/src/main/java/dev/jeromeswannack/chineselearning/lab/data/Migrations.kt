@@ -42,7 +42,7 @@ object LabMigrations {
     }
 
     /**
-     * v4: decks.folderId — the deck's folder (server decks.folder_id, migration 0099; core
+     * v4: decks.folderId — the deck's folder (server decks.folder_id, migration 0100; core
      * Folders.kt). Nullable (= Unfiled), no index. Organisation only: the queue ignores it.
      */
     val MIGRATION_3_4 = object : Migration(3, 4) {

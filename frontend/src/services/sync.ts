@@ -786,6 +786,11 @@ class SyncService {
     void reportStudyTimeIfDue();
     void import('./debugReport').then(m => m.sendDebugReportIfDue()).catch(() => {});
     void syncBoardPagesIfDue();
+    // Chat listening mode: the setting, and the clips of recent messages so a tap plays offline (never throws).
+    void import('./chatListening').then(async m => {
+      await m.refreshChatListening();
+      await m.prefetchChatClipsInSync();
+    }).catch(() => {});
   }
 
   /**

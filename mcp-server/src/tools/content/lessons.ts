@@ -9,7 +9,7 @@ import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from
 import type { ToolContext } from '../context.js';
 import { jsonResult, textResult, errorResult, guard } from '../context.js';
 import { LESSON_SPEC_DOC, lessonSpecProblems, formatProblems } from './specs.js';
-import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignLessonAsHomework, describeSend } from '../homework-send.js';
+import { CONFIRM_SEND, NEEDS_CONFIRM, NOT_SENT, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_TODAY, assignLessonAsHomework, describeSend, resolveStudent, sentTo, type ResolvedStudent } from '../homework-send.js';
 
 const LIBRARY_ID = z.string().describe('The library item id (from list_lesson_library)');
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
@@ -74,7 +74,7 @@ export function registerLessonLibraryTools(ctx: ToolContext): void {
 
   server.tool(
     'create_library_lesson',
-    `Add a lesson to the tutor's library, either from a spec you author (pass "spec") or drafted by Claude server-side from a brief (pass "generate_prompt", e.g. "A2 lesson on 了 for completed actions, 6 exercises, include two listening items"). A library lesson is a master copy: nothing reaches a student until assign_lesson_to_students. Specs are validated locally and by the API; problems come back as a list to fix and retry.
+    `Add a lesson to the tutor's library, either from a spec you author (pass "spec") or drafted by Claude server-side from a brief (pass "generate_prompt", e.g. "A2 lesson on 了 for completed actions, 6 exercises, include two listening items"). A library lesson is a master copy in the TUTOR's account: nothing reaches a student until the tutor asks you to send it (assign_lesson_to_students with confirm: true). Specs are validated locally and by the API; problems come back as a list to fix and retry.
 ${LESSON_SPEC_DOC}`,
     {
       spec: lessonSpecShape.optional().describe('The complete lesson spec (omit when using generate_prompt)'),
@@ -104,14 +104,15 @@ ${LESSON_SPEC_DOC}`,
         tags: item.tags,
         exercise_count: countExercises(item.spec),
         spec: spec ? undefined : item.spec,
-        message: `Added "${item.title}" to the library (id=${item.id}).${filedNote(filed)} Assign it with assign_lesson_to_students.`,
+        sent: false,
+        message: `Added "${item.title}" to your lesson library (id=${item.id}).${filedNote(filed)} ${NOT_SENT} When the tutor asks, send it with assign_lesson_to_students(library_id="${item.id}", relationship_ids=[…], confirm: true).`,
       });
     }),
   );
 
   server.tool(
     'update_library_lesson',
-    `Replace a library lesson's content with a FULL spec (and optionally its tags). The library version bumps when the content changed; students who already have a copy keep the OLD content until push_lesson_update (get_lesson_assignments shows who is behind). Fetch with get_library_lesson first and edit. Same exercise types and rules as create_library_lesson.`,
+    `Replace a library lesson's content with a FULL spec (and optionally its tags). The library version bumps when the content changed; students who already have a copy keep the OLD content until push_lesson_update (only when the tutor asks) (get_lesson_assignments shows who is behind). Fetch with get_library_lesson first and edit. Same exercise types and rules as create_library_lesson.`,
     {
       library_id: LIBRARY_ID,
       spec: lessonSpecShape.describe('The complete revised spec — it replaces the stored one entirely'),
@@ -138,7 +139,7 @@ ${LESSON_SPEC_DOC}`,
     { library_id: LIBRARY_ID },
     async ({ library_id }) => guard(async () => {
       const item = await api.post<LibraryItem>(`/api/lesson-library/${encodeURIComponent(library_id)}/duplicate`);
-      return jsonResult({ id: item.id, title: item.title, message: `Duplicated as "${item.title}" (id=${item.id}).` });
+      return jsonResult({ id: item.id, title: item.title, sent: false, message: `Duplicated as "${item.title}" (id=${item.id}). ${NOT_SENT}` });
     }),
   );
 
@@ -154,21 +155,39 @@ ${LESSON_SPEC_DOC}`,
 
   server.tool(
     'assign_lesson_to_students',
-    `Give a library lesson to one or more students AS HOMEWORK (a real homework assignment per student, like the app's Send homework sheet): each gets their own copy (works offline) that remembers this library item. By default (\`mode: "both"\`) it is on their Homework list due by \`due_date\` (default: that student's next logged lesson, else in two days) AND mixed into their study sessions, scheduled with FSRS like their cards; "one_off" = the homework pass only (never in the session mix), "fsrs" = study sessions only, no date. You must be the tutor in every relationship. A student who already has a copy is reported under already_had and left as is (use assign_homework to give them a new dated assignment on it); per-relationship failures come back under errors. describe_image illustrations are generated in the background.`,
+    `${SEND_RULE} Give a library lesson to one or more students AS HOMEWORK (a real homework assignment per student, like the app's Send homework sheet): each gets their own copy (works offline) that remembers this library item. By default (\`mode: "both"\`) it is on their Homework list due by \`due_date\` (default: that student's next logged lesson, else in two days) AND mixed into their study sessions, scheduled with FSRS like their cards; "one_off" = the homework pass only (never in the session mix), "fsrs" = study sessions only, no date. You must be the tutor in every relationship. A student who already has a copy is reported under already_had and left as is (use assign_homework to give them a new dated assignment on it); per-relationship failures come back under errors. describe_image illustrations are generated in the background.`,
     {
       library_id: LIBRARY_ID,
       relationship_ids: z.array(z.string()).min(1).describe('Relationship ids of the students to assign to'),
       mode: SEND_MODE,
       due_date: SEND_DUE_DATE,
       today: SEND_TODAY,
+      confirm: CONFIRM_SEND,
     },
-    async ({ library_id, relationship_ids, mode, due_date, today }) => guard(async () => {
-      const res = await assignLessonAsHomework(api, library_id, relationship_ids, { mode, due_date, today });
+    async ({ library_id, relationship_ids, mode, due_date, today, confirm }) => guard(async () => {
+      if (confirm !== true) return errorResult(NEEDS_CONFIRM);
+      // Every relationship must be a student the caller tutors; the rest are reported, never sent to.
+      const students: ResolvedStudent[] = [];
+      const refused: Array<{ relationship_id: string; error: string }> = [];
+      for (const id of relationship_ids) {
+        try {
+          students.push(await resolveStudent(api, ctx.userId, id));
+        } catch (err) {
+          refused.push({ relationship_id: id, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      const res = await assignLessonAsHomework(api, library_id, students.map((s) => s.relationship_id), { mode, due_date, today });
+      const nameOf = (id: string) => students.find((s) => s.relationship_id === id)?.name ?? id;
       const dates = [...new Set(res.assigned.map((a) => a.due_date))];
       const how = res.assigned.length === 0 ? '' : dates.length > 1 ? ' as one-off homework (each due by their own next lesson)' : ` ${describeSend(res.mode, dates[0] ?? null)}`;
+      const names = res.assigned.map((a) => nameOf(a.relationship_id));
+      const errors = [...refused, ...res.errors];
       return jsonResult({
         ...res,
-        message: `Assigned to ${res.assigned.length} student(s)${how}; ${res.already_had.length} already had it; ${res.errors.length} error(s).`,
+        sent: res.assigned.length > 0,
+        sent_to: res.assigned.map((a) => ({ relationship_id: a.relationship_id, name: nameOf(a.relationship_id) })),
+        errors,
+        message: `${names.length ? sentTo(names.join(', '), `the lesson${how}.`) : 'Nothing was sent.'}${res.already_had.length ? ` ${res.already_had.map((a) => nameOf(a.relationship_id)).join(', ')} already had it.` : ''}${errors.length ? ` ${errors.length} error(s).` : ''}`,
       });
     }),
   );
@@ -185,17 +204,20 @@ ${LESSON_SPEC_DOC}`,
 
   server.tool(
     'push_lesson_update',
-    'Overwrite the assigned copies of a library lesson with the current library content (same lesson ids, so the students\' completion history and FSRS schedule survive; illustrations whose prompt is unchanged are kept). Copies already up to date are skipped. Pass relationship_ids to limit it to some students; omit for all.',
+    `${SEND_RULE} Overwrite the assigned copies of a library lesson with the current library content (same lesson ids, so the students\' completion history and FSRS schedule survive; illustrations whose prompt is unchanged are kept). Copies already up to date are skipped. Name the students in relationship_ids (get_lesson_assignments lists who has a copy).`,
     {
       library_id: LIBRARY_ID,
-      relationship_ids: z.array(z.string()).optional().describe('Only these students (default: every assigned copy)'),
+      relationship_ids: z.array(z.string()).min(1).describe('The students whose copies to update (relationship ids, from get_lesson_assignments) — only the ones the tutor asked for'),
+      confirm: CONFIRM_SEND,
     },
-    async ({ library_id, relationship_ids }) => guard(async () => {
+    async ({ library_id, relationship_ids, confirm }) => guard(async () => {
+      if (confirm !== true) return errorResult(NEEDS_CONFIRM);
+      if (!relationship_ids?.length) return errorResult('Name the students: relationship_ids (from get_lesson_assignments). Nothing was sent.');
       const res = await api.post<{ updated: number; skipped: number; image_jobs: number }>(
         `/api/lesson-library/${encodeURIComponent(library_id)}/push-update`,
-        relationship_ids ? { relationship_ids } : {},
+        { relationship_ids },
       );
-      return jsonResult({ ...res, message: `Updated ${res.updated} copy/copies, ${res.skipped} already current.${res.image_jobs ? ` ${res.image_jobs} illustration(s) queued.` : ''}` });
+      return jsonResult({ ...res, sent: res.updated > 0, message: `${res.updated > 0 ? `SENT: updated ${res.updated} student copy/copies` : 'Nothing was sent'}, ${res.skipped} already current.${res.image_jobs ? ` ${res.image_jobs} illustration(s) queued.` : ''}` });
     }),
   );
 

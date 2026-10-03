@@ -76,7 +76,7 @@ data class DeckDto(
     val study_priority: Int = 0,
     val created_at: String = "",
     val updated_at: String? = null,
-    /** The deck's folder (migration 0099), null = Unfiled. */
+    /** The deck's folder (migration 0100), null = Unfiled. */
     val folder_id: String? = null,
     val notes: List<NoteDto> = emptyList(),
 )

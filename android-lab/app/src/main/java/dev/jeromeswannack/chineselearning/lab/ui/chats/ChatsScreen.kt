@@ -76,7 +76,15 @@ data class ChatsUi(
     /** People with an active relationship (new chat). */
     val people: List<ChatPerson> = emptyList(),
     val pickerOpen: Boolean = false,
-)
+    /** Listening mode (docs/CHAT.md): the settings, and the ids revealed on this phone per conversation. */
+    val listening: dev.jeromeswannack.chineselearning.lab.data.api.ListeningStateDto? = null,
+    val revealed: Map<String, List<String>> = emptyMap(),
+) {
+    /** The row's last line: "🎧 New message" while listening mode hides it, else the usual preview. */
+    fun previewOf(row: ChatListRow): String =
+        dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore.inboxPreview(row, myId, listening, revealed[row.conversationId].orEmpty())
+            ?: ChatInbox.rowPreview(row, myId)
+}
 
 class ChatsActions(
     val onOpen: (ChatListRow) -> Unit = {},
@@ -210,7 +218,7 @@ private fun ChatRow(row: ChatListRow, ui: ChatsUi, actions: ChatsActions) {
             }
             Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    ChatInbox.rowPreview(row, ui.myId), fontSize = 15.sp,
+                    ui.previewOf(row), fontSize = 15.sp,
                     color = if (unread) Lab.colors.ink else Lab.colors.muted,
                     fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),

@@ -1,4 +1,11 @@
 /**
+ * CREATE, THEN SEND (Oct 2026): every create tool makes content in the TUTOR's own
+ * account and sends nothing; sending is a separate tool call that names the
+ * student (`relationship_id`, optionally `student_name`, checked) and carries
+ * `confirm: true`, which the model may only set after the tutor explicitly asked
+ * to send that item to that student. `CONFIRM_SEND`, `resolveStudent`,
+ * `NOT_SENT` and `sentTo` below are the one definition every tool uses.
+ *
  * Sending a deck / library lesson / reader to a student AS HOMEWORK (docs/HOMEWORK.md):
  * every MCP path that sends something (share_deck_with_student, create_deck_for_student,
  * assign_lesson_to_students, share_reader_with_student and the MCP Apps' send buttons)
@@ -65,6 +72,94 @@ export interface Sent {
 }
 
 const rel = (id: string) => `/api/relationships/${encodeURIComponent(id)}`;
+
+// ============ Create, then send ============
+
+/**
+ * The rule every tutor-facing tool follows (Minghui, Oct 2026: an agent sent a
+ * 319-word deck she never meant to send). Create tools only ever write to the
+ * tutor's own account; send tools take `confirm: true`.
+ */
+export const CREATE_THEN_SEND = `# Create, then send
+Create content in the tutor's own account. Never send anything to a student unless the tutor explicitly asks you to send that item to that named student in this conversation. When in doubt, create it and ask.
+- "Make / create / draft / prepare a deck (lesson, reader, homework) for Jerome" means CREATE ONLY: create_homework_deck, create_library_lesson, create_reader / generate_reader, add_student_lesson_notes (a draft), submit_session_notes. These save in the tutor's account and send nothing; their replies say "Saved in your account (not sent)".
+- Sending is a separate call that names the student and carries confirm: true: share_deck_with_student, update_student_deck_copy, assign_lesson_to_students, push_lesson_update, share_reader_with_student, assign_homework, assign_homework_draft, send_session_notes_items. Their replies start "SENT to <student>". Pass student_name too when the tutor named the student.
+- After creating, tell the tutor what was made and ask whether (and to whom) to send it. Never send "to be helpful", never send to every student, never pick the student yourself.`;
+
+
+/** The sentence every send tool's description starts from. */
+export const SEND_RULE =
+  'SENDS to a student — only call it when the tutor has explicitly asked, in this conversation, to send this item to this named student. If they only asked you to make / create / draft something, do NOT send: create it in their account and ask.';
+
+/** Required on every send tool: the model's explicit acknowledgement. */
+export const CONFIRM_SEND = z
+  .literal(true)
+  .describe('Required, must be true. Set it ONLY after the tutor explicitly asked, in this conversation, to send this item to this named student ("send it to Jerome"). Never set it on your own initiative — when in doubt, do not send: ask the tutor.');
+
+/** Optional cross-check of who the tutor named. */
+export const STUDENT_NAME = z
+  .string()
+  .optional()
+  .describe('The student\'s name as the tutor said it ("Jerome"). Checked against the relationship: a mismatch stops the send, so pass it whenever the tutor named the student.');
+
+/** The refusal when a send tool is called without `confirm: true`. */
+export const NEEDS_CONFIRM =
+  'Not sent. This tool sends to a student and needs confirm: true — set it only after the tutor explicitly asked, in this conversation, to send this item to this named student. If they only asked you to make it, it is already saved in their account: tell them and ask whether to send it.';
+
+/** What every create tool's reply says. */
+export const NOT_SENT = 'Saved in your account (not sent). Say "send it to <student>" to share.';
+
+/** "SENT to Jerome: …" — the first words of every send tool's message. */
+export function sentTo(studentName: string, rest: string): string {
+  return `SENT to ${studentName}: ${rest}`;
+}
+
+interface RelationshipRow {
+  id: string;
+  requester_id: string;
+  recipient_id: string;
+  requester_role: 'tutor' | 'student';
+  status: string;
+  requester?: { name?: string | null; email?: string | null };
+  recipient?: { name?: string | null; email?: string | null };
+}
+
+export interface ResolvedStudent {
+  relationship_id: string;
+  name: string;
+}
+
+/** Does what the tutor said ("jerome", "Jerome Swannack") name this student? Pure. */
+export function nameMatches(expected: string, name: string, email: string | null | undefined): boolean {
+  const hay = `${name} ${email ?? ''}`.toLowerCase();
+  const tokens = expected.toLowerCase().split(/[\s,]+/).filter((t) => t.length > 1);
+  return tokens.length > 0 && tokens.some((t) => hay.includes(t));
+}
+
+/**
+ * The student of a relationship the caller TUTORS (active), by name — or a
+ * readable Error. Uses GET /api/relationships, the same list list_students
+ * shows. `expectedName` (what the tutor said) must match when given.
+ */
+export async function resolveStudent(api: ApiClient, userId: string, relationshipId: string, expectedName?: string | null): Promise<ResolvedStudent> {
+  const rels = await api.get<{ tutors?: RelationshipRow[]; students?: RelationshipRow[]; pending_incoming?: RelationshipRow[]; pending_outgoing?: RelationshipRow[] }>('/api/relationships');
+  const all = [...(rels.students ?? []), ...(rels.tutors ?? []), ...(rels.pending_incoming ?? []), ...(rels.pending_outgoing ?? [])];
+  const r = all.find((x) => x.id === relationshipId);
+  if (!r) throw new Error(`No relationship ${relationshipId} on this account — take relationship_id from list_students (the students list, not my_tutors). Nothing was sent.`);
+  const tutorIsRequester = r.requester_role === 'tutor';
+  const tutorId = tutorIsRequester ? r.requester_id : r.recipient_id;
+  if (tutorId !== userId) {
+    const tutor = tutorIsRequester ? r.requester : r.recipient;
+    throw new Error(`In relationship ${relationshipId} you are the STUDENT (the tutor is ${tutor?.name || tutor?.email || 'someone else'}); only the tutor can send homework. Nothing was sent.`);
+  }
+  if (r.status !== 'active') throw new Error(`Relationship ${relationshipId} is ${r.status}, not active yet. Nothing was sent.`);
+  const student = tutorIsRequester ? r.recipient : r.requester;
+  const name = student?.name || student?.email?.split('@')[0] || 'the student';
+  if (expectedName && expectedName.trim() && !nameMatches(expectedName, name, student?.email)) {
+    throw new Error(`relationship_id ${relationshipId} is ${name}, not "${expectedName.trim()}". Nothing was sent — check list_students and ask the tutor which student they meant.`);
+  }
+  return { relationship_id: relationshipId, name };
+}
 
 /** The due date a send defaults to: the student's next logged lesson, else in two days. Never throws. */
 export async function defaultDueFor(api: ApiClient, relationshipId: string, today: string): Promise<string> {

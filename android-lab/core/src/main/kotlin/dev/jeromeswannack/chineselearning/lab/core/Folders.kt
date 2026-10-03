@@ -6,7 +6,7 @@ import java.util.Locale
 /**
  * Port of shared/folders/folders.ts: folders for decks, Lesson Library items and graded
  * readers — organisation only. One model for all three (server table `folders`, migration
- * 0099): a folder belongs to one user and one [kind], has a name, an optional parent (ONE
+ * 0100): a folder belongs to one user and one [kind], has a name, an optional parent (ONE
  * level of nesting) and a [position] among its siblings. Items carry a nullable folder id;
  * null = Unfiled. Folders never touch the study queue.
  *

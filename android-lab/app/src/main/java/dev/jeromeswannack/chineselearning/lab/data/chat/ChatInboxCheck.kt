@@ -41,8 +41,10 @@ object ChatInboxCheck {
         val since = store.inboxSince ?: Js.toIsoString(nowMs - FIRST_LOOKBACK_MS)
         val inbox = api.chatInbox(since)
         var posted = 0
+        val cache = (ctx.applicationContext as? LabApp)?.cache
         for (m in inbox.messages) {
-            val chat = IncomingChat.fromInbox(m)
+            // Listening mode: "🎧 New message" instead of a hidden message's text (the cached setting).
+            val chat = IncomingChat.fromInbox(m).let { c -> if (cache == null) c else ChatListeningStore.masked(cache, c, m.content, m.attachment_kind, null, myId) }
             if (ChatNotifier.notifyIncoming(ctx, chat, myId, avatar)) posted++
         }
         val unread = inbox.conversations.filter { it.unread > 0 }.map { it.conversation_id }.toSet()

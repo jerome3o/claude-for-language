@@ -122,7 +122,7 @@ class MigrationTest {
         room.close()
     }
 
-    /** v4 adds decks.folderId (folders, migration 0099): existing decks are Unfiled (null). */
+    /** v4 adds decks.folderId (folders, migration 0100): existing decks are Unfiled (null). */
     @Test fun v3ToV4AddsTheDeckFolderAndKeepsEverything() {
         createFromExportedSchema(3).use { db ->
             db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt) VALUES ('d1', 'HSK 2', NULL, 3, 6, 4, '2026-10-01 10:00:00')")

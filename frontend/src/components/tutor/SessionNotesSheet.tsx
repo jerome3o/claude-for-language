@@ -1,3 +1,4 @@
+import { sendToLabel, studentFirstName } from '@shared/homework';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { submitSessionNotes } from '../../api/tutorNotes';
@@ -35,7 +36,8 @@ export function SessionNotesSheet({ relId, studentName, onClose, onSubmitted }: 
   const [title, setTitle] = useState('');
   const [lessonAt, setLessonAt] = useState(todayInput());
   const [priority, setPriority] = useState<SessionNotesPriority>('core');
-  const [autoShare, setAutoShare] = useState(true);
+  // Create, then send: nothing goes to the student unless the tutor ticks this.
+  const [autoShare, setAutoShare] = useState(false);
   const [logLesson, setLogLesson] = useState(true);
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -175,7 +177,11 @@ export function SessionNotesSheet({ relId, studentName, onClose, onSubmitted }: 
                 </label>
               </div>
             )}
-            {!autoShare && <div className="sn-hint">The deck stays in your library until you send it from Send homework.</div>}
+            {!autoShare && (
+              <div className="sn-hint" data-testid="sn-not-sent-hint">
+                Everything is made in your account and nothing reaches {studentFirstName(studentName)} until you press <strong>{sendToLabel(studentName)}</strong> on the result.
+              </div>
+            )}
             <label className="sn-check">
               <input type="checkbox" checked={logLesson} onChange={(e) => setLogLesson(e.target.checked)} />
               <span>Also log this as a lesson (Insights counts &ldquo;since last lesson&rdquo; from it)</span>

@@ -35,7 +35,7 @@ data class DeckEntity(
     val secondaryCardsPerDay: Int?,
     val studyPriority: Int,
     val createdAt: String,
-    /** The deck's folder (server decks.folder_id, migration 0099; core Folders.kt), null = Unfiled. v4. */
+    /** The deck's folder (server decks.folder_id, migration 0100; core Folders.kt), null = Unfiled. v4. */
     val folderId: String? = null,
 ) {
     fun toQueueDeck() = QueueDeck(id, studyPriority, createdAt, newCardsPerDay, secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP)

@@ -178,6 +178,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'message_reactions', sql: `DELETE FROM message_reactions WHERE user_id = ?1 OR message_id IN ${MESSAGES}` },
   { label: 'message_discussions', sql: `DELETE FROM message_discussions WHERE user_id = ?1 OR message_id IN ${MESSAGES}` },
   { label: 'conversation_reads', sql: `DELETE FROM conversation_reads WHERE user_id = ?1 OR conversation_id IN ${CONVERSATIONS}` },
+  { label: 'chat_listening', sql: `DELETE FROM chat_listening WHERE user_id = ?1 OR conversation_id IN ${CONVERSATIONS}` },
   { label: 'messages', sql: `DELETE FROM messages WHERE id IN ${MESSAGES}` },
   { label: 'conversations', sql: `DELETE FROM conversations WHERE id IN ${CONVERSATIONS}` },
   { label: 'shared_decks', sql: `DELETE FROM shared_decks WHERE relationship_id IN ${REL}` },
