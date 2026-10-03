@@ -64,7 +64,7 @@ export async function getConversations(
       LEFT JOIN messages m ON m.id = (
         SELECT id FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1
       )
-      WHERE c.relationship_id = ?1
+      WHERE c.relationship_id = ?1 AND c.merged_into IS NULL
       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
     `)
     .bind(relationshipId, userId)
@@ -122,8 +122,80 @@ export async function getConversations(
   }));
 }
 
+// ============ One chat per pair (docs/CHAT.md "One chat per pair") ============
+
+/** A live (not merged-away) human conversation; Claude practice chats excluded. */
+const HUMAN_LIVE = 'merged_into IS NULL AND COALESCE(is_ai_conversation, 0) = 0';
+
 /**
- * Create a new conversation
+ * THE conversation of a relationship between two people, or null when none
+ * exists yet. Migration 0098 merged the old extras into it and a unique index
+ * keeps it single. (For a relationship with Claude: its most recent practice chat.)
+ */
+export async function findRelationshipConversationId(db: D1Database, relationshipId: string): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT id FROM conversations WHERE relationship_id = ? AND merged_into IS NULL
+        ORDER BY COALESCE(is_ai_conversation, 0) ASC, COALESCE(last_message_at, created_at) DESC LIMIT 1`,
+    )
+    .bind(relationshipId)
+    .first<{ id: string }>();
+  return row?.id ?? null;
+}
+
+/**
+ * Get-or-create the one conversation of a relationship. Race-safe: the insert
+ * is OR IGNORE against the one-human-conversation index, then the survivor is read.
+ * Every server path that posts into a chat (call Join links, card-flag mirrors,
+ * the welcome message, the how-to, budget changes, the MCP) comes through here.
+ */
+export async function openRelationshipConversation(
+  db: D1Database,
+  relationshipId: string,
+  userId: string,
+): Promise<{ conversation: Conversation; created: boolean }> {
+  const rel = await verifyRelationshipAccess(db, relationshipId, userId);
+  const isAi = getOtherUserId(rel, userId) === CLAUDE_AI_USER_ID;
+  const existingId = await findRelationshipConversationId(db, relationshipId);
+  if (existingId) {
+    const conv = await db.prepare('SELECT * FROM conversations WHERE id = ?').bind(existingId).first<Conversation>();
+    if (conv) return { conversation: conv, created: false };
+  }
+  if (isAi) return { conversation: await insertConversation(db, relationshipId, true), created: true };
+  const id = generateId();
+  const res = await db
+    .prepare(
+      `INSERT OR IGNORE INTO conversations (id, relationship_id, title, is_ai_conversation, voice_id, voice_speed)
+       VALUES (?, ?, NULL, 0, ?, ?)`,
+    )
+    .bind(id, relationshipId, DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED)
+    .run();
+  const conv = await db
+    .prepare(`SELECT * FROM conversations WHERE relationship_id = ? AND ${HUMAN_LIVE} LIMIT 1`)
+    .bind(relationshipId)
+    .first<Conversation>();
+  if (!conv) throw new Error('Failed to create conversation');
+  return { conversation: conv, created: conv.id === id && (res.meta?.changes ?? 1) > 0 };
+}
+
+/** The id to use for `id`: itself, or the conversation it was merged into; null when unknown. */
+export async function resolveConversationId(db: D1Database, id: string): Promise<string | null> {
+  let current = id;
+  for (let hop = 0; hop < 4; hop++) {
+    const row = await db
+      .prepare('SELECT id, merged_into FROM conversations WHERE id = ?')
+      .bind(current)
+      .first<{ id: string; merged_into: string | null }>();
+    if (!row) return hop === 0 ? null : current;
+    if (!row.merged_into) return row.id;
+    current = row.merged_into;
+  }
+  return current;
+}
+
+/**
+ * Create a conversation. With a person this is get-or-create (there is only
+ * one chat per pair; `title` is ignored); with Claude a new practice chat.
  */
 export async function createConversation(
   db: D1Database,
@@ -131,13 +203,31 @@ export async function createConversation(
   userId: string,
   options?: CreateConversationRequest
 ): Promise<Conversation> {
+  return (await createOrOpenConversation(db, relationshipId, userId, options)).conversation;
+}
+
+export async function createOrOpenConversation(
+  db: D1Database,
+  relationshipId: string,
+  userId: string,
+  options?: CreateConversationRequest
+): Promise<{ conversation: Conversation; created: boolean }> {
   // Verify access to relationship
   const rel = await verifyRelationshipAccess(db, relationshipId, userId);
 
   // Check if this is an AI conversation (with Claude)
   const otherUserId = getOtherUserId(rel, userId);
   const isAiConversation = otherUserId === CLAUDE_AI_USER_ID;
+  if (!isAiConversation) return openRelationshipConversation(db, relationshipId, userId);
+  return { conversation: await insertConversation(db, relationshipId, true, options), created: true };
+}
 
+async function insertConversation(
+  db: D1Database,
+  relationshipId: string,
+  isAiConversation: boolean,
+  options?: CreateConversationRequest,
+): Promise<Conversation> {
   const id = generateId();
   await db
     .prepare(`
@@ -174,9 +264,12 @@ export async function getConversationById(
   conversationId: string,
   userId: string
 ): Promise<Conversation | null> {
+  // A merged-away id (migration 0098) answers as the chat it was merged into.
+  const resolved = await resolveConversationId(db, conversationId);
+  if (!resolved) return null;
   const conv = await db
     .prepare('SELECT * FROM conversations WHERE id = ?')
-    .bind(conversationId)
+    .bind(resolved)
     .first<Conversation>();
 
   if (!conv) return null;

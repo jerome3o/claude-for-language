@@ -715,7 +715,7 @@ describe('registerStudentTools', () => {
     expect(out.decks).toEqual([{ id: 'd1', name: 'HSK 1' }]);
   });
 
-  it('send_message_to_student opens the latest conversation then posts the message', async () => {
+  it('send_message_to_student opens the pair conversation then posts the message', async () => {
     const { tools, calls } = fakeContext({
       'POST /api/relationships/rel-1/conversations/open': { conversation_id: 'conv-9', created: true },
       'POST /api/conversations/conv-9/messages': (call: Call) => ({
@@ -737,12 +737,30 @@ describe('registerStudentTools', () => {
     });
   });
 
-  it('send_message_to_student skips the open call when a conversation is given', async () => {
+  it('send_message_to_student always posts into the one chat of the pair', async () => {
     const { tools, calls } = fakeContext({
-      'POST /api/conversations/conv-2/messages': { id: 'm2', content: 'hi', created_at: 'now' },
+      'POST /api/relationships/rel-1/conversations/open': { conversation_id: 'conv-1', created: false },
+      'POST /api/conversations/conv-1/messages': { id: 'm2', content: 'hi', created_at: 'now' },
     });
+    // An old caller still passing conversation_id is not sent anywhere else.
     await tools.get('send_message_to_student')!.handler({ relationship_id: 'rel-1', text: 'hi', conversation_id: 'conv-2' });
-    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /api/conversations/conv-2/messages']);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST /api/relationships/rel-1/conversations/open',
+      'POST /api/conversations/conv-1/messages',
+    ]);
+  });
+
+  it('get_conversation_messages reads the pair\'s chat from a relationship_id', async () => {
+    const { tools, calls } = fakeContext({
+      'POST /api/relationships/rel-1/conversations/open': { conversation_id: 'conv-1', created: false },
+      'GET /api/conversations/conv-1/messages': { messages: [], latest_timestamp: null },
+    });
+    const out = parse(await tools.get('get_conversation_messages')!.handler({ relationship_id: 'rel-1' }));
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST /api/relationships/rel-1/conversations/open',
+      'GET /api/conversations/conv-1/messages',
+    ]);
+    expect(out).toEqual({ conversation_id: 'conv-1', total: 0, messages: [] });
   });
 
   it('mark_recording PUTs the status and comment; clear_recording_mark DELETEs', async () => {

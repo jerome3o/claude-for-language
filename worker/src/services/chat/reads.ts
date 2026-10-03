@@ -172,6 +172,7 @@ const MY_CHATS = `
   LEFT JOIN conversation_reads cr ON cr.conversation_id = c.id AND cr.user_id = ?1
   WHERE (r.requester_id = ?1 OR r.recipient_id = ?1)
     AND r.status = 'active'
+    AND c.merged_into IS NULL
     AND COALESCE(c.is_ai_conversation, 0) = 0
     AND r.requester_id != '${CLAUDE_AI_USER_ID}' AND r.recipient_id != '${CLAUDE_AI_USER_ID}'`;
 
@@ -279,6 +280,7 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
          )
         WHERE (r.requester_id = ?1 OR r.recipient_id = ?1)
           AND r.status = 'active'
+          AND c.merged_into IS NULL
         ORDER BY COALESCE(m.created_at, c.last_message_at, c.created_at) DESC`,
     )
     .bind(userId)
