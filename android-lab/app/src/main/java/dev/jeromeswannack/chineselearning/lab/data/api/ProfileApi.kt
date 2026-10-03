@@ -25,6 +25,8 @@ data class ProfileDto(
     val bio: String? = null,
     val about: String? = null,
     val time_zone: String? = null,
+    /** male | female | other | null — the voice my chat messages are read in (core ChatVoice). */
+    val voice_gender: String? = null,
 )
 
 /** One field of `PUT /api/profile`: absent = leave it, [value] null = clear it (name: back to Google's). */
@@ -36,13 +38,14 @@ suspend fun Api.profile(): ProfileDto = get("/api/profile")
  * PUT /api/profile with only the fields that changed. The body is built by hand: the API's Json
  * drops nulls, and a null here means something (clear / Google name). A 400 carries `problems`.
  */
-suspend fun Api.saveProfile(name: ProfileField? = null, about: ProfileField? = null, timeZone: ProfileField? = null, bio: ProfileField? = null): ProfileDto {
+suspend fun Api.saveProfile(name: ProfileField? = null, about: ProfileField? = null, timeZone: ProfileField? = null, bio: ProfileField? = null, voiceGender: ProfileField? = null): ProfileDto {
     val body = buildJsonObject {
         fun field(key: String, f: ProfileField?) { if (f != null) put(key, f.value?.let(::JsonPrimitive) ?: JsonNull) }
         field("name", name)
         field("about", about)
         field("time_zone", timeZone)
         field("bio", bio)
+        field("voice_gender", voiceGender)
     }
     return put<JsonObject, ProfileDto>("/api/profile", body)
 }

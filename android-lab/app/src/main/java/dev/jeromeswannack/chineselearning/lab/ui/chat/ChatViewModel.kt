@@ -358,6 +358,12 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private var pollJob: Job? = null
     private var player: MediaPlayer? = null
     private var progressJob: Job? = null
+    /** Read-aloud clips: the lessons' cache-first TTS (`/api/practice/tts`, files keyed by text + voice + speed). */
+    private val ttsClips get() = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).media
+    /** Offline with no clip on the phone: the phone's own zh-CN voice of the sender's gender. */
+    private val deviceVoice by lazy { dev.jeromeswannack.chineselearning.lab.fx.DeviceChineseVoice(app) }
+    /** The other person's users.voice_gender (from the relationship, cached with it). */
+    private var otherVoiceGender: String? = null
     private val checkResults = HashMap<String, CheckResultDto>()
     private val typingIn = TypingIndicator()
     private val typingOut = TypingThrottle()
@@ -494,6 +500,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     private fun applyHeader(rel: RelationshipDto?, convs: List<ChatConversationDto>?, me: String?) {
         rel ?: return
         val other = rel.other(me)
+        otherVoiceGender = other?.voice_gender
         val tutorId = if (rel.requester_role == "tutor") rel.requester_id else rel.recipient_id
         _ui.update {
             it.copy(
@@ -1413,26 +1420,61 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
+    /**
+     * The voice + speed one message is read in (shared/chats/voice.ts via core ChatVoice): the
+     * sender's voice gender → the first voice of that gender in MY conversation voices; Claude's
+     * lines in a role-play chat keep the chat's persona voice. Never the legacy conversations.voice_id.
+     */
+    private suspend fun readAloudVoice(m: ChatMessageDto): Pair<String, Double> {
+        val s = _ui.value
+        val fromAi = s.isAi && m.sender_id == CLAUDE_USER_ID
+        val gender = if (m.sender_id.isNotEmpty() && m.sender_id == s.myId) app.prefs.voiceGender else otherVoiceGender
+        val enabled = dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.get(app.cache)
+        val c = s.conversation
+        return dev.jeromeswannack.chineselearning.lab.core.ChatVoice.voice(gender, enabled, fromAi, c?.voice_id) to
+            dev.jeromeswannack.chineselearning.lab.core.ChatVoice.speed(fromAi, c?.voice_speed)
+    }
+
+    /**
+     * Message menu → Read aloud: a cached clip for (text, voice, speed) plays at once, offline too;
+     * else it is made by `/api/practice/tts` and kept. Online failure → the server's own resolution
+     * (`/tts` with message_id); offline with nothing cached → the phone's zh-CN voice of that gender.
+     */
     fun play(m: ChatMessageDto) {
         if (_ui.value.playingId == m.id) { stopAudio(); return }
+        val text = m.content
+        if (text.isBlank()) return
         _ui.update { it.copy(playingId = m.id) }
         viewModelScope.launch {
-            try {
-                val c = _ui.value.conversation
-                val r = api.conversationTts(convId, m.content, c?.voice_id, c?.voice_speed)
-                playBase64(r.audio_base64, m.id)
-            } catch (e: Exception) {
-                _ui.update { it.copy(playingId = null) }
-                error("Couldn't play that message.")
+            val (voice, speed) = readAloudVoice(m)
+            val online = app.online.value
+            val file = ttsClips.tts(text, voice, speed = speed, online = online)
+            if (_ui.value.playingId != m.id) return@launch
+            if (file != null) { playFile(file, m.id); return@launch }
+            if (online) {
+                try {
+                    val r = api.conversationTts(convId, text, null, null, messageId = m.id)
+                    if (_ui.value.playingId == m.id) playBase64(r.audio_base64, m.id)
+                    return@launch
+                } catch (e: Exception) {
+                    // the phone's own voice below
+                }
+            }
+            deviceVoice.speak(text, dev.jeromeswannack.chineselearning.lab.core.ChatVoice.deviceGender(voice)) {
+                _ui.update { u -> if (u.playingId == m.id) u.copy(playingId = null) else u }
             }
         }
     }
 
     private suspend fun playBase64(base64: String, messageId: String) {
-        stopAudio()
         val file = withContext(Dispatchers.IO) {
             File(app.cacheDir, "chat-tts.mp3").apply { writeBytes(Base64.decode(base64, Base64.DEFAULT)) }
         }
+        playFile(file, messageId)
+    }
+
+    private fun playFile(file: File, messageId: String) {
+        stopAudio()
         _ui.update { it.copy(playingId = messageId) }
         val mp = MediaPlayer()
         player = mp
@@ -1448,6 +1490,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun stopAudio() {
         progressJob?.cancel()
+        deviceVoice.stop()
         player?.runCatching { release() }
         player = null
         _ui.update { it.copy(playingId = null, voice = null) }
@@ -1950,6 +1993,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         stopAudio()
         recordJob?.cancel()
         recorder?.cancel()
+        deviceVoice.shutdown()
         super.onCleared()
     }
 

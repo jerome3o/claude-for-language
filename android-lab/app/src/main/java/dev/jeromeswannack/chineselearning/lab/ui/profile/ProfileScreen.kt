@@ -40,7 +40,10 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.ChatVoice
+import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
@@ -185,6 +188,16 @@ fun ProfileScreen(ui: ProfileUi, env: ProfileEnv, actions: ProfileActions, listS
                     val device = env.deviceTimeZone
                     if (device != null && device != ui.draft.timeZone) {
                         TextLink("Use this phone’s: ${ProfileRules.timeZoneCity(device)}") { actions.edit(ui.draft.copy(timeZone = device)) }
+                    }
+                }
+            }
+            // ---------- read-aloud voice (shared/chats/voice.ts) ----------
+            item {
+                Field(ChatVoice.TITLE, desc = ChatVoice.HINT) {
+                    ChipRow(Modifier.fillMaxWidth()) {
+                        for (o in ChatVoice.OPTIONS) {
+                            LabChip(o.label, selected = ui.draft.voiceGender == o.value) { actions.edit(ui.draft.copy(voiceGender = o.value)) }
+                        }
                     }
                 }
             }
