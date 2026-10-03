@@ -5,7 +5,6 @@ import {
   correctionDiff,
   correctionIsNoop,
   draftsFromProposal,
-  initialDeck,
   isShown,
   loadDisplayPrefs,
   needsWords,
@@ -78,11 +77,6 @@ describe('review sheet → batch', () => {
     const drafts = draftsFromProposal(cards);
     drafts[0] = { ...drafts[0], hanzi: '  ' };
     expect(batchNotesFrom(drafts)).toEqual([]);
-  });
-  it('starts on the last deck used if it still exists', () => {
-    expect(initialDeck([{ id: 'a' }, { id: 'b' }], 'b')).toBe('b');
-    expect(initialDeck([{ id: 'a' }, { id: 'b' }], 'gone')).toBe('a');
-    expect(initialDeck([], 'b')).toBe('');
   });
 });
 

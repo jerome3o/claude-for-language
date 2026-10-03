@@ -1,0 +1,82 @@
+/* AddChunkModal: the word on top, the deck list scrolling on its own, Cancel / Add pinned at the bottom.
+   dvh follows the on-screen keyboard and the browser bars, so the footer stays reachable. */
+.rp-modal.add-chunk-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+  max-height: 88dvh;
+  padding: 0;
+  overflow: hidden;
+}
+
+.add-chunk-head {
+  flex-shrink: 0;
+  padding: 1.25rem 1.25rem 0.35rem;
+}
+
+.add-chunk-notice {
+  margin-top: 0.5rem;
+}
+
+.add-chunk-duplicate {
+  padding: 0.5rem 0.75rem;
+  background: #fff3cd;
+  color: #856404;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.add-chunk-label {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.add-chunk-decks {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 40vh;
+  max-height: 40dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.25rem 1.25rem 0.5rem;
+}
+
+.add-chunk-deck {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  text-align: left;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.add-chunk-deck.selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.add-chunk-foot {
+  position: sticky;
+  bottom: 0;
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #f3f4f6;
+  background: #fff;
+}
+
+.add-chunk-foot > button {
+  flex: 1;
+  min-height: 48px;
+}

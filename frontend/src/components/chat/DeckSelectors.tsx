@@ -1,69 +1,19 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { decksInQueueOrder } from '@shared/decks/queue';
 import { createDeck, getDecks } from '../../api/client';
 import { Loading } from '../Loading';
-import { usePinnedDecks } from '../../hooks/usePinnedDecks';
 import { InlineNotice, describeError } from './InlineNotice';
 import type { Notice } from './InlineNotice';
 import { SpinnerButton } from './SpinnerButton';
+import './DeckSelectors.css';
 
-// Deck selector component
-export function DeckSelector({
-  onSelect,
-  isSaving,
-}: {
-  onSelect: (deckId: string) => void;
-  isSaving: boolean;
-}) {
-  const { isPinned, togglePin, sortWithPinnedFirst } = usePinnedDecks();
-  const decksQuery = useQuery({
-    queryKey: ['decks'],
-    queryFn: () => getDecks(),
-  });
-
-  if (decksQuery.isLoading) {
-    return <Loading message="Loading decks..." />;
-  }
-
-  const decks = sortWithPinnedFirst(decksQuery.data || []);
-
-  if (decks.length === 0) {
-    return (
-      <p className="text-light">No decks available. Create a deck first.</p>
-    );
-  }
-
-  return (
-    <div className="deck-selector">
-      <label>Save to deck:</label>
-      <div className="deck-options">
-        {decks.map((deck) => (
-          <div key={deck.id} className="deck-option-row">
-            <button
-              className="deck-option"
-              onClick={() => onSelect(deck.id)}
-              disabled={isSaving}
-            >
-              {isPinned(deck.id) && <span className="deck-pin-mark">📌</span>}
-              {deck.name}
-            </button>
-            <button
-              onClick={() => togglePin(deck.id)}
-              title={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              aria-label={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              disabled={isSaving}
-              className={`deck-pin-btn ${isPinned(deck.id) ? 'pinned' : ''}`}
-            >
-              📌
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Deck selector with create new deck option
+/**
+ * "Save N cards to:" — tap a deck to save there (chat: Help me say it, Check
+ * result, a word from the translation, Discuss with Claude). Decks are listed in
+ * study-queue order, the top deck first; the list scrolls on its own (bounded
+ * height) so "+ Create new deck" and the sheet's own buttons stay on screen.
+ */
 export function DeckSelectorWithCreate({
   onSelect,
   isSaving,
@@ -77,7 +27,6 @@ export function DeckSelectorWithCreate({
   const [newDeckName, setNewDeckName] = useState('');
   const [isCreatingDeck, setIsCreatingDeck] = useState(false);
   const [createError, setCreateError] = useState<Notice | null>(null);
-  const { isPinned, togglePin, sortWithPinnedFirst } = usePinnedDecks();
 
   const decksQuery = useQuery({
     queryKey: ['decks'],
@@ -104,33 +53,24 @@ export function DeckSelectorWithCreate({
     return <Loading message="Loading decks..." />;
   }
 
-  const decks = sortWithPinnedFirst(decksQuery.data || []);
+  const decks = decksInQueueOrder(decksQuery.data || []);
 
   return (
     <div className="deck-selector">
       <label>Save {selectedCount} card{selectedCount !== 1 ? 's' : ''} to:</label>
       <div className="deck-options">
-        {decks.map((deck) => (
-          <div key={deck.id} className="deck-option-row">
+        <div className="deck-options-list" data-testid="deck-options-list">
+          {decks.map((deck) => (
             <button
+              key={deck.id}
               className="deck-option"
               onClick={() => onSelect(deck.id)}
               disabled={isSaving || isCreatingDeck}
             >
-              {isPinned(deck.id) && <span className="deck-pin-mark">📌</span>}
               {deck.name}
             </button>
-            <button
-              onClick={() => togglePin(deck.id)}
-              title={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              aria-label={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              disabled={isSaving || isCreatingDeck}
-              className={`deck-pin-btn ${isPinned(deck.id) ? 'pinned' : ''}`}
-            >
-              📌
-            </button>
-          </div>
-        ))}
+          ))}
+        </div>
         {!showNewDeckInput ? (
           <button
             className="deck-option deck-option-new"
