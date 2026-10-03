@@ -392,3 +392,66 @@ there's more than one) → `/connections/:relId/chat/new`. A row opens the chat 
   list (`applyIncomingMessage` / `applyReadMarker`; an unknown conversation → refetch).
 - The tab badge = conversations with people (not Claude) that have unread messages
   (`unreadConversationCount`).
+
+## Listening mode (migration 0098_chat_listening.sql)
+
+Jerome: "Hide the messages initially but let me play them out loud, so I can try my listening comprehension on a
+new message. A long click on the hidden message reveals it, a single click plays it."
+
+```sql
+CREATE TABLE chat_listening (conversation_id, user_id, listening INTEGER, since TEXT NULL, updated_at, PK (conversation_id, user_id));
+ALTER TABLE users ADD COLUMN chat_listening_default INTEGER NOT NULL DEFAULT 0;   -- Settings → Chat
+ALTER TABLE messages ADD COLUMN audio_key TEXT;                                   -- the pre-generated clip
+```
+
+**Rules** — `shared/chats/listening.ts` (Lab `core/…/chat/ChatListening.kt`, parity-tested by
+`android-lab/parity/fixtures/chat-listening.ts`):
+- The setting is per person and conversation: `{ on, since }`. No row → the account default (`chat_listening_default`)
+  with `since = null` ("undecided"); `effectiveListening(row, defaultOn)`.
+- A message hides (`shouldHideMessage`) when the mode is on, it is a **candidate** (`listeningCandidate`: the other
+  person's, not deleted, no attachment — photos / voice memos / files / videos stay as they are — and it contains
+  Chinese), it is not revealed on this device, and `created_at > threshold`. Threshold (`listeningThreshold`) =
+  `since`, or — while undecided — the read marker the chat was opened with (what was unread hides). The client
+  then stores that marker as `since` (one PUT), so the choice is stable on every device.
+- Turning it ON from the menu: `since = sinceWhenTurnedOn(messages)` = the newest message on screen — history stays,
+  anything newer hides. **Hide all**: `since = HIDE_ALL_SINCE` (1970) — every candidate hides (revealed ones stay).
+  OFF shows everything (revealed ids are kept).
+- Revealed ids are device-local per conversation (`addRevealed`, newest 500; web localStorage
+  `chat-listening-revealed-v1:<conv>`, Lab JsonCache `chat/listening/revealed/<conv>`). Never synced.
+- The inbox and notifications never spoil a hidden message: `LISTENING_PREVIEW` = "🎧 New message".
+  Inbox: `listeningPreview(row.last_message, { setting, readMarker: row.my_read_at, revealed })` (rows now carry
+  `last_message.attachment_kind` and `my_read_at`). Push / FCM / e-mail / the bell row / ntfy: the worker's
+  `notificationPreviewFor` (the recipient's setting; a new message is always after `since`).
+
+**API** (`routes/chat-listening.ts`):
+- `GET /api/me/chat-listening` → `{ default_on, conversations: [{ conversation_id, on, since, updated_at }] }`
+- `PUT /api/conversations/:id/listening` `{ on, since? }` (ISO UTC or null) → the row; member only (403 / 404), 400 bad body
+- `PUT /api/profile/chat-listening` `{ on }` → `{ default_on }`
+- `GET /api/messages/:id/audio` → the message read aloud (audio/mpeg, `X-Clip-Id`); made on demand when missing; 410 deleted
+- `GET /api/me/chat-clips[?per_conversation=20]` → `{ clips: [{ message_id, conversation_id, clip }] }` — the newest
+  ready clips of the other person's messages in each chat with a person, for background prefetch.
+
+**Pre-generated audio** (`services/chat/message-audio.ts`): after a text message with Chinese is sent, forwarded or
+edited, `pregenerateMessageClip` (waitUntil) makes its clip once — R2 `chat-tts/<conv>/<msg>-<hash>.mp3`, the hash
+covering text + voice + speed (`messageVoice` is the one place that picks the voice), stored in `messages.audio_key`
+(an edit clears it; the new text gets a new key), then a `message_updated` so every device learns
+`audio_clip` (`<msg>-<hash>`, on every message) and prefetches it. Claude role-play chats are skipped (their replies
+are spoken already). Read aloud and the listening tap play the same clip. Registered in the storage clean-up as
+`chat-tts/` (collectable, referenced by `messages.audio_key`).
+
+**Client prefetch** (both apps): clips cached by `audio_clip` (web media cache key `chat-clip/<clip>`, Lab
+`AudioCache`), so a tap plays at once and offline: on chat open (`prefetchSelection(messages, me, 20)`), on each
+new message / `message_updated` from the live socket, and in background sync from `/api/me/chat-clips`. A message
+with no `audio_clip` yet is fetched on tap (`GET /api/messages/:id/audio`) and cached under its `X-Clip-Id`.
+
+**UI**
+- Chat header ⋯ → **🎧 Listening mode** (a checkbox item; on → off), and while on **🙈 Hide all messages**.
+  Settings → Chat → **Listening mode in new chats** (the default). The header subtitle shows "🎧 Listening mode".
+- A hidden bubble: the normal received bubble (same size class, grey), the text replaced by 🎧 + 24 bars
+  (`listeningBars(id)`, stable per message) + the duration (`formatListeningDuration` of the clip, else
+  `~estimateSpeechSeconds(text)`), and the hint "Tap to listen · hold to reveal". Time / reply quote / reactions as usual.
+- **Tap** plays (bars animate, ▶ → ■; a tap while playing replays from the start). A small **0.75×** chip on the
+  bubble toggles slow playback (remembered on the device). **Long-press** (same 450–500 ms) reveals with a haptic and an
+  un-blur animation (blur 8 px → 0, 260 ms) — it does NOT open the message menu; once revealed, long-press opens the
+  menu again. A small **👁** button beside the bubble reveals it too (accessibility). Offline with no cached clip:
+  "Audio not downloaded yet" notice.
