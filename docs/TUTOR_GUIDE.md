@@ -221,7 +221,7 @@ of the last month.
 | Tab | What it opens |
 |-----|---------------|
 | **Study** | the home screen above |
-| **Chats** | every conversation with your tutor(s) and students in one list, newest first, with unread counts — tap one to open it, ✏️ for a new chat, search at the top |
+| **Chats** | one chat per person — your tutor(s) and students in one list, newest first, with unread counts — tap one to open it, ✏️ to message someone, search at the top |
 | **Tutor** | your tutor(s), homework and conversations (section 8) |
 | **Progress** | 30-day statistics and daily history (section 11) |
 | **More** | everything else — below |
@@ -683,7 +683,7 @@ Once you have a student, the **Students** tab is a dashboard — one card per st
    it to open the Recordings inbox.
 5. **Homework n%** — how far they are through everything you sent them (mastered cards
    count fully, started cards half, completed lessons fully).
-6. **Message** — opens your most recent conversation with them directly.
+6. **Message** — opens your chat with them (there is one chat per student).
 7. **Send homework** — share a deck or assign a lesson (section 8).
 8. A **Getting set up** card for a student who has not studied yet — the four steps
    *Signed in · Homework received · Installed the app · First study session*, with
@@ -727,8 +727,8 @@ Tap a student's name on the dashboard to open their page:
 
 1. The **status line** — last studied, streak, active days this month, and the date of
    your last logged lesson.
-2. **Message** — opens the latest conversation (no title to type; a fresh thread can be
-   started from the chat's own menu).
+2. **Message** — opens your chat with this student. There is exactly one chat per
+   tutor–student pair, so everything you and they have written is in one place.
 3. **Send homework** — below.
 4. **Needs attention** — the three words they are struggling with most this week…
 5. …each with the rating pattern and, for typing cards, the **exact characters they
@@ -751,7 +751,8 @@ Tap a student's name on the dashboard to open their page:
    yet (see *Update their copy* below). Then the student's **mini lessons**, with who
    made them and how they went; **Edit** opens the ones you assigned in the lesson editor,
    **Assign from library** adds another.
-10. **Conversations** — every chat thread with this student.
+10. **Messages** — your chat with this student: the last message, when, and how many are
+    unread; tap to open it.
 11. **Activity** — the last days with reviews, accuracy and time; **Show 30 days** for the
     whole month.
 12. **⋯** — the less common actions (next picture).
@@ -779,13 +780,15 @@ progress page, so you can tell "never opened the link" from "opened it, got stuc
 5. **Copy invite link**, for sending it again.
 
 Below the checklist the page already shows their **Homework** (the decks your invite
-copied) and the **Welcome** conversation.
+copied) and your chat with them, where the welcome message is waiting.
 
 ### Chat
 
 <img src="guide-images/chat.png" width="300">
 
-Chat is a simple message thread. On each message:
+Chat is a simple message thread — **one per tutor–student pair**. (Before October 2026
+there could be several; they were merged into one, every message kept in order, and old
+links still open it.) On each message:
 
 1. **Reply** — quote the message in your answer.
 2. **Play** — read the message aloud with TTS.
@@ -813,8 +816,8 @@ corrects and explains the sentence, with the result shown inline under the messa
 
 <img src="guide-images/chat-header-menu.png" width="300">
 
-1. The header ⋯: **New conversation**, **Add a title** / **Rename conversation** and
-   **All conversations**.
+1. The header ⋯: **Make flashcards**, **Show pinyin for all** and **Show translations for
+   all**. There is no "new conversation" or title — a chat is simply with a person.
 
 Messages arrive in the other person's notification bell and (if email is configured) by
 email. Chat polls every few seconds, so it is fine for asynchronous homework questions
@@ -1027,7 +1030,8 @@ percentage after a week are the ones to revisit in class.
 <img src="guide-images/connection-detail-student.png" width="300">
 
 On the student's side, the **Tutor** tab opens the tutor's page with **Message** (1), the
-list of **Conversations** (2) and **Homework from your tutor** (3) — the decks you sent.
+**Messages** row — the one chat with you (2) — and **Homework from your tutor** (3) — the
+decks you sent.
 Students can also share one of *their own* decks with you from the deck page (⋯ →
 **Share with tutor**) so that you can see progress on words they collected themselves.
 

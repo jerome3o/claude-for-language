@@ -1,4 +1,5 @@
-import { Hono, type MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
+import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
@@ -131,8 +132,6 @@ import { sendInvitationEmail, sendConnectionRequestEmail } from './services/emai
 import {
   getConversations,
   createConversation,
-  createOrOpenConversation,
-  resolveConversationId,
   getConversationById,
   getMessages,
   sendMessage,
@@ -479,36 +478,10 @@ app.route('/api/email', emailPublic);
 
 app.use('/api/*', authMiddleware);
 
-// A conversation id merged away by migration 0098 (one chat per pair) is served
-// as the chat it was merged into, for every /api/conversations/:id… route: the
-// request is re-dispatched with the new id (no redirect, so POST bodies and the
-// Authorization header survive on every client). `X-Conversation-Id` says which.
-const followMergedConversation: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
-  const id = c.req.param('id');
-  if (!id || c.req.header('X-Merged-From')) return next();
-  const row = await c.env.DB
-    .prepare('SELECT merged_into FROM conversations WHERE id = ?')
-    .bind(id)
-    .first<{ merged_into: string | null }>()
-    .catch(() => null);
-  if (!row?.merged_into) return next();
-  const target = (await resolveConversationId(c.env.DB, row.merged_into)) ?? row.merged_into;
-  const url = new URL(c.req.url);
-  url.pathname = url.pathname.replace(`/api/conversations/${id}`, `/api/conversations/${target}`);
-  const headers = new Headers(c.req.raw.headers);
-  headers.set('X-Merged-From', id);
-  const method = c.req.method;
-  const init: RequestInit = { method, headers };
-  if (method !== 'GET' && method !== 'HEAD') init.body = await c.req.raw.arrayBuffer();
-  let ctx: ExecutionContext | undefined;
-  try { ctx = c.executionCtx; } catch { ctx = undefined; }
-  const res = await app.fetch(new Request(url.toString(), init), c.env, ctx);
-  const out = new Response(res.body, res);
-  out.headers.set('X-Conversation-Id', target);
-  return out;
-};
-app.use('/api/conversations/:id', followMergedConversation);
-app.use('/api/conversations/:id/*', followMergedConversation);
+// One chat per pair: merged-away conversation ids answer as the chat they became,
+// and the conversation get / create / rename routes (routes/one-chat.ts).
+mountMergedConversations(app);
+app.route('/api', oneChatRoutes);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
 app.route('/api', lessonEditor);
@@ -3859,39 +3832,6 @@ app.get('/api/relationships/:relId/conversations', async (c) => {
   }
 });
 
-// Create a conversation. With a person there is ONE chat per pair: this returns
-// it (200, created on first use → 201) and ignores `title`. With Claude it makes
-// a new practice chat (201). docs/CHAT.md "One chat per pair".
-app.post('/api/relationships/:relId/conversations', async (c) => {
-  const userId = c.get('user').id;
-  const relId = c.req.param('relId');
-  const body = await c.req.json<CreateConversationRequest>().catch(() => ({} as CreateConversationRequest));
-
-  try {
-    const { conversation, created } = await createOrOpenConversation(c.env.DB, relId, userId, body);
-    return c.json(conversation, created ? 201 : 200);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to create conversation';
-    return c.json({ error: message }, 400);
-  }
-});
-
-// One conversation (a merged-away id answers as the chat it was merged into:
-// `merged_from` = the id asked for). Clients use it to swap an old id for the new one.
-app.get('/api/conversations/:id', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-  const conv = await getConversationById(c.env.DB, convId, userId);
-  if (!conv) return c.json({ error: 'Conversation not found' }, 404);
-  const asked = c.req.header('X-Merged-From') || convId;
-  return c.json({
-    ...conv,
-    is_ai_conversation: !!conv.is_ai_conversation,
-    merged_into: null,
-    merged_from: asked !== conv.id ? asked : null,
-  });
-});
-
 // GET / POST /api/conversations/:id/messages live in routes/chat-live.ts (read markers, client_id, live delivery).
 
 // Generate flashcard from conversation
@@ -4785,42 +4725,6 @@ app.post('/api/messages/:id/recording', async (c) => {
   } catch (error) {
     console.error('Upload recording error:', error);
     const message = error instanceof Error ? error.message : 'Failed to upload recording';
-    return c.json({ error: message }, 500);
-  }
-});
-
-// Rename a Claude practice chat. A chat with a person has no title any more
-// (one chat per pair, docs/CHAT.md) → 410.
-app.patch('/api/conversations/:id', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-  const { title } = await c.req.json<{ title?: string | null }>();
-
-  if (title !== undefined && title !== null && typeof title !== 'string') {
-    return c.json({ error: 'title must be a string' }, 400);
-  }
-  if (title === undefined) {
-    return c.json({ error: 'No updates provided' }, 400);
-  }
-
-  try {
-    const conv = await getConversationById(c.env.DB, convId, userId);
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-    if (!conv.is_ai_conversation) {
-      return c.json({ error: 'A chat with a person has no title: there is one chat per pair.' }, 410);
-    }
-    const trimmed = (title || '').trim().slice(0, 120);
-    await c.env.DB
-      .prepare('UPDATE conversations SET title = ? WHERE id = ?')
-      .bind(trimmed || null, conv.id)
-      .run();
-    const updated = await getConversationById(c.env.DB, conv.id, userId);
-    return c.json(updated);
-  } catch (error) {
-    console.error('Rename conversation error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to rename conversation';
     return c.json({ error: message }, 500);
   }
 });

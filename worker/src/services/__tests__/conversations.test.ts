@@ -159,14 +159,27 @@ describe('conversations service', () => {
   // ==================== createConversation ====================
 
   describe('createConversation', () => {
-    it('creates a basic conversation', async () => {
+    it('creates the pair\'s one conversation on first use', async () => {
       const newConv = createTestConversation({ id: 'generated-id-1' });
-      db.addResult('SELECT * FROM conversations WHERE id', newConv);
+      db.addResult('SELECT * FROM conversations WHERE relationship_id', newConv);
 
       const result = await createConversation(db as any, 'rel-1', tutor.id);
 
       expect(result.id).toBe('generated-id-1');
       expect(mockVerifyAccess).toHaveBeenCalledWith(db, 'rel-1', tutor.id);
+      const insert = db.getQueries().find(q => q.sql.includes('INSERT OR IGNORE INTO conversations'));
+      expect(insert).toBeDefined();
+    });
+
+    it('returns the existing conversation with a person instead of making a second one', async () => {
+      const existing = createTestConversation({ id: 'conv-1', relationship_id: 'rel-1' });
+      db.addResult('SELECT id FROM conversations WHERE relationship_id', { id: 'conv-1' });
+      db.addResult('SELECT * FROM conversations WHERE id', existing);
+
+      const result = await createConversation(db as any, 'rel-1', tutor.id, { title: 'Second chat' });
+
+      expect(result.id).toBe('conv-1');
+      expect(db.getQueries().some(q => q.sql.includes('INSERT'))).toBe(false);
     });
 
     it('creates a conversation with AI options when other user is Claude', async () => {
@@ -202,12 +215,12 @@ describe('conversations service', () => {
 
     it('uses default voice settings when not provided', async () => {
       const newConv = createTestConversation({ id: 'generated-id-1' });
-      db.addResult('SELECT * FROM conversations WHERE id', newConv);
+      db.addResult('SELECT * FROM conversations WHERE relationship_id', newConv);
 
       await createConversation(db as any, 'rel-1', tutor.id);
 
       const queries = db.getQueries();
-      const insertQuery = queries.find(q => q.sql.includes('INSERT INTO conversations'));
+      const insertQuery = queries.find(q => q.sql.includes('INTO conversations'));
       // The last two params should be the voice defaults
       expect(insertQuery!.params).toContain(DEFAULT_MINIMAX_VOICE);
       expect(insertQuery!.params).toContain(DEFAULT_TTS_SPEED);

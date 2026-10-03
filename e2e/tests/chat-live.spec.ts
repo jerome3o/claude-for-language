@@ -205,7 +205,7 @@ test('search, pins, and the New messages divider + unread badge', async ({ brows
   expect(pin.status).toBe(200);
 
   const studentPage = await openAs(browser, student, `/connections/${relId}`);
-  const item = studentPage.getByTestId('conversation-item').first();
+  const item = studentPage.getByTestId('one-chat-row');
   await expect(item.getByTestId('conversation-unread')).toHaveText('2', { timeout: 20000 });
   await item.click();
 

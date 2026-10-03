@@ -158,6 +158,42 @@ testAuth.post('/picture-hunt', async (c) => {
   return c.json({ id });
 });
 
+/**
+ * POST /api/test/merged-chats — a pair's chat as migration 0098 leaves it after
+ * merging older conversations (one chat per pair): the one conversation holding
+ * every message, plus the merged-away rows pointing at it (old links / ids).
+ * Body: { relationship_id, old_titles: string[], messages: [{ sender_id, content, created_at }] }
+ * → { conversation_id, merged_ids }.
+ */
+testAuth.post('/merged-chats', async (c) => {
+  const b = await c.req.json<{ relationship_id: string; old_titles?: string[]; messages?: Array<{ sender_id: string; content: string; created_at: string }> }>();
+  const db = c.env.DB;
+  const existing = await db
+    .prepare("SELECT id FROM conversations WHERE relationship_id = ? AND merged_into IS NULL AND COALESCE(is_ai_conversation, 0) = 0")
+    .bind(b.relationship_id)
+    .first<{ id: string }>();
+  const primary = existing?.id ?? crypto.randomUUID();
+  if (!existing) {
+    await db.prepare('INSERT INTO conversations (id, relationship_id, title) VALUES (?, ?, NULL)').bind(primary, b.relationship_id).run();
+  }
+  const mergedIds: string[] = [];
+  for (const title of b.old_titles ?? []) {
+    const id = crypto.randomUUID();
+    mergedIds.push(id);
+    await db.prepare('INSERT INTO conversations (id, relationship_id, title, merged_into) VALUES (?, ?, ?, ?)').bind(id, b.relationship_id, title, primary).run();
+  }
+  let last: string | null = null;
+  for (const m of b.messages ?? []) {
+    await db
+      .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), primary, m.sender_id, m.content, m.created_at)
+      .run();
+    if (!last || m.created_at > last) last = m.created_at;
+  }
+  if (last) await db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').bind(last, primary).run();
+  return c.json({ conversation_id: primary, merged_ids: mergedIds });
+});
+
 testAuth.post('/cleanup', async (c) => {
   const db = c.env.DB;
 

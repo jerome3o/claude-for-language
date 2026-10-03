@@ -15,12 +15,14 @@ const TUTOR = 'tutor-1';
 const STUDENT = 'student-1';
 
 function seed(db: SqliteD1) {
-  for (const [id, name] of [[TUTOR, 'Minghui'], [STUDENT, 'Jerome'], ['stranger', 'Nobody']]) {
+  for (const [id, name] of [[TUTOR, 'Minghui'], [STUDENT, 'Jerome'], ['stranger', 'Nobody'], ['tutor-2', 'Li']]) {
     db.raw.run('INSERT INTO users (id, email, name, role) VALUES (?, ?, ?, ?)', [id, `${id}@x.test`, name, 'student']);
   }
   db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-1', ?, ?, 'tutor', 'active')", [TUTOR, STUDENT]);
   db.raw.run("INSERT INTO conversations (id, relationship_id, title) VALUES ('conv-1', 'rel-1', 'Homework')");
-  db.raw.run("INSERT INTO conversations (id, relationship_id, title) VALUES ('conv-2', 'rel-1', NULL)");
+  // One chat per pair: the student's second chat is with a second tutor.
+  db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-2', 'tutor-2', ?, 'tutor', 'active')", [STUDENT]);
+  db.raw.run("INSERT INTO conversations (id, relationship_id, title) VALUES ('conv-2', 'rel-2', NULL)");
   // A role-play chat with Claude: never in the inbox.
   db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-ai', ?, 'claude-ai', 'student', 'active')", [STUDENT]);
   db.raw.run("INSERT INTO conversations (id, relationship_id, title, is_ai_conversation) VALUES ('conv-ai', 'rel-ai', 'Café', 1)");
@@ -149,7 +151,7 @@ describe('chat delivery routes', () => {
     insertMessage(db, 'old', 'conv-1', TUTOR, new Date(Date.now() - 9 * 86_400_000).toISOString(), 'old one');
     insertMessage(db, 'm-1', 'conv-1', TUTOR, recent(30), '第一');
     insertMessage(db, 'mine', 'conv-1', STUDENT, recent(20), 'my own');
-    insertMessage(db, 'm-2', 'conv-2', TUTOR, recent(10), '第二');
+    insertMessage(db, 'm-2', 'conv-2', 'tutor-2', recent(10), '第二');
     insertMessage(db, 'ai-1', 'conv-ai', 'claude-ai', recent(5), 'Bonjour');
 
     const student = makeApp(db, STUDENT);

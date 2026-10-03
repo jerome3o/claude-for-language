@@ -92,14 +92,19 @@ export function chatInitial(person: Pick<ChatListPerson, 'name'>): string {
 }
 
 /**
- * Row heading: the person; the conversation title only when there is more than
- * one conversation with that person (one chat with Minghui is just "Minghui").
+ * Row heading: the person. A chat with a person never has a title — there is
+ * one chat per pair (docs/CHAT.md "One chat per pair"). Only Claude practice
+ * chats, which may be several, show their title when there is more than one.
  */
-export function chatRowTitle(row: Pick<ChatListRow, 'other_user' | 'title' | 'relationship_id'>, rows: readonly Pick<ChatListRow, 'relationship_id'>[]): {
+export function chatRowTitle(
+  row: Pick<ChatListRow, 'other_user' | 'title' | 'relationship_id' | 'is_ai'>,
+  rows: readonly Pick<ChatListRow, 'relationship_id'>[],
+): {
   name: string;
   subtitle: string | null;
 } {
   const name = chatPersonName(row.other_user);
+  if (!row.is_ai) return { name, subtitle: null };
   const many = rows.filter((r) => r.relationship_id === row.relationship_id).length > 1;
   const title = (row.title ?? '').trim();
   return { name, subtitle: many ? title || 'Chat' : null };
@@ -147,7 +152,7 @@ function fold(s: string): string {
   return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
 
-/** Search: every word of the query must appear in the person's name, the title or the last message. */
+/** Search: every word of the query must appear in the person's name, the title (Claude chats) or the last message. */
 export function filterChatList<T extends Pick<ChatListRow, 'other_user' | 'title' | 'last_message'>>(rows: readonly T[], query: string): T[] {
   const words = fold(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return [...rows];

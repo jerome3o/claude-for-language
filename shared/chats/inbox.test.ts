@@ -78,11 +78,17 @@ describe('rows', () => {
     const tie = [row({ conversation_id: 'z' }), row({ conversation_id: 'y' })];
     expect(sortChatList(tie).map((r) => r.conversation_id)).toEqual(['y', 'z']);
   });
-  it('title only when several chats with the same person', () => {
-    expect(chatRowTitle(rows[0], rows)).toEqual({ name: 'Minghui', subtitle: 'Homework' });
-    expect(chatRowTitle(rows[1], rows)).toEqual({ name: 'Minghui', subtitle: 'Chat' });
+  it('a person is just their name (one chat per pair); Claude chats show a title when several', () => {
+    expect(chatRowTitle(rows[0], rows)).toEqual({ name: 'Minghui', subtitle: null });
     expect(chatRowTitle(rows[2], rows)).toEqual({ name: 'Émile', subtitle: null });
     expect(chatRowTitle(row({ conversation_id: 'x', other_user: { id: 'q', name: '  ', picture_url: null } }), [])).toEqual({ name: 'Someone', subtitle: null });
+    const ai = [
+      row({ conversation_id: 'p1', relationship_id: 'rel-ai', is_ai: true, title: 'At the café', other_user: { id: 'claude-ai', name: 'Claude', picture_url: null } }),
+      row({ conversation_id: 'p2', relationship_id: 'rel-ai', is_ai: true, title: null, other_user: { id: 'claude-ai', name: 'Claude', picture_url: null } }),
+    ];
+    expect(chatRowTitle(ai[0], ai)).toEqual({ name: 'Claude', subtitle: 'At the café' });
+    expect(chatRowTitle(ai[1], ai)).toEqual({ name: 'Claude', subtitle: 'Chat' });
+    expect(chatRowTitle(ai[0], [ai[0]])).toEqual({ name: 'Claude', subtitle: null });
   });
   it('initial', () => {
     expect(chatInitial({ name: 'minghui' })).toBe('M');

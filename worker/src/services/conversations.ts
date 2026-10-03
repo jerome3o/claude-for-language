@@ -264,13 +264,18 @@ export async function getConversationById(
   conversationId: string,
   userId: string
 ): Promise<Conversation | null> {
-  // A merged-away id (migration 0098) answers as the chat it was merged into.
-  const resolved = await resolveConversationId(db, conversationId);
-  if (!resolved) return null;
-  const conv = await db
+  let conv = await db
     .prepare('SELECT * FROM conversations WHERE id = ?')
-    .bind(resolved)
+    .bind(conversationId)
     .first<Conversation>();
+
+  // A merged-away id (migration 0098) answers as the chat it was merged into.
+  if (conv?.merged_into) {
+    const resolved = await resolveConversationId(db, conv.merged_into);
+    conv = resolved
+      ? await db.prepare('SELECT * FROM conversations WHERE id = ?').bind(resolved).first<Conversation>()
+      : null;
+  }
 
   if (!conv) return null;
 

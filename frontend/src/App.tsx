@@ -334,6 +334,17 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* The one chat with that person (docs/CHAT.md "One chat per pair") */}
+      <Route
+        path="/connections/:relId/chat"
+        element={
+          <ProtectedRoute>
+            <ErrorBoundary fallbackTitle="Chat couldn't load">
+              <ChatPage />
+            </ErrorBoundary>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/connections/:relId/progress"
         element={
