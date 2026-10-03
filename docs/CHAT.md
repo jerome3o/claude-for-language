@@ -393,7 +393,7 @@ there's more than one) → `/connections/:relId/chat/new`. A row opens the chat 
 - The tab badge = conversations with people (not Claude) that have unread messages
   (`unreadConversationCount`).
 
-## Listening mode (migration 0098_chat_listening.sql)
+## Listening mode (migration 0099_chat_listening.sql)
 
 Jerome: "Hide the messages initially but let me play them out loud, so I can try my listening comprehension on a
 new message. A long click on the hidden message reveals it, a single click plays it."
