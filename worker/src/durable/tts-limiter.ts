@@ -1,7 +1,10 @@
 /**
- * TtsLimiter — ONE Durable Object (idFromName('minimax')) that every MiniMax
- * call asks for a slot first: stored clips, conversation lines, chat
- * read-aloud, voice samples (docs/AUDIO.md "Rate limit"). The bucket
+ * TtsLimiter — ONE Durable Object per TTS provider (idFromName('minimax' |
+ * 'azure' | 'google')) that every call to that provider asks for a slot first:
+ * stored clips, conversation lines, chat read-aloud, voice samples
+ * (docs/AUDIO.md "Rate limit", "Providers"). Each instance learns its own rate
+ * and holds its own account pause; the MiniMax one also holds the backfill
+ * pump's lease and the night flag (the others share the night via setNight). The bucket
  * arithmetic is pure (services/tts/bucket.ts); this object holds the state,
  * counts what happened per minute (the backfill status's throughput), knows
  * whether it is night (the nightly backfill may use more of the rate) and
@@ -36,7 +39,8 @@ import {
 } from '../services/tts/account';
 import { notifyTtsAccountCleared, notifyTtsAccountProblem } from '../services/notifications';
 import { startPump } from '../services/tts/queue';
-import type { TtsReport } from '../services/tts/limiter';
+import type { LimiterTarget, TtsReport } from '../services/tts/limiter';
+import { TTS_PROVIDER_NAMES, type TtsProviderId } from '@shared/tts';
 
 export interface MinuteStats {
   /** Epoch minute. */
@@ -69,6 +73,9 @@ export interface LimiterSnapshot {
   minutes: MinuteStats[];
   /** No credit / bad key: every call paused (services/tts/account.ts). Null = fine. */
   account_problem: AccountProblem | null;
+  provider: TtsProviderId;
+  last_ok_at: number | null;
+  last_error: { at: number; reason: string } | null;
 }
 
 const LOG_EVERY_MS = 60_000;
@@ -82,14 +89,26 @@ export class TtsLimiter extends DurableObject<Env> {
   private minutes: MinuteStats[] = [];
   private adaptive: AdaptiveState | null = null;
   private account: AccountProblem | null = null;
+  private provider: TtsProviderId = 'minimax';
+  /** The admin's cap for this provider (tts_settings max_rpm), passed with each call. */
+  private maxRpm: number | null = null;
+  private lastOkAt: number | null = null;
+  private lastError: { at: number; reason: string } | null = null;
   private loaded = false;
   private lastLog = 0;
 
   private async load(): Promise<void> {
     if (this.loaded) return;
     const storage = (this.ctx as DurableObjectState).storage;
-    const saved = await storage.get<{ nightUntil?: number; pumpLeaseUntil?: number; pumpToken?: string; minutes?: MinuteStats[] }>('meta');
+    const saved = await storage.get<{
+      nightUntil?: number; pumpLeaseUntil?: number; pumpToken?: string; minutes?: MinuteStats[];
+      provider?: TtsProviderId; maxRpm?: number | null; lastOkAt?: number | null; lastError?: { at: number; reason: string } | null;
+    }>('meta');
     this.nightUntil = saved?.nightUntil ?? 0;
+    if (saved?.provider) this.provider = saved.provider;
+    this.maxRpm = saved?.maxRpm ?? null;
+    this.lastOkAt = saved?.lastOkAt ?? null;
+    this.lastError = saved?.lastError ?? null;
     this.pumpLeaseUntil = saved?.pumpLeaseUntil ?? 0;
     this.pumpToken = saved?.pumpToken ?? '';
     this.minutes = saved?.minutes ?? [];
@@ -107,8 +126,19 @@ export class TtsLimiter extends DurableObject<Env> {
   /** ntfy (NTFY_TOPIC) — a method so tests can see it. */
   protected async notify(event: 'account_problem' | 'account_cleared', info: { code: number | string; message?: string; minutes?: number; reset?: number }): Promise<void> {
     if (!this.env.NTFY_TOPIC) return;
-    if (event === 'account_problem') await notifyTtsAccountProblem(this.env.NTFY_TOPIC, { code: info.code, message: info.message ?? '' });
-    else await notifyTtsAccountCleared(this.env.NTFY_TOPIC, { code: info.code, minutes: info.minutes ?? 0, reset: info.reset ?? 0 });
+    const provider = TTS_PROVIDER_NAMES[this.provider];
+    if (event === 'account_problem') await notifyTtsAccountProblem(this.env.NTFY_TOPIC, { code: info.code, message: info.message ?? '', provider });
+    else await notifyTtsAccountCleared(this.env.NTFY_TOPIC, { code: info.code, minutes: info.minutes ?? 0, reset: info.reset ?? 0, provider });
+  }
+
+  /** The caller says which provider this instance is and the admin's cap (stored when it changes). */
+  private target(t?: LimiterTarget): void {
+    if (!t) return;
+    const maxRpm = typeof t.maxRpm === 'number' && t.maxRpm >= 1 ? Math.floor(t.maxRpm) : null;
+    if (t.provider === this.provider && maxRpm === this.maxRpm) return;
+    this.provider = t.provider;
+    this.maxRpm = maxRpm;
+    this.save();
   }
 
   /** The account works again: clips that failed only for the account are due now, and the pump runs. */
@@ -132,6 +162,10 @@ export class TtsLimiter extends DurableObject<Env> {
       pumpLeaseUntil: this.pumpLeaseUntil,
       pumpToken: this.pumpToken,
       minutes: this.minutes,
+      provider: this.provider,
+      maxRpm: this.maxRpm,
+      lastOkAt: this.lastOkAt,
+      lastError: this.lastError,
     });
   }
 
@@ -140,8 +174,18 @@ export class TtsLimiter extends DurableObject<Env> {
     void storage.put('adaptive', this.adaptive);
   }
 
+  /**
+   * MiniMax: the env caps (MINIMAX_RPM hard cap, MINIMAX_RPM_MAX ceiling) and the
+   * admin's max RPM, whichever is lower. Others: the admin's max RPM.
+   */
   private bounds() {
-    return adaptiveBounds(this.env.MINIMAX_RPM, this.env.MINIMAX_RPM_MAX);
+    if (this.provider === 'minimax') {
+      const env = Number(this.env.MINIMAX_RPM);
+      const hard = this.maxRpm !== null ? (Number.isFinite(env) && env >= 1 ? Math.min(env, this.maxRpm) : this.maxRpm) : this.env.MINIMAX_RPM;
+      return adaptiveBounds(hard, this.env.MINIMAX_RPM_MAX);
+    }
+    const cap = this.maxRpm ?? 15;
+    return adaptiveBounds(cap, cap);
   }
 
   /** The learned rate after closing any finished minute (persisted when it changed). */
@@ -195,8 +239,9 @@ export class TtsLimiter extends DurableObject<Env> {
   }
 
   /** One slot for one MiniMax call, or how long to wait. */
-  async acquire(priority: TtsPriority): Promise<{ granted: boolean; retryAfterMs: number; remaining: number; account?: number | string }> {
+  async acquire(priority: TtsPriority, target?: LimiterTarget): Promise<{ granted: boolean; retryAfterMs: number; remaining: number; account?: number | string }> {
     await this.load();
+    this.target(target);
     const now = Date.now();
     // An account problem pauses everyone (not demand the rate should learn from).
     const gate = accountGate(this.account, now);
@@ -226,10 +271,13 @@ export class TtsLimiter extends DurableObject<Env> {
    * What the call did: ok, failed, MiniMax said rate limit (→ everyone backs
    * off), or an account error (→ every call paused; returns for how long).
    */
-  async report(outcome: TtsReport, detail?: { code: number | string; message: string }): Promise<{ pausedForMs?: number }> {
+  async report(outcome: TtsReport, detail?: { code: number | string; message: string }, target?: LimiterTarget): Promise<{ pausedForMs?: number }> {
     await this.load();
+    this.target(target);
     const now = Date.now();
     const s = this.stat(now);
+    if (outcome === 'ok') this.lastOkAt = now;
+    else if (outcome !== 'rate_limited') this.lastError = { at: now, reason: (detail?.message || detail?.code?.toString() || outcome).slice(0, 200) };
     if (outcome === 'account_error') {
       s.failed += 1;
       const { problem, started } = noteAccountError(this.account, detail?.code ?? 'unknown', detail?.message ?? '', now);
@@ -258,6 +306,12 @@ export class TtsLimiter extends DurableObject<Env> {
     else s.failed += 1;
     this.save();
     return {};
+  }
+
+  /** The account problem only (services/tts/config.ts: is this provider available?). */
+  async accountStatus(): Promise<AccountProblem | null> {
+    await this.load();
+    return this.account;
   }
 
   /**
@@ -297,8 +351,9 @@ export class TtsLimiter extends DurableObject<Env> {
     this.save();
   }
 
-  async snapshot(): Promise<LimiterSnapshot> {
+  async snapshot(target?: LimiterTarget): Promise<LimiterSnapshot> {
     await this.load();
+    this.target(target);
     const now = Date.now();
     const cfg = this.cfg(now);
     const bucket = refill(this.bucket(now), cfg, now); // a view; not stored
@@ -321,6 +376,9 @@ export class TtsLimiter extends DurableObject<Env> {
       pump_lease_until: this.pumpLeaseUntil > now ? this.pumpLeaseUntil : null,
       minutes: this.minutes.filter((m) => m.minute > minute - KEEP_MINUTES),
       account_problem: this.account,
+      provider: this.provider,
+      last_ok_at: this.lastOkAt,
+      last_error: this.lastError,
     };
   }
 }

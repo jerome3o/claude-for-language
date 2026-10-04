@@ -134,12 +134,17 @@ export function noteCallOutcome(
  */
 export function accountFailureCondition(code?: number | string | null): { sql: string; params: string[] } {
   if (code !== undefined && code !== null && String(code).trim() !== '') {
-    const c = String(code).trim().replace(/^http\s+/, '');
-    return { sql: '(last_error LIKE ? OR last_error LIKE ?)', params: [`base_resp ${c}%`, `http ${c}%`] };
+    const c = String(code).trim().replace(/^(azure\s+|google\s+)?http\s+/, '');
+    return {
+      sql: '(last_error LIKE ? OR last_error LIKE ? OR last_error LIKE ? OR last_error LIKE ?)',
+      params: [`base_resp ${c}%`, `http ${c}%`, `azure http ${c}%`, `google http ${c}%`],
+    };
   }
   const params = [
     ...[...MINIMAX_ACCOUNT_CODES].map((c) => `base_resp ${c}%`),
     ...[...MINIMAX_ACCOUNT_HTTP].map((s) => `http ${s}%`),
+    // Azure / Google (services/tts/providers.ts writes `azure http 401 …`).
+    ...['azure', 'google'].flatMap((p) => [...MINIMAX_ACCOUNT_HTTP].map((s) => `${p} http ${s}%`)),
   ];
   return { sql: `(${params.map(() => 'last_error LIKE ?').join(' OR ')})`, params };
 }

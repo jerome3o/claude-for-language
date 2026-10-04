@@ -127,7 +127,7 @@ export function registerAdminTools(ctx: ToolContext): void {
 
   server.tool(
     'audio_backfill_status',
-    'ADMIN ONLY. Read-only state of the TTS audio pipeline. FIRST `account_problem`: null when MiniMax answers normally, else { code (e.g. 2053 insufficient credit, 1004 / 2049 bad key), message, since, paused_until, errors_in_a_row, probing } — every MiniMax call is paused (5 → 60 min, a probe call after each pause) and no clip loses attempts; `clips_waiting_on_account_errors`; `account` (MiniMax has no balance API for pay-as-you-go keys, so balance is null). Then: current settings (MiniMax model, voice, speed), the backlog of stored clips by kind (word / card sentence / sentence set) and state (current, missing, Google-made, old voice/model, waiting to retry), clips by provider / model / voice, recent failures, the MiniMax rate limiter (the LEARNED RPM — adaptive, starts at 8/min, ×1.25 (≥ +2) per clean busy minute, halves on a 1002 — with its cap, last_rate_limited_at and recent changes; night mode, tokens, last-hour calls by priority, rate-limited count, whether the backfill pump is running), measured throughput (clips/min), an ETA for the whole backlog, and eta_at_learned_rpm (the ETA at the batch share of the learned rate).',
+    'ADMIN ONLY. Read-only state of the TTS audio pipeline. `providers`: per TTS provider (minimax, azure, google) whether it is configured (missing secret names), enabled, available, its account problem, learned RPM / cap, last success, last error and last-hour counts; `stored_clips`: the effective stored-clip order, the first provider, whether it is unavailable, which providers\' clips count as current (audio_settings_get / audio_settings_update change these). `account_problem`: null when MiniMax answers normally, else { code (e.g. 2053 insufficient credit, 1004 / 2049 bad key), message, since, paused_until, errors_in_a_row, probing } — every MiniMax call is paused (5 → 60 min, a probe call after each pause) and no clip loses attempts; `clips_waiting_on_account_errors`; `account` (MiniMax has no balance API for pay-as-you-go keys, so balance is null). Then: current settings (MiniMax model, voice, speed), the backlog of stored clips by kind (word / card sentence / sentence set) and state (current, missing, Google-made, old voice/model, waiting to retry), clips by provider / model / voice, recent failures, the MiniMax rate limiter (the LEARNED RPM — adaptive, starts at 8/min, ×1.25 (≥ +2) per clean busy minute, halves on a 1002 — with its cap, last_rate_limited_at and recent changes; night mode, tokens, last-hour calls by priority, rate-limited count, whether the backfill pump is running), measured throughput (clips/min), an ETA for the whole backlog, and eta_at_learned_rpm (the ETA at the batch share of the learned rate).',
     {},
     async () => guard(async () => jsonResult(await api.get('/api/admin/audio/backfill')))
   );
@@ -144,6 +144,47 @@ export function registerAdminTools(ctx: ToolContext): void {
     'ADMIN ONLY. Retry clips that are waiting out a failure, now: their attempts go back to 0 and the backfill picks them on its next pass. No `error_code` = clips that failed because of the MiniMax ACCOUNT (2053 insufficient credit, 1008, 1004 / 2049 bad key, HTTP 401 / 403); a code (e.g. 2053, or an HTTP status) = only those; "all" = every failure. Also ends a running account pause so the next call probes MiniMax at once, and starts the pump. Use after fixing the MiniMax account.',
     { error_code: z.union([z.number().int(), z.string().max(12)]).optional().describe('A MiniMax base_resp code (2053), an HTTP status (401), or "all". Default: every account-level error.') },
     async ({ error_code }) => guard(async () => jsonResult(await api.post('/api/admin/audio/retry-failed', error_code !== undefined ? { error_code } : {})))
+  );
+
+  // ---------- Audio providers (docs/AUDIO.md "Providers"; worker/src/routes/audio-settings.ts) ----------
+
+  const PROVIDER = z.enum(['minimax', 'azure', 'google']);
+  const ORDER = z.array(PROVIDER).min(1).max(3);
+
+  server.tool(
+    'audio_settings_get',
+    'ADMIN ONLY. Read-only. Which TTS provider speaks and in what order: `settings` = { stored_order (providers tried for clips that are KEPT: word / card sentence / sentence-set clips, lesson + chat clips cached on devices), live_order (played once: chat Read-aloud fallback, role-play replies), upgrade_backup_clips (remake a backup provider\'s clips with the first provider once it is available again), providers: { minimax | azure | google: { enabled, max_rpm, voices: { default, female, male }, speed_factor (rate = 1 + (app speed − 1) × factor) } } }; `defaults` (MiniMax only for stored, Google live fallback); `catalogue` (curated voices per provider); `providers` (configured? missing secrets, account problem, learned RPM, last success / error); `effective` (the orders minus disabled / unconfigured providers, which providers\' clips are current, the rates cards (0.6) and conversations (0.9) are spoken at). `azure_voices: true` also lists the zh-CN voices Azure offers in its region (proves the key works).',
+    { azure_voices: z.boolean().optional().describe('Also list the zh-CN voices of the configured Azure region (one read-only Azure call).') },
+    async ({ azure_voices }) => guard(async () => jsonResult(await api.get('/api/admin/audio/settings', azure_voices ? { azure_voices: '1' } : undefined)))
+  );
+
+  server.tool(
+    'audio_settings_update',
+    'ADMIN ONLY. Change the TTS provider settings (only the fields given; validated — a 400 lists every problem). Typical: MiniMax out of credit → stored_order ["minimax", "azure"] (Azure makes clips while MiniMax is paused; with upgrade_backup_clips the backfill remakes them with MiniMax later). Reordering so another provider is first makes the backfill remake every clip with it (unless upgrade_backup_clips is false). `reset: true` = back to the defaults. Takes effect within ~30 s. Returns the same view as audio_settings_get.',
+    {
+      stored_order: ORDER.optional().describe('Providers for clips that are kept, first = preferred. Disabled / unconfigured ones are skipped at run time.'),
+      live_order: ORDER.optional().describe('Providers for live playback nobody keeps.'),
+      upgrade_backup_clips: z.boolean().optional(),
+      providers: z
+        .record(
+          PROVIDER,
+          z.object({
+            enabled: z.boolean().optional(),
+            max_rpm: z.number().int().min(1).max(600).optional().describe('Hard cap on requests per minute (Azure F0 allows 20 / 60 s).'),
+            voices: z.object({ default: z.string().optional(), female: z.string().optional(), male: z.string().optional() }).optional(),
+            speed_factor: z.number().min(0).max(2).optional(),
+          }),
+        )
+        .optional(),
+      reset: z.boolean().optional().describe('true = every setting back to the defaults (the other fields are ignored).'),
+    },
+    async ({ reset, ...rest }) =>
+      guard(async () => {
+        if (reset) return jsonResult(await api.put('/api/admin/audio/settings', { reset: true }));
+        const body = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+        if (Object.keys(body).length === 0) return errorResult('Nothing to change: pass stored_order, live_order, upgrade_backup_clips, providers or reset.');
+        return jsonResult(await api.put('/api/admin/audio/settings', body));
+      })
   );
 
   server.tool(

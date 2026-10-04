@@ -17,7 +17,8 @@
 import type { Env } from '../../types';
 import { generateTTSDetailed, type TTSOptions, type TTSOutcome } from '../audio';
 import type { TtsPriority } from './bucket';
-import { clipSignature, ttsSettings, type TtsSettings } from './settings';
+import { clipSignature, settingsHash, TTS_MODEL } from './settings';
+import { storedClipPolicy, type StoredClipPolicy } from './config';
 
 export type ClipKind = 'word' | 'clue' | 'sentence';
 export interface ClipTarget {
@@ -45,6 +46,21 @@ export interface EnsureClipOptions {
   tts?: TtsFn;
   /** Internal: a copy's source is ensured at most one level deep. */
   depth?: number;
+  /** Which providers' clips are current (default: from the admin settings + account state). */
+  policy?: StoredClipPolicy;
+}
+
+/** The settings hash a new clip records (null = custom settings, never current). */
+function signatureHashOf(r: { provider: string; voice: string; speed: number; settingsHash?: string | null }, policy: StoredClipPolicy): string | null {
+  if (r.settingsHash !== undefined) return r.settingsHash;
+  // A maker that doesn't say (tests, old callers): a MiniMax clip in the house voice + speed.
+  if (r.provider === 'minimax' && settingsHash(TTS_MODEL, r.voice, r.speed) === policy.hashes.minimax) return policy.hashes.minimax;
+  return null;
+}
+
+/** The signatures a clip of `text` may carry and still be current. */
+export function acceptableSignatures(policy: Pick<StoredClipPolicy, 'acceptableHashes'>, text: string): Set<string> {
+  return new Set(policy.acceptableHashes.map((hash) => clipSignature({ hash }, text)));
 }
 
 interface Columns {
@@ -273,12 +289,13 @@ function keyIdFor(target: ClipTarget, row: ClipRow): string {
 // ---------- The one entry point ----------
 
 export async function ensureClip(env: Env, target: ClipTarget, opts: EnsureClipOptions): Promise<ClipResult> {
-  const settings = ttsSettings(env);
+  const policy = opts.policy ?? (await storedClipPolicy(env));
+  opts = { ...opts, policy };
   const row = await loadClipRow(env.DB, target);
   if (!row) return { status: 'gone' };
   const text = (row.text ?? '').trim();
   if (!text) return { status: 'none' };
-  const signature = clipSignature(settings, text);
+  const current = acceptableSignatures(policy, text);
 
   let broken = false;
   if (row.url && opts.brokenKeys?.has(audioKeyOf(row.url))) {
@@ -291,12 +308,12 @@ export async function ensureClip(env: Env, target: ClipTarget, opts: EnsureClipO
   const hasClip = !!row.url && !broken;
   if (hasClip && !opts.force) {
     if (opts.onlyMissing) return { status: 'current' };
-    if (row.signature === signature) return { status: 'current' };
+    if (row.signature && current.has(row.signature)) return { status: 'current' };
   }
 
   // A student's copy: share the tutor's clip instead of making its own.
   if (target.kind !== 'sentence' && (opts.depth ?? 0) === 0 && !opts.force) {
-    const shared = await shareFromSource(env, target, row, hasClip, signature, settings, opts);
+    const shared = await shareFromSource(env, target, row, hasClip, current, opts);
     if (shared) return shared;
   }
 
@@ -313,11 +330,11 @@ export async function ensureClip(env: Env, target: ClipTarget, opts: EnsureClipO
 
   const prov: ClipProvenance = {
     url: made.result.audioKey,
-    provider: 'minimax',
+    provider: made.result.provider,
     voice: made.result.voice,
     model: made.result.model,
     // A clip made with other settings (a custom voice / speed) is not "current".
-    signature: made.result.voice === settings.voice && made.result.speed === settings.speed ? signature : null,
+    signature: signatureHashOf(made.result, policy) ? clipSignature({ hash: signatureHashOf(made.result, policy)! }, text) : null,
   };
   const ok = await writeClip(env.DB, target, row.url, prov);
   if (!ok) {
@@ -344,8 +361,7 @@ async function shareFromSource(
   target: ClipTarget,
   row: ClipRow,
   hasClip: boolean,
-  signature: string,
-  settings: TtsSettings,
+  current: Set<string>,
   opts: EnsureClipOptions,
 ): Promise<ClipResult | null> {
   const sourceId = await findSourceNote(env.DB, row);
@@ -361,7 +377,7 @@ async function shareFromSource(
     return { status: ok ? 'copied' : 'current' };
   };
 
-  const sourceCurrent = !!source.url && source.signature === signature;
+  const sourceCurrent = !!source.url && !!source.signature && current.has(source.signature);
   if (sourceCurrent && source.url !== row.url && (await r2Has(env, source.url!))) return copy(source);
   if (!hasClip && source.url && (await r2Has(env, source.url))) return copy(source);
   if (opts.onlyMissing && hasClip) return { status: 'current' };
@@ -370,8 +386,8 @@ async function shareFromSource(
   const made = await ensureClip(env, sourceTarget, { ...opts, depth: 1, onlyMissing: false });
   if (made.status === 'rate_limited' || made.status === 'failed') return made;
   const mine = await loadClipRow(env.DB, target);
-  if (mine?.url && mine.signature === signature) return { status: 'copied' };
+  if (mine?.url && mine.signature && current.has(mine.signature)) return { status: 'copied' };
   source = await loadClipRow(env.DB, sourceTarget);
-  if (source?.url && source.signature === clipSignature(settings, (source.text ?? '').trim())) return copy(source);
+  if (source?.url && source.signature && acceptableSignatures(opts.policy!, (source.text ?? '').trim()).has(source.signature)) return copy(source);
   return null;
 }

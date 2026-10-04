@@ -104,7 +104,7 @@ export interface LocalNote {
   pinyin: string;
   english: string;
   audio_url: string | null;
-  audio_provider: 'minimax' | 'gtts' | null;
+  audio_provider: 'minimax' | 'azure' | 'gtts' | null;
   fun_facts: string | null;
   context: string | null;
   sentence_clue: string | null;

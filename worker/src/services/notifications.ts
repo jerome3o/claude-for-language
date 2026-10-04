@@ -55,22 +55,24 @@ export async function notifyNewChatMessage(topic: string, senderName: string, me
 }
 
 /** MiniMax stopped speaking for an account reason (no credit, bad key) — sent once when it starts. */
-export async function notifyTtsAccountProblem(topic: string, problem: { code: number | string; message: string }): Promise<void> {
+export async function notifyTtsAccountProblem(topic: string, problem: { code: number | string; message: string; provider?: string }): Promise<void> {
+  const name = problem.provider ?? 'MiniMax';
   await sendNtfy(
     topic,
-    'MiniMax TTS paused - Chinese Learning App',
-    `Every MiniMax call fails: ${problem.code} ${problem.message}\nAudio is paused (retrying every 5–60 min); no clip loses its attempts. Check the credit / API key.`,
+    `${name} TTS paused - Chinese Learning App`,
+    `Every ${name} call fails: ${problem.code} ${problem.message}\n${name} is paused (retrying every 5–60 min; the next provider in /admin/audio speaks meanwhile); no clip loses its attempts. Check the credit / API key.`,
     'warning,sound',
     '4',
   );
 }
 
 /** …and once when a probe call works again. */
-export async function notifyTtsAccountCleared(topic: string, info: { code: number | string; minutes: number; reset: number }): Promise<void> {
+export async function notifyTtsAccountCleared(topic: string, info: { code: number | string; minutes: number; reset: number; provider?: string }): Promise<void> {
+  const name = info.provider ?? 'MiniMax';
   await sendNtfy(
     topic,
-    'MiniMax TTS working again - Chinese Learning App',
-    `MiniMax answers again after ${info.minutes} min of ${info.code}. ${info.reset} waiting clips retried now; the backfill pump is running.`,
+    `${name} TTS working again - Chinese Learning App`,
+    `${name} answers again after ${info.minutes} min of ${info.code}. ${info.reset} waiting clips retried now; the backfill pump is running.`,
     'white_check_mark,sound',
   );
 }
