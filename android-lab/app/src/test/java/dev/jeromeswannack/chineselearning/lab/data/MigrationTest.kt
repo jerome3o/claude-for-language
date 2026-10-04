@@ -173,4 +173,31 @@ class MigrationTest {
         }
         room.close()
     }
+
+    /** v6 adds study_bumps ("⚡ Study it today"): empty to start; unsynced events and outbox items stay. */
+    @Test fun v5ToV6AddsStudyBumpsAndKeepsEverything() {
+        createFromExportedSchema(5).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId) VALUES ('d1', 'HSK 3', NULL, 3, 6, 2, '2026-10-01 10:00:00', 'f1')")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt) VALUES ('n1', 'd1', '银行', 'yínháng', 'bank', '2026-10-01 10:00:00')")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'hanzi_to_meaning', 2, 5, 5, 5, 2, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-10-03T08:00:00.000Z', 4200, NULL, 0)")
+            db.execSQL("INSERT INTO outbox (id, kind, method, path, bodyJson, createdAt, attempts, state) VALUES ('o1', 'note-long-term', 'PUT', '/api/notes/n1/long-term', '{}', 1, 0, 'pending')")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            assertEquals("f1", dao.decks().single().folderId)
+            assertEquals(1, room.platform().pendingOutboxCount())
+            assertEquals(emptyList<StudyBumpEntity>(), dao.studyBumps())
+            dao.upsertStudyBumps(listOf(StudyBumpEntity("n1", "b1", "2026-10-04 09:00:00", "coach", "Minghui", pending = "add", outboxId = "o2")))
+            assertEquals("Minghui", dao.studyBumps().single().bumpedByName)
+            assertEquals(listOf(ReviewSpan("c1", "2026-10-03T08:00:00.000Z", "2026-10-03T08:00:00.000Z")), dao.reviewSpans(listOf("c1")))
+            assertEquals(listOf("c1"), dao.cardsOfNotes(listOf("n1")).map { it.id })
+        }
+        room.close()
+    }
 }

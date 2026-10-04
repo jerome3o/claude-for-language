@@ -37,6 +37,8 @@ class DecksEnv(
     /** Folder writes for the Decks list (data/folders/); null = no folders (old tests / previews). */
     val folderWrites: dev.jeromeswannack.chineselearning.lab.data.folders.FolderWrites? = null,
     val folderFeel: dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel.None,
+    /** "⚡ Study it today" on a word (data/bumps/BumpStore.kt); null = none (old tests / previews). */
+    val bumps: DeckBumps? = null,
 ) {
     companion object {
         fun from(app: LabApp): DecksEnv {
@@ -73,6 +75,11 @@ class DecksEnv(
                 ),
                 folderWrites = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderController.writes(app),
                 folderFeel = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel.of(app),
+                bumps = DeckBumps(
+                    bump = { ids, source -> dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpNotes(app, ids, source).message },
+                    clear = { id, source -> dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.clear(app, id, source) },
+                    openNoteIds = { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.openNoteIds(app.repo.dao) },
+                ),
             )
         }
 
@@ -90,4 +97,14 @@ class DecksFx(
     val success: () -> Unit = {},
     val failure: () -> Unit = {},
     val playAudio: (key: String?, text: String) -> Unit = { _, _ -> },
+)
+
+/** "⚡ Study it today" for the deck page and Paste a list (data/bumps/BumpStore.kt). */
+class DeckBumps(
+    /** Bump these notes → the confirmation (core Bumps.bumpedMessage). */
+    val bump: suspend (noteIds: List<String>, source: String) -> String,
+    /** "Remove from today". */
+    val clear: suspend (noteId: String, source: String) -> Unit,
+    /** Notes with cards still in today's pocket. */
+    val openNoteIds: suspend () -> Set<String>,
 )

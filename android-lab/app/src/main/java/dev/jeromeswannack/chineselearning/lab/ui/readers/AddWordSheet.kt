@@ -41,7 +41,13 @@ class AddWordActions(
 
 /** A tapped word: hanzi · pinyin · English, which deck, Add to deck (Add anyway when it's already there). */
 @Composable
-fun AddWordSheet(chunk: SentenceChunkDto, actions: AddWordActions, onDismiss: () -> Unit, onAdded: () -> Unit = {}) {
+fun AddWordSheet(
+    chunk: SentenceChunkDto, actions: AddWordActions, onDismiss: () -> Unit, onAdded: () -> Unit = {},
+    bumpSource: String = "reader",
+    /** "⚡ Study it today" when the word is already a card (null = none: previews). */
+    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi(bumpSource),
+) {
+    var bumped by remember { mutableStateOf<String?>(null) }
     var decks by remember { mutableStateOf<List<DeckChoice>>(emptyList()) }
     var deckId by remember { mutableStateOf<String?>(null) }
     var duplicate by remember { mutableStateOf(false) }
@@ -73,13 +79,27 @@ fun AddWordSheet(chunk: SentenceChunkDto, actions: AddWordActions, onDismiss: ()
         onDismiss = onDismiss,
         contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
         spacing = 8.dp,
-        footerAbove = if (error == null && !done) null else {
+        footerAbove = if (error == null && !done && bumped == null) null else {
             {
                 error?.let { InlineNotice(it, kind = NoticeKind.Error) }
                 if (done) InlineNotice("Added — it arrives with the next sync.", kind = NoticeKind.Success)
+                bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
             }
         },
-        footer = if (done) null else {
+        footer = if (done) null else if (duplicate && bump != null) {
+            {
+                dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpFirstRow(bumped, busy, onAddAnyway = ::add, onBump = {
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try { bumped = bump(listOf(chunk.hanzi), deckId) } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            error = e.userMessage()
+                        } finally { busy = false }
+                    }
+                })
+            }
+        } else {
             {
                 PrimaryPill(
                     if (busy) "Adding…" else if (duplicate) "Add anyway" else "Add to deck",
@@ -94,7 +114,7 @@ fun AddWordSheet(chunk: SentenceChunkDto, actions: AddWordActions, onDismiss: ()
             Text(chunk.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent)
             Text(chunk.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
             chunk.note?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, textAlign = TextAlign.Center) }
-            if (duplicate && !done) InlineNotice("This word is already in the selected deck.", kind = NoticeKind.Warning)
+            if (duplicate && !done && bumped == null) InlineNotice("This word is already in the selected deck.", kind = NoticeKind.Warning)
             Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
             ChipRow(Modifier.fillMaxWidth()) {
                 for (d in decks) LabChip(d.name, selected = d.id == deckId) { deckId = d.id }

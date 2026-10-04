@@ -55,6 +55,9 @@ class StudyViewModel(
     private var queue: MutableList<QueueCard> = ArrayList()
     private var reviewedNoteIds: MutableSet<String> = HashSet()
     private var recentNoteIds: List<String> = emptyList()
+    /** "⚡ Study it today": the pocket's cards still to rate this session (core Bumps.kt), and who bumped which note. */
+    private var bumpedCardIds: MutableSet<String> = HashSet()
+    private var bumpedBy: Map<String, String> = emptyMap()
     private var presentation = 0
     private var cutoff = StudyCutoff(0)
     private var deckNames: Map<String, String> = emptyMap()
@@ -69,6 +72,7 @@ class StudyViewModel(
         val reviewed: Set<String>,
         val recent: List<String>,
         val stats: SessionStats,
+        val wasBumped: Boolean = false,
     )
     private var undo: UndoSnapshot? = null
 
@@ -131,7 +135,7 @@ class StudyViewModel(
     }
 
     private fun nextItem(lastRatedCardId: String?) =
-        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random)
+        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds)
 
     /** "Flashcards done ✓ — 2 mini lessons and today's story left · Continue / Later" (celebrates the cards once a day). */
     private fun showExtrasBreak() {
@@ -294,10 +298,15 @@ class StudyViewModel(
             val cards = repo.dao.cards().map { it.toQueueCard() }
             val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
             val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
-            StudyQueue.build(decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm())
+            bumpedBy = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpedBy(repo.dao)
+            StudyQueue.build(
+                decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm(),
+                bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
+            )
         }
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
+        bumpedCardIds = built.bumped.mapTo(HashSet()) { it.id }
         // Usage analytics: once per visit to Study with cards to do.
         if (analyticsStartedAt == null && queue.isNotEmpty()) {
             analyticsStartedAt = now
@@ -391,10 +400,15 @@ class StudyViewModel(
             val cards = repo.dao.cards().map { it.toQueueCard() }
             val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
             val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
-            StudyQueue.build(decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm())
+            bumpedBy = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpedBy(repo.dao)
+            StudyQueue.build(
+                decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm(),
+                bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
+            )
         }
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
+        bumpedCardIds = built.bumped.mapTo(HashSet()) { it.id }
         // Lessons / the story may have been done from Home meanwhile (Lab today split).
         if (_ui.value.phase is StudyPhase.Showing) extras.reload()
         _ui.update { it.copy(hasMoreNew = built.hasMoreNew, counts = StudyQueue.counts(queue, reviewedNoteIds), todayLeft = todayLeft()) }
@@ -470,6 +484,8 @@ class StudyViewModel(
                     audioCached = it.audioUrl.isNullOrBlank() || repo.cachedAudio(it.audioUrl) != null,
                     isSecondaryNew = card.queue == 0 && card.noteId in reviewedNoteIds,
                     start = start,
+                    bumped = card.id in bumpedCardIds,
+                    bumpedBy = bumpedBy[card.noteId],
                 )
             }
         }
@@ -1093,6 +1109,7 @@ class StudyViewModel(
         ))
 
         if (practice != null) return ratePractice(card, rating, timeSpentMs, userAnswer, stats)
+        if (card.id in bumpedCardIds) app.analytics.track("study.bump_studied", mapOf("card_type" to card.cardType, "queue" to card.queue))
 
         val snapshotQueue = queue.toList()
         val snapshotReviewed = reviewedNoteIds.toSet()
@@ -1103,7 +1120,8 @@ class StudyViewModel(
             if (recorder.recording) { takeJob?.cancel(); keepNewTake() }
             val (eventId, updated) = repo.recordReview(card.id, rating, timeSpentMs, userAnswer)
             queueTake(eventId)
-            undo = UndoSnapshot(eventId, card, snapshotQueue, snapshotReviewed, snapshotRecent, before)
+            undo = UndoSnapshot(eventId, card, snapshotQueue, snapshotReviewed, snapshotRecent, before, wasBumped = card.id in bumpedCardIds)
+            bumpedCardIds.remove(card.id)
             queue.removeAll { it.id == card.id }
             val next = updated?.toQueueCard()
             if (next != null && CardQueue.isLearning(next.queue)) queue.add(next)
@@ -1190,6 +1208,7 @@ class StudyViewModel(
             if (queue.none { it.id == restored.id }) queue.add(restored)
             reviewedNoteIds = snap.reviewed.toMutableSet()
             recentNoteIds = snap.recent
+            if (snap.wasBumped) bumpedCardIds.add(restored.id)
             _ui.update { it.copy(stats = snap.stats, canUndo = false, lastRating = null, today = null) }
             app.haptics.tick()
             present(restored)

@@ -108,6 +108,8 @@ data class ChangesDto(
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
     /** Every folder of the account (all kinds), sent whole: replaces the local copy (null from an older server). */
     val folders: List<dev.jeromeswannack.chineselearning.lab.data.api.FolderDto>? = null,
+    /** "⚡ Study it today": the FULL active bump list, replaces the synced rows (null from an older server). */
+    val bumps: List<dev.jeromeswannack.chineselearning.lab.data.api.StudyBumpDto>? = null,
 )
 
 @Serializable

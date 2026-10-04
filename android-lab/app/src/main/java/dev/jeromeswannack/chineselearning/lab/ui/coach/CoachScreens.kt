@@ -224,7 +224,7 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
     confirmDelete?.let { c ->
         ConfirmDialog("Delete this conversation?", c.title, "Delete", onConfirm = { confirmDelete = null; actions.onDelete(c.id) }, onDismiss = { confirmDelete = null }, danger = true)
     }
-    adding?.let { chunk -> AddChunkSheet(chunk, preferredDeck = "", actions.cards, onDismiss = { adding = null }) }
+    adding?.let { chunk -> AddChunkSheet(chunk, preferredDeck = "", actions.cards, onDismiss = { adding = null }, bumpSource = "coach") }
 }
 
 internal fun shortDate(ts: String): String = runCatching {
@@ -245,6 +245,10 @@ data class CoachChatUi(
     val decks: List<CoachDeck> = emptyList(),
     val deckId: String? = null,
     val online: Boolean = true,
+    /** "⚡ Study it today": the sentence's words that are already cards (the quick-action chip). */
+    val knownWords: List<String> = emptyList(),
+    /** The bump's confirmation ("⚡ 银行 will come first in today’s study"), shown for a moment. */
+    val bumpMessage: String? = null,
 )
 
 data class CoachChatActions(
@@ -256,6 +260,10 @@ data class CoachChatActions(
     val onRetryLoad: () -> Unit = {},
     /** Explain's word rows / whole sentence → a card (the study card's AddChunkSheet). */
     val cards: SentenceActions = SentenceActions(),
+    /** "⚡ Study today": bump the sentence's words that are already cards. */
+    val onBumpToday: () -> Unit = {},
+    /** The add-card sheet's "⚡ Study it today" (null = the app's real bump). */
+    val bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = null,
 )
 
 /** `/coach?c=<id>` — the conversation: the analysis, the chat, quick actions, the follow-up box. */
@@ -313,13 +321,31 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
         }
     }
     }
-    adding?.let { chunk -> AddChunkSheet(chunk, preferredDeck = ui.deckId.orEmpty(), actions.cards, onDismiss = { adding = null }) }
+    adding?.let { chunk ->
+        AddChunkSheet(
+            chunk, preferredDeck = ui.deckId.orEmpty(), actions.cards, onDismiss = { adding = null },
+            bumpSource = "coach", bump = actions.bump ?: dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("coach"),
+        )
+    }
 }
 
 @Composable
 private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActions) {
     val deck = ui.decks.firstOrNull { it.id == ui.deckId } ?: ui.decks.firstOrNull()
+    ui.bumpMessage?.let { InlineNotice(it, kind = NoticeKind.Success) }
     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // "⚡ Study it today": the sentence's words are already cards — bring them to the front of today.
+        if (ui.knownWords.isNotEmpty()) {
+            item(key = "bump") {
+                LabChip(
+                    if (ui.knownWords.size == 1) "⚡ Study ${ui.knownWords[0]} today" else "⚡ Study today (${ui.knownWords.size})",
+                    modifier = Modifier.testTag("coach-bump"),
+                    selected = true,
+                    enabled = ui.bumpMessage == null,
+                    onClick = actions.onBumpToday,
+                )
+            }
+        }
         items(COACH_QUICK_ACTIONS, key = { it.key }) { a ->
             LabChip(a.label, enabled = !ui.sending && !(a.needsDeck && deck == null), modifier = Modifier.alpha(if (ui.sending || (a.needsDeck && deck == null)) 0.5f else 1f)) {
                 dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("coach.quick_action", mapOf("action" to a.key))

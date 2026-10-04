@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -227,7 +228,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
         is ChatSheet.Discuss -> DiscussSheet(s.message, ui, actions)
         is ChatSheet.ChatWord -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordSheet(
             s.word, s.sentence, known = s.word.text.trim() in ui.known, actions = actions.wordActions,
-            onDismiss = actions.onDismiss, onAdded = actions.onWordAdded,
+            onDismiss = actions.onDismiss, onAdded = actions.onWordAdded, bumpSource = "chat",
         )
         ChatSheet.Review -> ui.review?.let { r ->
             dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet(onDismiss = actions.review.onClose) { ReviewPanel(r, ui.decks, ui.online, actions.review) }
@@ -488,6 +489,10 @@ private fun WordSheet(hanzi: String, context: String, ui: ChatUi, actions: ChatS
     var def by remember(hanzi) { mutableStateOf<VocabularyDefinition?>(null) }
     var error by remember(hanzi) { mutableStateOf<String?>(null) }
     var existing by remember(hanzi) { mutableStateOf<String?>(null) }
+    val bump = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("chat")
+    var bumped by remember(hanzi) { mutableStateOf<String?>(null) }
+    var bumping by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     androidx.compose.runtime.LaunchedEffect(hanzi) {
         runCatching { actions.define(hanzi, context, false).value }.onSuccess { def = it }.onFailure { error = "Failed to load definition. Please try again." }
         existing = runCatching { actions.deckHolding(hanzi) }.getOrNull()
@@ -501,7 +506,17 @@ private fun WordSheet(hanzi: String, context: String, ui: ChatUi, actions: ChatS
                 else -> {
                     val card = SuggestedCard(d.hanzi, d.pinyin, d.english, d.fun_facts)
                     CardPreview(card)
-                    existing?.let { InlineNotice("Already in \"$it\"", kind = NoticeKind.Warning) }
+                    if (existing != null && bump != null) {
+                        // Already a card: "⚡ Study it today" first; the deck picker stays below for "Add anyway".
+                        bumped?.let { InlineNotice(it, kind = NoticeKind.Success) } ?: InlineNotice("Already in \"$existing\" — study it today instead?", kind = NoticeKind.Warning)
+                        androidx.compose.material3.Button(
+                            onClick = { scope.launch { bumping = true; bumped = runCatching { bump(listOf(d.hanzi), null) }.getOrElse { it.message }; bumping = false } },
+                            enabled = bumped == null && !bumping,
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Lab.colors.accent),
+                            modifier = Modifier.fillMaxWidth().height(50.dp).testTag("bump-study-today"),
+                        ) { Text(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, fontWeight = FontWeight.SemiBold) }
+                        Text("Or add it anyway:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
+                    } else existing?.let { InlineNotice("Already in \"$it\"", kind = NoticeKind.Warning) }
                     DeckPicker(ui, 1, actions) { deck, new -> actions.onSaveCards(listOf(card), deck, new) }
                 }
             }

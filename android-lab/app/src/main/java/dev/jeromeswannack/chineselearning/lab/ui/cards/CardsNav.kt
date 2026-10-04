@@ -31,6 +31,8 @@ fun NavGraphBuilder.cardsGraph(nav: LabNav) {
                 onPlayRecording = vm::playRecording,
                 onAllChats = { nav.open(Routes.claudeChats()) },
                 onDismissNotice = vm::dismissNotice,
+                onBump = vm::bump,
+                onUnbump = vm::unbump,
             ),
         )
         NoteEditorSheets(vm.editor, nav)

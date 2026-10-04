@@ -68,6 +68,8 @@ data class CardHubActions(
     val onPlayRecording: (String) -> Unit = {},
     val onAllChats: () -> Unit = {},
     val onDismissNotice: () -> Unit = {},
+    val onBump: () -> Unit = {},
+    val onUnbump: () -> Unit = {},
 )
 
 /** The card hub (web: CardHubPage.tsx, the student's own card). */
@@ -102,6 +104,17 @@ fun CardHubScreen(ui: CardHubUi, actions: CardHubActions, nowMs: Long = System.c
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (c in ui.cards) CardStateTile(c, nowMs, Modifier.weight(1f))
+            }
+        }
+        // "⚡ Study it today": bring this word to the front of today's study (or take it out again).
+        if (ui.canBump) item {
+            if (ui.bumped) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("⚡ First in today’s study", color = dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmber, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill("Remove from today", onClick = actions.onUnbump)
+                }
+            } else {
+                dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill(dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.fillMaxWidth(), onClick = actions.onBump)
             }
         }
 

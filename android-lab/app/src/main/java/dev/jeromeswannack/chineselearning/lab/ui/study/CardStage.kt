@@ -386,8 +386,11 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
         verticalArrangement = if (short) Arrangement.spacedBy(6.dp, Alignment.CenterVertically) else Arrangement.Top,
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            TypeChip(view.card.cardType)
-            view.deckName?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, maxLines = 1) }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                TypeChip(view.card.cardType)
+                if (view.bumped) dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpChip(view.bumpedBy)
+            }
+            view.deckName?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).padding(start = 8.dp)) }
         }
         note.context?.takeIf { it.isNotBlank() }?.let {
             Spacer(Modifier.height(12.dp))

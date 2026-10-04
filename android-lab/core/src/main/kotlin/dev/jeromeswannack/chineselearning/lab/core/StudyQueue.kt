@@ -56,6 +56,10 @@ data class BuiltQueue(
     val pools: List<DeckNewPool> = emptyList(),
     /** What the budget gave each deck in scope (queue order). */
     val allocation: Map<String, DeckAllocation> = emptyMap(),
+    /** The bump pocket's cards ("⚡ Study it today", Bumps.kt) — also the head of [dueCards]. */
+    val bumped: List<QueueCard> = emptyList(),
+    /** Bumped notes with cards in the pocket (in scope), oldest bump first. */
+    val bumpedNoteIds: List<String> = emptyList(),
 )
 
 object StudyQueue {
@@ -110,6 +114,10 @@ object StudyQueue {
      * [longTerm] (note id → 0 / 1, only notes with a choice) is the learner's "long-term review"
      * choice (LongTerm.kt): opted-out words never enter a pool, and a deck out of daily review
      * (caps 0 + 0) holds only its opted-in words, at the new-deck default caps.
+     *
+     * [bumps] ("⚡ Study it today", Bumps.kt): the pocket over the cards in scope heads the
+     * queue; its NEW cards are outside the budget (removed from the pools, never taking from
+     * them) and its learning / review cards are not repeated below.
      */
     fun build(
         decks: List<QueueDeck>,
@@ -122,15 +130,18 @@ object StudyQueue {
         noteHanzi: Map<String, String>? = null,
         seenNoteIds: Collection<String>? = null,
         longTerm: Map<String, Int>? = null,
+        bumps: QueueBumps? = null,
     ): BuiltQueue {
         val reviewed = reviewedNoteIds(cards)
         val inScope = if (deckId == null) decks else decks.filter { it.id == deckId }
         val scopeIds = inScope.mapTo(HashSet()) { it.id }
         val inReview = inScope.associate { it.id to LongTerm.deckInDailyReview(it.capPrimary, it.capSecondary) }
+        val pocket = Bumps.bumpPocket(cards.filter { it.deckId in scopeIds }, bumps, cutoff.ts)
+        val pocketIds = pocket.cards.mapTo(HashSet()) { it.id }
         // The NEW cards each deck may introduce (opted-out words and a one-off copy's words
-        // nobody opted in are left out).
+        // nobody opted in are left out; bumped cards are over the budget).
         val newByDeck = cards.filter {
-            it.queue == CardQueue.NEW && it.deckId in scopeIds &&
+            it.queue == CardQueue.NEW && it.deckId in scopeIds && it.id !in pocketIds &&
                 LongTerm.admitsNewCards(longTerm?.get(it.noteId), inReview.getValue(it.deckId), it.noteId in reviewed)
         }.groupBy { it.deckId }
 
@@ -154,9 +165,9 @@ object StudyQueue {
         val spent = Spent(elsewhere.sumOf { it.primary }, elsewhere.sumOf { it.secondary })
         val alloc = Budget.allocateNewCards(pools, budget, bonus, spent)
 
-        val due = ArrayList<QueueCard>()
+        val due = ArrayList<QueueCard>(pocket.cards)
         for (card in cards) {
-            if (card.deckId !in scopeIds) continue
+            if (card.deckId !in scopeIds || card.id in pocketIds) continue
             when (card.queue) {
                 CardQueue.LEARNING, CardQueue.RELEARNING ->
                     if (card.state.dueTimestamp == null || card.state.dueTimestamp <= cutoff.ts) due += card
@@ -191,7 +202,7 @@ object StudyQueue {
             val a = alloc[p.deckId] ?: DeckAllocation(0, 0)
             p.totalNew + p.totalSecondaryNew > a.primary + a.secondary
         }
-        return BuiltQueue(due, reviewed, hasMoreNew, pools, alloc)
+        return BuiltQueue(due, reviewed, hasMoreNew, pools, alloc, pocket.cards, pocket.activeNoteIds)
     }
 
     fun counts(queue: Collection<QueueCard>, reviewedNoteIds: Set<String>): QueueCounts {
@@ -209,6 +220,10 @@ object StudyQueue {
      * proportional random mix of new and review → learning cards still on cooldown but
      * due today (shown at once — no waiting screen). Non-learning cards of the last 5
      * rated notes are skipped while anything else is available.
+     *
+     * [bumpedCardIds] ("⚡ Study it today"): among the available cards, the FIRST one (queue
+     * order) in the set comes before everything else, learning-due-now included. The session
+     * drops a card from the set once it is rated.
      */
     fun selectNext(
         queue: List<QueueCard>,
@@ -218,10 +233,12 @@ object StudyQueue {
         nowMs: Long,
         cutoff: StudyCutoff,
         random: Random,
+        bumpedCardIds: Set<String> = emptySet(),
     ): QueueCard? {
         if (queue.isEmpty()) return null
         val available = queue.filter { CardQueue.isLearning(it.queue) || it.noteId !in recentNoteIds }
         val choose = available.ifEmpty { queue }
+        if (bumpedCardIds.isNotEmpty()) choose.firstOrNull { it.id in bumpedCardIds }?.let { return it }
 
         val learningDue = choose.filter { CardQueue.isLearning(it.queue) && it.state.dueTimestamp != null && it.state.dueTimestamp <= nowMs }
         if (learningDue.isNotEmpty()) return pickWeightedLearning(learningDue, nowMs, random)

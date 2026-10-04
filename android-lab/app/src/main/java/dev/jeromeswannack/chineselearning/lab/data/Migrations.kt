@@ -61,6 +61,16 @@ object LabMigrations {
         }
     }
 
+    /**
+     * v6: study_bumps — "⚡ Study it today" (server study_bumps, migration 0106; core Bumps.kt):
+     * one row per bumped note, with the local pending add / clear still in the Outbox.
+     */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `study_bumps` (`noteId` TEXT NOT NULL, `id` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `source` TEXT NOT NULL, `bumpedByName` TEXT, `pending` TEXT, `outboxId` TEXT, PRIMARY KEY(`noteId`))")
+        }
+    }
+
     /** Every migration, oldest first. Append new ones here. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 }

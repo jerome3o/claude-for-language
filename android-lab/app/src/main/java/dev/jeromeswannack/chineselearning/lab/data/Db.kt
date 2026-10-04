@@ -128,6 +128,27 @@ data class SentenceEntity(
     val focusNote: String?,
 )
 
+/**
+ * "⚡ Study it today" (core Bumps.kt, server study_bumps): a bumped note — its cards come first in
+ * today's session. One row per note (the server keeps one per user + note). [pending] = a local
+ * change still on its way: "add" (POST /api/me/bumps in the Outbox as [outboxId]) or "clear"
+ * (DELETE /api/me/bumps/:noteId); a pending row wins over the server list until its Outbox item has
+ * gone (data/bumps/BumpStore.kt). A "clear" row is hidden from the queue at once. v6.
+ */
+@Entity(tableName = "study_bumps")
+data class StudyBumpEntity(
+    @PrimaryKey val noteId: String,
+    /** The bump's id (the client id for one made here, the server's otherwise). */
+    val id: String,
+    /** ISO (or SQLite UTC) as the server / this phone wrote it; reviews at or after it cover a card. */
+    val createdAt: String,
+    val source: String,
+    /** Who bumped it when it was the tutor ("⚡ from Minghui"), else null. */
+    val bumpedByName: String? = null,
+    val pending: String? = null,
+    val outboxId: String? = null,
+)
+
 /** A synced review the learner undid: DELETE /api/reviews/:id on the next sync. */
 @Entity(tableName = "pending_deletions")
 data class PendingDeletionEntity(@PrimaryKey val eventId: String)
@@ -148,6 +169,9 @@ data class NoteLongTerm(val id: String, val longTerm: Int)
 data class ReplayEvent(val id: String, val cardId: String, val rating: Int, val reviewedAt: String)
 
 data class ReviewSummary(val reviews: Int, val correct: Int)
+
+/** A card's first and latest review (ISO). */
+data class ReviewSpan(val cardId: String, val firstAt: String, val lastAt: String)
 
 @Dao
 interface LabDao {
@@ -223,6 +247,15 @@ interface LabDao {
     @Upsert suspend fun upsertSentences(sentences: List<SentenceEntity>)
     @Query("DELETE FROM sentences WHERE noteId NOT IN (SELECT id FROM notes)") suspend fun deleteOrphanSentences()
 
+    // study bumps ("⚡ Study it today", data/bumps/BumpStore.kt)
+    @Query("SELECT * FROM study_bumps") suspend fun studyBumps(): List<StudyBumpEntity>
+    @Upsert suspend fun upsertStudyBumps(rows: List<StudyBumpEntity>)
+    @Query("DELETE FROM study_bumps WHERE noteId IN (:noteIds)") suspend fun deleteStudyBumps(noteIds: List<String>)
+    /** First review of each of [cardIds] and its latest (the pocket's covered-since-the-bump rule). */
+    @Query("SELECT cardId, MIN(reviewedAt) AS firstAt, MAX(reviewedAt) AS lastAt FROM review_events WHERE cardId IN (:cardIds) GROUP BY cardId")
+    suspend fun reviewSpans(cardIds: List<String>): List<ReviewSpan>
+    @Query("SELECT * FROM cards WHERE noteId IN (:noteIds)") suspend fun cardsOfNotes(noteIds: List<String>): List<CardEntity>
+
     // pending deletions
     @Query("SELECT * FROM pending_deletions") suspend fun pendingDeletions(): List<PendingDeletionEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun addPendingDeletion(p: PendingDeletionEntity)
@@ -234,8 +267,10 @@ interface LabDao {
         DeckEntity::class, NoteEntity::class, CardEntity::class, ReviewEventEntity::class, SentenceEntity::class, PendingDeletionEntity::class,
         // v2: generic feature tables (data/platform/) — features use these instead of new schema.
         JsonCacheEntity::class, OutboxEntity::class,
+        // v6: "⚡ Study it today".
+        StudyBumpEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {
