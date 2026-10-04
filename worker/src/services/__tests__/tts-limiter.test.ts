@@ -126,7 +126,7 @@ describe('token bucket', () => {
 
 function fakeDoState() {
   const store = new Map<string, unknown>();
-  return { storage: { get: async (k: string) => store.get(k), put: async (k: string, v: unknown) => void store.set(k, v) } };
+  return { storage: { get: async (k: string) => store.get(k), put: async (k: string, v: unknown) => void store.set(k, v), delete: async (k: string) => store.delete(k) } };
 }
 
 describe('adaptive rate (AIMD)', () => {
@@ -154,11 +154,11 @@ describe('adaptive rate (AIMD)', () => {
     expect(s.history.at(-1)?.reason).toBe('start');
   });
 
-  it('ramps +2 per full minute with demand and no 1002, up to the cap', () => {
+  it('ramps ×1.25 (at least +2) per full minute with demand and no 1002, up to the cap', () => {
     let s = initialAdaptive(b, 0, null);
     for (let m = 0; m < 3; m++) s = busyMinute(s, m);
     s = rollAdaptive(s, b, 3 * MIN);
-    expect(s.rpm).toBe(14);
+    expect(s.rpm).toBe(17); // 8 → 10 → 13 → 17
     for (let m = 3; m < 60; m++) s = busyMinute(s, m);
     s = rollAdaptive(s, b, 60 * MIN);
     expect(s.rpm).toBe(60);
@@ -184,7 +184,7 @@ describe('adaptive rate (AIMD)', () => {
     expect(s.rpm).toBe(10);
     s = noteRequest(s, b, 100_000, true);
     s = rollAdaptive(s, b, 150_000 + 1);
-    expect(s.rpm).toBe(12);
+    expect(s.rpm).toBe(13);
   });
 
   it('never below the floor', () => {
@@ -213,7 +213,7 @@ describe('adaptive rate (AIMD)', () => {
     s = rollAdaptive(s, b, 4 * MIN);
     const saved = JSON.parse(JSON.stringify(s)) as AdaptiveState;
     const again = initialAdaptive(b, 10 * MIN, saved);
-    expect(again.rpm).toBe(16);
+    expect(again.rpm).toBe(22); // 8 → 10 → 13 → 17 → 22
     expect(again.history.length).toBe(s.history.length);
     const capped = initialAdaptive(adaptiveBounds('9', '60'), 10 * MIN, saved);
     expect(capped.rpm).toBe(9);

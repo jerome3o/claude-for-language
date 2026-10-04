@@ -41,7 +41,7 @@ describe('admin tools', () => {
     expect([...tools.keys()].sort()).toEqual([
       'admin_delete_user', 'admin_get_user', 'admin_handle_access_request', 'admin_inspect_user_decks', 'admin_list_access_requests',
       'admin_list_users', 'admin_preview_delete_user', 'admin_set_can_invite', 'admin_set_role', 'admin_set_user_voice_gender',
-      'audio_backfill_run', 'audio_backfill_status', 'audio_tts_compare',
+      'audio_backfill_run', 'audio_backfill_status', 'audio_retry_failed', 'audio_tts_compare',
     ]);
   });
 
@@ -58,6 +58,19 @@ describe('admin tools', () => {
       { method: 'GET', path: '/api/admin/audio/backfill', body: undefined },
       { method: 'POST', path: '/api/admin/audio/backfill/run', body: {} },
       { method: 'POST', path: '/api/admin/audio/backfill/run', body: { limit: 50 } },
+    ]);
+  });
+
+  it('audio_retry_failed posts the error code only when given', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'POST /api/admin/audio/retry-failed': () => ({ reset: 715, account_probe_now: true }),
+    });
+    registerAdminTools(ctx);
+    expect(text(await tools.get('audio_retry_failed')!({}))).toContain('"reset": 715');
+    await tools.get('audio_retry_failed')!({ error_code: 2053 });
+    expect(calls).toEqual([
+      { method: 'POST', path: '/api/admin/audio/retry-failed', body: {} },
+      { method: 'POST', path: '/api/admin/audio/retry-failed', body: { error_code: 2053 } },
     ]);
   });
 

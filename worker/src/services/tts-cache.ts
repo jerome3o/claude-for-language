@@ -1,8 +1,9 @@
 /**
  * MiniMax clips for arbitrary text (lesson lines, chat read-aloud), kept in R2
  * by (text, voice, speed) so the same line in the same voice is generated
- * once for everybody. Only MiniMax clips are kept — the Google fallback is a
- * worse voice and stays ephemeral, so the next request tries MiniMax again.
+ * once for everybody. Only MiniMax clips are kept. The Google fallback is off
+ * unless a caller asks for it for LIVE playback (chat Read aloud) — a worse
+ * voice that is never kept, so the next request tries MiniMax again.
  */
 import type { Env } from '../types';
 import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED, bytesToBase64, generateConversationTTS, type ConversationTTSResult } from './audio';
@@ -24,7 +25,7 @@ export async function ttsCacheKey(text: string, voiceId: string, speed: number):
 export async function cachedConversationTTS(
   env: Env,
   text: string,
-  options: { voiceId?: string; speed?: number; priority?: TtsPriority } = {},
+  options: { voiceId?: string; speed?: number; priority?: TtsPriority; allowGoogleFallback?: boolean } = {},
 ): Promise<(ConversationTTSResult & { voiceId: string; cached: boolean }) | null> {
   const voiceId = options.voiceId ?? DEFAULT_MINIMAX_VOICE;
   const speed = options.speed ?? DEFAULT_TTS_SPEED;
@@ -34,7 +35,7 @@ export async function cachedConversationTTS(
     const bytes = new Uint8Array(await stored.arrayBuffer());
     return { audioBase64: bytesToBase64(bytes), contentType: 'audio/mpeg', provider: 'minimax', voiceId, cached: true };
   }
-  const result = await generateConversationTTS(env, text, { voiceId, speed, priority: options.priority });
+  const result = await generateConversationTTS(env, text, { voiceId, speed, priority: options.priority, allowGoogleFallback: options.allowGoogleFallback });
   if (!result) return null;
   if (result.provider === 'minimax') {
     const binary = atob(result.audioBase64);

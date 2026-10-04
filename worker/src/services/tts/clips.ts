@@ -304,7 +304,8 @@ export async function ensureClip(env: Env, target: ClipTarget, opts: EnsureClipO
   const made = await tts(env, text, keyIdFor(target, row), { priority: opts.priority, maxWaitMs: opts.maxWaitMs });
   if (!made.ok) {
     if (made.rateLimited) {
-      return { status: 'rate_limited', retryAfterMs: made.retryAfterMs ?? 60_000, minimax: made.reason !== 'limiter' };
+      // Also an account pause (no credit / bad key): wait it out, record nothing against the clip.
+      return { status: 'rate_limited', retryAfterMs: made.retryAfterMs ?? 60_000, minimax: made.reason !== 'limiter' && made.account === undefined };
     }
     await recordClipFailure(env.DB, target, made.reason, made.permanent).catch(() => {});
     return { status: 'failed', reason: made.reason, permanent: made.permanent };

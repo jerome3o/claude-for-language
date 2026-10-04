@@ -2,6 +2,7 @@ import { Env } from '../types';
 import { TTS_AUDIO_SETTING, TTS_MODEL, TTS_SPEED, TTS_VOICE, ttsSettings } from './tts/settings';
 import type { TtsPriority } from './tts/bucket';
 import { acquireTtsSlot, reportTts } from './tts/limiter';
+import { accountErrorCode } from './tts/account';
 
 /**
  * Audio service for TTS generation and storage using MiniMax and Google Cloud TTS.
@@ -130,15 +131,18 @@ function decodeMiniMaxAudio(audioData: string): Uint8Array {
 
 /**
  * One MiniMax answer. `rateLimited` = MiniMax's RPM / TPM limit (1002, 1039,
- * HTTP 429) or our own limiter said no: wait and try again later, never in the
- * request. `permanent` = stop trying this text.
+ * HTTP 429), our own limiter said no, or the ACCOUNT is paused: wait and try
+ * again later, never in the request — nothing is recorded against the clip.
+ * `account` = an account problem (no credit, bad key; services/tts/account.ts)
+ * — set with `rateLimited`. `network` = no answer from MiniMax at all.
+ * `permanent` = stop trying this text.
  */
 export type MiniMaxOutcome =
   | { ok: true; bytes: Uint8Array }
-  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number };
+  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number; account?: number | string; network?: boolean };
 
+/** Clip-level only: account codes (1004, 2053…) pause everything instead (services/tts/account.ts). */
 const MINIMAX_PERMANENT_CODES = new Set([
-  1004, // invalid API key / auth
   1042, // invalid characters exceed 10%
   2013, // invalid params (e.g. unsupported text)
 ]);
@@ -174,8 +178,15 @@ async function callMiniMaxOnce(
       const body = await response.text();
       console.error('[TTS] MiniMax HTTP error:', response.status, body.slice(0, 300));
       const rateLimited = response.status === 429;
-      const permanent = response.status === 401 || response.status === 403;
-      return { ok: false, permanent, rateLimited, reason: `http ${response.status}`, retryAfterMs: rateLimited ? RATE_LIMIT_REQUEUE_MS : undefined };
+      const account = accountErrorCode({ httpStatus: response.status }) ?? undefined;
+      return {
+        ok: false,
+        permanent: false,
+        rateLimited: rateLimited || account !== undefined,
+        reason: `http ${response.status}`,
+        retryAfterMs: rateLimited ? RATE_LIMIT_REQUEUE_MS : undefined,
+        account,
+      };
     }
     const data = (await response.json()) as {
       data?: { audio?: string };
@@ -185,19 +196,21 @@ async function callMiniMaxOnce(
     if (!audioData) {
       const code = data.base_resp?.status_code ?? -1;
       const rateLimited = MINIMAX_RATE_LIMIT_CODES.has(code);
+      const account = accountErrorCode({ code }) ?? undefined;
       if (!rateLimited) console.error('[TTS] MiniMax: no audio in response', data.base_resp);
       return {
         ok: false,
         permanent: MINIMAX_PERMANENT_CODES.has(code),
-        rateLimited,
+        rateLimited: rateLimited || account !== undefined,
         reason: `base_resp ${code} ${data.base_resp?.status_msg ?? ''}`.trim(),
         retryAfterMs: rateLimited ? RATE_LIMIT_REQUEUE_MS : undefined,
+        account,
       };
     }
     return { ok: true, bytes: decodeMiniMaxAudio(audioData) };
   } catch (error) {
     console.error('[TTS] MiniMax request failed:', error);
-    return { ok: false, permanent: false, rateLimited: false, reason: 'network' };
+    return { ok: false, permanent: false, rateLimited: false, reason: 'network', network: true };
   }
 }
 
@@ -224,14 +237,20 @@ export async function callMiniMaxTTS(
     if (attempt > 0) await sleep(500);
     const slot = await acquireTtsSlot(env, priority, opts.maxWaitMs);
     if (!slot.granted) {
-      return { ok: false, permanent: false, rateLimited: true, reason: 'limiter', retryAfterMs: slot.retryAfterMs };
+      // An account pause is the limiter saying no too: wait, record nothing against the clip.
+      return { ok: false, permanent: false, rateLimited: true, reason: slot.account ? 'account paused' : 'limiter', retryAfterMs: slot.retryAfterMs, account: slot.account };
     }
     last = await callMiniMaxOnce(env, text, speed, voiceId, opts.model);
     if (last.ok) {
       await reportTts(env, 'ok');
       return last;
     }
-    await reportTts(env, last.rateLimited ? 'rate_limited' : 'failed');
+    if (last.account !== undefined) {
+      // No credit / bad key: pause every call (services/tts/account.ts) and wait out the pause.
+      const pause = await reportTts(env, 'account_error', { code: last.account, message: last.reason });
+      return { ...last, retryAfterMs: pause ?? last.retryAfterMs };
+    }
+    await reportTts(env, last.rateLimited ? 'rate_limited' : last.network ? 'network' : 'failed');
     if (last.permanent || last.rateLimited) return last;
   }
   return last;
@@ -272,7 +291,7 @@ async function callGoogleTTS(env: Env, text: string, speed: number): Promise<Uin
 
 export type TTSOutcome =
   | { ok: true; result: TTSResult }
-  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number };
+  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number; account?: number | string };
 
 /**
  * Generate a clip with MiniMax and store it in R2. MiniMax only: a stored clip
@@ -313,6 +332,12 @@ export interface ConversationTTSOptions {
   voiceId?: string;
   speed?: number;
   priority?: TtsPriority;
+  /**
+   * Live playback only (docs/AUDIO.md "Google fallback"): when MiniMax can't
+   * speak now, return a Google clip (`provider: 'gtts'`) for this one play.
+   * Never for anything a server or device keeps — those wait for MiniMax.
+   */
+  allowGoogleFallback?: boolean;
 }
 
 export interface ConversationTTSResult {
@@ -361,8 +386,9 @@ export async function generateConversationTTS(
   if (mm.ok) {
     return { audioBase64: bytesToBase64(mm.bytes), contentType: 'audio/mpeg', provider: 'minimax' };
   }
-  // Ephemeral (never stored — services/tts-cache.ts keeps only MiniMax clips),
-  // so a worse voice beats no voice in the moment.
+  if (!options.allowGoogleFallback) return null;
+  // Live playback that nobody keeps (services/tts-cache.ts stores only MiniMax
+  // clips; the caller plays it once), so a worse voice beats none in the moment.
   const google = await callGoogleTTS(env, text, speed);
   if (google) {
     return { audioBase64: bytesToBase64(google), contentType: 'audio/mpeg', provider: 'gtts' };
