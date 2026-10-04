@@ -33,3 +33,4 @@ coverage/
 
 # Cloudflare
 .mf/
+.dev.vars*
