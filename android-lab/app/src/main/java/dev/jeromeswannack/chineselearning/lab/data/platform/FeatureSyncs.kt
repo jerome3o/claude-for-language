@@ -22,6 +22,7 @@ object FeatureSyncs {
         platform.register("study-notes", dev.jeromeswannack.chineselearning.lab.ui.study.TutorNotes.Sync) // tutor notes on the card back (A)
         platform.register("study-audio", dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer.Sync) // A: missing / broken clips of the upcoming queue, offline queue (background)
         platform.register("study-mc", dev.jeromeswannack.chineselearning.lab.ui.study.MultipleChoice.Sync) // multiple-choice options for offline listen cards (A)
+        platform.register("chars", dev.jeromeswannack.chineselearning.lab.data.chars.CharDict.Sync) // character sheet: dictionary records of the upcoming queue's characters (hourly)
         platform.register("study-time", dev.jeromeswannack.chineselearning.lab.data.study.StudyDayStore.Sync) // A: active study time per day → PUT /api/me/study-time
         platform.register("lessons", dev.jeromeswannack.chineselearning.lab.data.lessons.LessonsSync) // B: mini lessons (+ media)
         platform.register("readers", dev.jeromeswannack.chineselearning.lab.data.readers.ReadersSync) // B: graded readers (+ media)
