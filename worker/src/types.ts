@@ -22,7 +22,7 @@ export interface Env {
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
   TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
-  /** One MiniMax rate limiter for every TTS call (docs/AUDIO.md). Optional so tests run without it. */
+  /** One rate limiter per TTS provider (idFromName = minimax | azure | google; docs/AUDIO.md). Optional so tests run without it. */
   TTS_LIMITER?: DurableObjectNamespace<import('./durable/tts-limiter').TtsLimiter>;
   /** MiniMax requests per minute we allow ourselves (default 55). */
   MINIMAX_RPM?: string;
@@ -33,6 +33,10 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
+  /** Azure Speech (the second TTS provider, docs/AUDIO.md "Providers"). Both optional: unset = Azure skipped. */
+  AZURE_SPEECH_KEY?: string;
+  /** Azure Speech region, e.g. `westeurope` (HD voices: eastus / westeurope / southeastasia). */
+  AZURE_SPEECH_REGION?: string;
   GEMINI_API_KEY: string;
   /** Cloudflare Realtime TURN key for video calls (optional — STUN-only without it). */
   TURN_KEY_ID?: string;
@@ -155,7 +159,7 @@ export interface SentenceSetMessage {
 }
 
 // Audio provider types
-export type AudioProvider = 'minimax' | 'gtts';
+export type AudioProvider = 'minimax' | 'azure' | 'gtts';
 
 // Card types
 export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
@@ -776,7 +780,7 @@ export interface ConversationTTSRequest {
 export interface ConversationTTSResponse {
   audio_base64: string;
   content_type: string;
-  provider: 'minimax' | 'gtts';
+  provider: 'minimax' | 'azure' | 'gtts';
 }
 
 export interface CheckMessageResponse {

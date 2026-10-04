@@ -133,6 +133,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
+│   ├── tts/               # TTS provider settings (TtsConfig: stored / live order, voices, max RPM), voice catalogues, validation, speed mapping (docs/AUDIO.md "Providers")
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
 │       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
 │       ├── validate.ts    # validateReaderSpec / normalizeReaderSpec
@@ -340,6 +341,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
 - `usage_events` - Usage analytics (migration 0100, docs/ANALYTICS.md): client + server events (id, user_id, ts, received_at, platform, app_version, session_id, event, screen = route pattern, props JSON of ids / enums / counts only); pruned after 180 days; `users.analytics_opt_out`
+- `tts_settings` - The admin's TTS provider settings (migration 0107): ONE row (id 1), `settings` JSON per `shared/tts/config.ts`, updated_at / updated_by; no row = the defaults
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a relationship: ONE per tutor–student pair (migration 0102 merged the extras, `merged_into` = the chat an old id became, unique index on live human rows); Claude practice chats may be several
@@ -363,10 +365,21 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - Generated TTS audio and user recordings stored in Cloudflare R2
 - Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
 - Types: `generated` (TTS), `recordings` (user voice)
-- **TTS is MiniMax only**: `speech-2.8-hd`, voice Radio Host, speed 0.6 — set ONLY in
-  `worker/src/services/tts/settings.ts`. No Google fallback for stored clips.
-- **Every MiniMax call goes through `callMiniMaxTTS`** (`services/audio.ts`), which asks the
-  `TtsLimiter` Durable Object for a slot (a LEARNED rate — AIMD: starts at 8/min, +2 per clean busy
+- **Providers: MiniMax · Azure Speech · Google** (docs/AUDIO.md "Providers"): which one speaks, in what
+  order (`stored_order` for anything kept, `live_order` for played-once audio), voices per role
+  (default / female / male), enabled + max RPM and "upgrade backup clips" are an ADMIN SETTING —
+  `shared/tts/config.ts` (`TtsConfig`, validation, voice catalogues, speed mapping), D1 `tts_settings`
+  (migration 0107), `services/tts/config.ts` (cached 30 s, `storedClipPolicy`), page **/admin/audio**,
+  `GET|PUT /api/admin/audio/settings`, `POST /api/admin/audio/sample`, MCP `audio_settings_get` /
+  `audio_settings_update`. Defaults = MiniMax only for stored clips (`speech-2.8-hd`, Radio Host, 0.6),
+  Google live fallback. Providers in `services/tts/providers.ts`; every call goes through
+  `callProviderTTS` / `synthesizeOrdered` (`services/audio.ts`): that provider's limiter + account
+  pause, fallback on account pause / failure (a plain rate limit falls back only for interactive).
+  A backup provider's clip is "current" while the first provider is paused (or always with upgrade off).
+  Other providers map a MiniMax catalogue voice by gender. Azure: secrets `AZURE_SPEECH_KEY` /
+  `AZURE_SPEECH_REGION` (skipped when unset), SSML + `<prosody rate>`, F0 default 15 RPM.
+- **Every provider call goes through `callProviderTTS`** (`services/audio.ts`; `callMiniMaxTTS` for
+  MiniMax-only paths), which asks that provider's `TtsLimiter` Durable Object (idFromName = provider) for a slot (a LEARNED rate — AIMD: starts at 8/min, +2 per clean busy
   minute, ×0.5 on a 1002, floor 2, capped by `MINIMAX_RPM` = 55 (pay-as-you-go) and `MINIMAX_RPM_MAX` = 60;
   interactive before batch, a waiting tap reserves the next token;
   a 1002 / 429 is requeued 60 s later, never retried in the request). A new TTS path must use it.
@@ -783,8 +796,9 @@ npm run dev
 
 ### Environment Variables / Secrets
 - `ANTHROPIC_API_KEY`: For AI card generation and Ask Claude feature
-- `MINIMAX_API_KEY`: MiniMax TTS (every stored clip; docs/AUDIO.md). `MINIMAX_RPM` (wrangler var) = hard cap on the learned rate (9 = Starter), `MINIMAX_RPM_MAX` = its ceiling (60)
-- `GOOGLE_TTS_API_KEY`: Google TTS, now only an in-the-moment fallback for live playback nobody keeps (chat `/tts`, role-play replies; never stored)
+- `MINIMAX_API_KEY`: MiniMax TTS (the default provider; docs/AUDIO.md).
+- `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION`: Azure Speech TTS (optional second provider; deploy.yml pushes them only when set). `MINIMAX_RPM` (wrangler var) = hard cap on the learned rate (9 = Starter), `MINIMAX_RPM_MAX` = its ceiling (60)
+- `GOOGLE_TTS_API_KEY`: Google TTS, by default only an in-the-moment fallback for live playback nobody keeps (chat `/tts`, role-play replies; stored only if an admin puts it in the stored order)
 - D1 and R2 bindings are configured in `wrangler.toml`
 
 Set secrets via:
@@ -1928,7 +1942,7 @@ id or an email. Unit-tested in `tools/admin.test.ts`.
 | `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
 | `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
 
-Audio (same file, docs/AUDIO.md): `audio_backfill_status` (read-only: backlog by kind × state, clips by provider / model / voice, limiter, measured clips/min, ETA), `audio_backfill_run` (`limit?`: start the pump, queue that many clips now), `audio_retry_failed` (`error_code?`: failed clips due now — account errors by default, one code, or "all" — and probe MiniMax at once), `audio_tts_compare` (old vs current model durations — perceived speed check). API: `GET /api/admin/audio/backfill` (with `account_problem` first), `POST /api/admin/audio/backfill/run`, `POST /api/admin/audio/retry-failed`, `POST /api/admin/audio/compare` (`routes/audio-backfill.ts`).
+Audio (same file, docs/AUDIO.md): `audio_settings_get` / `audio_settings_update` (provider order for stored / live, voices, enabled, max RPM, upgrade backup clips, `reset`; `GET|PUT /api/admin/audio/settings`), `audio_backfill_status` (now with `providers` + `stored_clips`) (read-only: backlog by kind × state, clips by provider / model / voice, limiter, measured clips/min, ETA), `audio_backfill_run` (`limit?`: start the pump, queue that many clips now), `audio_retry_failed` (`error_code?`: failed clips due now — account errors by default, one code, or "all" — and probe MiniMax at once), `audio_tts_compare` (old vs current model durations — perceived speed check). API: `GET /api/admin/audio/backfill` (with `account_problem` first), `POST /api/admin/audio/backfill/run`, `POST /api/admin/audio/retry-failed`, `POST /api/admin/audio/compare` (`routes/audio-backfill.ts`).
 
 #### Debug tools (`mcp-server/src/tools/debug.ts`)
 
@@ -2245,4 +2259,5 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/materials`, `/materials/:id` - Lesson materials (More → 📑 Lesson materials): upload / share / rename / delete, and the page viewer (cache-first, offline)
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards
+- `/admin/audio` - Admin: TTS providers (status per provider, enable, max RPM, voices with ▶ samples, stored / live order, upgrade backup clips, backlog + Retry / Run backfill; docs/AUDIO.md "Providers")
 - `/connections/:relId/board` - The Lesson board: every page of the video-call board with that person, read-only, offline ("📝 Lesson board · N pages" on the student / tutor page)

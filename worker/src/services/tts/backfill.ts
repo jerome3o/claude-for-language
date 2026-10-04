@@ -6,8 +6,11 @@
  *   1. due_soon      — missing clips of notes with a card due within 48 h
  *   2. active_users  — missing clips in Jerome's / recently active accounts
  *   3. missing       — every other missing clip
- *   4. google        — clips the Google fallback made
- *   5. old_voice     — MiniMax clips made with other settings (NULL = before provenance)
+ *   4. google        — clips the Google fallback made (unless Google's are current)
+ *   5. old_voice     — clips made with settings that aren't current (NULL = before
+ *                      provenance; a backup provider's once the first one is back)
+ * "Current" = the signature starts with one of `acceptableHashes`
+ * (services/tts/config.ts `storedClipPolicy`).
  * A clip that failed (not a rate limit) waits out its retry time in
  * tts_clip_failures before it is picked again.
  */
@@ -56,10 +59,13 @@ const KIND_SQL: Record<ClipKind, KindSql> = {
 export function tierCondition(
   tier: BackfillTier,
   kind: ClipKind,
-  ctx: { nowIso: string; dueBeforeIso: string; userIds: string[]; settingsHash: string },
+  ctx: { nowIso: string; dueBeforeIso: string; userIds: string[]; settingsHash?: string; acceptableHashes?: string[] },
 ): { sql: string; params: unknown[] } {
   const k = KIND_SQL[kind];
   const missing = `${k.url} IS NULL`;
+  const hashes = hashesOf(ctx);
+  const notCurrent = `(${k.settings} IS NULL OR NOT (${hashes.map(() => `${k.settings} LIKE ?`).join(' OR ')}))`;
+  const hashParams = hashes.map((h) => `${h}.%`);
   switch (tier) {
     case 'due_soon':
       return {
@@ -72,13 +78,19 @@ export function tierCondition(
     case 'missing':
       return { sql: missing, params: [] };
     case 'google':
-      return { sql: `${k.url} IS NOT NULL AND ${k.provider} = 'gtts'`, params: [] };
+      return { sql: `${k.url} IS NOT NULL AND ${k.provider} = 'gtts' AND ${notCurrent}`, params: hashParams };
     case 'old_voice':
       return {
-        sql: `${k.url} IS NOT NULL AND COALESCE(${k.provider}, '') != 'gtts' AND (${k.settings} IS NULL OR ${k.settings} NOT LIKE ?)`,
-        params: [`${ctx.settingsHash}.%`],
+        sql: `${k.url} IS NOT NULL AND COALESCE(${k.provider}, '') != 'gtts' AND ${notCurrent}`,
+        params: hashParams,
       };
   }
+}
+
+/** The settings hashes whose clips are current (one, or the providers' list). */
+function hashesOf(ctx: { settingsHash?: string; acceptableHashes?: string[] }): string[] {
+  const list = ctx.acceptableHashes?.length ? ctx.acceptableHashes : ctx.settingsHash ? [ctx.settingsHash] : [];
+  return list.length ? list : ['s-none'];
 }
 
 function notWaiting(kind: ClipKind): string {
@@ -98,13 +110,14 @@ export async function priorityUserIds(db: D1Database, adminEmail: string | undef
 /** The next `limit` clips to make, in priority order, each target once. */
 export async function selectBackfill(
   db: D1Database,
-  opts: { now: number; limit: number; userIds: string[]; settingsHash: string },
+  opts: { now: number; limit: number; userIds: string[]; settingsHash?: string; acceptableHashes?: string[] },
 ): Promise<BackfillItem[]> {
   const ctx = {
     nowIso: new Date(opts.now).toISOString(),
     dueBeforeIso: new Date(opts.now + DUE_SOON_MS).toISOString(),
     userIds: opts.userIds,
     settingsHash: opts.settingsHash,
+    acceptableHashes: opts.acceptableHashes,
   };
   const out: BackfillItem[] = [];
   const seen = new Set<string>();
@@ -150,9 +163,9 @@ export interface BackfillCounts {
   failures: Array<{ kind: ClipKind; target_id: string; attempts: number; last_error: string | null; next_attempt_at: string }>;
 }
 
-export async function backfillCounts(db: D1Database, opts: { now: number; settingsHash: string }): Promise<BackfillCounts> {
+export async function backfillCounts(db: D1Database, opts: { now: number; settingsHash: string; acceptableHashes?: string[] }): Promise<BackfillCounts> {
   const nowIso = new Date(opts.now).toISOString();
-  const ctx = { nowIso, dueBeforeIso: new Date(opts.now + DUE_SOON_MS).toISOString(), userIds: [], settingsHash: opts.settingsHash };
+  const ctx = { nowIso, dueBeforeIso: new Date(opts.now + DUE_SOON_MS).toISOString(), userIds: [], settingsHash: opts.settingsHash, acceptableHashes: opts.acceptableHashes };
   const kinds = {} as Record<ClipKind, KindCounts>;
   const byVoice: BackfillCounts['by_voice'] = [];
   for (const kind of CLIP_KINDS) {

@@ -1,0 +1,470 @@
+/* /admin/audio — TTS providers. Mobile first; provider cards in a grid ≥1024px. */
+.audio-admin {
+  padding: 0.5rem 0 1rem;
+}
+
+.audio-admin h1 {
+  font-size: 1.25rem;
+  margin: 0.25rem 0 0.25rem;
+}
+
+.audio-admin h2 {
+  font-size: 1rem;
+  margin: 1.25rem 0 0.25rem;
+}
+
+.audio-admin h3 {
+  font-size: 0.9375rem;
+  margin: 0 0 0.25rem;
+}
+
+.audio-admin-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--color-primary);
+  text-decoration: none;
+  font-size: 0.9375rem;
+}
+
+.audio-lead,
+.audio-muted,
+.audio-hint {
+  color: var(--color-text-light);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin: 0 0 0.5rem;
+}
+
+.audio-hint {
+  font-size: 0.8125rem;
+  margin-top: 0.25rem;
+}
+
+.audio-notice-warn,
+.audio-notice-error {
+  border-radius: var(--radius-md);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.audio-notice-warn { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+.audio-notice-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+/* ---- provider cards ---- */
+.audio-provider-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+@media (min-width: 1024px) {
+  .audio-provider-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.audio-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.audio-provider-grid .audio-card {
+  margin-bottom: 0;
+}
+
+.audio-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.audio-card-head h2 {
+  margin: 0;
+}
+
+.audio-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.2rem 0.625rem;
+  white-space: nowrap;
+}
+
+.audio-pill-off { background: #f3f4f6; color: #4b5563; }
+.audio-pill-warn { background: #fef3c7; color: #92400e; }
+.audio-pill-bad { background: #fee2e2; color: #991b1b; }
+.audio-pill-ok { background: #dcfce7; color: #166534; }
+
+.audio-card-detail {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin: 0.375rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.audio-card-error {
+  color: #b91c1c;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.audio-switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  min-height: 44px;
+  padding: 0.5rem 0;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.audio-switch-row.compact {
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+.audio-switch-row input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+  accent-color: var(--color-primary);
+}
+
+.audio-switch-row .audio-muted {
+  display: block;
+  margin: 0.125rem 0 0;
+}
+
+.audio-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.audio-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.audio-field input,
+.audio-field select {
+  min-height: 44px;
+  font-size: 1rem; /* no iOS zoom */
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  width: 100%;
+  min-width: 0;
+}
+
+.audio-field input:disabled {
+  background: #f9fafb;
+  color: var(--color-text-light);
+}
+
+.audio-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  padding-bottom: 0.625rem;
+}
+
+.audio-stat strong {
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.audio-voices {
+  margin-top: 0.25rem;
+}
+
+.audio-voice-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.audio-voice-row .audio-field {
+  flex: 1;
+}
+
+.audio-play {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.audio-play:disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
+}
+
+.audio-azure {
+  margin-top: 0.75rem;
+}
+
+.audio-azure .btn {
+  min-height: 44px;
+}
+
+.audio-azure-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.audio-azure-list li {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
+}
+
+/* ---- order lists ---- */
+@media (min-width: 1024px) {
+  .audio-orders {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+}
+
+.audio-order-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+}
+
+.audio-order-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 52px;
+  border-top: 1px solid var(--color-border);
+}
+
+.audio-order-row:first-child {
+  border-top: none;
+}
+
+.audio-order-row.excluded .audio-order-name,
+.audio-order-row.excluded .audio-order-pos {
+  color: #9ca3af;
+}
+
+.audio-order-include {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.audio-order-include input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--color-primary);
+}
+
+.audio-order-pos {
+  width: 1.5rem;
+  text-align: center;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.audio-order-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.audio-order-row.skipped .audio-order-name {
+  color: var(--color-text-light);
+}
+
+.audio-order-note {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.audio-order-moves {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.audio-order-moves button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 1.125rem;
+  cursor: pointer;
+}
+
+.audio-order-moves button:disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
+}
+
+.audio-effective {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin: 0.5rem 0 0;
+}
+
+/* ---- backlog ---- */
+.audio-backlog h2 {
+  margin-top: 0;
+}
+
+.audio-backlog-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.audio-backlog-stats div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--color-background);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.25rem;
+}
+
+.audio-backlog-stats strong {
+  font-size: 1.125rem;
+  color: var(--color-primary);
+}
+
+.audio-backlog-stats span {
+  font-size: 0.6875rem;
+  color: var(--color-text-light);
+  text-align: center;
+}
+
+.audio-backlog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.audio-backlog-actions .btn {
+  flex: 1 1 auto;
+  min-height: 44px;
+}
+
+.audio-backlog-result {
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
+}
+
+/* ---- sticky save bar ---- */
+.audio-footer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.audio-footer-row .btn {
+  min-height: 44px;
+}
+
+.audio-footer-state {
+  flex: 1 1 100%;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+@media (min-width: 640px) {
+  .audio-footer-state {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 639px) {
+  .audio-footer-row .btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* Keep Save clear of the feedback button (bottom-right, ~56px + margin). */
+.audio-footer-row {
+  padding-right: 4.5rem;
+}
+
+.audio-problems {
+  margin: 0 0 0.5rem;
+  padding: 0.5rem 0.75rem 0.5rem 1.75rem;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+/* The shared InlineNotice's styles live in ChatPage.css, which this page doesn't load. */
+.audio-admin .chat-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  margin: 0.5rem 0;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.audio-admin .chat-notice-error { background: #fee2e2; color: #991b1b; }
+.audio-admin .chat-notice-success { background: #dcfce7; color: #166534; }
+.audio-admin .chat-notice-info { background: #eff6ff; color: #1e40af; }
+.audio-admin .chat-notice-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+.audio-admin .chat-notice-dismiss {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.25rem;
+  cursor: pointer;
+}

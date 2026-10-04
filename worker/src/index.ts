@@ -117,6 +117,7 @@ import { homeworkLibraryRoutes } from './routes/homework-library';
 import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
 import audioBackfillRoutes from './routes/audio-backfill';
+import audioSettingsRoutes from './routes/audio-settings';
 import studyTimeRoutes from './routes/study-time';
 import foldersRoutes from './routes/folders';
 import studyBumpsRoutes from './routes/study-bumps';
@@ -592,6 +593,7 @@ app.route('/api', adminRoutes);
 app.route('/api', foldersRoutes);
 app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
 app.route('/api', audioBackfillRoutes); // /api/admin/audio/* (docs/AUDIO.md)
+app.route('/api', audioSettingsRoutes); // /api/admin/audio/settings|sample (docs/AUDIO.md "Providers")
 
 // Study-state debug reports from the web + Lab apps, and their diff (routes/debug-reports.ts)
 app.route('/api', debugReportsRoutes);
@@ -6107,9 +6109,10 @@ app.post('/api/practice/tts', async (c) => {
   if (voice_id !== undefined && !LESSON_VOICE_IDS.has(voice_id)) {
     return c.json({ error: 'Unknown voice' }, 400);
   }
-  // MiniMax only: both apps keep this clip on the device for good (lessons,
-  // readers, chat clips), so a Google stand-in would stick. 503 = try later;
-  // the device voice covers the moment (docs/AUDIO.md "Google fallback").
+  // The STORED order (MiniMax by default; Azure when an admin added it): both
+  // apps keep this clip on the device for good (lessons, readers, chat clips),
+  // so a live-only stand-in would stick. 503 = try later; the device voice
+  // covers the moment (docs/AUDIO.md "Providers").
   const result = await cachedConversationTTS(c.env, text, { speed: clampedSpeed, voiceId: voice_id });
   if (!result) return c.json({ error: 'Audio is not available right now — try again later', retryable: true }, 503);
   return c.json({ audio_base64: result.audioBase64, content_type: result.contentType });

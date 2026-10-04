@@ -786,7 +786,7 @@ export interface NoteRowInput {
   pinyin: string;
   english: string;
   audio_url?: string | null;
-  audio_provider?: 'minimax' | 'gtts' | null;
+  audio_provider?: 'minimax' | 'azure' | 'gtts' | null;
   fun_facts?: string | null;
   context?: string | null;
   sentence_clue?: string | null;
@@ -929,13 +929,13 @@ export async function updateNote(
     pinyin?: string;
     english?: string;
     audioUrl?: string;
-    audioProvider?: 'minimax' | 'gtts';
+    audioProvider?: 'minimax' | 'azure' | 'gtts';
     funFacts?: string;
     sentenceClue?: string;
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
-    sentenceClueAudioProvider?: 'minimax' | 'gtts';
+    sentenceClueAudioProvider?: 'minimax' | 'azure' | 'gtts';
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
     alternatives?: string | null;
@@ -945,13 +945,13 @@ export async function updateNote(
     pinyin?: string;
     english?: string;
     audioUrl?: string;
-    audioProvider?: 'minimax' | 'gtts';
+    audioProvider?: 'minimax' | 'azure' | 'gtts';
     funFacts?: string;
     sentenceClue?: string;
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
-    sentenceClueAudioProvider?: 'minimax' | 'gtts';
+    sentenceClueAudioProvider?: 'minimax' | 'azure' | 'gtts';
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
     alternatives?: string | null;
@@ -964,13 +964,13 @@ export async function updateNote(
     pinyin?: string;
     english?: string;
     audioUrl?: string;
-    audioProvider?: 'minimax' | 'gtts';
+    audioProvider?: 'minimax' | 'azure' | 'gtts';
     funFacts?: string;
     sentenceClue?: string;
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
-    sentenceClueAudioProvider?: 'minimax' | 'gtts';
+    sentenceClueAudioProvider?: 'minimax' | 'azure' | 'gtts';
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
     alternatives?: string | null;
@@ -1175,7 +1175,7 @@ export async function getDueCards(
       pinyin: row.pinyin as string,
       english: row.english as string,
       audio_url: row.audio_url as string | null,
-      audio_provider: (row.audio_provider as 'minimax' | 'gtts' | null) || null,
+      audio_provider: (row.audio_provider as 'minimax' | 'azure' | 'gtts' | null) || null,
       fun_facts: row.fun_facts as string | null,
       context: row.context as string | null,
       sentence_clue: row.sentence_clue as string | null,
@@ -1362,7 +1362,7 @@ export async function getSessionWithReviews(
         pinyin: row.pinyin as string,
         english: row.english as string,
         audio_url: row.audio_url as string | null,
-        audio_provider: (row.audio_provider as 'minimax' | 'gtts' | null) || null,
+        audio_provider: (row.audio_provider as 'minimax' | 'azure' | 'gtts' | null) || null,
         fun_facts: row.fun_facts as string | null,
         context: row.context as string | null,
         sentence_clue: row.sentence_clue as string | null,
@@ -1858,7 +1858,7 @@ function mapCardWithNote(row: Record<string, unknown>): CardWithNote {
       pinyin: row.pinyin as string,
       english: row.english as string,
       audio_url: row.audio_url as string | null,
-      audio_provider: (row.audio_provider as 'minimax' | 'gtts' | null) || null,
+      audio_provider: (row.audio_provider as 'minimax' | 'azure' | 'gtts' | null) || null,
       fun_facts: row.fun_facts as string | null,
       context: row.context as string | null,
       sentence_clue: row.sentence_clue as string | null,
@@ -3598,7 +3598,7 @@ export async function setNoteSentenceAudio(
   db: D1Database,
   sentenceId: string,
   audioUrl: string,
-  provider: 'minimax' | 'gtts' | null = null
+  provider: 'minimax' | 'azure' | 'gtts' | null = null
 ): Promise<void> {
   // updated_at bumps so /api/sentences/changes carries the new clip down to
   // devices that already have the row cached. ISO like every other write to this
@@ -3617,6 +3617,8 @@ export async function setNoteSentenceAudio(
 
 export interface AudioQualityCounts {
   minimax: number;
+  /** Azure Speech (the backup provider, docs/AUDIO.md "Providers"). */
+  azure: number;
   gtts: number;
   unknown: number;
 }
@@ -3628,9 +3630,10 @@ export interface AudioQualityStats {
 }
 
 function countsFromRows(rows: Array<{ provider: string | null; n: number }>): AudioQualityCounts {
-  const counts: AudioQualityCounts = { minimax: 0, gtts: 0, unknown: 0 };
+  const counts: AudioQualityCounts = { minimax: 0, azure: 0, gtts: 0, unknown: 0 };
   for (const row of rows) {
     if (row.provider === 'minimax') counts.minimax += row.n;
+    else if (row.provider === 'azure') counts.azure += row.n;
     else if (row.provider === 'gtts') counts.gtts += row.n;
     else counts.unknown += row.n;
   }

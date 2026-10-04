@@ -1,8 +1,86 @@
 # Audio pipeline (TTS)
 
-Every clip the app speaks with comes from **MiniMax**, model **`speech-2.8-hd`**, voice
+By default every clip the app speaks with comes from **MiniMax**, model **`speech-2.8-hd`**, voice
 **`Chinese (Mandarin)_Radio_Host`** (the clear "theatre" voice), speed **0.6**, MP3 32 kHz /
-128 kbps mono. These live in ONE place: `worker/src/services/tts/settings.ts`.
+128 kbps mono (`worker/src/services/tts/settings.ts`). Since Oct 2026 **Azure Speech** is a
+second provider and Google a third; which one speaks, in what order and in which voices is an
+admin setting (**/admin/audio**, see "Providers" below).
+
+## Providers (MiniMax · Azure Speech · Google)
+
+Oct 2026: MiniMax refused every call with `2053 insufficient credit`, and Google's voice is poor,
+so the pipeline got a provider layer and an admin page.
+
+| Piece | Where |
+|---|---|
+| Settings (validation, voice catalogues, speed mapping, defaults) | `shared/tts/config.ts` (`TtsConfig`, `mergeTtsConfig`, `DEFAULT_TTS_CONFIG`) |
+| Stored settings | D1 `tts_settings` (one row, migration 0107); `services/tts/config.ts` `loadTtsConfig` (cached 30 s per isolate) |
+| The providers (HTTP + decode + error classification) | `services/tts/providers.ts`: `minimaxProvider`, `azureProvider` (`buildAzureSsml`, `classifyAzureError`), `googleProvider` |
+| Limiter + account pause per provider | `durable/tts-limiter.ts`, one instance per `idFromName('minimax' \| 'azure' \| 'google')` |
+| Calls + fallback order | `services/audio.ts`: `callProviderTTS` (slot → call → report), `synthesizeOrdered`, `shouldTryNextProvider`, `combineProviderFailures` |
+| Admin | `routes/audio-settings.ts` (`GET|PUT /api/admin/audio/settings`, `POST /api/admin/audio/sample`), page `/admin/audio`, MCP `audio_settings_get` / `audio_settings_update` |
+
+**Settings** (`TtsConfig`):
+- `stored_order` — providers tried, in order, for clips that are **kept**: stored clips (word, card
+  sentence, sentence set) and `/api/practice/tts` (lesson / chat clips both apps cache for good).
+  Default **`["minimax"]`** (= the behaviour before providers).
+- `live_order` — for live playback nobody keeps (`/api/conversations/:id/tts`, role-play replies).
+  Default **`["minimax", "google"]`**.
+- `upgrade_backup_clips` (default **on**) — see "Current" below.
+- per provider: `enabled`, `max_rpm` (hard cap; the limiter learns below it), `voices` for the roles
+  `default` / `female` / `male`, `speed_factor`.
+A provider that is disabled or has no secrets is skipped at run time (still listed in the order).
+
+**Fallback.** Each provider in the order is tried through ITS limiter. An **account pause** (no
+credit / bad key), "not configured" or a failure → the next provider. A **plain rate limit** (the
+limiter's wait, MiniMax 1002, HTTP 429) → the next provider only for an interactive caller (someone
+is waiting); background work (pump, queue) waits for the first provider rather than spending the
+backup on every clip. When nobody could speak: wait (the shortest wait asked for) if any provider
+asked to wait, else a clip failure (`tts_clip_failures`, reasons joined `base_resp 2013 …; azure http 500 …`).
+
+**Current.** Each provider has its own stored-clip settings hash (MiniMax: the old formula, so clips
+made before providers stay current; Azure / Google: provider | voice | rate | encode). A clip is
+current when its signature carries an **acceptable** hash (`storedClipPolicy`): the first usable
+provider's always; every provider of the stored order's while the first one is **unavailable**
+(account-paused); and always when `upgrade_backup_clips` is **off**. So with `["minimax", "azure"]`
+while MiniMax has no credit, Azure clips are current and the backfill makes missing ones with
+Azure; once MiniMax answers again they become `old_voice` and the pump remakes them with MiniMax
+(upgrade on). Moving another provider FIRST makes the backfill remake every clip with it (upgrade on).
+The R2 `tts-cache/` key is per provider + voice + rate (MiniMax's key unchanged); only clips of a
+provider in the stored order are kept there.
+
+**Voices.** Stored clips use each provider's `default` voice. Conversation lines and chat
+read-aloud still pick a MiniMax catalogue voice (`shared/lesson/voices.ts`, `shared/chats/voice.ts`
+— unchanged on both apps); MiniMax speaks it as is, another provider maps it by the catalogue
+voice's **gender** to its `female` / `male` voice (`voiceRole`, `providerVoice` in
+`services/tts/config.ts`); the app's own voice → `default`. (Two same-gender speakers in one
+dialogue therefore share Azure's voice of that gender.) MiniMax voice samples
+(`/api/conversation-voices/sample`) stay MiniMax only.
+
+**Speed.** The app's speeds are MiniMax's scale (0.6 cards, 0.9 conversations). Another provider's
+rate = `1 + (speed − 1) × speed_factor` (clamped 0.5–2): Azure's default factor **0.75** → cards
+**0.7** (`<prosody rate="-30%">`), conversations **0.93**. Google 1.0 (its `speakingRate` = the
+speed, as before). Azure **HD voices** (`…:DragonHDLatestNeural`, `…:DragonHDFlashLatestNeural`)
+take no `<prosody>` — they speak at their own pace (the hash records `own`) and exist only in some
+regions (eastus, westeurope, southeastasia).
+
+**Azure Speech.** `POST https://<AZURE_SPEECH_REGION>.tts.speech.microsoft.com/cognitiveservices/v1`,
+`Ocp-Apim-Subscription-Key: <AZURE_SPEECH_KEY>`, `Content-Type: application/ssml+xml`,
+`X-Microsoft-OutputFormat: audio-24khz-96kbitrate-mono-mp3`. Errors: 401 / 403 → account pause
+(`azure http 401` — the recovery's `resetAccountFailures` covers it); 429 → rate limit; 400 / 415 →
+permanent for this text; 5xx → transient. The free tier (F0) allows 20 requests per 60 s, so the
+default `max_rpm` is **15** (the limiter starts at 8/min and learns up to it). Curated voices:
+Xiaoxiao 晓晓 (default, female), Xiaochen, Xiaoyi; Yunxi 云希 (male), Yunjian, Yunyang; HD Flash /
+Dragon HD variants. Secrets `AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION` (GitHub Actions secrets of
+the same names, pushed by deploy.yml only when set); unset = Azure is skipped.
+`GET /api/admin/audio/settings?azure_voices=1` lists the region's zh-CN voices (read-only; proves the key).
+
+**Admin page `/admin/audio`**: a card per provider (configured? missing secrets, paused / working,
+learned RPM, last success / error, enable, max RPM, voices per role with ▶ samples via
+`POST /api/admin/audio/sample { provider, voice?, role?, text?, speed? }` — through that provider's
+limiter, nothing kept), ↑↓ ordering for stored and live, the upgrade toggle, the backlog with
+**Retry failed now** / **Run backfill**, sticky Save. `audio_backfill_status` also returns
+`providers` (the same per-provider state) and `stored_clips` (effective order, current providers).
 
 ## Why this exists
 
@@ -17,7 +95,7 @@ empty, and nothing came back for it. A bulk import came out ~95 % silent.
 | Piece | Where | What |
 |---|---|---|
 | Settings + signature | `services/tts/settings.ts` | model / voice / speed / encode → `s<hash>`; each stored clip records `<settings hash>.<text hash>` |
-| Rate limiter | `durable/tts-limiter.ts` (DO `TTS_LIMITER`, one instance) + `services/tts/bucket.ts` (pure) | token bucket at the LEARNED rate (AIMD, below; hard cap `MINIMAX_RPM` = 55, ceiling `MINIMAX_RPM_MAX` = 60), burst ≤ 5 → never more than rpm + burst in any minute |
+| Rate limiter | `durable/tts-limiter.ts` (DO `TTS_LIMITER`, one instance per provider) + `services/tts/bucket.ts` (pure) | token bucket at the LEARNED rate (AIMD, below; hard cap `MINIMAX_RPM` = 55, ceiling `MINIMAX_RPM_MAX` = 60), burst ≤ 5 → never more than rpm + burst in any minute |
 | Account pause | `services/tts/account.ts` (pure + the failure-reset SQL), held by the same DO | no credit / bad key → every call paused 5 → 60 min, one probe per pause, auto-recovery (below) |
 | The MiniMax call | `services/audio.ts` `callMiniMaxTTS` | the ONLY function that calls MiniMax: slot first, then the call, outcome reported back |
 | Clip worker | `services/tts/clips.ts` `ensureClip` | one clip (word / card sentence / sentence-set row): idempotent, key swap, shared copies |
@@ -84,10 +162,13 @@ day. An account problem is not about the clip, so (`services/tts/account.ts`):
 
 ## Google fallback
 
-Google's voice is only ever a stand-in for **live playback that nobody keeps**, while MiniMax
-can't speak (rate limit, account pause). Anything stored — by the server or on a device — waits for
-MiniMax instead. `generateConversationTTS` / `cachedConversationTTS` take `allowGoogleFallback`
-(default **off**); a Google clip is never put in R2 `tts-cache/`.
+With the default settings Google's voice is only ever a stand-in for **live playback that nobody
+keeps** (it is in `live_order`, not `stored_order`), while MiniMax can't speak (rate limit, account
+pause). Anything stored — by the server or on a device — uses the stored order instead.
+`generateConversationTTS` / `cachedConversationTTS` take `allowGoogleFallback` (default **off**) =
+"use the live order"; a clip of a provider outside the stored order is never put in R2
+`tts-cache/`. The table below describes the defaults; an admin can put Azure (or Google) in the
+stored order at /admin/audio.
 
 | Path | Kept where | Google fallback |
 |---|---|---|

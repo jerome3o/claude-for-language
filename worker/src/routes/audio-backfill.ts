@@ -10,6 +10,8 @@ import { backfillCounts, etaMinutes, priorityUserIds, selectBackfill, throughput
 import { LIMITER_NAME } from '../services/tts/limiter';
 import { enqueueClip, startPump } from '../services/tts/queue';
 import { TTS_MODEL, ttsSettings } from '../services/tts/settings';
+import { loadTtsConfig, storedClipPolicy } from '../services/tts/config';
+import { providerStatuses } from './audio-settings';
 import { limiterConfig } from '../services/tts/bucket';
 import { callMiniMaxTTS } from '../services/audio';
 import type { LimiterSnapshot } from '../durable/tts-limiter';
@@ -55,11 +57,14 @@ async function snapshot(env: Env): Promise<LimiterSnapshot | null> {
 
 routes.get('/admin/audio/backfill', async (c) => {
   const now = Date.now();
-  const settings = ttsSettings(c.env);
-  const [counts, limiter, accountWaiting] = await Promise.all([
-    backfillCounts(c.env.DB, { now, settingsHash: settings.hash }),
+  const config = await loadTtsConfig(c.env);
+  const settings = ttsSettings(c.env, config.providers.minimax.voices.default);
+  const policy = await storedClipPolicy(c.env);
+  const [counts, limiter, accountWaiting, providers] = await Promise.all([
+    backfillCounts(c.env.DB, { now, settingsHash: settings.hash, acceptableHashes: policy.acceptableHashes }),
     snapshot(c.env),
     accountFailureCount(c.env.DB, now).catch(() => null),
+    providerStatuses(c.env, config, now),
   ]);
   // The learned (AIMD) rate, not the env cap: that is what the backlog drains at.
   const cfg = limiterConfig(limiter?.learned_rpm ?? 8, !!limiter?.night_until);
@@ -77,6 +82,16 @@ routes.get('/admin/audio/backfill', async (c) => {
     // /v1/token_plan/remains, which refuses PAYG keys): check the console.
     account: { balance: null, balance_api: false, note: 'MiniMax publishes no balance API for pay-as-you-go keys — see platform.minimax.io → Billing.' },
     clips_waiting_on_account_errors: accountWaiting,
+    // Per provider (docs/AUDIO.md "Providers"): configured / enabled / account / learned rate / last success + error.
+    providers,
+    stored_clips: {
+      order: policy.order,
+      primary: policy.primary,
+      primary_unavailable: policy.primaryUnavailable,
+      current_providers: policy.acceptable,
+      upgrade_backup_clips: config.upgrade_backup_clips,
+      live_order: config.live_order,
+    },
     settings: { model: settings.model, voice: settings.voice, speed: settings.speed, hash: settings.hash },
     backlog: counts.backlog,
     kinds: counts.kinds,
@@ -127,7 +142,8 @@ routes.post('/admin/audio/backfill/run', async (c) => {
   } catch {
     // No body: just the pump
   }
-  if (!c.env.MINIMAX_API_KEY) return c.json({ error: 'MiniMax is not configured' }, 503);
+  const policy = await storedClipPolicy(c.env);
+  if (policy.order.length === 0) return c.json({ error: 'No TTS provider is configured and enabled for stored clips (/admin/audio)' }, 503);
   let queued = 0;
   if (limit > 0) {
     const now = Date.now();
@@ -135,7 +151,7 @@ routes.post('/admin/audio/backfill/run', async (c) => {
       now,
       limit,
       userIds: await priorityUserIds(c.env.DB, c.env.ADMIN_EMAIL, now),
-      settingsHash: ttsSettings(c.env).hash,
+      acceptableHashes: policy.acceptableHashes,
     });
     for (const item of items) if (await enqueueClip(c.env, { kind: item.kind, id: item.id }, { priority: 'batch' })) queued++;
   }
@@ -173,14 +189,18 @@ routes.post('/admin/audio/retry-failed', async (c) => {
   }
   let probing = false;
   if (c.env.TTS_LIMITER) {
-    try {
-      probing = await c.env.TTS_LIMITER.get(c.env.TTS_LIMITER.idFromName(LIMITER_NAME)).probeAccountNow();
-    } catch (err) {
-      console.error('[audio-backfill] probe failed', err);
+    // Every provider's pause ends: the next call to each probes it.
+    for (const name of [LIMITER_NAME, 'azure', 'google']) {
+      try {
+        probing = (await c.env.TTS_LIMITER.get(c.env.TTS_LIMITER.idFromName(name)).probeAccountNow()) || probing;
+      } catch (err) {
+        console.error('[audio-backfill] probe failed', name, err);
+      }
     }
   }
-  if (c.env.MINIMAX_API_KEY) await startPump(c.env);
-  return c.json({ reset, error_code: code ?? 'account errors', account_probe_now: probing, pump_started: !!c.env.MINIMAX_API_KEY });
+  const canPump = (await storedClipPolicy(c.env)).order.length > 0;
+  if (canPump) await startPump(c.env);
+  return c.json({ reset, error_code: code ?? 'account errors', account_probe_now: probing, pump_started: canPump });
 });
 
 /** MP3 duration at the pinned 128 kbps CBR encode. */

@@ -364,6 +364,7 @@ export function AdminPage() {
         <h1>Admin Dashboard</h1>
 
         <div className="nav-list admin-shortcuts">
+          <NavRow icon="🔊" label="Audio providers" desc="MiniMax · Azure · Google — order, voices, backlog" to="/admin/audio" />
           <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample (nothing recorded)" to="/library/catalogue" />
           <NavRow icon="🗂️" label="Lesson Library" desc="Mini lessons to assign — tap one to try it" to="/library" />
         </div>

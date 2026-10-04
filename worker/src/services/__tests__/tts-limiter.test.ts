@@ -340,7 +340,8 @@ describe('nightly cron: London midnight across DST', () => {
     expect(await runAudioCron(env, '0 23 * * *', new Date('2026-01-14T23:00:00Z'))).toBe('not_london_midnight');
     expect(sent).toHaveLength(0);
     expect(await runAudioCron(env, '0 0 * * *', new Date('2026-01-15T00:00:00Z'))).toBe('night_started');
-    expect(nights).toHaveLength(1);
+    // One per provider limiter (minimax, azure, google).
+    expect(nights).toHaveLength(3);
     expect(sent).toMatchObject([{ kind: 'pump', night: true }]);
     expect(await runAudioCron(env, '37 * * * *', new Date())).toBe('pump_nudged');
     expect(await runAudioCron(env, '17 3 * * *', new Date())).toBe('not_audio');

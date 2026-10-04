@@ -23,6 +23,7 @@ bucket_name = "chinese-learning-audio"
 # Required secrets:
 # - ANTHROPIC_API_KEY: Anthropic API key for AI features
 # - GOOGLE_TTS_API_KEY: Google Cloud TTS API key
+# - AZURE_SPEECH_KEY / AZURE_SPEECH_REGION: Azure Speech TTS (optional second provider, docs/AUDIO.md)
 # - GOOGLE_CLIENT_ID: Google OAuth client ID
 # - GOOGLE_CLIENT_SECRET: Google OAuth client secret
 # - SESSION_SECRET: Random secret for session signing (openssl rand -base64 32)

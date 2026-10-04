@@ -41,7 +41,27 @@ describe('admin tools', () => {
     expect([...tools.keys()].sort()).toEqual([
       'admin_delete_user', 'admin_get_user', 'admin_handle_access_request', 'admin_inspect_user_decks', 'admin_list_access_requests',
       'admin_list_users', 'admin_preview_delete_user', 'admin_set_can_invite', 'admin_set_role', 'admin_set_user_voice_gender',
-      'audio_backfill_run', 'audio_backfill_status', 'audio_retry_failed', 'audio_tts_compare',
+      'audio_backfill_run', 'audio_backfill_status', 'audio_retry_failed', 'audio_settings_get', 'audio_settings_update', 'audio_tts_compare',
+    ]);
+  });
+
+  it('audio settings: get is a GET (azure voices on request); update PUTs only the given fields, or a reset', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'GET /api/admin/audio/settings': () => ({ settings: { stored_order: ['minimax'] } }),
+      'PUT /api/admin/audio/settings': (body) => ({ settings: body }),
+    });
+    registerAdminTools(ctx);
+    expect(text(await tools.get('audio_settings_get')!({}))).toContain('"stored_order"');
+    await tools.get('audio_settings_get')!({ azure_voices: true });
+    await tools.get('audio_settings_update')!({ stored_order: ['minimax', 'azure'], providers: { azure: { max_rpm: 12 } } });
+    await tools.get('audio_settings_update')!({ reset: true, stored_order: ['google'] });
+    const empty = await tools.get('audio_settings_update')!({});
+    expect(empty.isError).toBe(true);
+    expect(calls).toEqual([
+      { method: 'GET', path: '/api/admin/audio/settings', body: undefined },
+      { method: 'GET', path: '/api/admin/audio/settings?azure_voices=1', body: undefined },
+      { method: 'PUT', path: '/api/admin/audio/settings', body: { stored_order: ['minimax', 'azure'], providers: { azure: { max_rpm: 12 } } } },
+      { method: 'PUT', path: '/api/admin/audio/settings', body: { reset: true } },
     ]);
   });
 

@@ -22,7 +22,7 @@ function ttsConfigured(env: Env): boolean {
  * / speed) and hand it to every student copy that has none. No signature, so the
  * backfill brings it back to the current settings later.
  */
-export async function setNoteAudio(env: Env, noteId: string, audioKey: string, provider: 'minimax' | 'gtts', prov: { voice?: string; model?: string } = {}): Promise<void> {
+export async function setNoteAudio(env: Env, noteId: string, audioKey: string, provider: 'minimax' | 'azure' | 'gtts', prov: { voice?: string; model?: string } = {}): Promise<void> {
   await db.updateNote(env.DB, noteId, { audioUrl: audioKey, audioProvider: provider });
   await env.DB
     .prepare('UPDATE notes SET audio_voice = ?, audio_model = ?, audio_settings = NULL WHERE id = ?')

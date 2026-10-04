@@ -11,7 +11,7 @@ import type { TtsPriority } from './bucket';
 import { ensureClip, type ClipResult, type ClipTarget, type TtsFn } from './clips';
 import { priorityUserIds, selectBackfill } from './backfill';
 import { LIMITER_NAME } from './limiter';
-import { ttsSettings } from './settings';
+import { storedClipPolicy } from './config';
 
 export type TtsQueueMessage =
   | { kind: 'clip'; target: ClipTarget; priority: TtsPriority; force?: boolean; attempt?: number }
@@ -104,9 +104,15 @@ export async function runPumpTick(env: Env, msg: Extract<TtsQueueMessage, { kind
     return { picked: 0, made: 0, failed: 0, rateLimited: false, next: 'not_mine', delaySeconds: 0 };
   }
   const started = now();
-  const settings = ttsSettings(env);
+  const policy = await storedClipPolicy(env);
+  if (policy.order.length === 0) {
+    // No provider may make stored clips (none configured / all disabled): don't burn the clips' attempts.
+    if (lim) await lim.releasePump(msg.token);
+    console.warn(JSON.stringify({ type: 'tts_backfill', event: 'no_provider' }));
+    return { picked: 0, made: 0, failed: 0, rateLimited: false, next: 'done', delaySeconds: 0 };
+  }
   const userIds = await priorityUserIds(env.DB, env.ADMIN_EMAIL, started);
-  const items = await selectBackfill(env.DB, { now: started, limit: PUMP_PICK, userIds, settingsHash: settings.hash });
+  const items = await selectBackfill(env.DB, { now: started, limit: PUMP_PICK, userIds, acceptableHashes: policy.acceptableHashes });
   if (items.length === 0) {
     if (lim) await lim.releasePump(msg.token);
     console.log(JSON.stringify({ type: 'tts_backfill', event: 'done' }));
@@ -120,7 +126,7 @@ export async function runPumpTick(env: Env, msg: Extract<TtsQueueMessage, { kind
   const worker = async () => {
     while (!stop && next < items.length && now() - started < PUMP_TICK_MS) {
       const item = items[next++];
-      const result = await ensureClip(env, item, { priority: 'batch', maxWaitMs: PUMP_SLOT_WAIT_MS, tts });
+      const result = await ensureClip(env, item, { priority: 'batch', maxWaitMs: PUMP_SLOT_WAIT_MS, tts, policy });
       if (result.status === 'rate_limited') {
         stop = { delaySeconds: requeueDelaySeconds(result.retryAfterMs, result.minimax) };
       } else if (result.status === 'failed') failed++;

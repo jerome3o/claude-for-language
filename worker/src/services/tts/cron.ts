@@ -16,12 +16,16 @@ export type AudioCronAction = 'not_audio' | 'night_started' | 'not_london_midnig
 export async function runAudioCron(env: Env, cron: string, now: Date): Promise<AudioCronAction> {
   const nightly = (NIGHTLY_CRONS as readonly string[]).includes(cron);
   if (!nightly && cron !== PUMP_KEEPALIVE_CRON) return 'not_audio';
-  if (!env.MINIMAX_API_KEY) return 'no_minimax';
+  // Nothing can make a stored clip: no MiniMax and no Azure key (the pump itself checks the admin's order).
+  if (!env.MINIMAX_API_KEY && !(env.AZURE_SPEECH_KEY && env.AZURE_SPEECH_REGION)) return 'no_minimax';
   try {
     if (nightly) {
       if (!isLondonMidnight(now)) return 'not_london_midnight';
       if (env.TTS_LIMITER) {
-        await env.TTS_LIMITER.get(env.TTS_LIMITER.idFromName(LIMITER_NAME)).setNight(now.getTime() + NIGHT_LENGTH_MS);
+        // Every provider's limiter: batch work may use more of each rate at night.
+        for (const name of [LIMITER_NAME, 'azure', 'google']) {
+          await env.TTS_LIMITER.get(env.TTS_LIMITER.idFromName(name)).setNight(now.getTime() + NIGHT_LENGTH_MS);
+        }
       }
       await startPump(env, { night: true });
       return 'night_started';

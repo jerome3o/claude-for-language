@@ -32,7 +32,7 @@ export function fnv1a(text: string): string {
   return h.toString(16).padStart(8, '0');
 }
 
-function settingsHash(model: string, voice: string, speed: number): string {
+export function settingsHash(model: string, voice: string, speed: number): string {
   const a = TTS_AUDIO_SETTING;
   return 's' + fnv1a(`${model}|${voice}|${speed}|${a.format}|${a.sample_rate}|${a.bitrate}|${a.channel}`);
 }
@@ -42,10 +42,25 @@ function settingsHash(model: string, voice: string, speed: number): string {
  * matched if a model change speaks faster or slower at the same number; changing it
  * changes the hash, so the backfill regenerates every clip at the new speed.
  */
-export function ttsSettings(env: { TTS_SPEED_OVERRIDE?: string } = {}): TtsSettings {
+export function ttsSettings(env: { TTS_SPEED_OVERRIDE?: string } = {}, voice: string = TTS_VOICE): TtsSettings {
+  const speed = houseSpeed(env);
+  return { model: TTS_MODEL, voice, speed, hash: settingsHash(TTS_MODEL, voice, speed) };
+}
+
+/** The app's speed for stored clips (MiniMax's scale; other providers map it, shared/tts). */
+export function houseSpeed(env: { TTS_SPEED_OVERRIDE?: string } = {}): number {
   const override = Number(env.TTS_SPEED_OVERRIDE);
-  const speed = Number.isFinite(override) && override >= 0.5 && override <= 2 ? override : TTS_SPEED;
-  return { model: TTS_MODEL, voice: TTS_VOICE, speed, hash: settingsHash(TTS_MODEL, TTS_VOICE, speed) };
+  return Number.isFinite(override) && override >= 0.5 && override <= 2 ? override : TTS_SPEED;
+}
+
+/**
+ * The settings hash of a stored clip made by another provider (docs/AUDIO.md
+ * "Providers"): provider, voice, the rate actually sent ('own' for Azure HD
+ * voices, which ignore it) and the encode. MiniMax keeps `settingsHash` above,
+ * so clips made before providers existed stay current.
+ */
+export function otherProviderHash(provider: 'azure' | 'google', voice: string, rate: number | 'own', encode: string): string {
+  return 's' + fnv1a(`${provider}|${voice}|${rate}|${encode}`);
 }
 
 /** What a stored clip records: `<settings hash>.<text hash>`. A changed text or setting = stale. */
