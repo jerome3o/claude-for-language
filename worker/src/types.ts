@@ -5,6 +5,8 @@ import type { ReaderWord } from '@shared/reader/words';
 export interface Env {
   DB: D1Database;
   AUDIO_BUCKET: R2Bucket;
+  /** Static assets: the character dictionary shards (worker/char-dict/, services/char-dict.ts). */
+  CHAR_DICT?: Fetcher;
   AI: Ai;
   IMAGE_QUEUE: Queue<ImageGenerationMessage | CustomLessonImageMessage | import('./services/lesson-images').LessonImageMessage>;
   STORY_QUEUE: Queue<StoryGenerationMessage>;

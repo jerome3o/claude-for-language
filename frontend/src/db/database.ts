@@ -442,6 +442,21 @@ export interface SyncLogEntry {
 }
 
 // Cached character definition for instant lookups
+/** One character of the dictionary on the device; `record: null` = the dictionary lacks it. */
+export interface LocalCharDictEntry {
+  char: string;
+  record: import('@shared/chars/types').CharRecord | null;
+  /** CHAR_DICT_VERSION it was fetched under: an older one is refetched. */
+  version: number;
+  cached_at: number;
+}
+
+export interface LocalCharExplanation {
+  char: string;
+  explanation: string;
+  cached_at: number;
+}
+
 export interface CachedCharacterDefinition {
   hanzi: string; // Primary key - single character or word
   pinyin: string;
@@ -640,6 +655,9 @@ export class ChineseLearningDB extends Dexie {
   // Folders (decks / lessons / readers), replaced whole on each sync
   folders!: Table<Folder, string>;
   studyBumps!: Table<LocalStudyBump, string>;
+  // The character dictionary (services/charDict.ts): records + "More about 字" per character
+  charDict!: Table<LocalCharDictEntry, string>;
+  charExplanations!: Table<LocalCharExplanation, string>;
 
   // Debug tables
   syncLogs!: Table<SyncLogEntry, string>;
@@ -1080,6 +1098,15 @@ export class ChineseLearningDB extends Dexie {
     // whole by each sync except this device's pending adds / clears.
     this.version(27).stores({
       studyBumps: 'id, note_id',
+    });
+
+    // Version 28: the character dictionary (shared/chars, GET /api/chars) — one record per
+    // character the learner has looked at or will study soon, and the global "More about 字"
+    // explanations; the card back's character sheet reads them offline (services/charDict.ts).
+    // The old per-card `characterDefinitions` cache is kept but no longer read.
+    this.version(28).stores({
+      charDict: 'char, cached_at',
+      charExplanations: 'char',
     });
   }
 }

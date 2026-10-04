@@ -81,6 +81,7 @@ const DeckTryPage = lazy(() => import('./pages/DeckTryPage').then(m => ({ defaul
 const LessonPrintPage = lazy(() => import('./pages/editor/LessonPrintPage').then(m => ({ default: m.LessonPrintPage })));
 const JoinPage = lazy(() => import('./pages/invites/JoinPage').then(m => ({ default: m.JoinPage })));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage').then(m => ({ default: m.PrivacyPage })));
+const LicencesPage = lazy(() => import('./pages/LicencesPage').then(m => ({ default: m.LicencesPage })));
 const CardHubPage = lazy(() => import('./pages/CardHubPage').then(m => ({ default: m.CardHubPage })));
 const ClaudeChatsPage = lazy(() => import('./pages/ClaudeChatsPage').then(m => ({ default: m.ClaudeChatsPage })));
 const LessonBoardPage = lazy(() => import('./pages/LessonBoardPage').then(m => ({ default: m.LessonBoardPage })));
@@ -209,6 +210,7 @@ function AppRoutes() {
       <Route path="/join/:token" element={<JoinPage />} />
       {/* Public: the privacy policy (Google Play listing of the Lab app links here). */}
       <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/about/licences" element={<LicencesPage />} />
       {/* Bottom tab bar destinations: Chats (every conversation) and More. Decks (deck list + card
           search) left the bar for More's first row; /decks is unchanged. */}
       <Route

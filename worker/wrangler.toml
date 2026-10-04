@@ -12,6 +12,14 @@ database_name = "chinese-learning-db"
 database_id = "b1ccbb96-0328-4c36-95d8-d7fe18171d82"
 migrations_dir = "src/db/migrations"
 
+# The character dictionary (scripts/build-char-dict.ts → worker/char-dict/*.dat), read
+# through the CHAR_DICT binding by services/char-dict.ts. run_worker_first: every request
+# still goes to the worker; the shards are only read through the binding.
+[assets]
+directory = "./char-dict"
+binding = "CHAR_DICT"
+run_worker_first = true
+
 # R2 Bucket for audio files
 # Create with: `wrangler r2 bucket create chinese-learning-audio`
 [[r2_buckets]]

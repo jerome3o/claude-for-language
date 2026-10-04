@@ -391,6 +391,59 @@ cancels), `useAudioRecorder` `keepPrevious` / `cancelRecording`; e2e `study-reco
 Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRecording` /
 `keepNewTake` in `StudyViewModel.kt` (`RecordAgainFlipTest`).
 
+## Character sheet
+
+Tapping a character of the hanzi on the card back (or of the answer diff on a typing card)
+opens the **character sheet**: dictionary data about that character that is the SAME on every
+card — it never looks at the card on screen and needs no AI call. It replaced the old popup
+that asked Claude to define the character in the context of the current card
+(`WordDefinitionPopup` → `POST /api/vocabulary/define`; that endpoint, the D1
+`character_definitions` table and the IndexedDB `characterDefinitions` cache are kept but the
+card no longer uses them; chat role-play's word tap still does).
+
+The sheet shows the big character, its readings (most used first), a one-line meaning, each
+reading's gloss when there are several, chips for the radical, stroke count and frequency rank
+(“#46 most common”, top 5,000 only), "Built from 彳 (…) + 亍 (…)", a one-line etymology hint,
+**✍️ Write it** (the stroke-order sheet for that one character) and **✨ More about 行**.
+
+**Words with 行**: the ~20 most frequent words containing it (hanzi · pinyin · gloss), with a
+status from the learner's own notes and cards ON THE DEVICE (offline):
+**✓ Known** = a note with that spelling has a mature card (Review, stability > 21 days — the
+deck page's "mastered", the Progress page's "known"), **📚 In your decks** = they have the word
+but nothing mature yet, nothing = they don't have it. The order is the dictionary's frequency
+order with the card's own word(s) first and highlighted; known rows are dimmed, not moved.
+Rules: `shared/chars/status.ts` (`charWordRows`, `charWordsSummary`; Lab `core/…/CharWords.kt`,
+parity-tested by `android-lab/parity/fixtures/char-words.ts`). A row opens the add-card sheet
+(`AddChunkModal`: the top deck in the study queue preselected); a word they already have gets
+"You already have 进行 in HSK 2", **⚡ Study it today** (the bump pocket, source `char_sheet`) and
+**Open card →** (the card hub). A word added from the sheet shows as In your decks at once.
+
+**Data** (`shared/chars/`, `scripts/build-char-dict.ts`): built once from open data —
+CC-CEDICT (CC BY-SA 4.0: readings, words, glosses; tone numbers → marks, one word's syllables
+joined, `applyYiBuToneChanges`), Make Me a Hanzi `dictionary.txt` (LGPL-3.0: definition,
+radical, decomposition, etymology, stroke count) and wordfreq `large_zh` (CC BY-SA 4.0 data:
+word order; character rank = Σ word frequency × occurrences). ~10,200 characters (every
+character Make Me a Hanzi knows + anything ranked in the top 8,000), ~51,700 word rows, 2.3 MB
+gzipped, in 128 shards `worker/char-dict/NNN.dat` (gzipped JSON, shard = code point % 128)
+served from the worker's static assets (`[assets]` binding `CHAR_DICT`, `run_worker_first`) and
+kept in memory per isolate: no D1 rows, no R2 objects, a rebuild deploys with the worker.
+`GET /api/chars/:char`, `GET /api/chars?c=` (≤ 100). Credits: Settings → About · Licences
+(`/about/licences`).
+
+**On the device**: IndexedDB `charDict` (Dexie v28; `services/charDict.ts`) — cache first,
+a character the dictionary lacks is remembered for a week; every sync (hourly) prefetches the
+characters of the next ~150 notes to study, in batches, so the sheet works offline. Offline and
+never fetched → "You’re offline and this character isn’t on the device yet". Lab: JsonCache
+`chars/<c>` + a FeatureSync.
+
+**More about 行** asks Haiku (`POST /api/chars/:char/explain`) for 2–3 card-independent
+lines (meaning, components, common use) from the dictionary record only — never the card —
+stored once per character for everyone (D1 `char_explanations`, migration 0108) and on the
+device (`charExplanations`). Offline: "Needs a connection — the dictionary above works offline."
+
+Analytics: `study.char_sheet_open` (found, words), `study.char_word_tap` (status, current),
+`study.char_word_added`, `study.char_explain`. e2e `character-sheet.spec.ts`.
+
 ## Offline mode
 
 Study is offline whenever **NetworkContext** says the browser is offline (automatic) or the

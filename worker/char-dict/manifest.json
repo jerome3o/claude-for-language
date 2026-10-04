@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "shards": 128,
+  "characters": 10194,
+  "ranked_top_5000": 4964,
+  "with_words": 5036,
+  "words": 51732,
+  "gzipped_bytes": 2261985,
+  "sources": [
+    {
+      "name": "CC-CEDICT",
+      "url": "https://www.mdbg.net/chinese/dictionary?page=cedict",
+      "licence": "CC BY-SA 4.0",
+      "entries": 125188
+    },
+    {
+      "name": "Make Me a Hanzi (dictionary.txt)",
+      "url": "https://github.com/skishore/makemeahanzi",
+      "licence": "LGPL-3.0-or-later",
+      "entries": 9574
+    },
+    {
+      "name": "wordfreq (large_zh)",
+      "url": "https://github.com/rspeer/wordfreq",
+      "licence": "CC BY-SA 4.0 (data)",
+      "entries": 334609
+    }
+  ]
+}

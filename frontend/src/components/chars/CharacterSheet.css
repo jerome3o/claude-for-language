@@ -1,0 +1,271 @@
+/* The character sheet (CharacterSheet.tsx): a bottom sheet on phones, a dialog ≥640px. */
+.char-sheet-overlay {
+  align-items: flex-end;
+}
+
+.char-sheet {
+  --sheet-pad: 1rem;
+  /* Opened from inside the card back's centred block. */
+  text-align: left;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  max-height: 88dvh;
+  overflow-y: auto;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 640px) {
+  .char-sheet-overlay {
+    align-items: center;
+  }
+  .char-sheet {
+    border-radius: var(--radius-xl);
+  }
+}
+
+.char-sheet-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+}
+
+.char-sheet-glyph {
+  font-size: 4rem;
+  line-height: 1;
+  font-weight: 500;
+  min-width: 4.5rem;
+  text-align: center;
+  padding: 0.25rem 0.25rem 0.5rem;
+  border-radius: var(--radius-lg, 12px);
+  background: var(--color-background);
+}
+
+.char-sheet-summary {
+  flex: 1;
+  min-width: 0;
+  padding-top: 0.25rem;
+}
+
+.char-sheet-pinyin {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.char-sheet-meaning {
+  margin-top: 0.125rem;
+  font-size: 1rem;
+  color: var(--color-text);
+}
+
+.char-sheet-close {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.char-sheet-status {
+  margin: 0.75rem 0 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: 8px;
+  background: var(--color-background);
+  color: var(--color-text-light);
+  font-size: 0.9375rem;
+}
+
+.char-sheet-error {
+  color: var(--color-error);
+}
+
+.char-sheet-readings {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  font-size: 0.9375rem;
+}
+
+.char-sheet-readings li {
+  padding: 0.125rem 0;
+}
+
+.char-sheet-reading-pinyin {
+  display: inline-block;
+  min-width: 3.25rem;
+  font-weight: 600;
+}
+
+.char-sheet-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.75rem;
+}
+
+.char-sheet-fact {
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: var(--color-background);
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.char-sheet-components,
+.char-sheet-etymology {
+  margin-top: 0.5rem;
+  font-size: 0.9375rem;
+  color: var(--color-text);
+}
+
+.char-sheet-etymology {
+  color: var(--color-text-light);
+  font-style: italic;
+}
+
+.char-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.875rem;
+}
+
+.char-sheet-action {
+  min-height: 44px;
+}
+
+.char-sheet-more {
+  margin-top: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  border-left: 3px solid var(--color-secondary);
+  background: #fffbeb;
+  border-radius: 0 8px 8px 0;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.char-sheet-more--muted {
+  color: var(--color-text-light);
+}
+
+.char-sheet-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.char-sheet-words {
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.75rem;
+}
+
+.char-sheet-words-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.char-sheet-words-head h3 {
+  margin: 0;
+  font-size: 1.0625rem;
+}
+
+.char-sheet-words-count {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.char-sheet-word-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.char-word-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 52px;
+  padding: 0.5rem 0.625rem;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.char-word-row:active {
+  background: var(--color-background);
+}
+
+.char-word-row--current {
+  background: #fef9c3;
+  border-radius: 8px;
+  box-shadow: inset 3px 0 0 var(--color-secondary);
+}
+
+.char-word-row--known .char-word-hanzi,
+.char-word-row--known .char-word-text {
+  opacity: 0.6;
+}
+
+.char-word-hanzi {
+  font-size: 1.375rem;
+  min-width: 3.5rem;
+  flex-shrink: 0;
+}
+
+.char-word-self {
+  color: var(--color-primary);
+}
+
+.char-word-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.char-word-pinyin {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.char-word-english {
+  font-size: 0.9375rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.char-word-badge {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.char-word-badge--known {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.char-word-badge--in_decks {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.char-sheet-credit {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}

@@ -84,6 +84,7 @@ import sharedReadersRoutes from './routes/shared-readers';
 import homeworkRemovalRoutes from './routes/homework-removal';
 import materialsRoutes from './routes/materials';
 import readerWordsRoutes from './routes/reader-words';
+import charsRoutes from './routes/chars';
 import { segmentReader } from './services/reader-words';
 import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
@@ -615,6 +616,8 @@ app.route('/api', studyTimeRoutes);
 app.route('/api', analyticsRoutes);
 // Reader word chips: POST /api/reader-words/backfill, /explain (routes/reader-words.ts)
 app.route('/api', readerWordsRoutes);
+// The character dictionary: GET /api/chars/:char, GET /api/chars?c=, POST /api/chars/:char/explain (routes/chars.ts)
+app.route('/api', charsRoutes);
 // Lesson materials: a tutor's PDFs / PowerPoints / pictures, shared, presented in calls (routes/materials.ts)
 app.route('/api', materialsRoutes);
 

@@ -22,7 +22,8 @@
     "test": "npm run test -w frontend && npm run test -w worker && npm run test -w mcp-server",
     "test:worker": "npm run test -w worker",
     "test:e2e": "npm run test -w e2e",
-    "test:e2e:ui": "npm run test:ui -w e2e"
+    "test:e2e:ui": "npm run test:ui -w e2e",
+    "build:char-dict": "esbuild scripts/build-char-dict.ts --bundle --platform=node --format=esm --outfile=scripts/.cache/build-char-dict.mjs --log-level=warning && node scripts/.cache/build-char-dict.mjs"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

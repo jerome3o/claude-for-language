@@ -859,6 +859,12 @@ export function SettingsPage() {
         <CardCheckSettingsSection />
 
         <div className="settings-section">
+          <Link className="btn btn-secondary export-btn" to="/about/licences">
+            About · Licences
+          </Link>
+        </div>
+
+        <div className="settings-section">
           <button className="btn btn-secondary export-btn settings-signout" onClick={() => { logout(); }}>
             Sign out
           </button>
