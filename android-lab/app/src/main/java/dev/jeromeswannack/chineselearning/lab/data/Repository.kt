@@ -10,6 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
 import dev.jeromeswannack.chineselearning.lab.data.platform.LabPlatform
 import dev.jeromeswannack.chineselearning.lab.data.homework.LongTermStore
 import dev.jeromeswannack.chineselearning.lab.data.api.folders
+import dev.jeromeswannack.chineselearning.lab.data.api.studyBumps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -262,6 +263,16 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
             android.util.Log.w("LabSync", "folders not synced", e)
         }
         dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.reapplyPendingItems(dao, platform.cache, db.platform())
+        // "⚡ Study it today": the active bumps, whole (an older server without them must not fail the sync).
+        try {
+            dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.replaceFromServer(db, db.platform(), api.studyBumps())
+        } catch (e: UnauthorizedException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("LabSync", "bumps not synced", e)
+        }
         prefs.lastFullSync = System.currentTimeMillis()
         prefs.changesCursor = snapshotAt
         prefs.fullRefreshVersion = FULL_REFRESH_VERSION
@@ -283,6 +294,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         changes.folders?.let { dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.replaceFromServer(platform.cache, db.platform(), it) }
         dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.reapplyPendingItems(dao, platform.cache, db.platform())
         changes.study_budget?.let { prefs.budgetInfo = it.toInfo() }
+        changes.bumps?.let { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.replaceFromServer(db, db.platform(), it) }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).
         changes.cards.mapTo(dirty.ids) { it.id }

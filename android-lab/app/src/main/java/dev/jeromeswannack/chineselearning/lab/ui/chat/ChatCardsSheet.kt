@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -70,8 +73,15 @@ class ReviewActions(
  * deck); "Add N cards" in one batch. The cards and deck chips scroll; "Add N cards" stays pinned.
  */
 @Composable
-fun ReviewPanel(r: ReviewUi, decks: List<DeckChoice>, online: Boolean, actions: ReviewActions) {
+fun ReviewPanel(
+    r: ReviewUi, decks: List<DeckChoice>, online: Boolean, actions: ReviewActions,
+    /** "⚡ Study it today" on the cards already in the decks (null = none: previews). */
+    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("chat"),
+) {
     val review = r.review
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var bumpedHanzi by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Set<String>>(emptySet()) }
+    var bumpNote by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     PinnedFooterColumn(
         Modifier.testTag("chat-review"),
         body = {
@@ -90,6 +100,13 @@ fun ReviewPanel(r: ReviewUi, decks: List<DeckChoice>, online: Boolean, actions: 
                         onToggle = { actions.onToggle(i) },
                         onOpenEdit = { actions.onOpenEdit(i) },
                         onEdit = { actions.onEdit(i, it) },
+                        bumped = c.hanzi in bumpedHanzi,
+                        onBump = if (bump == null || !c.alreadyHave) null else {
+                            {
+                                bumpedHanzi = bumpedHanzi + c.hanzi
+                                scope.launch { bumpNote = runCatching { bump(listOf(c.hanzi), null) }.getOrElse { e -> e.message } }
+                            }
+                        },
                     )
                 }
                 Text("Add to", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.padding(top = 4.dp))
@@ -100,6 +117,7 @@ fun ReviewPanel(r: ReviewUi, decks: List<DeckChoice>, online: Boolean, actions: 
                 AnimatedVisibility(r.newDeck != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                     OutlinedTextField(r.newDeck.orEmpty(), { actions.onNewDeck(it) }, label = { Text("New deck name") }, placeholder = { Text("e.g. From my chats") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("chat-review-new-deck"))
                 }
+                bumpNote?.let { InlineNotice(it, kind = NoticeKind.Success) }
                 r.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
                 if (!online) InlineNotice("You're offline — adding cards needs a connection. Your picks stay here.", kind = NoticeKind.Offline)
             }
@@ -134,6 +152,8 @@ private fun ProposedCardRow(
     onToggle: () -> Unit,
     onOpenEdit: () -> Unit,
     onEdit: (ProposedCard) -> Unit,
+    bumped: Boolean = false,
+    onBump: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(16.dp)
     val border = when {
@@ -153,11 +173,22 @@ private fun ProposedCardRow(
                 Text(c.english, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
                 if (c.sentenceClue.isNotBlank()) Text("“${c.sentenceClue}”", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, maxLines = 2, modifier = Modifier.padding(top = 2.dp))
                 if (c.alreadyHave) {
-                    Text(
-                        "✓ Already in your decks",
-                        style = MaterialTheme.typography.labelMedium, color = Palette.Good,
-                        modifier = Modifier.padding(top = 4.dp).clip(CircleShape).background(Palette.Good.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 3.dp).testTag("chat-review-have"),
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "✓ Already in your decks",
+                            style = MaterialTheme.typography.labelMedium, color = Palette.Good,
+                            modifier = Modifier.padding(top = 4.dp).clip(CircleShape).background(Palette.Good.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 3.dp).testTag("chat-review-have"),
+                        )
+                        // Already a card: bring it to the front of today instead of adding it again.
+                        if (onBump != null) {
+                            Text(
+                                if (bumped) "⚡ Bumped" else "⚡ Study it today",
+                                style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color.White,
+                                modifier = Modifier.padding(top = 4.dp).heightIn(min = 32.dp).clip(CircleShape).background(Lab.colors.accent.copy(alpha = if (bumped) 0.5f else 1f))
+                                    .clickable(enabled = !bumped, onClick = onBump).padding(horizontal = 12.dp, vertical = 6.dp).testTag("chat-review-bump"),
+                            )
+                        }
+                    }
                 }
                 source?.let { Text("From: $it", style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted, maxLines = 1, modifier = Modifier.padding(top = 4.dp)) }
             }

@@ -660,10 +660,15 @@ export async function askAboutNote(
   context?: { userAnswer?: string; correctAnswer?: string; cardType?: string },
   conversationHistory?: { question: string; answer: string }[]
 ): Promise<NoteQuestionWithTools> {
-  return fetchJSON<NoteQuestionWithTools>(`/notes/${noteId}/ask`, {
+  const res = await fetchJSON<NoteQuestionWithTools>(`/notes/${noteId}/ask`, {
     method: 'POST',
     body: JSON.stringify({ question, context, conversationHistory }),
   });
+  // Claude bumped words I already have ("⚡ Study it today"): pull the pocket now.
+  if (res.readOnlyToolCalls?.some((c) => c.tool === 'bump_cards')) {
+    void import('../services/studyBumps').then((m) => m.syncBumps()).catch(() => undefined);
+  }
+  return res;
 }
 
 /** Server-side search of my notes (the fallback when this device has no matching notes). */

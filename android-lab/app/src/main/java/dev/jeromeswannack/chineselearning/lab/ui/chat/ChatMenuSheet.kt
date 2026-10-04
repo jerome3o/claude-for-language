@@ -174,7 +174,7 @@ fun ExplainContent(e: ExplainUi, saveCard: Boolean, online: Boolean, cards: Sent
                 if (shown != null) {
                     if (saveCard && adding == null) Text("Save as flashcard", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                     // Queue-ordered decks, top deck preselected; the add button stays pinned (LabFooterSheet host).
-                    AddChunkBody(shown, preferredDeck = "", cards, onDismiss = { if (saveCard) onClose() else adding = null })
+                    AddChunkBody(shown, preferredDeck = "", cards, onDismiss = { if (saveCard) onClose() else adding = null }, bumpSource = "chat")
                 } else BoundedScrollColumn(Modifier.padding(horizontal = 16.dp)) {
                     ExplainResult(breakdownOf(e.text, e.translation, result), enabled = online, onAdd = { adding = it })
                     Spacer(Modifier.height(12.dp))

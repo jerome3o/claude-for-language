@@ -2464,7 +2464,7 @@ export function ChatPage() {
       )}
 
       {tappedWord && (
-        <ReaderWordSheet
+        <ReaderWordSheet bumpSource="chat"
           word={tappedWord.word}
           sentence={tappedWord.sentence}
           known={known.has(tappedWord.word.text.trim())}

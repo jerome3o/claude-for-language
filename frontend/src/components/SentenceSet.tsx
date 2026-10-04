@@ -425,7 +425,7 @@ export function SentenceSet({
         </button>
         {error && <div className="sentence-set-error">{error}</div>}
         {addingChunk && (
-          <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />
+          <AddChunkModal source="breakdown" chunk={addingChunk} onClose={() => setAddingChunk(null)} />
         )}
       </div>
     );
@@ -689,7 +689,7 @@ export function SentenceSet({
         </button>
       )}
 
-      {addingChunk && <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />}
+      {addingChunk && <AddChunkModal source="breakdown" chunk={addingChunk} onClose={() => setAddingChunk(null)} />}
     </div>
   );
 }

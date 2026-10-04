@@ -30,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -72,6 +74,8 @@ data class PasteActions(
     /** Word check on a preview row: Apply fix (sets the field, as an edit) / Dismiss. */
     val onApplyIssue: (String, PasteIssue) -> Unit = { _, _ -> },
     val onDismissIssue: (String, PasteIssue) -> Unit = { _, _ -> },
+    /** "⚡ today" on a word the deck already has (the existing note's id). */
+    val onBump: (String) -> Unit = {},
 )
 
 private const val PLACEHOLDER = "苹果\tpíng guǒ\tapple\n香蕉\txiāng jiāo\tbanana\n葡萄\n\nOne word per line — columns from a spreadsheet, \"苹果 apple\", or just the characters. Pinyin and English are filled in for you."
@@ -275,6 +279,18 @@ private fun PlanRow(p: ImportPlanner.Planned, ui: PasteUi, d: PasteDerived, a: P
                 if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (row.sentence.isNotEmpty()) Text((if (x.filled.sentence) "✨ " else "") + row.sentence, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (row.notes.isNotEmpty()) Text(if (x.filled.notes) "✨ explanation written" else "has explanation", style = MaterialTheme.typography.labelSmall, color = Lab.colors.accent)
+                val have = p.existing
+                if (have != null && ui.canBump) {
+                    val done = have.id in ui.bumped
+                    Text(
+                        if (done) "⚡ First in today’s study" else "⚡ Study it today",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (done) dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmber else Lab.colors.accent,
+                        modifier = Modifier.padding(top = 2.dp).heightIn(min = 36.dp).clip(RoundedCornerShape(10.dp))
+                            .clickable(enabled = !done) { a.onBump(have.id) }.padding(vertical = 8.dp).testTag("paste-bump"),
+                    )
+                }
                 if (x.readings.isNotEmpty()) Text("Check the reading: ${x.readings.joinToString(" / ")}", style = MaterialTheme.typography.labelMedium, color = Palette.Hard)
                 if (p.action == ImportPlanner.Action.UPDATE) {
                     for (ch in p.changes) {

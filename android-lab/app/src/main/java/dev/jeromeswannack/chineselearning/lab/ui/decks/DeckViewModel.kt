@@ -46,6 +46,8 @@ data class NoteRowUi(
     val mastery: Int,
     /** Word checks still about the word as it is now (core CardCheck.liveCheckIssues). */
     val issues: List<NoteCheckIssue> = emptyList(),
+    /** "⚡ Study it today": its cards are in today's pocket. */
+    val bumped: Boolean = false,
 )
 
 data class DeckHeaderUi(
@@ -240,15 +242,16 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
         val introduced = StudyQueue.introducedToday(queueCards, first, StudyQueue.startOfDay(now, zone))
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
-        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, env.budget(), env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId, longTerm = dao.noteLongTerm())
+        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, env.budget(), env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId, longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao))
 
+        val bumpedNotes = env.bumps?.let { b -> runCatching { b.openNoteIds() }.getOrDefault(emptySet()) }.orEmpty()
         return DeckUi(
             loaded = true,
             deck = DeckHeaderUi(d.id, d.name, d.description, d.newCardsPerDay, d.secondaryCardsPerDay),
             due = q.dueCards.size,
             completion = DeckStats.completion(cards),
             breakdown = DeckStats.breakdown(cards),
-            notes = rows,
+            notes = rows.map { r -> if (r.id in bumpedNotes) r.copy(bumped = true) else r },
             isTutorAccount = env.isTutorAccount(),
         )
     }
@@ -383,6 +386,22 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
     fun say(message: String, error: Boolean = false) = _ui.update { it.copy(notice = message, noticeIsError = error) }
 
     fun dismissNotice() = _ui.update { it.copy(notice = null) }
+
+    /** "⚡ Study today" on a word (source deck): its cards come first in today's session. */
+    fun bump(noteId: String) {
+        val b = env.bumps ?: return
+        viewModelScope.launch {
+            runCatching { b.bump(listOf(noteId), "deck") }.onSuccess { say(it); env.fx.success() }.onFailure { say(it.message ?: "Couldn't bump that word", error = true) }
+        }
+    }
+
+    /** "Remove from today". */
+    fun unbump(noteId: String) {
+        val b = env.bumps ?: return
+        viewModelScope.launch {
+            runCatching { b.clear(noteId, "deck") }.onSuccess { say("Removed from today’s pocket"); env.fx.tick() }
+        }
+    }
 
     companion object {
         const val SHARES_KIND = "decks"

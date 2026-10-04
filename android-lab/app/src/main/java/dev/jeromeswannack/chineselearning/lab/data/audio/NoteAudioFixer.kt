@@ -216,8 +216,9 @@ class NoteAudioFixer(
         val bonus = repo.prefs.bonus("all", java.time.Instant.ofEpochMilli(nowMs).atZone(z).toLocalDate().toString())
         val hanzi = repo.dao.noteHanzi()
         val longTerm = repo.dao.noteLongTerm()
-        val today = StudyQueue.build(decks, cards, repo.prefs.budget, bonus, introduced, cutoff, null, hanzi, longTerm = longTerm).dueCards
-        val ahead = StudyQueue.build(decks, cards, repo.prefs.budget, bonus + NEXT_NEW, introduced, cutoff, null, hanzi, longTerm = longTerm).dueCards
+        val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao)
+        val today = StudyQueue.build(decks, cards, repo.prefs.budget, bonus, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps).dueCards
+        val ahead = StudyQueue.build(decks, cards, repo.prefs.budget, bonus + NEXT_NEW, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps).dueCards
         return (today + ahead).map { it.noteId }.distinct()
     }
 

@@ -45,7 +45,7 @@ export function ExplainSheet({ text, mode, isOnline, onClose }: { text: string; 
 
   if (adding) {
     return (
-      <AddChunkModal
+      <AddChunkModal source="chat"
         chunk={adding}
         onClose={() => {
           setAdding(null);

@@ -80,3 +80,13 @@
   flex: 1;
   min-height: 48px;
 }
+
+/* A word the learner already has: Cancel · Add anyway · ⚡ Study it today (primary, widest). */
+.add-chunk-foot--bump > .add-chunk-cancel {
+  flex: 0 0 auto;
+  padding: 0 0.75rem;
+}
+
+.add-chunk-foot--bump > .bump-btn {
+  flex: 1.4;
+}

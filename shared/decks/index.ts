@@ -7,3 +7,4 @@ export * from './ghosts';
 export * from './novelty';
 export * from './long-term';
 export * from './tutor-budget';
+export * from './bumps';

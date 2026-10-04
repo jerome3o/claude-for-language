@@ -161,7 +161,7 @@ fun SayBetterContent(
         val a = adding
         if (a != null) {
             Text("Add as flashcard", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
-            AddChunkBody(a, preferredDeck = "", cards, onDismiss = { adding = null })
+            AddChunkBody(a, preferredDeck = "", cards, onDismiss = { adding = null }, bumpSource = "chat")
             Spacer(Modifier.height(12.dp))
             return@Column
         }

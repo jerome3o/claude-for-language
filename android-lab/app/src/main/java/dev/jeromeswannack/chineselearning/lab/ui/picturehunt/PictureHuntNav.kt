@@ -134,6 +134,7 @@ fun NavGraphBuilder.pictureHuntGraph(nav: LabNav) {
                 ),
                 onDismiss = { adding = null },
                 onAdded = { app.haptics.correct() },
+                bumpSource = "picture_hunt",
             )
         }
     }

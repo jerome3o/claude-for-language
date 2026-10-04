@@ -28,6 +28,8 @@ data class HomeUi(
     val reviewedToday: Int = 0,
     /** Lab "today split": flashcards, mini lessons and the graded reader side by side (null until loaded). */
     val today: dev.jeromeswannack.chineselearning.lab.ui.today.TodayHome? = null,
+    /** "⚡ Study it today": bumped notes with cards still in today's pocket (core Bumps.bumpedLabel). */
+    val bumped: Int = 0,
 )
 
 class HomeViewModel(private val app: LabApp) : ViewModel() {
@@ -69,10 +71,11 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
         val queueDecks = decks.map { it.toQueueDeck() }
         val today = LocalDate.now(zone).toString()
         val longTerm = dao.noteLongTerm()
-        val all = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus("all", today), introduced, cutoff, null, longTerm = longTerm)
+        val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
+        val all = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus("all", today), introduced, cutoff, null, longTerm = longTerm, bumps = bumps)
         val noteCounts = dao.noteCounts().associate { it.deckId to it.count }
         val summaries = decks.map { d ->
-            val q = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm)
+            val q = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps)
             DeckSummary(d.id, d.name, noteCounts[d.id] ?: 0, StudyQueue.counts(q.dueCards, q.reviewedNoteIds))
         }
         val snapshot = runCatching { todayData.snapshot(now, zone) }.getOrDefault(dev.jeromeswannack.chineselearning.lab.ui.today.TodaySnapshot.EMPTY)
@@ -93,6 +96,7 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
             decks = ordered,
             reviewedToday = reviewedToday,
             today = dev.jeromeswannack.chineselearning.lab.ui.today.TodayHome.from(snapshot, due.total, reviewedToday) { progress.has(it) },
+            bumped = all.bumpedNoteIds.size,
         )
     }
 

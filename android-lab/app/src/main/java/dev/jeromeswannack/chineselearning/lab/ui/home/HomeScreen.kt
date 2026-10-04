@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -205,6 +206,12 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
             color = Color.White.copy(alpha = 0.9f),
             fontSize = 15.sp,
         )
+        // "⚡ Study it today": the bumped words come first (core Bumps.bumpedLabel, same copy as the web).
+        val bumpedLine = dev.jeromeswannack.chineselearning.lab.core.Bumps.bumpedLabel(ui.bumped)
+        if (bumpedLine.isNotEmpty() && !empty) {
+            Spacer(Modifier.height(6.dp))
+            Text(bumpedLine, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("home-bumped"))
+        }
         // Four zero chips say nothing once the cards are done (Lab today split: the Today card says what's left).
         if (!(empty && extras.isNotEmpty())) {
             Spacer(Modifier.height(16.dp))
@@ -213,6 +220,7 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
                 HeroChip(due.secondaryNew, "more", Palette.Secondary)
                 HeroChip(due.learning, "learning", Palette.Learning)
                 HeroChip(due.review, "review", Palette.Review)
+                if (ui.bumped > 0) HeroChip(ui.bumped, "bumped ⚡", BUMP_COLOR)
             }
         }
     }
@@ -229,6 +237,9 @@ private fun HeroChip(n: Int, label: String, color: Color) {
         Text("$n $label", color = Color.White, fontSize = 13.sp, maxLines = 1)
     }
 }
+
+/** The ⚡ bump pocket's colour (amber), on Home and the study card. */
+val BUMP_COLOR = Color(0xFFFACC15)
 
 /** How many decks Home lists (web HOME_DECK_LIMIT); the rest are one tap away in Decks. */
 const val HOME_DECK_LIMIT = 5

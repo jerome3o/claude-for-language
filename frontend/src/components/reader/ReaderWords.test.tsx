@@ -133,11 +133,14 @@ describe('ReaderWordsText', () => {
     expect(cached).toBeTruthy();
   });
 
-  it('a word already in the chosen deck says so and offers Add anyway', async () => {
+  it('a word I already have offers ⚡ Study it today first, then Add anyway', async () => {
     await render({ id: 'p1', content_chinese: TEXT, words: WORDS });
     await click(chips()[0]);
     expect(document.querySelector('.rw-known')).toBeTruthy();
-    await click(byText('.rw-add', 'Add as card'));
+    await flush();
+    expect(byText('.rw-notice', 'You already have')).toBeTruthy();
+    expect(byText('.bump-btn', 'Study it today')).toBeTruthy();
+    await click(byText('.rw-add-secondary', 'Add anyway'));
     expect(byText('.rw-notice', 'already in that deck')).toBeTruthy();
     expect(byText('.rw-add', 'Add anyway')).toBeTruthy();
   });

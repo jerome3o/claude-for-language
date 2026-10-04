@@ -235,3 +235,20 @@ describe('lesson attempts (per-exercise answers + recordings)', () => {
     expect((await db.lessonAttemptMedia.get(event.id + ':s0e0'))?._synced).toBe(1);
   });
 });
+
+describe('selectNextItem with bumped cards ("⚡ Study it today")', () => {
+  it('shows a bumped card first, even before a learning card due now', () => {
+    const learning = makeCard({ queue: CardQueue.LEARNING, due_timestamp: Date.now() - 60_000 });
+    const review = makeCard();
+    const bumped = makeCard({ queue: CardQueue.NEW });
+    const pick = selectNextItem([learning, review, bumped], [], [], false, null, [], new Set(), undefined, undefined, new Set([bumped.id]));
+    expect(pick && 'card' in pick && pick.card.id).toBe(bumped.id);
+  });
+
+  it('keeps spacing a word’s siblings: a bumped card of a just-rated note waits', () => {
+    const sibling = makeCard({ queue: CardQueue.NEW, note_id: 'n-recent' });
+    const other = makeCard();
+    const pick = selectNextItem([sibling, other], [], [], false, null, ['n-recent'], new Set(), undefined, undefined, new Set([sibling.id]));
+    expect(pick && 'card' in pick && pick.card.id).toBe(other.id);
+  });
+});

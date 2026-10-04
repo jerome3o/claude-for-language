@@ -61,6 +61,9 @@ data class CardHubUi(
     val notice: String? = null,
     val noticeIsError: Boolean = false,
     val online: Boolean = true,
+    /** "⚡ Study it today": offered (the app's bump is there) and whether the note is in today's pocket. */
+    val canBump: Boolean = false,
+    val bumped: Boolean = false,
 )
 
 /**
@@ -99,8 +102,14 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             val local = withContext(Dispatchers.IO) { localHub() }
+            val bumped = env.bumps?.let { b -> withContext(Dispatchers.IO) { runCatching { noteId in b.openNoteIds() }.getOrDefault(false) } } ?: false
             val state = hub.state.value
-            _ui.update { s -> build(state, local).copy(tutors = s.tutors, flagBusy = s.flagBusy, notice = s.notice, noticeIsError = s.noticeIsError, online = s.online) }
+            _ui.update { s ->
+                build(state, local).copy(
+                    tutors = s.tutors, flagBusy = s.flagBusy, notice = s.notice, noticeIsError = s.noticeIsError, online = s.online,
+                    canBump = env.bumps != null && local != null, bumped = bumped,
+                )
+            }
         }
     }
 
@@ -192,6 +201,18 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
     fun say(message: String, error: Boolean = false) = _ui.update { it.copy(notice = message, noticeIsError = error) }
 
     fun dismissNotice() = _ui.update { it.copy(notice = null) }
+
+    /** "⚡ Study it today" (source card_hub): this note's cards come first in today's study. */
+    fun bump() {
+        val b = env.bumps ?: return
+        viewModelScope.launch { runCatching { b.bump(listOf(noteId), "card_hub") }.onSuccess { say(it); env.fx.success() }.onFailure { say(it.message ?: "Couldn't bump this card", true) } }
+    }
+
+    /** "Remove from today". */
+    fun unbump() {
+        val b = env.bumps ?: return
+        viewModelScope.launch { runCatching { b.clear(noteId, "card_hub") }.onSuccess { say("Removed from today’s pocket"); env.fx.tick() } }
+    }
 
     class Factory(private val env: DecksEnv, private val noteId: String) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

@@ -1,3 +1,5 @@
+import { BumpButton } from '../components/bumps/BumpButton';
+import { bumpStudentCardsApi } from '../api/bumps';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -158,6 +160,8 @@ function HubCardBox({ hub, relId }: { hub: NoteHub; relId: string | null }) {
       )}
       {n.fun_facts && <div className="hub-fun-facts">{n.fun_facts}</div>}
       <div className="hub-actions">
+        {/* "⚡ Study it today": first in today's session (shared/decks/bumps.ts). */}
+        {relId ? <TutorBumpButton relId={relId} noteId={n.id} studentName={hub.owner.name} /> : <BumpButton noteIds={[n.id]} source="card_hub" removable />}
         {n.audio_url && (
           <button type="button" className="btn btn-secondary" onClick={() => noteAudio.play(n.audio_url, n.hanzi, API_BASE)}>
             {noteAudio.isPlaying ? '⏹ Stop' : '▶ Play'}
@@ -168,6 +172,29 @@ function HubCardBox({ hub, relId }: { hub: NoteHub; relId: string | null }) {
         {relId ? <>Deck: {hub.deck.name}{hub.owner.name ? ` · ${hub.owner.name}'s copy` : ''}</> : <>Deck: <Link to={`/decks/${hub.deck.id}`}>{hub.deck.name}</Link></>}
       </div>
     </div>
+  );
+}
+
+/** The tutor puts the student's card first in THEIR study today ("⚡ from <tutor>"). */
+function TutorBumpButton({ relId, noteId, studentName }: { relId: string; noteId: string; studentName: string | null }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
+  return (
+    <button
+      type="button"
+      className={`bump-btn${state === 'done' ? ' bump-btn--on' : ''}`}
+      disabled={state === 'busy' || state === 'done'}
+      onClick={async () => {
+        setState('busy');
+        try {
+          await bumpStudentCardsApi(relId, [noteId]);
+          setState('done');
+        } catch {
+          setState('error');
+        }
+      }}
+    >
+      {state === 'done' ? '⚡ In their study today ✓' : state === 'error' ? 'Couldn’t bump — try again' : `⚡ ${studentName ? `${studentName} studies it` : 'Study it'} today`}
+    </button>
   );
 }
 

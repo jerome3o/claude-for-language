@@ -429,3 +429,12 @@
   opacity: 0.35;
   cursor: default;
 }
+
+/* "⚡ 2 bumped for today" under the Study button (shared/decks/bumps.ts). */
+.home-bumped {
+  margin-top: 0.4rem;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #b45309;
+}

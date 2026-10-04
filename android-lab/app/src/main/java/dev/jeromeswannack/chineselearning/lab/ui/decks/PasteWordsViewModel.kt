@@ -73,6 +73,10 @@ data class PasteUi(
     val dismissedIssues: Set<String> = emptySet(),
     /** hanzi · pinyin · english the check has seen — saved with `?check=none`. */
     val checked: Set<String> = emptySet(),
+    /** "⚡ today" on the words the deck already has: the notes bumped from this screen. */
+    val bumped: Set<String> = emptySet(),
+    /** Whether "⚡ today" is offered (the app's bump is there). */
+    val canBump: Boolean = false,
 ) {
     /** The row's issues still about its current values (an edited field makes its issue stale). */
     fun liveIssues(x: EffectiveRow): List<PasteIssue> = issues[x.key].orEmpty().filter { i ->
@@ -99,7 +103,7 @@ class PasteWordsViewModel(
     private var checkJob: Job? = null
 
     init {
-        _ui.update { it.copy(cardCheck = env.cardCheck()) }
+        _ui.update { it.copy(cardCheck = env.cardCheck(), canBump = env.bumps != null) }
         viewModelScope.launch { env.online.collect { on -> _ui.update { it.copy(online = on) } } }
         viewModelScope.launch {
             val (notes, name) = withContext(Dispatchers.IO) {
@@ -172,6 +176,15 @@ class PasteWordsViewModel(
         Analytics.track("deck.check_issue_applied", mapOf("field" to issue.field, "kind" to issue.kind, "where" to "paste"))
         env.fx.success()
         edit(key) { if (issue.field == "pinyin") it.copy(pinyin = issue.proposed) else it.copy(english = issue.proposed) }
+    }
+
+    /** "⚡ today" on a row the deck already has: its cards come first in today's study. */
+    fun bump(noteId: String) {
+        val b = env.bumps ?: return
+        if (noteId in _ui.value.bumped) return
+        _ui.update { it.copy(bumped = it.bumped + noteId) }
+        env.fx.success()
+        viewModelScope.launch { runCatching { b.bump(listOf(noteId), "paste_list") }.onFailure { _ui.update { u -> u.copy(bumped = u.bumped - noteId) } } }
     }
 
     fun dismissIssue(key: String, issue: PasteIssue) {

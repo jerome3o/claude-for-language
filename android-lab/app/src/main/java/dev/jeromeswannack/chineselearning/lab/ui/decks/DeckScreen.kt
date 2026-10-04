@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +87,9 @@ data class DeckActions(
     val onDismissIssue: (String, dev.jeromeswannack.chineselearning.lab.core.NoteCheckIssue) -> Unit = { _, _ -> },
     /** ⋯ → "🔎 Check for errors". */
     val onCheckErrors: () -> Unit = {},
+    /** "⚡ Study today" / "Remove from today" on a word (null = not offered). */
+    val onBump: ((String) -> Unit)? = null,
+    val onUnbump: (String) -> Unit = {},
 )
 
 /** The deck page (web: DeckDetailPage.tsx). */
@@ -191,11 +195,27 @@ fun DeckScreen(ui: DeckUi, actions: DeckActions) {
                         Text(row.pinyin, style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
                         Text(row.english, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (!row.sentenceClue.isNullOrEmpty()) Text(row.sentenceClue, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (row.bumped) Text("⚡ First in today’s study", style = MaterialTheme.typography.labelSmall, color = dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmber, fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.width(6.dp))
                     RatingsGrid(row.ratings)
                     Spacer(Modifier.width(8.dp))
                     Text("${row.mastery}%", style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted)
+                    // "⚡ Study today" (tap again: "Remove from today").
+                    val onBump = actions.onBump
+                    if (onBump != null && !selecting && !ui.isTutorAccount) {
+                        Text(
+                            "⚡",
+                            fontSize = 17.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = if (row.bumped) androidx.compose.ui.graphics.Color.White else Lab.colors.muted,
+                            modifier = Modifier.padding(start = 4.dp).size(40.dp).clip(CircleShape)
+                                .background(if (row.bumped) dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmber else androidx.compose.ui.graphics.Color.Transparent)
+                                .clickable(onClickLabel = if (row.bumped) "Remove from today" else "Study today") { if (row.bumped) actions.onUnbump(row.id) else onBump(row.id) }
+                                .padding(top = 8.dp)
+                                .testTag("deck-bump-${row.id}"),
+                        )
+                    }
                     if (row.audioUrl != null) {
                         Text(
                             "▶",

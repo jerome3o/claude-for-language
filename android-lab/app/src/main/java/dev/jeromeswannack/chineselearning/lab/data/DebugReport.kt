@@ -109,10 +109,11 @@ object DebugReportBuilder {
         val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()
         val bonusAll = prefs.bonus("all", today)
         val longTerm = dao.noteLongTerm()
-        val all: BuiltQueue = StudyQueue.build(queueDecks, cards, budget, bonusAll, introduced, cutoff, null, longTerm = longTerm)
+        val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
+        val all: BuiltQueue = StudyQueue.build(queueDecks, cards, budget, bonusAll, introduced, cutoff, null, longTerm = longTerm, bumps = bumps)
         val homeCounts = StudyQueue.counts(all.dueCards, all.reviewedNoteIds)
         val perDeck = decks.associate { d ->
-            val q = StudyQueue.build(queueDecks, cards, budget, prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm)
+            val q = StudyQueue.build(queueDecks, cards, budget, prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps)
             d.id to (StudyQueue.counts(q.dueCards, q.reviewedNoteIds) to q.hasMoreNew)
         }
 

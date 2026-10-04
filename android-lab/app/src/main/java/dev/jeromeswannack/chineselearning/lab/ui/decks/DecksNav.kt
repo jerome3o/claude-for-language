@@ -79,6 +79,7 @@ private fun PasteRoute(env: DecksEnv, deckId: String, onClose: () -> Unit) {
             onUpdateShare = vm::updateShare,
             onApplyIssue = vm::applyIssue,
             onDismissIssue = vm::dismissIssue,
+            onBump = vm::bump,
         ),
     )
 }
@@ -178,6 +179,8 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
             onApplyIssue = vm::applyIssue,
             onDismissIssue = vm::dismissIssue,
             onCheckErrors = { checkErrors = true },
+            onBump = vm::bump,
+            onUnbump = vm::unbump,
         ),
     )
     if (checkErrors) {

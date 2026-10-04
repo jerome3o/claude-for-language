@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -76,6 +78,7 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                     onDeck = vm::selectDeck,
                     onRetryLoad = vm::reload,
                     cards = coachCardActions(nav.app),
+                    onBumpToday = vm::bumpToday,
                 ),
             )
         } else {
@@ -235,6 +238,37 @@ class CoachChatViewModel(private val app: LabApp, private val id: String) : View
             }
             // Default the picker to the remembered deck, else the first deck.
             local.update { u -> u.copy(decks = decks, deckId = u.deckId?.takeIf { d -> decks.any { it.id == d } } ?: decks.firstOrNull()?.id) }
+        }
+    }
+
+    init {
+        // "⚡ Study it today": which words of the sentence are already cards (the chip).
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(
+                thread.state.map { t ->
+                    val a = t.data?.messages?.firstOrNull { it.content_type == "analysis" }?.let { dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto.parse(it.content) }
+                    a?.sentence to a?.breakdown?.words?.map { it.hanzi }.orEmpty()
+                }.distinctUntilChanged(),
+                app.repo.dataVersion,
+            ) { s, _ -> s }.collect { (sentence, words) ->
+                val known = if (sentence.isNullOrBlank()) emptyList() else app.safely("coach known words") {
+                    withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.knownWordsIn(app.repo.dao, sentence, words) }
+                }.orEmpty()
+                local.update { it.copy(knownWords = known) }
+            }
+        }
+    }
+
+    /** "⚡ Study today": the sentence's words that are cards come first in today's study. */
+    fun bumpToday() {
+        val words = local.value.knownWords
+        if (words.isEmpty() || local.value.bumpMessage != null) return
+        viewModelScope.launch {
+            val msg = app.safely("coach bump") { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpHanzi(app, words, "coach").message } ?: return@launch
+            app.haptics.correct()
+            local.update { it.copy(bumpMessage = msg) }
+            kotlinx.coroutines.delay(3500)
+            local.update { it.copy(bumpMessage = null) }
         }
     }
 

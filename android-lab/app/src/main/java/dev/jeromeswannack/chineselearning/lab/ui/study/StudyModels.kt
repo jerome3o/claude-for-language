@@ -21,6 +21,10 @@ data class CardView(
     val isSecondaryNew: Boolean = false,
     /** Where the card starts: fresh, or as it was left (resumed after leaving Study — docs/STUDY_SESSION.md). */
     val start: CardStartState = CardStartState(),
+    /** "⚡ Study it today": the card comes from the bump pocket (the ⚡ chip). */
+    val bumped: Boolean = false,
+    /** Who bumped it when it was the tutor ("⚡ from Minghui"). */
+    val bumpedBy: String? = null,
 )
 
 /** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */

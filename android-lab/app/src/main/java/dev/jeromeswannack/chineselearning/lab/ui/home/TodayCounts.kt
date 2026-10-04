@@ -30,6 +30,7 @@ object TodayCounts {
         return StudyQueue.build(
             dao.decks().map { it.toQueueDeck() }, cards, prefs.budget,
             prefs.bonus("all", java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()), introduced, StudyQueue.cutoff(nowMs, zone), null, dao.noteHanzi(), longTerm = dao.noteLongTerm(),
+            bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao),
         )
     }
 }

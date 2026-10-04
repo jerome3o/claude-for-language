@@ -8,6 +8,9 @@
  *   - countQueue(...)                                   (the four numbers Home shows)
  *   - selectStudyQueue(..., noteText)                   ("new characters first": which brand-new
  *                                                         notes, in pick order — shared/decks/novelty.ts)
+ *   - selectStudyQueue(..., bumps) + bumpPocket(...)    ("⚡ Study it today": the bump pocket heads the
+ *                                                         queue, NEW over the budget, one early review,
+ *                                                         carry-over, done after review — shared/decks/bumps.ts)
  * Writes study-queue.json; core StudyQueueParityTest asserts StudyQueue.kt reproduces them.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -19,6 +22,7 @@ import {
   type QueueCardInput,
   type QueueDeckInput,
 } from '../../../shared/decks/study-queue';
+import { bumpPocket, type QueueBumps } from '../../../shared/decks/bumps';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: study-queue <out-dir>');
@@ -179,5 +183,88 @@ for (let i = 0; i < 300; i++) {
     queues,
   });
 }
-writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty }));
-console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) scenarios`);
+
+// "⚡ Study it today": bumped notes in every state — brand new (over a spent budget), in review
+// and not due (early review), already due, half reviewed since the bump, reviewed before the
+// bump (carry-over from yesterday), done, in another deck, unknown to the device.
+const bumped: unknown[] = [];
+for (let i = 0; i < 300; i++) {
+  const dayStart = Date.parse('2026-10-03T23:00:00.000Z') + int(-2, 2) * DAY;
+  const now = dayStart + int(6, 22) * H + int(0, 59) * 60_000;
+  const cutoff = Math.max(dayStart + DAY - 1, now + H);
+  const decks: QueueDeckInput[] = [];
+  for (let d = 0; d < int(1, 3); d++) {
+    decks.push({
+      id: `b${i}-${d}`,
+      priority: pick([0, 1, 2]),
+      created_at: `2026-0${int(1, 9)}-${String(int(10, 28))}T10:00:00.000Z`,
+      cap_primary: pick([0, 1, 3, 5]),
+      cap_secondary: pick([0, 2, 6]),
+    });
+  }
+  const cards: QueueCardInput[] = [];
+  const firstReviewAt: Record<string, number> = {};
+  const lastReviewAt: Record<string, number> = {};
+  const noteIds: string[] = [];
+  for (let n = 0; n < int(1, 12); n++) {
+    const noteId = `bn${i}-${String(n).padStart(2, '0')}`;
+    noteIds.push(noteId);
+    const deckId = rand() < 0.05 ? `gone-${i}` : pick(decks).id;
+    const started = rand() < 0.6;
+    const types = rand() < 0.15 ? TYPES.slice(1, 3) : TYPES.slice(0, int(1, 3));
+    for (const t of types) {
+      const id = `bc${i}-${n}-${t[0]}`;
+      const queue = started ? pick([0, 1, 2, 2, 2, 3]) : 0;
+      let due: number | null = null;
+      if (queue !== 0) {
+        due = rand() < 0.05 ? null : now + int(-3 * 24, 6 * 24) * H;
+        firstReviewAt[id] = rand() < 0.2 ? dayStart + int(0, 5) * H : dayStart - int(1, 60) * DAY;
+        lastReviewAt[id] = Math.max(firstReviewAt[id], rand() < 0.4 ? now - int(0, 6) * H : firstReviewAt[id] + int(0, 3) * DAY);
+      }
+      cards.push({ id, note_id: noteId, deck_id: deckId, card_type: t, queue, due_ms: due });
+    }
+  }
+  const bumpList = noteIds.filter(() => rand() < 0.45).map(note_id => ({
+    note_id,
+    // today, earlier today, or carried over from a previous day; sometimes exactly at a review
+    created_ms: pick([now - int(0, 5) * H, dayStart + int(0, 3) * H, dayStart - int(1, 3) * DAY]),
+  }));
+  if (rand() < 0.3) bumpList.push({ note_id: `unknown-${i}`, created_ms: now - H });
+  if (bumpList.length && rand() < 0.15) {
+    // a review exactly at the bump instant counts as "since the bump"
+    const c = cards.find(x => x.note_id === bumpList[0].note_id && x.queue !== 0);
+    if (c) lastReviewAt[c.id] = bumpList[0].created_ms;
+  }
+  const bumpsIn: QueueBumps = {
+    bumps: bumpList,
+    lastReviewMs: new Map(Object.entries(lastReviewAt)),
+    firstReviewMs: new Map(Object.entries(firstReviewAt)),
+  };
+  const budget = { new_cards_per_day: pick([0, 1, 3]), secondary_cards_per_day: pick([0, 6]) };
+  const bonus = pick([0, 0, 10]);
+  const intro = introducedToday(cards, new Map(Object.entries(firstReviewAt)), dayStart);
+  const scopes: Array<string | null> = [null, pick(decks).id];
+  const queues = scopes.map(deckId => {
+    const q = selectStudyQueue(decks, cards, budget, bonus, intro, cutoff, deckId, null, null, bumpsIn);
+    return {
+      deckId,
+      due: q.due.map(c => c.id).sort(),
+      newOrder: q.due.filter(c => c.queue === 0).map(c => c.id),
+      bumped: q.bumped.map(c => c.id),
+      bumpedNoteIds: q.bumpedNoteIds,
+      counts: countQueue(q.due, q.reviewedNoteIds),
+      hasMoreNew: q.hasMoreNew,
+      allocation: [...q.allocation.entries()].map(([id, a]) => ({ deckId: id, primary: a.primary, secondary: a.secondary })),
+    };
+  });
+  const pocket = bumpPocket(cards, bumpsIn, cutoff);
+  bumped.push({
+    now, dayStart, cutoff, decks, cards, firstReviewAt, lastReviewAt, bumps: bumpList, budget, bonus,
+    introduced: [...intro.entries()].map(([deckId, v]) => ({ deckId, ...v })),
+    queues,
+    pocket: { cards: pocket.cards.map(c => c.id), active: pocket.activeNoteIds, done: pocket.doneNoteIds },
+  });
+}
+
+writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty, bumped }));
+console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) + ${bumped.length} (bumps) scenarios`);

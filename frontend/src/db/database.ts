@@ -2,6 +2,7 @@ import type { Folder } from '@shared/folders';
 import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
+import { bumpPocket, type QueueBump, type QueueBumps } from '@shared/decks';
 import { selectStudyQueue, isDueByCutoff, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
@@ -128,6 +129,22 @@ export interface LocalPendingNotePref {
   long_term: LongTermPref;
   /** When it was chosen (ms) — later choices replace the row. */
   at: number;
+}
+
+/**
+ * "⚡ Study it today" — a bumped note (shared/decks/bumps.ts, services/studyBumps.ts).
+ * Rows from the server are replaced whole by each sync; `pending` rows are this
+ * device's changes still to upload ('add' = POST /api/me/bumps, 'clear' = DELETE).
+ */
+export interface LocalStudyBump {
+  id: string;
+  note_id: string;
+  /** ISO (or SQLite 'YYYY-MM-DD HH:MM:SS' UTC from the server). */
+  created_at: string;
+  source: string;
+  /** Set when the tutor bumped it ("⚡ from Minghui"). */
+  bumped_by_name: string | null;
+  pending?: 'add' | 'clear' | null;
 }
 
 export interface LocalCard {
@@ -622,6 +639,7 @@ export class ChineseLearningDB extends Dexie {
 
   // Folders (decks / lessons / readers), replaced whole on each sync
   folders!: Table<Folder, string>;
+  studyBumps!: Table<LocalStudyBump, string>;
 
   // Debug tables
   syncLogs!: Table<SyncLogEntry, string>;
@@ -1057,6 +1075,12 @@ export class ChineseLearningDB extends Dexie {
     this.version(26).stores({
       folders: 'id, kind',
     });
+
+    // Version 27: "⚡ Study it today" — bumped notes (shared/decks/bumps.ts), replaced
+    // whole by each sync except this device's pending adds / clears.
+    this.version(27).stores({
+      studyBumps: 'id, note_id',
+    });
   }
 }
 
@@ -1326,6 +1350,8 @@ interface StudyInputs {
   deckId?: string;
   /** note id → the learner's long-term choice (only notes that have one). */
   longTerm: Map<string, LongTermPref>;
+  /** "⚡ Study it today": the active bumps with their cards' review times. */
+  bumps: QueueBumps | null;
 }
 
 /** The notes with a long-term choice (shared/decks/long-term.ts), with this device's pending ones on top. */
@@ -1346,15 +1372,47 @@ export async function loadLongTermPrefs(): Promise<Map<string, LongTermPref>> {
   return out;
 }
 
+// ============ "⚡ Study it today" (services/studyBumps.ts) ============
+
+/** Server times are ISO or SQLite 'YYYY-MM-DD HH:MM:SS' (UTC). */
+export function bumpTimeMs(at: string): number {
+  const ms = Date.parse(at.includes('T') ? at : at.replace(' ', 'T') + 'Z');
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * The bumps + their cards' review times, for selectStudyQueue / the Home counts.
+ * Only the bumped notes' cards' events are read (card_id index), so it is cheap.
+ */
+export async function loadQueueBumps(): Promise<QueueBumps | null> {
+  const rows = (await db.studyBumps.toArray()).filter((b) => b.pending !== 'clear');
+  if (rows.length === 0) return null;
+  const bumps: QueueBump[] = rows.map((r) => ({ note_id: r.note_id, created_ms: bumpTimeMs(r.created_at) }));
+  const cardIds = (await db.cards.where('note_id').anyOf(rows.map((r) => r.note_id)).primaryKeys()) as string[];
+  const lastReviewMs = new Map<string, number>();
+  const firstReviewMs = new Map<string, number>();
+  if (cardIds.length) {
+    await db.reviewEvents.where('card_id').anyOf(cardIds).each((e) => {
+      if ((e as { _synced?: number })._synced === -1) return; // refused by the server
+      const ms = Date.parse(e.reviewed_at);
+      if (!Number.isFinite(ms)) return;
+      if (ms > (lastReviewMs.get(e.card_id) ?? -Infinity)) lastReviewMs.set(e.card_id, ms);
+      if (ms < (firstReviewMs.get(e.card_id) ?? Infinity)) firstReviewMs.set(e.card_id, ms);
+    });
+  }
+  return { bumps, lastReviewMs, firstReviewMs };
+}
+
 async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
   const allDecks = await db.decks.toArray();
   const decks = deckId ? allDecks.filter(d => d.id === deckId) : allDecks;
   // The daily budget is shared by every deck, so a single-deck session still
   // has to know what was introduced elsewhere today.
-  const [cards, studied, longTerm] = await Promise.all([
+  const [cards, studied, longTerm, bumps] = await Promise.all([
     loadCards(deckId),
     getNewCardsStudiedTodayMap(allDecks.map(d => d.id)),
     loadLongTermPrefs(),
+    loadQueueBumps(),
   ]);
   const spentElsewhere = { primary: 0, secondary: 0 };
   if (deckId) {
@@ -1364,7 +1422,7 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
       spentElsewhere.secondary += s.secondary;
     }
   }
-  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere, deckId, longTerm };
+  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere, deckId, longTerm, bumps };
 }
 
 /** Notes with at least one reviewed card (queue != NEW). */
@@ -1392,6 +1450,17 @@ export interface DeckQueueRaw {
   /** Queue position: higher first, then newest first. */
   priority: number;
   createdAt: string;
+  /**
+   * "⚡ Study it today" pocket cards (shared/decks/bumps.ts) that the counts above
+   * leave out: NEW ones (outside the budget) and not-yet-due early reviews. Pocket
+   * cards already due are in learning / review.
+   */
+  bumpedNew?: number;
+  bumpedSecondaryNew?: number;
+  bumpedLearning?: number;
+  bumpedReview?: number;
+  /** Bumped notes with cards in the pocket ("⚡ 2 bumped for today"). */
+  bumpedNotes?: number;
 }
 
 export interface DeckQueueCounts {
@@ -1400,6 +1469,8 @@ export interface DeckQueueCounts {
   learning: number;
   review: number;
   hasMoreNew: boolean;
+  /** Bumped notes in the pocket (their cards are in the four numbers above). */
+  bumped?: number;
 }
 
 export const EMPTY_QUEUE_COUNTS: DeckQueueCounts = {
@@ -1408,6 +1479,7 @@ export const EMPTY_QUEUE_COUNTS: DeckQueueCounts = {
   learning: 0,
   review: 0,
   hasMoreNew: false,
+  bumped: 0,
 };
 
 function poolOf(deckId: string, raw: DeckQueueRaw): DeckNewPool {
@@ -1445,11 +1517,12 @@ export function allocateQueueCounts(
   for (const [id, raw] of rawByDeck) {
     const a = alloc.get(id) ?? { primary: 0, secondary: 0 };
     out.set(id, {
-      new: a.primary,
-      secondaryNew: a.secondary,
-      learning: raw.learning,
-      review: raw.review,
+      new: a.primary + (raw.bumpedNew ?? 0),
+      secondaryNew: a.secondary + (raw.bumpedSecondaryNew ?? 0),
+      learning: raw.learning + (raw.bumpedLearning ?? 0),
+      review: raw.review + (raw.bumpedReview ?? 0),
       hasMoreNew: raw.totalNew + raw.totalSecondaryNew > a.primary + a.secondary,
+      bumped: raw.bumpedNotes ?? 0,
     });
   }
   return out;
@@ -1463,6 +1536,7 @@ export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCoun
     total.learning += c.learning;
     total.review += c.review;
     total.hasMoreNew ||= c.hasMoreNew;
+    total.bumped = (total.bumped ?? 0) + (c.bumped ?? 0);
   }
   return total;
 }
@@ -1473,10 +1547,14 @@ export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCoun
  * can serve multiple views with different bonuses.
  */
 function countRawQueues(
-  { decks, cards, studied, longTerm }: StudyInputs,
+  { decks, cards, studied, longTerm, bumps }: StudyInputs,
   reviewedNoteIds: Set<string>,
   cutoff: { iso: string; ts: number }
 ): Map<string, DeckQueueRaw> {
+  // The pocket over the decks in scope (the same rule selectStudyQueue applies).
+  const deckIds = new Set(decks.map(d => d.id));
+  const pocket = bumpPocket(cards.filter(c => deckIds.has(c.deck_id)).map(queueInput), bumps, cutoff.ts);
+  const pocketIds = new Set(pocket.cards.map(c => c.id));
   const byDeck = new Map<string, DeckQueueRaw>();
   const unseenByDeck = new Map<string, Set<string>>();
   const inReview = new Map<string, boolean>();
@@ -1495,13 +1573,33 @@ function countRawQueues(
       secondaryStudiedToday: s.secondary,
       priority: d.study_priority ?? 0,
       createdAt: d.created_at,
+      bumpedNew: 0,
+      bumpedSecondaryNew: 0,
+      bumpedLearning: 0,
+      bumpedReview: 0,
+      bumpedNotes: 0,
     });
     unseenByDeck.set(d.id, new Set());
   }
+  const bumpedNotesByDeck = new Map<string, Set<string>>();
+  for (const c of pocket.cards) {
+    const bucket = byDeck.get(c.deck_id);
+    if (!bucket) continue;
+    const notes = bumpedNotesByDeck.get(c.deck_id) ?? new Set<string>();
+    notes.add(c.note_id);
+    bumpedNotesByDeck.set(c.deck_id, notes);
+    const add = (k: 'bumpedNew' | 'bumpedSecondaryNew' | 'bumpedLearning' | 'bumpedReview') => { bucket[k] = (bucket[k] ?? 0) + 1; };
+    if (c.queue === CardQueue.NEW) add(reviewedNoteIds.has(c.note_id) ? 'bumpedSecondaryNew' : 'bumpedNew');
+    // An early review (not due yet); a due pocket card is counted below as usual.
+    else if (!isDueByCutoff(c, cutoff.ts)) add(c.queue === CardQueue.REVIEW ? 'bumpedReview' : 'bumpedLearning');
+  }
+  for (const [id, notes] of bumpedNotesByDeck) byDeck.get(id)!.bumpedNotes = notes.size;
 
   for (const card of cards) {
     const bucket = byDeck.get(card.deck_id);
     if (!bucket) continue;
+    // Bumped NEW cards are counted above, outside the budget's pools.
+    if (card.queue === CardQueue.NEW && pocketIds.has(card.id)) continue;
     if (card.queue === CardQueue.NEW) {
       // Words left out of long-term review (or a one-off deck's words nobody opted in)
       // are never introduced, so they are not "to go" either.
@@ -1552,7 +1650,7 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
  */
 export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<LocalCard[]> {
   const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
-  return selectDueCards(inputs, noteText, bonusNewCards, getStudyCutoff());
+  return selectDueCards(inputs, noteText, bonusNewCards, getStudyCutoff()).cards;
 }
 
 /**
@@ -1576,7 +1674,7 @@ function selectDueCards(
   noteText: QueueNoteText | null,
   bonusNewCards: number,
   cutoff: { iso: string; ts: number }
-): LocalCard[] {
+): { cards: LocalCard[]; bumpedCardIds: string[] } {
   const decks: QueueDeckInput[] = inputs.decks.map(d => ({
     id: d.id,
     priority: d.study_priority ?? 0,
@@ -1587,8 +1685,8 @@ function selectDueCards(
   const rows = inputs.cards.map(c => ({ ...queueInput(c), card: c }));
   // `studied` covers every deck; a one-deck session still spends the global
   // budget other decks used today (selectStudyQueue does the spent-elsewhere sum).
-  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm);
-  return result.due.map(r => r.card);
+  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm, inputs.bumps);
+  return { cards: result.due.map(r => r.card), bumpedCardIds: result.bumped.map(r => r.id) };
 }
 
 /** What a study session needs to start, from ONE load of decks, cards and counters. */
@@ -1596,6 +1694,8 @@ export interface StudyQueue {
   dueCards: LocalCard[];
   counts: DeckQueueCounts;
   reviewedNoteIds: Set<string>;
+  /** "⚡ Study it today" pocket cards (also the head of dueCards): shown first. */
+  bumpedCardIds: Set<string>;
 }
 
 /**
@@ -1608,11 +1708,11 @@ export async function getStudyQueue(deckId?: string, bonusNewCards = 0): Promise
   const cutoff = getStudyCutoff();
   const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
   const reviewedNoteIds = collectReviewedNoteIds(inputs.cards);
-  const dueCards = selectDueCards(inputs, noteText, bonusNewCards, cutoff);
+  const { cards: dueCards, bumpedCardIds } = selectDueCards(inputs, noteText, bonusNewCards, cutoff);
   const raw = countRawQueues(inputs, reviewedNoteIds, cutoff);
   const applied = allocateQueueCounts(raw, bonusNewCards, inputs.budget, inputs.spentElsewhere);
   const counts = deckId ? applied.get(deckId) ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied.values());
-  return { dueCards, counts, reviewedNoteIds };
+  return { dueCards, counts, reviewedNoteIds, bumpedCardIds: new Set(bumpedCardIds) };
 }
 
 /**
@@ -1695,7 +1795,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -1713,6 +1813,7 @@ export async function clearAllData(): Promise<void> {
     await db.recordingNotes.clear();
     await db.tutorNotes.clear();
     await db.boardPages.clear();
+    await db.studyBumps.clear();
   });
 }
 

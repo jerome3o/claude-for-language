@@ -38,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -292,8 +293,9 @@ fun WordDefinitionSheet(
     deckHolding: suspend (String) -> String?,
     addNote: suspend (VocabularyDefinition) -> Unit,
     onDismiss: () -> Unit,
+    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("breakdown"),
 ) {
-    LabSheetFrame(onDismiss = onDismiss) { WordDefinitionBody(hanzi, context, define, deckHolding, addNote, onDismiss) }
+    LabSheetFrame(onDismiss = onDismiss) { WordDefinitionBody(hanzi, context, define, deckHolding, addNote, onDismiss, bump = bump) }
 }
 
 @Composable
@@ -305,7 +307,10 @@ fun WordDefinitionBody(
     addNote: suspend (VocabularyDefinition) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    /** "⚡ Study it today" when the word is already a card (null = none: previews). */
+    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = null,
 ) {
+    var bumped by remember(hanzi) { mutableStateOf<String?>(null) }
     var definition by remember(hanzi) { mutableStateOf<CardTools.Definition?>(null) }
     var loading by remember(hanzi) { mutableStateOf(true) }
     var error by remember(hanzi) { mutableStateOf<String?>(null) }
@@ -339,8 +344,22 @@ fun WordDefinitionBody(
         spacing = 0.dp,
         footerAbove = if (saved) {
             { InlineNotice("Added — it arrives with the next sync.", kind = NoticeKind.Success) }
-        } else null,
-        footer = if (d == null || loading || error != null || saved) null else {
+        } else bumped?.let { m -> { InlineNotice(m, kind = NoticeKind.Success) } },
+        footer = if (d == null || loading || error != null || saved) null else if (existing != null && bump != null) {
+            {
+                // Already a card: "⚡ Study it today" first, adding it again second.
+                SecondaryPill("Add anyway", Modifier.height(50.dp), enabled = bumped == null) {
+                    scope.launch {
+                        try { addNote(d); saved = true; delay(900); onDismiss() } catch (e: Exception) { error = CardTools.message(e) }
+                    }
+                }
+                PrimaryPill(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.weight(1f).height(50.dp).testTag("bump-study-today"), enabled = bumped == null) {
+                    scope.launch {
+                        try { bumped = bump(listOf(d.hanzi), null); delay(1400); onDismiss() } catch (e: Exception) { error = CardTools.message(e) }
+                    }
+                }
+            }
+        } else {
             {
                 PrimaryPill(if (existing != null) "Add anyway" else "Add to Flashcards", Modifier.weight(1f).height(50.dp)) {
                     scope.launch {

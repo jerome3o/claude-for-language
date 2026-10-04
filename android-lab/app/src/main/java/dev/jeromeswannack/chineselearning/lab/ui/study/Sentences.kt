@@ -470,12 +470,22 @@ private fun ToolLink(label: String, enabled: Boolean, modifier: Modifier = Modif
  * pinned at the bottom, however many decks there are.
  */
 @Composable
-fun AddChunkSheet(chunk: Chunk, preferredDeck: String, actions: SentenceActions, onDismiss: () -> Unit) {
-    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss) }
+fun AddChunkSheet(
+    chunk: Chunk, preferredDeck: String, actions: SentenceActions, onDismiss: () -> Unit,
+    bumpSource: String = "breakdown",
+    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi(bumpSource),
+) {
+    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bump = bump) }
 }
 
 @Composable
-fun AddChunkBody(chunk: Chunk, preferredDeck: String, actions: SentenceActions, onDismiss: () -> Unit) {
+fun AddChunkBody(
+    chunk: Chunk, preferredDeck: String, actions: SentenceActions, onDismiss: () -> Unit,
+    bumpSource: String = "breakdown",
+    /** "⚡ Study it today" when the word is already a card (null = no bump: previews, outside the app). */
+    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi(bumpSource),
+) {
+    var bumped by remember { mutableStateOf<String?>(null) }
     var decks by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var deckId by remember { mutableStateOf(preferredDeck) }
     var duplicate by remember { mutableStateOf(false) }
@@ -497,13 +507,31 @@ fun AddChunkBody(chunk: Chunk, preferredDeck: String, actions: SentenceActions, 
                 Text(chunk.pinyin, style = MaterialTheme.typography.titleMedium, color = Lab.colors.accent)
                 Text(chunk.english, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
                 error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-                if (duplicate) InlineNotice("This word is already in the selected deck.", kind = NoticeKind.Warning)
+                bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
+                if (duplicate && bumped == null) InlineNotice(if (bump != null) "Already in this deck — study it today instead?" else "This word is already in the selected deck.", kind = NoticeKind.Warning)
                 Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
                 DeckChipList(Modifier.testTag("add-chunk-decks")) { for ((id, name) in decks) LabChip(name, selected = id == deckId) { deckId = id } }
             }
         },
         footer = {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (duplicate && bump != null && !done) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SecondaryPill(if (busy) "Adding…" else "Add anyway", Modifier.weight(1f).height(50.dp).testTag("add-chunk-add"), enabled = !busy && bumped == null) {
+                        busy = true
+                        error = null
+                        scope.launch {
+                            try { actions.addCard(deckId, chunk); done = true; delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                        }
+                    }
+                    PrimaryPill(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.weight(1.3f).height(50.dp).testTag("add-chunk-bump"), enabled = !busy && bumped == null) {
+                        busy = true
+                        error = null
+                        scope.launch {
+                            try { bumped = bump(listOf(chunk.hanzi), deckId); delay(1400); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                        }
+                    }
+                }
+            } else Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
                 PrimaryPill(if (done) "✓ Added" else if (busy) "Adding…" else if (duplicate) "Add anyway" else "Add to deck", Modifier.weight(1f).height(50.dp).testTag("add-chunk-add"), enabled = !busy && !done && deckId.isNotEmpty()) {
                     busy = true

@@ -87,9 +87,11 @@ fun ReaderWordSheet(
     onAdded: () -> Unit = {},
     initialExplanation: ReaderWordExplanationDto? = null,
     startAdding: Boolean = false,
+    bumpSource: String = "reader",
+    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi(bumpSource),
 ) {
     LabFooterSheet(onDismiss = onDismiss) {
-        ReaderWordPanel(word, sentence, known, actions, onAdded, initialExplanation, startAdding)
+        ReaderWordPanel(word, sentence, known, actions, onAdded, initialExplanation, startAdding, bump)
     }
 }
 
@@ -103,7 +105,11 @@ fun ReaderWordPanel(
     onAdded: () -> Unit = {},
     initialExplanation: ReaderWordExplanationDto? = null,
     startAdding: Boolean = false,
+    /** "⚡ Study it today" when the word is already a card (null = none: previews). */
+    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = null,
 ) {
+    var bumped by remember(word.text) { mutableStateOf<String?>(null) }
+    var bumping by remember { mutableStateOf(false) }
     var explain by remember(word.text, sentence) { mutableStateOf<Explain>(initialExplanation?.let { Explain.Ready(it) } ?: Explain.Idle) }
     var adding by remember { mutableStateOf(startAdding) }
     var decks by remember { mutableStateOf<List<DeckChoice>>(emptyList()) }
@@ -210,22 +216,35 @@ fun ReaderWordPanel(
             }
         },
         footer = {
+            fun doBump() {
+                val b = bump ?: return
+                bumping = true
+                error = null
+                scope.launch {
+                    try { bumped = b(listOf(word.text), deckId) } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        error = e.userMessage()
+                    } finally { bumping = false }
+                }
+            }
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
                 when {
                     added != null -> InlineNotice("Added to $added ✓", kind = NoticeKind.Success)
+                    // Already a card: "⚡ Study it today" first, adding it again second.
+                    !adding && known && bump != null -> {
+                        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                        dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpFirstRow(bumped, bumping, onAddAnyway = { adding = true }, onBump = ::doBump, addLabel = "+ Add anyway")
+                    }
                     !adding -> PrimaryPill("+ Add as card", Modifier.fillMaxWidth().height(54.dp)) { adding = true }
                     else -> {
-                        if (duplicate) InlineNotice("This word is already in that deck.", kind = NoticeKind.Warning)
+                        if (duplicate && bumped == null) InlineNotice("This word is already in that deck.", kind = NoticeKind.Warning)
                         error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-                        PrimaryPill(
-                            if (saving) "Adding…" else if (duplicate) "Add anyway" else "Add to deck",
-                            Modifier.fillMaxWidth().height(54.dp).testTag("add-to-deck"),
-                            enabled = !saving && deckId != null,
-                        ) {
-                            val id = deckId ?: return@PrimaryPill
+                        val addIt: () -> Unit = add@{
+                            val id = deckId ?: return@add
                             if (!actions.online()) {
                                 error = "Adding a card needs a connection."
-                                return@PrimaryPill
+                                return@add
                             }
                             saving = true
                             error = null
@@ -243,6 +262,16 @@ fun ReaderWordPanel(
                                     saving = false
                                 }
                             }
+                        }
+                        if (duplicate && bump != null) {
+                            dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpFirstRow(bumped, saving || bumping, onAddAnyway = addIt, onBump = ::doBump)
+                        } else {
+                            PrimaryPill(
+                                if (saving) "Adding…" else if (duplicate) "Add anyway" else "Add to deck",
+                                Modifier.fillMaxWidth().height(54.dp).testTag("add-to-deck"),
+                                enabled = !saving && deckId != null,
+                                onClick = addIt,
+                            )
                         }
                     }
                 }

@@ -45,6 +45,19 @@ class StudyQueueParityTest {
         assertTrue(check(cases, "novelty") >= 400)
     }
 
+    /** "⚡ Study it today" (shared/decks/bumps.ts): the pocket heads the queue, NEW over the budget. */
+    @Test
+    fun bumpPocketMatchesTypeScript() {
+        val cases = fixture["bumped"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 200)
+        assertTrue(check(cases, "bumped") >= 400)
+        // The fixture exercises every state: active, done, NEW over a spent budget, an early review.
+        assertTrue(cases.any { it["pocket"]!!.jsonObject["done"]!!.jsonArray.isNotEmpty() })
+        assertTrue(cases.any { it["pocket"]!!.jsonObject["active"]!!.jsonArray.isNotEmpty() })
+    }
+
+    private fun strings(e: kotlinx.serialization.json.JsonElement?) = e!!.jsonArray.map { it.jsonPrimitive.content }
+
     private fun check(cases: List<JsonObject>, label: String): Int {
         var queues = 0
         for ((n, c) in cases.withIndex()) {
@@ -77,6 +90,20 @@ class StudyQueueParityTest {
             val bonus = c["bonus"]!!.jsonPrimitive.int
             val cutoff = StudyCutoff(c["cutoff"]!!.jsonPrimitive.long)
 
+            val bumps = c["bumps"]?.let { b ->
+                QueueBumps(
+                    b.jsonArray.map { it.jsonObject }.map { QueueBump(it["note_id"]!!.jsonPrimitive.content, it["created_ms"]!!.jsonPrimitive.long) },
+                    c["lastReviewAt"]!!.jsonObject.mapValues { it.value.jsonPrimitive.long },
+                    first,
+                )
+            }
+            c["pocket"]?.jsonObject?.let { p ->
+                val pocket = Bumps.bumpPocket(cards, bumps, cutoff.ts)
+                assertEquals(strings(p["cards"]), pocket.cards.map { it.id }, "$i pocket cards")
+                assertEquals(strings(p["active"]), pocket.activeNoteIds, "$i pocket active")
+                assertEquals(strings(p["done"]), pocket.doneNoteIds, "$i pocket done")
+            }
+
             val introduced = StudyQueue.introducedToday(cards, first, dayStart)
             val expectedIntro = c["introduced"]!!.jsonArray.map { it.jsonObject }.associate {
                 it["deckId"]!!.jsonPrimitive.content to Introduced(it["primary"]!!.jsonPrimitive.int, it["secondary"]!!.jsonPrimitive.int)
@@ -86,7 +113,10 @@ class StudyQueueParityTest {
             for (q in c["queues"]!!.jsonArray.map { it.jsonObject }) {
                 val deckId = q["deckId"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
                 val where = "$i deck=$deckId"
-                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds)
+                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, bumps = bumps)
+                q["bumped"]?.let { assertEquals(strings(it), built.bumped.map { c -> c.id }, "$where bumped cards in order") }
+                q["bumpedNoteIds"]?.let { assertEquals(strings(it), built.bumpedNoteIds, "$where bumped note ids") }
+                if (q["bumped"] != null) assertEquals(built.bumped, built.dueCards.take(built.bumped.size), "$where pocket heads the queue")
                 assertEquals(q["due"]!!.jsonArray.map { it.jsonPrimitive.content }, built.dueCards.map { it.id }.sorted(), "$where due cards")
                 assertEquals(
                     q["newOrder"]!!.jsonArray.map { it.jsonPrimitive.content },

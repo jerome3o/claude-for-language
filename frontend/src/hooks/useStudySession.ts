@@ -54,6 +54,7 @@ import { clearResumePoint, loadResumePoint, loadUndoSnapshot, saveUndoSnapshot }
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
 import type { LessonAttemptData } from '@shared/lesson';
+import { track } from '../services/analytics';
 
 // Helper: Pick a random element from an array
 function pickRandom<T>(arr: T[]): T | null {
@@ -175,6 +176,8 @@ export function selectNextItem(
   reviewedNoteIds: Set<string>,
   lastRatedCardId?: string,
   lastRatedReaderId?: string,
+  /** "⚡ Study it today" pocket cards (shared/decks/bumps.ts): they come first. */
+  bumpedCardIds?: ReadonlySet<string>,
 ): NextStudyItem | null {
   const now = Date.now();
 
@@ -187,6 +190,13 @@ export function selectNextItem(
   });
 
   const cardsToChooseFrom = availableCards.length > 0 ? availableCards : queue;
+
+  // Priority 0: bumped cards ("⚡ Study it today"), first in queue order — the learner
+  // asked for them. The recent-notes filter still spaces out a word's sibling cards.
+  if (bumpedCardIds && bumpedCardIds.size > 0) {
+    const bumped = cardsToChooseFrom.find(c => bumpedCardIds.has(c.id));
+    if (bumped) return { card: bumped };
+  }
 
   // Priority 1: Learning cards due NOW
   const learningDue = cardsToChooseFrom.filter(c =>
@@ -384,6 +394,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Note IDs with at least one reviewed card — used to prioritize unreviewed notes in new card selection
   const reviewedNoteIdsRef = useRef<Set<string>>(new Set());
 
+  // "⚡ Study it today" pocket cards still to show this session (shown first; a card
+  // leaves once rated). From the queue load (shared/decks/bumps.ts).
+  const bumpedCardIdsRef = useRef<Set<string>>(new Set());
+  const [bumpedCardIds, setBumpedCardIds] = useState<ReadonlySet<string>>(new Set());
+
   // Single-level undo (like Anki): snapshot of the state before the last rating. Kept for
   // the day across visits to Study (services/studyResume.ts) — leaving doesn't end anything.
   const scope = studyScope(deckId);
@@ -421,7 +436,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       ]);
       // A failed load used to fall through to an empty queue — "All Done" while
       // Home counted cards. Try once more before giving up.
-      const [{ dueCards, counts, reviewedNoteIds: reviewedIds }, dueReaders, todaysGrammar, pendingLessons] = await load().catch(err => {
+      const [{ dueCards, counts, reviewedNoteIds: reviewedIds, bumpedCardIds: bumpedIds }, dueReaders, todaysGrammar, pendingLessons] = await load().catch(err => {
         console.warn('[useStudySession] Queue load failed, retrying once:', err);
         return new Promise<Awaited<ReturnType<typeof load>>>((resolve, reject) => setTimeout(() => load().then(resolve, reject), 300));
       });
@@ -432,6 +447,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       reviewsSinceLessonRef.current = 0;
       setHasMoreNewCards(counts.hasMoreNew);
       reviewedNoteIdsRef.current = reviewedIds;
+      bumpedCardIdsRef.current = new Set(bumpedIds);
+      setBumpedCardIds(new Set(bumpedIds));
       initializedRef.current = true;
 
       // Make sure today has a graded reader (all-decks sessions only). Runs
@@ -688,7 +705,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       resumeTargetRef.current = null;
       setResume(null);
     }
-    const selection = selectNextItem(queue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, recentNoteIds, reviewedNoteIdsRef.current);
+    const selection = selectNextItem(queue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current);
 
     if (selection && await presentSelection(selection)) return;
 
@@ -895,13 +912,19 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // its remaining NEW siblings count as secondary cards from here on.
     reviewedNoteIdsRef.current.add(noteId);
 
+    // A bumped card is done with once rated (shared/decks/bumps.ts).
+    if (bumpedCardIdsRef.current.delete(cardId)) {
+      setBumpedCardIds(new Set(bumpedCardIdsRef.current));
+      track('study.bump_studied', { card_type: currentCard.card_type, queue: currentCard.queue });
+    }
+
     const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
     // One more review toward the next custom-lesson interleave break
     reviewsSinceLessonRef.current += 1;
 
     // Select the next item synchronously from the new queues
-    const selection = selectNextItem(newQueue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, cardId);
+    const selection = selectNextItem(newQueue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, cardId, undefined, bumpedCardIdsRef.current);
 
     let presented = false;
     if (selection) {
@@ -1008,7 +1031,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       const updates = { readerQueue: newReaderQueue };
-      const selection = selectNextItem(queue, newReaderQueue, customLessonQueue, lessonBreakReady(), grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id);
+      const selection = selectNextItem(queue, newReaderQueue, customLessonQueue, lessonBreakReady(), grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id, bumpedCardIdsRef.current);
       if (selection && await presentSelection(selection, updates)) return;
 
       const delayed = await findDelayedLearningCard();
@@ -1038,7 +1061,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       syncService.syncEvents().catch(console.error);
     }
 
-    const selection = selectNextItem(queue, readerQueue, customLessonQueue, lessonBreakReady(), null, recentNoteIds, reviewedNoteIdsRef.current);
+    const selection = selectNextItem(queue, readerQueue, customLessonQueue, lessonBreakReady(), null, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current);
     if (selection && await presentSelection(selection)) return;
 
     const delayed = await findDelayedLearningCard();
@@ -1085,7 +1108,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     }
 
     const updates = { customLessonQueue: newLessonQueue };
-    const selection = selectNextItem(queue, readerQueue, newLessonQueue, false, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current);
+    const selection = selectNextItem(queue, readerQueue, newLessonQueue, false, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current);
     if (selection && await presentSelection(selection, updates)) return;
 
     const delayed = await findDelayedLearningCard();
@@ -1245,7 +1268,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const newRecentNoteIds = recentNoteIds.filter(id => id !== noteId);
     const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
-    const selection = selectNextItem(newQueue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current);
+    const selection = selectNextItem(newQueue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current);
     if (selection && await presentSelection(selection, updates)) return;
 
     // Nothing in the queues — check for delayed learning cards in IndexedDB
@@ -1298,6 +1321,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     isRating: reviewMutation.isPending,
     sessionStats,
     canUndo,
+    /** "⚡ Study it today" pocket cards still to show (the card badge reads it). */
+    bumpedCardIds,
     /** The resume point of the card on screen, for its first render only (null otherwise). */
     resume,
 

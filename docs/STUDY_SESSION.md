@@ -21,6 +21,8 @@ Cards exist in one of four queues:
 
 During a study session, cards are selected in this order:
 
+0. **Bumped cards ("⚡ Study it today")** - cards from the bump pocket (below) come first, in pocket order. The recent-notes filter still applies, so a bumped word's sibling cards are spaced out by a few other notes.
+
 1. **Learning/Relearning cards due NOW** - These have active timers and take priority. Selected using weighted randomization (more overdue = higher weight).
 
 2. **Mix of New + Review cards** - While learning cards are on cooldown, new and review cards are shown. Selection is proportional to queue sizes (e.g., if 3 new and 7 review cards, ~30% chance of new).
@@ -193,6 +195,37 @@ every row once per repair version and then daily (`repairCardStatesFromEvents`, 
 The 27 Sep 2026 debug report found the web holding 49 cards with events at NEW and ~765 review
 cards whose due date had drifted whole days later than the replay (the old incremental
 `scheduleCard` update) — the web showed 0 due while the Lab app showed 37.
+
+## "⚡ Study it today" — the bump pocket
+
+Jerome often tries to add a card he already has (Coach → Explain → add → "already in this deck").
+Every place that finds the word already exists now offers **⚡ Study it today** first (Add anyway
+second): the note goes into a per-account pocket (`study_bumps`) and its cards come FIRST in
+today's session. One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-tested):
+
+- **Which cards** — of the note's cards not reviewed since the bump: every NEW card, every card
+  already due by the cutoff, plus ONE early review: the most important card that isn't due yet
+  (hanzi_to_meaning → meaning_to_hanzi → audio_to_hanzi), unless a due card is already in or a card
+  that was in circulation before the bump has been reviewed since. At most 3 per note.
+- **New cards over the budget** — bumped NEW cards are taken out of the deck pools, so they're
+  introduced today even when the daily new-card budget is spent and never take a slot from the deck
+  queue. Once reviewed they count toward introduced-today (derived from events, as always), which is
+  what the budget already spent today reads.
+- **Early reviews** — a review card not due yet is shown today; ts-fsrs computes the elapsed time
+  from the last review, so the rating schedules it properly (a "Good" on an early card grows the
+  interval less than an on-time one).
+- **Done** — a bump is done once each bumped card has been reviewed since the bump (a reviewed NEW
+  card becomes a learning card and stays in today's queue the normal way). Unfinished bumps carry over
+  to the next day; ⚡ Today ✓ → tap to take it out (deck page, card hub).
+- **Where it shows** — the card carries a small "⚡ Today" badge ("⚡ from Minghui" when the tutor
+  bumped it), Home says "⚡ N bumped for today" under the Study button and in the ⓘ breakdown, and the
+  counts include the pocket's cards.
+- **Offline** — bumps are written to IndexedDB (`studyBumps`) / Room at once and uploaded with a client
+  id (`POST /api/me/bumps`, idempotent); `/api/sync/changes` brings the whole pocket back. The server
+  marks finished bumps `done_at` lazily with the same rule.
+- **Claude** — Ask Claude, the coach chat and chat Discuss have a `bump_cards` tool and are told to
+  bump instead of making a duplicate; the MCP server has `bump_cards`, `list_bumped_cards`,
+  `clear_bumped_card` and the tutor's `bump_student_cards`.
 
 ## Graded readers: one a day
 

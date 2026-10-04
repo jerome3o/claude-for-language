@@ -697,3 +697,10 @@
   color: #6b7280;
   margin-top: 0.125rem;
 }
+
+/* The ⚡ badge on a card from the "Study it today" pocket (shared/decks/bumps.ts). */
+.study-bump-row {
+  display: flex;
+  justify-content: center;
+  padding: 0.35rem 1rem 0;
+}

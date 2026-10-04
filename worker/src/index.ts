@@ -119,6 +119,8 @@ import adminRoutes from './routes/admin';
 import audioBackfillRoutes from './routes/audio-backfill';
 import studyTimeRoutes from './routes/study-time';
 import foldersRoutes from './routes/folders';
+import studyBumpsRoutes from './routes/study-bumps';
+import { listActiveBumps } from './services/study-bumps';
 import { FolderError, fileItem, listFolders, resolveFolderId } from './services/folders';
 import analyticsRoutes from './routes/analytics';
 import { requestLog, bindAnalyticsScope } from './services/analytics/request-log';
@@ -588,6 +590,7 @@ app.route('/api', homeworkDraftRoutes);
 app.route('/api', adminRoutes);
 // Folders for decks / library lessons / readers (organisation only; routes/folders.ts).
 app.route('/api', foldersRoutes);
+app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
 app.route('/api', audioBackfillRoutes); // /api/admin/audio/* (docs/AUDIO.md)
 
 // Study-state debug reports from the web + Lab apps, and their diff (routes/debug-reports.ts)
@@ -3107,7 +3110,7 @@ app.post('/api/coach/conversations/:id/messages', async (c) => {
     }
     history.push({ role: 'user', content: message.trim() });
 
-    const { answer, toolActions } = await coachChatWithTools(
+    const { answer, toolActions, readOnlyToolCalls } = await coachChatWithTools(
       c.env.ANTHROPIC_API_KEY, history, { db: c.env.DB, userId }
     );
 
@@ -3118,6 +3121,11 @@ app.post('/api/coach/conversations/:id/messages', async (c) => {
       data?: Record<string, unknown>;
       error?: string;
     }> = [];
+    // bump_cards already ran inside the loop ("⚡ Study it today"): reported so the
+    // client pulls the pocket at once.
+    for (const call of readOnlyToolCalls) {
+      if (call.tool === 'bump_cards') toolResults.push({ tool: 'bump_cards', success: !call.result.error, data: call.result });
+    }
 
     for (const action of toolActions) {
       if (action.tool === 'create_custom_lesson') {
@@ -5708,6 +5716,9 @@ app.get('/api/sync/changes', async (c) => {
     // Every folder (decks / lessons / readers) — a short list, sent whole so the
     // device simply replaces its copy (deletions included). Decks carry folder_id.
     folders: await listFolders(c.env.DB, userId).catch(() => null),
+    // "⚡ Study it today": every active bump (a short list, sent whole like folders;
+    // the device keeps its own not-yet-uploaded ones on top). shared/decks/bumps.ts.
+    bumps: await listActiveBumps(c.env.DB, userId).catch(() => null),
   });
 });
 
