@@ -33,6 +33,7 @@ const SentenceAnalysisPage = lazy(() => import('./pages/SentenceAnalysisPage').t
 const SentenceCoachPage = lazy(() => import('./pages/SentenceCoachPage').then(m => ({ default: m.SentenceCoachPage })));
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })));
+const AdminAudioPage = lazy(() => import('./pages/AdminAudioPage').then(m => ({ default: m.AdminAudioPage })));
 const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
 const ConnectionDetailPage = lazy(() => import('./pages/ConnectionDetailPage').then(m => ({ default: m.ConnectionDetailPage })));
 const ChatPage = lazy(() => import('./pages/ChatPage').then(m => ({ default: m.ChatPage })));
@@ -304,6 +305,15 @@ function AppRoutes() {
           <AdminRoute>
             <Header />
             <AdminPage />
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/admin/audio"
+        element={
+          <AdminRoute>
+            <Header />
+            <AdminAudioPage />
           </AdminRoute>
         }
       />

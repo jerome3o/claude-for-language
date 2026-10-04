@@ -5,7 +5,7 @@ import type { StudyBudgetInfo } from '@shared/decks';
 export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
 
 // Audio provider types
-export type AudioProvider = 'minimax' | 'gtts';
+export type AudioProvider = 'minimax' | 'azure' | 'gtts';
 
 // Rating values (maps to FSRS 1-4 internally)
 export type Rating = 0 | 1 | 2 | 3; // 0=again, 1=hard, 2=good, 3=easy
