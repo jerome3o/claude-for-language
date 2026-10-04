@@ -113,6 +113,34 @@ export interface AudioPlayer {
   claim(): number;
   /** True while `playId` is the most recent play/claim. */
   isCurrent(playId: number): boolean;
+  /**
+   * Playback speed (1 = normal) for this player's clips, applied at playback
+   * with the pitch preserved — the clip is never regenerated. Takes effect on
+   * the clip playing now and every later one. Only the reader sets it.
+   */
+  setRate(rate: number): void;
+}
+
+/** Media elements' pitch flags, prefixed in older engines. */
+type PitchElement = HTMLMediaElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean; mozPreservesPitch?: boolean };
+
+/**
+ * Play `el` at `rate` with the pitch preserved (the browser time-stretches —
+ * smooth, not choppy). `defaultPlaybackRate` too, because loading a new
+ * source resets `playbackRate` to it.
+ */
+export function applyPlaybackRate(el: HTMLMediaElement, rate: number): void {
+  const r = Number.isFinite(rate) && rate > 0 ? rate : 1;
+  const m = el as PitchElement;
+  try {
+    m.preservesPitch = true;
+    m.webkitPreservesPitch = true;
+    m.mozPreservesPitch = true;
+    if (m.defaultPlaybackRate !== r) m.defaultPlaybackRate = r;
+    if (m.playbackRate !== r) m.playbackRate = r;
+  } catch {
+    // An engine without rate control: plays at 1×
+  }
 }
 
 // ---- Native bridge (the Android app) ----
@@ -143,6 +171,12 @@ interface AndroidAudioBridge {
   holdOutput?(hold: boolean): void;
   /** v2: JSON snapshot of the bridge's state. */
   describe?(): string;
+  /**
+   * v3: playback speed for the clip with this id, pitch kept (MediaPlayer
+   * PlaybackParams — Sonic time-stretching). Called before playClip for the
+   * next clip, or with the playing clip's id to change speed mid-play.
+   */
+  setRate?(id: number, rate: number): void;
 }
 
 declare global {
@@ -158,10 +192,11 @@ export function hasNativeAudio(): boolean {
   return typeof window !== 'undefined' && !!window.AndroidAudio;
 }
 
-/** 0 without the bridge, 1 for the play/stop-only app, 2 with the tuning API. */
+/** 0 without the bridge, 1 for the play/stop-only app, 2 with the tuning API, 3 with playback speed. */
 export function nativeBridgeVersion(): number {
   const bridge = typeof window !== 'undefined' ? window.AndroidAudio : undefined;
   if (!bridge) return 0;
+  if (typeof bridge.setRate === 'function') return 3;
   return typeof bridge.playClip === 'function' ? 2 : 1;
 }
 
@@ -300,6 +335,8 @@ export function createAudioPlayer(): AudioPlayer {
   let clipActive = false;
   // Native path: the bridge id of the clip in flight.
   let nativeId: number | null = null;
+  // Playback speed (setRate); 1 = normal.
+  let rate = 1;
 
   function markActive() {
     if (clipActive) return;
@@ -356,10 +393,22 @@ export function createAudioPlayer(): AudioPlayer {
   function playViaNative(id: number, source: Blob | string, handlers: PlayHandlers): boolean {
     const bridge = window.AndroidAudio;
     if (!bridge) return false;
+    // A slowed clip needs a bridge that can set the speed (app with the v3
+    // bridge); an older app plays it through the <audio> element instead,
+    // which can — better a slower clip there than the wrong speed here.
+    const nativeRate = typeof bridge.setRate === 'function';
+    if (rate !== 1 && !nativeRate) return false;
     hookNativeEvents();
 
     const clipId = nextNativeId++;
     nativeId = clipId;
+    if (nativeRate) {
+      try {
+        bridge.setRate!(clipId, rate);
+      } catch {
+        // Bridge gone — the clip plays at 1×
+      }
+    }
     const key = handlers.cacheKey ?? '';
     const clip = trackNativeClip(source, handlers.label ?? 'unknown');
     tracker = clip;
@@ -465,6 +514,7 @@ export function createAudioPlayer(): AudioPlayer {
       objectUrl = URL.createObjectURL(source);
       el.src = objectUrl;
     }
+    applyPlaybackRate(el, rate);
 
     tracker = trackClip(el, source, handlers.label ?? 'unknown');
     const clip = tracker;
@@ -529,6 +579,18 @@ export function createAudioPlayer(): AudioPlayer {
 
     isCurrent(id) {
       return playId === id;
+    },
+
+    setRate(next) {
+      rate = Number.isFinite(next) && next > 0 ? next : 1;
+      if (element) applyPlaybackRate(element, rate);
+      if (nativeId !== null) {
+        try {
+          window.AndroidAudio?.setRate?.(nativeId, rate);
+        } catch {
+          // Bridge gone
+        }
+      }
     },
   };
 }

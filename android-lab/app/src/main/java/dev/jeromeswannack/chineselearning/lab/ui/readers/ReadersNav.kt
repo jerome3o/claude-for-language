@@ -122,6 +122,10 @@ private inline fun <reified V : ViewModel> factory(crossinline make: () -> V) = 
 fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
     val runtime = remember(app) { LessonRuntime.of(app) }
     val playing by runtime.audio.playing.collectAsState()
+    // The reader's speed chip: one value per phone, shared by every reading view
+    val speedPref = remember(app) { dev.jeromeswannack.chineselearning.lab.data.readers.ReaderSpeedPref.of(app) }
+    val speed by speedPref.speed.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(speed) { runtime.audio.changeSpeed(speed) }
     val clips = remember(app) { dev.jeromeswannack.chineselearning.lab.data.readers.ReaderClipAnalyzer(app.cache) }
     DisposableEffect(readerId) { onDispose { runtime.audio.stop() } }
     // Usage analytics: every reading view (page, session, homework, today) builds this env once per reader.
@@ -139,7 +143,7 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
             known = w.text in known,
             actions = ReaderWordActions(
                 online = { app.online.value },
-                play = { text -> runtime.audio.speak(text) },
+                play = { text -> runtime.audio.speak(text, speed = speedPref.speed.value) },
                 cachedExplanation = { word, s -> runtime.readers.cachedExplanation(word.text, s) },
                 explain = { word, s -> runtime.readers.explainWord(word.text, s, word.pinyin, word.gloss) },
                 decks = { dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { DeckChoice(it.id, it.name, it.description) } },
@@ -158,7 +162,13 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
         analyze = { page, file -> clips.analyze(runtime.readers.pageTtsKey(page).removePrefix("reader-tts/"), file) },
         image = { page -> runtime.readers.pageImage(readerId, page, app.online.value) },
         cachedImage = { page -> runtime.media.cachedImage(page.imageUrl) },
-        togglePlay = { page -> togglePage(app, runtime, page) },
+        togglePlay = { page -> togglePage(app, runtime, page, speedPref.speed.value) },
+        speed = speed,
+        onSpeed = {
+            val next = speedPref.cycle()
+            app.haptics.tick()
+            app.analytics.track("reader.speed_changed", mapOf("speed" to next))
+        },
         playingPage = playing?.takeIf { it.startsWith(PAGE_PREFIX) }?.removePrefix(PAGE_PREFIX),
         onTap = { app.haptics.tick() },
     )
@@ -166,12 +176,12 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
 
 private const val PAGE_PREFIX = "reader-page:"
 
-private fun togglePage(app: LabApp, runtime: LessonRuntime, page: ReaderPageDto) {
+private fun togglePage(app: LabApp, runtime: LessonRuntime, page: ReaderPageDto, speed: Double) {
     val label = PAGE_PREFIX + page.id
     if (runtime.audio.playing.value == label) { runtime.audio.stop(); return }
     app.scope.launch {
         val file = runtime.readers.pageAudio(page, app.online.value)
-        if (file != null) runtime.audio.playFileFor(label, file) else runtime.audio.speak(page.contentChinese)
+        if (file != null) runtime.audio.playFileFor(label, file, speed = speed) else runtime.audio.speak(page.contentChinese, speed = speed)
     }
 }
 

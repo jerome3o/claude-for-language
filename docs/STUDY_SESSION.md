@@ -277,6 +277,19 @@ Lab `ui/readers/ReaderScrubber.kt`) split into **phrase blocks at the pauses**:
 - **Fallback**: undecodable clip or no pause found → one block, exactly the old scrubber (tap or
   drag places the anchor, stop returns to it, no ⏮ / ⏭ row). Sentence highlighting in the text
   is not done (the reader shows the Chinese hidden until tapped).
+- **Speed** (`shared/reader/speed.ts`, Lab `core/ReaderSpeed.kt`, parity-tested): one chip —
+  left of the ⏮ / ⏭ row, and under 🔊 on the reading page — cycles **1× → 0.75× → 0.5×**,
+  remembered per device (web localStorage `reader-playback-speed`, Lab prefs `lab-reader`) and
+  shared live by every reader view (page narration and a word's ▶ in the word sheet; card study
+  audio is untouched). Applied at **playback only**, the clip is never regenerated, and the pitch
+  is kept: web = `playbackRate` + `preservesPitch` (and the webkit / moz flags) on the element
+  (`applyPlaybackRate` / `AudioPlayer.setRate` in `utils/audioPlayback.ts`); the Android hybrid
+  app's bridge v3 `setRate(id, speed)` = MediaPlayer `PlaybackParams.setSpeed(x).setPitch(1)`
+  (an older v2 app plays a slowed clip through the element instead); Lab = the same
+  `PlaybackParams` (`data/readers/ReaderPlaybackSpeed.kt`). A change while playing applies live,
+  no restart. Blocks and positions stay in **media time**; the 1 s grace (pause → previous block,
+  ⏮ → restart this block) is a **wall-clock** reaction, so it is scaled to media time:
+  `blockGraceMsAt(speed)` = 1000 × speed (500 ms of clip at 0.5×). `reader.speed_changed { speed }`.
 
 ## Example Session Flow
 

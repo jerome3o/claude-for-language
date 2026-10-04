@@ -15,6 +15,8 @@ import { createAudioPlayer } from '../utils/audioPlayback';
 import { Loading } from '../components/Loading';
 import { AnkiExportButton } from '../components/export/AnkiExportModal';
 import { ReaderWordsText } from '../components/reader/ReaderWords';
+import { ReaderSpeedChip } from '../components/reader/ReaderSpeedChip';
+import { useReaderSpeed } from '../services/readerSpeed';
 import { markDailyActivity } from '../api/client';
 import {
   ReaderPage as ReaderPageType,
@@ -51,6 +53,11 @@ function PageView({
   const [showChinese, setShowChinese] = useState(false);
   const pagePlayerRef = useRef(createAudioPlayer());
   const ttsCache = useRef<Map<string, Blob>>(new Map());
+  // The speed chip: playback rate with the pitch kept, live on the clip playing
+  const speed = useReaderSpeed();
+  useEffect(() => {
+    pagePlayerRef.current.setRate(speed);
+  }, [speed]);
 
   // Use the page's image_url or the generated one
   const imageKey = page.image_url || generatedImageUrl;
@@ -197,13 +204,16 @@ function PageView({
               </button>
             </div>
           )}
-          <button
-            className="reader-audio-btn"
-            onClick={isPlaying ? stopAudio : playAudio}
-            aria-label={isPlaying ? 'Stop audio' : 'Play audio'}
-          >
-            {isPlaying ? '⏹' : '🔊'}
-          </button>
+          <div className="reader-audio-controls">
+            <button
+              className="reader-audio-btn"
+              onClick={isPlaying ? stopAudio : playAudio}
+              aria-label={isPlaying ? 'Stop audio' : 'Play audio'}
+            >
+              {isPlaying ? '⏹' : '🔊'}
+            </button>
+            <ReaderSpeedChip />
+          </div>
         </div>
 
         {/* Pinyin (tap to reveal) */}

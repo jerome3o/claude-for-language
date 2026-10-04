@@ -1,0 +1,29 @@
+/* The reader's playback-speed chip (1× · 0.75× · 0.5×). Neutral at 1×, blue
+   while slowed. 44px tall: a thumb target, like the ⏮ / ⏭ buttons beside it. */
+.reader-speed-chip {
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  flex-shrink: 0;
+  transition: transform 0.08s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.reader-speed-chip.slowed {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
+.reader-speed-chip:active {
+  transform: scale(0.94);
+}

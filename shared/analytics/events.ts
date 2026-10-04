@@ -146,6 +146,7 @@ export const ANALYTICS_EVENTS = {
   'reader.generate': e('readers', 'Asked for a new reader.', []),
   'reader.editor_save': e('readers', 'Saved a reader in the editor.', ['pages']),
   'reader.audio_block': e('readers', 'Used the phrase-block scrubber (jump / step).', ['action']),
+  'reader.speed_changed': e('readers', 'Changed the reader playback speed (1 / 0.75 / 0.5).', ['speed']),
 
   // ── quests & picture hunts ─────────────────────────────────────────────
   'quest.generate': e('quests', 'Asked for a new quest.', ['difficulty']),
