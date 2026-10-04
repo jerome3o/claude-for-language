@@ -7,6 +7,7 @@ import dev.jeromeswannack.chineselearning.lab.core.WordListParser
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueBump
 import dev.jeromeswannack.chineselearning.lab.core.QueueBumps
+import dev.jeromeswannack.chineselearning.lab.core.SentenceBumps
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.LabDao
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
@@ -90,41 +91,17 @@ object BumpStore {
         return out
     }
 
-    /**
-     * The words of [sentence] that are already cards (the Coach's "⚡ Study today" chip): the
-     * breakdown's [words] when there are some, else a greedy longest match of the local notes'
-     * hanzi along the sentence. Distinct, in sentence order; the hanzi as the notes spell them.
-     */
-    suspend fun knownWordsIn(dao: LabDao, sentence: String, words: List<String> = emptyList()): List<String> {
-        val byKey = HashMap<String, String>()
-        for (n in dao.noteHanziRows()) {
-            val k = WordListParser.normalizeHanzi(n.hanzi)
-            if (k.isNotEmpty()) byKey.putIfAbsent(k, n.hanzi)
-        }
-        return knownWordsIn(byKey, sentence, words)
-    }
+    /** A note the Coach's "⚡ Study … today" chip offers: hanzi · pinyin · meaning. */
+    data class BumpWord(val noteId: String, val hanzi: String, val pinyin: String, val english: String)
 
-    /** Pure part of [knownWordsIn]: [byKey] = normalised hanzi → the note's hanzi. */
-    fun knownWordsIn(byKey: Map<String, String>, sentence: String, words: List<String>): List<String> {
-        val out = LinkedHashSet<String>()
-        if (words.isNotEmpty()) {
-            for (w in words) byKey[WordListParser.normalizeHanzi(w)]?.let { out += it }
-            return out.toList()
-        }
-        val text = WordListParser.normalizeHanzi(sentence)
-        val maxLen = byKey.keys.maxOfOrNull { it.length } ?: return emptyList()
-        var i = 0
-        while (i < text.length) {
-            var len = minOf(maxLen, text.length - i)
-            var hit: String? = null
-            while (len > 0) {
-                hit = byKey[text.substring(i, i + len)]
-                if (hit != null) break
-                len--
-            }
-            if (hit != null) { out += hit; i += len } else i++
-        }
-        return out.toList()
+    /**
+     * The Coach's chip (core SentenceBumps, web findSentenceBumps): the note [sentence] IS
+     * (bump only it), else the notes found inside it in picker order (nothing ticked).
+     */
+    suspend fun sentenceBumps(dao: LabDao, sentence: String): SentenceBumps.Result<BumpWord> {
+        if (WordListParser.normalizeHanzi(sentence).isEmpty()) return SentenceBumps.Result(null, emptyList())
+        val notes = dao.allNotes().map { BumpWord(it.id, it.hanzi, it.pinyin, it.english) }
+        return SentenceBumps.match(sentence, notes) { it.hanzi }
     }
 
     /** Bump the local notes spelled [hanzi] (the add-card sheets, the Coach). */

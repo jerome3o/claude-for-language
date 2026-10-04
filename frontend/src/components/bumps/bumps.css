@@ -80,3 +80,75 @@
   color: #b45309;
   font-weight: 500;
 }
+
+/* The Coach's "⚡ Study words from this today…" picker (SentenceBumpSheet). */
+.sentence-bump-help {
+  margin: 0 0 0.5rem;
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+}
+
+.sentence-bump-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sentence-bump-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 52px;
+  padding: 0.4rem 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.sentence-bump-row input {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: #f59e0b;
+}
+
+.sentence-bump-row.is-bumped {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.sentence-bump-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.sentence-bump-hanzi {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.sentence-bump-pinyin {
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+}
+
+.sentence-bump-english {
+  flex-basis: 100%;
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.sentence-bump-on {
+  flex-shrink: 0;
+  color: #b45309;
+  font-size: 1.1rem;
+}
+
+.btn.sentence-bump-add:not(:disabled) {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #1f1300;
+}

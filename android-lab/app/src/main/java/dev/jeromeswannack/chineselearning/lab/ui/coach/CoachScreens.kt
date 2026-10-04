@@ -58,6 +58,9 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.CoachAction
 import dev.jeromeswannack.chineselearning.lab.core.CoachActions
 import dev.jeromeswannack.chineselearning.lab.core.CoachBreakdownWord
+import dev.jeromeswannack.chineselearning.lab.core.SentenceBumps
+import dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
+import dev.jeromeswannack.chineselearning.lab.ui.bumps.SentenceBumpSheet
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachBreakdownDto
 import dev.jeromeswannack.chineselearning.lab.ui.study.AddChunkSheet
@@ -245,8 +248,14 @@ data class CoachChatUi(
     val decks: List<CoachDeck> = emptyList(),
     val deckId: String? = null,
     val online: Boolean = true,
-    /** "⚡ Study it today": the sentence's words that are already cards (the quick-action chip). */
-    val knownWords: List<String> = emptyList(),
+    /** "⚡ Study this today": the sentence itself is one of his cards (core SentenceBumps). */
+    val bumpExact: BumpStore.BumpWord? = null,
+    /** Else "⚡ Study words from this today…": its words that are cards, in picker order. */
+    val bumpWords: List<BumpStore.BumpWord> = emptyList(),
+    /** Notes already in today's pocket (⚡, can't be ticked). */
+    val bumpedNoteIds: Set<String> = emptySet(),
+    /** The words picker is open. */
+    val bumpPicker: Boolean = false,
     /** The bump's confirmation ("⚡ 银行 will come first in today’s study"), shown for a moment. */
     val bumpMessage: String? = null,
 )
@@ -260,8 +269,13 @@ data class CoachChatActions(
     val onRetryLoad: () -> Unit = {},
     /** Explain's word rows / whole sentence → a card (the study card's AddChunkSheet). */
     val cards: SentenceActions = SentenceActions(),
-    /** "⚡ Study today": bump the sentence's words that are already cards. */
-    val onBumpToday: () -> Unit = {},
+    /** "⚡ Study this today": bump the sentence's own card (only it). */
+    val onBumpExact: () -> Unit = {},
+    /** "⚡ Study words from this today…": open / close the picker. */
+    val onOpenBumpPicker: () -> Unit = {},
+    val onCloseBumpPicker: () -> Unit = {},
+    /** The picker's "⚡ Add N to today": exactly the ticked notes. */
+    val onBumpPicked: (List<String>) -> Unit = {},
     /** The add-card sheet's "⚡ Study it today" (null = the app's real bump). */
     val bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = null,
 )
@@ -327,23 +341,38 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
             bumpSource = "coach", bump = actions.bump ?: dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("coach"),
         )
     }
+    if (ui.bumpPicker && ui.bumpWords.isNotEmpty()) {
+        SentenceBumpSheet(ui.bumpWords, ui.bumpedNoteIds, onAdd = actions.onBumpPicked, onDismiss = actions.onCloseBumpPicker)
+    }
 }
 
 @Composable
 private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActions) {
     val deck = ui.decks.firstOrNull { it.id == ui.deckId } ?: ui.decks.firstOrNull()
     ui.bumpMessage?.let { InlineNotice(it, kind = NoticeKind.Success) }
-    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // "⚡ Study it today": the sentence's words are already cards — bring them to the front of today.
-        if (ui.knownWords.isNotEmpty()) {
+    // The ⚡ chip arrives after the row is drawn (the local lookup is async): a lazy row keeps its
+    // first item in place, which would leave the new chip scrolled off to the left — show it.
+    val rowState = rememberLazyListState()
+    val hasBumpChip = ui.bumpExact != null || ui.bumpWords.isNotEmpty()
+    LaunchedEffect(hasBumpChip) { if (hasBumpChip && rowState.firstVisibleItemIndex <= 1) rowState.scrollToItem(0) }
+    androidx.compose.foundation.lazy.LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // "⚡ Study … today" (core SentenceBumps): the sentence's own card, else a picker over its
+        // words he already has (nothing ticked) — one tap never bumps a pile of words.
+        val exact = ui.bumpExact
+        if (exact != null) {
             item(key = "bump") {
+                val done = exact.noteId in ui.bumpedNoteIds
                 LabChip(
-                    if (ui.knownWords.size == 1) "⚡ Study ${ui.knownWords[0]} today" else "⚡ Study today (${ui.knownWords.size})",
+                    if (done) SentenceBumps.DONE_LABEL else SentenceBumps.EXACT_LABEL,
                     modifier = Modifier.testTag("coach-bump"),
                     selected = true,
-                    enabled = ui.bumpMessage == null,
-                    onClick = actions.onBumpToday,
+                    enabled = !done,
+                    onClick = actions.onBumpExact,
                 )
+            }
+        } else if (ui.bumpWords.isNotEmpty()) {
+            item(key = "bump") {
+                LabChip(SentenceBumps.WORDS_LABEL, modifier = Modifier.testTag("coach-bump"), selected = true, onClick = actions.onOpenBumpPicker)
             }
         }
         items(COACH_QUICK_ACTIONS, key = { it.key }) { a ->

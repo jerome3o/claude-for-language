@@ -70,7 +70,7 @@ export function registerBumpTools(ctx: ToolContext): void {
 
   server.tool(
     'bump_cards',
-    "\"⚡ Study it today\": push words the user ALREADY HAS to the front of today's study queue. Their cards come first in today's session — new cards even past the daily new-card limit (it doesn't use up the budget), and cards not due yet get one early review. A bump finishes once each bumped card has been reviewed; unfinished ones carry over to tomorrow. Use this whenever the user wants to add or study a word that search_notes / batch_search_notes shows they already have — never add a duplicate. Give note_ids or hanzi. Returns the whole pocket.",
+    "\"⚡ Study it today\": push words the user ALREADY HAS to the front of today's study queue. Their cards come first in today's session — new cards even past the daily new-card limit (it doesn't use up the budget), and cards not due yet get one early review. A bump finishes once each bumped card has been reviewed; unfinished ones carry over to tomorrow. Use this whenever the user wants to add or study a word that search_notes / batch_search_notes shows they already have — never add a duplicate. Give note_ids or hanzi — an explicit list of the words the user named, never every word of a sentence that happens to be a card. Returns the whole pocket.",
     IDS,
     async ({ note_ids, hanzi }) => guard(async () => {
       if (!note_ids?.length && !hanzi?.length) return errorResult('Give note_ids or hanzi');

@@ -104,11 +104,18 @@ class BumpStoreTest {
         assertEquals(setOf("n1"), BumpStore.openNoteIds(dao, now, zone))
     }
 
-    @Test fun knownWordsUseTheBreakdownElseTheLongestLocalMatch() {
-        val byKey = mapOf("商店" to "商店", "商" to "商", "苹果" to "苹果", "我" to "我")
-        assertEquals(listOf("我", "商店", "苹果"), BumpStore.knownWordsIn(byKey, "我昨天去商店买了苹果。", emptyList()))
-        assertEquals(listOf("苹果"), BumpStore.knownWordsIn(byKey, "我昨天去商店买了苹果。", listOf("昨天", "苹果", "买")))
-        assertEquals(emptyList<String>(), BumpStore.knownWordsIn(emptyMap(), "你好", emptyList()))
+    @Test fun sentenceBumpsOfferTheSentenceItselfElseItsWordsLongestFirst() = runBlocking {
+        dao.upsertDecks(listOf(DeckEntity("d1", "HSK 3", null, 3, 6, 0, "2026-09-01 10:00:00")))
+        dao.upsertNotes(listOf(note("c", "吃"), note("w", "外卖"), note("k", "可爱"), note("s", "我们一起吃外卖吧"), note("x", "小")))
+        // The sentence is a card: only it.
+        val exact = BumpStore.sentenceBumps(dao, "我们一起吃外卖吧！")
+        assertEquals("s", exact.exact?.noteId)
+        assertEquals(emptyList<String>(), exact.words.map { it.noteId })
+        // Otherwise its words, longest first, single characters last (none ticked — that's the sheet's job).
+        val words = BumpStore.sentenceBumps(dao, "可爱的小狗在吃外卖。")
+        assertNull(words.exact)
+        assertEquals(listOf("k", "w", "x", "c"), words.words.map { it.noteId })
+        assertEquals(true, BumpStore.sentenceBumps(dao, "今天很冷").isEmpty)
     }
 
     @Test fun resultMessages() {

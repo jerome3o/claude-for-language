@@ -16,6 +16,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.CoachAction
 import dev.jeromeswannack.chineselearning.lab.core.CoachActions
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto
+import dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachBreakdownDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
@@ -78,7 +79,10 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                     onDeck = vm::selectDeck,
                     onRetryLoad = vm::reload,
                     cards = coachCardActions(nav.app),
-                    onBumpToday = vm::bumpToday,
+                    onBumpExact = vm::bumpExact,
+                    onOpenBumpPicker = vm::openBumpPicker,
+                    onCloseBumpPicker = vm::closeBumpPicker,
+                    onBumpPicked = vm::bumpPicked,
                 ),
             )
         } else {
@@ -242,33 +246,54 @@ class CoachChatViewModel(private val app: LabApp, private val id: String) : View
     }
 
     init {
-        // "⚡ Study it today": which words of the sentence are already cards (the chip).
+        // "⚡ Study … today" (core SentenceBumps): the sentence's own card, else its words that
+        // are cards (the picker), and which notes are already in today's pocket.
         viewModelScope.launch {
             kotlinx.coroutines.flow.combine(
                 thread.state.map { t ->
-                    val a = t.data?.messages?.firstOrNull { it.content_type == "analysis" }?.let { dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto.parse(it.content) }
-                    a?.sentence to a?.breakdown?.words?.map { it.hanzi }.orEmpty()
+                    t.data?.messages?.firstOrNull { it.content_type == "analysis" }?.let { dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto.parse(it.content) }?.sentence
                 }.distinctUntilChanged(),
                 app.repo.dataVersion,
-            ) { s, _ -> s }.collect { (sentence, words) ->
-                val known = if (sentence.isNullOrBlank()) emptyList() else app.safely("coach known words") {
-                    withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.knownWordsIn(app.repo.dao, sentence, words) }
-                }.orEmpty()
-                local.update { it.copy(knownWords = known) }
+            ) { s, _ -> s }.collect { sentence ->
+                val found = if (sentence.isNullOrBlank()) null else app.safely("coach sentence bumps") {
+                    withContext(Dispatchers.IO) { BumpStore.sentenceBumps(app.repo.dao, sentence) to BumpStore.openNoteIds(app.repo.dao) }
+                }
+                local.update {
+                    it.copy(
+                        bumpExact = found?.first?.exact,
+                        bumpWords = found?.first?.words.orEmpty(),
+                        bumpedNoteIds = found?.second.orEmpty(),
+                        bumpPicker = it.bumpPicker && !found?.first?.words.isNullOrEmpty(),
+                    )
+                }
             }
         }
     }
 
-    /** "⚡ Study today": the sentence's words that are cards come first in today's study. */
-    fun bumpToday() {
-        val words = local.value.knownWords
-        if (words.isEmpty() || local.value.bumpMessage != null) return
+    /** "⚡ Study this today": only the sentence's own card. */
+    fun bumpExact() {
+        val exact = local.value.bumpExact ?: return
+        bump(listOf(exact.noteId))
+    }
+
+    fun openBumpPicker() = local.update { it.copy(bumpPicker = it.bumpWords.isNotEmpty(), bumpMessage = null) }
+
+    fun closeBumpPicker() = local.update { it.copy(bumpPicker = false) }
+
+    /** The picker's "⚡ Add N to today": exactly the ticked notes. */
+    fun bumpPicked(noteIds: List<String>) {
+        local.update { it.copy(bumpPicker = false) }
+        bump(noteIds)
+    }
+
+    private fun bump(noteIds: List<String>) {
+        if (noteIds.isEmpty()) return
         viewModelScope.launch {
-            val msg = app.safely("coach bump") { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpHanzi(app, words, "coach").message } ?: return@launch
+            val msg = app.safely("coach bump") { BumpStore.bumpNotes(app, noteIds, "coach").message } ?: return@launch
             app.haptics.correct()
-            local.update { it.copy(bumpMessage = msg) }
+            local.update { it.copy(bumpMessage = msg, bumpedNoteIds = it.bumpedNoteIds + noteIds) }
             kotlinx.coroutines.delay(3500)
-            local.update { it.copy(bumpMessage = null) }
+            local.update { if (it.bumpMessage == msg) it.copy(bumpMessage = null) else it }
         }
     }
 
