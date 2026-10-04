@@ -367,16 +367,23 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
   `worker/src/services/tts/settings.ts`. No Google fallback for stored clips.
 - **Every MiniMax call goes through `callMiniMaxTTS`** (`services/audio.ts`), which asks the
   `TtsLimiter` Durable Object for a slot (a LEARNED rate — AIMD: starts at 8/min, +2 per clean busy
-  minute, ×0.5 on a 1002, floor 2, capped by `MINIMAX_RPM` = 9 (Starter plan) and `MINIMAX_RPM_MAX` = 60;
+  minute, ×0.5 on a 1002, floor 2, capped by `MINIMAX_RPM` = 55 (pay-as-you-go) and `MINIMAX_RPM_MAX` = 60;
   interactive before batch, a waiting tap reserves the next token;
   a 1002 / 429 is requeued 60 s later, never retried in the request). A new TTS path must use it.
+- **Account problems** (no credit 2053 / 1008 / 2056, bad key 1004 / 2049 / HTTP 401 / 403;
+  `services/tts/account.ts`): every call paused 5 → 60 min, never a clip failure; one probe per pause
+  clears it (account-failed clips retried, pump started, ntfy on start + clear). Status:
+  `audio_backfill_status.account_problem`; on demand: MCP `audio_retry_failed`. MiniMax has no balance
+  API for pay-as-you-go keys.
+- **Google fallback only for live playback nobody keeps** (`allowGoogleFallback`: chat `/tts`, role-play
+  replies). `/api/practice/tts` is MiniMax only (503 retryable) because both apps cache it on the device.
 - **Stored clips** (word, card sentence, sentence-set row) are made by `ensureClip`
   (`services/tts/clips.ts`): idempotent by a settings + text signature (`audio_settings`,
   `audio_voice`, `audio_model`, migration 0103), fresh key, swap only while the row still
   points at the old key, copies sharing the key move too, old object deleted only when
   unreferenced, `updated_at` bumped. Background clips go through **`tts-queue`**
   (`services/tts/queue.ts`); the backlog (missing → Google → old voice) drains via the pump,
-  nightly at London midnight + hourly crons. Admin: MCP `audio_backfill_status` / `audio_backfill_run`.
+  nightly at London midnight + hourly crons. Admin: MCP `audio_backfill_status` / `audio_backfill_run` / `audio_retry_failed`.
 
 ### AI Features
 Uses Anthropic Claude API for several features:
@@ -777,7 +784,7 @@ npm run dev
 ### Environment Variables / Secrets
 - `ANTHROPIC_API_KEY`: For AI card generation and Ask Claude feature
 - `MINIMAX_API_KEY`: MiniMax TTS (every stored clip; docs/AUDIO.md). `MINIMAX_RPM` (wrangler var) = hard cap on the learned rate (9 = Starter), `MINIMAX_RPM_MAX` = its ceiling (60)
-- `GOOGLE_TTS_API_KEY`: Google TTS, now only an in-the-moment fallback for ephemeral conversation audio (never stored)
+- `GOOGLE_TTS_API_KEY`: Google TTS, now only an in-the-moment fallback for live playback nobody keeps (chat `/tts`, role-play replies; never stored)
 - D1 and R2 bindings are configured in `wrangler.toml`
 
 Set secrets via:
@@ -1917,7 +1924,7 @@ id or an email. Unit-tested in `tools/admin.test.ts`.
 | `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
 | `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
 
-Audio (same file, docs/AUDIO.md): `audio_backfill_status` (read-only: backlog by kind × state, clips by provider / model / voice, limiter, measured clips/min, ETA), `audio_backfill_run` (`limit?`: start the pump, queue that many clips now), `audio_tts_compare` (old vs current model durations — perceived speed check). API: `GET /api/admin/audio/backfill`, `POST /api/admin/audio/backfill/run`, `POST /api/admin/audio/compare` (`routes/audio-backfill.ts`).
+Audio (same file, docs/AUDIO.md): `audio_backfill_status` (read-only: backlog by kind × state, clips by provider / model / voice, limiter, measured clips/min, ETA), `audio_backfill_run` (`limit?`: start the pump, queue that many clips now), `audio_retry_failed` (`error_code?`: failed clips due now — account errors by default, one code, or "all" — and probe MiniMax at once), `audio_tts_compare` (old vs current model durations — perceived speed check). API: `GET /api/admin/audio/backfill` (with `account_problem` first), `POST /api/admin/audio/backfill/run`, `POST /api/admin/audio/retry-failed`, `POST /api/admin/audio/compare` (`routes/audio-backfill.ts`).
 
 #### Debug tools (`mcp-server/src/tools/debug.ts`)
 

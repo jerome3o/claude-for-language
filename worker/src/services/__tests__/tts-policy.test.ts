@@ -129,11 +129,13 @@ describe('stored clips: MiniMax only, through the limiter', () => {
     expect(minimaxCalls()).toBe(1);
   });
 
-  it('a bad key is permanent and still never Google', async () => {
+  it('a bad key is an ACCOUNT problem (pause, not a clip failure) and still never Google', async () => {
     minimaxResponses.push(minimaxCode(1004));
     const out = await run(generateTTSDetailed(env(), '你好', 'n1'));
-    expect(out).toMatchObject({ ok: false, permanent: true });
+    expect(out).toMatchObject({ ok: false, permanent: false, rateLimited: true, account: 1004 });
+    expect(minimaxCalls()).toBe(1);
     expect(googleCalls()).toBe(0);
+    expect(limiterCalls).toEqual(['acquire:interactive', 'report:account_error']);
   });
 
   it('no MiniMax key: no clip (no Google fallback); an old client asking for Google gets MiniMax', async () => {
@@ -152,10 +154,17 @@ describe('stored clips: MiniMax only, through the limiter', () => {
 });
 
 describe('ephemeral conversation audio', () => {
-  it('may still use Google in the moment (never stored)', async () => {
+  it('without allowGoogleFallback: no Google at all (anything a device keeps waits for MiniMax)', async () => {
+    minimaxResponses.push(minimaxCode(2053));
+    const out = await run(generateConversationTTS(env(), '你好'));
+    expect(out).toBeNull();
+    expect(googleCalls()).toBe(0);
+  });
+
+  it('live playback may still use Google in the moment (never stored)', async () => {
     minimaxResponses.push(minimaxCode(1002));
     googleResponses.push(googleOk);
-    const out = await run(generateConversationTTS(env(), '你好'));
+    const out = await run(generateConversationTTS(env(), '你好', { allowGoogleFallback: true }));
     expect(out?.provider).toBe('gtts');
     expect(stored).toEqual([]);
     expect(calls.find((c) => c.url.includes('googleapis'))!.url).not.toContain('key=');

@@ -127,7 +127,7 @@ export function registerAdminTools(ctx: ToolContext): void {
 
   server.tool(
     'audio_backfill_status',
-    'ADMIN ONLY. Read-only state of the TTS audio pipeline: current settings (MiniMax model, voice, speed), the backlog of stored clips by kind (word / card sentence / sentence set) and state (current, missing, Google-made, old voice/model, waiting to retry), clips by provider / model / voice, recent failures, the MiniMax rate limiter (the LEARNED RPM — adaptive, starts at 8/min, +2 per clean busy minute, halves on a 1002 — with its cap, last_rate_limited_at and recent changes; night mode, tokens, last-hour calls by priority, rate-limited count, whether the backfill pump is running), measured throughput (clips/min), an ETA for the whole backlog, and eta_at_learned_rpm (the ETA at the batch share of the learned rate).',
+    'ADMIN ONLY. Read-only state of the TTS audio pipeline. FIRST `account_problem`: null when MiniMax answers normally, else { code (e.g. 2053 insufficient credit, 1004 / 2049 bad key), message, since, paused_until, errors_in_a_row, probing } — every MiniMax call is paused (5 → 60 min, a probe call after each pause) and no clip loses attempts; `clips_waiting_on_account_errors`; `account` (MiniMax has no balance API for pay-as-you-go keys, so balance is null). Then: current settings (MiniMax model, voice, speed), the backlog of stored clips by kind (word / card sentence / sentence set) and state (current, missing, Google-made, old voice/model, waiting to retry), clips by provider / model / voice, recent failures, the MiniMax rate limiter (the LEARNED RPM — adaptive, starts at 8/min, ×1.25 (≥ +2) per clean busy minute, halves on a 1002 — with its cap, last_rate_limited_at and recent changes; night mode, tokens, last-hour calls by priority, rate-limited count, whether the backfill pump is running), measured throughput (clips/min), an ETA for the whole backlog, and eta_at_learned_rpm (the ETA at the batch share of the learned rate).',
     {},
     async () => guard(async () => jsonResult(await api.get('/api/admin/audio/backfill')))
   );
@@ -137,6 +137,13 @@ export function registerAdminTools(ctx: ToolContext): void {
     'ADMIN ONLY. Kick the audio backfill: starts the pump (a no-op when one is running). With `limit`, also queues the next `limit` clips of the backlog (priority order, ≤ 500) right away. Everything still goes through the shared MiniMax rate limiter.',
     { limit: z.number().int().min(0).max(500).optional().describe('Also queue this many backlog clips now (default 0 = just the pump).') },
     async ({ limit }) => guard(async () => jsonResult(await api.post('/api/admin/audio/backfill/run', limit ? { limit } : {})))
+  );
+
+  server.tool(
+    'audio_retry_failed',
+    'ADMIN ONLY. Retry clips that are waiting out a failure, now: their attempts go back to 0 and the backfill picks them on its next pass. No `error_code` = clips that failed because of the MiniMax ACCOUNT (2053 insufficient credit, 1008, 1004 / 2049 bad key, HTTP 401 / 403); a code (e.g. 2053, or an HTTP status) = only those; "all" = every failure. Also ends a running account pause so the next call probes MiniMax at once, and starts the pump. Use after fixing the MiniMax account.',
+    { error_code: z.union([z.number().int(), z.string().max(12)]).optional().describe('A MiniMax base_resp code (2053), an HTTP status (401), or "all". Default: every account-level error.') },
+    async ({ error_code }) => guard(async () => jsonResult(await api.post('/api/admin/audio/retry-failed', error_code !== undefined ? { error_code } : {})))
   );
 
   server.tool(

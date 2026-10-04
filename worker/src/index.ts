@@ -4021,6 +4021,8 @@ app.post('/api/conversations/:id/ai-respond', async (c) => {
     const ttsResult = await generateConversationTTS(c.env, aiResponse, {
       voiceId: conv.voice_id || DEFAULT_MINIMAX_VOICE,
       speed: conv.voice_speed ?? DEFAULT_TTS_SPEED,
+      // Played once with the reply, never kept (docs/AUDIO.md "Google fallback").
+      allowGoogleFallback: true,
     });
 
     if (ttsResult) {
@@ -4083,6 +4085,8 @@ app.post('/api/conversations/:id/ai-initiate', async (c) => {
     const ttsResult = await generateConversationTTS(c.env, aiResponse, {
       voiceId: conv.voice_id || DEFAULT_MINIMAX_VOICE,
       speed: conv.voice_speed ?? DEFAULT_TTS_SPEED,
+      // Played once with the reply, never kept (docs/AUDIO.md "Google fallback").
+      allowGoogleFallback: true,
     });
 
     if (ttsResult) {
@@ -4139,7 +4143,9 @@ app.post('/api/conversations/:id/tts', async (c) => {
     const personaVoice = isAi ? (voice_id || conv.voice_id) : null;
     const voiceId = chatReadAloudVoice({ senderGender: parseVoiceGender(senderGender), enabled, fromAi, personaVoice });
     const speed = chatReadAloudSpeed({ fromAi, personaSpeed: voice_speed ?? conv.voice_speed });
-    const ttsResult = await cachedConversationTTS(c.env, text, { voiceId, speed });
+    // Live playback (the Lab plays it once, never caches it): Google may stand in
+    // while MiniMax can't speak (docs/AUDIO.md "Google fallback").
+    const ttsResult = await cachedConversationTTS(c.env, text, { voiceId, speed, allowGoogleFallback: true });
 
     if (!ttsResult) {
       return c.json({ error: 'Failed to generate audio' }, 500);
@@ -6101,8 +6107,11 @@ app.post('/api/practice/tts', async (c) => {
   if (voice_id !== undefined && !LESSON_VOICE_IDS.has(voice_id)) {
     return c.json({ error: 'Unknown voice' }, 400);
   }
+  // MiniMax only: both apps keep this clip on the device for good (lessons,
+  // readers, chat clips), so a Google stand-in would stick. 503 = try later;
+  // the device voice covers the moment (docs/AUDIO.md "Google fallback").
   const result = await cachedConversationTTS(c.env, text, { speed: clampedSpeed, voiceId: voice_id });
-  if (!result) return c.json({ error: 'TTS failed' }, 502);
+  if (!result) return c.json({ error: 'Audio is not available right now — try again later', retryable: true }, 503);
   return c.json({ audio_base64: result.audioBase64, content_type: result.contentType });
 });
 

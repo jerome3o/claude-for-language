@@ -15,8 +15,9 @@
  * The rate itself is LEARNED (AIMD, `AdaptiveState` below): the plan's real
  * RPM is unknown (Starter = 10/min, pay-as-you-go = 60/min, and it can change
  * without anyone telling us). Start at the persisted rate (8 on a first run),
- * +2/min after each full minute in which callers wanted more than they got and
- * MiniMax never said 1002 / 429, ×0.5 on a 1002 / 429; floor 2, capped at
+ * ×1.25 (at least +2) after each full minute in which callers wanted more than
+ * they got and MiniMax never said 1002 / 429 — 9 → 55 in 8 busy minutes —,
+ * ×0.5 on a 1002 / 429; floor 2, capped at
  * `MINIMAX_RPM_MAX` (default 60) and at `MINIMAX_RPM` when that is set.
  */
 
@@ -141,7 +142,10 @@ export function penalize(prev: BucketState, cfg: LimiterConfig, now: number): Bu
 
 export const ADAPTIVE_START_RPM = 8;
 export const ADAPTIVE_FLOOR_RPM = 2;
+/** Smallest increase after a clean busy minute… */
 export const ADAPTIVE_STEP_RPM = 2;
+/** …and the multiplicative one (whichever is bigger): 9 → 12 → 15 → 19 → 24 → 30 → 38 → 48 → 55. */
+export const ADAPTIVE_INCREASE = 1.25;
 export const ADAPTIVE_DECREASE = 0.5;
 export const DEFAULT_MINIMAX_RPM_MAX = 60;
 export const ADAPTIVE_HISTORY = 30;
@@ -213,7 +217,7 @@ export function initialAdaptive(b: AdaptiveBounds, now: number, saved?: Partial<
 }
 
 /**
- * Close the observed minute once it is over: +STEP when it saw demand and no
+ * Close the observed minute once it is over: ×1.25 (≥ +2) when it saw demand and no
  * rate limit. Only the minute that was observed counts — a quiet gap after it
  * earns nothing (no demand there).
  */
@@ -227,12 +231,17 @@ export function rollAdaptive(prev: AdaptiveState, b: AdaptiveBounds, now: number
   let rpm = state.rpm;
   let history = state.history;
   if (state.demand && !state.rateLimited && rpm < b.cap) {
-    const next = clampRpm(rpm + ADAPTIVE_STEP_RPM, b);
+    const next = clampRpm(nextIncrease(rpm), b);
     history = pushHistory(history, { at: state.windowStart + MINUTE_MS, rpm: next, from: rpm, reason: 'increase' });
     rpm = next;
   }
   const elapsed = Math.floor((now - state.windowStart) / MINUTE_MS);
   return { ...state, rpm, history, windowStart: state.windowStart + elapsed * MINUTE_MS, demand: false, rateLimited: false };
+}
+
+/** One clean busy minute's step up (before the cap). */
+export function nextIncrease(rpm: number): number {
+  return Math.max(rpm + ADAPTIVE_STEP_RPM, Math.ceil(rpm * ADAPTIVE_INCREASE));
 }
 
 /** A request was refused a slot (or granted — `refused: false` just rolls the window). */

@@ -32,11 +32,10 @@ bucket_name = "chinese-learning-audio"
 [vars]
 ENVIRONMENT = "production"
 # MiniMax rate (docs/AUDIO.md "Rate limit"): the limiter LEARNS the rate
-# (starts at 8/min, +2 per clean busy minute, halves on a 1002 / 429).
-# MINIMAX_RPM is a HARD cap on what it may learn — 9 = under the Starter plan
-# (10/min). On pay-as-you-go (60/min), delete MINIMAX_RPM and it climbs to
-# MINIMAX_RPM_MAX by itself.
-MINIMAX_RPM = "9"
+# (starts at 8/min, ×1.25 (≥ +2) per clean busy minute, halves on a 1002 / 429).
+# MINIMAX_RPM is a HARD cap on what it may learn — 55 = a little under
+# pay-as-you-go's 60/min for T2A (Oct 2026; it was 9 on the 10/min Starter plan).
+MINIMAX_RPM = "55"
 MINIMAX_RPM_MAX = "60"
 
 # Local development settings

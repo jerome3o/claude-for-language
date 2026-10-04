@@ -17,12 +17,13 @@ empty, and nothing came back for it. A bulk import came out ~95 % silent.
 | Piece | Where | What |
 |---|---|---|
 | Settings + signature | `services/tts/settings.ts` | model / voice / speed / encode → `s<hash>`; each stored clip records `<settings hash>.<text hash>` |
-| Rate limiter | `durable/tts-limiter.ts` (DO `TTS_LIMITER`, one instance) + `services/tts/bucket.ts` (pure) | token bucket at the LEARNED rate (AIMD, below; hard cap `MINIMAX_RPM` = 9, ceiling `MINIMAX_RPM_MAX` = 60), burst ≤ 5 → never more than rpm + burst in any minute |
+| Rate limiter | `durable/tts-limiter.ts` (DO `TTS_LIMITER`, one instance) + `services/tts/bucket.ts` (pure) | token bucket at the LEARNED rate (AIMD, below; hard cap `MINIMAX_RPM` = 55, ceiling `MINIMAX_RPM_MAX` = 60), burst ≤ 5 → never more than rpm + burst in any minute |
+| Account pause | `services/tts/account.ts` (pure + the failure-reset SQL), held by the same DO | no credit / bad key → every call paused 5 → 60 min, one probe per pause, auto-recovery (below) |
 | The MiniMax call | `services/audio.ts` `callMiniMaxTTS` | the ONLY function that calls MiniMax: slot first, then the call, outcome reported back |
 | Clip worker | `services/tts/clips.ts` `ensureClip` | one clip (word / card sentence / sentence-set row): idempotent, key swap, shared copies |
 | Queue | `tts-queue` (`services/tts/queue.ts`) | one clip per message + the backfill pump; `max_concurrency` 2, batch 4 |
 | Backfill | `services/tts/backfill.ts`, `cron.ts`, `schedule.ts` | the backlog in priority order; nightly + hourly crons |
-| Admin | `routes/audio-backfill.ts`, MCP `audio_backfill_status` / `audio_backfill_run` / `audio_tts_compare` | counts, limiter, throughput, ETA |
+| Admin | `routes/audio-backfill.ts`, MCP `audio_backfill_status` / `audio_backfill_run` / `audio_retry_failed` / `audio_tts_compare` | account problem, counts, limiter, throughput, ETA, retry failed clips |
 | Devices | web `services/noteAudioEnsure.ts` + StudyPage; Lab `NoteAudioFixer` | ask for a missing / broken clip; "Audio coming…" |
 
 ## Rate limit
@@ -39,13 +40,66 @@ empty, and nothing came back for it. A bulk import came out ~95 % silent.
   everyone, 60 s batch); the message is **requeued with a delay (60 s)** — never retried inside
   the request. A rate limit is not a failure.
 - No Google fallback for stored clips (Google Wavenet is "pretty terrible"). A clip that can't be
-  made now waits in the queue. Ephemeral conversation audio may still fall back to Google in the
-  moment (never stored).
+  made now waits in the queue. See "Google fallback" for the only live exceptions.
 - The DO logs `{"type":"tts_limiter", …}` once a minute with tokens and last-hour counts, and
   `event: rpm_changed` / `minimax_rate_limited` whenever the learned rate moves.
 - **A waiting tap reserves the next token**: when an interactive caller is told to wait, batch may
   not take a token until its retry time + 5 s. At 9/min the burst is ONE token, so without this a
   pump worker polling for a slot could take every token from under a waiting tap.
+
+## Account problems (no credit, bad key)
+
+Oct 2026: the Starter plan was cancelled before the pay-as-you-go top-up reached the API key, and
+every call answered `base_resp 2053 insufficient credit`. Each clip recorded that as its own
+failure, climbed the 10 min → 24 h retry ladder and 715 word clips ended up waiting until the next
+day. An account problem is not about the clip, so (`services/tts/account.ts`):
+
+- **Account codes**: `2053` insufficient credit, `1008` insufficient balance, `2056` plan quota for
+  this 5-hour window, `1004` auth failed, `2049` invalid key, HTTP `401` / `403`
+  (`MINIMAX_ACCOUNT_CODES` / `MINIMAX_ACCOUNT_HTTP`). `1004` used to be "permanent" per clip (7 days).
+- `callMiniMaxTTS` reports `account_error` to the limiter and returns `rateLimited: true` +
+  `account: <code>`: the caller waits, exactly like a rate limit — **no `tts_clip_failures` row,
+  no attempt burnt**. Queue messages requeue after the pause (≤ 5 min a hop); the pump sleeps.
+- The limiter **pauses every call** (all priorities): 5 min, then 10, 20, 40, 60, 60… Calls that
+  were already in flight when the pause began don't lengthen it. While paused `acquire` answers
+  `{ granted: false, account: <code> }` at once (an interactive tap doesn't wait 8 s) and the
+  denials don't count as demand for the AIMD.
+- After a pause the next caller is the **probe** (one at a time; others wait for it, a probe that
+  never reports frees the gate after 60 s). A clip, or MiniMax's own rate limit, **clears** the
+  problem: clips whose last failure was an account error are due again now (attempts 0,
+  `resetAccountFailures`) and the pump starts. Another account error doubles the pause. A network
+  blip / 5xx / refused text proves nothing: the next caller probes again.
+- **ntfy** (`NTFY_TOPIC`): one ping when the problem starts, one when it clears.
+- State lives in DO storage key `account` (survives deploys). `audio_backfill_status` shows it
+  first: `account_problem: { code, message, since, last_error_at, errors_in_a_row, paused_until,
+  probing }` (null = fine) and `clips_waiting_on_account_errors`.
+- **`audio_retry_failed({ error_code? })`** (`POST /api/admin/audio/retry-failed`): failed clips
+  due now with attempts 0 — account errors (default), one code (`2053`, `401`) or `"all"`; also
+  ends a running pause so the next call probes at once, and starts the pump. Use it after fixing
+  the account instead of waiting for the next probe.
+- **Balance**: MiniMax publishes **no balance / usage API for pay-as-you-go keys** (the error-code
+  page says "check your balance on the platform"; the only quota endpoint,
+  `GET /v1/token_plan/remains`, is for Token Plan subscription keys and refuses PAYG keys).
+  `audio_backfill_status.account` says so (`balance: null`, `balance_api: false`).
+
+## Google fallback
+
+Google's voice is only ever a stand-in for **live playback that nobody keeps**, while MiniMax
+can't speak (rate limit, account pause). Anything stored — by the server or on a device — waits for
+MiniMax instead. `generateConversationTTS` / `cachedConversationTTS` take `allowGoogleFallback`
+(default **off**); a Google clip is never put in R2 `tts-cache/`.
+
+| Path | Kept where | Google fallback |
+|---|---|---|
+| Stored clips (word, card sentence, sentence set: `ensureClip`, ensure-audio, generate-audio, backfill) | R2 + both apps | **never** — queued; the device shows "Audio coming…" |
+| `POST /api/practice/tts` (lesson exercises, conversation voices, readers' page audio, quests, chat Read aloud / listening clips, in-call activities) | the device keeps it **forever** (web `ttsCache`, Lab `LessonMedia` / `ChatClips`) | **never** — `503 { retryable: true }`; the device voice covers the moment and the next play / prefetch tries MiniMax again. (Before Oct 2026 a Google stand-in returned here was cached on the phone for good — why lesson / homework audio "ended up with the Google voice".) |
+| Chat listening-mode pre-generation (`services/chat/message-audio.ts`) | R2 `tts-cache/` | **never** (background) |
+| Voice samples (`/api/conversation-voices/sample`) | R2 | **never** (`generateMiniMaxTTS`) |
+| `POST /api/conversations/:id/tts` (Lab's Read-aloud fallback when nothing is cached) | played once | **yes** (`provider: 'gtts'` in the response) |
+| Claude role-play replies (`/ai-respond`, `/ai-opener`) | played once with the reply | **yes** |
+
+Old Google clips already stored on the server are the backlog's `google` tier (regenerated by the
+pump). Clips a phone cached before this change stay on that phone until its cache is cleared.
 
 ### The learned rate (AIMD)
 
@@ -55,15 +109,16 @@ change without notice). The limiter learns it (pure logic `services/tts/bucket.t
 unit-tested in `tts-limiter.test.ts`):
 - first run: **8/min**; afterwards the persisted rate (DO storage key `adaptive`, with the last 30
   changes) — a restart or deploy keeps what was learned;
-- **+2/min** after each full minute in which someone was refused a slot (there was demand — an idle
-  minute proves nothing) and MiniMax never said 1002 / 429;
+- **×1.25 (at least +2/min)** after each full minute in which someone was refused a slot (there was
+  demand — an idle minute proves nothing; neither does an account pause) and MiniMax never said
+  1002 / 429: 9 → 12 → 15 → 19 → 24 → 30 → 38 → 48 → 55, i.e. 8 busy minutes from the old Starter
+  rate to the cap (it was +2/min: 23 minutes);
 - **×0.5** on a 1002 / 1039 / 429 (plus the 15 s / 60 s block above); the minute that started with
   the 1002 earns nothing;
 - floor **2/min**; ceiling `MINIMAX_RPM_MAX` (default 60) and `MINIMAX_RPM` when it is set (a hard
   cap: what we allow ourselves whatever the learning says).
-- `wrangler.toml` ships `MINIMAX_RPM = "9"` (Starter, 10/min). **On a bigger plan, delete
-  `MINIMAX_RPM`** and the limiter climbs to the plan by itself (it then probes past a 10/min plan
-  every few minutes, so keep the cap while on Starter).
+- `wrangler.toml` ships `MINIMAX_RPM = "55"` (pay-as-you-go: 60/min for T2A, since Oct 2026; it
+  was 9 on the 10/min Starter plan). The learned rate finds the real limit below it; a 1002 halves it.
 
 ## Provenance and the key swap
 
@@ -112,13 +167,15 @@ pump at a time (a lease in the limiter DO). Crons (`wrangler.toml`, UTC):
 
 ## Operating it
 
-- Status: MCP `audio_backfill_status` (or `GET /api/admin/audio/backfill`): backlog by kind ×
+- Status: MCP `audio_backfill_status` (or `GET /api/admin/audio/backfill`): `account_problem`
+  first (null = fine), backlog by kind ×
   state, clips by provider / model / voice, failures, limiter (`learned_rpm`, `rpm_cap`,
   `last_rate_limited_at`, `rpm_history`, night, last hour), measured clips/min, the ETA and
   `eta_at_learned_rpm` (backlog ÷ the batch share of the learned rate).
 - Kick: `audio_backfill_run` (`limit` also queues that many clips at once).
+- After fixing the account: `audio_retry_failed` (failed clips due now + probe at once).
 - Plan RPM: `MINIMAX_RPM` in `worker/wrangler.toml` `[vars]` is a hard cap a little under the
-  plan's limit (9 for Starter); remove it to let the learned rate find a bigger plan.
+  plan's limit (55 for pay-as-you-go's 60/min).
 - Perceived speed after a model change: `audio_tts_compare` returns durations for the old and
   new model; if they differ, set `TTS_SPEED_OVERRIDE` (0.5–2) — the settings hash changes and the
   backfill regenerates everything at the new speed.

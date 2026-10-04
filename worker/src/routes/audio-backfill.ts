@@ -13,6 +13,32 @@ import { TTS_MODEL, ttsSettings } from '../services/tts/settings';
 import { limiterConfig } from '../services/tts/bucket';
 import { callMiniMaxTTS } from '../services/audio';
 import type { LimiterSnapshot } from '../durable/tts-limiter';
+import { accountFailureCondition, resetAccountFailures } from '../services/tts/account';
+import type { AccountProblem } from '../services/tts/account';
+
+function accountProblemView(p: AccountProblem | null | undefined, now: number) {
+  if (!p) return null;
+  return {
+    code: p.code,
+    message: p.message,
+    since: new Date(p.since).toISOString(),
+    last_error_at: new Date(p.lastAt).toISOString(),
+    errors_in_a_row: p.streak,
+    paused_until: p.pausedUntil > now ? new Date(p.pausedUntil).toISOString() : null,
+    probing: p.probeAt !== null,
+    hint: 'Every MiniMax call is paused (no clip loses attempts); a probe call retries after the pause. Fix the account (credit attached to the API key), then audio_retry_failed to probe at once.',
+  };
+}
+
+/** Failure rows that are waiting because of the account (the clips a recovery retries). */
+async function accountFailureCount(db: D1Database, now: number): Promise<number> {
+  const cond = accountFailureCondition();
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM tts_clip_failures WHERE ${cond.sql} AND next_attempt_at > ?`)
+    .bind(...cond.params, new Date(now).toISOString())
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
 
 const routes = new Hono<{ Bindings: Env }>();
 routes.use('/admin/audio/*', adminMiddleware);
@@ -30,7 +56,11 @@ async function snapshot(env: Env): Promise<LimiterSnapshot | null> {
 routes.get('/admin/audio/backfill', async (c) => {
   const now = Date.now();
   const settings = ttsSettings(c.env);
-  const [counts, limiter] = await Promise.all([backfillCounts(c.env.DB, { now, settingsHash: settings.hash }), snapshot(c.env)]);
+  const [counts, limiter, accountWaiting] = await Promise.all([
+    backfillCounts(c.env.DB, { now, settingsHash: settings.hash }),
+    snapshot(c.env),
+    accountFailureCount(c.env.DB, now).catch(() => null),
+  ]);
   // The learned (AIMD) rate, not the env cap: that is what the backlog drains at.
   const cfg = limiterConfig(limiter?.learned_rpm ?? 8, !!limiter?.night_until);
   const sum = (k: 'interactive' | 'batch' | 'ok' | 'failed' | 'rateLimited' | 'denied') =>
@@ -41,6 +71,12 @@ routes.get('/admin/audio/backfill', async (c) => {
   const learnedBatchPerMinute = Math.round(cfg.rpm * cfg.batchShare * 10) / 10;
   const etaLearned = etaMinutes(counts.backlog, learnedBatchPerMinute);
   return c.json({
+    // First, so it can't be missed: null = MiniMax answers normally.
+    account_problem: accountProblemView(limiter?.account_problem, now),
+    // MiniMax has no balance / usage API for pay-as-you-go keys (only the Token Plan's
+    // /v1/token_plan/remains, which refuses PAYG keys): check the console.
+    account: { balance: null, balance_api: false, note: 'MiniMax publishes no balance API for pay-as-you-go keys — see platform.minimax.io → Billing.' },
+    clips_waiting_on_account_errors: accountWaiting,
     settings: { model: settings.model, voice: settings.voice, speed: settings.speed, hash: settings.hash },
     backlog: counts.backlog,
     kinds: counts.kinds,
@@ -105,6 +141,46 @@ routes.post('/admin/audio/backfill/run', async (c) => {
   }
   await startPump(c.env);
   return c.json({ pump_started: true, queued });
+});
+
+/**
+ * `{ error_code? }`: clips waiting out a failure are due again now (attempts → 0)
+ * — those that failed with that code (a base_resp number or HTTP status), with
+ * any account error (no code), or every failure (`'all'`). Also ends a running
+ * account pause so the next call probes MiniMax, and starts the pump.
+ */
+routes.post('/admin/audio/retry-failed', async (c) => {
+  let code: number | string | null = null;
+  try {
+    const body = await c.req.json<{ error_code?: number | string | null }>();
+    if (typeof body?.error_code === 'number' || (typeof body?.error_code === 'string' && body.error_code.trim())) code = body.error_code;
+  } catch {
+    // No body: account errors
+  }
+  if (typeof code === 'string' && !/^(all|(http\s+)?\d{3,5})$/i.test(code.trim())) {
+    return c.json({ error: 'error_code: a MiniMax code (2053), an HTTP status, or "all"' }, 400);
+  }
+  const now = Date.now();
+  let reset: number;
+  if (typeof code === 'string' && code.trim().toLowerCase() === 'all') {
+    const res = await c.env.DB
+      .prepare("UPDATE tts_clip_failures SET attempts = 0, next_attempt_at = ?, updated_at = datetime('now')")
+      .bind(new Date(now).toISOString())
+      .run();
+    reset = res.meta?.changes ?? 0;
+  } else {
+    reset = await resetAccountFailures(c.env.DB, { code, now });
+  }
+  let probing = false;
+  if (c.env.TTS_LIMITER) {
+    try {
+      probing = await c.env.TTS_LIMITER.get(c.env.TTS_LIMITER.idFromName(LIMITER_NAME)).probeAccountNow();
+    } catch (err) {
+      console.error('[audio-backfill] probe failed', err);
+    }
+  }
+  if (c.env.MINIMAX_API_KEY) await startPump(c.env);
+  return c.json({ reset, error_code: code ?? 'account errors', account_probe_now: probing, pump_started: !!c.env.MINIMAX_API_KEY });
 });
 
 /** MP3 duration at the pinned 128 kbps CBR encode. */

@@ -26,6 +26,17 @@ import {
   type RateChange,
   type TtsPriority,
 } from '../services/tts/bucket';
+import {
+  accountGate,
+  markProbe,
+  noteAccountError,
+  noteCallOutcome,
+  resetAccountFailures,
+  type AccountProblem,
+} from '../services/tts/account';
+import { notifyTtsAccountCleared, notifyTtsAccountProblem } from '../services/notifications';
+import { startPump } from '../services/tts/queue';
+import type { TtsReport } from '../services/tts/limiter';
 
 export interface MinuteStats {
   /** Epoch minute. */
@@ -56,6 +67,8 @@ export interface LimiterSnapshot {
   pump_lease_until: number | null;
   /** Last 60 minutes, oldest first (minutes with nothing are left out). */
   minutes: MinuteStats[];
+  /** No credit / bad key: every call paused (services/tts/account.ts). Null = fine. */
+  account_problem: AccountProblem | null;
 }
 
 const LOG_EVERY_MS = 60_000;
@@ -68,6 +81,7 @@ export class TtsLimiter extends DurableObject<Env> {
   private pumpToken = '';
   private minutes: MinuteStats[] = [];
   private adaptive: AdaptiveState | null = null;
+  private account: AccountProblem | null = null;
   private loaded = false;
   private lastLog = 0;
 
@@ -81,7 +95,34 @@ export class TtsLimiter extends DurableObject<Env> {
     this.minutes = saved?.minutes ?? [];
     const learned = await storage.get<AdaptiveState>('adaptive');
     this.adaptive = initialAdaptive(this.bounds(), Date.now(), learned);
+    this.account = (await storage.get<AccountProblem>('account')) ?? null;
     this.loaded = true;
+  }
+
+  private saveAccount(): void {
+    const storage = (this.ctx as DurableObjectState).storage;
+    void (this.account ? storage.put('account', this.account) : storage.delete('account'));
+  }
+
+  /** ntfy (NTFY_TOPIC) — a method so tests can see it. */
+  protected async notify(event: 'account_problem' | 'account_cleared', info: { code: number | string; message?: string; minutes?: number; reset?: number }): Promise<void> {
+    if (!this.env.NTFY_TOPIC) return;
+    if (event === 'account_problem') await notifyTtsAccountProblem(this.env.NTFY_TOPIC, { code: info.code, message: info.message ?? '' });
+    else await notifyTtsAccountCleared(this.env.NTFY_TOPIC, { code: info.code, minutes: info.minutes ?? 0, reset: info.reset ?? 0 });
+  }
+
+  /** The account works again: clips that failed only for the account are due now, and the pump runs. */
+  private async recovered(problem: AccountProblem, now: number): Promise<void> {
+    let reset = 0;
+    try {
+      if (this.env.DB) reset = await resetAccountFailures(this.env.DB, { now });
+      if (this.env.TTS_QUEUE) await startPump(this.env);
+    } catch (err) {
+      console.error('[tts-limiter] recovery reset failed:', err instanceof Error ? err.message : err);
+    }
+    const minutes = Math.round((now - problem.since) / 60_000);
+    console.log(JSON.stringify({ type: 'tts_limiter', event: 'account_cleared', code: problem.code, minutes, reset }));
+    await this.notify('account_cleared', { code: problem.code, minutes, reset }).catch(() => {});
   }
 
   private save(): void {
@@ -154,12 +195,23 @@ export class TtsLimiter extends DurableObject<Env> {
   }
 
   /** One slot for one MiniMax call, or how long to wait. */
-  async acquire(priority: TtsPriority): Promise<{ granted: boolean; retryAfterMs: number; remaining: number }> {
+  async acquire(priority: TtsPriority): Promise<{ granted: boolean; retryAfterMs: number; remaining: number; account?: number | string }> {
     await this.load();
     const now = Date.now();
+    // An account problem pauses everyone (not demand the rate should learn from).
+    const gate = accountGate(this.account, now);
+    if (!gate.allowed) {
+      return { granted: false, retryAfterMs: Math.max(1, Math.ceil(gate.retryAfterMs)), remaining: 0, account: this.account!.code };
+    }
     const cfg = this.cfg(now);
     const result = tryAcquire(this.bucket(now), cfg, priority, now);
     this.state = result.state;
+    if (gate.probe && result.granted) {
+      // This call is the probe: the others wait for what it finds.
+      this.account = markProbe(this.account!, now);
+      this.saveAccount();
+      console.log(JSON.stringify({ type: 'tts_limiter', event: 'account_probe', code: this.account.code, priority }));
+    }
     const before = this.adaptive!;
     this.adaptive = noteRequest(before, this.bounds(), now, !result.granted);
     if (this.adaptive.demand !== before.demand) this.saveAdaptive();
@@ -170,11 +222,31 @@ export class TtsLimiter extends DurableObject<Env> {
     return { granted: result.granted, retryAfterMs: result.retryAfterMs, remaining: result.remaining };
   }
 
-  /** What the call did: ok, failed, or MiniMax said rate limit (→ everyone backs off). */
-  async report(outcome: 'ok' | 'failed' | 'rate_limited'): Promise<void> {
+  /**
+   * What the call did: ok, failed, MiniMax said rate limit (→ everyone backs
+   * off), or an account error (→ every call paused; returns for how long).
+   */
+  async report(outcome: TtsReport, detail?: { code: number | string; message: string }): Promise<{ pausedForMs?: number }> {
     await this.load();
     const now = Date.now();
     const s = this.stat(now);
+    if (outcome === 'account_error') {
+      s.failed += 1;
+      const { problem, started } = noteAccountError(this.account, detail?.code ?? 'unknown', detail?.message ?? '', now);
+      this.account = problem;
+      this.saveAccount();
+      this.save();
+      console.warn(JSON.stringify({ type: 'tts_limiter', event: started ? 'account_problem' : 'account_still_failing', code: problem.code, message: problem.message, paused_until: new Date(problem.pausedUntil).toISOString(), streak: problem.streak }));
+      if (started) await this.notify('account_problem', { code: problem.code, message: problem.message }).catch(() => {});
+      return { pausedForMs: problem.pausedUntil - now };
+    }
+    const before = this.account;
+    const after = noteCallOutcome(before, outcome);
+    if (after.problem !== before) {
+      this.account = after.problem;
+      this.saveAccount();
+      if (after.cleared && before) await this.recovered(before, now);
+    }
     if (outcome === 'rate_limited') {
       s.rateLimited += 1;
       const from = this.learned(now).rpm;
@@ -185,6 +257,19 @@ export class TtsLimiter extends DurableObject<Env> {
     } else if (outcome === 'ok') s.ok += 1;
     else s.failed += 1;
     this.save();
+    return {};
+  }
+
+  /**
+   * Admin "retry now" (audio_retry_failed): end a running account pause, so the
+   * next call is the probe. Returns whether there was one.
+   */
+  async probeAccountNow(): Promise<boolean> {
+    await this.load();
+    if (!this.account) return false;
+    this.account = { ...this.account, pausedUntil: Date.now(), probeAt: null };
+    this.saveAccount();
+    return true;
   }
 
   /** The nightly backfill: batch work may use more of the rate until `until`. */
@@ -235,6 +320,7 @@ export class TtsLimiter extends DurableObject<Env> {
       blocked_until: this.state && this.state.blockedUntil > now ? this.state.blockedUntil : null,
       pump_lease_until: this.pumpLeaseUntil > now ? this.pumpLeaseUntil : null,
       minutes: this.minutes.filter((m) => m.minute > minute - KEEP_MINUTES),
+      account_problem: this.account,
     };
   }
 }
