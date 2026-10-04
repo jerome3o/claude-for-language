@@ -274,3 +274,19 @@
     opacity: 1;
   }
 }
+
+/* A word I already have: ⚡ Study it today (primary) + Add anyway (secondary). */
+.rw-add-panel .bump-btn {
+  border-radius: 999px;
+  min-height: 48px;
+}
+
+.rw-add-secondary {
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  font-size: 0.95rem;
+  cursor: pointer;
+}

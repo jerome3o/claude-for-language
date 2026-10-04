@@ -146,6 +146,7 @@ function StudyHome() {
         <StudyStreak />
 
         <StudyTodayCard
+          bumped={countsLoading ? 0 : liveTotal.bumped ?? 0}
           counts={totalCounts}
           totalDue={totalDue}
           isLoading={showStudyLoading}

@@ -1,3 +1,7 @@
+import type { BumpSource } from '@shared/decks';
+import type { LocalNote } from '../../db/database';
+import { findExistingNotes } from '../../services/studyBumps';
+import { BumpButton } from '../bumps/BumpButton';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReaderWord, ReaderWordExplanation } from '@shared/reader/words';
@@ -28,7 +32,7 @@ async function devicePinyin(text: string): Promise<string> {
  * this word" (Haiku's explanation of the word in this sentence, cached) and
  * "+ Add as card" (deck picker; the card gets the explanation's card-standard
  * fun_facts and a sentence clue when they can be had). A word already in a
- * deck says so.
+ * deck says so and offers "⚡ Study it today" first (shared/decks/bumps.ts).
  */
 export function ReaderWordSheet({
   word,
@@ -37,6 +41,7 @@ export function ReaderWordSheet({
   onClose,
   onAdded,
   onMore,
+  bumpSource = 'reader',
 }: {
   word: ReaderWord;
   sentence: string;
@@ -45,7 +50,14 @@ export function ReaderWordSheet({
   onAdded?: () => void;
   /** "More about this word" was pressed (analytics). */
   onMore?: () => void;
+  /** Where a "⚡ Study today" bump comes from (reader / chat). */
+  bumpSource?: BumpSource;
 }) {
+  const [existing, setExisting] = useState<Array<{ note: LocalNote; deckName: string }>>([]);
+  const [bumpMsg, setBumpMsg] = useState<string | null>(null);
+  useEffect(() => {
+    findExistingNotes(word.text).then(setExisting).catch(() => setExisting([]));
+  }, [word.text]);
   const [pinyin, setPinyin] = useState(word.pinyin);
   const [explain, setExplain] = useState<ExplainState>({ kind: 'idle' });
   const [adding, setAdding] = useState(false);
@@ -209,6 +221,18 @@ export function ReaderWordSheet({
         <div className="rw-sheet-foot">
           {added ? (
             <div className="rw-success">✓ Added to {added}</div>
+          ) : !adding && existing.length > 0 ? (
+            // A word I already have: study it today instead of adding it again (shared/decks/bumps.ts).
+            <div className="rw-add-panel" data-testid="rw-already-have">
+              <div className="rw-notice">
+                You already have {word.text} in {[...new Set(existing.map((e) => e.deckName))].join(', ')}.
+              </div>
+              {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
+              <BumpButton noteIds={existing.map((e) => e.note.id)} source={bumpSource} label="⚡ Study it today" onBumped={setBumpMsg} />
+              <button type="button" className="rw-add-secondary" onClick={() => setAdding(true)}>
+                + Add anyway
+              </button>
+            </div>
           ) : !adding ? (
             <button type="button" className="rw-add" onClick={() => setAdding(true)}>
               + Add as card

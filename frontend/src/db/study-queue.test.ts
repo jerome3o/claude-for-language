@@ -146,7 +146,7 @@ describe('getStudyQueue', () => {
     await seedCollection();
     const q = await getStudyQueue('nope', 0);
     expect(q.dueCards).toEqual([]);
-    expect(q.counts).toEqual({ new: 0, secondaryNew: 0, learning: 0, review: 0, hasMoreNew: false });
+    expect(q.counts).toEqual({ new: 0, secondaryNew: 0, learning: 0, review: 0, hasMoreNew: false, bumped: 0 });
     expect(q.reviewedNoteIds.size).toBe(0);
   });
 });

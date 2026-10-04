@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { QueueCounts } from '../../types';
 import { describeDue, breakdownRows } from './studyEstimate';
+import { bumpedLabel } from '@shared/decks';
 
 interface StudyTodayCardProps {
   counts: QueueCounts;
@@ -15,6 +16,8 @@ interface StudyTodayCardProps {
   hasMoreNew: boolean;
   onStudy: () => void;
   onMoreNew: () => void;
+  /** "⚡ Study it today": bumped words in today's pocket (their cards are in the counts). */
+  bumped?: number;
 }
 
 /**
@@ -23,7 +26,7 @@ interface StudyTodayCardProps {
  * header, untouched).
  */
 export function StudyTodayCard({
-  counts, totalDue, isLoading, hasSyncedOnce, isSyncing, isOnline, hasDecks, hasMoreNew, onStudy, onMoreNew,
+  counts, totalDue, isLoading, hasSyncedOnce, isSyncing, isOnline, hasDecks, hasMoreNew, onStudy, onMoreNew, bumped = 0,
 }: StudyTodayCardProps) {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -76,6 +79,11 @@ export function StudyTodayCard({
           {showBreakdown && (
             <div className="home-breakdown" role="dialog" aria-label="Today's cards">
               <ul>
+                {bumped > 0 && (
+                  <li key="bumped">
+                    <span aria-hidden="true">⚡</span> <strong>{bumped}</strong> bumped {bumped === 1 ? 'word' : 'words'} — first in the session
+                  </li>
+                )}
                 {rows.map(row => (
                   <li key={row.key}>
                     <span className="home-breakdown-dot" style={{ background: row.color }} aria-hidden="true" />
@@ -89,6 +97,9 @@ export function StudyTodayCard({
             </div>
           )}
         </div>
+        {bumped > 0 && (
+          <div className="home-bumped" data-testid="home-bumped">{bumpedLabel(bumped)}</div>
+        )}
       </div>
     );
   }

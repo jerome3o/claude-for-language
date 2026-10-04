@@ -1,3 +1,4 @@
+import { BumpByHanzi } from '../bumps/BumpButton';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { decksInQueueOrder, defaultPickerDeckId } from '@shared/decks/queue';
@@ -255,6 +256,11 @@ export function MakeFlashcardsSheet({
                         {src && <span className="chat-card-source">From “{snippet(src)}”</span>}
                         <span className="chat-card-edit">Edit</span>
                       </button>
+                    )}
+                    {d.already_have && editing !== d.key && (
+                      <div className="chat-card-bump">
+                        <BumpByHanzi hanzi={d.hanzi} source="chat" label="⚡ Study it today" />
+                      </div>
                     )}
                   </div>
                 </div>

@@ -1,5 +1,7 @@
 import type { Folder } from '@shared/folders';
 import { replaceLocalFolders, syncFolders } from './folders';
+import { replaceLocalBumps, syncBumps, uploadPendingBumps } from './studyBumps';
+import type { ApiStudyBump } from '../api/bumps';
 import type { StudyBudgetInfo } from '@shared/decks';
 import { writeStudyBudget } from './studyBudget';
 import {
@@ -93,6 +95,8 @@ interface SyncChangesResponse {
   study_budget?: StudyBudgetInfo | null;
   /** Every folder of the account (all kinds), sent whole; older servers omit it. */
   folders?: Folder[] | null;
+  /** "⚡ Study it today": every active bump, sent whole (shared/decks/bumps.ts). */
+  bumps?: ApiStudyBump[] | null;
 }
 
 // Deletion tombstones (migration 0068) exist from 23 Sep 2026. A deck deleted
@@ -432,6 +436,8 @@ class SyncService {
 
     // Folders for the grouped Decks / Library / Readers lists (never throws).
     await syncFolders();
+    // "⚡ Study it today": pending bumps up, the pocket down (never throws).
+    await syncBumps();
 
     // Sync graded readers (content + pages) so they can be studied offline
     this.notifyProgress({ phase: 'decks', message: 'Syncing readers...' });
@@ -627,6 +633,8 @@ class SyncService {
   private async _doIncrementalSync(since: number): Promise<void> {
     this.lastSyncDetails = {};
     this.notifyProgress({ phase: 'decks', message: 'Fetching changes...' });
+    // Bumps made offline go up first, so the list that comes back already has them.
+    await uploadPendingBumps();
     const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
       headers: getAuthHeaders(),
     });
@@ -644,6 +652,8 @@ class SyncService {
     if (changes.study_budget) writeStudyBudget(changes.study_budget);
     // Folders (decks / lessons / readers): a short list, replaced whole.
     if (changes.folders) await replaceLocalFolders(changes.folders).catch(err => console.error('[Sync] Folders failed:', err));
+    // "⚡ Study it today": the server's pocket, this device's pending changes on top.
+    if (Array.isArray(changes.bumps)) await replaceLocalBumps(changes.bumps).catch(err => console.error('[Sync] Bumps failed:', err));
     const insertedCardIds: string[] = [];
     this.lastSyncDetails.decks_synced = changes.decks.length;
     this.lastSyncDetails.notes_synced = changes.notes.length;

@@ -193,6 +193,16 @@ play offline; plays upload idempotently on the next sync. Same in the Lab app.
   list (current → proposed, reason, checkboxes) and **Apply selected**; a tutor can fix her own source deck too.
 - MCP: `check_deck_for_errors`, `apply_note_fixes`; the create tools report the check's warnings.
 
+### 14. "⚡ Study it today" (bump a card I already have)
+
+Wherever the app finds that a word being added is already a card (the Coach, chat, readers, picture
+hunts, Paste a list, Make flashcards), the primary action becomes **⚡ Study it today**: the word goes
+into a per-account pocket and its cards come first in today's session — new cards even past the daily
+new-card limit, a review card not due yet as one early review. A bump finishes once each bumped card has
+been reviewed; unfinished bumps carry over. Home shows "⚡ N bumped for today", the card a ⚡ badge.
+Claude (Ask Claude, the coach chat, chat Discuss, the MCP server) can bump words too, and a tutor can bump
+a student's own cards. Rules: `shared/decks/bumps.ts`; details in docs/STUDY_SESSION.md.
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities

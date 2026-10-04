@@ -1,0 +1,82 @@
+/* "⚡ Study it today" (shared/decks/bumps.ts): the bump button, chip and study-card badge. */
+.bump-btn {
+  min-height: 44px;
+  padding: 0 1rem;
+  border-radius: 8px;
+  border: none;
+  background: #f59e0b;
+  color: #1f1300;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bump-btn:disabled {
+  cursor: default;
+}
+
+.bump-btn--on {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.bump-btn--compact {
+  min-height: 36px;
+  padding: 0 0.7rem;
+  font-size: 0.85rem;
+  border-radius: 999px;
+}
+
+.bump-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.bump-hint {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.85rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .bump-btn--on,
+  .bump-badge {
+    background: #451a03;
+    color: #fcd34d;
+    border-color: #92400e;
+  }
+  .bump-hint {
+    background: #2a1a05;
+    color: #fcd34d;
+  }
+}
+
+/* The deck page's per-word ⚡: quiet until used ("⚡ Today ✓" once bumped). */
+.bump-btn.deck-note-bump {
+  flex-shrink: 0;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 0.55rem;
+  align-self: center;
+}
+
+.bump-btn.deck-note-bump:not(.bump-btn--on) {
+  background: transparent;
+  border: 1px solid #fde68a;
+  color: #b45309;
+  font-weight: 500;
+}

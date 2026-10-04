@@ -450,7 +450,7 @@ export function PictureHuntPlayPage() {
         />
       )}
       {adding && (
-        <AddChunkModal
+        <AddChunkModal source="picture_hunt"
           chunk={{
             hanzi: adding.hanzi,
             pinyin: adding.pinyin,

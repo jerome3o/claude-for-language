@@ -88,6 +88,7 @@ const EVENTS = `(SELECT id FROM review_events WHERE user_id = ?1 OR card_id IN $
 export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   // Other accounts' rows that point at the user: keep the row, drop the link.
   { label: 'assigned_lessons_unlinked', sql: `UPDATE custom_lessons SET assigned_by = NULL, assigned_relationship_id = NULL, library_item_id = NULL WHERE user_id != ?1 AND (assigned_by = ?1 OR library_item_id IN ${LIBRARY} OR assigned_relationship_id IN ${REL})` },
+  { label: 'study_bumps_unlinked', sql: `UPDATE study_bumps SET bumped_by = NULL WHERE bumped_by = ?1 AND user_id != ?1` },
   { label: 'note_recordings_unlinked', sql: `UPDATE note_audio_recordings SET created_by = NULL WHERE created_by = ?1 AND note_id NOT IN ${NOTES}` },
 
   // Lesson materials (migration 0090): the user's own, and shares / notes in their relationships and calls.
@@ -161,6 +162,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
 
   // Everything else the user owns.
   { label: 'folders', sql: `DELETE FROM folders WHERE user_id = ?1` },
+  { label: 'study_bumps', sql: `DELETE FROM study_bumps WHERE user_id = ?1 OR note_id IN ${NOTES}` },
   { label: 'lesson_note_files', sql: `DELETE FROM lesson_note_files WHERE lesson_note_id IN (SELECT id FROM lesson_notes WHERE user_id = ?1)` },
   { label: 'lesson_notes', sql: `DELETE FROM lesson_notes WHERE user_id = ?1` },
   { label: 'quests', sql: `DELETE FROM quests WHERE user_id = ?1` },

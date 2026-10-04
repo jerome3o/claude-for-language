@@ -25,6 +25,8 @@ import {
 } from '../api/client';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
+import { BumpBadge } from '../components/bumps/BumpButton';
+import { useBumps } from '../services/studyBumps';
 import { SentenceChunk } from '../types';
 import './RoleplayPage.css';
 import { Loading } from '../components/Loading';
@@ -357,6 +359,7 @@ export function StudyCard({
   scope,
   pinnedTutorNotes,
   banner,
+  bumped,
 }: {
   card: CardWithNote;
   cardIsSecondaryNew: boolean;
@@ -378,6 +381,8 @@ export function StudyCard({
   pinnedTutorNotes?: LocalRecordingNote[];
   /** A quiet line under the top bar (the practice view says whether the rating counts). */
   banner?: ReactNode;
+  /** From the "⚡ Study it today" pocket (shared/decks/bumps.ts): a small ⚡ badge. */
+  bumped?: { fromName: string | null } | null;
 }) {
   const { isOnline } = useNetwork();
 
@@ -2557,6 +2562,11 @@ export function StudyCard({
           </div>
         </div>
         {banner}
+        {bumped && (
+          <div className="study-bump-row" data-testid="study-bump-badge">
+            <BumpBadge fromName={bumped.fromName} />
+          </div>
+        )}
 
         {/* Data error banner */}
         {dataError && (
@@ -2758,7 +2768,7 @@ export function StudyCard({
 
       {/* Add word to deck modal */}
       {addingChunk && (
-        <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />
+        <AddChunkModal source="breakdown" chunk={addingChunk} onClose={() => setAddingChunk(null)} />
       )}
 
       {/* Ask Claude Modal */}
@@ -2904,6 +2914,7 @@ export function StudyPage() {
     currentGrammar,
     currentCustomLesson,
     currentCardIsSecondaryNew,
+    bumpedCardIds,
     cardVersion,
     counts,
     dailyReaderPending,
@@ -2929,6 +2940,8 @@ export function StudyPage() {
     bonusNewCards,
     enabled: studyStarted,
   });
+  // Bumped notes (for the ⚡ badge's "from <tutor>").
+  const bumps = useBumps();
 
   // Active study time: counted while this screen is in front and used (docs/STUDY_SESSION.md "Time").
   useActiveStudyTime(studyStarted);
@@ -3141,6 +3154,7 @@ export function StudyPage() {
           key={`${currentCard.id}-${cardVersion}`}
           card={currentCard}
           cardIsSecondaryNew={currentCardIsSecondaryNew}
+          bumped={bumpedCardIds.has(currentCard.id) ? { fromName: bumps.get(currentCard.note.id)?.bumped_by_name ?? null } : null}
           intervalPreviews={intervalPreviews}
           counts={counts}
           tutors={tutors}

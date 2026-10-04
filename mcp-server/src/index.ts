@@ -33,6 +33,7 @@ import { registerAdminTools } from './tools/admin.js';
 import { registerDebugTools } from './tools/debug.js';
 import { registerUsageTools } from './tools/usage.js';
 import { registerPictureHuntTools } from './tools/picture-hunts.js';
+import { registerBumpTools } from './tools/bumps.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerTutorApps } from './tools/apps.js';
 
@@ -739,7 +740,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
 
     this.server.tool(
       "search_notes",
-      "Search notes by hanzi, pinyin, or english across all decks (or one deck). Use this before adding a note to check whether the word is already covered anywhere, instead of fetching entire decks.",
+      "Search notes by hanzi, pinyin, or english across all decks (or one deck). Use this before adding a note to check whether the word is already covered anywhere, instead of fetching entire decks. If the user already has the word and wanted to add / study it, do NOT add a duplicate: bump_cards puts it first in today's study (“⚡ Study it today”).",
       {
         query: z.string().describe("Text to search for (matched against hanzi, pinyin, and english with substring matching)"),
         deck_id: z.string().optional().describe("Restrict the search to a single deck ID. If omitted, searches across all of the user's decks."),
@@ -781,7 +782,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
 
     this.server.tool(
       "batch_search_notes",
-      "Check many candidate words against existing notes in a single call. Use this instead of calling search_notes once per word when deduplicating a whole homework list before adding notes — one round trip per candidate adds up fast on a 30-50 word list. Matches hanzi, pinyin, and english with substring matching, across all decks (or one deck).",
+      "Check many candidate words against existing notes in a single call. Use this instead of calling search_notes once per word when deduplicating a whole homework list before adding notes — one round trip per candidate adds up fast on a 30-50 word list. Matches hanzi, pinyin, and english with substring matching, across all decks (or one deck). Words the user already has can go to bump_cards (first in today's study) instead of becoming duplicates.",
       {
         queries: z.array(z.string()).min(1).max(100).describe("Words/phrases to check, one per candidate vocabulary item"),
         deck_id: z.string().optional().describe("Restrict the search to a single deck ID. If omitted, searches across all of the user's decks."),
@@ -1948,6 +1949,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     // Usage analytics: who used which feature, timelines, errors, AI cost (admin only; docs/ANALYTICS.md).
     registerUsageTools(ctx);
     registerPictureHuntTools(ctx);
+    registerBumpTools(ctx);
     registerMaterialTools(ctx);
   }
 }

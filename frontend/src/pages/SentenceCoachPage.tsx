@@ -33,6 +33,9 @@ import {
 } from '@shared/coach';
 import { SentenceWordBreakdown } from '../components/SentenceWordBreakdown';
 import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
+import { bumpNotes, findNotesInText, syncBumps, useBumps } from '../services/studyBumps';
+import type { LocalNote } from '../db/database';
+import '../components/bumps/bumps.css';
 import { cacheTextExplanation, getCachedTextExplanation } from '../services/sentence-sets';
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
 import { coachReturnPath, setCoachReturn } from '../services/studyResume';
@@ -62,13 +65,13 @@ const QUICK_ACTIONS: QuickAction[] = [
     key: 'card-word',
     label: '🃏 Make a card',
     message: ({ hanzi, deck }) =>
-      `Make a flashcard for the key word or phrase in "${hanzi}" — the one most worth learning from this sentence.${deckClause(deck)} Check search_cards first so you don't duplicate a card I already have (if I have it, tell me and offer to improve it instead). Follow the card standard fully: one clean hanzi form, pinyin with tone marks, one clear English meaning, a fun_facts explanation (each character, then usage, the common mistake or contrast), and a short natural example sentence with pinyin and translation as the sentence_clue.`,
+      `Make a flashcard for the key word or phrase in "${hanzi}" — the one most worth learning from this sentence.${deckClause(deck)} Check search_cards first so you don't duplicate a card I already have (if I have it, don't make a duplicate: bump it with bump_cards so it comes first in today's study, tell me, and offer to improve it). Follow the card standard fully: one clean hanzi form, pinyin with tone marks, one clear English meaning, a fun_facts explanation (each character, then usage, the common mistake or contrast), and a short natural example sentence with pinyin and translation as the sentence_clue.`,
   },
   {
     key: 'card-sentence',
     label: '📝 Card for the whole sentence',
     message: ({ hanzi, deck }) =>
-      `Make a flashcard for the whole sentence "${hanzi}".${deckClause(deck)} Follow the card standard: hanzi is the clean sentence, pinyin with tone marks, one natural English meaning, and fun_facts that gloss every word in order (汉字 (pīnyīn) meaning) then explain the structure and the common mistake. Check search_cards first so it is not a duplicate.`,
+      `Make a flashcard for the whole sentence "${hanzi}".${deckClause(deck)} Follow the card standard: hanzi is the clean sentence, pinyin with tone marks, one natural English meaning, and fun_facts that gloss every word in order (汉字 (pīnyīn) meaning) then explain the structure and the common mistake. Check search_cards first so it is not a duplicate (if I already have it, bump it with bump_cards instead).`,
   },
   {
     key: 'examples',
@@ -114,9 +117,34 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
   disabled: boolean;
 }) {
   const deck = decks?.find((d) => d.id === selectedDeckId) ?? decks?.[0] ?? null;
+  // "⚡ Study today": the sentence's words the learner already has as cards go first in
+  // today's study instead of being made again (shared/decks/bumps.ts).
+  const [known, setKnown] = useState<LocalNote[]>([]);
+  const [bumpMsg, setBumpMsg] = useState<string | null>(null);
+  const bumps = useBumps();
+  useEffect(() => {
+    setBumpMsg(null);
+    findNotesInText(hanzi).then(setKnown).catch(() => setKnown([]));
+  }, [hanzi]);
+  const allBumped = known.length > 0 && known.every((n) => bumps.has(n.id));
   return (
     <div className="coach-quick" data-testid="coach-quick-actions">
       <div className="coach-quick-row" role="group" aria-label="Quick actions">
+        {known.length > 0 && (
+          <button
+            type="button"
+            className={`coach-quick-chip coach-quick-chip--bump${allBumped ? ' on' : ''}`}
+            disabled={allBumped}
+            onClick={async () => {
+              const out = await bumpNotes(known.map((n) => n.id), 'coach');
+              setBumpMsg(out.message);
+            }}
+            data-testid="coach-quick-bump"
+            title={`You already have ${known.map((n) => n.hanzi).join(', ')}`}
+          >
+            {allBumped ? '⚡ In today’s study' : `⚡ Study today${known.length > 1 ? ` (${known.length})` : ''}`}
+          </button>
+        )}
         {QUICK_ACTIONS.map((a) => (
           <button
             key={a.key}
@@ -130,6 +158,7 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
           </button>
         ))}
       </div>
+      {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
       {decks && decks.length > 0 && (
         <label className="coach-quick-deck">
           <span>Cards go to</span>
@@ -564,6 +593,10 @@ export function SentenceCoachPage() {
       queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
       // A lesson created in this turn should be cached (with media) right
       // away, so it joins the very next study session — even offline.
+      // Claude bumped words I already have ("⚡ Study it today"): pull the pocket now.
+      if (res.toolResults?.some(r => r.tool === 'bump_cards' && r.success)) {
+        syncBumps().catch(console.error);
+      }
       if (res.toolResults?.some(r => r.tool === 'create_custom_lesson' && r.success)) {
         syncCustomLessons()
           .then(() => prefetchCustomLessonMedia())
@@ -751,7 +784,7 @@ export function SentenceCoachPage() {
               </button>
             </form>
           )}
-          {adding && <AddChunkModal chunk={adding} onClose={() => setAdding(null)} />}
+          {adding && <AddChunkModal source="coach" chunk={adding} onClose={() => setAdding(null)} />}
         </div>
       </div>
     );
@@ -845,7 +878,7 @@ export function SentenceCoachPage() {
             />
           </div>
         )}
-        {adding && <AddChunkModal chunk={adding} onClose={() => setAdding(null)} />}
+        {adding && <AddChunkModal source="coach" chunk={adding} onClose={() => setAdding(null)} />}
 
         {conversations.length > 0 && (
           <div className="card mt-4">

@@ -75,7 +75,7 @@ export function SayBetterSheet({
     return () => window.removeEventListener('keydown', onKey);
   }, [adding, onClose]);
 
-  if (adding) return <AddChunkModal chunk={adding} onClose={() => setAdding(null)} />;
+  if (adding) return <AddChunkModal source="chat" chunk={adding} onClose={() => setAdding(null)} />;
   if (!view) return null;
 
   return (

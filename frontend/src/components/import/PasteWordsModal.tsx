@@ -18,6 +18,7 @@
  *      sentence sets are generated as usual), with progress and per-row errors.
  *   4. For a tutor whose deck is shared, "Update their copy" per student.
  */
+import { BumpButton } from '../bumps/BumpButton';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { polyphonic } from 'pinyin-pro';
 import { autoPinyin as toPinyin } from '../../utils/autoPinyin';
@@ -410,7 +411,13 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
             </span>
           )}
         </button>
-        <span className="pw-row-side">{chip}</span>
+        <span className="pw-row-side">
+          {chip}
+          {/* A word already in the deck: study it today instead (shared/decks/bumps.ts). */}
+          {p.existing && (p.action === 'skip' || p.action === 'unchanged') && (
+            <BumpButton noteIds={[p.existing.id]} source="paste_list" compact label="⚡ today" />
+          )}
+        </span>
         {openIssues(key, row).map(issue => (
           <div key={issueId(key, issue)} className="pw-check">
             <CheckIssueBlock

@@ -76,6 +76,9 @@ export const ANALYTICS_EVENTS = {
   'study.sentence_reveal': e('study', 'Tapped an example sentence row open.', ['step']),
   'study.sentence_explain': e('study', '"What\'s going on here?" on an example sentence.', []),
   'study.tutor_note_practice': e('study', 'Practised cards from a tutor note.', ['count']),
+  'study.bump_added': e('study', '"⚡ Study it today": bumped cards the learner already had to the front of today\'s queue.', ['source', 'count', 'already']),
+  'study.bump_studied': e('study', 'Rated a card from the ⚡ bump pocket.', ['card_type', 'queue']),
+  'study.bump_cleared': e('study', 'Took a word out of the ⚡ bump pocket by hand.', ['source']),
 
   // ── homework (student side) ────────────────────────────────────────────
   'homework.pass_start': e('homework', 'Opened a homework pass.', ['kind', 'items']),

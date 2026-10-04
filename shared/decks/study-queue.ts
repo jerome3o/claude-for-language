@@ -19,6 +19,9 @@
  * deck out of daily review (caps 0 + 0) holds only its opted-in words, at the
  * new-deck default caps.
  *
+ * Bumped notes ("⚡ Study it today", bumps.ts) come FIRST: their pocket cards head
+ * the queue, NEW ones outside the budget (they never take from or wait for it).
+ *
  * "Introduced today" is derived from review events (a card counts on the day of
  * its first-ever review; secondary when a sibling card of the same note had
  * been reviewed before it) — never from a counter that can drift.
@@ -27,6 +30,7 @@
 import { allocateNewCards, type DeckAllocation, type DeckNewPool, type StudyBudget } from './budget';
 import { markSeen, pickByNovelty, seenFrom } from './novelty';
 import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } from './long-term';
+import { bumpPocket, type QueueBumps } from './bumps';
 
 /** CardQueue values (shared/scheduler): NEW 0, LEARNING 1, REVIEW 2, RELEARNING 3. */
 export const QUEUE_NEW = 0;
@@ -87,7 +91,7 @@ export interface QueueNoteText {
 }
 
 export interface StudyQueueResult<C extends QueueCardInput> {
-  /** New cards (deck queue order, best tier first) then learning / review cards (input order). */
+  /** Bumped cards, then new cards (deck queue order, best tier first), then learning / review cards (input order). */
   due: C[];
   /** Notes with any card past NEW. */
   reviewedNoteIds: Set<string>;
@@ -97,6 +101,10 @@ export interface StudyQueueResult<C extends QueueCardInput> {
   pools: DeckNewPool[];
   /** What the budget gave each deck in scope. */
   allocation: Map<string, DeckAllocation>;
+  /** The bump pocket's cards ("⚡ Study it today", bumps.ts) — also the head of `due`. */
+  bumped: C[];
+  /** Bumped notes with cards in the pocket (in scope). */
+  bumpedNoteIds: string[];
 }
 
 export function isLearningQueue(q: number): boolean {
@@ -167,16 +175,20 @@ export function selectStudyQueue<C extends QueueCardInput>(
   deckId?: string | null,
   noteText?: QueueNoteText | null,
   /** note id → the learner's long-term choice (only notes that have one). */
-  longTerm?: ReadonlyMap<string, LongTermPref> | null
+  longTerm?: ReadonlyMap<string, LongTermPref> | null,
+  /** The active bumps ("⚡ Study it today") with their cards' review times. */
+  bumps?: QueueBumps | null
 ): StudyQueueResult<C> {
   const reviewed = collectReviewedNoteIds(cards);
   const inScope = deckId ? decks.filter(d => d.id === deckId) : decks;
   const scopeIds = new Set(inScope.map(d => d.id));
   const inReview = new Map(inScope.map(d => [d.id, deckInDailyReview(d.cap_primary, d.cap_secondary)]));
+  const pocket = bumpPocket(cards.filter(c => scopeIds.has(c.deck_id)), bumps, cutoffMs);
+  const pocketIds = new Set(pocket.cards.map(c => c.id));
 
   const newByDeck = new Map<string, C[]>();
   for (const c of cards) {
-    if (c.queue !== QUEUE_NEW || !scopeIds.has(c.deck_id)) continue;
+    if (c.queue !== QUEUE_NEW || !scopeIds.has(c.deck_id) || pocketIds.has(c.id)) continue;
     if (!admitsNewCards(longTerm?.get(c.note_id) ?? null, inReview.get(c.deck_id)!, reviewed.has(c.note_id))) continue;
     const list = newByDeck.get(c.deck_id);
     if (list) list.push(c);
@@ -209,7 +221,7 @@ export function selectStudyQueue<C extends QueueCardInput>(
   }
   const allocation = allocateNewCards(pools, budget, bonus, spent);
 
-  const due: C[] = [];
+  const due: C[] = [...pocket.cards];
   // Seen characters / words, built once; every primary pick below adds to it.
   const hanziOf = (c: C) => noteText?.hanzi.get(c.note_id) ?? '';
   const seen = noteText
@@ -235,14 +247,14 @@ export function selectStudyQueue<C extends QueueCardInput>(
     due.push(...list.filter(c => reviewed.has(c.note_id)).slice(0, a.secondary));
   }
   for (const c of cards) {
-    if (scopeIds.has(c.deck_id) && isDueByCutoff(c, cutoffMs)) due.push(c);
+    if (scopeIds.has(c.deck_id) && isDueByCutoff(c, cutoffMs) && !pocketIds.has(c.id)) due.push(c);
   }
 
   const hasMoreNew = pools.some(p => {
     const a = allocation.get(p.deckId) ?? { primary: 0, secondary: 0 };
     return p.totalNew + p.totalSecondaryNew > a.primary + a.secondary;
   });
-  return { due, reviewedNoteIds: reviewed, hasMoreNew, pools, allocation };
+  return { due, reviewedNoteIds: reviewed, hasMoreNew, pools, allocation, bumped: pocket.cards, bumpedNoteIds: pocket.activeNoteIds };
 }
 
 /** The four numbers a screen shows for a queue. */

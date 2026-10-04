@@ -4,6 +4,7 @@ import { LESSON_SPEC_INPUT_SCHEMA } from './custom-lesson';
 import { validateLessonSpec } from '@shared/lesson';
 import { CARD_STANDARD, CARD_STANDARD_SHORT } from '@shared/cards';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
+import { addBumps, MAX_BUMPS_PER_REQUEST } from './study-bumps';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -173,7 +174,8 @@ You have tools to help the user. Read-only tools (search_cards, list_conversatio
 
 Tool usage guidelines:
 - The user points out an error in the card (wrong tone, incorrect translation, etc.) → use edit_current_card
-- The user asks for related vocabulary to be added → use create_flashcards (can target any of the user's decks by specifying deck_id)
+- The user asks for related vocabulary to be added → search_cards first, then create_flashcards for the words they don't have (can target any of the user's decks by specifying deck_id)
+- A word they want is already one of their cards, or they want to study a word they have today → use bump_cards (it comes first in today's study; never create a duplicate) and say so
 - The user says the card is a duplicate or should be removed → use delete_current_card
 - The user asks for a lesson, drill, or practice around a word/pattern/topic → use create_custom_lesson (it appears in their next study session and works offline)
 - Use search_cards to find related vocabulary, check for duplicates, or answer questions about what cards exist
@@ -325,6 +327,53 @@ export const FLASHCARD_ITEM_SCHEMA = {
   required: ['hanzi', 'pinyin', 'english', 'fun_facts'],
 } as const;
 
+/**
+ * "⚡ Study it today" for the in-app agents (Ask Claude, the Sentence Coach chat,
+ * chat "Discuss with Claude"): bump words the learner ALREADY has to the front of
+ * today's study (services/study-bumps.ts, shared/decks/bumps.ts). Runs inline
+ * (idempotent, cheap); the result lists what was bumped / already bumped / not found.
+ */
+export const BUMP_CARDS_TOOL = {
+  name: 'bump_cards',
+  description:
+    "Bump words the learner ALREADY HAS as cards to the front of today's study queue (\"⚡ Study it today\"): their cards come first in today's session, new cards even past the daily limit. Use this INSTEAD of create_flashcards whenever search_cards shows the word already exists, or when the learner asks to study / review / practise an existing word today. Give note_ids (from search_cards) or hanzi (looked up in the learner's notes).",
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      note_ids: { type: 'array', items: { type: 'string' }, description: 'Note ids from search_cards.' },
+      hanzi: { type: 'array', items: { type: 'string' }, description: "Words to look up among the learner's notes (exact hanzi)." },
+    },
+  },
+};
+
+/** The line every card-making agent prompt carries about bumping. */
+export const BUMP_PROMPT_RULE =
+  "If the learner already has a word as a card (search_cards finds it), never make a duplicate: use bump_cards to put it first in today's study (or offer to, if they only asked a question), and say so — e.g. \"You already have 银行 in HSK 2 — I've bumped it to the front of today's study ⚡\".";
+
+export async function executeBumpCardsTool(
+  input: Record<string, unknown>,
+  ctx: { db: D1Database; userId: string },
+  source: string
+): Promise<Record<string, unknown>> {
+  const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()) : typeof v === 'string' && v.trim() ? [v] : []);
+  const noteIds = strings(input.note_ids).slice(0, MAX_BUMPS_PER_REQUEST);
+  const hanzi = strings(input.hanzi).slice(0, MAX_BUMPS_PER_REQUEST);
+  if (noteIds.length + hanzi.length === 0) return { error: 'Give note_ids or hanzi' };
+  try {
+    const r = await addBumps(ctx.db, ctx.userId, { noteIds, hanzi, source });
+    return {
+      bumped: r.added.map((a) => a.hanzi),
+      already_bumped: r.already.map((a) => a.hanzi),
+      not_found: r.not_found,
+      pocket: r.bumps.map((b) => ({ note_id: b.note_id, hanzi: b.hanzi, deck: b.deck_name })),
+      message: r.added.length || r.already.length ? "They come first in today's study." : 'None of those words are in the learner\'s decks — create_flashcards instead.',
+    };
+  } catch (error) {
+    console.error('bump_cards failed:', error);
+    return { error: 'Failed to bump the cards' };
+  }
+}
+
 // ============ Ask About Note with Tool Use (Agent Loop) ============
 
 // Read-only tools that are executed during the agent loop
@@ -332,6 +381,8 @@ const READ_ONLY_TOOLS = new Set([
   'search_cards', 'list_conversations', 'get_deck_info',
   'get_note_cards', 'get_note_history', 'get_deck_progress',
   'get_due_cards', 'get_overall_stats',
+  // Not read-only, but run inline the same way (idempotent; services/study-bumps.ts).
+  'bump_cards',
 ]);
 
 function getAskNoteTools(note: Note) {
@@ -397,6 +448,7 @@ function getAskNoteTools(note: Note) {
         required: ['query'],
       },
     },
+    BUMP_CARDS_TOOL,
     {
       name: 'list_conversations',
       description: 'List previous Ask Claude conversations for the current note or all notes. Returns question previews with timestamps.',
@@ -467,7 +519,7 @@ function getAskNoteTools(note: Note) {
   ];
 }
 
-export type ToolName = 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'create_custom_lesson' | 'search_cards' | 'list_conversations' | 'get_deck_info' | 'get_note_cards' | 'get_note_history' | 'get_deck_progress' | 'get_due_cards' | 'get_overall_stats';
+export type ToolName = 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'create_custom_lesson' | 'search_cards' | 'list_conversations' | 'get_deck_info' | 'get_note_cards' | 'get_note_history' | 'get_deck_progress' | 'get_due_cards' | 'get_overall_stats' | 'bump_cards';
 
 export interface ToolAction {
   tool: ToolName;
@@ -527,6 +579,8 @@ export interface AskDbContext {
   db: D1Database;
   userId: string;
   deckId: string;
+  /** Where a bump_cards call comes from (analytics / the bump's source). */
+  bumpSource?: string;
 }
 
 /**
@@ -780,6 +834,9 @@ async function executeReadOnlyTool(
 ): Promise<Record<string, unknown>> {
   try {
     switch (toolName) {
+      case 'bump_cards':
+        return executeBumpCardsTool(input, ctx, ctx.bumpSource ?? 'ask_claude');
+
       case 'search_cards': {
         const query = (input.query as string || '').toLowerCase();
         // Search across user's notes
@@ -992,9 +1049,11 @@ Guidelines:
 - Ground answers in the analyzed sentence when relevant, but happily go deeper: grammar, alternatives, register, related vocabulary, example sentences, mnemonics.
 
 You have tools. Read-only tools run automatically; use them freely.
-- The user asks to save words/sentences to a deck ("make a card", "add this") → FIRST search_cards for the word so you never duplicate a card they already have (if they have it, say so and offer to improve it instead); THEN use create_flashcards with a deck_id chosen from the user's decks listed in the context (the user's message often names the deck; otherwise ask ONLY if genuinely ambiguous — else pick the most relevant and say which you chose). One card per word or set phrase; make a card for the whole sentence only when asked. Every card is complete: fun_facts written to the standard below and, for a word card, a sentence_clue with pinyin and translation — never a bare hanzi/pinyin/english card, and never the coach's critique as fun_facts.
+- The user asks to save words/sentences to a deck ("make a card", "add this") → FIRST search_cards for the word so you never duplicate a card they already have (if they have it, do NOT duplicate it: use bump_cards so it comes first in today's study, say so, and offer to improve the card); THEN, for the words they don't have, use create_flashcards with a deck_id chosen from the user's decks listed in the context (the user's message often names the deck; otherwise ask ONLY if genuinely ambiguous — else pick the most relevant and say which you chose). One card per word or set phrase; make a card for the whole sentence only when asked. Every card is complete: fun_facts written to the standard below and, for a word card, a sentence_clue with pinyin and translation — never a bare hanzi/pinyin/english card, and never the coach's critique as fun_facts.
 - The user is confused about a pattern or asks for practice/a lesson/a drill (e.g. "I don't get 被 vs 把") → use create_custom_lesson to build a targeted mini lesson; it appears in their next study session and works offline. Answer their question in chat too — the lesson reinforces, it doesn't replace the explanation.
 - Use search_cards to check what the user already knows or avoid duplicate cards.
+- The user wants to study / review a word or sentence they already have today → bump_cards.
+- ${BUMP_PROMPT_RULE}
 - Use get_note_cards / get_note_history for details on specific existing cards.
 - Use get_overall_stats for study-progress questions.
 After using a tool, briefly confirm what you did. When creating cards, pinyin uses tone marks, NOT tone numbers.
@@ -1004,6 +1063,7 @@ ${CARD_STANDARD}`;
 
 function getCoachChatTools() {
   return [
+    BUMP_CARDS_TOOL,
     {
       name: 'create_flashcards',
       description: "Create new flashcards in one of the user's decks. The user's decks (with ids) are listed in the conversation context.",
@@ -1090,7 +1150,7 @@ export async function coachChatWithTools(
 ): Promise<AskWithToolsResponse> {
   const client = new Anthropic({ apiKey });
   const tools = getCoachChatTools();
-  const ctx: AskDbContext = { db: dbContext.db, userId: dbContext.userId, deckId: '' };
+  const ctx: AskDbContext = { db: dbContext.db, userId: dbContext.userId, deckId: '', bumpSource: 'coach_chat' };
 
   const messages: Anthropic.MessageParam[] = history.map(t => ({
     role: t.role,
@@ -1441,12 +1501,13 @@ Help the user understand the message. You can:
 - Create flashcards when the user asks or when it would be helpful
 - Search the user's existing flashcards to find related vocabulary or check for duplicates
 
-You have tools available. Read-only tools (search_cards, list_student_decks) execute automatically. The create_flashcards tool suggests cards for user approval.
+You have tools available. Read-only tools (search_cards, list_student_decks) and bump_cards execute automatically. The create_flashcards tool suggests cards for user approval.
 
 Use examples with both Chinese characters and pinyin (with tone marks) when relevant.
 Keep your responses concise and focused on language learning.
 
-When you identify vocabulary or phrases worth learning, proactively suggest creating flashcards. Before creating flashcards, consider using search_cards to check if similar cards already exist. Use the create_flashcards tool to create them.
+When you identify vocabulary or phrases worth learning, proactively suggest creating flashcards. Before creating flashcards, use search_cards to check if they already exist. Use the create_flashcards tool to create the new ones.
+${BUMP_PROMPT_RULE}
 
 Whenever you write or edit a flashcard (any tool or JSON with hanzi / pinyin / english / fun_facts), follow this:
 ${CARD_STANDARD}`;
@@ -1485,7 +1546,7 @@ export interface DiscussDbContext {
   userId: string;
 }
 
-const DISCUSS_READ_ONLY_TOOLS = new Set(['search_cards', 'list_student_decks']);
+const DISCUSS_READ_ONLY_TOOLS = new Set(['search_cards', 'list_student_decks', 'bump_cards']);
 
 const DISCUSS_SEARCH_CARDS_TOOL = {
   name: 'search_cards',
@@ -1521,7 +1582,7 @@ export async function discussMessage(
 ): Promise<DiscussMessageResponse> {
   const client = new Anthropic({ apiKey });
 
-  const tools = [CREATE_FLASHCARDS_TOOL, DISCUSS_SEARCH_CARDS_TOOL, DISCUSS_LIST_DECKS_TOOL];
+  const tools = [CREATE_FLASHCARDS_TOOL, DISCUSS_SEARCH_CARDS_TOOL, DISCUSS_LIST_DECKS_TOOL, BUMP_CARDS_TOOL];
 
   const contextPreamble = `The user is looking at this message from a conversation:\n\n"${messageContent}"\n\nConversation context:\n${chatContext}\n\n`;
 
@@ -1633,6 +1694,9 @@ async function executeDiscussReadOnlyTool(
 ): Promise<Record<string, unknown>> {
   try {
     switch (toolName) {
+      case 'bump_cards':
+        return executeBumpCardsTool(input, ctx, 'chat_discuss');
+
       case 'search_cards': {
         const query = (input.query as string || '').toLowerCase();
         const results = await ctx.db.prepare(`
