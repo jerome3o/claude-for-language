@@ -46,6 +46,7 @@ import { reportClientStateIfDue } from './clientState';
 import { flushAnalytics } from './analytics';
 import { reportStudyTimeIfDue } from './studyTime';
 import { topUpLessonImagesIfDue } from './lessonImages';
+import { prefetchQueueCharsIfDue } from './charDict';
 import { syncBoardPagesIfDue } from './boardPages';
 
 const API_PATH = `${API_BASE}/api`;
@@ -575,6 +576,11 @@ class SyncService {
     } catch (err) {
       console.error('[Sync] Recording notes sync failed:', err);
     }
+    // The character sheet's dictionary records for the cards coming up (hourly; cheap once
+    // cached), so tapping a character on the card back works offline (services/charDict.ts).
+    prefetchQueueCharsIfDue().catch(err =>
+      console.error('[Sync] Character dictionary prefetch failed:', err)
+    );
     try {
       // Sentence sets are text-only here; their audio comes down with the
       // full audio prefetch (they're in the audio manifest).

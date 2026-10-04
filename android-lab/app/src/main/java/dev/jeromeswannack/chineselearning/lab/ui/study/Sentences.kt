@@ -474,9 +474,17 @@ fun AddChunkSheet(
     chunk: Chunk, preferredDeck: String, actions: SentenceActions, onDismiss: () -> Unit,
     bumpSource: String = "breakdown",
     bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi(bumpSource),
+    existing: AddChunkExisting? = null,
+    onAdded: () -> Unit = {},
 ) {
-    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bump = bump) }
+    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bump = bump, existing = existing, onAdded = onAdded) }
 }
+
+/**
+ * The word is already one of his notes (in any deck, AddChunkModal's `existing`): [deckNames]
+ * for "You already have 银行 in HSK 2", and "Open card →" (the card hub) when [onOpenCard] is set.
+ */
+data class AddChunkExisting(val deckNames: List<String>, val onOpenCard: (() -> Unit)? = null)
 
 @Composable
 fun AddChunkBody(
@@ -484,6 +492,10 @@ fun AddChunkBody(
     bumpSource: String = "breakdown",
     /** "⚡ Study it today" when the word is already a card (null = no bump: previews, outside the app). */
     bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi(bumpSource),
+    /** Known to be a note already (any deck): the bump-first footer whatever deck is picked. */
+    existing: AddChunkExisting? = null,
+    /** After a successful add (analytics). */
+    onAdded: () -> Unit = {},
 ) {
     var bumped by remember { mutableStateOf<String?>(null) }
     var decks by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
@@ -498,7 +510,7 @@ fun AddChunkBody(
         decks = actions.decks().sortedByDescending { it.first == preferredDeck }
         if (decks.none { it.first == deckId }) deckId = decks.firstOrNull()?.first.orEmpty()
     }
-    LaunchedEffect(deckId) { duplicate = deckId.isNotEmpty() && runCatching { actions.deckHas(deckId, chunk.hanzi) }.getOrDefault(false) }
+    LaunchedEffect(deckId) { duplicate = existing != null || (deckId.isNotEmpty() && runCatching { actions.deckHas(deckId, chunk.hanzi) }.getOrDefault(false)) }
     PinnedFooterColumn(
         Modifier.testTag("add-chunk-sheet"),
         body = {
@@ -508,7 +520,15 @@ fun AddChunkBody(
                 Text(chunk.english, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
                 error?.let { InlineNotice(it, kind = NoticeKind.Error) }
                 bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
-                if (duplicate && bumped == null) InlineNotice(if (bump != null) "Already in this deck — study it today instead?" else "This word is already in the selected deck.", kind = NoticeKind.Warning)
+                if (existing != null && bumped == null) {
+                    val where = existing.deckNames.distinct().joinToString(", ").ifEmpty { "your decks" }
+                    InlineNotice(
+                        "You already have ${chunk.hanzi} in $where." + if (bump != null) " Study it today instead of adding it again?" else "",
+                        kind = NoticeKind.Warning,
+                        actionLabel = existing.onOpenCard?.let { "Open card →" },
+                        onAction = existing.onOpenCard,
+                    )
+                } else if (duplicate && bumped == null) InlineNotice(if (bump != null) "Already in this deck — study it today instead?" else "This word is already in the selected deck.", kind = NoticeKind.Warning)
                 Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
                 DeckChipList(Modifier.testTag("add-chunk-decks")) { for ((id, name) in decks) LabChip(name, selected = id == deckId) { deckId = id } }
             }
@@ -520,7 +540,7 @@ fun AddChunkBody(
                         busy = true
                         error = null
                         scope.launch {
-                            try { actions.addCard(deckId, chunk); done = true; delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                            try { actions.addCard(deckId, chunk); done = true; onAdded(); delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
                         }
                     }
                     PrimaryPill(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.weight(1.3f).height(50.dp).testTag("add-chunk-bump"), enabled = !busy && bumped == null) {
@@ -537,7 +557,7 @@ fun AddChunkBody(
                     busy = true
                     error = null
                     scope.launch {
-                        try { actions.addCard(deckId, chunk); done = true; delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                        try { actions.addCard(deckId, chunk); done = true; onAdded(); delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
                     }
                 }
             }

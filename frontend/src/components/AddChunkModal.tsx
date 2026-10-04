@@ -31,7 +31,15 @@ export interface Chunk {
  * "You already have 银行 in HSK 2" and "⚡ Study it today" as the primary action
  * (shared/decks/bumps.ts: its cards come first in today's session), "Add anyway" second.
  */
-export function AddChunkModal(props: { chunk: Chunk; onClose: () => void; source?: BumpSource }) {
+export function AddChunkModal(props: {
+  chunk: Chunk;
+  onClose: () => void;
+  source?: BumpSource;
+  /** When given, a word they already have offers "Open card →" (the card hub). */
+  onOpenCard?: (noteId: string) => void;
+  /** Called once the new card is saved. */
+  onAdded?: () => void;
+}) {
   const { chunk, onClose } = props;
   const source = props.source ?? 'other';
   const [existing, setExisting] = useState<Array<{ note: LocalNote; deckName: string }>>([]);
@@ -105,6 +113,7 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void; source
         } : {}),
       });
       setDone(true);
+      props.onAdded?.();
       setTimeout(onClose, 800);
     } catch (e) {
       trackError('add_card', e);
@@ -126,6 +135,14 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void; source
             <div className="add-chunk-duplicate add-chunk-notice" data-testid="already-have">
               You already have {chunk.hanzi} in {[...new Set(existing.map((e) => e.deckName))].join(', ')}.
               {alreadyBumped ? ' It comes first in today’s study ⚡' : ' Study it today instead of adding it again?'}
+              {props.onOpenCard && (
+                <>
+                  {' '}
+                  <button type="button" className="add-chunk-open-card" onClick={() => props.onOpenCard!(existing[0].note.id)}>
+                    Open card →
+                  </button>
+                </>
+              )}
             </div>
           ) : isDuplicate && <div className="add-chunk-duplicate add-chunk-notice">This word is already in the selected deck.</div>}
           {bumpedMsg && <div className="bump-hint" role="status">{bumpedMsg}</div>}

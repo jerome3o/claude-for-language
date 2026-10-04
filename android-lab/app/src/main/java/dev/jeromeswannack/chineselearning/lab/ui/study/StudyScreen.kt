@@ -80,7 +80,6 @@ import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
-import dev.jeromeswannack.chineselearning.lab.data.api.VocabularyDefinition
 import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
 
 /** Everything the session screen can ask for. Defaults are no-ops so screenshots need none. */
@@ -132,10 +131,8 @@ class StudyActions(
     val edit: EditCardActions = EditCardActions(),
     val ask: AskActions = AskActions(),
     val sentences: SentenceActions = SentenceActions(),
-    // tap a character
-    val define: suspend (hanzi: String, context: String, refresh: Boolean) -> CardTools.Definition = { _, _, _ -> error("offline") },
-    val deckHolding: suspend (String) -> String? = { null },
-    val addDefinition: suspend (VocabularyDefinition) -> Unit = {},
+    // tap a character on the back → the character sheet (ui/chars)
+    val chars: dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetActions = dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetActions(),
     // ---- Package B: mini lessons in the session ----
     val lessonEnv: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(),
     val onLessonComplete: (dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) -> Unit = {},
@@ -179,7 +176,6 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
     BackHandler(onBack = onExit)
     val tools = vm.tools
     val currentNote = { (vm.ui.value.phase as? StudyPhase.Showing)?.view?.note }
-    val newNote = { d: VocabularyDefinition -> NewNoteBody(d.hanzi, d.pinyin, d.english, d.fun_facts) }
     StudyScreen(
         ui = ui,
         playingKey = playing,
@@ -253,9 +249,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
                 deckHas = tools::deckHas,
                 addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english)) },
             ),
-            define = { h, c, r -> tools.define(h, c, r) },
-            deckHolding = tools::deckHolding,
-            addDefinition = { d -> tools.addNote(currentNote()?.deckId ?: error("No card"), newNote(d)) },
+            chars = dev.jeromeswannack.chineselearning.lab.ui.chars.rememberCharSheetActions(app, onOpenCard = { id -> onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.cardHub(id)) }),
             lessonEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv(app), // Package B
             onLessonComplete = vm::completeLesson, // Package B
             readerEnv = { id -> dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv(app, id) }, // Package B

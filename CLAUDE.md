@@ -124,6 +124,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts) — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── folders/           # Folders for decks / library lessons / readers: groupIntoFolders, one-level nesting rule (parentProblem), name rules, spliceGroupOrder, collapsed keys, copy (deleteFolderMessage, movedMessage) — parity-tested by the Lab app
+│   ├── chars/             # The character dictionary (card-independent): CharRecord, build rules from CC-CEDICT / Make Me a Hanzi / wordfreq (build.ts, msgpack.ts; scripts/build-char-dict.ts), the sheet's word statuses known / in_decks / none (status.ts — parity-tested by the Lab app)
 │   ├── pinyin/            # applyYiBuToneChanges: the 一 / 不 tone changes every automatic pinyin goes through (Lab ToneChange.kt, parity-tested)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts (new characters first); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts), "⚡ Study it today" bump pocket (bumps.ts) — all parity-tested by the Lab app
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
@@ -314,6 +315,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `card_checkpoints` - Cached card state for performance (computed from review_events)
 - `deleted_items` - Tombstones (`kind` deck|note, `item_id`, `deleted_at`) written whenever a deck or note is deleted (API routes, Ask Claude's delete_current_card, the MCP server's delete_deck/delete_note); `GET /api/sync/changes` returns them as `deleted.deck_ids` / `note_ids` so offline clients drop the rows (with their cards) on the next sync
 - `reader_pages.words` / `reader_word_explanations` - Reader word chips (migration 0087): the page split into `{ text, pinyin, gloss }` segments (JSON), and Haiku's cached "More about this word" answers keyed by a hash of word + sentence. See "Reader word chips"
+- `char_explanations` - "More about 字" on the character sheet: Haiku's short card-independent explanation per character, shared by everyone (migration 0108). The dictionary itself is static (`worker/char-dict/`, see "Character sheet")
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
 - `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0104): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
@@ -615,6 +617,25 @@ day; active study time per day, `shared/study/`, `PUT /api/me/study-time`), and 
    and no new/review cards remain, celebrated once a day (`shared/study/celebration.ts`) with
    "Today: 23 min · 142 reviews" (active time, `shared/study/activeTime.ts`)
 6. "Study More" button appears to add 10 bonus new cards beyond daily limit
+
+### Character sheet (tap a character on the card back; docs/STUDY_SESSION.md "Character sheet")
+Card-INDEPENDENT dictionary data — readings, meaning, radical / components, strokes, frequency rank and
+the ~20 most frequent words with the character, each marked **✓ Known** (mature card) / **📚 In your decks**
+from the learner's own cards on the device (`shared/chars/status.ts`, Lab `CharWords.kt`, parity-tested);
+a row → `AddChunkModal` (⚡ Study it today / Open card → when they have it). Replaces the per-card Claude
+popup (`WordDefinitionPopup`, `/api/vocabulary/define` — kept, unused by the card). Data: built by
+`npm run build:char-dict` (`scripts/build-char-dict.ts`, rules in `shared/chars/build.ts`) from **CC-CEDICT**
+(CC BY-SA 4.0), **Make Me a Hanzi** `dictionary.txt` (LGPL-3.0) and **wordfreq** `large_zh` (CC BY-SA 4.0
+data) → ~10,200 characters in 128 gzipped JSON shards `worker/char-dict/NNN.dat` (committed, 2.3 MB), the
+worker's static assets (`[assets]` binding `CHAR_DICT`, `run_worker_first = true`; `services/char-dict.ts`
+keeps shards in memory per isolate) — chosen over D1 (no 10k-row data load path in CI) and R2 (no
+separate upload step): immutable, versioned with the code, deployed with the worker. Bump `CHAR_DICT_VERSION`
+(`shared/chars/types.ts`) when the shape or rules change so devices refetch. Device: IndexedDB `charDict` /
+`charExplanations` (Dexie v28, `services/charDict.ts`), the upcoming queue's characters prefetched hourly in
+sync. Licences: `/about/licences` (Settings → About · Licences).
+- `GET /api/chars/:char` → `{ version, record }` (404 not in the dictionary, 400 not one Han character)
+- `GET /api/chars?c=` → `{ version, records, missing }` (distinct Han characters of `c`, ≤ 100)
+- `POST /api/chars/:char/explain` → `{ char, explanation, cached }` — "More about 字", Haiku from the dictionary record only (never the card), cached globally in `char_explanations`; 503 without a key and no cached answer
 
 ### Deck Management
 - Create/edit/delete decks

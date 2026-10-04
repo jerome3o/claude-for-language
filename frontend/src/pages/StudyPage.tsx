@@ -31,7 +31,8 @@ import { SentenceChunk } from '../types';
 import './RoleplayPage.css';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
-import { WordDefinitionPopup } from '../components/WordDefinitionPopup';
+import { CharacterSheet } from '../components/chars/CharacterSheet';
+import { isLookupChar } from '../services/charDict';
 import {
   CardWithNote,
   Rating,
@@ -456,6 +457,8 @@ export function StudyCard({
   const [showFlagSheet, setShowFlagSheet] = useState(false);
   // Handwriting practice for this card's hanzi (⋯ → Write it; preview).
   const [showWriting, setShowWriting] = useState(false);
+  // What the writing sheet practises: the card's hanzi (⋯ → Write it) or one character (character sheet).
+  const [writingText, setWritingText] = useState<string | null>(null);
   const { user } = useAuth();
   const flagTutors: RememberedTutor[] = useMemo(() => {
     const live = user ? humanTutors(tutors, user.id) : [];
@@ -1403,25 +1406,11 @@ export function StudyCard({
     startRecordingWithDelay(true, true);
   };
 
+  // The character sheet (components/chars/CharacterSheet.tsx): card-independent dictionary
+  // data + the frequent words with the character, offline once cached. Replaces the old
+  // per-card Claude definition (WordDefinitionPopup / /api/vocabulary/define).
   const handleCharacterClick = (char: string) => {
-    // Only look up actual Chinese characters, not punctuation or whitespace
-    if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(char)) {
-      setSelectedCharacter(char);
-    }
-  };
-
-  const handleSaveCharacterAsNote = async (definition: { hanzi: string; pinyin: string; english: string; fun_facts?: string }) => {
-    try {
-      await createNote(card.note.deck_id, {
-        hanzi: definition.hanzi,
-        pinyin: definition.pinyin,
-        english: definition.english,
-        fun_facts: definition.fun_facts,
-      });
-      setSelectedCharacter(null);
-    } catch (err) {
-      console.error('Failed to save character as note:', err);
-    }
+    if (isLookupChar(char)) setSelectedCharacter(char);
   };
 
   // A multiple-choice answer that isn't fully right is shown row by row; a
@@ -1460,11 +1449,15 @@ export function StudyCard({
         )}
 
         {selectedCharacter && (
-          <WordDefinitionPopup
-            hanzi={selectedCharacter}
-            context={card.note.hanzi}
-            onSave={handleSaveCharacterAsNote}
+          <CharacterSheet
+            char={selectedCharacter}
+            cardHanzi={card.note.hanzi}
             onClose={() => setSelectedCharacter(null)}
+            onWrite={(ch) => {
+              setSelectedCharacter(null);
+              setWritingText(ch);
+              setShowWriting(true);
+            }}
           />
         )}
 
@@ -2777,10 +2770,13 @@ export function StudyCard({
       {/* Handwriting practice (⋯ → Write it) */}
       {showWriting && (
         <WritingSheet
-          text={card.note.hanzi}
-          pinyin={card.note.pinyin}
-          english={card.note.english}
-          onClose={() => setShowWriting(false)}
+          text={writingText ?? card.note.hanzi}
+          pinyin={writingText ? null : card.note.pinyin}
+          english={writingText ? null : card.note.english}
+          onClose={() => {
+            setShowWriting(false);
+            setWritingText(null);
+          }}
         />
       )}
 

@@ -26,7 +26,6 @@ import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
 import dev.jeromeswannack.chineselearning.lab.data.api.AskToolResult
 import dev.jeromeswannack.chineselearning.lab.data.api.ReadOnlyToolCall
-import dev.jeromeswannack.chineselearning.lab.data.api.VocabularyDefinition
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -125,15 +124,9 @@ class StudyCardScreenshots : LabScreenshotTest() {
         }
     }
 
-    @Test fun definition() = shoot("study-a08-definition") {
+    @Test fun characterSheet() = shoot("study-a08-char-sheet") {
         overCard(ui(view(CardTypes.HANZI_TO_MEANING)), CardStartState(flipped = true)) {
-            WordDefinitionBody(
-                hanzi = "算", context = "打算",
-                define = { h, _, _ -> CardTools.Definition(VocabularyDefinition(h, "suàn", "to calculate; to count; to consider", "算 is 竹 (bamboo — counting sticks) over 目 and 廾 (two hands): hands working an abacus.", "我算了算，一共五十块。"), fromCache = true) },
-                deckHolding = { "HSK 3 · Plans & time" },
-                addNote = {},
-                onDismiss = {},
-            )
+            dev.jeromeswannack.chineselearning.lab.ui.chars.CharacterSheetContent(dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetSamples.loaded("打算"))
         }
     }
 

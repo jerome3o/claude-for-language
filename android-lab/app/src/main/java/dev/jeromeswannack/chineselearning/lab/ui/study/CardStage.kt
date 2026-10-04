@@ -127,7 +127,10 @@ private sealed interface CardSheet {
     data object Flag : CardSheet
     data object Ask : CardSheet
     data object Write : CardSheet
-    data class Define(val hanzi: String) : CardSheet
+    /** "✍️ Write it" from the character sheet: one character's stroke-order practice. */
+    data class WriteText(val text: String) : CardSheet
+    /** Tap a character on the back: the card-independent dictionary sheet (ui/chars). */
+    data class Character(val char: String) : CardSheet
 }
 
 @Composable
@@ -273,7 +276,7 @@ fun CardStage(
                             // the answer consume their own taps; a drag (scroll) or a long press never flips.
                             .pointerInput(Unit) { detectTapGestures(onLongPress = {}) { peekToFront() } },
                     ) {
-                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, onCharacter = { sheet = CardSheet.Define(it) })
+                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, onCharacter = { sheet = CardSheet.Character(it) })
                     }
                 }
             }
@@ -355,13 +358,14 @@ fun CardStage(
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
         CardSheet.Write -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(note.hanzi, onClose = { sheet = null }, pinyin = note.pinyin, english = note.english)
         CardSheet.Ask -> AskClaudeSheet(view, ui.extras.ask, typed, actions.ask, onDismiss = { sheet = null })
-        is CardSheet.Define -> WordDefinitionSheet(
-            hanzi = s.hanzi,
-            context = note.hanzi,
-            define = actions.define,
-            deckHolding = actions.deckHolding,
-            addNote = actions.addDefinition,
-            onDismiss = { sheet = null },
+        is CardSheet.WriteText -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(s.text, onClose = { sheet = null })
+        is CardSheet.Character -> dev.jeromeswannack.chineselearning.lab.ui.chars.CharacterSheet(
+            char = s.char,
+            cardHanzi = note.hanzi,
+            actions = actions.chars,
+            addActions = actions.sentences,
+            onClose = { if (sheet == s) sheet = null },
+            onWrite = { ch -> sheet = CardSheet.WriteText(ch) },
         )
     }
 }

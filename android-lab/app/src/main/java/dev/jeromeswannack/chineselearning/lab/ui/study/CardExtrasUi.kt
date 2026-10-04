@@ -46,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.data.api.VocabularyDefinition
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabSheetFrame
@@ -275,123 +274,6 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
                         style = MaterialTheme.typography.bodySmall,
                         color = Lab.colors.muted,
                     )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Tap a character on the back → its definition (components/WordDefinitionPopup.tsx): cached
- * on the device first, "Already in <deck>", Add to Flashcards / Add anyway, Refresh.
- */
-@Composable
-fun WordDefinitionSheet(
-    hanzi: String,
-    context: String,
-    define: suspend (hanzi: String, context: String, refresh: Boolean) -> CardTools.Definition,
-    deckHolding: suspend (String) -> String?,
-    addNote: suspend (VocabularyDefinition) -> Unit,
-    onDismiss: () -> Unit,
-    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("breakdown"),
-) {
-    LabSheetFrame(onDismiss = onDismiss) { WordDefinitionBody(hanzi, context, define, deckHolding, addNote, onDismiss, bump = bump) }
-}
-
-@Composable
-fun WordDefinitionBody(
-    hanzi: String,
-    context: String,
-    define: suspend (hanzi: String, context: String, refresh: Boolean) -> CardTools.Definition,
-    deckHolding: suspend (String) -> String?,
-    addNote: suspend (VocabularyDefinition) -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-    /** "⚡ Study it today" when the word is already a card (null = none: previews). */
-    bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = null,
-) {
-    var bumped by remember(hanzi) { mutableStateOf<String?>(null) }
-    var definition by remember(hanzi) { mutableStateOf<CardTools.Definition?>(null) }
-    var loading by remember(hanzi) { mutableStateOf(true) }
-    var error by remember(hanzi) { mutableStateOf<String?>(null) }
-    var existing by remember(hanzi) { mutableStateOf<String?>(null) }
-    var saved by remember(hanzi) { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-
-    fun load(refresh: Boolean) {
-        loading = true
-        error = null
-        scope.launch {
-            try {
-                definition = define(hanzi, context, refresh)
-            } catch (e: Exception) {
-                error = if (refresh) "Failed to refresh definition." else "Failed to load definition. Please try again."
-            } finally {
-                loading = false
-            }
-        }
-    }
-    LaunchedEffect(hanzi) {
-        load(refresh = false)
-        existing = runCatching { deckHolding(hanzi) }.getOrNull()
-    }
-
-    val d = definition?.value
-    // A long explanation scrolls; Add to Flashcards / Refresh / Close stay pinned (SheetScaffold).
-    SheetScaffold(
-        modifier,
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
-        spacing = 0.dp,
-        footerAbove = if (saved) {
-            { InlineNotice("Added — it arrives with the next sync.", kind = NoticeKind.Success) }
-        } else bumped?.let { m -> { InlineNotice(m, kind = NoticeKind.Success) } },
-        footer = if (d == null || loading || error != null || saved) null else if (existing != null && bump != null) {
-            {
-                // Already a card: "⚡ Study it today" first, adding it again second.
-                SecondaryPill("Add anyway", Modifier.height(50.dp), enabled = bumped == null) {
-                    scope.launch {
-                        try { addNote(d); saved = true; delay(900); onDismiss() } catch (e: Exception) { error = CardTools.message(e) }
-                    }
-                }
-                PrimaryPill(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.weight(1f).height(50.dp).testTag("bump-study-today"), enabled = bumped == null) {
-                    scope.launch {
-                        try { bumped = bump(listOf(d.hanzi), null); delay(1400); onDismiss() } catch (e: Exception) { error = CardTools.message(e) }
-                    }
-                }
-            }
-        } else {
-            {
-                PrimaryPill(if (existing != null) "Add anyway" else "Add to Flashcards", Modifier.weight(1f).height(50.dp)) {
-                    scope.launch {
-                        try { addNote(d); saved = true; delay(900); onDismiss() } catch (e: Exception) { error = CardTools.message(e) }
-                    }
-                }
-                if (definition?.fromCache == true) SecondaryPill("Refresh", Modifier.height(50.dp)) { load(refresh = true) }
-                SecondaryPill("Close", Modifier.height(50.dp), onClick = onDismiss)
-            }
-        },
-    ) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            when {
-                loading -> Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
-                error != null -> InlineNotice(error!!, kind = NoticeKind.Error, actionLabel = "Retry", onAction = { load(refresh = false) })
-                d != null -> {
-                    Text(d.hanzi, fontSize = 56.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
-                    Text(d.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent)
-                    Spacer(Modifier.height(4.dp))
-                    Text(d.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
-                    d.fun_facts?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(12.dp))
-                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(12.dp))
-                    }
-                    d.example?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(8.dp))
-                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
-                    }
-                    existing?.let {
-                        Spacer(Modifier.height(12.dp))
-                        InlineNotice("Already in \"$it\"", kind = NoticeKind.Warning)
-                    }
                 }
             }
         }

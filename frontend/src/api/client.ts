@@ -1272,6 +1272,24 @@ export async function translateMessageSegmented(
   );
 }
 
+// ============ Character dictionary (routes/chars.ts) ============
+
+export async function fetchCharRecord(char: string): Promise<{ version: number; record: import('@shared/chars/types').CharRecord }> {
+  return fetchJSON(`/chars/${encodeURIComponent(char)}`);
+}
+
+export async function fetchCharRecords(chars: string): Promise<{
+  version: number;
+  records: Record<string, import('@shared/chars/types').CharRecord>;
+  missing: string[];
+}> {
+  return fetchJSON(`/chars?c=${encodeURIComponent(chars)}`);
+}
+
+export async function fetchCharExplanation(char: string): Promise<{ char: string; explanation: string; cached: boolean }> {
+  return fetchJSON(`/chars/${encodeURIComponent(char)}/explain`, { method: 'POST' });
+}
+
 export async function defineVocabulary(
   hanzi: string,
   context?: string,
