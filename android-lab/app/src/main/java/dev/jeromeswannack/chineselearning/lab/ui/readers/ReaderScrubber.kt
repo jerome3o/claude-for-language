@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,6 +52,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AudioBlocks
 import dev.jeromeswannack.chineselearning.lab.core.BlockPlayback
+import dev.jeromeswannack.chineselearning.lab.core.ReaderSpeed
+import dev.jeromeswannack.chineselearning.lab.data.readers.ReaderPlaybackSpeed
+import dev.jeromeswannack.chineselearning.lab.data.readers.asSpeedPlayer
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
 import dev.jeromeswannack.chineselearning.lab.data.readers.ClipAnalysis
 import dev.jeromeswannack.chineselearning.lab.data.readers.WAVE_BUCKETS
@@ -76,6 +80,11 @@ fun sampleClipAnalysis(durationMs: Int, blocks: List<AudioBlocks.Block>, peaks: 
  * One block (no pause found / undecodable clip) = the old scrubber. ↻ regenerates a bad
  * cached clip. Play sits on the right — the thumb side. [initial] seeds the state in
  * screenshots.
+ *
+ * Speed (the chip under the waveform, [ReaderEnv.speed]): `PlaybackParams.setSpeed(x)
+ * .setPitch(1f)` on the MediaPlayer ([ReaderPlaybackSpeed]) — Sonic time-stretching, pitch kept,
+ * applied live mid-clip; never a regenerated clip. Blocks and positions stay in media time; only
+ * the 1 s grace scales (`ReaderSpeed.blockGraceMsAt`, a wall-clock reaction = 500 ms at 0.5×).
  */
 @Composable
 fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.State? = null) {
@@ -95,11 +104,12 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
     val multi = blocks.size > 1
     // Callbacks outlive a composition (the completion listener, the polling loop): read the latest blocks
     val currentBlocks by rememberUpdatedState(blocks)
+    val speed by rememberUpdatedState(env.speed)
 
     fun positionMs(): Double = player[0]?.let { p -> runCatching { p.currentPosition.toDouble() }.getOrNull() } ?: head
 
     fun dispatch(event: BlockPlayback.Event) {
-        val r = BlockPlayback.reduce(play, event, currentBlocks)
+        val r = BlockPlayback.reduce(play, event, currentBlocks, ReaderSpeed.blockGraceMsAt(speed))
         r.seekToMs?.let { ms -> player[0]?.let { p -> runCatching { p.seekTo(ms.toLong(), MediaPlayer.SEEK_CLOSEST) } }; head = ms }
         play = r.state
         if (!r.state.playing) head = r.state.anchorMs
@@ -115,6 +125,8 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
         if (f != null) scope.launch { analysis = env.analyze(page, f) }
     }
     LaunchedEffect(page.id) { adopt(load?.invoke(page, false)) }
+    // The chip moved: a playing clip changes speed in place (a paused one gets it at its next start)
+    LaunchedEffect(env.speed) { player[0]?.let { ReaderPlaybackSpeed.change(it.asSpeedPlayer(), env.speed) } }
     DisposableEffect(page.id) { onDispose { release() } }
     LaunchedEffect(play.playing) {
         var last = -1
@@ -146,7 +158,7 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
         val p = mp() ?: return
         runCatching {
             p.seekTo(play.anchorMs.toLong(), MediaPlayer.SEEK_CLOSEST)
-            p.start()
+            ReaderPlaybackSpeed.start(p.asSpeedPlayer(), speed)
             dispatch(BlockPlayback.Event.Play)
             env.onTap()
         }
@@ -235,19 +247,23 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
                 Icon(if (play.playing) Icons.Filled.Stop else Icons.AutoMirrored.Filled.VolumeUp, if (play.playing) "Stop audio" else "Play audio from the selected point", Modifier.size(26.dp), tint = if (play.playing) Color.White else Lab.colors.accent)
             }
         }
-        if (ready && multi) {
-            // ⏮ Phrase n of N ⏭ — right-aligned so ⏭ sits under play (the thumb side)
+        if (ready) {
+            // The speed chip on the left; ⏮ Phrase n of N ⏭ right-aligned so ⏭ sits under play (the thumb side)
             Row(
                 Modifier.fillMaxWidth().padding(top = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StepButton(Icons.Filled.SkipPrevious, "Previous phrase") { dispatch(BlockPlayback.Event.Step(-1, positionMs())); env.onTap() }
-                Text(
-                    "Phrase ${Math.min(active, blocks.size - 1) + 1} of ${blocks.size}",
-                    fontSize = 13.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.widthIn(min = 104.dp),
-                )
-                StepButton(Icons.Filled.SkipNext, "Next phrase") { dispatch(BlockPlayback.Event.Step(1, positionMs())); env.onTap() }
+                ReaderSpeedChip(env.speed, env.onSpeed)
+                Spacer(Modifier.weight(1f))
+                if (multi) {
+                    StepButton(Icons.Filled.SkipPrevious, "Previous phrase") { dispatch(BlockPlayback.Event.Step(-1, positionMs())); env.onTap() }
+                    Text(
+                        "Phrase ${Math.min(active, blocks.size - 1) + 1} of ${blocks.size}",
+                        fontSize = 13.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.widthIn(min = 104.dp),
+                    )
+                    StepButton(Icons.Filled.SkipNext, "Next phrase") { dispatch(BlockPlayback.Event.Step(1, positionMs())); env.onTap() }
+                }
             }
         }
     }

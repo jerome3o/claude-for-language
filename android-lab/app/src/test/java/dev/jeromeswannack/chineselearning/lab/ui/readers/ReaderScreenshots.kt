@@ -65,8 +65,8 @@ class ReaderScreenshots : LabScreenshotTest() {
         File.createTempFile("reader", ".png").also { f -> f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
     }
 
-    private fun env(playing: String? = null) = ReaderEnv(
-        image = { picture }, cachedImage = { picture }, playingPage = playing,
+    private fun env(playing: String? = null, speed: Double = 1.0) = ReaderEnv(
+        image = { picture }, cachedImage = { picture }, playingPage = playing, speed = speed,
         pageAudio = { _, _ -> picture },
         // Three phrases with pauses, like 我喜欢 / 一边跑步 / 一边听音乐 (the test has no real clip to decode).
         analyze = { p, _ -> if (p.id == "p3") oneBlock else threeBlocks },
@@ -95,6 +95,28 @@ class ReaderScreenshots : LabScreenshotTest() {
             ReaderScrubber(pages[2], env())
         }
     }
+    /** The speed chip (1× · 0.75× · 0.5×) on the scrubber's row and beside the reading page's ▶. */
+    @Test fun speedChip() = shoot("readers-28-speed-chip") {
+        Column(Modifier.fillMaxWidth().background(Lab.colors.background).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("0.75× — the chip lit while slowed", fontSize = 13.sp, color = Lab.colors.muted)
+            ReaderScrubber(pages[0], env(speed = 0.75), BlockPlayback.State(anchorMs = 3020.0))
+            Text("0.5×, one block", fontSize = 13.sp, color = Lab.colors.muted)
+            ReaderScrubber(pages[2], env(speed = 0.5))
+            Text("1× (normal)", fontSize = 13.sp, color = Lab.colors.muted)
+            ReaderScrubber(pages[1], env(), BlockPlayback.State(anchorMs = 6600.0, manual = true))
+        }
+    }
+    @Test fun speedChipReadingPage() = shootAfter("readers-29-reader-page-speed", {
+        ReaderScreen(reader, null, env(speed = 0.5), onBack = {}, onEdit = {}, onFinish = {})
+    }) { tap("Tap to reveal Chinese") }
+    @Test fun speedChipSession() = shoot("readers-30-session-speed", content = {
+        StudyScreen(
+            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, previews, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
+            playingKey = null,
+            actions = StudyActions(readerEnv = { env(speed = 0.75) }),
+            autoplay = false,
+        )
+    })
     @Test fun phraseBlocksDark() = shoot("readers-16-phrase-blocks-dark", dark = true) {
         Column(Modifier.fillMaxWidth().background(Lab.colors.background).padding(16.dp)) { ReaderScrubber(pages[0], env(), BlockPlayback.State(anchorMs = 5940.0)) }
     }

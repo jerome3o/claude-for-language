@@ -94,6 +94,10 @@ class ReaderEnv(
     val pageAudio: (suspend (page: ReaderPageDto, regenerate: Boolean) -> File?)? = null,
     /** The clip's waveform peaks + phrase blocks (decoded on the phone; cached per clip in the app). */
     val analyze: suspend (page: ReaderPageDto, file: File) -> ClipAnalysis? = { _, f -> withContext(Dispatchers.Default) { decodeClip(f) } },
+    /** The speed chip's value (1 / 0.75 / 0.5, core ReaderSpeed): narration and a word's ▶ play at it, pitch kept. */
+    val speed: Double = 1.0,
+    /** The speed chip was tapped (1× → 0.75× → 0.5× → 1×). */
+    val onSpeed: () -> Unit = {},
 )
 
 val Violet = Color(0xFF8B5CF6)
@@ -159,7 +163,13 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, scrubber: Boolean = fals
                             }
                         }
                     }
-                    if (!scrubber) PlayButton(env.playingPage == page.id) { env.togglePlay(page) }
+                    if (!scrubber) {
+                        // ▶ with the speed chip under it (the web's .reader-audio-controls)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            PlayButton(env.playingPage == page.id) { env.togglePlay(page) }
+                            ReaderSpeedChip(env.speed, env.onSpeed, minWidth = 56.dp)
+                        }
+                    }
                 }
                 // In the session (StudyReader): the scrubbable waveform under the Chinese.
                 if (scrubber) ReaderScrubber(page, env)

@@ -228,6 +228,7 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `reader.generate` | — | Asked for a new reader. |
 | `reader.editor_save` | `pages` | Saved a reader in the editor. |
 | `reader.audio_block` | `action` | Used the phrase-block scrubber (jump / step). |
+| `reader.speed_changed` | `speed` | Changed the reader playback speed (1 / 0.75 / 0.5). |
 
 ### quests
 

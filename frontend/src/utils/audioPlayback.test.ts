@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createAudioPlayer, isAudioPlaying, whenAudioIdle, AudioPlayer } from './audioPlayback';
+import { createAudioPlayer, isAudioPlaying, whenAudioIdle, applyPlaybackRate, AudioPlayer } from './audioPlayback';
 
 /**
  * The point of these tests is resource hygiene: one element, and every object
@@ -14,6 +14,11 @@ interface FakeAudio {
   onerror: (() => void) | null;
   paused: boolean;
   loads: number;
+  playbackRate?: number;
+  defaultPlaybackRate?: number;
+  preservesPitch?: boolean;
+  webkitPreservesPitch?: boolean;
+  mozPreservesPitch?: boolean;
   // The diagnostics layer samples currentTime and subscribes to media events.
   currentTime: number;
   duration: number;
@@ -40,6 +45,8 @@ function makeFakeAudio(): FakeAudio {
     onerror: null,
     paused: true,
     loads: 0,
+    playbackRate: 1,
+    defaultPlaybackRate: 1,
     currentTime: 0,
     duration: 1,
     error: null,
@@ -292,5 +299,48 @@ describe('playback activity gate', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('playback speed', () => {
+  it('plays at the chosen rate with the pitch preserved (every engine prefix)', () => {
+    const player = newPlayer();
+    player.setRate(0.75);
+    player.play(blob());
+    const el = created[0];
+    expect(el.playbackRate).toBe(0.75);
+    expect(el.defaultPlaybackRate).toBe(0.75);
+    expect(el.preservesPitch).toBe(true);
+    expect(el.webkitPreservesPitch).toBe(true);
+    expect(el.mozPreservesPitch).toBe(true);
+  });
+
+  it('changes the speed of the clip playing now, without restarting it', () => {
+    const player = newPlayer();
+    player.play(blob());
+    const el = created[0];
+    expect(el.playbackRate).toBe(1);
+    const urls = objectUrls.length;
+    player.setRate(0.5);
+    expect(el.playbackRate).toBe(0.5);
+    expect(objectUrls.length).toBe(urls); // no reload, no new clip
+    expect(el.paused).toBe(false);
+  });
+
+  it('keeps the rate for later clips and ignores nonsense', () => {
+    const player = newPlayer();
+    player.setRate(0.5);
+    player.play(blob());
+    player.play(blob());
+    expect(created[0].playbackRate).toBe(0.5);
+    player.setRate(Number.NaN);
+    expect(created[0].playbackRate).toBe(1);
+  });
+
+  it('applyPlaybackRate works on any media element', () => {
+    const el = makeFakeAudio() as unknown as HTMLMediaElement;
+    applyPlaybackRate(el, 0.5);
+    expect(el.playbackRate).toBe(0.5);
+    expect((el as unknown as FakeAudio).preservesPitch).toBe(true);
   });
 });

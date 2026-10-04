@@ -8,6 +8,7 @@ import android.media.AudioManager;
 import android.media.AudioRecordingConfiguration;
 import android.media.AudioTrack;
 import android.media.MediaPlayer;
+import android.media.PlaybackParams;
 import android.media.audiofx.DynamicsProcessing;
 import android.os.Build;
 import android.os.Handler;
@@ -75,7 +76,7 @@ class AudioBridge {
 
     private static final String TAG = "AudioBridge";
 
-    static final int PROTOCOL_VERSION = 2;
+    static final int PROTOCOL_VERSION = 3;
 
     /** Cached clips beyond this are trimmed oldest-first. */
     private static final long CACHE_LIMIT_BYTES = 256L * 1024 * 1024;
@@ -105,6 +106,14 @@ class AudioBridge {
 
     /** The clip the page asked for most recently; older callbacks are dropped. */
     private volatile int currentId = 0;
+
+    /**
+     * v3: playback speed the page asked for, per clip id (the page sets it just
+     * before playClip, or for the playing clip to change speed mid-play). Any
+     * other id plays at 1×.
+     */
+    private volatile int rateId = 0;
+    private volatile float rate = 1f;
 
     // ---- Preferences from the page (default off until the page applies its settings) ----
     private volatile boolean compressionWanted = false;
@@ -256,6 +265,13 @@ class AudioBridge {
                     }
                     long now = SystemClock.elapsedRealtime();
                     clipStats.prepareMs = (int) (now - clipStats.requestedAt);
+                    // A slowed clip: set the speed as it starts (setPlaybackParams
+                    // with a non-zero speed starts a prepared player itself).
+                    float speed = rateFor(id);
+                    if (speed != 1f) {
+                        applyRate(p, speed);
+                        clipStats.speed = speed;
+                    }
                     p.start();
                     clipStats.startedAt = SystemClock.elapsedRealtime();
                     clipStats.startMs = (int) (clipStats.startedAt - clipStats.requestedAt);
@@ -302,6 +318,48 @@ class AudioBridge {
             }
         });
         return true;
+    }
+
+    /**
+     * v3: play the clip with this id at [speed] (0.25–2), pitch kept — MediaPlayer's
+     * PlaybackParams time-stretch (Sonic), smooth rather than choppy. The page calls it
+     * before playClip for the next clip, and with the playing clip's id to change the
+     * speed mid-play (applied live, no restart). The clip is never re-encoded.
+     */
+    @JavascriptInterface
+    public void setRate(int id, float speed) {
+        float s = Float.isNaN(speed) ? 1f : Math.max(0.25f, Math.min(2f, speed));
+        rateId = id;
+        rate = s;
+        if (id != currentId) {
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            if (currentId != id || player == null) {
+                return;
+            }
+            try {
+                if (player.isPlaying()) {
+                    applyRate(player, s);
+                }
+            } catch (IllegalStateException ignored) {
+                // Still preparing: onPrepared applies it
+            }
+        });
+    }
+
+    private float rateFor(int id) {
+        return rateId == id ? rate : 1f;
+    }
+
+    /** Speed with the pitch at 1 (time-stretched, not resampled). */
+    private static void applyRate(MediaPlayer p, float speed) {
+        try {
+            PlaybackParams params = p.getPlaybackParams();
+            p.setPlaybackParams(params.setSpeed(speed).setPitch(1f));
+        } catch (Exception e) {
+            Log.w(TAG, "setPlaybackParams failed", e);
+        }
     }
 
     /** Stop the clip with this id; a stale id (already superseded) is a no-op. */
@@ -365,6 +423,8 @@ class AudioBridge {
         int buffering = 0;
         int durationMs = -1;
         int positionMs = -1;
+        /** The playback speed the clip started at (drift is measured against it). */
+        float speed = 1f;
         String error = null;
         final String route;
         final int volume;
@@ -390,7 +450,7 @@ class AudioBridge {
                 return;
             }
             long elapsed = SystemClock.elapsedRealtime() - startedAt;
-            int drift = (int) (elapsed - position);
+            int drift = (int) (elapsed * speed - position);
             driftMs = drift;
             if (drift > worstDriftMs) {
                 worstDriftMs = drift;

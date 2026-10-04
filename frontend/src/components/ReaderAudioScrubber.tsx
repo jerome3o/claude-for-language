@@ -17,6 +17,12 @@
  *
  * Fully offline once the TTS blob is cached (it usually is — reader media is
  * prefetched); blocks are computed once per clip and cached in IndexedDB.
+ *
+ * Speed (the chip under the waveform, 1× · 0.75× · 0.5×, services/readerSpeed)
+ * is the element's playbackRate with the pitch preserved — the clip is never
+ * regenerated. Blocks and positions stay in media time; only the 1 s grace is
+ * scaled (`blockGraceMsAt`): it is a wall-clock reaction, so at 0.5× it covers
+ * 500 ms of the clip.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,7 +37,11 @@ import {
   type BlockPlayEvent,
   type BlockPlayState,
 } from '@shared/reader/blockPlayback';
+import { blockGraceMsAt } from '@shared/reader/speed';
 import { track } from '../services/analytics';
+import { useReaderSpeed } from '../services/readerSpeed';
+import { applyPlaybackRate } from '../utils/audioPlayback';
+import { ReaderSpeedChip } from './reader/ReaderSpeedChip';
 import './ReaderAudioScrubber.css';
 
 /** Pointer travel (px) that turns a tap on the waveform into a drag. */
@@ -54,6 +64,9 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
   const playRef = useRef(play);
   playRef.current = play;
   const dragRef = useRef<{ x: number; dragging: boolean } | null>(null);
+  const speed = useReaderSpeed();
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
 
   const durationMs = analysis?.durationMs || mediaDurationMs;
   // Until the clip is analysed (or when it can't be), the whole clip is one block
@@ -80,7 +93,7 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
 
   /** Feed the state machine one event and carry out what it says. */
   const dispatch = useCallback((event: BlockPlayEvent) => {
-    const { state, seekToMs } = blockPlayback(playRef.current, event, blocksRef.current);
+    const { state, seekToMs } = blockPlayback(playRef.current, event, blocksRef.current, blockGraceMsAt(speedRef.current));
     const audio = audioRef.current;
     if (seekToMs !== null && audio) audio.currentTime = seekToMs / 1000;
     const prev = playRef.current;
@@ -125,6 +138,7 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
     objectUrlRef.current = url;
     const audio = new Audio(url);
     audio.preload = 'auto';
+    applyPlaybackRate(audio, speedRef.current);
     audio.onloadedmetadata = () => {
       if (isFinite(audio.duration)) setMediaDurationMs(Math.round(audio.duration * 1000));
     };
@@ -160,6 +174,11 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
     // The component is keyed by page id — mount-only is intentional.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The speed chip: applied to the clip as it plays (no restart, pitch kept)
+  useEffect(() => {
+    if (audioRef.current) applyPlaybackRate(audioRef.current, speed);
+  }, [speed]);
 
   // Park the playhead on the anchor whenever the clip's length becomes known
   useEffect(() => {
@@ -349,17 +368,23 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
           {play.playing ? '⏹' : '🔊'}
         </button>
       </div>
-      {ready && multi && (
+      {ready && (
         <div className="reader-audio-blocks-row">
-          <button className="reader-audio-step-btn" onClick={() => step(-1)} aria-label="Previous phrase">
-            ⏮
-          </button>
-          <span className="reader-audio-block-label" aria-live="polite">
-            Phrase {current + 1} of {blocks.length}
-          </span>
-          <button className="reader-audio-step-btn" onClick={() => step(1)} aria-label="Next phrase">
-            ⏭
-          </button>
+          {/* Speed on the left; ⏮ Phrase n of N ⏭ stays under play (the thumb side) */}
+          <ReaderSpeedChip />
+          {multi && (
+            <div className="reader-audio-steps">
+              <button className="reader-audio-step-btn" onClick={() => step(-1)} aria-label="Previous phrase">
+                ⏮
+              </button>
+              <span className="reader-audio-block-label" aria-live="polite">
+                Phrase {current + 1} of {blocks.length}
+              </span>
+              <button className="reader-audio-step-btn" onClick={() => step(1)} aria-label="Next phrase">
+                ⏭
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1220,7 +1220,11 @@ point follows the audio (`shared/reader/blockPlayback.ts`): it advances to each 
 replays the block he was in, or the PREVIOUS one when he stopped within 1 s of crossing into a block; tap a block
 to jump, ⏮ / ⏭ to step, drag for a free anchor. No pause found / undecodable → one block, the old scrubber. Both
 files are ported to `android-lab/core` (`AudioBlocks.kt`, `BlockPlayback.kt`) and parity-tested
-(`android-lab/parity/fixtures/reader-blocks.ts`). Details: docs/STUDY_SESSION.md.
+(`android-lab/parity/fixtures/reader-blocks.ts`). **Speed chip** (1× → 0.75× → 0.5×, `shared/reader/speed.ts`, Lab
+`core/ReaderSpeed.kt`, parity-tested by `parity/fixtures/reader-speed.ts`): playback only, pitch kept — web
+`AudioPlayer.setRate` / `applyPlaybackRate` (`playbackRate` + `preservesPitch`), hybrid bridge v3 `setRate`, Lab
+`ReaderPlaybackSpeed` (`PlaybackParams.setSpeed(x).setPitch(1f)`); remembered per device (`services/readerSpeed.ts`,
+Lab `ReaderSpeedPref`); the 1 s grace is wall-clock, so `blockGraceMsAt(speed)` scales it to media time. Details: docs/STUDY_SESSION.md.
 - `GET /api/readers` (`?include_pages=true` for sync), `GET|DELETE /api/readers/:id`, `POST /api/readers/generate`
 - `POST /api/readers/:id/retry` - Re-queue a FAILED reader in place (same id; status back to `generating`). The Readers list folds every failed reader into one "N failed generations" row with Retry / Delete / Delete all; raw API errors only appear behind "Show details" (`services/readerFailures.ts`). `ensureDailyReader` asks the server at most once per local date (`daily-reader-attempt` in localStorage) and the daily reader's failed row is reused on retry instead of a new one being created every session. **One reader a day** (`READERS_PER_DAY`, `pickTodaysReader` in `frontend/src/services/reader-study.ts`): the session offers at most one story — a due learning repeat, else the most overdue review, else the newest unread — and nothing more once one has been read today; `ensureDailyReader` generates a new story only when nothing is due (see docs/STUDY_SESSION.md)
 - `POST /api/readers` (blank), `PUT /api/readers/:id`, page CRUD + `reorder`, `publish`, `generate-image`, `generate-text` (older per-field routes in index.ts)

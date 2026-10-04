@@ -46,6 +46,11 @@ Capacitor config, app icon, etc.).
     audio report;
   - a `superseded` event when another page player takes the single output,
     so the displaced button goes quiet instead of staying lit.
+  Bridge **v3** adds `setRate(id, speed)`: the reader's speed chip
+  (1× · 0.75× · 0.5×) as `PlaybackParams.setSpeed(x).setPitch(1)` — Sonic
+  time-stretching, pitch kept, applied live mid-clip. On a v2 app the page
+  plays a slowed clip through an `<audio>` element (`playbackRate` +
+  `preservesPitch`) instead, so the speed still holds.
   The page feature-detects `playClip` and still works with the v1 bridge.
 - **Homework notifications**: an hourly background check (WorkManager) posts a
   notification when a review card is due — hanzi on the front, **Show answer**

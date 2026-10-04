@@ -1,7 +1,7 @@
 /* ---- Reader page audio: phrase blocks ----
  * The scrubber row (waveform + play) keeps its styles in StudyReader.css;
- * this adds the wrapper and the ⏮ Phrase n of N ⏭ row under it, shown only
- * when the clip has more than one block. */
+ * this adds the wrapper and the row under it: the speed chip, and
+ * ⏮ Phrase n of N ⏭ when the clip has more than one block. */
 
 .reader-audio-scrubber-wrap {
   width: 100%;
@@ -18,13 +18,21 @@ div.reader-audio-scrubber-wrap > div.reader-audio-scrubber {
   margin-bottom: 0.5rem;
 }
 
-/* Right-aligned so ⏭ sits under the play button (the thumb side) */
+/* The speed chip on the left; the ⏮ Phrase n of N ⏭ group right-aligned so
+   ⏭ sits under the play button (the thumb side). */
 .reader-audio-blocks-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 0.5rem;
   margin-top: 0.375rem;
+}
+
+.reader-audio-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
 }
 
 .reader-audio-block-label {

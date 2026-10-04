@@ -42,6 +42,7 @@ export function ReaderWordSheet({
   onAdded,
   onMore,
   bumpSource = 'reader',
+  playbackRate = 1,
 }: {
   word: ReaderWord;
   sentence: string;
@@ -52,6 +53,8 @@ export function ReaderWordSheet({
   onMore?: () => void;
   /** Where a "⚡ Study today" bump comes from (reader / chat). */
   bumpSource?: BumpSource;
+  /** The reader's speed chip (pitch kept); 1 everywhere else. */
+  playbackRate?: number;
 }) {
   const [existing, setExisting] = useState<Array<{ note: LocalNote; deckName: string }>>([]);
   const [bumpMsg, setBumpMsg] = useState<string | null>(null);
@@ -70,6 +73,9 @@ export function ReaderWordSheet({
   const [playing, setPlaying] = useState(false);
   const player = useRef(createAudioPlayer());
   const tts = useTTS();
+  useEffect(() => {
+    player.current.setRate(playbackRate);
+  }, [playbackRate]);
 
   useEffect(() => {
     if (!word.pinyin) void devicePinyin(word.text).then((p) => p && setPinyin(p));

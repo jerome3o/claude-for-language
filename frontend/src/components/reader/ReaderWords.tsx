@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { isTappableWord, wordOffsets, sentenceAround, wordsMatchText, type ReaderWord } from '@shared/reader/words';
 import { knownHanzi, localPageWords, requestReaderWords, sessionPageWords } from '../../services/readerWords';
 import { ReaderWordSheet } from './ReaderWordSheet';
+import { useReaderSpeed } from '../../services/readerSpeed';
 import { track } from '../../services/analytics';
 import './ReaderWords.css';
 
@@ -69,6 +70,7 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
   const [knownVersion, setKnownVersion] = useState(0);
   const known = useKnownHanzi(knownVersion);
   const [open, setOpen] = useState<number | null>(null);
+  const speed = useReaderSpeed();
 
   if (!words) return <div className={className}>{page.content_chinese}</div>;
 
@@ -116,6 +118,7 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
             setKnownVersion((v) => v + 1);
           }}
           onMore={() => track('reader.word_more')}
+          playbackRate={speed}
         />
       )}
     </>

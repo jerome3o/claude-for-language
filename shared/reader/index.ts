@@ -14,4 +14,5 @@ export {
 export * from './standard';
 export * from './audioBlocks';
 export * from './blockPlayback';
+export * from './speed';
 export * from './words';

@@ -26,6 +26,8 @@ let prefs: Array<[string, boolean]> = [];
 let cachedKeys = new Set<string>();
 let accept = true;
 let elements = 0;
+let rates: Array<[number, number]> = [];
+let lastElement: Record<string, unknown> | null = null;
 
 /** The play/stop-only bridge of app 1.51. */
 function stubLegacyBridge() {
@@ -83,7 +85,7 @@ function stubBridge() {
 function stubAudioElement() {
   vi.stubGlobal('Audio', function Audio() {
     elements++;
-    return {
+    return (lastElement = {
       src: '', onplay: null, onended: null, onerror: null,
       currentTime: 0, duration: 1, error: null, paused: true,
       play: () => Promise.resolve(),
@@ -92,8 +94,19 @@ function stubAudioElement() {
       load: () => {},
       addEventListener: () => {},
       removeEventListener: () => {},
-    };
+      playbackRate: 1,
+      defaultPlaybackRate: 1,
+    });
   });
+}
+
+/** v3: the v2 bridge plus playback speed. */
+function stubRateBridge() {
+  stubBridge();
+  const bridge = (globalThis as unknown as { AndroidAudio: Record<string, unknown> }).AndroidAudio;
+  bridge.setRate = (id: number, rate: number) => {
+    rates.push([id, rate]);
+  };
 }
 
 function emit(id: number, event: 'play' | 'ended' | 'error' | 'superseded', stats?: NativeClipStats) {
@@ -144,6 +157,8 @@ beforeEach(async () => {
   cachedKeys = new Set();
   accept = true;
   elements = 0;
+  rates = [];
+  lastElement = null;
   stubAudioElement();
   vi.resetModules();
   playback = await import('./audioPlayback');
@@ -404,6 +419,43 @@ describe('native audio bridge (v2)', () => {
     b();
     expect(holds).toEqual([true, false]);
     expect(playback.nativeOutputHoldCount()).toBe(0);
+  });
+});
+
+describe('playback speed (the reader)', () => {
+  it('v3 bridge: sets the speed for the clip before it starts, and live mid-play', async () => {
+    stubRateBridge();
+    expect(playback.nativeBridgeVersion()).toBe(3);
+    const player = newPlayer();
+    player.setRate(0.75);
+    player.play(blob(), { cacheKey: 'reader-tts/p1' });
+    expect(rates).toEqual([[1, 0.75]]);
+    await settle();
+    expect(calls).toHaveLength(1);
+    expect(elements).toBe(0);
+    player.setRate(0.5);
+    expect(rates).toEqual([[1, 0.75], [1, 0.5]]);
+  });
+
+  it('v2 bridge: a slowed clip plays through the element (pitch kept) instead of at the wrong speed', () => {
+    stubBridge();
+    const player = newPlayer();
+    player.setRate(0.5);
+    player.play(blob());
+    expect(calls).toHaveLength(0);
+    expect(elements).toBe(1);
+    expect(lastElement?.playbackRate).toBe(0.5);
+    expect(lastElement?.preservesPitch).toBe(true);
+  });
+
+  it('v2 bridge: normal speed still goes native', async () => {
+    stubBridge();
+    const player = newPlayer();
+    player.setRate(1);
+    player.play(blob());
+    await settle();
+    expect(calls).toHaveLength(1);
+    expect(elements).toBe(0);
   });
 });
 

@@ -104,6 +104,7 @@ object AnalyticsEvents {
         ev("reader.generate", "readers", emptyList()),
         ev("reader.editor_save", "readers", listOf("pages")),
         ev("reader.audio_block", "readers", listOf("action")),
+        ev("reader.speed_changed", "readers", listOf("speed")),
         ev("quest.generate", "quests", listOf("difficulty")),
         ev("quest.play", "quests", emptyList()),
         ev("quest.complete", "quests", listOf("moves")),
