@@ -33,7 +33,14 @@ import {
 } from '@shared/coach';
 import { SentenceWordBreakdown } from '../components/SentenceWordBreakdown';
 import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
-import { bumpNotes, findNotesInText, syncBumps, useBumps } from '../services/studyBumps';
+import { bumpNotes, findSentenceBumps, syncBumps, useBumps } from '../services/studyBumps';
+import { SentenceBumpSheet } from '../components/bumps/SentenceBumpSheet';
+import {
+  SENTENCE_BUMP_DONE_LABEL,
+  SENTENCE_BUMP_EXACT_LABEL,
+  SENTENCE_BUMP_WORDS_LABEL,
+  type SentenceBumps,
+} from '@shared/decks';
 import type { LocalNote } from '../db/database';
 import '../components/bumps/bumps.css';
 import { cacheTextExplanation, getCachedTextExplanation } from '../services/sentence-sets';
@@ -117,32 +124,45 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
   disabled: boolean;
 }) {
   const deck = decks?.find((d) => d.id === selectedDeckId) ?? decks?.[0] ?? null;
-  // "⚡ Study today": the sentence's words the learner already has as cards go first in
-  // today's study instead of being made again (shared/decks/bumps.ts).
-  const [known, setKnown] = useState<LocalNote[]>([]);
+  // "⚡ Study … today" (shared/decks/sentence-bumps.ts): the sentence itself when it is a
+  // card (bumps only it), else a picker over the words of it he already has (none ticked).
+  const [matches, setMatches] = useState<SentenceBumps<LocalNote>>({ exact: null, words: [] });
+  const [picking, setPicking] = useState(false);
   const [bumpMsg, setBumpMsg] = useState<string | null>(null);
   const bumps = useBumps();
   useEffect(() => {
     setBumpMsg(null);
-    findNotesInText(hanzi).then(setKnown).catch(() => setKnown([]));
+    setPicking(false);
+    findSentenceBumps(hanzi).then(setMatches).catch(() => setMatches({ exact: null, words: [] }));
   }, [hanzi]);
-  const allBumped = known.length > 0 && known.every((n) => bumps.has(n.id));
+  const exact = matches.exact;
+  const exactBumped = !!exact && bumps.has(exact.id);
   return (
     <div className="coach-quick" data-testid="coach-quick-actions">
       <div className="coach-quick-row" role="group" aria-label="Quick actions">
-        {known.length > 0 && (
+        {exact ? (
           <button
             type="button"
-            className={`coach-quick-chip coach-quick-chip--bump${allBumped ? ' on' : ''}`}
-            disabled={allBumped}
+            className={`coach-quick-chip coach-quick-chip--bump${exactBumped ? ' on' : ''}`}
+            disabled={exactBumped}
             onClick={async () => {
-              const out = await bumpNotes(known.map((n) => n.id), 'coach');
+              const out = await bumpNotes([exact.id], 'coach');
               setBumpMsg(out.message);
             }}
             data-testid="coach-quick-bump"
-            title={`You already have ${known.map((n) => n.hanzi).join(', ')}`}
+            title={`You already have ${exact.hanzi}`}
           >
-            {allBumped ? '⚡ In today’s study' : `⚡ Study today${known.length > 1 ? ` (${known.length})` : ''}`}
+            {exactBumped ? SENTENCE_BUMP_DONE_LABEL : SENTENCE_BUMP_EXACT_LABEL}
+          </button>
+        ) : matches.words.length > 0 && (
+          <button
+            type="button"
+            className="coach-quick-chip coach-quick-chip--bump"
+            onClick={() => { setBumpMsg(null); setPicking(true); }}
+            data-testid="coach-quick-bump"
+            aria-haspopup="dialog"
+          >
+            {SENTENCE_BUMP_WORDS_LABEL}
           </button>
         )}
         {QUICK_ACTIONS.map((a) => (
@@ -159,6 +179,9 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
         ))}
       </div>
       {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
+      {picking && (
+        <SentenceBumpSheet notes={matches.words} source="coach" onClose={() => setPicking(false)} onBumped={setBumpMsg} />
+      )}
       {decks && decks.length > 0 && (
         <label className="coach-quick-deck">
           <span>Cards go to</span>

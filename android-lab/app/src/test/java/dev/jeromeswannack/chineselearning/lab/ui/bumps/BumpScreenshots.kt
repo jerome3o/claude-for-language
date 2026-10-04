@@ -65,7 +65,12 @@ class BumpScreenshots : LabScreenshotTest() {
         }
     }
 
-    private val coachUi = CoachChatUi(thread = Loadable(CoachSamples.thread), decks = CoachSamples.decks, deckId = "d1", knownWords = listOf("商店", "苹果"))
+    private val coachUi = CoachChatUi(thread = Loadable(CoachSamples.thread), decks = CoachSamples.decks, deckId = "d1",
+        bumpWords = listOf(
+            dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.BumpWord("n1", "商店", "shāngdiàn", "shop; store"),
+            dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.BumpWord("n2", "苹果", "píngguǒ", "apple"),
+        ),
+    )
 
     /** The Coach: 商店 is already a card → "⚡ Study it today" first, "Add anyway" second. */
     @Test fun coachDuplicate() = shoot("bump-01-coach") {

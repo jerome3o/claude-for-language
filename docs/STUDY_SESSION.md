@@ -223,8 +223,16 @@ today's session. One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-teste
 - **Offline** — bumps are written to IndexedDB (`studyBumps`) / Room at once and uploaded with a client
   id (`POST /api/me/bumps`, idempotent); `/api/sync/changes` brings the whole pocket back. The server
   marks finished bumps `done_at` lazily with the same rule.
+- **The Coach's chip** (`shared/decks/sentence-bumps.ts`) never bumps a pile of words in one tap:
+  when the whole sentence (spaces / punctuation ignored) is one of his cards the chip is **⚡ Study this
+  today** and bumps only that note; otherwise, when some of its words are cards, **⚡ Study words from
+  this today…** opens "You already have these words" — one row per matched note (hanzi · pinyin ·
+  meaning), longest first, single characters last (left out when they only appear inside a longer
+  matched word), NOTHING ticked, rows already bumped shown with ⚡ and disabled, a pinned **⚡ Add N to
+  today** + Cancel. No match → no chip. The bump is `study.bump_added` with `source: 'coach'` + `count`.
 - **Claude** — Ask Claude, the coach chat and chat Discuss have a `bump_cards` tool and are told to
-  bump instead of making a duplicate; the MCP server has `bump_cards`, `list_bumped_cards`,
+  bump instead of making a duplicate — always an explicit list of the words the learner named, never
+  every word of a sentence; the MCP server has `bump_cards`, `list_bumped_cards`,
   `clear_bumped_card` and the tutor's `bump_student_cards`.
 
 ## Graded readers: one a day

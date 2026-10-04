@@ -13,7 +13,7 @@
  * local review events every time (never stored).
  */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { bumpedMessage, normalizeBumpSource, type BumpSource } from '@shared/decks';
+import { bumpedMessage, normalizeBumpSource, sentenceBumps, type BumpSource, type SentenceBumps } from '@shared/decks';
 import { normalizeHanzi } from '@shared/import/parse';
 import { db, type LocalNote, type LocalStudyBump } from '../db/database';
 export { bumpTimeMs, loadQueueBumps } from '../db/database';
@@ -164,19 +164,12 @@ export async function syncBumps(): Promise<void> {
 }
 
 /**
- * The learner's notes that appear in a sentence (the Coach's "⚡ Study today" chip):
- * the whole sentence itself, or any note of 2+ characters inside it (single
- * characters would match nearly everything). Punctuation / spaces ignored; ≤ 10.
+ * The Coach's "⚡ Study … today" chip (shared/decks/sentence-bumps.ts): the note the
+ * whole sentence is, else the notes found inside it in picker order. Live decks only.
  */
-export async function findNotesInText(text: string): Promise<LocalNote[]> {
-  const whole = normalizeHanzi(text);
-  if (!whole) return [];
-  const notes = await db.notes
-    .filter((n) => {
-      const key = normalizeHanzi(n.hanzi ?? '');
-      return !!key && (key === whole || (key.length >= 2 && whole.includes(key)));
-    })
-    .toArray();
+export async function findSentenceBumps(text: string): Promise<SentenceBumps<LocalNote>> {
+  if (!normalizeHanzi(text)) return { exact: null, words: [] };
   const live = new Set((await db.decks.toArray()).map((d) => d.id));
-  return notes.filter((n) => live.has(n.deck_id)).slice(0, 10);
+  const notes = (await db.notes.toArray()).filter((n) => live.has(n.deck_id) && !!n.hanzi);
+  return sentenceBumps(text, notes);
 }
