@@ -1348,7 +1348,7 @@ Lab `app.analytics.track(…)` (`data/analytics/`), worker `trackServer(…)`. *
 durations, booleans only — never message text, card content, answers, recordings, tokens, URLs or e-mails**;
 `sanitizeProps` (`shared/analytics/privacy.ts`) enforces it on the device and again on the server.
 - Clients queue events offline (web: own IndexedDB `usage-analytics`; Lab: own Room db) and upload in sync + every
-  ~60 s: `POST /api/analytics/events { events }` (idempotent by id) → D1 `usage_events` (migration 0100). Screen
+  ~60 s: `POST /api/me/usage-events { events }` (idempotent by id; NOT `/api/analytics/events` — EasyPrivacy's generic `/analytics/event` rule makes content blockers drop it in the browser; the old path stays for old Lab builds) → D1 `usage_events` (migration 0100). Screen
   views (route pattern + time on screen) come from ONE router hook per app.
 - Server: `trackServer` for content created / homework assigned / push / e-mail; every Anthropic + Gemini call's
   tokens and estimated cost via a `fetch` wrapper (`services/analytics/ai-usage.ts`) and an AsyncLocalStorage
