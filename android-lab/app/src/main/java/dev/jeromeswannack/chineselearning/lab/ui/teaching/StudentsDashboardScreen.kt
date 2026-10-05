@@ -42,6 +42,7 @@ import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.LibraryItem
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PendingInviteDto
+import dev.jeromeswannack.chineselearning.lab.data.api.PillsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentOverviewDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TutorDashboardDto
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
@@ -172,7 +173,8 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
                 if (p.flags_open > 0) TeachPill("🚩 ${TeachingFormat.plural(p.flags_open, "flagged card")}", PillTone.Flags) { actions.open(Routes.connection(relId)) }
                 if (p.recordings_need_ear > 0) TeachPill(needEarLabel(p.recordings_need_ear), PillTone.Flags) { actions.open(Routes.recordings(relId)) }
                 else if (p.recordings_to_hear > 0) TeachPill("🎤 ${TeachingFormat.plural(p.recordings_to_hear, "recording")} to hear", PillTone.Recordings) { actions.open(Routes.recordings(relId)) }
-                if (p.homework_percent != null) TeachPill("Homework ${p.homework_percent}%", PillTone.Homework) { actions.open(Routes.connection(relId)) }
+                // One-off homework only — a long-term deck is not "homework progress" (docs/HOMEWORK.md §11).
+                homeworkPill(p)?.let { (text, tone) -> TeachPill(text, tone) { actions.open(Routes.connection(relId)) } }
                 budgetChip(o.study_budget)?.let { TeachPill(it, PillTone.Muted) { actions.open(Routes.connection(relId)) } }
                 if (o.has_profile == false) ProfileHintPill { actions.open(Routes.connection(relId)) }
             }
@@ -190,6 +192,27 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
             onCopy = actions.copy, onShare = actions.share, onDismiss = { showQr = false },
         )
     }
+}
+
+/**
+ * The dashboard card's homework pill (web StudentCard): the server's one-off headline —
+ * "Homework ✓ all done this week" green, "Homework 1 overdue" red, "Homework 2 of 3 done" blue;
+ * nothing one-off ever set → no pill. An older server without it → "Homework N%".
+ */
+fun homeworkPill(p: PillsDto): Pair<String, PillTone>? {
+    val hw = p.homework
+    if (hw != null) {
+        if (hw.state == "none" || hw.pill.isEmpty()) return null
+        return hw.pill to homeworkTone(hw.state)
+    }
+    return p.homework_percent?.let { "Homework $it%" to PillTone.Homework }
+}
+
+/** all_done green · overdue red · open blue (web td-pill-homework-* / td-hw-headline-*). */
+fun homeworkTone(state: String): PillTone = when (state) {
+    "all_done" -> PillTone.HomeworkDone
+    "overdue" -> PillTone.HomeworkOverdue
+    else -> PillTone.Homework
 }
 
 private val COMPACT_TITLES = mapOf(

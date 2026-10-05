@@ -82,10 +82,10 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
 - **Home**: ONE compact card (web `components/home/HomeworkHomeCard.tsx`, Lab `ui/homework/HomeHomework.kt`;
   rows from the shared `homeHomework`, `shared/homework/home.ts`, parity-tested) headed "From <tutor>" — one slim
   row per active item: title, "5 / 12" words (thin bar) and a due label (overdue · due today · **due tomorrow** ·
-  due in N days). One-off / both items come first, overdue first; then long-term (fsrs-only) decks with words not
-  met yet ("daily review") and a lesson the tutor sent outside an assignment ("next session"). A tap opens the pass
-  `/homework/:id` for one-off / both items (for a lesson / reader that IS its player), the deck for a long-term-only
-  deck, `/lessons` for a legacy lesson. At most 4 rows ("+N more ›" → `/homework`); an unread tutor message is one
+  due in N days). One-off / both items come first, overdue first; then a lesson the tutor sent outside an
+  assignment ("next session"). A long-term (fsrs-only) deck is NOT a row — it is a deck in the queue (Home's
+  "Next up", the Decks tab; §11). A tap opens the pass `/homework/:id` for one-off / both items (for a lesson /
+  reader that IS its player), `/lessons` for a legacy lesson. At most 4 rows ("+N more ›" → `/homework`); an unread tutor message is one
   small line. Nothing active → the card is not shown.
 - **`/homework`**: all items (to do / done), **`/homework/:id`**: the pass. Deck: the word (tap ▶ for
   audio), *Show* reveals pinyin / meaning / the example sentence, then *Not yet* / *Got it*. The example
@@ -161,8 +161,9 @@ daily review* on a one-off deck still takes every word not singled out). Rules, 
      message continues the SAME agent job (transcript, tools, checkpoints) with extra draft tools
      (`remove_cards`, `update_card`, `set_plan`); its `finish` summary is the reply.
    - **Assign** → assignments are created (dedupe re-checked server-side), the job is marked assigned.
-4. **Homework section**: the one-off assignments with due labels and progress (overdue in red), plus the
-   long-term decks / lessons as before. *Send homework* (deck or library lesson) gets the same mode + due
+4. **Homework section**: the one-off headline (§11), the one-off assignments with due labels and progress
+   (overdue in red), decks sent one-off only, lessons and readers. Long-term decks are in their own, quieter
+   **Long-term learning** section (§11). *Send homework* (deck or library lesson) gets the same mode + due
    date choice — defaulting to *Both* (see §4a).
 
 ## 4a. Defaults when a tutor sends something
@@ -281,7 +282,7 @@ kind, progress % and status — **Completed** (green) · **In progress** (blue; 
 | kind | % | complete when |
 |---|---|---|
 | deck with a pass (one_off / both) | pass words right / words in the pass (all day-parts) | every part done |
-| deck, long-term only (fsrs / shared before assignments) | words met / words (minus words left out) | every word met |
+| deck, long-term only (fsrs / shared before assignments) | — status **In long-term review** (grey, no %); progress "8 / 20 words met" | never: it is a deck in the queue (§11) |
 | lesson | 0 / 100 | completed once (or its assignment done) |
 | reader | 0 / 100 | read once (or its assignment done) |
 | link | 0 / 100 | the student marked it done |
@@ -312,3 +313,29 @@ equivalents and the MCP update tools (`update_student_copies: true`, set only wh
   kept); lesson = the library push-update (same lesson ids, history + FSRS kept); reader = `updateSharedReaderCopy`
   (pages matched by position, the copy's page ids kept, so reading progress survives; pictures share the R2 keys);
   link = the sent assignments' title + details.
+
+## 11. The homework headline counts one-off homework only
+
+Jerome (Oct 2026), after a lesson, saw "Homework 13%": he was 13% through a long-term deck the FSRS budget will
+take months to introduce, although he had done every one-off item that week. The old figure blended mastered + ½
+started cards + completed lessons over everything the tutor ever sent. Now:
+
+- **The headline** (`summarizeOneOffHomework`, `shared/homework/summary.ts`, unit-tested) counts the ONE-OFF pass of
+  `one_off` and `both` assignments (decks, lessons, readers, links) and nothing else. Open = active one-off
+  assignments (overdue ones stay open); done = one-off assignments finished in the last 7 days
+  (`SUMMARY_WINDOW_DAYS`; by `completed_at`, else the due date), so "2 of 3 done" is about this week. Words:
+  **"✓ All done this week"** (nothing open, something finished lately) · "✓ All done" · **"2 of 3 done"** ·
+  **"1 overdue · 2 of 3 done"** · "No homework set" (nothing one-off ever sent — never "0%"). The pill says
+  "Homework ✓ all done this week" / "Homework 2 of 3 done" / "Homework 1 overdue" (green / blue / red).
+- **Where**: the worker puts it on the student overview (`services/tutor-dashboard.ts`: `pills.homework`,
+  `homework.one_off`; `pills.homework_percent` / `homework.percent` = the same as 0..100 for older clients), so the
+  tutor's dashboard card, the student page's Homework heading, the Lab app and the MCP tools (`list_students`,
+  `get_student_overview`, the Students dashboard app) all show the same words. Days are the student's (tz offset).
+- **Long-term learning**: a deck sent for long-term review only (fsrs, or shared before assignments) is
+  `long_term` (`isLongTermDeck`; a copy whose assignments are all `one_off` is not). On the tutor's student page those
+  decks are a separate, quieter **Long-term learning** section — the student's daily budget, then per deck words met,
+  ~days to go at the budget and the queue position (#N menu) — "not counted as homework". In the homework library
+  they get the neutral status **In long-term review** instead of In progress / a percent. For the student they are
+  simply decks in the queue (Home's "Next up", the Decks tab); Home's homework card no longer lists them.
+- The Lab app follows the same rules (dashboard pill and student page from the server's summary; core
+  `HomeworkLibrary.kt` / `HomeHomework.kt` parity-tested).

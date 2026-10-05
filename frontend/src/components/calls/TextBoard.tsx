@@ -143,17 +143,22 @@ function SelectionHelper({ text }: { text: string }) {
 /**
  * The ghost: a third layer over the textarea with the same layout — the text up
  * to the caret (invisible) and then the suggestion in grey on white, so it
- * reads cleanly even when it wraps over a line below. Nothing after the caret
- * is laid out here, so nothing else on the board moves.
+ * reads cleanly even when it wraps over a line below. The text AFTER the caret
+ * follows, invisible too: without it the layer was shorter than the textarea, so
+ * on a long board scrolled down it could not scroll as far as the textarea and
+ * the ghost sat lines below the caret ("down the bottom somewhere", Jerome,
+ * 5 Oct 2026). The layer follows the textarea's scroll (`syncGhostScroll`).
  */
-function GhostLayer({
+export function GhostLayer({
   before,
+  after,
   suggestion,
   showKey,
   layerRef,
   ghostRef,
 }: {
   before: string;
+  after: string;
   suggestion: GlossSuggestion;
   showKey: boolean;
   layerRef: RefObject<HTMLDivElement>;
@@ -166,6 +171,7 @@ function GhostLayer({
         {suggestion.text}
         {showKey && <kbd className="tb-ghost-key">Tab</kbd>}
       </span>
+      <span className="tb-ghost-after">{after}</span>
     </div>
   );
 }
@@ -386,7 +392,9 @@ export function TextBoard({
     captureSelection();
     suggest.poke();
   };
-  const ghostBefore = suggestion && taRef.current ? taRef.current.value.slice(0, charToCodeUnitIndex(taRef.current.value, suggestion.end)) : '';
+  const ghostCut = suggestion && taRef.current ? charToCodeUnitIndex(taRef.current.value, suggestion.end) : 0;
+  const ghostBefore = suggestion && taRef.current ? taRef.current.value.slice(0, ghostCut) : '';
+  const ghostAfter = suggestion && taRef.current ? taRef.current.value.slice(ghostCut) : '';
 
   return (
     <div className="tb">
@@ -479,7 +487,7 @@ export function TextBoard({
             {notice}
           </div>
         )}
-        {suggestion && <GhostLayer before={ghostBefore} suggestion={suggestion} showKey={!touch} layerRef={ghostLayerRef} ghostRef={ghostRef} />}
+        {suggestion && <GhostLayer before={ghostBefore} after={ghostAfter} suggestion={suggestion} showKey={!touch} layerRef={ghostLayerRef} ghostRef={ghostRef} />}
         {suggestion && touch && (
           <button
             type="button"

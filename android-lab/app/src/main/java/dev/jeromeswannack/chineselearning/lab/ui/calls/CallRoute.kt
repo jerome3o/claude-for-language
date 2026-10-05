@@ -96,6 +96,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             speak = { text -> speaker.speak(text) },
             playClip = { key, text -> app.audio.play(key, text, app.online.value) },
             layout = layout,
+            viewModes = PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
         ),
         viewModelScope,
     )
@@ -353,11 +354,17 @@ fun CallRoute(nav: LabNav, id: String) {
             onTick = { nav.app.haptics.tick() },
             onSnap = { nav.app.haptics.flip() },
             lead = LeadActions(
-                onShow = { tile -> if (vm.controller.showTile(tile)) nav.app.haptics.tick() },
                 onStopTheirShare = { if (vm.controller.stopTheirShare()) nav.app.haptics.tick() },
-                onDismissShowing = vm.controller::dismissShowingBanner,
                 onDismissShareStopped = vm.controller::dismissShareStopped,
                 onStageWidth = vm.controller::setStageWidth,
+            ),
+            // "Same view" (core CallView): the top bar chip's menu and the invitation.
+            view = ViewActions(
+                onMode = vm.controller::setViewMode,
+                onBring = { vm.controller.bringToMyView() },
+                onJoin = { vm.controller.joinInvite(); nav.app.haptics.tick() },
+                onDismissInvite = vm.controller::dismissInvite,
+                keepsJustShared = vm.controller::keepsJustShared,
             ),
             material = MaterialActions(
                 onTurn = vm.controller::turnMaterialPage,

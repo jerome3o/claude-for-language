@@ -875,6 +875,11 @@
 
 /* Leave (the call goes on) next to End (for everyone). On phones the bar is full: Leave is in ⋯
    and in End's confirm ("Just leave"). */
+/* Leave / End sit apart from the buttons used all the time (round 6: "I kept accidentally leaving"). */
+.call-controls-sep { width: 1px; height: 32px; margin: 0 0.6rem; background: rgba(255, 255, 255, 0.18); display: none; }
+@media (min-width: 480px) { .call-controls-sep { display: block; } }
+@media (min-width: 1024px) { .call-controls-sep { margin: 0 1.5rem; } }
+.call-more-menu .call-menu-leave { border-top: 1px solid #374151; margin-top: 0.25rem; }
 .call-btn.leave { width: auto; padding: 0 0.9rem; gap: 0.35rem; border-radius: 999px; font-size: 1.1rem; display: none; }
 .call-btn.leave .call-btn-label { font-size: 0.9rem; font-weight: 600; }
 @media (min-width: 480px) { .call-btn.leave { display: flex; } }
@@ -1039,30 +1044,54 @@
 .pm-meta { font-size: 0.8rem; color: #6b7280; }
 .pm-add { min-height: 44px; }
 
-/* ---------- round 5: the tutor leads (shared/calls/follow.ts) */
-.call-show-btn {
-  /* In the tile's control row (TileSpec.actions), before ⠿ ⤢ ✕. */
-  pointer-events: auto;
-  flex: none;
-  white-space: nowrap;
+/* ---------- Same view (shared/calls/view.ts): the chip in the top bar, its menu, the invitation */
+.call-view-wrap { position: relative; margin-left: auto; display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.call-rec ~ .call-view-wrap { margin-left: 0; }
+.call-view-note { color: #fcd34d; font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: none; }
+@media (min-width: 640px) { .call-view-note { display: inline; } }
+.call-view-chip {
   min-height: 36px;
-  padding: 0 0.75rem;
-  border: 1px solid rgba(37, 99, 235, 0.35);
+  padding: 0 0.8rem;
+  border: 1px solid rgba(147, 197, 253, 0.45);
   border-radius: 999px;
-  background: rgba(239, 246, 255, 0.96);
-  color: #1d4ed8;
-  font-size: 0.85rem;
+  background: rgba(37, 99, 235, 0.22);
+  color: #dbeafe;
+  font-size: 0.82rem;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
-.call-show-btn.on { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
-.call-show-short { display: none; }
-@media (max-width: 639px) {
-  .call-show-long { display: none; }
-  .call-show-short { display: inline; }
-  .call-show-btn { padding: 0 0.6rem; }
+.call-view-chip.own { background: rgba(245, 158, 11, 0.2); border-color: rgba(252, 211, 77, 0.5); color: #fde68a; }
+.call-view-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(300px, calc(100vw - 2rem));
+  padding: 0.35rem;
+  border-radius: 12px;
+  background: #1f2937;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
+.call-view-menu button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #f3f4f6;
+  text-align: left;
+  cursor: pointer;
+}
+.call-view-menu button:hover { background: #374151; }
+.call-view-menu button.active { background: rgba(37, 99, 235, 0.3); }
+.call-view-menu small { color: #9ca3af; font-size: 0.78rem; line-height: 1.3; }
+.call-view-menu .call-view-bring { border-top: 1px solid #374151; border-radius: 0 0 8px 8px; margin-top: 0.25rem; }
+.call-showing-banner .call-banner-action { min-width: auto; padding: 0 0.7rem; border-radius: 999px; background: #2563eb; color: #fff; font-weight: 600; }
 .call-stop-their-share {
   pointer-events: auto;
   flex: none;

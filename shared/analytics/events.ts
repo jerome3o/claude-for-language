@@ -120,6 +120,9 @@ export const ANALYTICS_EVENTS = {
   'material.contents_jump': e('calls', 'Jumped to a section from a lesson material’s Contents.', ['where', 'source']),
   'call.activity_start': e('calls', 'Started an in-call activity.', ['activity_kind']),
   'call.layout': e('calls', 'Changed the call layout (▦).', ['preset']),
+  'call.view_mode': e('calls', 'Switched between "Same view" and "My own view" in a call.', ['mode']),
+  'call.view_bring': e('calls', '"Bring <name> to my view": made my view the shared one and invited the other person.', ['mode']),
+  'call.view_join': e('calls', 'Joined the other person’s view from their invitation.', []),
   'call.review_open': e('calls', 'Opened a call review / lesson report.', []),
   'call.homework_from_call': e('calls', 'Make homework from this lesson.', []),
 

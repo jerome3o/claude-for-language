@@ -29,6 +29,7 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
     val layout: StateFlow<CallLayout.Layout> = _layout.asStateFlow()
     private var key: String? = null
     private var remoteSharing = false
+    private var mySharing = false
     private var presentingId: String? = null
     private var activityId: String? = null
 
@@ -41,7 +42,7 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
         val raw = store?.load(k)
         _layout.value = CallLayout.sanitize(raw?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() })
         // Already sharing when the layout arrived: their screen goes on the stage.
-        if (remoteSharing) set(CallLayout.reduce(_layout.value, CallLayout.Action.ShareStarted))
+        if (remoteSharing || mySharing) set(CallLayout.reduce(_layout.value, CallLayout.Action.ShareStarted))
         if (presentingId != null) set(CallLayout.reduce(_layout.value, CallLayout.Action.MaterialStarted))
         if (activityId != null) set(CallLayout.reduce(_layout.value, CallLayout.Action.ActivityStarted))
     }
@@ -80,6 +81,16 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
     fun setRemoteSharing(on: Boolean) {
         val was = remoteSharing
         remoteSharing = on
+        if (on && !was) dispatch(CallLayout.Action.ShareStarted)
+    }
+
+    /**
+     * "Same view": a screen share is shown to both — when I start sharing, my own screen comes onto my
+     * stage too (the same `shareStarted`), so the shared view carries it to the other person.
+     */
+    fun setMySharing(on: Boolean) {
+        val was = mySharing
+        mySharing = on
         if (on && !was) dispatch(CallLayout.Action.ShareStarted)
     }
 

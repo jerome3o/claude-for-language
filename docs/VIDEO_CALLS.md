@@ -413,7 +413,49 @@ applied by the CallRoom; worker tests with a mocked clock in `durable/__tests__/
   last 10 min (one conditional `INSERT … WHERE NOT EXISTS`, so two presses in the same second can't
   both insert).
 
+## Same view: one shared stage (round 6)
+
+Jerome after a lesson with Minghui (5 Oct 2026): "whatever the tutor clicks into, the student's screen
+should follow — layouts too — and the other way round. Both people see the same thing, even screen
+shares." Rules in `shared/calls/view.ts` (Lab `core/…/calls/CallView.kt`, parity-tested).
+
+- **What is shared** — the stage: focus / split / grid, which tile(s), the split's ratio and direction,
+  which boards / chat are open, and the text board's page (`StageView`, `viewOf`). **What stays per
+  device** — the cameras: faces box corner / size, together / separate, floating corners, "float their
+  camera" — and the pixel rectangles (`layoutRects` draws the same logical layout for each screen; a phone
+  shows a split's first tile unless it is screen + board). `remote` means "the other person" on both
+  screens, so Speaker shows each of them the other.
+- **The room** holds the latest `SharedView { …stage, seq, by, name, cid, at, bring? }` in storage
+  (`welcome.view` after a reconnect) and broadcasts `view` to everyone, the sender too, in the order it
+  received them. A client applies another person's view, and its own echo only if it is the last one it
+  sent (`viewStep`), so two changes that cross end the same on both screens. Either person may change it
+  (no tutor-only rule). An older app's `show` becomes a view change (`viewForShow`).
+- **Sending** — every change of my stage (tiles, presets, ▦, drag and drop, the 📝 / 💬 buttons, a swipe
+  on a phone, a board page turn) and the automatic ones (a screen share starting on EITHER side — the
+  sharer sees their own share on the stage too —, a material, an activity) goes out when it differs from
+  the view I last applied or sent (`shouldSendView`), at most every 120 ms while the divider is dragged.
+- **Both press 📝 at once** ("open the board"): a toggle pressed within 3 s of the other person putting
+  that tile on my stage keeps it (`keepJustShared`, `theirLastView` — only tiles newly brought on count).
+- **The way out** — the top bar's chip **👥 Same view ✓** opens: *Same view* (back to the shared view as it
+  is now), *My own view* (look around: nothing is sent, nothing of theirs applied; the chip turns
+  **👤 My own view**), and *Bring <name> to my view* (shown while either of us is on their own view): my
+  view becomes the shared one with `bring`; someone on Same view simply follows, someone on their own
+  view gets **"Minghui wants you to see their view · Join"** — never forced. The mode is per call on the
+  device (`call-view-mode:<callId>`) and rides on the peer state (`state.view`), so the other screen says
+  "Jerome is looking around on their own". Analytics: `call.view_mode`, `call.view_bring`, `call.view_join`.
+- Replaces round 5's one-shot **Show for student** (button, "showing you this" pill, the student's own
+  layout winning). Board pages' Follow / Bring here stay for My own view.
+- **Leave / End** sit apart from the other controls (a divider, wider on desktop); Leave is the last item
+  of ⋯ behind a divider; End always asks; the "You left" screen leads with Rejoin.
+- Tests: `shared/calls/view.test.ts`, `worker/src/durable/__tests__/call-room-follow.test.ts` (any person,
+  order, welcome, `show` compatibility, mode on the state), `e2e/tests/video-call-same-view.spec.ts` (two
+  browsers: both ways, a preset, page turns, the double 📝, My own view, Bring + Join, reload, a share on
+  both stages, Stop their share).
+
 ## The tutor leads: Show for student, Stop their share (round 5)
+
+> Show for student is replaced by **Same view** (above); the room still accepts an older app's `show`.
+
 
 Rules in `shared/calls/follow.ts` (Lab `core/…/calls/CallFollow.kt`, parity-tested); the CallRoom
 enforces who may do what — the **relationship's tutor** (`relationshipTutor`, sent to clients as
@@ -445,7 +487,7 @@ enforces who may do what — the **relationship's tutor** (`relationshipTutor`, 
   tells everyone (`peer_state`). The student's device stops capturing (exactly like its own Stop) and
   shows **"Minghui stopped your screen share"** for a few seconds.
 - Tests: `shared/calls/follow.test.ts`, `worker/src/durable/__tests__/call-room-follow.test.ts`
-  (permissions, follow-ups, welcome after a reload), `e2e/tests/video-call-follow.spec.ts` (two
+  (permissions, follow-ups, welcome after a reload), `e2e/tests/video-call-same-view.spec.ts` (two
   browsers), Lab `CallControllerTest` / parity tests.
 
 ## Lessons: calls in a row are one lesson (round 4)
@@ -729,3 +771,11 @@ review page shows which provider made each transcript.
   student's lesson notes / daily reader.
 - MCP tools: `list_calls`, `get_call_transcript` so Claude can prep the next lesson.
 - Live captions via a streaming STT provider.
+
+## Tab-complete ghost position (round 6)
+
+The ghost layer (`TextBoard.tsx` `GhostLayer`) lays out the text before the caret, the suggestion, and
+— invisible — the text after the caret. Before, it stopped at the suggestion: on a long board scrolled
+down with lines below the caret, the layer was shorter than the textarea, could not scroll as far, and
+the ghost sat lines below the caret ("down the bottom somewhere"; 425 px in the E2E). Checked by
+`TextBoard.gloss.test.tsx` and `e2e/tests/video-call-gloss.spec.ts` ("the ghost sits right after the caret").

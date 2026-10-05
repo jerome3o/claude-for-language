@@ -83,6 +83,7 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallLayout
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.TileStatus
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTranscript
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallView
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 import dev.jeromeswannack.chineselearning.lab.core.calls.VideoFit
 import dev.jeromeswannack.chineselearning.lab.data.calls.AudioRoute
@@ -200,8 +201,10 @@ data class CallActions(
     /** Haptics: a light tick (focus, preset, swipe) / a snap (a floating camera lands in its corner). */
     val onTick: () -> Unit = {},
     val onSnap: () -> Unit = {},
-    /** Round 5: the tutor leads — Show for student, Stop their share; the student's banner and note. */
+    /** Round 5: Stop their share (the tutor) and the student's "… stopped your screen share" note. */
     val lead: LeadActions = LeadActions(),
+    /** "Same view": the top bar's chip menu and the invitation (core CallView). */
+    val view: ViewActions = ViewActions(),
 )
 
 /** Screenshots: where the shared-screen drawing tools start (round 4). */
@@ -234,6 +237,8 @@ fun CallScreen(
     /** Screenshots: the material tile's tools (round 4 PR 5) / the "Present a material" sheet already open. */
     initialMaterial: MaterialUiSeed = MaterialUiSeed(),
     initialPresentSheet: Boolean = false,
+    /** Screenshots: the "Same view" menu already open. */
+    initialViewMenu: Boolean = false,
 ) {
     when {
         info.loading -> Center { Text("Loading the call…", color = OnDark) }
@@ -245,7 +250,7 @@ fun CallScreen(
         s.phase == CallPhase.LEFT -> Left(s, info, actions)
         s.phase == CallPhase.ENDED || s.phase == CallPhase.ERROR -> Ended(s, actions)
         s.phase == CallPhase.PREJOIN || s.phase == CallPhase.JOINING -> PreJoin(s, info, actions, video)
-        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu, initialAnnot, initialMaterial, initialPresentSheet)
+        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu, initialAnnot, initialMaterial, initialPresentSheet, initialViewMenu)
     }
 }
 
@@ -485,9 +490,11 @@ fun layoutForPanel(panel: CallPanel, wide: Boolean): CallLayout.Layout {
 }
 
 @Composable
-private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null, initialAnnot: AnnotUiSeed = AnnotUiSeed(), initialMaterial: MaterialUiSeed = MaterialUiSeed(), initialPresentSheet: Boolean = false) {
+private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null, initialAnnot: AnnotUiSeed = AnnotUiSeed(), initialMaterial: MaterialUiSeed = MaterialUiSeed(), initialPresentSheet: Boolean = false, initialViewMenu: Boolean = false) {
     var seenChat by rememberSaveable { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
+    // "Same view": the top bar chip's menu.
+    var viewMenu by remember { mutableStateOf(initialViewMenu) }
     // Round 4 PR 5: ⋯ → 📑 Present material.
     var presentOpen by remember { mutableStateOf(initialPresentSheet) }
     // ⋯ → 🎲 Activities.
@@ -536,21 +543,11 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         // A new activity (either person started it, or it was running when I joined) comes onto the stage.
         LaunchedEffect(activity?.sessionId) { h.setActivity(activity?.sessionId) }
         LaunchedEffect(sharing) { if (!sharing) annotating = false }
-        // Round 5: the controller's stage (follow / auto-show) is this screen's.
+        // The controller knows this screen's width (its stage is this screen's).
         LaunchedEffect(maxWidth) { actions.lead.onStageWidth(maxWidth.value.toDouble()) }
         val arrangement = CallLayout.arrangeTiles(layout, available, maxWidth.value.toDouble())
-        // Round 5: the tutor's button on a stage tile (the student is here; never in a solo call). It sits in
-        // the tile's own top row (board tabs, material / activity bar) or its top-right corner (screen), clear
-        // of the tile's tools and of the tiles chrome (⤢ ✕) — `compact` = "👀 Show" where the row is narrow.
+        // Room for the tiles' own ⤢ at a stage tile's top end on a wide layout.
         val showEnd = if (wide) 100.dp else 8.dp
-        val showButton: @Composable (CallLayout.TileId, CallLayout.Role, Modifier, Boolean) -> Unit = { tile, role, mod, compact ->
-            val kind = dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowKind.of(tile.wire)
-            if (s.leads && role == CallLayout.Role.STAGE && kind != null) {
-                val view = if (kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowKind.TEXT) dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView.text(s.pages.shown)
-                else dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView(kind)
-                ShowForStudentButton(dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.isShowing(s.shown, s.myUserId, view), mod, compact = compact) { actions.lead.onShow(tile) }
-            }
-        }
         val chatVisible = CallLayout.TileId.CHAT in arrangement.stage || (CallLayout.TileId.CHAT in layout.open && layout.mode == CallLayout.Mode.GRID)
         LaunchedEffect(chatVisible, s.chat.size) { if (chatVisible) seenChat = s.chat.size }
         val boardOnStage = CallLayout.boardOnStage(layout)
@@ -560,7 +557,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             if (h.applySplit(choice, board, content)) actions.onTick()
         }
 
-        val boardSwitch: @Composable (CallLayout.TileId, CallLayout.Role) -> Unit = { current, role ->
+        val boardSwitch: @Composable (CallLayout.TileId, CallLayout.Role) -> Unit = { current, _ ->
             Row(Modifier.fillMaxWidth().padding(start = 8.dp, top = 8.dp, end = showEnd), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Tab("Board", current == CallLayout.TileId.TEXT) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.DRAW, CallLayout.TileId.TEXT)); actions.onTick() }
                 Tab("Draw", current == CallLayout.TileId.DRAW) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.TEXT, CallLayout.TileId.DRAW)); actions.onTick() }
@@ -570,7 +567,6 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     Tab(if (ScreenBoardSplit.isSplit(layout)) "$icon ⋯" else "+ $icon", false) { splitMenu = current }
                 }
                 Spacer(Modifier.weight(1f))
-                showButton(current, role, Modifier, false)
             }
         }
         val tiles = buildMap<CallLayout.TileId, TileSpec> {
@@ -639,9 +635,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         onClick = { applySplit(ScreenBoardSplit.toggle(layout, tilesW, tilesH), ScreenBoardSplit.boardOf(layout), CallLayout.TileId.SCREEN) },
                         onLongClick = { splitMenu = CallLayout.TileId.SCREEN },
                     )
-                    // Round 5: the tutor shows her own screen to the student / stops the student's share.
-                    if (remoteSharing) { if (s.leads) StopTheirShareButton(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd)) { actions.lead.onStopTheirShare() } }
-                    else showButton(CallLayout.TileId.SCREEN, role, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd), false)
+                    // Round 5: the tutor stops the student's share.
+                    if (remoteSharing && s.leads) StopTheirShareButton(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd)) { actions.lead.onStopTheirShare() }
                 }
             })
             if (presenting != null) put(CallLayout.TileId.MATERIAL, TileSpec("📑 ${presenting.title}", onLongPress = { splitMenu = CallLayout.TileId.MATERIAL }) { role ->
@@ -653,8 +648,6 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         onKeep = actions.onAnnotationsKept, onTick = actions.onTick, nowMs = nowMs,
                         endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
                         seed = initialMaterial,
-                        // In the material's bar, before ✕ — never over the page or its Pen / Text tools.
-                        barAction = { showButton(CallLayout.TileId.MATERIAL, role, Modifier, !wide) },
                     )
                 }
             })
@@ -667,8 +660,6 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
                         compact = role != CallLayout.Role.STAGE,
                         seed = info.activitySeed,
-                        // In the activity's header, before ✕ — never over its answer buttons.
-                        headerAction = { showButton(CallLayout.TileId.ACTIVITY, role, Modifier, !wide) },
                     )
                 }
             })
@@ -711,12 +702,22 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
 
         Column(Modifier.fillMaxSize()) {
             // top bar
-            Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(otherName, color = OnDark, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                Text(s.startedAt?.let { CallTranscript.formatOffset(now - it) } ?: "0:00", color = MutedDark, fontSize = 14.sp)
-                if (someoneRecording) RecBadge()
-                if (s.roomStatus == RoomStatus.RECONNECTING) Chip("Reconnecting…", Palette.Hard)
+            Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(otherName, color = OnDark, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    Text(s.startedAt?.let { CallTranscript.formatOffset(now - it) } ?: "0:00", color = MutedDark, fontSize = 14.sp)
+                    if (someoneRecording) RecBadge()
+                    if (s.roomStatus == RoomStatus.RECONNECTING) Chip("Reconnecting…", Palette.Hard)
+                }
+                // "Same view" (core CallView): what both see, and the way out.
+                ViewChip(s.viewMode) { viewMenu = true; actions.onTick() }
             }
+            // They are looking around on their own: a quiet line (it changes nothing on my screen).
+            if (s.theyLookAround) Text(
+                "👀 ${CallView.theyLookAroundText(otherName)}",
+                color = MutedDark, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 4.dp).testTag("they-look-around"),
+            )
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val density = LocalDensity.current
                 CallTiles(
@@ -735,7 +736,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     Modifier.align(Alignment.BottomCenter).padding(bottom = 76.dp, start = 16.dp, end = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    ShowingBannerPill(s.showingBanner, actions.lead.onDismissShowing)
+                    // "Same view": they brought me while I look around on my own.
+                    ViewInvitePill(s.viewInvite, actions.view.onJoin, actions.view.onDismissInvite)
                     ShareStoppedPill(s.shareStoppedNote, actions.lead.onDismissShareStopped)
                 }
             }
@@ -746,19 +748,23 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 actions.onTick()
             })
             // controls
-            val btn = if (wide) 52.dp else 48.dp
+            val btn = if (wide) 52.dp else 46.dp
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(if (wide) 10.dp else 7.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (wide) 10.dp else 6.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
             ) {
                 MicButton(s, actions.onToggleMic, btn)
                 CamButton(s, actions.onToggleCam, btn)
                 RoundButton("📝", "Board", active = boardOnStage, size = btn) {
-                    dispatch(CallLayout.boardButton(layout, narrow = !wide))
+                    // "Same view": they just opened the board for both of us — my press (meant to open it too) leaves it open.
+                    val board = if (CallLayout.TileId.DRAW in arrangement.stage) CallLayout.TileId.DRAW else CallLayout.TileId.TEXT
+                    if (!(boardOnStage && actions.view.keepsJustShared(board))) dispatch(CallLayout.boardButton(layout, narrow = !wide))
                     actions.onTick()
                 }
                 RoundButton("💬", "Chat", active = chatVisible, badge = if (!chatVisible) unread else 0, size = btn) {
-                    dispatch(CallLayout.Action.Focus(if (chatVisible) CallLayout.TileId.REMOTE else CallLayout.TileId.CHAT))
+                    if (!(chatVisible && actions.view.keepsJustShared(CallLayout.TileId.CHAT))) {
+                        dispatch(CallLayout.Action.Focus(if (chatVisible) CallLayout.TileId.REMOTE else CallLayout.TileId.CHAT))
+                    }
                     actions.onTick()
                 }
                 if (s.screenShareSupported) RoundButton("🖥️", if (s.sharingScreen) "Stop sharing" else "Share screen", active = s.sharingScreen, size = btn) {
@@ -767,6 +773,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 // Phones are focus-only (a swipe moves between tiles): the layout menu is for the unfolded screen, like the web.
                 if (wide) RoundButton("▦", "Layout", active = layoutSheet, size = btn) { layoutSheet = true }
                 RoundButton("⋯", "More", size = btn) { more = true }
+                // Leave / End stand apart from the everyday buttons (a gap and a rule), so they aren't hit by mistake.
+                ControlsDivider(if (wide) 14.dp else 6.dp)
                 // Leave (the call goes on) next to End (for everyone) when there is room; on a phone it is in ⋯ and in End's confirm.
                 if (wide) LeavePill(btn) { actions.onTick(); actions.onLeave() }
                 RoundButton("📞", "End the call for everyone", danger = true, size = btn) { confirmEnd = true; actions.onTick() }
@@ -817,6 +825,12 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 title = if (content == CallLayout.TileId.MATERIAL) "Material and board" else "Screen and board",
                 onCancel = { splitMenu = null },
             )
+        }
+        if (viewMenu) LabBottomSheet(onDismiss = { viewMenu = false }, title = "What you both see") {
+            CallViewMenu(s.viewMode, otherName, otherHere = remote != null, theyLookAround = s.theyLookAround, actions = actions.view.copy(
+                onMode = { actions.onTick(); actions.view.onMode(it) },
+                onBring = { actions.onTick(); actions.view.onBring() },
+            ), close = { viewMenu = false })
         }
         if (layoutSheet) LabBottomSheet(onDismiss = { layoutSheet = false }, title = "Layout") {
             CallLayoutMenu(layout, available, first, onAction = { dispatch(it); actions.onTick() }, close = { layoutSheet = false })
@@ -1007,10 +1021,11 @@ fun CallMoreMenu(s: CallState, info: CallScreenInfo, actions: CallActions, close
         if (i > 0) RowDivider()
         NavRow(r.icon, r.label, trailing = { check(r == info.audioRoute) }, onClick = { close(); actions.onAudioRoute(r) })
     }
-    Spacer(Modifier.height(8.dp))
+    if (!s.turn) Text("No TURN relay configured — calls on strict networks may not connect.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(16.dp))
+    // Leave is the LAST item, set apart by a gap and a rule (web: the last ⋯ item, a divider above it).
+    Spacer(Modifier.height(16.dp))
     RowDivider()
     NavRow("🚪", "Leave — the call goes on", desc = "Rejoin any time, from here or another device", onClick = { close(); actions.onLeave() })
-    if (!s.turn) Text("No TURN relay configured — calls on strict networks may not connect.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(16.dp))
     Spacer(Modifier.height(16.dp))
 }
 
@@ -1177,6 +1192,12 @@ private fun ChatPanel(messages: List<CallChatMessage>, myUserId: String, onSend:
 }
 
 // ---------------------------------------------------------------- leave / end
+
+/** The rule between the everyday controls and Leave / End. */
+@Composable
+private fun ControlsDivider(gap: Dp) {
+    Box(Modifier.padding(horizontal = gap).width(1.dp).height(30.dp).background(Color(0x40FFFFFF)))
+}
 
 /** 🚪 Leave — next to End on a wide screen (web: .call-btn.leave). */
 @Composable

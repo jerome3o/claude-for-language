@@ -195,3 +195,48 @@ test('text board tab-complete: ghost after a pause, Tab accepts for both, Esc / 
   await expect(tBoard).toHaveValue(/\n你好 - nǐ hǎo - hello$/, { timeout: 10000 });
   expect(sAsked).toContain('你好');
 });
+
+test('the ghost sits right after the caret on a long, scrolled board (not "down the bottom somewhere")', async ({ browser, request }) => {
+  test.setTimeout(90_000);
+  const tutor = await seedUser(request, 'ghost', '王老师', 'tutor');
+  const { call } = await api<{ call: { id: string } }>(request, '/api/calls', { method: 'POST', token: tutor.token, data: {} });
+  const tp = await openAs(browser, tutor.token, { viewport: { width: 1280, height: 800 } });
+  await mockGloss(tp);
+  await joinAndOpenBoard(tp, call.id);
+  const board = tp.getByTestId('text-board');
+  // Forty lines, then the caret at the end of line 10 with the board scrolled so it is near the top.
+  const lines = Array.from({ length: 40 }, (_, i) => `Line ${i + 1}`);
+  await board.fill(lines.join('\n'));
+  await board.evaluate((ta: HTMLTextAreaElement) => {
+    const at = ta.value.indexOf('Line 10\n') + 'Line 10'.length;
+    ta.focus();
+    ta.setSelectionRange(at, at);
+    ta.scrollTop = ta.scrollHeight; // scrolled all the way down…
+  });
+  await tp.keyboard.type(' 你好'); // …typing at line 10 brings it back into view with lines below it
+  const ghost = tp.getByTestId('text-board-ghost');
+  await expect(ghost).toBeVisible({ timeout: 5000 });
+  // The ghost starts on the caret's line: right of the typed text, and at the same height as it.
+  const caret = await board.evaluate((ta: HTMLTextAreaElement) => {
+    // Measure the caret with a throwaway mirror of the textarea.
+    const m = document.createElement('div');
+    const cs = getComputedStyle(ta);
+    for (const k of ['font', 'lineHeight', 'padding', 'width', 'whiteSpace', 'overflowWrap', 'letterSpacing', 'boxSizing', 'borderWidth']) (m.style as unknown as Record<string, string>)[k] = (cs as unknown as Record<string, string>)[k];
+    m.style.position = 'absolute';
+    m.style.visibility = 'hidden';
+    m.style.whiteSpace = 'pre-wrap';
+    m.textContent = ta.value.slice(0, ta.selectionEnd);
+    const mark = document.createElement('span');
+    mark.textContent = '|';
+    m.appendChild(mark);
+    document.body.appendChild(m);
+    const top = mark.offsetTop - ta.scrollTop + ta.getBoundingClientRect().top;
+    m.remove();
+    return { top, lineHeight: parseFloat(cs.lineHeight) };
+  });
+  const g = (await ghost.evaluate((el) => {
+    const r = el.getClientRects()[0];
+    return { top: r.top };
+  }))!;
+  expect(Math.abs(g.top - caret.top)).toBeLessThan(caret.lineHeight * 0.75);
+});

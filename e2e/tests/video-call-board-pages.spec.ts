@@ -69,7 +69,7 @@ test('board pages: a new page, follow, bring here, rename, delete — then the r
   await join(sp, call.id);
 
   await tp.getByTestId('open-board').click();
-  // Round 5: the tutor opening the board shows it to the student (no click — a click would close it again).
+  // Same view: the tutor opening the board opens it for the student (no click — a click would close it again).
   await expect(sp.getByTestId('call-tiles')).toHaveAttribute('data-stage', /text/, { timeout: 10000 });
   const tBoard = tp.getByTestId('text-board');
   const sBoard = sp.getByTestId('text-board');
@@ -80,8 +80,10 @@ test('board pages: a new page, follow, bring here, rename, delete — then the r
   expect(page1).toBeTruthy();
   await expect(tp.getByTestId('board-page-thumb')).toHaveCount(1);
 
-  // ---- The tutor starts a new page while the student looks at the camera (round 5: a student ON the
-  // shown board follows her page turns by itself); back on the board they are told where she is and follow her.
+  // ---- On "My own view" the student looks at the camera while the tutor starts a new page; back on
+  // the board they are told where she is and follow her (the pages' own Follow / Bring here).
+  await sp.getByTestId('view-chip').click();
+  await sp.getByTestId('view-own').click();
   await sp.getByTestId('open-board').click();
   await expect(sp.getByTestId('call-tiles')).not.toHaveAttribute('data-stage', /text/);
   await tp.getByTestId('board-page-new').click();

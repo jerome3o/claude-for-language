@@ -4,6 +4,7 @@ package dev.jeromeswannack.chineselearning.lab.core
  * The student Home's compact homework card — port of shared/homework/home.ts, parity-tested
  * (parity/fixtures/home-homework.ts, HomeHomeworkParityTest). One slim row per active item:
  * title, "5 / 12", due label; a tap opens `route` (a web path, opened natively by LabNav).
+ * Rows: one-off passes still to do, then lessons sent for long-term review — never a long-term deck.
  */
 
 /** Port of LongTermHomework: an fsrs-mode assignment, or a deck / lesson a tutor sent before assignments existed. */
@@ -77,7 +78,9 @@ object HomeHomework {
             rows += HomeHomeworkRow(a.id, a.kind, ICON[a.kind] ?: "📝", a.title, progress, fraction, compactDue(item.due), item.due.tone, assignmentRoute(a.id), a.tutor_name)
         }
         val seen = HashSet<String>()
-        val extra = longTerm.filter { it.targetId !in covered && longTermActive(it) }
+        // A long-term (fsrs-only) DECK is not a homework row (docs/HOMEWORK.md §11): it is a deck in
+        // the student's queue ("Next up", the Decks tab), not an item with an end. Lessons stay.
+        val extra = longTerm.filter { it.kind != "deck" && it.targetId !in covered && longTermActive(it) }
             .sortedWith { a, b -> b.sentAt.compareTo(a.sentAt).coerceIn(-1, 1) }
         for (l in extra) {
             val key = "${l.kind}:${l.targetId}"

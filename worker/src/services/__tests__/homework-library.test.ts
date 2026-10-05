@@ -102,11 +102,11 @@ describe('homework library', () => {
     expect(result.errors[0].error).toMatch(/not found/);
   });
 
-  it('lists decks (words met) and readers (read) with their status, newest first', async () => {
+  it('lists decks (words met, long-term) and readers (read) with their status, newest first', async () => {
     const lib = await relationshipLibrary(db, TUTOR, STUDENT_REF, TODAY);
     expect(lib.map((i) => i.kind)).toEqual(['reader', 'deck']);
     expect(lib[0]).toMatchObject({ title: 'Xiaoming', status: 'completed', source_id: 't-r', target_id: 's-r', share_id: 'rs-1' });
-    expect(lib[1]).toMatchObject({ title: 'Food', percent: 50, progress: '1 / 2 words met', status: 'in_progress', behind: 1, mode: null });
+    expect(lib[1]).toMatchObject({ title: 'Food', percent: 50, progress: '1 / 2 words met', status: 'long_term', behind: 1, mode: null });
 
     const all = await tutorLibrary(db, TUTOR, TODAY);
     expect(all.students.map((s) => s.student_name).sort()).toEqual(['Anna', 'Ben']);

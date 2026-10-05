@@ -33,6 +33,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -45,6 +46,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NeedsAttentionDto
+import dev.jeromeswannack.chineselearning.lab.data.api.OneOffSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipHomeworkDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SharedReaderDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentLessonDto
@@ -475,9 +477,11 @@ fun HomeworkDeckRow(
     /** "🔎 Check for errors" on the student's copy (word checks); null hides it. */
     onCheck: (() -> Unit)? = null,
     initialMenu: Boolean = false,
+    /** Under "Long-term learning": no fill, smaller title, a grey bar (web `.td-long-term`). */
+    quiet: Boolean = false,
 ) {
     var menu by remember { mutableStateOf(initialMenu) }
-    TeachCard {
+    TeachCard(Modifier.testTag(if (quiet) "long-term-deck" else "homework-deck"), quiet = quiet) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(
                 Modifier.weight(1f).bouncyClickable(pressedScale = 0.98f) { open("/connections/${Routes.seg(relId)}/shared-decks/${Routes.seg(d.shared_deck_id)}/progress") },
@@ -488,9 +492,10 @@ fun HomeworkDeckRow(
                         withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(d.source_deck_name) }
                         withStyle(SpanStyle(color = Lab.colors.muted)) { append(" · sent ${TeachingFormat.shortDate(d.shared_at, now)}") }
                     },
-                    style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink,
+                    style = if (quiet) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge, color = Lab.colors.ink,
                 )
-                ProgressBar2(d.percent_started, d.percent_mastered)
+                if (quiet) ProgressBar2(d.percent_started, d.percent_mastered, color = LONG_TERM_GREY, height = 6.dp)
+                else ProgressBar2(d.percent_started, d.percent_mastered)
                 MutedLine(
                     if (d.target_deck_name == null) "The student deleted their copy"
                     else "${d.notes_introduced}/${d.notes_total} words met · ${d.cards_mastered} cards mastered · " +
@@ -518,6 +523,35 @@ fun HomeworkDeckRow(
             if (removeLabel != null) NavRow("🗑️", removeLabel, danger = true, trailing = {}, onClick = { menu = false; onRemove() })
         }
     }
+}
+
+private val LONG_TERM_GREY = Color(0xFF9CA3AF)
+
+/**
+ * The one-off homework headline at the top of "Homework" (web `.td-hw-headline`): the server's
+ * label — "✓ All done this week" green, "1 overdue · 2 of 3 done" red, "2 of 3 done" blue.
+ * Nothing one-off ever set (state none) → nothing.
+ */
+@Composable
+fun HomeworkHeadline(summary: OneOffSummaryDto?, modifier: Modifier = Modifier) {
+    if (summary == null || summary.state == "none" || summary.label.isEmpty()) return
+    val c = when (summary.state) {
+        "all_done" -> Palette.Good
+        "overdue" -> Palette.Again
+        else -> Palette.Easy
+    }
+    Text(
+        summary.label,
+        style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = c,
+        modifier = modifier.clip(RoundedCornerShape(50)).background(c.copy(alpha = 0.14f))
+            .padding(horizontal = 14.dp, vertical = 7.dp).testTag("homework-headline"),
+    )
+}
+
+/** "Decks in Jerome’s daily review, introduced at their daily new-card budget. Not counted as homework." */
+fun longTermIntro(studentName: String): String {
+    val first = studentName.trim().split(' ').firstOrNull().orEmpty().ifEmpty { "their" }
+    return "Decks in $first’s daily review, introduced at their daily new-card budget. Not counted as homework."
 }
 
 private val RATING_LABELS = mapOf(0 to "Again", 1 to "Hard", 2 to "Good", 3 to "Easy")

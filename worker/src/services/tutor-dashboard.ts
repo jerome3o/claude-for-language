@@ -10,6 +10,7 @@
 
 import type { User } from '../types';
 import { DEFAULT_STUDY_BUDGET, daysToIntroduce, studyBudgetInfo, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow } from '@shared/decks';
+import { isLongTermDeck, summarizeOneOffHomework, type HomeworkAssignment, type HomeworkMode, type OneOffSummary } from '@shared/homework';
 import {
   rankStruggling,
   listRecordings,
@@ -64,6 +65,9 @@ export interface HomeworkLessonInput {
   last_rating: number | null;
 }
 
+/** The fields of an assignment the overview reads. */
+export type HomeworkAssignmentRef = Pick<HomeworkAssignment, 'kind' | 'target_id' | 'mode' | 'status' | 'due_date' | 'completed_at'>;
+
 export interface StudentUserRow extends UserSummary, StudyBudgetRow {
   last_login_at: string | null;
   /** Daily new-card budget (NULL = default). */
@@ -101,6 +105,8 @@ export interface StudentOverviewInput {
   total_reviews: number;
   homework_decks: HomeworkDeckInput[];
   homework_lessons: HomeworkLessonInput[];
+  /** This relationship's assignments — the one-off headline counts only their one-off pass. */
+  assignments?: HomeworkAssignmentRef[];
   /** The student's deck queue in study order (ids), for queue positions on the homework rows. */
   deck_queue?: { id: string }[];
   /** Notes with audio in the student's decks (what a full prefetch would cache). */
@@ -147,11 +153,21 @@ export interface HomeworkDeck extends HomeworkDeckInput {
   /** 1-based place of the student's copy in their deck queue (first = studied first); null when the copy is gone. */
   queue_position: number | null;
   queue_total: number;
+  /** How it was sent (one_off / fsrs / both); null = shared before assignments existed. */
+  mode: HomeworkMode | null;
+  /** Part of the student's long-term learning (anything but a one-off-only copy). */
+  long_term: boolean;
 }
 
 export interface HomeworkSummary {
-  /** Blended progress 0..100, null when nothing has been assigned. See homeworkPercent(). */
+  /**
+   * The one-off headline as 0..100 (= one_off.percent): one-off passes done this week over open +
+   * done; null when nothing one-off was ever set. Long-term decks never count (docs/HOMEWORK.md §11).
+   */
   percent: number | null;
+  /** The one-off headline: "✓ All done this week" · "2 of 3 done" · "1 overdue · …" · "No homework set". */
+  one_off: OneOffSummary;
+  /** Card totals over the decks sent (long-term learning). */
   cards_total: number;
   cards_started: number;
   cards_mastered: number;
@@ -199,7 +215,10 @@ export interface StudentOverview {
     recordings_to_hear: number;
     /** Recordings in the "Needs your ear" queue — what the dashboard pill shows now. */
     recordings_need_ear: number;
+    /** One-off homework only, 0..100 (= homework.one_off.percent); kept for older clients. */
     homework_percent: number | null;
+    /** The one-off headline for the pill ("Homework ✓ all done this week"). */
+    homework: OneOffSummary;
     /** Flagged cards waiting for a reply */
     flags_open: number;
   };
@@ -299,43 +318,56 @@ export function recentActivityDays(rows: ActivityRow[], tzOffsetMinutes: number,
 
 // ---------- Homework ----------
 
-/**
- * Blended homework progress. Each card counts 0 (new), ½ (started) or 1
- * (mastered, stability > 21 days); each assigned lesson counts 1 once it has
- * been completed at least once. Pure mastery would read 0% for weeks after a
- * student started, which tells the tutor nothing, so "started" earns half.
- */
-export function homeworkPercent(s: {
-  cards_total: number;
-  cards_started: number;
-  cards_mastered: number;
-  lessons_total: number;
-  lessons_completed: number;
-}): number | null {
-  const denominator = s.cards_total + s.lessons_total;
-  if (denominator === 0) return null;
-  const startedNotMastered = Math.max(0, s.cards_started - s.cards_mastered);
-  const score = s.cards_mastered + startedNotMastered * 0.5 + s.lessons_completed;
-  return Math.round((100 * score) / denominator);
+/** Modes of the (not cancelled) assignments per student copy id. */
+function modesByTarget(assignments: readonly HomeworkAssignmentRef[]): Map<string, HomeworkMode[]> {
+  const out = new Map<string, HomeworkMode[]>();
+  for (const a of assignments) {
+    if (a.status === 'cancelled') continue;
+    const list = out.get(a.target_id) ?? [];
+    list.push(a.mode);
+    out.set(a.target_id, list);
+  }
+  return out;
 }
 
+function deckMode(modes: readonly HomeworkMode[]): HomeworkMode | null {
+  if (modes.length === 0) return null;
+  if (modes.includes('both') || (modes.includes('one_off') && modes.includes('fsrs'))) return 'both';
+  return modes[0];
+}
+
+/**
+ * The homework summary. The headline (`percent`, `one_off`) counts ONE-OFF homework only — the
+ * pass of one_off / both assignments (summarizeOneOffHomework). Decks are listed with their
+ * long-term progress (words met, ~days at the student's budget, queue position); a long-term deck
+ * never moves the headline.
+ */
 export function summarizeHomework(
   decks: HomeworkDeckInput[],
   lessons: HomeworkLessonInput[],
   budget: Pick<StudyBudget, 'new_cards_per_day'> = DEFAULT_STUDY_BUDGET,
-  deckQueue: { id: string }[] = []
+  deckQueue: { id: string }[] = [],
+  assignments: readonly HomeworkAssignmentRef[] = [],
+  today: string = new Date().toISOString().slice(0, 10)
 ): HomeworkSummary {
   const queueIndex = new Map(deckQueue.map((d, i) => [d.id, i + 1]));
+  const modes = modesByTarget(assignments);
   const cards_total = decks.reduce((s, d) => s + d.cards_total, 0);
   const cards_started = decks.reduce((s, d) => s + d.cards_started, 0);
   const cards_mastered = decks.reduce((s, d) => s + d.cards_mastered, 0);
   const lessons_completed = lessons.filter((l) => l.completions > 0).length;
-  const totals = { cards_total, cards_started, cards_mastered, lessons_total: lessons.length, lessons_completed };
+  const one_off = summarizeOneOffHomework(assignments, today);
   return {
-    percent: homeworkPercent(totals),
-    ...totals,
+    percent: one_off.percent,
+    one_off,
+    cards_total,
+    cards_started,
+    cards_mastered,
+    lessons_total: lessons.length,
+    lessons_completed,
     decks: decks.map((d) => {
       const words_to_go = Math.max(0, (d.notes_total ?? 0) - (d.notes_introduced ?? 0) - (d.notes_left_out ?? 0));
+      const deckModes = modes.get(d.target_deck_id) ?? [];
       return {
         ...d,
         percent_started: d.cards_total ? Math.round((100 * d.cards_started) / d.cards_total) : 0,
@@ -344,6 +376,8 @@ export function summarizeHomework(
         days_to_go: daysToIntroduce(words_to_go, budget),
         queue_position: queueIndex.get(d.target_deck_id) ?? null,
         queue_total: deckQueue.length,
+        mode: deckMode(deckModes),
+        long_term: isLongTermDeck(deckModes),
       };
     }),
     lessons,
@@ -483,7 +517,9 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
     input.homework_decks,
     input.homework_lessons,
     { new_cards_per_day: input.student.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day },
-    input.deck_queue ?? []
+    input.deck_queue ?? [],
+    input.assignments ?? [],
+    dayKey(now, input.tz_offset_minutes)
   );
   const setup = deriveSetup({
     student: input.student,
@@ -505,6 +541,7 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
       recordings_to_hear: input.unheard_recordings,
       recordings_need_ear: input.recordings_need_ear ?? 0,
       homework_percent: homework.percent,
+      homework: homework.one_off,
       flags_open: input.open_flags ?? 0,
     },
     needs_attention: pickNeedsAttention(struggling, recordings),

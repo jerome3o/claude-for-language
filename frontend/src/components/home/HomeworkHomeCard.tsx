@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { homeHomework, wordsMet, type HomeHomeworkRow, type LongTermHomework } from '@shared/homework';
+import { homeHomework, type HomeHomeworkRow, type LongTermHomework } from '@shared/homework';
 import { tutorNotesHomeLine } from '@shared/tutor-notes';
 import { db } from '../../db/database';
 import { useHomeworkItems } from '../homework/useHomeworkItems';
@@ -14,9 +14,9 @@ function truncate(text: string, max: number): string {
 }
 
 /**
- * Long-term homework on the device: fsrs-mode deck / lesson assignments, plus the newest deck or
- * lesson a tutor sent before assignments existed (the old "From <tutor>" pick), each deck with
- * its words met, live from IndexedDB.
+ * Lessons a tutor sent for long-term review (fsrs-mode, or before assignments existed — the old
+ * "From <tutor>" pick), live from IndexedDB. Long-term DECKS are not homework rows any more
+ * (docs/HOMEWORK.md §11): they are decks in the queue (Home's "Next up", the Decks tab).
  */
 function useLongTerm(view: HomeworkView): LongTermHomework[] | undefined {
   const pick = view.pick;
@@ -24,26 +24,11 @@ function useLongTerm(view: HomeworkView): LongTermHomework[] | undefined {
   return useLiveQuery(async () => {
     const assignments = await db.homeworkAssignments.toArray();
     const items: LongTermHomework[] = assignments
-      .filter((a) => a.mode === 'fsrs' && a.status === 'active' && (a.kind === 'deck' || a.kind === 'lesson'))
-      .map((a) => ({ kind: a.kind as 'deck' | 'lesson', target_id: a.target_id, title: a.title, tutor_name: a.tutor_name ?? null, sent_at: a.created_at, met: null, total: null }));
+      .filter((a) => a.mode === 'fsrs' && a.status === 'active' && a.kind === 'lesson')
+      .map((a) => ({ kind: 'lesson' as const, target_id: a.target_id, title: a.title, tutor_name: a.tutor_name ?? null, sent_at: a.created_at, met: null, total: null }));
     const item = pick?.item;
-    if (item && !assignments.some((a) => a.target_id === (item.kind === 'deck' ? item.deckId : item.lessonId))) {
-      items.push(
-        item.kind === 'deck'
-          ? { kind: 'deck', target_id: item.deckId, title: item.name, tutor_name: pick.tutorName, sent_at: item.sentAt, met: null, total: null }
-          : { kind: 'lesson', target_id: item.lessonId, title: item.title, tutor_name: pick.tutorName, sent_at: item.sentAt, met: null, total: null }
-      );
-    }
-    for (const lt of items) {
-      if (lt.kind !== 'deck') continue;
-      const [cards, notes] = await Promise.all([
-        db.cards.where('deck_id').equals(lt.target_id).toArray(),
-        db.notes.where('deck_id').equals(lt.target_id).primaryKeys(),
-      ]);
-      if (notes.length === 0) continue; // not on this device yet
-      const { met, total } = wordsMet(cards, notes as string[]);
-      lt.met = met;
-      lt.total = total;
+    if (pick && item?.kind === 'lesson' && !assignments.some((a) => a.target_id === item.lessonId)) {
+      items.push({ kind: 'lesson', target_id: item.lessonId, title: item.title, tutor_name: pick.tutorName, sent_at: item.sentAt, met: null, total: null });
     }
     return items;
   }, [legacyKey]);
@@ -72,7 +57,7 @@ function HomeworkRowSlim({ row }: { row: HomeHomeworkRow }) {
 /**
  * Home's homework card, compact: one slim row per active item (title, "5 / 12", due label, a thin
  * bar); a tap opens it — the pass for one-off / both items (the lesson / reader player for those
- * kinds), the deck for long-term-only decks. An unread tutor message is one small line.
+ * kinds). An unread tutor message is one small line.
  * Hidden when there is nothing. Rows come from the shared `homeHomework` (Lab app: same rules).
  */
 export function HomeworkHomeCard({ view }: { view: HomeworkView }) {

@@ -7,6 +7,8 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  LIBRARY_STATUSES,
+  LIBRARY_STATUS_LABELS,
   dueDateChoices,
   filterLibrary,
   libraryCounts,
@@ -40,7 +42,7 @@ const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)];
 const int = (lo: number, hi: number) => lo + Math.floor(r() * (hi - lo + 1));
 
 const TODAYS = ['2026-10-03', '2026-12-31', '2027-01-01', '2028-02-28', '2028-03-01'];
-const STATUSES: LibraryStatus[] = ['completed', 'in_progress', 'overdue', 'not_started'];
+const STATUSES: LibraryStatus[] = ['completed', 'in_progress', 'overdue', 'not_started', 'long_term'];
 const KINDS: LibraryKind[] = ['deck', 'lesson', 'reader', 'link'];
 
 function randomDue(today: string): string | null {
@@ -54,13 +56,16 @@ const statusCases = Array.from({ length: 400 }, () => {
   const due = r() < 0.5 ? (r() < 0.2 ? null : addDays(today, int(-3, 3))) : randomDue(today);
   const complete = r() < 0.3;
   const started = r() < 0.5;
-  const status = libraryStatus({ complete, started, due_date: due, today });
+  // A deck in long-term review only (no one-off pass): status long_term whatever its progress.
+  const longTerm = r() < 0.15 ? true : r() < 0.1 ? false : undefined;
+  const status = libraryStatus({ complete, started, due_date: due, today, long_term: longTerm });
   const toneStatus = r() < 0.7 ? status : pick(STATUSES);
   return {
     today,
     due,
     complete,
     started,
+    longTerm: longTerm ?? null,
     status,
     toneStatus,
     tone: statusTone(toneStatus, due, today),
@@ -226,4 +231,6 @@ const links = URLS.map((raw) => {
 const NOTES: unknown[] = ['', '   ', 'Done!', '  看完了，很好看  ', null, 12, 'x'.repeat(1200), '﻿hi　', '\n\tline\n'];
 const notes = NOTES.map((raw) => ({ raw: typeof raw === 'string' ? raw : null, note: cleanLinkNote(raw) }));
 
-writeFileSync(join(OUT, 'homework-library.json'), JSON.stringify({ statusCases, listCases, choices, links, notes }));
+const statusOrder = LIBRARY_STATUSES.map((s) => ({ status: s, label: LIBRARY_STATUS_LABELS[s] }));
+
+writeFileSync(join(OUT, 'homework-library.json'), JSON.stringify({ statusCases, listCases, choices, links, notes, statusOrder }));

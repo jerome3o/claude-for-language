@@ -37,11 +37,11 @@ data class LibraryItem(
     val due_date: String? = null,
     /** 'one_off' | 'fsrs' | 'both'; null = shared before assignments existed. */
     val mode: String? = null,
-    /** 0..100. */
+    /** 0..100 (a long_term deck: words met, shown as words, never as a %). */
     val percent: Int = 0,
     /** "5 / 12 words", "8 / 20 words met", "done", "not started", "read", "not read yet". */
     val progress: String = "",
-    /** 'completed' | 'in_progress' | 'overdue' | 'not_started'. */
+    /** 'completed' | 'in_progress' | 'overdue' | 'not_started' | 'long_term'. */
     val status: String = HomeworkLibrary.NOT_STARTED,
     val completed_at: String? = null,
     val assignment_ids: List<String> = emptyList(),
@@ -63,14 +63,26 @@ object HomeworkLibrary {
     const val OVERDUE = "overdue"
     const val NOT_STARTED = "not_started"
 
+    /**
+     * A deck sent for long-term review only (fsrs, or shared before assignments): a deck in the
+     * student's queue, not homework with an end — no %, never "In progress" (docs/HOMEWORK.md §11).
+     */
+    const val LONG_TERM = "long_term"
+
     /** LIBRARY_KINDS. */
     val KINDS = listOf("deck", "lesson", "reader", "link")
 
     /** LIBRARY_STATUSES (the filter chips' order). */
-    val STATUSES = listOf(OVERDUE, IN_PROGRESS, NOT_STARTED, COMPLETED)
+    val STATUSES = listOf(OVERDUE, IN_PROGRESS, NOT_STARTED, COMPLETED, LONG_TERM)
 
     /** LIBRARY_STATUS_LABELS. */
-    val STATUS_LABELS = mapOf(COMPLETED to "Completed", IN_PROGRESS to "In progress", OVERDUE to "Overdue", NOT_STARTED to "Not started")
+    val STATUS_LABELS = mapOf(
+        COMPLETED to "Completed",
+        IN_PROGRESS to "In progress",
+        OVERDUE to "Overdue",
+        NOT_STARTED to "Not started",
+        LONG_TERM to "In long-term review",
+    )
 
     /** LIBRARY_KIND_LABELS. */
     val KIND_LABELS = mapOf("deck" to "Words", "lesson" to "Lesson", "reader" to "Reader", "link" to "Link")
@@ -86,15 +98,20 @@ object HomeworkLibrary {
     const val RECENT_BATCH_MS = 30 * 60 * 1000L
     const val RECENT_LIMIT = 3
 
-    /** Port of libraryStatus: Completed wins; then a due date before today → Overdue; then started → In progress. */
-    fun libraryStatus(complete: Boolean, started: Boolean, dueDate: String?, today: String): String {
+    /**
+     * Port of libraryStatus: a long-term deck is `long_term`; else Completed wins; then a due date
+     * before today → Overdue; then started → In progress.
+     */
+    fun libraryStatus(complete: Boolean, started: Boolean, dueDate: String?, today: String, longTerm: Boolean = false): String {
+        if (longTerm) return LONG_TERM
         if (complete) return COMPLETED
         if (!dueDate.isNullOrEmpty() && Homework.daysBetween(today, dueDate) < 0) return OVERDUE
         return if (started) IN_PROGRESS else NOT_STARTED
     }
 
-    /** Port of statusTone: 'green' | 'blue' | 'amber' | 'red' | 'grey'. */
+    /** Port of statusTone: 'green' | 'blue' | 'amber' | 'red' | 'grey' (long-term: grey). */
     fun statusTone(status: String, dueDate: String?, today: String): String {
+        if (status == LONG_TERM) return "grey"
         if (status == COMPLETED) return "green"
         if (status == OVERDUE) return "red"
         if (!dueDate.isNullOrEmpty() && Homework.daysBetween(today, dueDate) <= 1) return "amber"
@@ -133,7 +150,7 @@ object HomeworkLibrary {
 
     /** Port of libraryCounts: how many items per status (every status present, 0 included). */
     fun libraryCounts(items: List<LibraryItem>): Map<String, Int> {
-        val counts = linkedMapOf(COMPLETED to 0, IN_PROGRESS to 0, OVERDUE to 0, NOT_STARTED to 0)
+        val counts = linkedMapOf(COMPLETED to 0, IN_PROGRESS to 0, OVERDUE to 0, NOT_STARTED to 0, LONG_TERM to 0)
         for (i in items) counts[i.status] = (counts[i.status] ?: 0) + 1
         return counts
     }

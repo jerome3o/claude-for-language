@@ -8,6 +8,7 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallLayout
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallPeer
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallSignal
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallView
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 import dev.jeromeswannack.chineselearning.lab.core.calls.PeerMediaState
 import dev.jeromeswannack.chineselearning.lab.core.calls.ServerMessage
@@ -115,7 +116,14 @@ class CallControllerTest {
         override suspend fun stop() { if (recording) stops++; recording = false }
     }
 
-    private class Rig(scope: TestScope, media: FakeMedia = FakeMedia(), recorder: FakeRecorder = FakeRecorder(), val prefs: MemoryCallDevicePrefs = MemoryCallDevicePrefs(), val layout: CallLayoutHolder? = null) {
+    class MapStore : CallLayoutStore {
+        val map = HashMap<String, String>()
+        override fun load(key: String) = map[key]
+        override fun save(key: String, value: String) { map[key] = value }
+    }
+
+    private class Rig(scope: TestScope, media: FakeMedia = FakeMedia(), recorder: FakeRecorder = FakeRecorder(), val prefs: MemoryCallDevicePrefs = MemoryCallDevicePrefs(), val layout: CallLayoutHolder? = null, val viewModes: MapStore = MapStore()) {
+        var cids = 0
         val room = FakeRoom()
         val media = media
         val recorder = recorder
@@ -140,6 +148,8 @@ class CallControllerTest {
                 log = {},
                 devicePrefs = prefs,
                 layout = layout,
+                viewModes = viewModes,
+                newViewCid = { "cid${++cids}" },
             ),
             scope.backgroundScope,
         )
@@ -1320,21 +1330,15 @@ class CallControllerTest {
         assertEquals("wor", rig.sentOf("text_cursor").last()["compose"]!!.jsonPrimitive.content)
     }
 
-    // ------------------------------------------------------------ round 5: the tutor leads (core CallFollow)
-
-    private fun shownOf(id: String, view: dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView, v: Int = 1, by: String = "u2", name: String = "Minghui") =
-        dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShownState(id, v, by, name, view, 1_790_000_001_000)
-
-    private val draw = dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView.DRAW
-    private fun textOn(page: String) = dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView.text(page)
+    // ------------------------------------------------------------ "Same view" (core CallView)
 
     /** The student (me) with the tutor (u2, client c-a) in the room; the board has pages pa / pb / pc. */
-    private fun TestScope.studentRig(shown: dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShownState? = null): Rig {
-        val rig = Rig(this, layout = CallLayoutHolder())
+    private fun TestScope.studentRig(view: CallView.SharedView? = null, viewModes: MapStore = MapStore()): Rig {
+        val rig = Rig(this, layout = CallLayoutHolder(), viewModes = viewModes)
         rig.controller.join(record = false)
         runCurrent()
         rig.room.handlers.onStatus(RoomStatus.OPEN)
-        rig.room.handlers.onMessage(pagedWelcome().copy(tutorId = "u2", shown = shown))
+        rig.room.handlers.onMessage(pagedWelcome().copy(tutorId = "u2", view = view))
         runCurrent()
         return rig
     }
@@ -1353,147 +1357,230 @@ class CallControllerTest {
     }
 
     private val Rig.main get() = layout!!.layout.value.main
+    private fun Rig.views() = sentOf("view")
+    private fun JsonObject.viewMain() = this["view"]!!.jsonObject["main"]!!.jsonPrimitive.content
+    private fun TestScope.settle() { advanceTimeBy(CallController.VIEW_SEND_MS + 1); runCurrent() }
 
-    @Test fun aShowIsAppliedOnceThenTheStudentsOwnLayoutWins() = runTest(UnconfinedTestDispatcher()) {
-        val rig = studentRig()
-        assertEquals("u2", rig.controller.state.value.tutorId)
-        assertEquals(CallLayout.TileId.REMOTE, rig.main)
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", draw)))
-        runCurrent()
-        assertEquals(CallLayout.TileId.DRAW, rig.main)
-        assertEquals(CallLayout.Mode.FOCUS, rig.layout!!.layout.value.mode)
-        assertTrue(rig.layout!!.layout.value.remoteFloat)
-        assertEquals("Minghui is showing you this", rig.controller.state.value.showingBanner)
-        // The student goes back to the camera: the banner goes with the drawing board…
-        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.REMOTE))
-        runCurrent()
-        assertNull(rig.controller.state.value.showingBanner)
-        // …and the same show again (a repeat, or a reconnect's welcome) never overrides that.
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", draw)))
-        runCurrent()
-        assertEquals(CallLayout.TileId.REMOTE, rig.main)
-        rig.room.handlers.onStatus(RoomStatus.RECONNECTING)
-        rig.room.handlers.onStatus(RoomStatus.OPEN)
-        rig.room.handlers.onMessage(pagedWelcome().copy(tutorId = "u2", shown = shownOf("s1", draw)))
-        runCurrent()
-        assertEquals(CallLayout.TileId.REMOTE, rig.main)
-        assertNull(rig.controller.state.value.showingBanner)
-        // Something NEW shown: applied again.
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s2", draw)))
-        runCurrent()
-        assertEquals(CallLayout.TileId.DRAW, rig.main)
-        // ✕ on the banner hides it; the layout stays.
-        rig.controller.dismissShowingBanner()
-        assertNull(rig.controller.state.value.showingBanner)
-        assertEquals(CallLayout.TileId.DRAW, rig.main)
-        // Nothing shown any more.
-        rig.room.handlers.onMessage(ServerMessage.Shown(null))
-        runCurrent()
-        assertNull(rig.controller.state.value.shown)
-        assertEquals(CallLayout.TileId.DRAW, rig.main)
+    /** The room's shared view: [main] focused (or split with [second]), on [page]. */
+    private fun sharedOf(seq: Int, by: String = "u2", cid: String = "x$seq", main: CallLayout.TileId = CallLayout.TileId.TEXT, page: String? = null, bring: Boolean = false, split: CallLayout.TileId? = null): CallView.SharedView {
+        var l = CallLayout.reduce(CallLayout.DEFAULT_LAYOUT, CallLayout.Action.Focus(main))
+        if (split != null) l = CallLayout.reduce(l, CallLayout.Action.Split(main, split))
+        return CallView.SharedView(CallView.viewOf(l, page), seq, by, if (by == "u2") "Minghui" else "Me", cid, 1_790_000_001_000 + seq, bring)
     }
 
-    @Test fun aShowInTheWelcomeIsAppliedOnAFreshJoin() = runTest(UnconfinedTestDispatcher()) {
-        val rig = studentRig(shown = shownOf("s1", textOn("pb")))
-        assertEquals(CallLayout.TileId.TEXT, rig.main)
+    @Test fun aWelcomeWithoutAViewGetsMineAndOneWithAViewIsApplied() = runTest(UnconfinedTestDispatcher()) {
+        // Nobody set one yet: the room gets mine (the default stage), with a fresh cid.
+        val first = studentRig()
+        val sent = first.views().single()
+        assertEquals("remote", sent.viewMain())
+        assertEquals("cid1", sent["cid"]!!.jsonPrimitive.content)
+        assertNull(sent["bring"])
+        // A room with a view: it goes on my stage (and its page opens); nothing is sent back.
+        val second = studentRig(view = sharedOf(4, main = CallLayout.TileId.DRAW))
+        assertEquals(CallLayout.TileId.DRAW, second.main)
+        assertTrue(second.views().isEmpty())
+        assertEquals(4, second.controller.state.value.sharedView?.seq)
+        // A reconnect's welcome with the same view changes nothing, even after I moved on.
+        second.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.CHAT))
+        runCurrent()
+        assertEquals(1, second.views().size)
+        second.room.handlers.onMessage(pagedWelcome().copy(tutorId = "u2", view = sharedOf(4, main = CallLayout.TileId.DRAW)))
+        runCurrent()
+        assertEquals(CallLayout.TileId.CHAT, second.main)
+    }
+
+    @Test fun aReceivedViewIsAppliedWithItsPageAndNeverEchoed() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        settle()
+        val before = rig.views().size
+        val holder = rig.layout!!
+        holder.dispatch(CallLayout.Action.SelfCorner(CallLayout.Corner.TL)) // a per-device choice: nothing sent
+        runCurrent()
+        assertEquals(before, rig.views().size)
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(2, main = CallLayout.TileId.TEXT, split = CallLayout.TileId.REMOTE, page = "pb")))
+        runCurrent()
+        val l = holder.layout.value
+        assertEquals(CallLayout.Mode.SPLIT, l.mode)
+        assertEquals(CallLayout.TileId.TEXT, l.main)
+        assertEquals(CallLayout.TileId.REMOTE, l.second)
+        assertEquals(CallLayout.Corner.TL, l.selfCorner) // my own choice kept
         assertEquals(listOf("pb"), rig.sentOf("page_open").map { it["page"]!!.jsonPrimitive.content })
-        assertEquals("Minghui is showing you this", rig.controller.state.value.showingBanner)
-    }
-
-    @Test fun pageTurnsAreFollowedOnlyWhileOnTheBoard() = runTest(UnconfinedTestDispatcher()) {
-        val rig = studentRig()
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", textOn("pb"))))
-        runCurrent()
-        assertEquals(CallLayout.TileId.TEXT, rig.main)
+        assertEquals("pb", rig.controller.state.value.pages.shown)
+        settle()
+        assertEquals(before, rig.views().size) // not sent back
+        // The doc arriving for that page changes nothing either.
         rig.room.handlers.onMessage(doc("pb", "第二页"))
-        runCurrent()
-        assertEquals("pb", rig.controller.state.value.pages.current)
-        // She turns to pc: I'm on the board, so I follow.
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", textOn("pc"), v = 2)))
-        runCurrent()
-        assertEquals(listOf("pb", "pc"), rig.sentOf("page_open").map { it["page"]!!.jsonPrimitive.content })
-        rig.room.handlers.onMessage(doc("pc", "第三页"))
-        runCurrent()
-        // I go to the camera; her next page turn leaves me there.
-        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.REMOTE))
-        runCurrent()
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", textOn("pa"), v = 3)))
-        runCurrent()
-        assertEquals(listOf("pb", "pc"), rig.sentOf("page_open").map { it["page"]!!.jsonPrimitive.content })
-        assertEquals(CallLayout.TileId.REMOTE, rig.main)
+        settle()
+        assertEquals(before, rig.views().size)
     }
 
-    @Test fun aShowOfAMaterialIAmNotSeeingYetAppliesWhenItAppears() = runTest(UnconfinedTestDispatcher()) {
+    @Test fun myChangesAreSentOnSameViewAndMyEchoIsHarmless() = runTest(UnconfinedTestDispatcher()) {
         val rig = studentRig()
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView(dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowKind.MATERIAL))))
+        settle()
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.CHAT))
         runCurrent()
-        assertEquals(CallLayout.TileId.REMOTE, rig.main)
-        assertNull(rig.controller.state.value.showingBanner)
-        rig.room.handlers.onMessage(ServerMessage.Material(dev.jeromeswannack.chineselearning.lab.core.PresentedMaterial("m1", "第五课", 0, 3, "u2", "Minghui")))
-        runCurrent()
-        assertEquals(CallLayout.TileId.MATERIAL, rig.main)
-        assertEquals("Minghui is showing you this", rig.controller.state.value.showingBanner)
-    }
-
-    @Test fun theTutorsOwnShowNeverMovesHerLayout() = runTest(UnconfinedTestDispatcher()) {
-        val rig = tutorRig()
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", draw, by = "me")))
-        runCurrent()
-        assertEquals(CallLayout.TileId.REMOTE, rig.main)
-        assertNull(rig.controller.state.value.showingBanner)
-    }
-
-    @Test fun theTutorOpeningTheBoardShowsItAndHerPageTurnsFollow() = runTest(UnconfinedTestDispatcher()) {
-        val rig = tutorRig()
-        assertTrue(rig.sentOf("show").isEmpty())
+        val v = rig.views().last()
+        assertEquals("chat", v.viewMain())
+        val cid = v["cid"]!!.jsonPrimitive.content
+        // The room's echo of it (by me, that cid) is applied — it is what I have — and not sent again.
+        val count = rig.views().size
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(2, by = "me", cid = cid, main = CallLayout.TileId.CHAT)))
+        settle()
+        assertEquals(CallLayout.TileId.CHAT, rig.main)
+        assertEquals(count, rig.views().size)
+        // A board page turn is a change of the stage too.
         rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        settle()
+        rig.controller.openPage("pc")
+        settle()
+        assertEquals("pc", rig.views().last()["view"]!!.jsonObject["page"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun anOlderEchoOfMineNeverUndoesANewerChange() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        settle()
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.CHAT))
         runCurrent()
-        val show = rig.sentOf("show").single()
-        assertEquals("text", show["view"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
-        assertEquals("pa", show["view"]!!.jsonObject["page"]!!.jsonPrimitive.content)
-        assertNull(show["follow"])
-        // The room's answer; then she turns her page: the same show, follow = true.
-        rig.room.handlers.onMessage(ServerMessage.Shown(shownOf("s1", textOn("pa"), by = "me", name = "Me")))
-        runCurrent()
-        rig.controller.openPage("pb")
-        runCurrent()
-        val turn = rig.sentOf("show").last()
-        assertEquals("pb", turn["view"]!!.jsonObject["page"]!!.jsonPrimitive.content)
-        assertEquals("true", turn["follow"]!!.jsonPrimitive.content)
-        // The corner button on another tile: a new show, not a follow.
-        assertTrue(rig.controller.showTile(CallLayout.TileId.DRAW))
-        val pressed = rig.sentOf("show").last()
-        assertEquals("draw", pressed["view"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
-        assertNull(pressed["follow"])
-        // Leaving the board and coming back shows it again.
-        val before = rig.sentOf("show").size
-        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.REMOTE))
+        val firstCid = rig.views().last()["cid"]!!.jsonPrimitive.content
+        // A second change right after (throttled), then the echo of the first arrives.
         rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.DRAW))
         runCurrent()
-        assertEquals(before + 1, rig.sentOf("show").size)
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(2, by = "me", cid = firstCid, main = CallLayout.TileId.CHAT)))
+        runCurrent()
+        assertEquals(CallLayout.TileId.DRAW, rig.main)
+        settle()
+        assertEquals("draw", rig.views().last().viewMain())
     }
 
-    @Test fun nobodyLeadsInASoloCallOrAsTheStudent() = runTest(UnconfinedTestDispatcher()) {
-        val solo = tutorRig(tutorId = null)
-        solo.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+    @Test fun theDividerIsThrottledAndTheLatestWins() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        settle()
+        val holder = rig.layout!!
+        holder.dispatch(CallLayout.Action.Preset(CallLayout.PresetId.BOARD))
         runCurrent()
-        assertFalse(solo.controller.showTile(CallLayout.TileId.TEXT))
-        assertTrue(solo.sentOf("show").isEmpty())
-        val student = studentRig()
-        student.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        val before = rig.views().size
+        for (r in listOf(0.5, 0.45, 0.4, 0.35)) { holder.dispatch(CallLayout.Action.Ratio(r)); advanceTimeBy(20); runCurrent() }
+        assertEquals(before, rig.views().size)
+        settle()
+        assertEquals(before + 1, rig.views().size)
+        assertEquals("0.35", rig.views().last()["view"]!!.jsonObject["ratio"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun myOwnViewSendsNothingAppliesNothingAndBringIsAnInvitation() = runTest(UnconfinedTestDispatcher()) {
+        val store = MapStore()
+        val rig = studentRig(viewModes = store)
+        settle()
+        rig.controller.setViewMode(CallView.ViewMode.OWN)
+        assertEquals("own", store.map["call-view-mode:call1"])
+        assertEquals("own", rig.sentOf("state").last()["state"]!!.jsonObject["view"]!!.jsonPrimitive.content)
+        val count = rig.views().size
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.CHAT))
+        settle()
+        assertEquals(count, rig.views().size)
+        // Their change: not applied, no invitation.
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(2, main = CallLayout.TileId.DRAW)))
         runCurrent()
-        assertFalse(student.controller.showTile(CallLayout.TileId.TEXT))
-        assertTrue(student.sentOf("show").isEmpty())
-        // The tutor alone in the room (the student hasn't joined): nothing to show yet.
-        val alone = Rig(this, layout = CallLayoutHolder())
-        alone.controller.join(record = false)
+        assertEquals(CallLayout.TileId.CHAT, rig.main)
+        assertNull(rig.controller.state.value.viewInvite)
+        // "Bring Jerome to my view": an invitation.
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(3, main = CallLayout.TileId.TEXT, bring = true)))
         runCurrent()
-        alone.room.handlers.onStatus(RoomStatus.OPEN)
-        alone.room.handlers.onMessage(welcome().copy(tutorId = "me"))
+        assertEquals(CallLayout.TileId.CHAT, rig.main)
+        assertEquals("Minghui", rig.controller.state.value.viewInvite)
+        // Join: Same view, and their view on my stage.
+        rig.controller.joinInvite()
         runCurrent()
-        alone.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        assertEquals(CallLayout.TileId.TEXT, rig.main)
+        assertEquals(CallView.ViewMode.SAME, rig.controller.state.value.viewMode)
+        assertNull(rig.controller.state.value.viewInvite)
+        assertEquals("same", store.map["call-view-mode:call1"])
+        assertEquals(count, rig.views().size) // joining sends nothing
+    }
+
+    @Test fun backToSameViewAppliesTheCurrentSharedViewWhoeverSetIt() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        settle()
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.DRAW))
+        settle()
+        val mine = rig.views().last()["cid"]!!.jsonPrimitive.content
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(2, by = "me", cid = mine, main = CallLayout.TileId.DRAW)))
+        rig.controller.setViewMode(CallView.ViewMode.OWN)
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.CHAT))
+        settle()
+        // The shared view is still my old one (I set it): Same view puts it back.
+        rig.controller.setViewMode(CallView.ViewMode.SAME)
         runCurrent()
-        assertTrue(alone.sentOf("show").isEmpty())
+        assertEquals(CallLayout.TileId.DRAW, rig.main)
+        // A dismissed invitation stays dismissed.
+        rig.controller.dismissInvite()
+        assertNull(rig.controller.state.value.viewInvite)
+    }
+
+    @Test fun bringSendsMyViewAndPutsMeBackOnSameView() = runTest(UnconfinedTestDispatcher()) {
+        val rig = tutorRig()
+        settle()
+        rig.controller.setViewMode(CallView.ViewMode.OWN)
+        rig.layout!!.dispatch(CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        settle()
+        val count = rig.views().size
+        assertTrue(rig.controller.bringToMyView())
+        val v = rig.views().last()
+        assertEquals(count + 1, rig.views().size)
+        assertEquals("text", v.viewMain())
+        assertEquals("true", v["bring"]!!.jsonPrimitive.content)
+        assertEquals(CallView.ViewMode.SAME, rig.controller.state.value.viewMode)
+        assertEquals("same", rig.sentOf("state").last()["state"]!!.jsonObject["view"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun theModeIsRememberedPerCallAndAnnouncedInTheState() = runTest(UnconfinedTestDispatcher()) {
+        val store = MapStore().apply { map["call-view-mode:call1"] = "own" }
+        val rig = studentRig(viewModes = store)
+        assertEquals(CallView.ViewMode.OWN, rig.controller.state.value.viewMode)
+        assertEquals("own", rig.sentOf("state").first()["state"]!!.jsonObject["view"]!!.jsonPrimitive.content)
+        // On my own view a room without a view doesn't get mine.
+        assertTrue(rig.views().isEmpty())
+        // Their state says they look around.
+        rig.room.handlers.onMessage(ServerMessage.PeerState("c-a", PeerMediaState(mic = true, cam = true, view = CallView.ViewMode.OWN)))
+        runCurrent()
+        assertTrue(rig.controller.state.value.theyLookAround)
+    }
+
+    @Test fun aScreenShareComesOntoTheStageOnBothSides() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        settle()
+        rig.controller.startScreenShare("consent")
+        runCurrent()
+        assertEquals(CallLayout.TileId.SCREEN, rig.main)
+        assertEquals("screen", rig.views().last().viewMain())
+    }
+
+    @Test fun aBoardTheyJustOpenedIsKeptFromMyPressForAMoment() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        settle()
+        // She opens the board for both of us: newly on my stage → my 📝 within 3 s leaves it.
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(2, main = CallLayout.TileId.TEXT, page = "pa")))
+        runCurrent()
+        assertTrue(rig.controller.keepsJustShared(CallLayout.TileId.TEXT))
+        assertFalse(rig.controller.keepsJustShared(CallLayout.TileId.CHAT))
+        advanceTimeBy(CallView.JUST_SHARED_MS)
+        assertFalse(rig.controller.keepsJustShared(CallLayout.TileId.TEXT))
+        // A page turn on the board already up brings nothing new.
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(3, main = CallLayout.TileId.TEXT, page = "pb")))
+        runCurrent()
+        assertFalse(rig.controller.keepsJustShared(CallLayout.TileId.TEXT))
+        // My own change never counts; on my own view the guard is off.
+        rig.room.handlers.onMessage(ServerMessage.View(sharedOf(4, main = CallLayout.TileId.CHAT)))
+        runCurrent()
+        assertTrue(rig.controller.keepsJustShared(CallLayout.TileId.CHAT))
+        rig.controller.setViewMode(CallView.ViewMode.OWN)
+        assertFalse(rig.controller.keepsJustShared(CallLayout.TileId.CHAT))
+    }
+
+    @Test fun anOlderAppsShownIsIgnored() = runTest(UnconfinedTestDispatcher()) {
+        val rig = studentRig()
+        rig.room.handlers.onMessage(ServerMessage.Shown(dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShownState("s1", 1, "u2", "Minghui", dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView.DRAW, 1)))
+        runCurrent()
+        assertEquals(CallLayout.TileId.REMOTE, rig.main)
     }
 
     @Test fun stopTheirShareIsSentOnlyByTheTutorWhileTheStudentShares() = runTest(UnconfinedTestDispatcher()) {

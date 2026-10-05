@@ -13,6 +13,7 @@ import type { ActivityAction, ActivitySession } from '../call-activities/types';
 import type { CallDiagEvent } from './connection';
 import type { BoardPageMeta } from './pages';
 import type { ShowView, ShownState } from './follow';
+import type { SharedView, StageView, ViewMode } from './view';
 
 export interface CallPeer {
   client_id: string;
@@ -34,6 +35,8 @@ export interface PeerMediaState {
   cam: boolean;
   screen: boolean;
   recording: boolean;
+  /** "Same view" or "My own view" (./view.ts; absent from an older app = same). */
+  view?: ViewMode;
 }
 
 export interface CallChatMessage {
@@ -116,6 +119,11 @@ export type ClientMessage =
    * turned) — the same show, not a new one.
    */
   | { type: 'show'; view: ShowView | null; follow?: boolean }
+  /**
+   * "Same view" (./view.ts): my stage changed — the room makes it the shared view and tells
+   * everyone (me included). `cid` identifies this change; `bring` = "Bring <name> to my view".
+   */
+  | { type: 'view'; view: StageView; cid: string; bring?: boolean }
   /** The tutor stops the other person's screen share (refused for anyone else). */
   | { type: 'stop_share' }
   | { type: 'state'; state: PeerMediaState }
@@ -159,8 +167,10 @@ export type ServerMessage =
       leave_token?: string;
       /** The relationship's tutor (null = a solo call; absent from an older room). Leads "Show for student" / "Stop their share". */
       tutor_id?: string | null;
-      /** What the tutor last showed (shared/calls/follow.ts). */
+      /** What the tutor last showed (shared/calls/follow.ts; older apps). */
       shown?: ShownState | null;
+      /** The shared view (./view.ts): what is on the stage for everyone on "Same view" (null = nobody set one yet). */
+      view?: SharedView | null;
     }
   | { type: 'peer_joined'; peer: CallPeer }
   | { type: 'peer_left'; client_id: string }
@@ -197,6 +207,8 @@ export type ServerMessage =
   | { type: 'chat'; message: CallChatMessage }
   /** What the tutor shows now (after a `show`). */
   | { type: 'shown'; shown: ShownState | null }
+  /** The shared view changed (after a `view`, or an older app's `show`). */
+  | { type: 'view'; view: SharedView }
   /** To the person sharing: the tutor stopped your screen share — stop capturing. */
   | { type: 'share_stopped'; by: string; name: string }
   | { type: 'pong'; t: number; server_time: number }

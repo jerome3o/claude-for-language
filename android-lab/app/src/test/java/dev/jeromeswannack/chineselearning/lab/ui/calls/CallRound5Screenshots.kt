@@ -24,9 +24,9 @@ import org.junit.Test
 import org.robolectric.annotation.Config
 
 /**
- * Video calls round 5: the tutor leads. Her "Show for student" corner button on the board (and
- * "Showing ✓" once the student sees it), "Stop their share" on the student's shared screen, and on the
- * student's side the quiet "Minghui is showing you this" pill and the "Minghui stopped your screen share" note.
+ * Video calls round 5: "Stop their share" on the student's shared screen (the tutor) and the student's
+ * "Minghui stopped your screen share" note. (Round 5's "Show for student" was replaced by "Same view":
+ * CallSameViewScreenshots.)
  */
 class CallRound5Screenshots : LabScreenshotTest() {
     private val fakeVideo: VideoSlot = { handle, _, _, _, onFrameSize, modifier -> FakeVideo(handle as String, onFrameSize, modifier) }
@@ -65,23 +65,6 @@ class CallRound5Screenshots : LabScreenshotTest() {
         textBoard = board, board = CallsSamples.board, tutorId = CallsSamples.TUTOR,
     )
     private val tutorInfo = CallScreenInfo(otherName = "Jerome Swannack", myName = "Minghui", relationshipId = "r1")
-    private fun boardLayout() = CallLayoutHolder(initial = CallLayout.reduce(CallLayout.DEFAULT_LAYOUT, Action.Focus(TileId.TEXT)))
-
-    /** Folded, the tutor on the board: "👀 Show for student" in the board's top corner. */
-    @Test fun tutorShowButtonOnTheBoard() = shoot("lab-calls-r5-01-tutor-show-for-student") {
-        CallScreen(tutorView, tutorInfo, CallActions(), fakeVideo, now, layout = boardLayout())
-    }
-
-    /** After the press (or opening the board): "Showing ✓" while the student sees this page. */
-    @Test fun tutorShowingTheBoard() = shoot("lab-calls-r5-02-tutor-showing") {
-        val shown = CallFollow.ShownState("s1", 1, CallsSamples.TUTOR, "Minghui", CallFollow.ShowView.text(null), t0)
-        CallScreen(tutorView.copy(shown = shown), tutorInfo, CallActions(), fakeVideo, now, layout = boardLayout())
-    }
-
-    @Config(qualifiers = UNFOLDED)
-    @Test fun tutorShowButtonUnfolded() = shoot("lab-calls-r5-03-tutor-show-for-student-unfolded") {
-        CallScreen(tutorView, tutorInfo, CallActions(), fakeVideo, now, layout = CallLayoutHolder(initial = CallLayout.reduce(CallLayout.DEFAULT_LAYOUT, Action.Preset(CallLayout.PresetId.BOARD))))
-    }
 
     /** The student shares their screen: the tutor gets "⏹ Stop their share" on it. */
     @Test fun tutorStopTheirShare() = shoot("lab-calls-r5-04-tutor-stop-their-share") {
@@ -96,14 +79,8 @@ class CallRound5Screenshots : LabScreenshotTest() {
         startedAt = t0, roomStatus = RoomStatus.OPEN, myUserId = CallsSamples.ME, screenShareSupported = true,
         remote = RemoteParticipant(tutor, video = "them", connection = "connected", tile = CallConnection.TileStatus.LIVE),
         textBoard = board, board = CallsSamples.board, tutorId = CallsSamples.TUTOR,
-        shown = CallFollow.ShownState("s1", 1, CallsSamples.TUTOR, "Minghui", CallFollow.ShowView.text(null), t0),
     )
     private val studentInfo = CallScreenInfo(otherName = "Minghui", myName = "Jerome Swannack", relationshipId = "r1")
-
-    /** What she showed is on my stage, with the quiet pill (✕ hides it). */
-    @Test fun studentShowingBanner() = shoot("lab-calls-r5-05-student-showing-banner") {
-        CallScreen(studentView.copy(showingBanner = CallFollow.showingBanner("Minghui")), studentInfo, CallActions(), fakeVideo, now, layout = CallLayoutHolder(initial = CallLayout.reduce(CallLayout.DEFAULT_LAYOUT, Action.Shown(TileId.TEXT))))
-    }
 
     /** She stopped my screen share: the note says so (my share is already gone). */
     @Test fun studentShareStoppedNote() = shoot("lab-calls-r5-06-student-share-stopped") {

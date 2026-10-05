@@ -228,4 +228,26 @@ class CallProtocolTest {
         assertEquals("""{"type":"show","view":null}""", CallProtocol.show(null))
         assertEquals("""{"type":"stop_share"}""", CallProtocol.stopShare())
     }
+
+    @Test fun sameViewMessages() {
+        // My stage → the room (protocol.ts `{ type: 'view', view: StageView, cid, bring? }`).
+        val v = CallView.viewOf(CallLayout.reduce(CallLayout.DEFAULT_LAYOUT, CallLayout.Action.Focus(CallLayout.TileId.TEXT)), "p2")
+        assertEquals(
+            """{"type":"view","view":{"mode":"focus","main":"text","second":"text","ratio":0.62,"dir":"row","open":["remote","text","self"],"page":"p2"},"cid":"c1"}""",
+            CallProtocol.view(v, "c1"),
+        )
+        assertTrue(CallProtocol.view(v, "c2", bring = true).endsWith(""","cid":"c2","bring":true}"""))
+        // The room's shared view, in welcome and in `view`.
+        val shared = """{"mode":"split","main":"text","second":"remote","ratio":0.5,"dir":"row","open":["remote","text","self"],"page":null,"seq":3,"by":"u2","name":"Minghui","cid":"x","at":10,"bring":true}"""
+        val msg = assertIs<ServerMessage.View>(CallProtocol.parseServer("""{"type":"view","view":$shared}"""))
+        assertEquals(CallView.SharedView(CallView.StageView(CallLayout.Mode.SPLIT, CallLayout.TileId.TEXT, CallLayout.TileId.REMOTE, 0.5, CallLayout.Dir.ROW, listOf(CallLayout.TileId.REMOTE, CallLayout.TileId.TEXT, CallLayout.TileId.SELF), null), 3, "u2", "Minghui", "x", 10, bring = true), msg.view)
+        assertNull(CallProtocol.parseServer("""{"type":"view","view":{"mode":"nope"}}"""))
+        val w = assertIs<ServerMessage.Welcome>(CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"view":$shared}"""))
+        assertEquals(3, w.view?.seq)
+        assertNull(assertIs<ServerMessage.Welcome>(CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"view":null}""")).view)
+        // "Same view" / "My own view" rides in `state` (absent = same: an older app).
+        assertEquals("""{"type":"state","state":{"mic":true,"cam":false,"screen":false,"recording":false,"view":"own"}}""", CallProtocol.state(PeerMediaState(mic = true, view = CallView.ViewMode.OWN)))
+        assertEquals(CallView.ViewMode.OWN, CallProtocol.parseState(Json.parseToJsonElement("""{"view":"own"}""")).view)
+        assertEquals(CallView.ViewMode.SAME, CallProtocol.parseState(Json.parseToJsonElement("""{"mic":true}""")).view)
+    }
 }
