@@ -178,4 +178,23 @@ describe('CallRoom: in-call activities', () => {
     }
     expect(t.of('activity').at(-1)!.session!.results[0]).toMatchObject({ correct: true, answer: '你好' });
   });
+
+  it('someone who arrived after the start takes a role with their first action', async () => {
+    const { join, say } = await openRoom('c1');
+    const t = join(TUTOR, 'ct');
+    await say(t, { type: 'activity_start', activity_id: 'describe-food-1' });
+    const solo = t.of('activity').at(-1)!.session!;
+    expect(solo.roles).toEqual({ a: TUTOR, b: TUTOR });
+    const s = join(STUDENT, 'cs');
+    // The student (now the describer) skips the round: accepted, roles split, both told.
+    await say(s, { type: 'activity_action', session_id: solo.session_id, action: { type: 'skip' } });
+    const after = t.of('activity').at(-1)!.session!;
+    expect(after.roles).toEqual({ a: STUDENT, b: TUTOR });
+    expect(after.round).toBe(1);
+    expect(s.of('activity').at(-1)!.session).toEqual(after);
+    // A new start with both in the call splits the roles straight away.
+    await say(t, { type: 'activity_start', activity_id: 'quiz-tones-1' });
+    const q = t.of('activity').at(-1)!.session!;
+    expect(q.roles).toEqual({ a: TUTOR, b: STUDENT });
+  });
 });

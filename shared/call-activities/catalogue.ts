@@ -14,7 +14,7 @@ export const ACTIVITY_CATALOGUE: ActivitySpec[] = [
     title_zh: '猜一猜：吃的',
     level: 'beginner',
     topic: 'Food',
-    summary: 'One sees a food and describes it in Chinese — without saying its name; the other picks it from four.',
+    summary: 'One sees a food and describes it in Chinese — without saying its name; the other picks it from eight.',
     role_names: { a: 'Describer', b: 'Guesser' },
     tutor_role: 'b',
     items: [
@@ -26,6 +26,38 @@ export const ACTIVITY_CATALOGUE: ActivitySpec[] = [
       { emoji: '🍚', hanzi: '米饭', pinyin: 'mǐfàn', english: 'cooked rice', hints: ['白色的', '每天吃', '一碗'] },
       { emoji: '☕', hanzi: '咖啡', pinyin: 'kāfēi', english: 'coffee', hints: ['喝的', '早上', '有点儿苦'] },
       { emoji: '🥚', hanzi: '鸡蛋', pinyin: 'jīdàn', english: 'egg', hints: ['早饭', '鸡', '白色的'] },
+    ],
+    distractors: [
+      { hanzi: '包子', pinyin: 'bāozi', english: 'steamed bun' },
+      { hanzi: '牛奶', pinyin: 'niúnǎi', english: 'milk' },
+      { hanzi: '橙子', pinyin: 'chéngzi', english: 'orange' },
+      { hanzi: '面包', pinyin: 'miànbāo', english: 'bread' },
+      { hanzi: '茶', pinyin: 'chá', english: 'tea' },
+      { hanzi: '豆腐', pinyin: 'dòufu', english: 'tofu' },
+    ],
+    glossary: [
+      { hanzi: '水果', pinyin: 'shuǐguǒ', english: 'fruit' },
+      { hanzi: '红色', pinyin: 'hóngsè', english: 'red' },
+      { hanzi: '很甜', pinyin: 'hěn tián', english: 'very sweet' },
+      { hanzi: '黄色', pinyin: 'huángsè', english: 'yellow' },
+      { hanzi: '长长的', pinyin: 'chángcháng de', english: 'long' },
+      { hanzi: '猴子喜欢吃', pinyin: 'hóuzi xǐhuan chī', english: 'monkeys like eating it' },
+      { hanzi: '夏天', pinyin: 'xiàtiān', english: 'summer' },
+      { hanzi: '很大', pinyin: 'hěn dà', english: 'very big' },
+      { hanzi: '外面是绿色的', pinyin: 'wàimiàn shì lǜsè de', english: 'green on the outside' },
+      { hanzi: '春节', pinyin: 'Chūnjié', english: 'Spring Festival' },
+      { hanzi: '北方人', pinyin: 'běifāng rén', english: 'northerners' },
+      { hanzi: '里面有肉', pinyin: 'lǐmiàn yǒu ròu', english: 'there is meat inside' },
+      { hanzi: '用筷子吃', pinyin: 'yòng kuàizi chī', english: 'eaten with chopsticks' },
+      { hanzi: '有汤', pinyin: 'yǒu tāng', english: 'comes with soup' },
+      { hanzi: '白色的', pinyin: 'báisè de', english: 'white' },
+      { hanzi: '每天吃', pinyin: 'měitiān chī', english: 'eaten every day' },
+      { hanzi: '一碗', pinyin: 'yì wǎn', english: 'a bowl' },
+      { hanzi: '喝的', pinyin: 'hē de', english: 'something to drink' },
+      { hanzi: '早上', pinyin: 'zǎoshang', english: 'morning' },
+      { hanzi: '有点儿苦', pinyin: 'yǒudiǎnr kǔ', english: 'a bit bitter' },
+      { hanzi: '早饭', pinyin: 'zǎofàn', english: 'breakfast' },
+      { hanzi: '鸡', pinyin: 'jī', english: 'chicken' },
     ],
   },
   {
@@ -47,6 +79,40 @@ export const ACTIVITY_CATALOGUE: ActivitySpec[] = [
       { emoji: '🐘', hanzi: '大象', pinyin: 'dàxiàng', english: 'elephant', hints: ['非常大', '鼻子很长', '灰色'] },
       { emoji: '🐵', hanzi: '猴子', pinyin: 'hóuzi', english: 'monkey', hints: ['树上', '吃香蕉', '很聪明'] },
       { emoji: '🐟', hanzi: '鱼', pinyin: 'yú', english: 'fish', hints: ['水里', '游泳', '猫喜欢吃'] },
+    ],
+    distractors: [
+      { hanzi: '狮子', pinyin: 'shīzi', english: 'lion' },
+      { hanzi: '马', pinyin: 'mǎ', english: 'horse' },
+      { hanzi: '鸟', pinyin: 'niǎo', english: 'bird' },
+      { hanzi: '牛', pinyin: 'niú', english: 'cow' },
+      { hanzi: '猪', pinyin: 'zhū', english: 'pig' },
+      { hanzi: '羊', pinyin: 'yáng', english: 'sheep' },
+    ],
+    glossary: [
+      { hanzi: '黑白', pinyin: 'hēibái', english: 'black and white' },
+      { hanzi: '四川', pinyin: 'Sìchuān', english: 'Sichuan' },
+      { hanzi: '吃竹子', pinyin: 'chī zhúzi', english: 'eats bamboo' },
+      { hanzi: '很大', pinyin: 'hěn dà', english: 'very big' },
+      { hanzi: '很危险', pinyin: 'hěn wēixiǎn', english: 'very dangerous' },
+      { hanzi: '黄色和黑色', pinyin: 'huángsè hé hēisè', english: 'yellow and black' },
+      { hanzi: '家里', pinyin: 'jiā li', english: 'at home' },
+      { hanzi: '喜欢鱼', pinyin: 'xǐhuan yú', english: 'likes fish' },
+      { hanzi: '喵', pinyin: 'miāo', english: 'miaow' },
+      { hanzi: '人的朋友', pinyin: 'rén de péngyou', english: 'a friend of people' },
+      { hanzi: '汪汪', pinyin: 'wāngwāng', english: 'woof woof' },
+      { hanzi: '跑得很快', pinyin: 'pǎo de hěn kuài', english: 'runs fast' },
+      { hanzi: '耳朵很长', pinyin: 'ěrduo hěn cháng', english: 'long ears' },
+      { hanzi: '吃胡萝卜', pinyin: 'chī húluóbo', english: 'eats carrots' },
+      { hanzi: '跳', pinyin: 'tiào', english: 'to jump' },
+      { hanzi: '非常大', pinyin: 'fēicháng dà', english: 'extremely big' },
+      { hanzi: '鼻子很长', pinyin: 'bízi hěn cháng', english: 'long nose' },
+      { hanzi: '灰色', pinyin: 'huīsè', english: 'grey' },
+      { hanzi: '树上', pinyin: 'shù shang', english: 'in the trees' },
+      { hanzi: '吃香蕉', pinyin: 'chī xiāngjiāo', english: 'eats bananas' },
+      { hanzi: '很聪明', pinyin: 'hěn cōngming', english: 'very clever' },
+      { hanzi: '水里', pinyin: 'shuǐ li', english: 'in the water' },
+      { hanzi: '游泳', pinyin: 'yóuyǒng', english: 'to swim' },
+      { hanzi: '猫喜欢吃', pinyin: 'māo xǐhuan chī', english: 'cats like eating it' },
     ],
   },
   {
@@ -240,6 +306,10 @@ export function validateActivitySpec(spec: ActivitySpec): string[] {
     case 'describe':
       if (spec.items.length < 4) p.push('describe needs at least 4 items (four options a round)');
       if (new Set(spec.items.map((i) => i.hanzi)).size !== spec.items.length) p.push('describe items must differ');
+      for (const d of spec.distractors ?? []) if (spec.items.some((i) => i.hanzi === d.hanzi)) p.push(`distractor ${d.hanzi} is also an item`);
+      if (spec.glossary) {
+        for (const it of spec.items) for (const h of it.hints ?? []) if (!spec.glossary.some((g) => g.hanzi === h)) p.push(`hint ${h} has no glossary entry`);
+      }
       break;
     case 'info_gap': {
       const hanzi = new Set(spec.choices.map((c) => c.hanzi));

@@ -18,8 +18,12 @@ import {
   type DictationSpec,
   type InfoGapSpec,
   type QuizSpec,
+  type NeededWord,
   type RoleplaySpec,
+  wordsYouNeeded,
 } from '@shared/call-activities';
+import { AddChunkModal } from '../../AddChunkModal';
+import { track } from '../../../services/analytics';
 import { diffHanzi } from '@shared/lesson/answer-check';
 
 export interface BodyProps {
@@ -67,37 +71,52 @@ function DescribeView({ session: s, role, act, can, speak, spec }: BodyProps & {
   const item = spec.items[s.round];
   const pick = s.data.pick ?? null;
   const reveal = s.phase === 'reveal';
-  if (role === 'a' && !reveal) {
+  // Who picked — never "the guesser" by role: the reveal names the person who did it.
+  const picker = s.data.pick_by ? (s.names[s.data.pick_by] ?? 'Your partner') : nameOf(s, 'b');
+  const target = (
+    <>
+      <div className="act-emoji" aria-hidden="true">{item.emoji}</div>
+      <div className="act-hanzi" data-testid="describe-target">{item.hanzi}</div>
+      <div className="act-pinyin">{item.pinyin} · {item.english}</div>
+    </>
+  );
+  const verdict = reveal && (
+    <div className={`act-verdict ${pick === item.hanzi ? 'right' : 'wrong'}`} data-testid="activity-verdict">
+      {pick === item.hanzi ? `✓ ${picker} got it!` : `✗ ${picker} picked ${pick}`}
+    </div>
+  );
+  // The describer: the word and the hints, never the choices.
+  if (role === 'a') {
     return (
-      <div className="act-center">
-        <div className="act-emoji" aria-hidden="true">{item.emoji}</div>
-        <div className="act-hanzi" data-testid="describe-target">{item.hanzi}</div>
-        <div className="act-pinyin">{item.pinyin} · {item.english}</div>
-        <p className="act-instr">Describe it in Chinese — don’t say the word!</p>
-        {item.hints?.length ? (
-          <div className="act-chips" aria-label="Words you could use">
-            {item.hints.map((h) => <button key={h} type="button" className="act-chip" onClick={() => speak(h)}>{h}</button>)}
-          </div>
-        ) : null}
-        <Waiting>{nameOf(s, 'b')} is guessing…</Waiting>
+      <div className="act-center" data-testid="describe-describer">
+        {target}
+        {reveal ? verdict : (
+          <>
+            <p className="act-instr">Describe it in Chinese — don’t say the word!</p>
+            {item.hints?.length ? (
+              <div className="act-chips" aria-label="Words you could use">
+                {item.hints.map((h) => <button key={h} type="button" className="act-chip" onClick={() => speak(h)}>{h}</button>)}
+              </div>
+            ) : null}
+            <Waiting>{nameOf(s, 'b')} is guessing from {(s.data.options ?? []).length} words…</Waiting>
+          </>
+        )}
+        {reveal && <NeededWords session={s} round={s.round} where="round" />}
+        <div className="act-actions"><NextButton can={can} act={act} /></div>
       </div>
     );
   }
   return (
-    <div className="act-center">
+    <div className="act-center" data-testid="describe-guesser">
       {reveal ? (
         <>
-          <div className="act-emoji" aria-hidden="true">{item.emoji}</div>
-          <div className="act-hanzi">{item.hanzi}</div>
-          <div className="act-pinyin">{item.pinyin} · {item.english}</div>
-          <div className={`act-verdict ${pick === item.hanzi ? 'right' : 'wrong'}`} data-testid="activity-verdict">
-            {pick === item.hanzi ? `✓ ${nameOf(s, 'b')} got it!` : `✗ ${nameOf(s, 'b')} picked ${pick}`}
-          </div>
+          {target}
+          {verdict}
         </>
       ) : (
         <p className="act-instr">Listen to {nameOf(s, 'a')}’s description and pick what it is.</p>
       )}
-      <div className="act-options four">
+      <div className="act-options grid" data-count={(s.data.options ?? []).length}>
         {(s.data.options ?? []).map((o) => {
           const cls = reveal ? (o === item.hanzi ? ' right' : o === pick ? ' wrong' : ' dim') : '';
           return (
@@ -107,7 +126,47 @@ function DescribeView({ session: s, role, act, can, speak, spec }: BodyProps & {
           );
         })}
       </div>
-      <NextButton can={can} act={act} />
+      {reveal && <NeededWords session={s} round={s.round} where="round" />}
+      <div className="act-actions"><NextButton can={can} act={act} /></div>
+    </div>
+  );
+}
+
+/**
+ * "Words you needed": a describe round's answer and its hint words, each with "+ Add as card"
+ * (AddChunkModal: deck picker on the top deck, ⚡ Study it today when they already have it).
+ * `round` omitted = every round played (the summary).
+ */
+export function NeededWords({ session, round, where }: { session: ActivitySession; round?: number; where: 'round' | 'summary' }) {
+  const words = wordsYouNeeded(session, round);
+  const [adding, setAdding] = useState<NeededWord | null>(null);
+  const [added, setAdded] = useState<Set<string>>(() => new Set());
+  if (words.length === 0) return null;
+  return (
+    <div className="act-needed" data-testid="needed-words">
+      <div className="act-needed-head">Words you needed</div>
+      <ul className="act-needed-list">
+        {words.map((w) => (
+          <li key={w.hanzi} className={`act-needed-row ${w.kind}`} data-testid="needed-word" data-kind={w.kind}>
+            <span className="act-needed-hanzi">{w.hanzi}</span>
+            <span className="act-needed-gloss">{[w.pinyin, w.english].filter(Boolean).join(' · ')}</span>
+            <button type="button" className="act-needed-add" onClick={() => setAdding(w)} disabled={added.has(w.hanzi)} data-testid="needed-word-add">
+              {added.has(w.hanzi) ? '✓ Added' : '+ Add as card'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {adding && (
+        <AddChunkModal
+          source="other"
+          chunk={{ hanzi: adding.hanzi, pinyin: adding.pinyin, english: adding.english }}
+          onClose={() => setAdding(null)}
+          onAdded={() => {
+            setAdded((prev) => new Set(prev).add(adding.hanzi));
+            track('call.activity_word_add', { activity_kind: session.spec.kind, word_kind: adding.kind, where });
+          }}
+        />
+      )}
     </div>
   );
 }
