@@ -4,13 +4,16 @@
  * page turns both people share (‹ ›, ← / → keys), and the same Pen / Text
  * annotation layer as a shared screen, scoped to this page (kept per page per
  * lesson by the room). The next page is fetched ahead so turning is instant.
+ * ☰ Contents (round 6, shared/materials/toc.ts) jumps to a section — a
+ * page turn like ‹ ›, so both people go there.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ANNOT_COLORS, type AnnotStroke, type AnnotText, type VideoSize } from '@shared/calls';
-import type { PresentedMaterial } from '@shared/materials';
-import { getMaterial, type MaterialPageInfo } from '../../api/materials';
-import { pageImage, prefetchMaterial } from '../../services/materials/cache';
+import { materialContents, type MaterialTocEntry, type PresentedMaterial } from '@shared/materials';
+import type { MaterialPageInfo } from '../../api/materials';
+import { loadMaterial, pageImage, prefetchMaterial } from '../../services/materials/cache';
+import { MaterialContentsButton } from '../materials/MaterialContents';
 import type { AnnotationStore } from '../../services/calls/annotations';
 import { AnnotationLayer, type AnnotTool } from './AnnotationLayer';
 
@@ -29,6 +32,7 @@ interface Props {
 
 export function MaterialTile({ presenting, store, persist, onPersist, myColor, onTurn, onStop, annot, active }: Props) {
   const [pages, setPages] = useState<MaterialPageInfo[] | null>(null);
+  const [toc, setToc] = useState<MaterialTocEntry[] | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [size, setSize] = useState<VideoSize | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,10 +45,12 @@ export function MaterialTile({ presenting, store, persist, onPersist, myColor, o
   useEffect(() => {
     let alive = true;
     setPages(null);
-    getMaterial(id)
+    setToc(null);
+    loadMaterial(id)
       .then((r) => {
         if (!alive) return;
         setPages(r.pages);
+        setToc(r.material.toc ?? null);
         void prefetchMaterial(r.pages); // the whole material on this device for later / offline
       })
       .catch(() => alive && setPages([]));
@@ -85,10 +91,14 @@ export function MaterialTile({ presenting, store, persist, onPersist, myColor, o
   }, [active, page, count, onTurn]);
 
   const meta = pages?.[page];
+  const contents = useMemo(() => (pages ? materialContents(toc, count, pages) : null), [toc, count, pages]);
   return (
     <div className="call-tile-body mt" data-testid="material-tile">
       <div className="mt-bar">
         <span className="mt-title" title={presenting.title}>📑 {presenting.title}</span>
+        {contents && count > 1 && (
+          <MaterialContentsButton entries={contents.entries} source={contents.source} page={page} onJump={onTurn} where="call" buttonClassName="mt-btn mt-contents" />
+        )}
         <button type="button" className="mt-btn" onClick={() => onTurn(Math.max(0, page - 1))} disabled={page <= 0} aria-label="Previous page" data-testid="material-prev">‹</button>
         <span className="mt-page" data-testid="material-page">{page + 1} / {count}</span>
         <button type="button" className="mt-btn" onClick={() => onTurn(Math.min(count - 1, page + 1))} disabled={page >= count - 1} aria-label="Next page" data-testid="material-next">›</button>

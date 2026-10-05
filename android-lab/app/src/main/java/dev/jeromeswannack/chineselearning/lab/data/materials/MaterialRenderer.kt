@@ -10,6 +10,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.ext.SdkExtensions
+import dev.jeromeswannack.chineselearning.lab.core.MaterialToc
 import dev.jeromeswannack.chineselearning.lab.core.Materials
 import dev.jeromeswannack.chineselearning.lab.core.PptxSlides
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +23,8 @@ import kotlin.coroutines.coroutineContext
 /** One rendered page: its JPEG on disk, its size and its text (agents read it). */
 data class RenderedPage(val image: File, val width: Int, val height: Int, val text: String, val notes: String)
 
-data class RenderResult(val pages: List<RenderedPage>, val renderNote: String?)
+/** [toc]: Contents read here (PowerPoint slide titles); null = not known (PdfRenderer can't read a PDF's outline). */
+data class RenderResult(val pages: List<RenderedPage>, val renderNote: String?, val toc: List<MaterialToc.Entry>? = null)
 
 /**
  * Renders a lesson material to page pictures on the phone (web services/materials/render.ts), so the
@@ -114,6 +116,7 @@ class MaterialRenderer(private val outDir: File) {
 
     private suspend fun renderPptx(file: File, onProgress: (Int, Int) -> Unit): RenderResult {
         val pages = ArrayList<RenderedPage>()
+        val titles = ArrayList<String>()
         val zip = runCatching { ZipFile(file) }.getOrElse { throw IllegalArgumentException("This isn’t a PowerPoint file") }
         zip.use { z ->
             fun text(path: String): String? = z.getEntry(path)?.let { e -> z.getInputStream(e).use { it.readBytes().toString(Charsets.UTF_8) } }
@@ -136,13 +139,14 @@ class MaterialRenderer(private val outDir: File) {
                     val image = save(bmp, i)
                     bmp.recycle()
                     pages += RenderedPage(image, w, h, Materials.cleanPageText(PptxSlides.slideText(s)), Materials.cleanPageText(s.notes))
+                    titles += PptxSlides.slideTitle(s)
                     onProgress(i + 1, slides.size)
                 }
             } finally {
                 images.values.forEach { it.recycle() }
             }
         }
-        return RenderResult(pages, Materials.PPTX_RENDER_NOTE)
+        return RenderResult(pages, Materials.PPTX_RENDER_NOTE, MaterialToc.slideTitlesToc(titles))
     }
 
     /** Big slide pictures are decoded at most ~3200 px on the long side (memory). */

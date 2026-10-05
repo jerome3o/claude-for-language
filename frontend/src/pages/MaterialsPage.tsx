@@ -3,11 +3,13 @@
  * a tutor teaches from. Upload (pages are drawn on this device and uploaded
  * as pictures, the original kept), rename, delete, share with a student, and
  * /materials/:id — read it page by page (cache-first, so a material opened or
- * presented before works offline), its text, the original file.
+ * presented before works offline), its ☰ Contents (shared/materials/toc.ts;
+ * an older upload of mine gets its Contents read from the original here),
+ * its text, the original file.
  * Presenting happens in a call (⋯ → Present material).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
@@ -25,7 +27,9 @@ import {
 } from '../api/materials';
 import { addMaterial, type UploadStage } from '../services/materials/upload';
 import { loadMaterial, pageImage, prefetchMaterial } from '../services/materials/cache';
-import { MAX_MATERIAL_BYTES } from '@shared/materials';
+import { backfillMaterialToc } from '../services/materials/toc';
+import { MaterialContentsButton } from '../components/materials/MaterialContents';
+import { MAX_MATERIAL_BYTES, materialContents } from '@shared/materials';
 import './MaterialsPage.css';
 
 const KIND_ICON: Record<string, string> = { pdf: '📄', pptx: '📊', image: '🖼️' };
@@ -187,6 +191,21 @@ export function MaterialViewerPage() {
     loadMaterial(id).then(setData).catch((e) => setError(e instanceof Error ? e.message : 'Couldn’t load it'));
   }, [id]);
 
+  // My own older material has no Contents yet: read it from the original once, quietly.
+  const material0 = data && !data.offline ? data.material : null;
+  useEffect(() => {
+    if (!material0) return;
+    let alive = true;
+    void backfillMaterialToc(material0).then((toc) => {
+      if (alive && toc) setData((d) => (d ? { ...d, material: { ...d.material, toc } } : d));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [material0]);
+
+  const contents = useMemo(() => (data ? materialContents(data.material.toc, data.pages.length, data.pages) : null), [data]);
+
   const pageInfo = data?.pages[page];
   useEffect(() => {
     if (!pageInfo?.image_url) return;
@@ -244,6 +263,9 @@ export function MaterialViewerPage() {
           <button type="button" className="mat-btn" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page <= 0} aria-label="Previous page">‹</button>
           <span className="mv-page" data-testid="viewer-page">{count ? page + 1 : 0} / {count}</span>
           <button type="button" className="mat-btn" onClick={() => setPage((p) => Math.min(count - 1, p + 1))} disabled={page >= count - 1} aria-label="Next page">›</button>
+          {contents && count > 1 && (
+            <MaterialContentsButton entries={contents.entries} source={contents.source} page={page} onJump={setPage} where="viewer" buttonClassName="mat-btn mv-contents" />
+          )}
         </div>
         <div className="mv-stage">
           {url ? <img src={url} alt={`Page ${page + 1}`} className="mv-img" data-testid="viewer-image" /> : <p className="mat-muted">{pageInfo?.image_url ? 'Loading page…' : 'This page has no picture.'}</p>}

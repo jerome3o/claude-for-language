@@ -78,6 +78,8 @@ object AnalyticsEvents {
         ev("call.screen_share", "calls", listOf("on")),
         ev("call.annotate", "calls", listOf("target")),
         ev("call.material_present", "calls", listOf("material_kind", "pages")),
+        ev("material.contents_open", "calls", listOf("where", "source", "entries")),
+        ev("material.contents_jump", "calls", listOf("where", "source")),
         ev("call.activity_start", "calls", listOf("activity_kind")),
         ev("call.layout", "calls", listOf("preset")),
         ev("call.review_open", "calls", emptyList()),

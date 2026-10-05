@@ -1,0 +1,36 @@
+/* A material's Contents (MaterialContents.tsx): popover ≥ 640px, bottom sheet on phones. */
+.mc-btn { white-space: nowrap; }
+.mc-backdrop { position: fixed; inset: 0; z-index: 1100; }
+.mc-backdrop.sheet { background: rgba(0, 0, 0, 0.4); display: flex; align-items: flex-end; justify-content: center; }
+.mc-panel {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--bg-card, #fff); color: var(--text-primary, #111827);
+  color-scheme: inherit;
+}
+.mc-panel.popover {
+  position: fixed; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22); overflow: hidden;
+}
+.mc-panel.sheet {
+  width: 100%; max-height: 75dvh; border-radius: 16px 16px 0 0;
+  padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom, 0px));
+}
+.mc-head { display: flex; align-items: center; justify-content: space-between; padding: 0.25rem 0.5rem 0.25rem 1rem; }
+.mc-head h2 { font-size: 1.1rem; margin: 0; }
+.mc-close {
+  min-width: 44px; min-height: 44px; border: 0; border-radius: 10px; background: none;
+  color: inherit; font-size: 1rem; cursor: pointer;
+}
+.mc-list { overflow: auto; min-height: 0; padding: 0.3rem; display: flex; flex-direction: column; overscroll-behavior: contain; }
+.mc-note { margin: 0.2rem 0.6rem 0.4rem; font-size: 0.8rem; color: var(--text-secondary, #6b7280); }
+.mc-row {
+  display: flex; align-items: center; gap: 0.6rem; min-height: 44px; width: 100%;
+  padding: 0.35rem 0.7rem; border: 0; border-radius: 8px; background: none;
+  color: inherit; text-align: left; font-size: 0.95rem; cursor: pointer;
+}
+.mc-row:hover, .mc-row:focus-visible { background: rgba(37, 99, 235, 0.08); }
+.mc-row.level-1 { padding-left: 1.8rem; font-size: 0.9rem; }
+.mc-row.current { background: rgba(37, 99, 235, 0.12); font-weight: 600; }
+.mc-row.current .mc-title::before { content: '▸ '; color: #2563eb; }
+.mc-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-page { flex: none; font-size: 0.8rem; color: var(--text-secondary, #6b7280); font-variant-numeric: tabular-nums; }

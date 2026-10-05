@@ -8,6 +8,7 @@ import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.api.CompleteMaterialBody
 import dev.jeromeswannack.chineselearning.lab.data.api.MaterialDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MaterialPageTextBody
+import dev.jeromeswannack.chineselearning.lab.data.api.MaterialTocEntryBody
 import dev.jeromeswannack.chineselearning.lab.data.api.NewMaterialBody
 import dev.jeromeswannack.chineselearning.lab.data.api.completeMaterial
 import dev.jeromeswannack.chineselearning.lab.data.api.createMaterial
@@ -62,7 +63,10 @@ class MaterialUploader(private val api: Api, private val store: MaterialStore, p
                     runCatching { store.keepUploaded(material.id, i, p.image) }
                 }
                 onProgress(UploadStage.Finishing)
-                return api.completeMaterial(material.id, CompleteMaterialBody(rendered.pages.mapIndexed { i, p -> MaterialPageTextBody(i, p.text, p.notes) }, rendered.renderNote)).material
+                return api.completeMaterial(material.id, CompleteMaterialBody(
+                    rendered.pages.mapIndexed { i, p -> MaterialPageTextBody(i, p.text, p.notes) }, rendered.renderNote,
+                    rendered.toc?.map { MaterialTocEntryBody(it.title, it.page, it.level) },
+                )).material
             } catch (e: Throwable) {
                 withContext(NonCancellable) { runCatching { api.deleteMaterial(material.id) }; store.forget(material.id) }
                 throw e

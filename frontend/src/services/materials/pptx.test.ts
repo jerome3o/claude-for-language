@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
-import { readPptx, resolvePath, slideText } from './pptx';
+import { readPptx, resolvePath, slideText, slideTitle } from './pptx';
 
 const NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
 const RELNS = 'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"';
@@ -44,6 +44,8 @@ describe('pptx → slides', () => {
     expect(slideText(first)).toBe('第五课：把字句\n• 我把作业做完了。\n• 把 + object + verb + result\nNo bullet here');
     // Tables: their cells' text.
     expect(slideText(second)).toBe('把 | bǎ');
+    // Contents: the title placeholder's text; a slide without one has none.
+    expect(slides.map(slideTitle)).toEqual(['第五课：把字句', '']);
   });
 
   it('resolves relationship targets', () => {
