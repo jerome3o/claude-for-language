@@ -60,4 +60,39 @@ class CallActivityProtocolTest {
         assertNull(CallActivities.reduce(unknown, ActivityAction.Reveal, "t", 1))
         assertTrue(CallActivities.reduce(unknown, ActivityAction.Finish, "t", 1) != null)
     }
+
+    /** Review together: the room's spec (built per call) and the new actions in the TS shape. */
+    @Test fun reviewTogetherOverTheWire() {
+        assertEquals(obj("""{"type":"activity_start","activity_id":"review-together"}"""), obj(CallProtocol.activityStart(CallActivities.REVIEW_ACTIVITY_ID)))
+        assertEquals(obj("""{"type":"activity_action","session_id":"x","action":{"type":"select","index":2}}"""), obj(CallProtocol.activityAction("x", ActivityAction.Select(2))))
+        assertEquals(obj("""{"type":"activity_action","session_id":"x","action":{"type":"play_clip","clip":"recording"}}"""), obj(CallProtocol.activityAction("x", ActivityAction.PlayClip("recording"))))
+        assertEquals(obj("""{"type":"activity_action","session_id":"x","action":{"type":"review_mark","status":"needs_work","comment":"shí"}}"""), obj(CallProtocol.activityAction("x", ActivityAction.MarkReview("needs_work", "shí"))))
+        assertEquals(obj("""{"type":"activity_action","session_id":"x","action":{"type":"review_mark","status":"listened"}}"""), obj(CallProtocol.activityAction("x", ActivityAction.MarkReview("listened"))))
+        // A non-string comment reads as none; a bad index / clip / status is refused by the engine.
+        assertEquals(ActivityAction.MarkReview("listened", null), ActivityAction.parse(obj("""{"type":"review_mark","status":"listened","comment":7}""")))
+        assertIs<ActivityAction.Invalid>(ActivityAction.parse(obj("""{"type":"select","index":"1"}""")))
+        assertIs<ActivityAction.Invalid>(ActivityAction.parse(obj("""{"type":"play_clip"}""")))
+
+        val room = """{"type":"activity","session":{"session_id":"rv","spec":{"id":"review-together","kind":"review","title":"Review together","level":"beginner","topic":"pronunciation","summary":"s",
+            "role_names":{"a":"Tutor","b":"Student"},"tutor_role":"a","items":[
+            {"id":"e1","source":"recording","event_id":"e1","flag_id":null,"note_id":"n1","hanzi":"银行","pinyin":"yínháng","english":"bank","recording_key":"recordings/e1.webm","reference_key":"generated/n1.mp3",
+             "labels":["Heard: 音行"],"transcript":"音行","weak":[{"char":"银","kind":"tone"}],"flag_message":null,"mark":{"status":"needs_work","comment":"yín"},"recorded_at":"2026-10-01T10:00:00Z"}]},
+            "roles":{"a":"t","b":"s"},"host":"t","names":{"t":"Minghui","s":"Jerome"},"round":0,"phase":"play","data":{"play":3,"clip":"reference"},"results":[],"started_at":1,"updated_at":2,"v":4}}"""
+        val m = CallProtocol.parseServer(room)
+        assertIs<ServerMessage.Activity>(m)
+        val s = m.session!!
+        assertEquals(ActivityKinds.REVIEW, s.spec.kind)
+        val it = s.spec.itemList.single()
+        assertEquals("recordings/e1.webm", it.recordingKey)
+        assertEquals("generated/n1.mp3", it.referenceKey)
+        assertEquals(listOf(ReviewWeak("银", "tone")), it.weak)
+        assertEquals(ReviewMark("needs_work", "yín"), it.mark)
+        assertEquals(3, s.data.play)
+        assertEquals("reference", s.data.clip)
+        // The student plays; the tutor marks.
+        val played = CallActivities.reduce(s, ActivityAction.PlayClip("recording"), "s", 5)!!
+        assertEquals(4, played.data.play)
+        assertNull(CallActivities.reduce(s, ActivityAction.MarkReview("listened"), "s", 5))
+        assertEquals(ReviewMark("listened", null), CallActivities.reviewMarkOf(CallActivities.reduce(s, ActivityAction.MarkReview("listened"), "t", 5)!!, 0))
+    }
 }

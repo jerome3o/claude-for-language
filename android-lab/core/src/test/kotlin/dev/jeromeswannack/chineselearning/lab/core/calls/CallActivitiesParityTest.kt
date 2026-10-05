@@ -106,6 +106,11 @@ class CallActivitiesParityTest {
         for ((u, roles) in v["roles_of"]!!.jsonObject) assertEquals(strs(roles), CallActivities.rolesOf(s, u), "$label rolesOf $u")
         if (v["built"] !is JsonNull) assertEquals(s(v["built"]), CallActivities.builtText(s.spec, s.round, s.data.placed.orEmpty()), "$label built")
         assertEquals(s(v["round_title"]), CallActivities.roundTitle(s.spec, s.round), "$label roundTitle")
+        v["review_marks"]?.takeIf { it !is JsonNull }?.let { marks ->
+            val got = s.spec.itemList.indices.map { CallActivities.reviewMarkOf(s, it) }
+            val want = marks.jsonArray.map { m -> m.takeIf { it !is JsonNull }?.let { j.decodeFromJsonElement(ReviewMark.serializer(), it) } }
+            assertEquals(want, got, "$label reviewMarkOf")
+        }
     }
 
     /** Replays [steps] from [first] in Kotlin; every session (or refusal) must equal the TS one. */
@@ -161,6 +166,42 @@ class CallActivitiesParityTest {
         }
         assertEquals(ActivityCatalogue.ALL.map { it.id }.toSet(), seen)
         assertTrue(applied > 3000, "applied $applied")
+    }
+
+    @Test fun reviewTogetherMatches() {
+        assertEquals(root["max_review_comment_chars"]!!.jsonPrimitive.int, CallActivities.MAX_REVIEW_COMMENT_CHARS)
+        assertEquals(s(root["review_activity_id"]), CallActivities.REVIEW_ACTIVITY_ID)
+        assertTrue(ActivityKinds.REVIEW !in ActivityKinds.ALL)
+        val inv = root["review_invalid"]!!.jsonObject
+        assertEquals(strs(inv["problems"]), CallActivities.validate(spec(inv["spec"]!!)))
+        val runs = root["review_runs"]!!.jsonArray
+        assertTrue(runs.size >= 30)
+        var applied = 0
+        for (runEl in runs) {
+            val run = runEl.jsonObject
+            val label = s(run["label"])!!
+            val sp = spec(run["spec"]!!)
+            assertEquals(norm(run["spec"]!!), norm(j.encodeToJsonElement(ActivitySpec.serializer(), sp)), "$label spec round trip")
+            assertEquals(strs(run["problems"]), CallActivities.validate(sp), "$label problems")
+            assertEquals(run["total"]!!.jsonPrimitive.int, CallActivities.totalRounds(sp), "$label total")
+            val st = run["start"]!!.jsonObject
+            val first = CallActivities.start(
+                sp,
+                CallActivities.StartOptions(
+                    sessionId = s(st["session_id"])!!, starter = s(st["starter"])!!, tutor = s(st["tutor"]),
+                    present = strs(st["present"]), names = st["names"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }, now = st["now"]!!.jsonPrimitive.long,
+                ),
+            )
+            assertEquals(norm(run["first"]!!), enc(first), "$label start")
+            checkView("$label start", run["first_view"], first)
+            applied += replay(label, first, run["steps"]!!.jsonArray)
+        }
+        assertTrue(applied > 250, "applied $applied")
+    }
+
+    @Test fun reviewActionsReadBack() {
+        for (a in listOf(ActivityAction.Select(2), ActivityAction.PlayClip("reference"), ActivityAction.MarkReview("needs_work", "shí"), ActivityAction.MarkReview("listened")))
+            assertEquals(a, ActivityAction.parse(a.toJson()))
     }
 
     @Test fun oddSpecsMatch() {

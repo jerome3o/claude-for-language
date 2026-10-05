@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { getCall } from '../api/calls';
 import { track, trackError } from '../services/analytics';
-import { ACTIVITY_CATALOGUE } from '@shared/call-activities';
+import { ACTIVITY_CATALOGUE, REVIEW_ACTIVITY_ID } from '@shared/call-activities';
 import { useCall, canShareScreen } from '../hooks/useCall';
 import { CallRecorder } from '../services/calls/recorder';
 import { Whiteboard } from '../components/calls/Whiteboard';
@@ -690,7 +690,7 @@ export function CallPage() {
           running={call.activity && call.activity.phase !== 'done' ? call.activity.spec.title : null}
           onPick={(id) => {
             call.startActivity(id);
-            track('call.activity_start', { activity_kind: ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null });
+            track('call.activity_start', { activity_kind: id === REVIEW_ACTIVITY_ID ? 'review' : ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null });
             setActivitiesOpen(false);
           }}
           onClose={() => setActivitiesOpen(false)}

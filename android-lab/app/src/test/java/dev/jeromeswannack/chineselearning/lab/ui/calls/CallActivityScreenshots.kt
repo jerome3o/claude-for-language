@@ -14,7 +14,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityAction
+import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityItem
+import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds
 import dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession
+import dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySpec
+import dev.jeromeswannack.chineselearning.lab.core.calls.ReviewMark
+import dev.jeromeswannack.chineselearning.lab.core.calls.ReviewWeak
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallPeer
@@ -148,4 +153,35 @@ class CallActivityScreenshots : LabScreenshotTest() {
     @Test fun moreMenu() = shoot("lab-act-27-more-menu") {
         LabCard { Column { CallMoreMenu(state(S, describe), info(S), CallActions(), close = {}) } }
     }
+
+    // ---- review together (built per call by the room: the "Needs your ear" queue, flags, needs-work marks)
+    private fun reviewItem(id: String, hanzi: String, pinyin: String, english: String, source: String = "recording", labels: List<String>, transcript: String? = null,
+                           weak: List<ReviewWeak> = emptyList(), flag: String? = null, mark: ReviewMark? = null, rec: Boolean = true, ref: Boolean = true) = ActivityItem(
+        id = id, source = source, eventId = id.takeIf { source != "flag" }, flagId = id.takeIf { source == "flag" }, noteId = "n-$id", hanzi = hanzi, pinyin = pinyin, english = english,
+        recordingKey = if (rec) "recordings/$id.webm" else null, referenceKey = if (ref) "generated/$id.mp3" else null, labels = labels, transcript = transcript,
+        weak = weak, flagMessage = flag, mark = mark, recordedAt = "2026-10-04T09:12:00Z",
+    )
+    private val reviewSpec = ActivitySpec(
+        id = CallActivities.REVIEW_ACTIVITY_ID, kind = ActivityKinds.REVIEW, title = "Review together", titleZh = "一起听", level = "beginner", topic = "pronunciation",
+        summary = "4 to go through", roleNames = dev.jeromeswannack.chineselearning.lab.core.calls.RolePair("Tutor", "Student"), tutorRole = "a",
+        items = listOf(
+            reviewItem("e1", "银行", "yínháng", "bank", labels = listOf("Heard: 音行", "Sounded off: 银 (tone)"), transcript = "音行", weak = listOf(ReviewWeak("银", "tone"))),
+            reviewItem("f1", "已经", "yǐjīng", "already", source = "flag", labels = listOf("Flagged"), flag = "Is the tone on 已 right? It sounds like yí to me", rec = false),
+            reviewItem("e2", "十四", "shísì", "fourteen", source = "needs_work", labels = listOf("Needs work since 2 Oct"), transcript = "四十", weak = listOf(ReviewWeak("十", "sound"), ReviewWeak("四", "sound")), mark = ReviewMark("needs_work", "shí, not sì — tongue back")),
+            reviewItem("e3", "买东西", "mǎi dōngxi", "to go shopping", labels = listOf("Rated Again"), ref = false),
+        ),
+    )
+    private val review = CallActivities.start(reviewSpec, CallActivities.StartOptions("sess-review", S, T, listOf(S, T), names, t0))
+        .by(S, ActivityAction.PlayClip("recording"))
+        .by(T, ActivityAction.MarkReview("needs_work", "Second tone on 银: yín"))
+
+    @Test fun reviewTutor() = shot("lab-act-28-review-tutor", T, review)
+    @Test fun reviewStudent() = shot("lab-act-29-review-student", S, review)
+    @Test fun reviewFlagStudent() = shot("lab-act-30-review-flag-student", S, review.by(S, ActivityAction.Select(1)))
+    @Test fun reviewEmpty() = shot("lab-act-31-review-empty-tutor", T, CallActivities.start(reviewSpec.copy(items = emptyList()), CallActivities.StartOptions("sess-review-0", T, T, listOf(T, S), names, t0)))
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun reviewUnfolded() = shot("lab-act-32-review-unfolded-tutor", T, review.by(T, ActivityAction.Select(2)))
+
+    @Test fun reviewDone() = shot("lab-act-33-review-done-student", S, review.by(T, ActivityAction.Select(2)).by(T, ActivityAction.MarkReview("listened", "Much better")).by(S, ActivityAction.Finish))
 }

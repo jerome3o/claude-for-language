@@ -15,6 +15,8 @@ import {
   ACTIVITY_KIND_INFO,
   ACTIVITY_KINDS,
   MAX_DRAFT_CHARS,
+  MAX_REVIEW_COMMENT_CHARS,
+  REVIEW_ACTIVITY_ID,
   activitySummary,
   blanksFor,
   buildPool,
@@ -24,6 +26,7 @@ import {
   hash32,
   joinActivity,
   reduceActivity,
+  reviewMarkOf,
   rolesOf,
   roundTitle,
   scoreOf,
@@ -33,6 +36,8 @@ import {
   validateActivitySpec,
   type ActivitySession,
   type ActivitySpec,
+  type ReviewItem,
+  type ReviewSpec,
 } from '../../../shared/call-activities';
 
 const OUT = process.argv[2];
@@ -224,6 +229,7 @@ function snapshot(s: ActivitySession | null) {
     roles_of: Object.fromEntries(USERS.map((u) => [u, rolesOf(s, u)])),
     built: s.spec.kind === 'build' ? builtText(s.spec, s.round, s.data.placed ?? []) : null,
     round_title: roundTitle(s.spec, s.round),
+    review_marks: s.spec.kind === 'review' ? s.spec.items.map((_, i) => reviewMarkOf(s, i)) : null,
   };
 }
 
@@ -313,6 +319,93 @@ for (const spec of odd) {
   oddRuns.push({ spec, problems: validateActivitySpec(spec), first: s0, first_view: snapshot(s0), steps, blanks: spec.kind === 'info_gap' ? { a: blanksFor(spec, 'a'), b: blanksFor(spec, 'b') } : null });
 }
 
+// ---- Review together (kind `review`): built per call by the room, never in the catalogue.
+const ritem = (id: string, over: Partial<ReviewItem> = {}): ReviewItem => ({
+  id, source: 'recording', event_id: id, flag_id: null, note_id: `n-${id}`, hanzi: '银行', pinyin: 'yínháng', english: 'bank',
+  recording_key: `recordings/${id}.webm`, reference_key: `generated/${id}.mp3`, labels: ['Heard: 音行', 'Sounded off: 银 (tone)'], transcript: '音行',
+  weak: [{ char: '银', kind: 'tone' }], flag_message: null, mark: null, recorded_at: '2026-10-01T10:00:00Z', ...over,
+});
+const reviewSpec: ReviewSpec = {
+  id: REVIEW_ACTIVITY_ID, kind: 'review', title: 'Review together', title_zh: '一起听', level: 'beginner', topic: 'pronunciation', summary: '3 recordings, 1 flagged card',
+  role_names: { a: 'Tutor', b: 'Student' }, tutor_role: 'a',
+  items: [
+    ritem('e1'),
+    ritem('e2', { hanzi: '买', pinyin: 'mǎi', english: 'buy', reference_key: null, labels: ['Rated Again'], transcript: null, weak: [] }),
+    ritem('f1', { source: 'flag', event_id: null, flag_id: 'f1', hanzi: '已经', pinyin: 'yǐjīng', english: 'already', recording_key: null, flag_message: 'Is the tone on 已 right?', labels: ['Flagged: Is the tone on 已 right?'], transcript: null, weak: [] }),
+    ritem('e3', { source: 'needs_work', hanzi: '十四', pinyin: 'shísì', english: 'fourteen', labels: [], mark: { status: 'needs_work', comment: 'shí, not sì' }, weak: [{ char: '十', kind: 'sound' }, { char: '四', kind: 'missing' }] }),
+    ritem('e4', { hanzi: '谢谢', pinyin: 'xièxie', english: 'thank you', recording_key: '', reference_key: '', labels: [], weak: [] }),
+  ],
+};
+const reviewGarbage: Raw[] = [
+  { type: 'select' }, { type: 'select', index: '1' }, { type: 'select', index: 1.5 }, { type: 'select', index: -1 }, { type: 'select', index: 99 }, { type: 'select', index: null },
+  { type: 'select', index: true }, { type: 'select', index: 2.0 }, { type: 'play_clip' }, { type: 'play_clip', clip: 'other' }, { type: 'play_clip', clip: 5 },
+  { type: 'review_mark' }, { type: 'review_mark', status: 'great' }, { type: 'review_mark', status: 5 }, { type: 'review_mark', status: 'listened', comment: 7 },
+  { type: 'review_mark', status: 'needs_work', comment: null }, { type: 'review_mark', status: 'listened', comment: '\uFEFF\u3000 ok \u00A0\n' },
+  { type: 'review_mark', status: 'needs_work', comment: '长'.repeat(2100) }, { type: 'review_mark', status: 'needs_work', comment: '  ' }, { type: 'mark', correct: true },
+  { type: 'next' }, { type: 'skip' }, { type: 'swap_roles' }, { type: 'reset_round' }, { type: 'reveal' }, { type: 'pick', option: '0' },
+];
+function reviewPool(s: ActivitySession): Raw[] {
+  const n = s.spec.kind === 'review' ? s.spec.items.length : 0;
+  const out: Raw[] = [{ type: 'finish' }, { type: 'play_clip', clip: 'recording' }, { type: 'play_clip', clip: 'reference' }, { type: 'play_clip', clip: 'recording' }];
+  if (r() < 0.2) out.push({ type: 'restart' });
+  for (let i = 0; i < 3; i++) out.push({ type: 'select', index: Math.floor(r() * (n + 2)) - 1 });
+  for (const status of ['listened', 'needs_work']) {
+    out.push({ type: 'review_mark', status }, { type: 'review_mark', status, comment: pick(['', 'Second tone: yín', ' Second tone: yín ', 'Good!', '好']) });
+  }
+  return out;
+}
+const reviewRuns = [];
+const reviewSpecs: ReviewSpec[] = [reviewSpec, { ...reviewSpec, items: [] }, { ...reviewSpec, items: reviewSpec.items.slice(2, 3) }];
+for (const [ki, spec] of reviewSpecs.entries()) {
+  for (const [si, st] of starts.entries()) {
+    for (const mode of ['scripted', 'random'] as const) {
+      const sessionId = `review-${ki}-${si}-${mode}`;
+      const start = { session_id: sessionId, starter: st.starter, tutor: st.tutor, present: st.present, names: NAMES, now: clock };
+      let s = startActivity(spec, { sessionId, starter: st.starter, tutor: st.tutor, present: st.present, names: NAMES, now: clock });
+      const first = s;
+      const steps: unknown[] = [];
+      const act = (actor: string, action: Raw) => {
+        clock += 700;
+        const next = reduceActivity(s, action as never, actor, clock);
+        steps.push({ actor, action, now: clock, session: next, view: snapshot(next) });
+        if (next) s = next;
+      };
+      const doJoin = (user: string, tutor: string | null) => {
+        clock += 1000;
+        const j = joinActivity(s, user, NAMES[user] ?? 'Someone', tutor, clock);
+        steps.push({ actor: user, join: { user, name: NAMES[user] ?? 'Someone', tutor }, now: clock, session: j, view: snapshot(j) });
+        if (j) s = j;
+      };
+      if (st.join) doJoin(st.join.user, st.join.tutor);
+      const H = s.host;
+      const O = s.roles.a === H ? s.roles.b : s.roles.a;
+      if (mode === 'scripted') {
+        for (const [actor, action] of [
+          [O, { type: 'play_clip', clip: 'recording' }], [H, { type: 'play_clip', clip: 'reference' }], [X, { type: 'play_clip', clip: 'recording' }],
+          [O, { type: 'review_mark', status: 'listened' }], [H, { type: 'review_mark', status: 'needs_work', comment: '  Second tone: yín ' }],
+          [H, { type: 'review_mark', status: 'needs_work', comment: 'Second tone: yín' }], [H, { type: 'review_mark', status: 'needs_work' }],
+          [O, { type: 'select', index: 1 }], [O, { type: 'select', index: 1 }], [H, { type: 'play_clip', clip: 'reference' }], [H, { type: 'play_clip', clip: 'recording' }],
+          [X, { type: 'select', index: 0 }], [H, { type: 'select', index: 2 }], [O, { type: 'play_clip', clip: 'recording' }], [H, { type: 'review_mark', status: 'listened' }],
+          [H, { type: 'review_mark', status: 'listened', comment: '' }], [H, { type: 'review_mark', status: 'listened', comment: 'Fine now' }],
+          [H, { type: 'select', index: 3 }], [H, { type: 'select', index: 4 }], [O, { type: 'play_clip', clip: 'recording' }], [O, { type: 'play_clip', clip: 'reference' }],
+          [O, { type: 'restart' }], [H, { type: 'restart' }], [X, { type: 'finish' }], [O, { type: 'finish' }], [H, { type: 'finish' }],
+          [O, { type: 'select', index: 0 }], [H, { type: 'review_mark', status: 'listened' }], [H, { type: 'play_clip', clip: 'recording' }],
+          [O, { type: 'restart' }], [H, { type: 'restart' }], [H, { type: 'restart' }], [O, { type: 'select', index: 0 }], [H, { type: 'review_mark', status: 'needs_work', comment: 'again' }],
+          [H, { type: 'finish' }],
+        ] as [string, Raw][]) act(actor, action);
+      } else {
+        for (let i = 0; i < 80; i++) {
+          const roll = r();
+          const actor = roll < 0.12 ? X : roll < 0.5 ? s.host : roll < 0.75 ? s.roles.a : s.roles.b;
+          act(actor, r() < 0.15 ? pick(r() < 0.5 ? garbage : reviewGarbage) : pick(reviewPool(s)));
+        }
+      }
+      reviewRuns.push({ label: `review ${ki} / ${st.label} / ${mode}`, spec, problems: validateActivitySpec(spec), total: totalRounds(spec), start, first, first_view: snapshot(first), steps });
+    }
+  }
+}
+const dupReview = { ...reviewSpec, items: [reviewSpec.items[0], reviewSpec.items[0]] };
+
 writeFileSync(
   join(OUT, 'call-activities.json'),
   JSON.stringify({
@@ -320,6 +413,10 @@ writeFileSync(
     kinds: ACTIVITY_KINDS,
     kind_info: ACTIVITY_KIND_INFO,
     max_draft_chars: MAX_DRAFT_CHARS,
+    max_review_comment_chars: MAX_REVIEW_COMMENT_CHARS,
+    review_activity_id: REVIEW_ACTIVITY_ID,
+    review_runs: reviewRuns,
+    review_invalid: { spec: dupReview, problems: validateActivitySpec(dupReview) },
     problems: ACTIVITY_CATALOGUE.map((s) => ({ id: s.id, problems: validateActivitySpec(s), total: totalRounds(s), blanks_a: s.kind === 'info_gap' ? blanksFor(s, 'a') : null, blanks_b: s.kind === 'info_gap' ? blanksFor(s, 'b') : null })),
     cell_keys: [[0, 0], [3, 1], [12, 7]].map(([a, b]) => ({ row: a, col: b, key: cellKey(a, b) })),
     hashes,

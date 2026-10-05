@@ -229,6 +229,7 @@ export const ACTIVITY_KIND_INFO: Record<ActivityKind, { icon: string; name: stri
   build: { icon: '🧱', name: 'Sentence building', blurb: 'Put the words in order together' },
   quiz: { icon: '❓', name: 'Quick quiz', blurb: 'Tutor asks, student answers live' },
   dictation: { icon: '✍️', name: 'Dictation', blurb: 'Tutor says it, student writes it' },
+  review: { icon: '🎧', name: 'Review together', blurb: 'Recordings and flagged cards — both hear them' },
 };
 
 /** Problems with a spec (empty = fine). Used by the catalogue test; ready for generated specs later. */
@@ -264,6 +265,9 @@ export function validateActivitySpec(spec: ActivitySpec): string[] {
       break;
     case 'dictation':
       if (spec.items.length === 0) p.push('dictation needs words');
+      break;
+    case 'review':
+      if (new Set(spec.items.map((i) => i.id)).size !== spec.items.length) p.push('review items must have different ids');
       break;
   }
   return p;

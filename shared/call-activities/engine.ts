@@ -22,7 +22,7 @@ import type {
   DescribeSpec,
   InfoGapSpec,
 } from './types';
-import { MAX_DRAFT_CHARS } from './types';
+import { MAX_DRAFT_CHARS, MAX_REVIEW_COMMENT_CHARS } from './types';
 
 // ------------------------------------------------------------------ seeded shuffle
 
@@ -74,6 +74,8 @@ export function totalRounds(spec: ActivitySpec): number {
     case 'quiz':
       return spec.questions.length;
     case 'dictation':
+      return spec.items.length;
+    case 'review':
       return spec.items.length;
   }
 }
@@ -154,6 +156,8 @@ function roundData(s: Pick<ActivitySession, 'spec' | 'session_id'>, round: numbe
       return { phase: 'ready', data: { pick: null, mark: null, play: 0 } };
     case 'dictation':
       return { phase: 'ready', data: { draft: '', submitted: false, mark: null, play: 0 } };
+    case 'review':
+      return { phase: 'play', data: { play: 0, clip: null } };
   }
 }
 
@@ -220,6 +224,9 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
   const b = holds(s, actor, 'b');
   if (!a && !b && !host) return null;
   const d = s.data;
+
+  // ---- review: no rounds to walk through, a list to pick from (round = the selected item)
+  if (spec.kind === 'review') return stepReview(s, spec, action, host);
 
   // ---- controls, any kind
   switch (action.type) {
@@ -377,6 +384,56 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
   }
 }
 
+/**
+ * Review together. Either person selects an item and plays its clips — the `play` counter only ever
+ * goes up (selecting keeps it), so each device plays when it sees it rise and never on a reload.
+ * Only the host (the tutor) marks; a mark is the item's result (`answer` = the status, `detail` = the
+ * comment) and the room writes it through the usual mark / flag-reply path. Either person may finish.
+ */
+function stepReview(s: ActivitySession, spec: Extract<ActivitySpec, { kind: 'review' }>, action: ActivityAction, host: boolean): ActivitySession | null {
+  const d = s.data;
+  switch (action.type) {
+    case 'finish':
+      return s.phase === 'done' ? null : { ...s, phase: 'done', data: { play: d.play ?? 0, clip: d.clip ?? null } };
+    case 'restart':
+      if (!host || s.phase !== 'done') return null;
+      return { ...s, phase: 'play' };
+    default:
+      break;
+  }
+  if (s.phase === 'done') return null;
+  const item = spec.items[s.round];
+  switch (action.type) {
+    case 'select': {
+      const i = action.index;
+      if (!Number.isInteger(i) || i < 0 || i >= spec.items.length || i === s.round) return null;
+      return { ...s, round: i };
+    }
+    case 'play_clip': {
+      if (!item) return null;
+      const key = action.clip === 'recording' ? item.recording_key : action.clip === 'reference' ? item.reference_key : null;
+      if (!key) return null;
+      return { ...s, data: { ...d, play: (d.play ?? 0) + 1, clip: action.clip } };
+    }
+    case 'review_mark': {
+      if (!host || !item || (action.status !== 'listened' && action.status !== 'needs_work')) return null;
+      const comment = typeof action.comment === 'string' ? action.comment.trim().slice(0, MAX_REVIEW_COMMENT_CHARS) : '';
+      const prev = s.results.find((r) => r.round === s.round);
+      if (prev && prev.answer === action.status && (prev.detail?.[0] ?? '') === comment) return null;
+      return { ...s, results: withResult(s.results, { round: s.round, correct: null, answer: action.status, detail: comment ? [comment] : [] }) };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Review: the mark made in this session for item `i` (null = none yet). */
+export function reviewMarkOf(s: Pick<ActivitySession, 'results'>, i: number): { status: 'listened' | 'needs_work'; comment: string | null } | null {
+  const r = s.results.find((x) => x.round === i);
+  if (!r || (r.answer !== 'listened' && r.answer !== 'needs_work')) return null;
+  return { status: r.answer, comment: r.detail?.[0] ?? null };
+}
+
 /** Apply one action by `actor` (a user id). Null = refused, nothing changes. */
 export function reduceActivity(s: ActivitySession, action: ActivityAction, actor: string, now: number): ActivitySession | null {
   if (!action || typeof action !== 'object' || typeof action.type !== 'string') return null;
@@ -433,6 +490,13 @@ export function activitySummary(s: ActivitySession): ActivitySummary {
         lines.push(`${it.hanzi} (${it.pinyin}, ${it.english}) — wrote ${r.answer || '(nothing)'}${mark(r.correct)}`);
         break;
       }
+      case 'review': {
+        const it = spec.items[r.round];
+        const why = it.labels.length ? ` [${it.labels.join('; ')}]` : '';
+        const verdict = r.answer === 'needs_work' ? 'needs work' : 'listened';
+        lines.push(`${it.hanzi} (${it.pinyin}, ${it.english})${why} — ${verdict}${r.detail?.[0] ? `: ${r.detail[0]}` : ''}`);
+        break;
+      }
     }
   }
   const sc = scoreOf(s);
@@ -465,5 +529,7 @@ export function roundTitle(spec: ActivitySpec, i: number): string {
       return spec.questions[i]?.prompt || `Question ${i + 1}`;
     case 'dictation':
       return spec.items[i]?.hanzi ?? `Word ${i + 1}`;
+    case 'review':
+      return spec.items[i]?.hanzi ?? `Item ${i + 1}`;
   }
 }

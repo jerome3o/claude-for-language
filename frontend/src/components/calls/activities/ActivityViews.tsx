@@ -21,6 +21,7 @@ import {
   type RoleplaySpec,
 } from '@shared/call-activities';
 import { diffHanzi } from '@shared/lesson/answer-check';
+import { ReviewView } from './ReviewView';
 
 export interface BodyProps {
   session: ActivitySession;
@@ -58,6 +59,8 @@ export function ActivityBody(p: BodyProps) {
       return <QuizView {...p} spec={p.session.spec} />;
     case 'dictation':
       return <DictationView {...p} spec={p.session.spec} />;
+    case 'review':
+      return <ReviewView {...p} spec={p.session.spec} />;
   }
 }
 
