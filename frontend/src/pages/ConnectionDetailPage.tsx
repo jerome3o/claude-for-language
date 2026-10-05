@@ -14,7 +14,7 @@ import { getLessonLog } from '../api/insights';
 import { getStudentOverview, updateSharedDeckCopy, moveSharedDeck, openConversation } from '../api/tutorDashboard';
 import { QueuePositionMenu } from '../components/QueuePositionMenu';
 import type { QueueMove } from '@shared/decks';
-import type { StudentOverview } from '../types/tutorDashboard';
+import type { HomeworkDeck, StudentOverview } from '../types/tutorDashboard';
 import {
   getOtherUserInRelationship,
   getMyRoleInRelationship,
@@ -122,6 +122,7 @@ function OneChatRow({ name, conversation, isLoading, onOpen }: { name: string; c
   const preview = conversation ? lastMessagePreview(conversation.last_message) : null;
   const unread = conversation?.unread ?? 0;
   const when = conversation ? conversation.last_message?.created_at ?? conversation.last_message_at ?? null : null;
+
   return (
     <button
       type="button"
@@ -412,6 +413,57 @@ export function ConnectionDetailPage() {
   // ===================== Tutor's student page =====================
   if (tutorView) {
     const lastLesson = lessonLogQuery.data?.[0] ?? null;
+    // Decks sent one-off only stay with the homework; everything else is long-term learning.
+    const longTermDecks = (overview?.homework.decks ?? []).filter((d) => d.long_term !== false);
+    const oneOffDecks = (overview?.homework.decks ?? []).filter((d) => d.long_term === false);
+    const renderDeckRow = (d: HomeworkDeck) => (
+      <div key={d.shared_deck_id} className="td-hw-row">
+        <Link to={`/connections/${relId}/shared-decks/${d.shared_deck_id}/progress`} className="td-hw-main" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="td-hw-title">
+            <span lang="zh">{d.source_deck_name}</span> <span className="td-hw-when">· sent {shortDate(d.shared_at)}</span>
+          </div>
+          <div className="td-bar" aria-hidden="true">
+            <div className="td-bar-started" style={{ width: `${d.percent_started}%` }} />
+            <div className="td-bar-mastered" style={{ width: `${d.percent_mastered}%` }} />
+          </div>
+          <div className="td-hw-meta">
+            {d.target_deck_name == null
+              ? 'The student deleted their copy'
+              : `${d.notes_introduced ?? 0}/${d.notes_total ?? 0} words met · ${d.cards_mastered} cards mastered · ${(d.words_to_go ?? 0) === 0 ? 'all introduced' : `${d.words_to_go} to go, ~${d.days_to_go} ${d.days_to_go === 1 ? 'day' : 'days'}`}${d.notes_left_out ? ` · ${d.notes_left_out} left out by the student` : ''}`}
+            {d.notes_missing > 0 && <span className="td-pill td-pill-muted">{plural(d.notes_missing, 'new word')} not sent</span>}
+          </div>
+        </Link>
+        <div className="td-hw-actions">
+          {d.target_deck_name != null && d.queue_position != null ? (
+            <QueuePositionMenu
+              position={d.queue_position}
+              total={d.queue_total}
+              label="their queue"
+              onMove={(to) => handleMoveShare(d.shared_deck_id, d.source_deck_name, to)}
+              extraItems={[
+                { key: 'check', label: '🔎 Check for errors', onSelect: () => setChecking({ id: d.shared_deck_id, title: d.source_deck_name }) },
+                { key: 'remove', label: removalMenuLabel('deck', otherName), danger: true, onSelect: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) },
+              ]}
+            />
+          ) : (
+            <OverflowMenu
+              label={`More for ${d.source_deck_name}`}
+              items={[
+                ...(d.target_deck_name != null ? [{ label: '🔎 Check for errors', onClick: () => setChecking({ id: d.shared_deck_id, title: d.source_deck_name }) }] : []),
+                { label: removalMenuLabel('deck', otherName), danger: true, onClick: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) },
+              ]}
+            />
+          )}
+          {d.notes_missing > 0 && d.target_deck_name != null ? (
+            <button type="button" className="td-inline-btn" disabled={updatingShare === d.shared_deck_id} onClick={() => handleUpdateShare(d.shared_deck_id, d.source_deck_name)}>
+              {updatingShare === d.shared_deck_id ? 'Updating…' : 'Update'}
+            </button>
+          ) : (
+            <span className="td-chevron">›</span>
+          )}
+        </div>
+      </div>
+    );
     return (
       <div className="page">
         <div className="container">
@@ -499,11 +551,14 @@ export function ConnectionDetailPage() {
           {/* Lesson notes → the assistant drafts homework → the tutor reviews and assigns (docs/HOMEWORK.md) */}
           <LessonNotesSection relId={relId!} studentName={otherName} />
 
-          {/* Homework: decks I shared + lessons I assigned */}
-          <section className="detail-section">
+          {/* Homework = ONE-OFF homework only: the headline, the dated items, lessons and readers (docs/HOMEWORK.md §11) */}
+          <section className="detail-section" id="homework">
             <h2>Homework</h2>
-            {/* The student's ONE daily new-card budget — what decides how fast homework decks are introduced */}
-            <DailyBudgetSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} initial={overview?.study_budget} />
+            {overview?.homework.one_off && overview.homework.one_off.state !== 'none' && (
+              <div className={`td-hw-headline td-hw-headline-${overview.homework.one_off.state}`} data-testid="homework-headline">
+                {overview.homework.one_off.label}
+              </div>
+            )}
             {updateNote && <div className="td-result" role="status">{updateNote}</div>}
             {/* One-off homework with due dates + the load gauge (docs/HOMEWORK.md) */}
             <AssignedHomeworkSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} />
@@ -515,56 +570,10 @@ export function ConnectionDetailPage() {
                 action={<button className="btn btn-secondary" onClick={() => setShowHomeworkSheet(true)}>Send homework</button>}
               />
             )}
-            {overview && overview.homework.decks.length > 0 && (
+            {/* Decks sent one-off only: their copy lives in the pass, not in long-term review */}
+            {oneOffDecks.length > 0 && (
               <div className="td-list" style={{ gap: '0.5rem' }}>
-                {overview.homework.decks.map((d) => (
-                  <div key={d.shared_deck_id} className="td-hw-row">
-                    <Link to={`/connections/${relId}/shared-decks/${d.shared_deck_id}/progress`} className="td-hw-main" style={{ textDecoration: 'none', color: 'inherit' }}>
-                      <div className="td-hw-title">
-                        <span lang="zh">{d.source_deck_name}</span> <span className="td-hw-when">· sent {shortDate(d.shared_at)}</span>
-                      </div>
-                      <div className="td-bar" aria-hidden="true">
-                        <div className="td-bar-started" style={{ width: `${d.percent_started}%` }} />
-                        <div className="td-bar-mastered" style={{ width: `${d.percent_mastered}%` }} />
-                      </div>
-                      <div className="td-hw-meta">
-                        {d.target_deck_name == null
-                          ? 'The student deleted their copy'
-                          : `${d.notes_introduced ?? 0}/${d.notes_total ?? 0} words met · ${d.cards_mastered} cards mastered · ${(d.words_to_go ?? 0) === 0 ? 'all introduced' : `${d.words_to_go} to go, ~${d.days_to_go} ${d.days_to_go === 1 ? 'day' : 'days'}`}${d.notes_left_out ? ` · ${d.notes_left_out} left out by the student` : ''}`}
-                        {d.notes_missing > 0 && <span className="td-pill td-pill-muted">{plural(d.notes_missing, 'new word')} not sent</span>}
-                      </div>
-                    </Link>
-                    <div className="td-hw-actions">
-                      {d.target_deck_name != null && d.queue_position != null ? (
-                        <QueuePositionMenu
-                          position={d.queue_position}
-                          total={d.queue_total}
-                          label="their queue"
-                          onMove={(to) => handleMoveShare(d.shared_deck_id, d.source_deck_name, to)}
-                          extraItems={[
-                            { key: 'check', label: '🔎 Check for errors', onSelect: () => setChecking({ id: d.shared_deck_id, title: d.source_deck_name }) },
-                            { key: 'remove', label: removalMenuLabel('deck', otherName), danger: true, onSelect: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) },
-                          ]}
-                        />
-                      ) : (
-                        <OverflowMenu
-                          label={`More for ${d.source_deck_name}`}
-                          items={[
-                            ...(d.target_deck_name != null ? [{ label: '🔎 Check for errors', onClick: () => setChecking({ id: d.shared_deck_id, title: d.source_deck_name }) }] : []),
-                            { label: removalMenuLabel('deck', otherName), danger: true, onClick: () => setRemoval({ kind: 'deck', id: d.shared_deck_id, title: d.source_deck_name }) },
-                          ]}
-                        />
-                      )}
-                      {d.notes_missing > 0 && d.target_deck_name != null ? (
-                        <button type="button" className="td-inline-btn" disabled={updatingShare === d.shared_deck_id} onClick={() => handleUpdateShare(d.shared_deck_id, d.source_deck_name)}>
-                          {updatingShare === d.shared_deck_id ? 'Updating…' : 'Update'}
-                        </button>
-                      ) : (
-                        <span className="td-chevron">›</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                {oneOffDecks.map(renderDeckRow)}
               </div>
             )}
             {/* The student's mini lessons (assigned by me, by others, their own) */}
@@ -579,6 +588,23 @@ export function ConnectionDetailPage() {
             {/* Graded readers I sent */}
             <SharedReadersSection relId={relId!} studentName={otherName} onRemove={(r) => setRemoval({ kind: 'reader', id: r.id, title: r.title })} />
           </section>
+
+          {/* Long-term learning: decks in the student's queue — their pace, not homework with an end */}
+          {overview && (
+            <section className="detail-section td-long-term" data-testid="long-term-learning">
+              <h2>Long-term learning</h2>
+              <p className="td-muted td-long-term-intro">Decks in {otherName.split(' ')[0] || 'their'}’s daily review, introduced at their daily new-card budget. Not counted as homework.</p>
+              {/* The student's ONE daily new-card budget — what decides how fast these decks are introduced */}
+              <DailyBudgetSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} initial={overview?.study_budget} />
+              {longTermDecks.length > 0 ? (
+                <div className="td-list" style={{ gap: '0.5rem' }}>
+                  {longTermDecks.map(renderDeckRow)}
+                </div>
+              ) : (
+                <p className="td-muted">No long-term decks yet — a deck sent as Long-term or Both lands here.</p>
+              )}
+            </section>
+          )}
 
           {/* Decks the student shared with me — behind ⋯ */}
           {showStudentDecks && (

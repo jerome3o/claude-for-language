@@ -47,12 +47,15 @@ export function LibraryRow({ item, today, showStudent, onOpen }: { item: Library
         <span className="hl-row-title" lang="zh">{item.title}</span>
         <span className="hl-row-meta">
           {showStudent ? `${item.student_name} · ` : ''}
-          {sentText(item.sent_at)} · {item.status === 'completed' ? item.progress : libraryDueText(item.due_date, today)}
+          {sentText(item.sent_at)} · {item.status === 'completed' || item.status === 'long_term' ? item.progress : libraryDueText(item.due_date, today)}
         </span>
-        <span className="hl-row-progress">
-          <PercentBar percent={item.percent} status={item.status} due={item.due_date} today={today} />
-          <span className="hl-row-pct">{item.percent}%</span>
-        </span>
+        {/* A long-term deck has no end, so no % bar (docs/HOMEWORK.md §11) */}
+        {item.status !== 'long_term' && (
+          <span className="hl-row-progress">
+            <PercentBar percent={item.percent} status={item.status} due={item.due_date} today={today} />
+            <span className="hl-row-pct">{item.percent}%</span>
+          </span>
+        )}
         {item.student_note && <span className="hl-row-note">“{item.student_note}”</span>}
       </span>
       <StatusChip status={item.status} due={item.due_date} today={today} />

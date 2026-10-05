@@ -213,7 +213,11 @@ function pills(s: DashStudent): HTMLElement {
     { class: 'pills' },
     h('span', { class: `pill ${p.struggling_words > 0 ? 'pill-warn' : ''}` }, `${p.struggling_words} struggling`),
     h('span', { class: `pill ${p.recordings_to_hear > 0 ? 'pill-info' : ''}` }, `🎤 ${p.recordings_to_hear} to hear`),
-    p.homework_percent !== null ? h('span', { class: `pill ${p.homework_percent >= 80 ? 'pill-ok' : ''}` }, `Homework ${p.homework_percent}%`) : h('span', { class: 'pill' }, 'No homework yet'),
+    p.homework
+      ? h('span', { class: `pill ${p.homework.state === 'all_done' ? 'pill-ok' : p.homework.state === 'overdue' ? 'pill-warn' : ''}` }, p.homework.pill)
+      : p.homework_percent !== null
+        ? h('span', { class: `pill ${p.homework_percent >= 80 ? 'pill-ok' : ''}` }, `Homework ${p.homework_percent}%`)
+        : h('span', { class: 'pill' }, 'No homework yet'),
   );
 }
 

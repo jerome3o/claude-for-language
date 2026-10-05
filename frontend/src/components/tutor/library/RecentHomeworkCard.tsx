@@ -31,12 +31,17 @@ export function RecentHomeworkCard({ items, today, relId, onSend }: { items: Lib
             <span className="hl-recent-title" lang="zh">{item.title}</span>
             <StatusChip status={item.status} due={item.due_date} today={today} />
           </div>
-          <div className="hl-recent-stats">
-            <span className="hl-recent-pct">{item.percent}%</span>
-            <PercentBar percent={item.percent} status={item.status} due={item.due_date} today={today} />
-          </div>
+          {/* A long-term deck has no end, so no % (docs/HOMEWORK.md §11) */}
+          {item.status !== 'long_term' && (
+            <div className="hl-recent-stats">
+              <span className="hl-recent-pct">{item.percent}%</span>
+              <PercentBar percent={item.percent} status={item.status} due={item.due_date} today={today} />
+            </div>
+          )}
           <div className="hl-recent-meta">
-            {item.status === 'completed'
+            {item.status === 'long_term'
+              ? `${item.progress} · in their daily review`
+              : item.status === 'completed'
               ? `Completed${item.completed_at ? ` ${shortDay(item.completed_at.slice(0, 10))}` : ''}${/^(done|read)$/.test(item.progress) ? '' : ` · ${item.progress}`}`
               : `${libraryDueText(item.due_date, today)} · ${item.progress}`}
             {item.student_note ? ` · “${item.student_note}”` : ''}
@@ -53,7 +58,7 @@ export function RecentHomeworkLine({ item, today }: { item: LibraryItem; today: 
     <span className="hl-recent-line-compact" data-testid="dashboard-recent-homework">
       <span aria-hidden="true">{LIBRARY_KIND_ICONS[item.kind]}</span>
       <span className="hl-recent-title" lang="zh">{item.title}</span>
-      <span className="hl-recent-pct">{item.percent}%</span>
+      {item.status !== 'long_term' && <span className="hl-recent-pct">{item.percent}%</span>}
       <StatusChip status={item.status} due={item.due_date} today={today} />
     </span>
   );

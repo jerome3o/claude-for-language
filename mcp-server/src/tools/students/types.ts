@@ -43,6 +43,10 @@ export interface NeedsAttentionItem {
 }
 
 export interface HomeworkDeck {
+  /** How it was sent (one_off / fsrs / both; null = before assignments); missing on an older API. */
+  mode?: 'one_off' | 'fsrs' | 'both' | null;
+  /** Part of long-term learning (anything but a one-off-only copy). */
+  long_term?: boolean;
   /** 1-based place of the student's copy in their deck queue (first = studied first); null when the copy is gone. */
   queue_position?: number | null;
   queue_total?: number;
@@ -70,8 +74,24 @@ export interface HomeworkLesson {
   last_rating: number | null;
 }
 
-export interface HomeworkSummary {
+/** The one-off headline (shared/homework/summary.ts OneOffSummary). */
+export interface OneOffHomework {
+  state: 'none' | 'all_done' | 'open' | 'overdue';
+  total: number;
+  done: number;
+  open: number;
+  overdue: number;
+  due_today: number;
   percent: number | null;
+  label: string;
+  pill: string;
+}
+
+export interface HomeworkSummary {
+  /** One-off homework only (= one_off.percent). */
+  percent: number | null;
+  /** Missing on an older API. */
+  one_off?: OneOffHomework;
   cards_total: number;
   cards_started: number;
   cards_mastered: number;
@@ -113,7 +133,10 @@ export interface StudentOverview {
   pills: {
     struggling_words: number;
     recordings_to_hear: number;
+    /** One-off homework only (0..100); long-term decks never count. */
     homework_percent: number | null;
+    /** The one-off headline; missing on an older API. */
+    homework?: OneOffHomework;
     /** Flagged cards waiting for a reply */
     flags_open: number;
   };

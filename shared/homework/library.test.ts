@@ -3,6 +3,7 @@ import {
   buildHomeworkLibrary,
   filterLibrary,
   libraryCounts,
+  LIBRARY_STATUS_LABELS,
   libraryDueText,
   libraryStatus,
   mostRecentHomework,
@@ -113,16 +114,25 @@ describe('buildHomeworkLibrary — decks', () => {
     expect(item).toMatchObject({ status: 'completed', percent: 100, due_assignment_id: null, completed_at: '2026-09-29T08:00:00Z' });
   });
 
-  it('a long-term-only deck uses words met (minus words left out)', () => {
+  it('a long-term-only deck is "In long-term review" (never In progress); progress says words met (minus left out)', () => {
     const [item] = buildHomeworkLibrary(
       input({ decks: [{ ...deckRow, notes_total: 12, notes_left_out: 2, notes_introduced: 5, cards_started: 9 }], assignments: [assignment({ mode: 'fsrs', due_date: null })] })
     );
-    expect(item).toMatchObject({ percent: 50, progress: '5 / 10 words met', status: 'in_progress', mode: 'fsrs', due_date: null });
+    expect(item).toMatchObject({ percent: 50, progress: '5 / 10 words met', status: 'long_term', mode: 'fsrs', due_date: null, completed_at: null });
+    expect(LIBRARY_STATUS_LABELS[item.status]).toBe('In long-term review');
+    expect(statusTone(item.status, null, TODAY)).toBe('grey');
   });
 
-  it('a deck shared before assignments existed has mode null and counts words met; all met = completed', () => {
+  it('a deck shared before assignments existed has mode null and is long-term too, even with every word met', () => {
     const [item] = buildHomeworkLibrary(input({ decks: [{ ...deckRow, notes_introduced: 10, cards_started: 30 }] }));
-    expect(item).toMatchObject({ mode: null, status: 'completed', percent: 100 });
+    expect(item).toMatchObject({ mode: null, status: 'long_term', percent: 100 });
+  });
+
+  it('a "both" deck is judged by its one-off pass, not by long-term review', () => {
+    const [item] = buildHomeworkLibrary(
+      input({ decks: [{ ...deckRow, notes_introduced: 0 }], assignments: [assignment({ mode: 'both', status: 'done', done_count: 10, item_count: 10 })] })
+    );
+    expect(item).toMatchObject({ mode: 'both', status: 'completed', percent: 100 });
   });
 
   it('a copy the student deleted is left out; cancelled assignments are ignored', () => {
@@ -203,7 +213,7 @@ describe('filter, counts, most recent', () => {
   });
 
   it('counts per status', () => {
-    expect(libraryCounts(items)).toEqual({ completed: 1, in_progress: 1, overdue: 1, not_started: 0 });
+    expect(libraryCounts(items)).toEqual({ completed: 1, in_progress: 1, overdue: 1, not_started: 0, long_term: 0 });
   });
 
   it('most recent = the newest plus whatever was sent within 30 minutes', () => {

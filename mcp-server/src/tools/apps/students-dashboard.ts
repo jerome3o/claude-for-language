@@ -27,7 +27,7 @@ function dashboardSummary(students: DashStudent[]): string {
       s.status.streak_days > 0 ? `${s.status.streak_days}-day streak` : null,
       s.pills.struggling_words > 0 ? `${s.pills.struggling_words} words struggling` : null,
       s.pills.recordings_to_hear > 0 ? `${s.pills.recordings_to_hear} recordings to hear` : null,
-      s.pills.homework_percent !== null ? `homework ${s.pills.homework_percent}%` : null,
+      s.pills.homework ? (s.pills.homework.state === 'none' ? null : `homework (one-off): ${s.pills.homework.label}`) : s.pills.homework_percent !== null ? `homework ${s.pills.homework_percent}%` : null,
     ].filter(Boolean);
     const words = s.needs_attention.slice(0, 5).map((n) => n.note.hanzi).join(' ');
     return `- ${name} (relationship ${s.relationship_id}): ${bits.join(', ')}${words ? ` — needs attention: ${words}` : ''}`;
