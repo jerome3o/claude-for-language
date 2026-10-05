@@ -94,7 +94,8 @@ import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAn
 import { materialTarget, parseMaterialTarget, turnPage, type PresentedMaterial } from '@shared/materials';
 import { advanceCallProcessing } from '../services/calls/processing';
 import { relationshipTutor, saveActivityResult } from '../services/calls/activities';
-import { findActivity, joinActivity, reduceActivity, rolesOf, startActivity, type ActivitySession } from '@shared/call-activities';
+import { findActivity, joinActivity, reduceActivity, reviewMarkOf, rolesOf, startActivity, REVIEW_ACTIVITY_ID, type ActivitySession, type ActivitySpec } from '@shared/call-activities';
+import { applyReviewMark, buildReviewSpec } from '../services/calls/review-activity';
 import { alertCallMissed } from '../services/calls/alerts';
 import { insertPage, linkCallPages, loadPageDoc, loadScopePages, savePages, type PageScope, type PageWrite, type RoomPage } from '../services/calls/pages';
 
@@ -363,7 +364,20 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   private async startActivityFor(ws: WebSocket, a: Attachment, activityId: string): Promise<void> {
-    const spec = findActivity(activityId);
+    let spec: ActivitySpec | null = findActivity(activityId);
+    if (activityId === REVIEW_ACTIVITY_ID) {
+      // Review together: built now from the student's queue, flags and needs-work marks.
+      const m = await this.meta();
+      const tutor = await this.tutor();
+      if (!m?.relationship_id || !tutor) {
+        this.send(ws, { type: 'error', message: 'Review together needs a call between a tutor and their student' });
+        return;
+      }
+      spec = await buildReviewSpec(this.env.DB, m.relationship_id, tutor).catch((err) => {
+        console.error('[call-room] review list failed:', err);
+        return null;
+      });
+    }
     if (!spec) {
       this.send(ws, { type: 'error', message: 'That activity isn’t available' });
       return;
@@ -1021,6 +1035,12 @@ export class CallRoom extends DurableObject<Env> {
         // Relayed first, stored unconfirmed (like typing on the board): a dictation draft is one per keystroke.
         this.broadcast({ type: 'activity', session: next, from: a.clientId, name: a.name });
         await this.ctx.storage.put('activity', next, { allowUnconfirmed: true });
+        // Review together: the tutor's mark is a real mark (recordings page, the student's card).
+        if (next.spec.kind === 'review' && msg.action?.type === 'review_mark') {
+          const item = next.spec.items[next.round];
+          const mark = reviewMarkOf(next, next.round);
+          if (item && mark) await applyReviewMark(this.env.DB, item, a.userId, mark.status, mark.comment);
+        }
         if (next.phase === 'done' && cur.phase !== 'done') await this.keepActivity(next);
         return;
       }

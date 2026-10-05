@@ -4,7 +4,7 @@
  * for both people.
  */
 
-import { ACTIVITY_CATALOGUE, ACTIVITY_KIND_INFO, ACTIVITY_KINDS } from '@shared/call-activities';
+import { ACTIVITY_CATALOGUE, ACTIVITY_KIND_INFO, ACTIVITY_KINDS, REVIEW_ACTIVITY_ID } from '@shared/call-activities';
 import './activities.css';
 
 const LEVEL: Record<string, string> = { beginner: 'Beginner', elementary: 'Elementary', intermediate: 'Intermediate' };
@@ -20,6 +20,15 @@ export function ActivityPickerSheet({ running, onPick, onClose }: { running: str
         <p className="call-muted">Short exercises you do together — either of you can start one; both see it, each with your own part. The tutor can restart or swap roles; the result is kept with the lesson.</p>
         {running && <p className="act-sheet-note">“{running}” is running — starting another ends it (its result is kept).</p>}
         <div className="act-sheet-list">
+          <section className="act-sheet-group">
+            <h3><span aria-hidden="true">{ACTIVITY_KIND_INFO.review.icon}</span> {ACTIVITY_KIND_INFO.review.name} <span className="act-sheet-blurb">{ACTIVITY_KIND_INFO.review.blurb}</span></h3>
+            <button type="button" className="pm-row act-sheet-row" onClick={() => onPick(REVIEW_ACTIVITY_ID)} data-testid="activity-picker-row" data-activity={REVIEW_ACTIVITY_ID}>
+              <span className="pm-main">
+                <span className="pm-title">Recordings &amp; flagged cards<span className="act-sheet-zh"> · 一起听</span></span>
+                <span className="act-sheet-summary">What needs the tutor’s ear — every clip plays on both devices; the tutor marks Listened / Needs work.</span>
+              </span>
+            </button>
+          </section>
           {ACTIVITY_KINDS.map((kind) => {
             const info = ACTIVITY_KIND_INFO[kind];
             const items = ACTIVITY_CATALOGUE.filter((a) => a.kind === kind);

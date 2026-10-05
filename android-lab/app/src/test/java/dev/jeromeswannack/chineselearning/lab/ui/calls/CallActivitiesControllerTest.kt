@@ -1,6 +1,9 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
 import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityAction
+import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityItem
+import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds
+import dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySpec
 import dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallLayout
@@ -26,6 +29,7 @@ class CallActivitiesControllerTest {
     private class Rig(scope: TestScope) {
         val room = CallControllerTest.FakeRoom()
         val spoken = ArrayList<String>()
+        val clips = ArrayList<Pair<String, String>>()
         val controller = CallController(
             "call1", "me",
             CallDeps(
@@ -33,7 +37,7 @@ class CallActivitiesControllerTest {
                 media = CallControllerTest.FakeMedia(), recorder = CallControllerTest.FakeRecorder(),
                 endCall = {}, drainUploads = {}, closeOrphans = {}, keepAlive = {}, prepareScreenShare = {},
                 uploadEveryMs = 60_000, now = { scope.testScheduler.currentTime }, log = {},
-                devicePrefs = MemoryCallDevicePrefs(), speak = { spoken += it },
+                devicePrefs = MemoryCallDevicePrefs(), speak = { spoken += it }, playClip = { k, t -> clips += k to t },
             ),
             scope.backgroundScope,
         )
@@ -207,5 +211,43 @@ class CallActivitiesControllerTest {
         val av = CallLayout.Availability(screen = false)
         // Gone: the stage falls back to the camera.
         assertEquals(listOf(CallLayout.TileId.REMOTE), CallLayout.arrangeTiles(h.layout.value, av, 412.0).stage)
+    }
+
+    /** Review together (web ActivityTile): one counter for the whole list — a rise plays the selected item's R2 clip, a select never does. */
+    @Test fun reviewPlaysTheClipWhenPlayGoesUpAcrossSelects() = runTest(UnconfinedTestDispatcher()) {
+        val spec = ActivitySpec(
+            id = CallActivities.REVIEW_ACTIVITY_ID, kind = ActivityKinds.REVIEW, title = "Review together",
+            items = listOf(
+                ActivityItem(id = "e1", source = "recording", hanzi = "银行", recordingKey = "recordings/e1.webm", referenceKey = "generated/n1.mp3", labels = emptyList()),
+                ActivityItem(id = "f1", source = "flag", hanzi = "已经", referenceKey = "generated/n2.mp3", labels = emptyList()),
+            ),
+        )
+        val s0 = CallActivities.start(spec, CallActivities.StartOptions("rv", "tutor", "tutor", listOf("tutor", "me"), names, 1_000))
+        val played = s0.by("me", ActivityAction.PlayClip("recording"))
+        val rig = live()
+        // First sight (a welcome after a reload, play already 1): nothing plays.
+        rig.on(welcome(played)); runCurrent()
+        assertTrue(rig.clips.isEmpty())
+        // Selecting keeps the counter: nothing plays.
+        val selected = played.by("tutor", ActivityAction.Select(1))
+        rig.on(ServerMessage.Activity(selected)); runCurrent()
+        assertTrue(rig.clips.isEmpty())
+        // A rise after the select (another round than when the counter last rose): plays here, the reference with the word as fallback.
+        val ref = selected.by("me", ActivityAction.PlayClip("reference"))
+        rig.on(ServerMessage.Activity(ref)); runCurrent()
+        assertEquals(listOf("generated/n2.mp3" to "已经"), rig.clips)
+        // The tutor's mark and a resync: nothing.
+        rig.on(ServerMessage.Activity(ref)); runCurrent()
+        rig.on(ServerMessage.Activity(ref.by("tutor", ActivityAction.MarkReview("listened")))); runCurrent()
+        assertEquals(1, rig.clips.size)
+        // Back to item 0, their recording: no device-voice fallback for a take.
+        val rec = ref.by("tutor", ActivityAction.Select(0)).by("tutor", ActivityAction.PlayClip("recording"))
+        rig.on(ServerMessage.Activity(rec)); runCurrent()
+        assertEquals("recordings/e1.webm" to "", rig.clips.last())
+        assertTrue(rig.spoken.isEmpty())
+        // Another session: never on first sight.
+        rig.on(ServerMessage.Activity(CallActivities.start(spec, CallActivities.StartOptions("rv2", "tutor", "tutor", listOf("tutor", "me"), names, 1_000)).by("me", ActivityAction.PlayClip("recording")))); runCurrent()
+        assertEquals(2, rig.clips.size)
+        assertEquals("recordings/e1.webm" to "", rig.controller.reviewClip(rec))
     }
 }

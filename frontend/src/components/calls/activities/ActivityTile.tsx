@@ -23,7 +23,10 @@ import {
   type ActivitySession,
 } from '@shared/call-activities';
 import { useLessonSpeak } from '../../editor/useLessonSpeak';
+import { createAudioPlayer } from '../../../utils/audioPlayback';
+import { getAudioUrl } from '../../../api/client';
 import { ActivityBody, NeededWords } from './ActivityViews';
+import { reviewClipKey } from './ReviewView';
 import './activities.css';
 
 export interface ActivityTileProps {
@@ -66,14 +69,26 @@ export function ActivityTile({ session, myUserId, act, close }: ActivityTileProp
   }, [swapNote]);
 
   // Play the asker's audio here when it goes up (not on first sight / a rejoin).
+  // Review together: one counter for the whole list (selecting keeps it), the clip is an R2 key.
   const heard = useRef<{ key: string; play: number } | null>(null);
+  const clipPlayer = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
+  useEffect(() => () => clipPlayer.current?.dispose(), []);
   useEffect(() => {
-    const key = `${session.session_id}:${session.round}`;
+    const review = session.spec.kind === 'review';
+    const key = review ? session.session_id : `${session.session_id}:${session.round}`;
     const play = session.data.play ?? 0;
     const prev = heard.current;
     heard.current = { key, play };
     if (!prev || prev.key !== key) return;
     if (play > prev.play) {
+      if (session.spec.kind === 'review') {
+        const clip = reviewClipKey(session.spec, session.round, session.data.clip);
+        if (clip) {
+          clipPlayer.current ??= createAudioPlayer();
+          clipPlayer.current.play(getAudioUrl(clip), { label: 'call-review', cacheKey: clip });
+        }
+        return;
+      }
       const text = audioFor(session);
       if (text) speak(text);
     }
@@ -99,7 +114,7 @@ export function ActivityTile({ session, myUserId, act, close }: ActivityTileProp
           {session.spec.title}
           {session.spec.title_zh && <span className="act-title-zh">{session.spec.title_zh}</span>}
         </span>
-        {session.phase !== 'done' && total > 1 && <span className="act-progress" data-testid="activity-progress">{session.round + 1} / {total}</span>}
+        {session.phase !== 'done' && total > 1 && session.spec.kind !== 'review' && <span className="act-progress" data-testid="activity-progress">{session.round + 1} / {total}</span>}
         {score.scored > 0 && <span className="act-score" data-testid="activity-score">✓ {score.correct}/{score.scored}</span>}
         {solo ? (
           <span className="act-viewas" role="radiogroup" aria-label="Viewing as">
@@ -160,7 +175,7 @@ function ActivityDone({ session, canRestart, act, close }: { session: ActivitySe
       {sum.scored > 0 ? (
         <div className="act-done-score" data-testid="activity-done-score">{sum.correct} / {sum.scored} right</div>
       ) : (
-        <div className="act-done-score">{sum.played} of {sum.total_rounds} {session.spec.kind === 'roleplay' ? 'lines read' : 'rounds played'}</div>
+        <div className="act-done-score">{sum.played} of {sum.total_rounds} {session.spec.kind === 'roleplay' ? 'lines read' : session.spec.kind === 'review' ? 'reviewed' : 'rounds played'}</div>
       )}
       <ul className="act-done-lines">
         {sum.lines.map((l, i) => <li key={i}>{l}</li>)}

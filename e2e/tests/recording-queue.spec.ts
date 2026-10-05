@@ -2,6 +2,9 @@ import { test, expect, APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Local runs can point at an installed Chromium (CI installs its own).
+if (process.env.PW_CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH } });
+
 /**
  * "Needs your ear" — the tutor's recording review queue (/connections/:relId/recordings).
  * Four recordings with finished checks: one clean (heard right, Good, high score) stays

@@ -64,6 +64,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -215,7 +216,8 @@ fun ActivityTile(
                     // What I do, big: the badge for my role (solo: the role I'm viewing as); none for a stranger or at the end.
                     if ((solo || mine.isNotEmpty()) && s.phase != ActivityPhases.DONE) RoleBadge(s.spec, role)
                     AnimatedContent(
-                        targetState = Triple(s.sessionId, s.round, s.phase == ActivityPhases.DONE),
+                        // Review together: selecting an item is not a new round (the list stays put).
+                        targetState = Triple(s.sessionId, if (s.spec.kind == ActivityKinds.REVIEW) 0 else s.round, s.phase == ActivityPhases.DONE),
                         transitionSpec = { (fadeIn() + scaleIn(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow), initialScale = 0.96f)) togetherWith fadeOut() },
                         label = "activity-round",
                     ) { _ ->
@@ -228,6 +230,7 @@ fun ActivityTile(
                                 ActivityKinds.BUILD -> BuildBody(v)
                                 ActivityKinds.QUIZ -> QuizBody(v)
                                 ActivityKinds.DICTATION -> DictationBody(v)
+                                ActivityKinds.REVIEW -> ReviewBody(v, wide)
                                 else -> UnknownBody(v)
                             }
                         }
@@ -264,6 +267,7 @@ private fun progressLabel(s: ActivitySession): String {
     return when (s.spec.kind) {
         ActivityKinds.ROLEPLAY -> "Line ${s.round + 1} / $total"
         ActivityKinds.INFO_GAP -> if (s.phase == ActivityPhases.REVEAL) "Checked" else "Fill in the table"
+        ActivityKinds.REVIEW -> if (total == 0) "Nothing to review" else "${s.results.size} of $total reviewed"
         else -> "Round ${s.round + 1} / $total"
     }
 }
@@ -964,6 +968,176 @@ private fun WriterField(v: ActivityView) {
     else if (v.can(ActivityAction.Submit)) PrimaryPill("Submit", Modifier.height(52.dp), enabled = text.isNotBlank()) { v.act(ActivityAction.Submit) }
 }
 
+// ------------------------------------------------------------------ review together
+
+private val SOURCE_ICON = mapOf("recording" to "🎤", "flag" to "🚩", "needs_work" to "🔁")
+private val WEAK_LABEL = mapOf("tone" to "tone", "sound" to "sound", "missing" to "missed", "extra" to "extra")
+
+/**
+ * Review together (web ReviewView.tsx; docs/RECORDING_REVIEW.md "In the call"): the student's recordings
+ * that need the tutor's ear, cards they flagged and the tutor's recent needs-work marks. Both see the same
+ * list and selected item; either selects and plays — "play for both" bumps the room's counter and each
+ * device plays the clip itself (CallController). Only the tutor marks (a real mark, written by the room).
+ */
+@Composable
+private fun ReviewBody(v: ActivityView, wide: Boolean) {
+    val items = v.spec.itemList
+    if (items.isEmpty()) {
+        Card(Modifier.testTag("review-empty")) {
+            Text("🎧", fontSize = 44.sp)
+            Hint("Nothing needs your ear right now — no recordings in the queue, no flagged cards.")
+        }
+        return
+    }
+    if (wide) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            ReviewList(v, Modifier.weight(0.4f), maxHeight = 420.dp)
+            Column(Modifier.weight(0.6f), verticalArrangement = Arrangement.spacedBy(10.dp)) { ReviewDetail(v) }
+        }
+    } else {
+        ReviewList(v, Modifier.fillMaxWidth(), maxHeight = 232.dp)
+        ReviewDetail(v)
+    }
+}
+
+@Composable
+private fun ReviewList(v: ActivityView, modifier: Modifier, maxHeight: Dp) {
+    val s = v.s
+    Column(
+        modifier.heightIn(max = maxHeight).verticalScroll(rememberScrollState()).semantics { contentDescription = "To review" },
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        v.spec.itemList.forEachIndexed { i, it ->
+            val on = i == s.round
+            val m = CallActivities.reviewMarkOf(s, i) ?: it.mark
+            val canSelect = !on && v.can(ActivityAction.Select(i))
+            val bg by animateColorAsState(if (on) Lab.colors.accentSoft else Lab.colors.card, label = "review-row")
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(bg)
+                    .border(if (on) 2.dp else 1.dp, if (on) Lab.colors.accent else Lab.colors.cardBorder, RoundedCornerShape(12.dp))
+                    .bouncyClickable(enabled = canSelect, pressedScale = 0.98f) { v.act(ActivityAction.Select(i)) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp).testTag("review-row-$i"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(SOURCE_ICON[it.source] ?: "•", fontSize = 16.sp)
+                Text(it.hanzi.orEmpty(), color = Lab.colors.ink, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(it.labels.orEmpty().firstOrNull().orEmpty(), color = Lab.colors.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (m != null) MarkBadge(m.status)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkBadge(status: String) {
+    val listened = status == "listened"
+    Pill(if (listened) "✓" else "✎", (if (listened) Right else Palette.Hard).copy(alpha = 0.16f), if (listened) Right else Palette.Hard)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReviewDetail(v: ActivityView) {
+    val s = v.s
+    val item = v.spec.itemList.getOrNull(s.round) ?: return
+    val sessionMark = CallActivities.reviewMarkOf(s, s.round)
+    val mark = sessionMark ?: item.mark
+    val weak = item.weak.orEmpty().associate { it.char to it.kind }
+    Card(Modifier.testTag("review-detail")) {
+        Text(
+            buildAnnotatedString {
+                // Code points, like the web's Array.from(hanzi).
+                var i = 0
+                val h = item.hanzi.orEmpty()
+                while (i < h.length) {
+                    val ch = String(Character.toChars(h.codePointAt(i)))
+                    i += ch.length
+                    when (weak[ch]) {
+                        "tone" -> withStyle(SpanStyle(color = Palette.Hard, background = Palette.Hard.copy(alpha = 0.18f))) { append(ch) }
+                        "sound" -> withStyle(SpanStyle(color = Wrong, background = Wrong.copy(alpha = 0.14f))) { append(ch) }
+                        "missing" -> withStyle(SpanStyle(color = Lab.colors.muted, textDecoration = TextDecoration.LineThrough)) { append(ch) }
+                        null -> append(ch)
+                        else -> withStyle(SpanStyle(color = Palette.Hard)) { append(ch) }
+                    }
+                }
+            },
+            color = Lab.colors.ink, fontSize = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("review-hanzi"),
+        )
+        Text("${item.pinyin} · ${item.english}", color = Lab.colors.muted, fontSize = 15.sp, textAlign = TextAlign.Center)
+        if (weak.isNotEmpty()) Text(
+            item.weak.orEmpty().joinToString("  ") { "${it.char} ${WEAK_LABEL[it.kind] ?: it.kind}" },
+            color = Lab.colors.muted, fontSize = 12.sp,
+        )
+        val labels = item.labels.orEmpty()
+        if (labels.isNotEmpty()) FlowRow(
+            Modifier.fillMaxWidth().padding(top = 2.dp).testTag("review-labels"),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) { labels.forEach { Pill(it, Lab.colors.faint, Lab.colors.ink, Modifier.widthIn(max = 300.dp)) } }
+        item.transcript?.takeIf { it.isNotEmpty() }?.let { heard ->
+            val diff = LessonAnswers.diffHanzi(heard, item.hanzi.orEmpty())
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = Lab.colors.muted)) { append("Heard: ") }
+                    diff.typed.forEach { m ->
+                        if (m.hit) append(m.ch)
+                        else withStyle(SpanStyle(color = Wrong, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline)) { append(m.ch) }
+                    }
+                },
+                color = Lab.colors.ink, fontSize = 17.sp, modifier = Modifier.testTag("review-heard"),
+            )
+        }
+        item.flagMessage?.takeIf { it.isNotEmpty() }?.let {
+            Text("🚩 “$it”", color = Lab.colors.ink, fontSize = 15.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center, modifier = Modifier.testTag("review-flag"))
+        }
+    }
+    val canRec = v.can(ActivityAction.PlayClip("recording"))
+    val canRef = v.can(ActivityAction.PlayClip("reference"))
+    if (canRec || canRef) Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (canRec) PrimaryPill("🔊 Their recording — play for both", Modifier.fillMaxWidth().height(52.dp).testTag("review-play-recording")) { v.act(ActivityAction.PlayClip("recording")) }
+        if (canRef) SecondaryPill("🔊 Reference", Modifier.fillMaxWidth().testTag("review-play-reference")) { v.act(ActivityAction.PlayClip("reference")) }
+    }
+    if (CallActivities.isHost(s, v.me)) {
+        var comment by remember(s.sessionId, s.round, sessionMark?.comment) { mutableStateOf(sessionMark?.comment.orEmpty()) }
+        OutlinedTextField(
+            value = comment,
+            onValueChange = { comment = it.take(CallActivities.MAX_REVIEW_COMMENT_CHARS) },
+            minLines = 2,
+            placeholder = { Text("A note for them (optional) — shown on the card", fontSize = 15.sp) },
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, color = Lab.colors.ink),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+            modifier = Modifier.fillMaxWidth().testTag("review-comment"),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ReviewMarkButton("✓ Listened", mark?.status == "listened", Right, v.can(ActivityAction.MarkReview("listened", comment)), Modifier.weight(1f).testTag("review-listened")) {
+                v.act(ActivityAction.MarkReview("listened", comment), ActivityFeel.CORRECT)
+            }
+            ReviewMarkButton("✎ Needs work", mark?.status == "needs_work", Palette.Hard, v.can(ActivityAction.MarkReview("needs_work", comment)), Modifier.weight(1f).testTag("review-needs-work")) {
+                v.act(ActivityAction.MarkReview("needs_work", comment), ActivityFeel.TICK)
+            }
+        }
+    } else if (mark != null) {
+        val listened = mark.status == "listened"
+        Text(
+            (if (listened) "✓ Listened" else "✎ Needs work") + (mark.comment?.takeIf { it.isNotEmpty() }?.let { " — “$it”" } ?: ""),
+            color = if (listened) Right else Palette.Hard, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().testTag("review-verdict"),
+        )
+    }
+}
+
+/** ✓ Listened / ✎ Needs work: tinted when it is the item's mark. */
+@Composable
+private fun ReviewMarkButton(label: String, on: Boolean, tint: Color, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (on) tint.copy(alpha = 0.16f) else Lab.colors.card, label = "review-mark")
+    Box(
+        modifier.heightIn(min = 52.dp).clip(RoundedCornerShape(14.dp)).background(bg)
+            .border(if (on) 2.dp else 1.dp, if (on) tint else Lab.colors.cardBorder, RoundedCornerShape(14.dp))
+            .alpha(if (enabled || on) 1f else 0.6f)
+            .bouncyClickable(enabled = enabled, onClick = onClick).padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = if (on) tint else Lab.colors.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+}
+
 // ------------------------------------------------------------------ done
 
 @Composable
@@ -972,7 +1146,14 @@ private fun DoneBody(v: ActivityView) {
     Text("🎉", fontSize = 56.sp)
     Text("Well done!", color = Lab.colors.ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
     if (sum.scored > 0) Text("${sum.correct} / ${sum.scored} right", color = Right, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-    Text("${sum.played} of ${sum.totalRounds} ${if (v.spec.kind == ActivityKinds.ROLEPLAY) "lines" else "rounds"} played", color = Lab.colors.muted, fontSize = 14.sp)
+    Text(
+        when (v.spec.kind) {
+            ActivityKinds.ROLEPLAY -> "${sum.played} of ${sum.totalRounds} lines read"
+            ActivityKinds.REVIEW -> "${sum.played} of ${sum.totalRounds} reviewed"
+            else -> "${sum.played} of ${sum.totalRounds} rounds played"
+        },
+        color = Lab.colors.muted, fontSize = 14.sp,
+    )
     WordsNeeded(v, CallActivities.wordsYouNeeded(v.s), where = "summary")
     if (sum.lines.isNotEmpty()) Card {
         sum.lines.take(24).forEach { l ->
@@ -1007,17 +1188,24 @@ fun ActivityPickerSheet(running: ActivitySession?, onPick: (String) -> Unit) {
             InlineNotice("“${running.spec.title}” is running. Starting another ends the current one (its result is kept).", kind = NoticeKind.Info, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         }
         Hint("Two-person exercises you play together, live. Either of you can start one; roles are set for you, and the tutor can restart or swap them.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        // Review together: built per call from what needs the tutor's ear (not in the catalogue).
+        CallActivities.KIND_INFO[ActivityKinds.REVIEW]?.let { info ->
+            PickerKindHeader(info.icon, info.name, info.blurb)
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(Lab.colors.card)
+                    .border(1.dp, if (running?.spec?.id == CallActivities.REVIEW_ACTIVITY_ID) Lab.colors.accent else Lab.colors.cardBorder, RoundedCornerShape(16.dp))
+                    .bouncyClickable(pressedScale = 0.98f) { onPick(CallActivities.REVIEW_ACTIVITY_ID) }.padding(14.dp).testTag("pick-${CallActivities.REVIEW_ACTIVITY_ID}"),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text("Recordings & flagged cards · 一起听", color = Lab.colors.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("What needs the tutor’s ear — every clip plays on both devices; the tutor marks Listened / Needs work.", color = Lab.colors.muted, fontSize = 13.sp)
+            }
+        }
         for (kind in ActivityKinds.ALL) {
             val specs = dev.jeromeswannack.chineselearning.lab.core.calls.ActivityCatalogue.ALL.filter { it.kind == kind }
             if (specs.isEmpty()) continue
             val info = CallActivities.KIND_INFO[kind]
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(info?.icon ?: "🎲", fontSize = 20.sp)
-                Column {
-                    Text(info?.name ?: kind, color = Lab.colors.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text(info?.blurb.orEmpty(), color = Lab.colors.muted, fontSize = 12.sp)
-                }
-            }
+            PickerKindHeader(info?.icon ?: "🎲", info?.name ?: kind, info?.blurb.orEmpty())
             specs.forEach { sp ->
                 Column(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(Lab.colors.card)
@@ -1034,6 +1222,17 @@ fun ActivityPickerSheet(running: ActivitySession?, onPick: (String) -> Unit) {
                     Text(sp.summary, color = Lab.colors.muted, fontSize = 13.sp)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PickerKindHeader(icon: String, name: String, blurb: String) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(icon, fontSize = 20.sp)
+        Column {
+            Text(name, color = Lab.colors.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(blurb, color = Lab.colors.muted, fontSize = 12.sp)
         }
     }
 }
