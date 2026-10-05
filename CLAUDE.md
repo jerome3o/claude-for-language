@@ -127,6 +127,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── chars/             # The character dictionary (card-independent): CharRecord, build rules from CC-CEDICT / Make Me a Hanzi / wordfreq (build.ts, msgpack.ts; scripts/build-char-dict.ts), the sheet's word statuses known / in_decks / none (status.ts — parity-tested by the Lab app)
 │   ├── pinyin/            # applyYiBuToneChanges: the 一 / 不 tone changes every automatic pinyin goes through (Lab ToneChange.kt, parity-tested)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts (new characters first); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts), "⚡ Study it today" bump pocket (bumps.ts) — all parity-tested by the Lab app
+│   ├── recordings/        # "Needs your ear": queue rule + labels (queue.ts), transcript ↔ card comparison (transcript.ts), mix-ups (mixups.ts) — docs/RECORDING_REVIEW.md
+│   ├── text/              # numberHanzi.ts: number ↔ hanzi normalisation (transcripts, typed answers)
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
 │   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan, Home's compact card rows (home.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts) — pure, unit-tested
@@ -345,6 +347,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `usage_events` - Usage analytics (migration 0100, docs/ANALYTICS.md): client + server events (id, user_id, ts, received_at, platform, app_version, session_id, event, screen = route pattern, props JSON of ids / enums / counts only); pruned after 180 days; `users.analytics_opt_out`
 - `tts_settings` - The admin's TTS provider settings (migration 0107): ONE row (id 1), `settings` JSON per `shared/tts/config.ts`, updated_at / updated_by; no row = the defaults
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
+- `recording_checks` - The background check of each pronunciation recording (migration 0109; docs/RECORDING_REVIEW.md): transcript + match, Azure score, per-character `char_scores` JSON, `score_note`, `audio_ms` / `scored_at` (free-tier budget)
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a relationship: ONE per tutor–student pair (migration 0102 merged the extras, `merged_into` = the chat an old id became, unique index on live human rows); Claude practice chats may be several
 - `messages` - Individual chat messages
@@ -1037,7 +1040,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue`.
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue`, `recording-check-queue` (docs/RECORDING_REVIEW.md).
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -1380,6 +1383,19 @@ in any known note. The history chart replays every card with `computeCardTimelin
 tutor's `GET /api/relationships/:relId/student-progress/daily` carries `known` (same grouping via
 `knownCountsFromTiers`, from the server's cached card state — `services/known-counts.ts`). No HSK
 list is in the repo, so there is no HSK coverage yet.
+
+### "Needs your ear" — recording review queue (docs/RECORDING_REVIEW.md)
+Every uploaded pronunciation take gets a background check on **`recording-check-queue`**
+(`services/recording-checks.ts`, table `recording_checks`, migration 0109): a transcript (`transcribeTake`) compared
+with the card like the study card's ✅ (`shared/recordings/transcript.ts`, pinyin with tones) and an **Azure
+Pronunciation Assessment** score per character (`services/pronunciation/azure.ts`, zh-CN scripted, REST short
+audio; `pronunciation/audio-convert.ts` remuxes WebM/Opus → Ogg/Opus and resamples WAV; F0 limits kept:
+18 req/min, 4.5 audio h/month). Queue rule `shared/recordings/queue.ts` (`reviewQueueReasons`: transcript
+mismatch, Again / Hard, score < 85, a character < 80, an open flag; a mark takes it out; thresholds conservative).
+`GET /api/relationships/:relId/recordings/queue?view=queue|all` → items with `labels` ("Sounded off: 银 (tone)");
+the recordings page has **Needs your ear** / **All recordings** tabs (web + Lab), `pills.recordings_need_ear` on the
+dashboard, MCP `list_student_recordings` `queue: true`. **Mix-ups** (`shared/recordings/mixups.ts`): confused
+character pairs from wrong typed characters + multiple-choice picks → insights `mix_ups`.
 
 ### Tutor Student Insights (tutor-only, `worker/src/routes/insights.ts`)
 One-page briefing for a tutor before a lesson: pure aggregation over the student's
@@ -1861,7 +1877,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `get_student_daily_progress` | Last 30 days day-by-day + headline stats and per-deck counts (`/student-progress/daily` + `/student-progress`) |
 | `get_student_day` | Everything reviewed on one date (`/student-progress/day/:date`) |
 | `write_student_summary` / `list_student_summaries` | Claude-written narrative (EN + 中文) for a range, persisted; 503 message surfaced when no API key |
-| `list_student_recordings` | Pronunciation recordings in a range with `audio_url` and tutor marks; `only_unmarked` = the "recordings to hear" pile |
+| `list_student_recordings` | Pronunciation recordings in a range with `audio_url` and tutor marks; `queue: true` = the "Needs your ear" queue with `why` labels, `heard`, `pronunciation_score`, `sounded_off`; `only_unmarked` = everything not yet heard |
 | `mark_recording` / `clear_recording_mark` | `listened` or `needs_work` + comment (shown to the student once on the back of that card) / remove the mark |
 | `log_lesson` / `list_lesson_log` / `delete_lesson_log_entry` | Lesson log; the newest entry anchors "since last lesson"; notes are copied into the student's lesson notes |
 | `send_message_to_student` | Posts a chat message as the tutor into THE chat with the student (one per pair, created on first use) |
