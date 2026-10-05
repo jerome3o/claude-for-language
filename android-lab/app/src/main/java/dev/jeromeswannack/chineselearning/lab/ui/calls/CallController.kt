@@ -18,6 +18,7 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.TileStat
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallPeer
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallProtocol
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallSignal
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallView
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 import dev.jeromeswannack.chineselearning.lab.core.calls.PeerMediaState
 import dev.jeromeswannack.chineselearning.lab.core.calls.ServerMessage
@@ -193,19 +194,23 @@ data class CallState(
     val turn: Boolean = true,
     val screenShareSupported: Boolean = false,
     val myUserId: String = "",
-    /** Round 5: the relationship's tutor (null = a solo call / an older room) — she leads "Show for student" / "Stop their share". */
+    /** Round 5: the relationship's tutor (null = a solo call / an older room) — she may "Stop their share". */
     val tutorId: String? = null,
-    /** Round 5: what the tutor last showed (the room's record; core CallFollow). */
-    val shown: CallFollow.ShownState? = null,
-    /** Round 5, the student: "Minghui is showing you this" while the shown tile is on my stage (null = hidden). */
-    val showingBanner: String? = null,
+    /** "Same view" (core CallView): following the shared view, or looking around on my own (remembered per call). */
+    val viewMode: CallView.ViewMode = CallView.ViewMode.SAME,
+    /** The room's shared view (null = nobody set one yet). */
+    val sharedView: CallView.SharedView? = null,
+    /** "Bring … to my view" while I'm on my own view: who invites me (the pill; null = none). */
+    val viewInvite: String? = null,
     /** Round 5, the student: "Minghui stopped your screen share" — a transient note. */
     val shareStoppedNote: BoardNotice? = null,
 ) {
     /** I am the relationship's tutor (never in a solo call). */
     val isTutor: Boolean get() = tutorId != null && myUserId.isNotEmpty() && tutorId == myUserId
-    /** Round 5: the tutor's controls (Show for student, Stop their share) — she is the tutor and the student is here. */
+    /** Round 5: the tutor's control (Stop their share) — she is the tutor and the student is here. */
     val leads: Boolean get() = isTutor && remote != null
+    /** The other person is on "My own view" (their `state`; an older app = same). */
+    val theyLookAround: Boolean get() = remote?.peer?.state?.view == CallView.ViewMode.OWN
     val sharingScreen: Boolean get() = screenVideo != null
     /** I share and they don't (web `iShare`): the screen tile shows MY screen and my pen defaults to the sharer's colour. */
     val iShareScreen: Boolean get() = sharingScreen && remote?.sharing != true
@@ -319,10 +324,14 @@ class CallDeps(
     /** Every connection transition, for logcat (the connection log goes to the room too). */
     val log: (String) -> Unit = { runCatching { android.util.Log.i("CallController", it) } },
     /**
-     * Round 5: the call's tile layout (the ViewModel's). The student's device puts what the tutor shows on
-     * its stage through it; the tutor's opening the board shows it to the student. Null = no following.
+     * The call's tile layout (the ViewModel's). "Same view" (core CallView): my stage changes go to the room
+     * through it, and the shared view is put on my stage through it. Null = no shared view.
      */
     val layout: CallLayoutHolder? = null,
+    /** Where "Same view" / "My own view" is remembered per call (web localStorage `call-view-mode:<callId>`). */
+    val viewModes: CallLayoutStore? = null,
+    /** A fresh id for each `view` I send (its echo is recognised by it). */
+    val newViewCid: () -> String = { "v" + CallConnection.newInstanceId() },
 )
 
 /**
@@ -386,11 +395,19 @@ class CallController(
     var instance: String = CallConnection.newInstanceId()
         private set
 
-    // Round 5 (see "the tutor leads" below); declared before init, which starts watching the stage.
-    /** The last show this device acted on — for the controller's lifetime, so a reconnect's welcome with the same show changes nothing. */
-    private var applied: CallFollow.AppliedShow? = null
-    /** My stage as last computed (the tutor's auto-show compares with it). */
-    private var lastStage: List<CallLayout.TileId> = emptyList()
+    // "Same view" (see below); declared before init, which starts watching my stage.
+    /** The stage the room last heard from me / I last applied (shouldSendView compares with it). */
+    private var knownView: CallView.StageView? = null
+    /** The cid of the last `view` I sent (or am about to send): only that echo of mine is applied. */
+    private var lastSentCid: String? = null
+    /** The newest shared view this device has acted on (seq). */
+    private var appliedSeq = 0
+    private var lastViewSentAt = Long.MIN_VALUE / 2
+    private var pendingView: Job? = null
+    /** Putting the room's view on my stage: the changes it makes are not mine to send. */
+    private var applyingView = false
+    /** Their last change of the shared view and the tiles it newly put on my stage (the 📝 / 💬 guard). */
+    private var theirLast: CallView.TheirLastView? = null
     /** The call screen's width in dp (the stage depends on it: phones focus one tile). */
     private var stageWidth = 412.0
 
@@ -403,14 +420,19 @@ class CallController(
             }
         }
         media.onProblem { detail -> scope.launch { diag("media", detail) } }
-        // Round 5: the stage changes (my layout, or a tile appearing / going) → the banner, auto-show, following.
+        // "Same view": remembered per call on this device (an older app's absence = same).
+        val storedMode = runCatching { deps.viewModes?.load(viewModeKey(callId)) }.getOrNull()
+        if (storedMode != null) {
+            val mode = CallView.ViewMode.of(storedMode)
+            _state.update { it.copy(viewMode = mode) }
+            mediaState = mediaState.copy(view = mode)
+        }
+        // Every change of my stage (my layout or the board page I'm on) → the shared view, while on Same view.
         deps.layout?.let { holder ->
             scope.launch {
-                combine(holder.layout, _state.map { availability(it) }.distinctUntilChanged()) { _, _ -> }.collect { stageChanged() }
+                combine(holder.layout, _state.map { it.pages.shown }.distinctUntilChanged()) { _, _ -> }.collect { myStageChanged() }
             }
         }
-        // The tutor turns her board page while she is showing the board: the student follows the page.
-        scope.launch { _state.map { it.pages.shown }.distinctUntilChanged().collect { page -> myBoardPageTurned(page) } }
     }
 
     fun setPendingUploads(n: Int) = _state.update { it.copy(pendingUploads = n) }
@@ -807,9 +829,12 @@ class CallController(
                 _state.update { it.copy(phase = CallPhase.LIVE) }
                 if (wantRecord && !deps.recorder.recording) startRecording()
                 flushDiag()
-                // Round 5: who leads, and what she last showed (a new show is applied once; the same one after a reconnect is not).
-                _state.update { it.copy(tutorId = msg.tutorId, shown = msg.shown, showingBanner = if (msg.shown == null) null else it.showingBanner) }
-                follow()
+                // Round 5: who may stop the other person's share.
+                _state.update { it.copy(tutorId = msg.tutorId) }
+                // "Same view": the room's view goes on my stage; a room without one gets mine.
+                val view = msg.view
+                if (view != null) sharedViewArrived(view)
+                else if (_state.value.viewMode == CallView.ViewMode.SAME) myViewMine()?.let { sendView(it) }
             }
             is ServerMessage.PeerJoined -> {
                 _state.update { it.copy(pages = BoardPages.peerJoined(it.pages, msg.peer.clientId)) }
@@ -880,10 +905,9 @@ class CallController(
                 s.copy(liveStrokes = if (stroke == null) s.liveStrokes - msg.from else s.liveStrokes + (msg.from to stroke))
             }
             is ServerMessage.Chat -> _state.update { s -> if (s.chat.any { it.id == msg.message.id }) s else s.copy(chat = s.chat + msg.message) }
-            is ServerMessage.Shown -> {
-                _state.update { it.copy(shown = msg.shown, showingBanner = if (msg.shown == null) null else it.showingBanner) }
-                follow()
-            }
+            // "Same view" replaced round 5's "Show for student": the room turns an older app's `show` into a view change.
+            is ServerMessage.Shown -> Unit
+            is ServerMessage.View -> sharedViewArrived(msg.view)
             is ServerMessage.ShareStopped -> {
                 // The tutor stopped my screen share: stop capturing, exactly like my own Stop sharing.
                 stopScreenShare()
@@ -912,7 +936,7 @@ class CallController(
         // Wait a little for a camera / mic still opening (never for good), so a rejoin doesn't come in with everything off.
         kotlinx.coroutines.withTimeoutOrNull(JOIN_MEDIA_WAIT_MS) { startPreview().join() }
         val s = _state.value
-        mediaState = PeerMediaState(mic = s.micOn && s.hasMic, cam = s.camOn && s.hasCamera, screen = false, recording = false)
+        mediaState = PeerMediaState(mic = s.micOn && s.hasMic, cam = s.camOn && s.hasCamera, screen = false, recording = false, view = s.viewMode)
         instance = CallConnection.newInstanceId()
         diag("join", "joining with ${joinDevices(s)}; instance $instance${if (deps.device.isNotBlank()) "; ${deps.device}" else ""}")
         deps.keepAlive(true)
@@ -1006,6 +1030,8 @@ class CallController(
         _state.update { it.copy(screenVideo = video) }
         applyEncoding()
         broadcastState { it.copy(screen = true) }
+        // "Same view": a share is shown to both — my own screen comes onto my stage too (and so to theirs).
+        deps.layout?.setMySharing(true)
     }
 
     fun stopScreenShare() {
@@ -1016,6 +1042,7 @@ class CallController(
         _state.update { it.copy(screenVideo = null) }
         applyEncoding()
         broadcastState { it.copy(screen = false) }
+        deps.layout?.setMySharing(false)
     }
 
     fun commitBoard(op: BoardOp) {
@@ -1188,21 +1215,11 @@ class CallController(
         room?.send(CallProtocol.activityAction(cur.sessionId, dev.jeromeswannack.chineselearning.lab.core.calls.ActivityAction.Draft(text)))
     }
 
-    // ------------------------------------------------------------ round 5: the tutor leads (core CallFollow)
+    // ------------------------------------------------------------ "Same view" (core CallView)
 
     private fun myId(): String = deps.userId().ifEmpty { _state.value.myUserId }
 
     private fun availability(s: CallState) = CallLayout.Availability(screen = s.remote?.sharing == true || s.sharingScreen, material = s.presenting != null, activity = s.activity != null)
-
-    private fun available(tile: CallLayout.TileId, s: CallState): Boolean {
-        val a = availability(s)
-        return when (tile) {
-            CallLayout.TileId.SCREEN -> a.screen
-            CallLayout.TileId.MATERIAL -> a.material
-            CallLayout.TileId.ACTIVITY -> a.activity
-            else -> true
-        }
-    }
 
     /** The tiles on my stage now (the screen's own arrangement: core CallLayout.arrangeTiles). */
     fun stage(): List<CallLayout.TileId> {
@@ -1212,92 +1229,158 @@ class CallController(
 
     /** The call screen's width (dp), so the stage here is the one on the screen. */
     fun setStageWidth(widthDp: Double) {
-        if (widthDp <= 0 || widthDp == stageWidth) return
+        if (widthDp <= 0) return
         stageWidth = widthDp
-        stageChanged()
     }
 
-    private val leads: Boolean get() = _state.value.let { it.tutorId != null && it.tutorId == myId() && it.remote != null }
+    /** My stage as the shared part (core CallView.viewOf): the layout and the board page I'm on. Null = no layout. */
+    private fun myViewMine(): CallView.StageView? {
+        val holder = deps.layout ?: return null
+        return CallView.viewOf(holder.layout.value, _state.value.pages.shown)
+    }
 
-    private fun stageChanged() {
-        val stage = stage()
-        val prev = lastStage
-        lastStage = stage
-        val s = _state.value
-        // The banner goes once the shown tile is no longer on my stage.
-        if (s.showingBanner != null) {
-            val t = s.shown?.let { CallFollow.tileForShow(it.view) }
-            if (t == null || t !in stage) _state.update { it.copy(showingBanner = null) }
+    /**
+     * My layout or board page changed — by my hand (focus, preset, split, divider, swipe, 📝 / 💬, a page
+     * turn) or by itself (a share / material / activity starting): on Same view it becomes the shared view.
+     * The divider is throttled: at most one `view` every [VIEW_SEND_MS], the latest wins.
+     */
+    private fun myStageChanged() {
+        if (applyingView || _state.value.phase != CallPhase.LIVE) return
+        val mine = myViewMine() ?: return
+        if (!CallView.shouldSendView(_state.value.viewMode, knownView, mine)) return
+        if (pendingView != null) return
+        val wait = lastViewSentAt + VIEW_SEND_MS - now()
+        if (wait <= 0) { sendView(mine); return }
+        // The trailing send's cid now: an echo of my earlier send must not undo the newer change meanwhile.
+        val cid = deps.newViewCid()
+        lastSentCid = cid
+        pendingView = scope.launch {
+            delay(wait)
+            pendingView = null
+            val latest = myViewMine() ?: return@launch
+            if (CallView.shouldSendView(_state.value.viewMode, knownView, latest)) sendView(latest, cid)
         }
-        // The tutor opening the board shows it to the student without the button.
-        if (prev != stage && leads) CallFollow.autoShowBoard(prev, stage)?.let { kind -> show(viewOf(kind)) }
-        // A tile that appeared (a material, their share, an activity): a show that waited for it applies now.
-        follow()
     }
 
-    /** What the tutor's button shows for [kind]: the board with the page she is on. */
-    private fun viewOf(kind: CallFollow.ShowKind): CallFollow.ShowView =
-        if (kind == CallFollow.ShowKind.TEXT) CallFollow.ShowView.text(_state.value.pages.shown) else CallFollow.ShowView(kind)
+    /** Send [view] as the shared view (the room tells everyone, me included). */
+    private fun sendView(view: CallView.StageView, cid: String = deps.newViewCid(), bring: Boolean = false): Boolean {
+        lastSentCid = cid
+        val sent = room?.send(CallProtocol.view(view, cid, bring)) ?: false
+        if (sent) {
+            knownView = view
+            lastViewSentAt = now()
+        }
+        return sent
+    }
 
-    /** The student's device: act on the room's latest show, once per new show (core CallFollow.followStep). */
-    private fun follow() {
+    /** The room's shared view (welcome or `view`): applied on Same view, an invitation on my own (core CallView.viewStep). */
+    private fun sharedViewArrived(view: CallView.SharedView) {
+        val s = _state.value
+        val step = CallView.viewStep(view, myId(), lastSentCid, s.viewMode, appliedSeq)
+        appliedSeq = maxOf(appliedSeq, view.seq)
+        _state.update { it.copy(sharedView = view) }
+        when (step) {
+            CallView.Step.APPLY -> applyShared(view)
+            CallView.Step.INVITE -> _state.update { it.copy(viewInvite = view.name.ifBlank { remoteName() }) }
+            CallView.Step.SKIP -> Unit
+        }
+    }
+
+    private fun remoteName(): String = _state.value.remote?.peer?.name.orEmpty()
+
+    /** Put [view] on my stage: the layout (my per-device choices kept) and its board page; never sent back. */
+    private fun applyShared(view: CallView.SharedView) {
         val holder = deps.layout ?: return
-        val s = _state.value
-        val shown = s.shown ?: return
-        val tile = CallFollow.tileForShow(shown.view)
-        when (val step = CallFollow.followStep(applied, shown, myId(), available(tile, s), tile in stage())) {
-            CallFollow.FollowStep.None -> Unit
-            is CallFollow.FollowStep.Stage -> {
-                applied = CallFollow.AppliedShow(shown.id, shown.v)
-                holder.dispatch(CallLayout.Action.Shown(step.tile))
-                step.page?.let { openShownPage(it) }
-                _state.update { it.copy(showingBanner = CallFollow.showingBanner(shown.name)) }
-                diag("follow", "${shown.name.ifBlank { "The tutor" }} showed ${shown.view.kind.wire}" + (step.page?.let { " (page $it)" } ?: ""))
-            }
-            is CallFollow.FollowStep.Page -> {
-                applied = CallFollow.AppliedShow(shown.id, shown.v)
-                openShownPage(step.page)
-            }
+        pendingView?.cancel()
+        pendingView = null
+        // Their change: the tiles it newly brought onto my stage are safe from my 📝 / 💬 for a moment.
+        if (view.by != myId()) theirLast = CallView.theirLastView(CallView.viewOf(holder.layout.value, null), view.view, now())
+        applyingView = true
+        try {
+            val page = view.view.page
+            val turned = page != null && openViewPage(page)
+            holder.replace(CallView.applyView(holder.layout.value, view.view))
+            // What the room has now is what I show (a page I can't open is left as "no opinion").
+            knownView = if (page == null || turned) view.view else view.view.copy(page = null)
+            appliedSeq = maxOf(appliedSeq, view.seq)
+        } finally {
+            applyingView = false
         }
+        _state.update { it.copy(viewInvite = null) }
+        if (view.by != myId()) diag("view", "${view.name.ifBlank { "They" }} changed the view (${view.view.mode.wire} ${view.view.main.wire})")
     }
 
-    /** The board page the tutor shows (my following of her pages is left as it was). */
-    private fun openShownPage(page: String) {
+    /**
+     * The 📝 / 💬 guard (core CallView.keepJustShared): they just put [tile] on my stage (on Same view) — my
+     * press of its button, meant to open it too, must not toggle it away again.
+     */
+    fun keepsJustShared(tile: CallLayout.TileId): Boolean =
+        _state.value.viewMode == CallView.ViewMode.SAME && CallView.keepJustShared(theirLast, tile, now())
+
+    /** The board page of the shared view: true when I'm on it now (turned, or already there). */
+    private fun openViewPage(page: String): Boolean {
         val p = _state.value.pages
-        if (p.shown == page || (p.pages.isNotEmpty() && p.pages.none { it.id == page })) return
+        if (p.shown == page) return true
+        if (p.pages.isNotEmpty() && p.pages.none { it.id == page }) return false
         val step = BoardPages.turnTo(p, page)
         applyPages(step.copy(state = step.state.copy(following = p.following)))
+        return _state.value.pages.shown == page
     }
 
-    /** The tutor's board page changed while she shows the board: the student's board follows (the same show, `follow`). */
-    private fun myBoardPageTurned(page: String?) {
-        val s = _state.value
-        val shown = s.shown ?: return
-        if (page == null || !leads || shown.by != myId() || shown.view.kind != CallFollow.ShowKind.TEXT || shown.view.page == page) return
-        show(CallFollow.ShowView.text(page), follow = true)
+    private fun setMode(mode: CallView.ViewMode) {
+        runCatching { deps.viewModes?.save(viewModeKey(callId), mode.wire) }
+        _state.update { it.copy(viewMode = mode) }
+        if (mode == CallView.ViewMode.OWN) { pendingView?.cancel(); pendingView = null }
+        broadcastState { it.copy(view = mode) }
     }
 
-    /** The tutor's "Show for student" (the room refuses anyone else). [follow]: a page turn of what is shown. */
-    fun show(view: CallFollow.ShowView?, follow: Boolean = false): Boolean {
-        if (!leads) return false
-        return room?.send(CallProtocol.show(view, follow)) ?: false
+    /**
+     * The view chip's menu: "Same view" joins the room's current shared view at once (whoever set it; a
+     * room without one gets mine), "My own view" stops sending and applying.
+     */
+    fun setViewMode(mode: CallView.ViewMode) {
+        if (_state.value.viewMode == mode) return
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.view_mode", mapOf("mode" to mode.wire))
+        setMode(mode)
+        if (mode == CallView.ViewMode.SAME) joinSharedView()
     }
 
-    /** The corner button on a stage tile: show that tile (the board with my page). */
-    fun showTile(tile: CallLayout.TileId): Boolean {
-        val kind = CallFollow.ShowKind.of(tile.wire) ?: return false
-        return show(viewOf(kind))
+    private fun joinSharedView() {
+        _state.update { it.copy(viewInvite = null) }
+        val shared = _state.value.sharedView
+        if (shared != null) applyShared(shared)
+        else if (_state.value.phase == CallPhase.LIVE) myViewMine()?.let { sendView(it) }
+    }
+
+    /** "Join" on the invitation: Same view, and their view on my stage. */
+    fun joinInvite() {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.view_join", emptyMap())
+        if (_state.value.viewMode != CallView.ViewMode.SAME) setMode(CallView.ViewMode.SAME)
+        joinSharedView()
+    }
+
+    /** ✕ on the invitation. */
+    fun dismissInvite() = _state.update { it.copy(viewInvite = null) }
+
+    /** "Bring <name> to my view": my view becomes the shared one (me back on Same view); they're invited if on their own. */
+    fun bringToMyView(): Boolean {
+        val before = _state.value.viewMode
+        val mine = myViewMine() ?: return false
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.view_bring", mapOf("mode" to before.wire))
+        if (before != CallView.ViewMode.SAME) setMode(CallView.ViewMode.SAME)
+        pendingView?.cancel()
+        pendingView = null
+        _state.update { it.copy(viewInvite = null) }
+        return sendView(mine, bring = true)
     }
 
     /** The tutor's "Stop their share" on the student's shared screen. */
     fun stopTheirShare(): Boolean {
         val s = _state.value
+        val leads = s.tutorId != null && s.tutorId == myId() && s.remote != null
         if (!leads || s.remote?.sharing != true) return false
         return room?.send(CallProtocol.stopShare()) ?: false
     }
-
-    /** ✕ on "Minghui is showing you this" (the layout stays). */
-    fun dismissShowingBanner() = _state.update { it.copy(showingBanner = null) }
 
     fun dismissShareStopped() = _state.update { it.copy(shareStoppedNote = null) }
 
@@ -1589,5 +1672,10 @@ class CallController(
          * up (web COMPOSE_IDLE_MS — Gboard keeps a composing span on the last word until a space).
          */
         const val COMPOSE_IDLE_MS = 1_500L
+        /** "Same view": dragging the divider sends at most one `view` this often (the latest wins). */
+        const val VIEW_SEND_MS = 120L
+
+        /** Where "Same view" / "My own view" is remembered (web `call-view-mode:<callId>`). */
+        fun viewModeKey(callId: String) = "call-view-mode:$callId"
     }
 }

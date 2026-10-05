@@ -56,6 +56,7 @@ object CallProtocol {
             // Round 5: the relationship's tutor (null = a solo call / an older room) and what she last showed.
             tutorId = o.str("tutor_id")?.takeIf { it.isNotEmpty() },
             shown = CallFollow.parseShown(o["shown"]),
+            view = CallView.parseShared(o["view"]),
         )
         "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty(), o.str("page")) }
         "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it, o.str("page")) }
@@ -95,6 +96,8 @@ object CallProtocol {
         "error" -> ServerMessage.Error(o.str("message").orEmpty())
         // Round 5: what the tutor shows now (null = nothing), and "the tutor stopped your screen share".
         "shown" -> if (!o.containsKey("shown")) null else ServerMessage.Shown(CallFollow.parseShown(o["shown"]))
+        // "Same view" (core CallView): the shared view changed (after a `view`, or an older app's `show`).
+        "view" -> CallView.parseShared(o["view"])?.let { ServerMessage.View(it) }
         "share_stopped" -> ServerMessage.ShareStopped(o.str("by").orEmpty(), o.str("name").orEmpty())
         else -> null
     } }
@@ -114,7 +117,8 @@ object CallProtocol {
     fun parseState(el: JsonElement?): PeerMediaState {
         val o = el as? JsonObject ?: return PeerMediaState()
         fun b(k: String) = (o[k] as? JsonPrimitive)?.booleanOrNull ?: false
-        return PeerMediaState(mic = b("mic"), cam = b("cam"), screen = b("screen"), recording = b("recording"))
+        val view = (o["view"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        return PeerMediaState(mic = b("mic"), cam = b("cam"), screen = b("screen"), recording = b("recording"), view = CallView.ViewMode.of(view))
     }
 
     fun parseCursor(el: JsonElement?): TextCursor? {
@@ -144,7 +148,7 @@ object CallProtocol {
     fun chat(text: String): String = buildJsonObject { put("type", "chat"); put("text", text) }.toString()
     fun state(s: PeerMediaState): String = buildJsonObject {
         put("type", "state")
-        put("state", buildJsonObject { put("mic", s.mic); put("cam", s.cam); put("screen", s.screen); put("recording", s.recording) })
+        put("state", buildJsonObject { put("mic", s.mic); put("cam", s.cam); put("screen", s.screen); put("recording", s.recording); put("view", s.view.wire) })
     }.toString()
     // Annotations: [target] null = the shared screen; `material:<id>:<page>` = a presented material's page (round 4 PR 5).
     fun annot(stroke: AnnotStroke, target: String? = null): String = buildJsonObject { put("type", "annot"); put("stroke", stroke.toJson()); target?.let { put("target", it) } }.toString()
@@ -185,6 +189,8 @@ object CallProtocol {
     /** I'm leaving (the call goes on for the other person): the room stops counting me as present at once. */
     /** Round 5, the tutor only: put [view] on the student's stage (null = stop showing); [follow] = a page turn of what is shown. */
     fun show(view: CallFollow.ShowView?, follow: Boolean = false): String = CallFollow.showMessage(view, follow)
+    /** "Same view": my stage changed (core CallView); [bring] = "Bring <name> to my view". */
+    fun view(view: CallView.StageView, cid: String, bring: Boolean = false): String = CallView.viewMessage(view, cid, bring)
     /** Round 5, the tutor only: stop the other person's screen share. */
     fun stopShare(): String = CallFollow.stopShareMessage()
     fun leave(): String = buildJsonObject { put("type", "leave") }.toString()
@@ -198,7 +204,14 @@ object CallProtocol {
 /** `welcome.material_annots`: a material page's kept drawings. */
 data class MaterialAnnots(val target: String, val annots: KeptAnnotations)
 
-data class PeerMediaState(val mic: Boolean = false, val cam: Boolean = false, val screen: Boolean = false, val recording: Boolean = false)
+data class PeerMediaState(
+    val mic: Boolean = false,
+    val cam: Boolean = false,
+    val screen: Boolean = false,
+    val recording: Boolean = false,
+    /** "Same view" or "My own view" (core CallView; absent from an older app = same). */
+    val view: CallView.ViewMode = CallView.ViewMode.SAME,
+)
 
 /** [instance] = the peer's app session / page load (absent from older clients): the same instance back = the same WebRTC link. */
 data class CallPeer(val clientId: String, val userId: String, val name: String, val pictureUrl: String?, val state: PeerMediaState, val instance: String? = null)
@@ -236,6 +249,8 @@ sealed interface ServerMessage {
         val tutorId: String? = null,
         /** Round 5: what the tutor last showed (CallFollow). */
         val shown: CallFollow.ShownState? = null,
+        /** "Same view": what is on the stage for everyone on Same view (null = nobody set one yet; core CallView). */
+        val view: CallView.SharedView? = null,
     ) : ServerMessage
     /** [page] = the board page the ops belong to (null from an older room). */
     data class Text(val from: String, val ops: List<TextOp>, val page: String? = null) : ServerMessage
@@ -276,6 +291,8 @@ sealed interface ServerMessage {
     data class Error(val message: String) : ServerMessage
     /** Round 5: what the tutor shows now (after a `show`); null = nothing. */
     data class Shown(val shown: CallFollow.ShownState?) : ServerMessage
+    /** "Same view": the shared view changed (core CallView). */
+    data class View(val view: CallView.SharedView) : ServerMessage
     /** Round 5, to the person sharing: the tutor ([by], [name]) stopped your screen share — stop capturing. */
     data class ShareStopped(val by: String, val name: String) : ServerMessage
 }
