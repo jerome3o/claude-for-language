@@ -32,6 +32,8 @@ data class MaterialDto(
     val owner_name: String? = null,
     /** Relationship ids it is shared in (mine only). */
     val shared_with: List<String>? = null,
+    /** Contents (shared/materials/toc.ts — read with core MaterialToc.sanitize): on one material only; null = never computed. */
+    val toc: kotlinx.serialization.json.JsonElement? = null,
 )
 
 @Serializable
@@ -59,8 +61,17 @@ data class NewMaterialBody(val title: String? = null, val file_name: String, val
 @Serializable
 data class MaterialPageTextBody(val index: Int, val text: String, val notes: String)
 
+/** One Contents entry as sent (core MaterialToc.Entry). */
 @Serializable
-data class CompleteMaterialBody(val pages: List<MaterialPageTextBody>, val render_note: String? = null)
+data class MaterialTocEntryBody(val title: String, val page: Int, val level: Int)
+
+@Serializable
+data class CompleteMaterialBody(
+    val pages: List<MaterialPageTextBody>,
+    val render_note: String? = null,
+    /** Contents read on the phone (PowerPoint slide titles); null = not known (a PDF: PdfRenderer can't read outlines). */
+    val toc: List<MaterialTocEntryBody>? = null,
+)
 
 @Serializable
 data class MaterialTitleBody(val title: String)

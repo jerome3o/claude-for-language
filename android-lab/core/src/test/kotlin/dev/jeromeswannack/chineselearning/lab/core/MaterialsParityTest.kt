@@ -35,6 +35,42 @@ class MaterialsParityTest {
         assertEquals(c["MAX_PAGE_TEXT"]!!.jsonPrimitive.int, Materials.MAX_PAGE_TEXT)
         assertEquals(c["MATERIAL_RENDER_WIDTH"]!!.jsonPrimitive.int, Materials.MATERIAL_RENDER_WIDTH)
         assertEquals(str(c["PPTX_RENDER_NOTE"]), Materials.PPTX_RENDER_NOTE)
+        assertEquals(c["MAX_TOC_ENTRIES"]!!.jsonPrimitive.int, MaterialToc.MAX_TOC_ENTRIES)
+        assertEquals(c["MAX_TOC_TITLE"]!!.jsonPrimitive.int, MaterialToc.MAX_TOC_TITLE)
+        assertEquals(str(c["CONTENTS_LABEL"]), MaterialToc.CONTENTS_LABEL)
+    }
+
+    private fun entries(e: JsonElement?): List<MaterialToc.Entry>? = (e as? kotlinx.serialization.json.JsonArray)?.map {
+        val o = it.jsonObject
+        MaterialToc.Entry(str(o["title"])!!, o["page"]!!.jsonPrimitive.int, o["level"]!!.jsonPrimitive.int)
+    }
+
+    private fun pageTexts(e: JsonElement?) = e!!.jsonArray.map { val p = it.jsonObject; MaterialToc.PageText(p["page_index"]!!.jsonPrimitive.int, str(p["text"])) }
+
+    /** Round 6: a material's Contents (shared/materials/toc.ts). */
+    @Test fun contents() {
+        val t = root["toc"]!!.jsonObject
+        for (o in t.arr("clean")) assertEquals(str(o["title"]), MaterialToc.cleanTitle(o["raw"]), "clean toc title $o")
+        val cases = t.arr("cases")
+        assertTrue(cases.size > 100)
+        for (o in cases) {
+            val count = o["page_count"]!!.jsonPrimitive.int
+            val pages = pageTexts(o["pages"])
+            assertEquals(entries(o["sanitized"]), MaterialToc.sanitize(o["raw"], count), "sanitize $o")
+            val want = o["contents"]!!.jsonObject
+            val got = MaterialToc.contents(o["raw"], count, pages)
+            assertEquals(entries(want["entries"]), got.entries, "contents $o")
+            assertEquals(str(want["source"]), got.source.wire, "contents source $o")
+            assertEquals(entries(o["page_list"]), MaterialToc.pageListToc(count, pages), "page list $o")
+        }
+        for (o in t.arr("first_lines")) assertEquals(str(o["first"]), MaterialToc.firstLineOf(str(o["text"])), "first line $o")
+        for (o in t.arr("slide_titles")) {
+            val titles = o["titles"]!!.jsonArray.map { str(it) }
+            assertEquals(entries(o["toc"]), MaterialToc.slideTitlesToc(titles), "slide titles $o")
+        }
+        for (o in t.arr("current")) {
+            assertEquals(o["index"]!!.jsonPrimitive.int, MaterialToc.currentIndex(entries(o["entries"])!!, o["page"]!!.jsonPrimitive.int), "current $o")
+        }
     }
 
     @Test fun kindsAndProblems() {

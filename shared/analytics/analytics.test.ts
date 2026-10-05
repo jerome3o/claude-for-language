@@ -3,8 +3,11 @@ import {
   ANALYTICS_EVENTS,
   ANALYTICS_EVENT_NAMES,
   FORBIDDEN_PROP_KEYS,
+  LEGACY_USAGE_UPLOAD_PATH,
   SCREEN_REPLACED_BY,
+  USAGE_UPLOAD_PATH,
   VERBOSE_ONLY_EVENTS,
+  analyticsUploadPathProblems,
   eventAllowedAtLevel,
   isClientEvent,
   parseAnalyticsLevel,
@@ -125,5 +128,24 @@ describe('parseUsageUpload', () => {
 
   it('refuses a body without events', () => {
     expect(parseUsageUpload({}, now)).toEqual({ error: '`events` must be an array' });
+  });
+
+  it('keeps a web-shaped event as the web client queues it (ids, ISO build time, session, route pattern)', () => {
+    const res = parseUsageUpload({
+      events: [{
+        id: 'e_0mfx3k2a10003_k3j9x0aa', ts: '2026-10-03T09:58:00.000Z', event: 'app.screen_view', screen: '/connections/:id',
+        props: { duration_ms: 27111 }, session_id: 's_6f1c2a4e-1b2c-4d5e-8f90-123456789abc', platform: 'web', app_version: '2026-10-03T18:01:09.171Z',
+      }],
+    }, now);
+    if ('error' in res) throw new Error(res.error);
+    expect(res.rejected).toBe(0);
+    expect(res.events[0]).toMatchObject({ platform: 'web', app_version: '2026-10-03T18:01:09.171Z', screen: '/connections/:id', props: { duration_ms: 27111 } });
+  });
+});
+
+describe('upload path', () => {
+  it('is not one a content blocker refuses (EasyPrivacy "/analytics/event" blocked every browser upload)', () => {
+    expect(analyticsUploadPathProblems(LEGACY_USAGE_UPLOAD_PATH)).toContain('/analytics/event');
+    expect(analyticsUploadPathProblems(USAGE_UPLOAD_PATH)).toEqual([]);
   });
 });

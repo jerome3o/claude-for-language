@@ -19,7 +19,7 @@
  *   button opening "Move to: Left half …".
  */
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   arrangeTiles,
   dropZoneAt,
@@ -46,6 +46,34 @@ export interface TileSpec {
   content: ReactNode;
   /** Small overlay in the tile's corner (status badges etc). */
   closable?: boolean;
+  /**
+   * The tutor's buttons for this tile ("Show for student" / "Showing ✓", "Stop their share"):
+   * first in the tile's top-right control row, so they never sit on the tile's own tools.
+   */
+  actions?: ReactNode;
+}
+
+/**
+ * The top-right control row's width, as `--tile-chrome-w` on the tile: a tile's own top bar
+ * (board tabs, material / activity bar, screen tools) keeps clear of it, whatever is in the row.
+ */
+function useChromeWidth() {
+  const obs = useRef<ResizeObserver | null>(null);
+  useEffect(() => () => obs.current?.disconnect(), []);
+  return useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const write = (c: Element) => {
+      const tile = c.parentElement;
+      if (tile) tile.style.setProperty('--tile-chrome-w', `${Math.ceil(c.getBoundingClientRect().width)}px`);
+    };
+    if (!obs.current && typeof ResizeObserver !== 'undefined') {
+      obs.current = new ResizeObserver((entries) => {
+        for (const e of entries) write(e.target);
+      });
+    }
+    obs.current?.observe(el);
+    write(el);
+  }, []);
 }
 
 /**
@@ -85,6 +113,7 @@ export function CallTiles({
   const narrow = width > 0 && width < 640;
   const lastTap = useRef<{ tile: TileId; at: number } | null>(null);
   const els = useRef<Partial<Record<TileId | 'pair' | 'pairBg', HTMLDivElement | null>>>({});
+  const chromeRef = useChromeWidth();
   const swipe = useRef<{ x: number; y: number; at: number; lx: number; ly: number } | null>(null);
   /** A tile being dragged onto the stage: where the pointer is, and the zone under it. */
   const [drag, setDrag] = useState<{ tile: TileId; x: number; y: number; zone: DropZone | null } | null>(null);
@@ -376,8 +405,9 @@ export function CallTiles({
             >
               <TileErrorBoundary name={spec.label}>{spec.content}</TileErrorBoundary>
               {r.role !== 'floating' && r.role !== 'pair' && (
-                <div className="call-tile-chrome">
+                <div className="call-tile-chrome" ref={chromeRef}>
                   <span className="call-tile-name">{spec.label}</span>
+                  {r.role === 'stage' && spec.actions}
                   {!narrow && (
                     <span className="call-move-wrap">
                       <button

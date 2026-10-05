@@ -1,7 +1,8 @@
 /**
  * Usage analytics (docs/ANALYTICS.md).
  *
- *   POST /analytics/events          { events: [...] } from the web / Lab apps → { accepted, stored, rejected, opted_out, level }
+ *   POST /me/usage-events           { events: [...] } from the web / Lab apps → { accepted, stored, rejected, opted_out, level }
+ *   POST /analytics/events          the same (the first path; content blockers refuse it in browsers — see USAGE_UPLOAD_PATH)
  *   PUT  /profile/analytics         { share_usage: boolean } → { share_usage }
  *
  * Admin only (the usage_* / feature_adoption / … MCP tools call these as the signed-in admin);
@@ -13,7 +14,8 @@
  *   GET /admin/usage/errors?user=&since=&limit=
  *   GET /admin/usage/ai?since=&group_by=model|day|user|route|provider&user=
  */
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
+import { LEGACY_USAGE_UPLOAD_PATH, USAGE_UPLOAD_PATH } from '@shared/analytics';
 import type { Env } from '../types';
 import { adminMiddleware } from '../middleware/auth';
 import { resolveUserRef } from '../services/admin/inspect';
@@ -33,7 +35,9 @@ import {
 
 const analytics = new Hono<{ Bindings: Env }>();
 
-analytics.post('/analytics/events', async (c) => {
+// Mounted at /api. Two paths, one handler: `USAGE_UPLOAD_PATH` for every client, the legacy one for
+// Lab builds that predate the move (shared/analytics/wire.ts says why the path changed).
+const uploadEvents = async (c: Context<{ Bindings: Env }>) => {
   const user = c.get('user');
   const body = await c.req.json().catch(() => null);
   const level = analyticsLevel(c.env);
@@ -41,7 +45,9 @@ analytics.post('/analytics/events', async (c) => {
   const res = await storeUsageEvents(c.env.DB, user.id, body, { now: Date.now(), level, optedOut });
   if ('error' in res) return c.json({ error: res.error }, 400);
   return c.json({ ...res, level });
-});
+};
+analytics.post(USAGE_UPLOAD_PATH.replace(/^\/api/, ''), uploadEvents);
+analytics.post(LEGACY_USAGE_UPLOAD_PATH.replace(/^\/api/, ''), uploadEvents);
 
 analytics.put('/profile/analytics', async (c) => {
   const user = c.get('user');

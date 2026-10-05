@@ -100,7 +100,8 @@ describe('upload', () => {
     expect(await flushAnalytics()).toEqual({ sent: 3 });
     const secondIds = JSON.parse(fetchMock.mock.calls[1][1].body).events.map((e: { id: string }) => e.id);
     expect(secondIds).toEqual(firstIds); // the retry resends the same ids, so the server stores each once
-    expect(fetchMock.mock.calls[1][0]).toContain('/api/analytics/events');
+    // Not /api/analytics/events: content blockers refuse that path (EasyPrivacy "/analytics/event").
+    expect(fetchMock.mock.calls[1][0]).toContain('/api/me/usage-events');
     expect(await events()).toEqual([]);
   });
 

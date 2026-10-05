@@ -126,6 +126,8 @@ fun ActivityTile(
     endInset: Dp = 0.dp,
     compact: Boolean = false,
     seed: ActivityUiSeed = ActivityUiSeed(),
+    /** The tutor's "Show for student", in the header before ✕. */
+    headerAction: (@Composable () -> Unit)? = null,
 ) {
     val mine = CallActivities.rolesOf(s, me)
     val solo = mine.size == 2
@@ -164,7 +166,7 @@ fun ActivityTile(
     }
 
     Column(modifier.fillMaxSize().background(Lab.colors.background).testTag("activity-tile")) {
-        ActivityHeader(v, solo, onViewAs = { viewAs = it; actions.feel(ActivityFeel.TICK) }, endInset = endInset, initialMenu = seed.hostMenu)
+        ActivityHeader(v, solo, onViewAs = { viewAs = it; actions.feel(ActivityFeel.TICK) }, endInset = endInset, initialMenu = seed.hostMenu, action = headerAction)
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             val wide = maxWidth >= 600.dp
             Column(
@@ -229,7 +231,7 @@ private fun progressLabel(s: ActivitySession): String {
 // ------------------------------------------------------------------ header
 
 @Composable
-private fun ActivityHeader(v: ActivityView, solo: Boolean, onViewAs: (String) -> Unit, endInset: Dp, initialMenu: Boolean) {
+private fun ActivityHeader(v: ActivityView, solo: Boolean, onViewAs: (String) -> Unit, endInset: Dp, initialMenu: Boolean, action: (@Composable () -> Unit)? = null) {
     val s = v.s
     val info = CallActivities.KIND_INFO[s.spec.kind]
     val score = CallActivities.scoreOf(s)
@@ -262,6 +264,7 @@ private fun ActivityHeader(v: ActivityView, solo: Boolean, onViewAs: (String) ->
                 }
             }
         }
+        action?.invoke()
         HeaderButton("✕", "Close the activity") { v.actions.feel(ActivityFeel.TICK); v.actions.close() }
     }
 }

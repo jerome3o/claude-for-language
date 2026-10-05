@@ -2,7 +2,7 @@
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
 import type { KeptAnnotations } from '@shared/calls';
-import type { MaterialKind, MaterialStatus } from '@shared/materials';
+import type { MaterialKind, MaterialStatus, MaterialTocEntry } from '@shared/materials';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -24,6 +24,8 @@ export interface MaterialInfo {
   owner_name?: string | null;
   /** Relationship ids it is shared in (mine only). */
   shared_with?: string[];
+  /** Contents (shared/materials/toc.ts) — on one material only; null = never computed (an older upload). */
+  toc?: MaterialTocEntry[] | null;
 }
 
 export interface MaterialPageInfo {
@@ -59,8 +61,10 @@ export const createMaterial = (input: { title?: string; file_name: string; mime_
   json<{ material: MaterialInfo }>(`${API_PATH}/materials`, { method: 'POST', body: JSON.stringify(input) });
 export const uploadOriginal = (id: string, file: Blob) => send(`${API_PATH}/materials/${id}/original`, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
 export const uploadPage = (id: string, n: number, image: Blob) => send(`${API_PATH}/materials/${id}/pages/${n}`, { method: 'PUT', body: image, headers: { 'Content-Type': image.type || 'image/jpeg' } });
-export const completeMaterial = (id: string, pages: { index: number; text: string; notes: string }[], renderNote?: string | null) =>
-  json<{ material: MaterialInfo }>(`${API_PATH}/materials/${id}/complete`, { method: 'POST', body: JSON.stringify({ pages, render_note: renderNote ?? null }) });
+export const completeMaterial = (id: string, pages: { index: number; text: string; notes: string }[], renderNote?: string | null, toc?: MaterialTocEntry[] | null) =>
+  json<{ material: MaterialInfo }>(`${API_PATH}/materials/${id}/complete`, { method: 'POST', body: JSON.stringify({ pages, render_note: renderNote ?? null, toc: toc ?? null }) });
+/** The uploader's device fills in an older material's Contents. */
+export const setMaterialToc = (id: string, toc: MaterialTocEntry[]) => json<{ material: MaterialInfo }>(`${API_PATH}/materials/${id}`, { method: 'PATCH', body: JSON.stringify({ toc }) });
 export const renameMaterial = (id: string, title: string) => json<{ material: MaterialInfo }>(`${API_PATH}/materials/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) });
 export const deleteMaterial = (id: string) => json<{ ok: true }>(`${API_PATH}/materials/${id}`, { method: 'DELETE' });
 export const shareMaterial = (id: string, relationshipId: string) => json<{ ok: true }>(`${API_PATH}/materials/${id}/share`, { method: 'POST', body: JSON.stringify({ relationship_id: relationshipId }) });

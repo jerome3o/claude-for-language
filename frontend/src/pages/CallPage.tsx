@@ -430,15 +430,21 @@ export function CallPage() {
   const chatOnStage = chatVisible;
   const first = otherName.split(' ')[0];
 
-  /** The tutor's corner button on a tile on her stage: "Show for student" / "Showing ✓". */
+  /**
+   * The tutor's button on a tile on her stage: "Show for student" / "Showing ✓". It goes in the
+   * tile's top-right control row (TileSpec.actions), never over the tile's own tools.
+   */
   const showButton = (tile: TileId, view: ShowView) => {
     if (!iLead || !stageTiles.includes(tile)) return null;
     const on = isShowing(call.shown, call.myUserId, view);
-    // The boards have room in their tab row; elsewhere the top bar is full of controls → the bottom-left corner.
-    const corner = tile === 'text' || tile === 'draw' ? '' : ' bottom';
     return (
-      <button type="button" className={`call-show-btn${corner}${on ? ' on' : ''}`} onClick={() => call.show(view)} data-testid={`show-${tile}`} title="Put this on the student's screen">
-        {on ? SHOWN_BUTTON_LABEL : `👁 ${SHOW_BUTTON_LABEL}`}
+      <button type="button" className={`call-show-btn${on ? ' on' : ''}`} onClick={() => call.show(view)} data-testid={`show-${tile}`} title="Put this on the student's screen">
+        {on ? SHOWN_BUTTON_LABEL : (
+          <>
+            👁 <span className="call-show-long">{SHOW_BUTTON_LABEL}</span>
+            <span className="call-show-short">Show</span>
+          </>
+        )}
       </button>
     );
   };
@@ -491,6 +497,16 @@ export function CallPage() {
     },
     screen: {
       label: remoteSharing ? `${first}’s screen` : 'Your screen',
+      actions: sharing ? (
+        <>
+          {iShare && showButton('screen', { kind: 'screen' })}
+          {remoteSharing && iLead && (
+            <button type="button" className="call-stop-their-share" onClick={() => call.stopTheirShare()} data-testid="stop-their-share">
+              ⏹ {STOP_THEIR_SHARE_LABEL}
+            </button>
+          )}
+        </>
+      ) : null,
       content: sharing ? (
         <div className="call-tile-body call-tile-video" data-testid="screen-tile">
           {remoteSharing ? (
@@ -498,12 +514,6 @@ export function CallPage() {
           ) : (
             // My own shared screen, as big as any tile: I can draw on it too.
             <CallVideo stream={call.screenStream} muted screen className="call-self-screen" testId="my-screen" onVideoSize={setMyScreenSize} />
-          )}
-          {iShare && showButton('screen', { kind: 'screen' })}
-          {remoteSharing && iLead && (
-            <button type="button" className="call-stop-their-share" onClick={() => call.stopTheirShare()} data-testid="stop-their-share">
-              ⏹ {STOP_THEIR_SHARE_LABEL}
-            </button>
           )}
           <AnnotationLayer
             store={call.annotations}
@@ -544,9 +554,8 @@ export function CallPage() {
     },
     material: {
       label: call.presenting ? `📑 ${call.presenting.title}` : 'Material',
+      actions: call.presenting ? showButton('material', { kind: 'material' }) : null,
       content: call.presenting ? (
-        <div className="call-tile-body call-show-host">
-        {showButton('material', { kind: 'material' })}
         <MaterialTile
           presenting={call.presenting}
           store={call.materialAnnotations}
@@ -558,25 +567,22 @@ export function CallPage() {
           annot={call.materialAnnot}
           active={stageTiles.includes('material')}
         />
-        </div>
       ) : null,
     },
     activity: {
       label: call.activity ? `🎲 ${call.activity.spec.title}` : 'Activity',
+      actions: call.activity ? showButton('activity', { kind: 'activity' }) : null,
       content: call.activity ? (
-        <div className="call-tile-body call-show-host">
-          {showButton('activity', { kind: 'activity' })}
-          <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
-        </div>
+        <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
       ) : null,
     },
     text: {
       label: 'Board',
       closable: true,
+      actions: showButton('text', { kind: 'text', page: boardPage || undefined }),
       content: (
         <div className="call-tile-body call-paper" data-testid="call-panel-text">
           {boardSwitch('text')}
-          {showButton('text', { kind: 'text', page: boardPage || undefined })}
           <TextBoard session={call.textBoard} gloss={{ callId, userId: call.myUserId }} />
         </div>
       ),
@@ -584,10 +590,10 @@ export function CallPage() {
     draw: {
       label: 'Draw',
       closable: true,
+      actions: showButton('draw', { kind: 'draw' }),
       content: (
         <div className="call-tile-body call-paper" data-testid="call-panel-board">
           {boardSwitch('draw')}
-          {showButton('draw', { kind: 'draw' })}
           <Whiteboard items={call.board} live={call.liveStrokes} myUserId={call.myUserId} onCommit={call.commitBoard} onLive={call.sendLiveStroke} />
         </div>
       ),

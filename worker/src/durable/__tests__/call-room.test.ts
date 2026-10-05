@@ -26,7 +26,7 @@ vi.mock('../../services/calls/processing', () => ({ advanceCallProcessing: (...a
 vi.mock('../../services/calls/alerts', () => ({ alertCallMissed: (...a: unknown[]) => alertCallMissed(...(a as [])) }));
 
 import { CallRoom } from '../call-room';
-import { EMPTY_CALL_END_MS, PRESENCE_TIMEOUT_MS, UNJOINED_CALL_END_MS } from '@shared/calls';
+import { EMPTY_CALL_END_MS, PRESENCE_TIMEOUT_MS, ROOM_RETRY_MS, UNJOINED_CALL_END_MS } from '@shared/calls';
 
 const OPEN = 1;
 const CLOSED = 3;
@@ -211,6 +211,60 @@ describe('CallRoom presence and auto-end', () => {
     // The connection log says who ended it, and how.
     const log = r.store.get('diag') as { kind: string; detail: string; user_id: string }[];
     expect(log).toContainEqual(expect.objectContaining({ kind: 'call', user_id: 'jerome', detail: 'jerome ended the call for everyone (End for everyone)' }));
+  });
+
+  it('a failed save when the last person leaves still arms the end alarm, and the call ends 10 min later', async () => {
+    const r = makeRoom();
+    await r.room.presence('call-1', T0);
+    r.store.set('joined', ['jerome', 'minghui']);
+    const jerome = r.add('jerome', T0);
+    const minghui = r.add('minghui', T0);
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'leave' }));
+    // The snapshot (D1 / storage) throws as the last person goes: the plan must still run.
+    const snap = vi.spyOn(r.room as unknown as { snapshot(): Promise<void> }, 'snapshot').mockRejectedValue(new Error('D1 unavailable'));
+    vi.setSystemTime(T0 + 30_000);
+    await r.room.webSocketMessage(minghui as never, JSON.stringify({ type: 'leave' }));
+    expect(r.alarm()).toBe(T0 + 30_000 + EMPTY_CALL_END_MS);
+    vi.setSystemTime(T0 + 30_000 + EMPTY_CALL_END_MS);
+    await r.room.alarm(); // the end path's snapshot still fails — the call ends anyway
+    expect(markCallEnded).toHaveBeenCalledWith({}, 'call-1', T0 + 30_000 + EMPTY_CALL_END_MS);
+    expect(r.store.get('ended')).toBe(true);
+    snap.mockRestore();
+  });
+
+  it('ending retries the D1 write until it lands (alarm, then any presence look) — never "ended" in the room but live in the list', async () => {
+    const r = makeRoom();
+    await r.room.presence('call-1', T0);
+    r.store.set('joined', ['jerome']);
+    const jerome = r.add('jerome', T0);
+    markCallEnded.mockRejectedValueOnce(new Error('D1 overloaded'));
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'end' }));
+    expect(r.store.get('ended')).toBe(true);
+    expect(r.store.get('endPending')).toBe(true);
+    expect(r.alarm()).toBe(T0 + ROOM_RETRY_MS); // a retry is armed
+    expect(advanceCallProcessing).not.toHaveBeenCalled();
+    vi.setSystemTime(T0 + ROOM_RETRY_MS);
+    await r.room.alarm();
+    expect(markCallEnded).toHaveBeenCalledTimes(2);
+    expect(markCallEnded).toHaveBeenLastCalledWith({}, 'call-1', T0); // the time it really ended
+    expect(r.store.get('endPending')).toBe(false);
+    expect(advanceCallProcessing).toHaveBeenCalledTimes(1);
+    // Done: later looks don't write again.
+    expect(await r.room.presence('call-1', T0)).toEqual({ present: [], ended: true });
+    expect(markCallEnded).toHaveBeenCalledTimes(2);
+  });
+
+  it('an alarm that throws arms its own retry instead of going quiet for good', async () => {
+    const r = makeRoom();
+    await r.room.presence('call-1', T0); // nobody ever came: due to end at T0 + 10 min
+    const spy = vi.spyOn(r.room as unknown as { reconcile(): Promise<unknown> }, 'reconcile').mockRejectedValueOnce(new Error('storage hiccup'));
+    vi.setSystemTime(T0 + 5 * 60_000);
+    await r.room.alarm();
+    expect(r.alarm()).toBe(T0 + 5 * 60_000 + ROOM_RETRY_MS);
+    spy.mockRestore();
+    vi.setSystemTime(T0 + 3 * 3600_000);
+    await r.room.alarm();
+    expect(markCallEnded).toHaveBeenCalledTimes(1);
   });
 
   it('logs a Leave, a timeout and an automatic end in the connection log', async () => {

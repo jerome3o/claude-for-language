@@ -56,7 +56,7 @@ class Analytics(
     private val newId: () -> String = { UUID.randomUUID().toString() },
     /** Online and signed in: the foreground loop only uploads then. */
     private val canUpload: () -> Boolean = { true },
-    /** POSTs the body to /api/analytics/events and returns the HTTP status (throws IOException offline). */
+    /** POSTs the body to /api/me/usage-events and returns the HTTP status (throws IOException offline). */
     private val uploader: suspend (String) -> Int = { 0 },
     private val debugLog: (String) -> Unit = { Log.d(TAG, it) },
 ) {
