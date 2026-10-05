@@ -22,7 +22,7 @@ import type {
   DescribeSpec,
   InfoGapSpec,
 } from './types';
-import { MAX_DRAFT_CHARS } from './types';
+import { DESCRIBE_OPTION_COUNT, MAX_DRAFT_CHARS } from './types';
 
 // ------------------------------------------------------------------ seeded shuffle
 
@@ -113,11 +113,18 @@ function infoGapCell(spec: InfoGapSpec, key: string): { value: string; owner: Ac
   return spec.rows[Number(m[1])]?.cells[Number(m[2])] ?? null;
 }
 
-/** The four options of a describe round: the item and three others, shuffled. */
+/**
+ * The options of a describe round: the item and up to DESCRIBE_OPTION_COUNT − 1 others — the
+ * spec's other items and its distractors (same category), never the answer twice — shuffled.
+ */
 export function describeOptions(spec: DescribeSpec, sessionId: string, round: number): string[] {
   const target = spec.items[round];
   if (!target) return [];
-  const others = seededShuffle(spec.items.filter((_, i) => i !== round).map((i) => i.hanzi), `${sessionId}:${round}:others`).slice(0, 3);
+  const pool: string[] = [];
+  for (const w of [...spec.items.filter((_, i) => i !== round), ...(spec.distractors ?? [])]) {
+    if (w.hanzi && w.hanzi !== target.hanzi && !pool.includes(w.hanzi)) pool.push(w.hanzi);
+  }
+  const others = seededShuffle(pool, `${sessionId}:${round}:others`).slice(0, DESCRIBE_OPTION_COUNT - 1);
   return seededShuffle([target.hanzi, ...others], `${sessionId}:${round}:options`);
 }
 
@@ -154,6 +161,84 @@ function roundData(s: Pick<ActivitySession, 'spec' | 'session_id'>, round: numbe
       return { phase: 'ready', data: { pick: null, mark: null, play: 0 } };
     case 'dictation':
       return { phase: 'ready', data: { draft: '', submitted: false, mark: null, play: 0 } };
+  }
+}
+
+// ------------------------------------------------------------------ who may act
+
+/**
+ * Whose turn the round is: the role(s) that drive it on (Next / Skip) besides the host —
+ * the describer, the asker, the speaker of the current line; both in the cooperative kinds.
+ */
+export function turnRoles(s: Pick<ActivitySession, 'spec' | 'round'>): ActivityRole[] {
+  switch (s.spec.kind) {
+    case 'describe':
+    case 'quiz':
+    case 'dictation':
+      return ['a'];
+    case 'roleplay': {
+      const line = s.spec.lines[s.round];
+      return line ? [line.speaker] : ['a', 'b'];
+    }
+    case 'info_gap':
+    case 'build':
+      return ['a', 'b'];
+  }
+}
+
+/**
+ * THE who-may-act rule (roles only — phase and values are the engine's business): may `actor`
+ * send an action of this type at all? The host (the relationship's tutor) alone restarts, resets
+ * a round and swaps roles; Next / Skip are the host's or whoever's turn it is; each kind's own
+ * actions belong to one role — only the guesser / answerer picks, only the asker asks, plays,
+ * reveals and marks, only the writer types; building and filling an information gap are for both.
+ * Either person may end the activity. Someone with no role (and not the host) may do nothing.
+ */
+export function mayAct(s: Pick<ActivitySession, 'spec' | 'round' | 'roles' | 'host'>, actor: string, type: ActivityAction['type']): boolean {
+  const host = isHost(s, actor);
+  const a = holds(s, actor, 'a');
+  const b = holds(s, actor, 'b');
+  const player = a || b;
+  if (!player && !host) return false;
+  const kind = s.spec.kind;
+  switch (type) {
+    case 'finish':
+      return true;
+    case 'restart':
+    case 'reset_round':
+    case 'swap_roles':
+      return host;
+    case 'next':
+    case 'skip':
+      return host || turnRoles(s).some((r) => holds(s, actor, r));
+    case 'pick':
+      return (kind === 'describe' || kind === 'quiz') && b;
+    case 'ask':
+    case 'play_audio':
+    case 'mark':
+      return (kind === 'quiz' || kind === 'dictation') && a;
+    case 'reveal':
+      if (kind === 'quiz' || kind === 'dictation') return a;
+      return (kind === 'info_gap' || kind === 'build') && player;
+    case 'draft':
+    case 'submit':
+      return kind === 'dictation' && b;
+    case 'place':
+    case 'unplace':
+    case 'clear_tiles':
+    case 'said':
+      return kind === 'build' && player;
+    case 'fill':
+      return kind === 'info_gap' && player;
+    case 'line_done':
+      return kind === 'roleplay' && (host || turnRoles(s).some((r) => holds(s, actor, r)));
+    case 'line_back': {
+      if (kind !== 'roleplay') return false;
+      const prev = s.spec.kind === 'roleplay' ? s.spec.lines[s.round - 1] : undefined;
+      return host || (!!prev && holds(s, actor, prev.speaker));
+    }
+    default:
+      return false;
   }
 }
 
@@ -215,10 +300,7 @@ function goTo(s: ActivitySession, round: number): ActivitySession {
 
 function step(s: ActivitySession, action: ActivityAction, actor: string): ActivitySession | null {
   const spec = s.spec;
-  const host = isHost(s, actor);
-  const a = holds(s, actor, 'a');
-  const b = holds(s, actor, 'b');
-  if (!a && !b && !host) return null;
+  if (!mayAct(s, actor, action.type)) return null;
   const d = s.data;
 
   // ---- controls, any kind
@@ -226,20 +308,19 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
     case 'finish':
       return s.phase === 'done' ? null : { ...s, phase: 'done', data: {} };
     case 'restart':
-      if (!host) return null;
       return { ...goTo({ ...s, results: [] }, 0) };
     case 'swap_roles':
-      if (!host || s.phase === 'done') return null;
+      if (s.phase === 'done') return null;
       return { ...s, roles: { a: s.roles.b, b: s.roles.a }, ...roundData(s, s.round) };
     case 'reset_round':
-      if (!host || s.phase === 'done') return null;
+      if (s.phase === 'done') return null;
       return { ...s, results: s.results.filter((r) => r.round !== s.round), ...roundData(s, s.round) };
     case 'skip':
-      if (!host || s.phase === 'done') return null;
+      if (s.phase === 'done') return null;
       if (s.phase === 'reveal') return goTo(s, s.round + 1);
       return goTo({ ...s, results: withResult(s.results, { round: s.round, correct: null, skipped: true }) }, s.round + 1);
     case 'next':
-      if (!host || s.phase !== 'reveal') return null;
+      if (s.phase !== 'reveal') return null;
       return goTo(s, s.round + 1);
     default:
       break;
@@ -250,10 +331,10 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
 
   switch (spec.kind) {
     case 'describe': {
-      if (action.type !== 'pick' || !b || s.phase !== 'play' || typeof action.option !== 'string') return null;
+      if (action.type !== 'pick' || s.phase !== 'play' || typeof action.option !== 'string') return null;
       if (!(d.options ?? []).includes(action.option)) return null;
       const correct = action.option === spec.items[s.round].hanzi;
-      return { ...s, phase: 'reveal', data: { ...d, pick: action.option }, results: withResult(s.results, { round: s.round, correct, answer: action.option }) };
+      return { ...s, phase: 'reveal', data: { ...d, pick: action.option, pick_by: actor }, results: withResult(s.results, { round: s.round, correct, answer: action.option, by: actor }) };
     }
     case 'info_gap': {
       if (action.type === 'fill') {
@@ -282,8 +363,7 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
       if (s.phase !== 'play') return null;
       if (action.type === 'line_done') {
         const line = spec.lines[s.round];
-        if (!holds(s, actor, line.speaker) && !host) return null;
-        return goTo({ ...s, results: withResult(s.results, { round: s.round, correct: null, answer: line.hanzi }) }, s.round + 1);
+        return goTo({ ...s, results: withResult(s.results, { round: s.round, correct: null, answer: line.hanzi, by: actor }) }, s.round + 1);
       }
       if (action.type === 'line_back') {
         if (s.round === 0) return null;
@@ -305,7 +385,7 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
           if (s.phase !== 'play' || placed.length === 0) return null;
           return { ...s, data: { ...d, placed: [] } };
         case 'reveal': {
-          if (!host || s.phase !== 'play') return null;
+          if (s.phase !== 'play') return null;
           const built = builtText(spec, s.round, placed);
           return { ...s, phase: 'reveal', results: withResult(s.results, { round: s.round, correct: built === tiles.join(''), answer: built }) };
         }
@@ -321,25 +401,25 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
       const q = spec.questions[s.round];
       switch (action.type) {
         case 'ask':
-          if (!a || s.phase !== 'ready') return null;
+          if (s.phase !== 'ready') return null;
           return { ...s, phase: 'play', data: { ...d, play: (d.play ?? 0) + (q.audio ? 1 : 0) } };
         case 'play_audio':
-          if (!a || !q.audio || s.phase === 'ready') return null;
+          if (!q.audio || s.phase === 'ready') return null;
           return { ...s, data: { ...d, play: (d.play ?? 0) + 1 } };
         case 'pick': {
           const i = Number(action.option);
-          if (!b || s.phase !== 'play' || typeof action.option !== 'string' || !/^\d+$/.test(action.option) || i >= q.options.length) return null;
-          return { ...s, data: { ...d, pick: action.option } };
+          if (s.phase !== 'play' || typeof action.option !== 'string' || !/^\d+$/.test(action.option) || i >= q.options.length) return null;
+          return { ...s, data: { ...d, pick: action.option, pick_by: actor } };
         }
         case 'reveal': {
-          if (!a || s.phase !== 'play') return null;
+          if (s.phase !== 'play') return null;
           const correct = d.pick != null && Number(d.pick) === q.answer;
-          return { ...s, phase: 'reveal', data: { ...d, mark: correct }, results: withResult(s.results, { round: s.round, correct, answer: d.pick != null ? q.options[Number(d.pick)] : '' }) };
+          return { ...s, phase: 'reveal', data: { ...d, mark: correct }, results: withResult(s.results, { round: s.round, correct, answer: d.pick != null ? q.options[Number(d.pick)] : '', ...(d.pick_by ? { by: d.pick_by } : {}) }) };
         }
         case 'mark': {
-          if (!a || s.phase !== 'reveal') return null;
+          if (s.phase !== 'reveal') return null;
           const prev = s.results.find((r) => r.round === s.round);
-          return { ...s, data: { ...d, mark: action.correct === true }, results: withResult(s.results, { round: s.round, correct: action.correct === true, answer: prev?.answer ?? '' }) };
+          return { ...s, data: { ...d, mark: action.correct === true }, results: withResult(s.results, { round: s.round, correct: action.correct === true, answer: prev?.answer ?? '', ...(prev?.by ? { by: prev.by } : {}) }) };
         }
         default:
           return null;
@@ -349,26 +429,26 @@ function step(s: ActivitySession, action: ActivityAction, actor: string): Activi
       const item = spec.items[s.round];
       switch (action.type) {
         case 'ask':
-          if (!a || s.phase !== 'ready') return null;
+          if (s.phase !== 'ready') return null;
           return { ...s, phase: 'play' };
         case 'play_audio':
-          if (!a || s.phase === 'ready') return null;
+          if (s.phase === 'ready') return null;
           return { ...s, data: { ...d, play: (d.play ?? 0) + 1 } };
         case 'draft':
-          if (!b || s.phase !== 'play' || d.submitted || typeof action.text !== 'string') return null;
+          if (s.phase !== 'play' || d.submitted || typeof action.text !== 'string') return null;
           return { ...s, data: { ...d, draft: action.text.slice(0, MAX_DRAFT_CHARS) } };
         case 'submit':
-          if (!b || s.phase !== 'play' || d.submitted) return null;
+          if (s.phase !== 'play' || d.submitted) return null;
           return { ...s, data: { ...d, submitted: true } };
         case 'reveal': {
-          if (!a || s.phase !== 'play') return null;
+          if (s.phase !== 'play') return null;
           const draft = d.draft ?? '';
           const correct = isHanziAnswerCorrect(draft, item.hanzi);
-          return { ...s, phase: 'reveal', data: { ...d, submitted: true, mark: correct }, results: withResult(s.results, { round: s.round, correct, answer: draft }) };
+          return { ...s, phase: 'reveal', data: { ...d, submitted: true, mark: correct }, results: withResult(s.results, { round: s.round, correct, answer: draft, by: s.roles.b }) };
         }
         case 'mark': {
-          if (!a || s.phase !== 'reveal') return null;
-          return { ...s, data: { ...d, mark: action.correct === true }, results: withResult(s.results, { round: s.round, correct: action.correct === true, answer: d.draft ?? '' }) };
+          if (s.phase !== 'reveal') return null;
+          return { ...s, data: { ...d, mark: action.correct === true }, results: withResult(s.results, { round: s.round, correct: action.correct === true, answer: d.draft ?? '', by: s.roles.b }) };
         }
         default:
           return null;
@@ -392,6 +472,9 @@ export function scoreOf(s: Pick<ActivitySession, 'results'>): { correct: number;
   return { correct: scored.filter((r) => r.correct === true).length, scored: scored.length };
 }
 
+/** "Jerome " — who answered, for a summary line ('' when not recorded). */
+const byName = (s: ActivitySession, by: string | undefined) => (by && s.names[by] ? `${s.names[by]} ` : '');
+
 const mark = (c: boolean | null) => (c === true ? ' ✓' : c === false ? ' ✗' : '');
 
 /** The readable record of a session (kept with the lesson; the review page and the homework agent read it). */
@@ -406,7 +489,7 @@ export function activitySummary(s: ActivitySession): ActivitySummary {
     switch (spec.kind) {
       case 'describe': {
         const it = spec.items[r.round];
-        lines.push(`${it.emoji} ${it.hanzi} (${it.pinyin}, ${it.english}) — picked ${r.answer ?? '?'}${mark(r.correct)}`);
+        lines.push(`${it.emoji} ${it.hanzi} (${it.pinyin}, ${it.english}) — ${byName(s, r.by)}picked ${r.answer ?? '?'}${mark(r.correct)}`);
         break;
       }
       case 'info_gap':
@@ -466,4 +549,68 @@ export function roundTitle(spec: ActivitySpec, i: number): string {
     case 'dictation':
       return spec.items[i]?.hanzi ?? `Word ${i + 1}`;
   }
+}
+
+// ------------------------------------------------------------------ role badges
+
+/** The big "what I do" badge for a role: "You describe" / "You guess", "You ask" / "You answer"… */
+export function roleBadge(spec: ActivitySpec, role: ActivityRole): string {
+  switch (spec.kind) {
+    case 'describe':
+      return role === 'a' ? 'You describe' : 'You guess';
+    case 'quiz':
+      return role === 'a' ? 'You ask' : 'You answer';
+    case 'dictation':
+      return role === 'a' ? 'You read out' : 'You write';
+    case 'roleplay':
+      return `You’re the ${spec.speakers[role]}`;
+    case 'info_gap':
+    case 'build':
+      return `You: ${spec.role_names[role]}`;
+  }
+}
+
+/** Said once on each side when the host swaps roles: "Roles swapped — now you guess". */
+export function rolesSwappedNotice(spec: ActivitySpec, role: ActivityRole): string {
+  const badge = roleBadge(spec, role);
+  return `Roles swapped — now ${badge.charAt(0).toLowerCase()}${badge.slice(1)}`;
+}
+
+// ------------------------------------------------------------------ words you needed
+
+export interface NeededWord {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  /** The round's answer, or a word the describer could use. */
+  kind: 'target' | 'hint';
+  round: number;
+}
+
+/**
+ * The words a describe round needed — its answer, then its hint words (reading and meaning
+ * from the spec's glossary, '' when it has none) — for "+ Add as card". `round` = one round;
+ * omitted = every round played so far (not skipped), as on the summary. Each hanzi once.
+ */
+export function wordsYouNeeded(s: Pick<ActivitySession, 'spec' | 'results'>, round?: number): NeededWord[] {
+  const spec = s.spec;
+  if (spec.kind !== 'describe') return [];
+  const rounds = round !== undefined ? [round] : s.results.filter((r) => !r.skipped).map((r) => r.round);
+  const out: NeededWord[] = [];
+  const seen = new Set<string>();
+  const add = (w: NeededWord) => {
+    if (!w.hanzi || seen.has(w.hanzi)) return;
+    seen.add(w.hanzi);
+    out.push(w);
+  };
+  for (const r of rounds) {
+    const it = spec.items[r];
+    if (!it) continue;
+    add({ hanzi: it.hanzi, pinyin: it.pinyin, english: it.english, kind: 'target', round: r });
+    for (const h of it.hints ?? []) {
+      const g = spec.glossary?.find((x) => x.hanzi === h);
+      add({ hanzi: h, pinyin: g?.pinyin ?? '', english: g?.english ?? '', kind: 'hint', round: r });
+    }
+  }
+  return out;
 }

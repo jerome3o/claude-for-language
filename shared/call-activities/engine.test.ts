@@ -6,7 +6,13 @@ import {
   blanksFor,
   buildPool,
   builtText,
+  DESCRIBE_OPTION_COUNT,
   describeOptions,
+  mayAct,
+  roleBadge,
+  rolesSwappedNotice,
+  turnRoles,
+  wordsYouNeeded,
   findActivity,
   joinActivity,
   reduceActivity,
@@ -58,14 +64,19 @@ describe('seeded shuffle', () => {
     expect([...a].sort()).toEqual([1, 2, 3, 4, 5, 6]);
     expect(seededShuffle([1, 2, 3, 4, 5, 6], 'other')).not.toEqual(a);
   });
-  it('describe options hold the answer and three others; a build pool is never already solved', () => {
+  it('describe options hold the answer once and seven others from the same set; a build pool is never already solved', () => {
     const spec = findActivity('describe-food-1') as DescribeSpec;
+    const pool = new Set([...spec.items.map((i) => i.hanzi), ...(spec.distractors ?? []).map((d) => d.hanzi)]);
     for (let r = 0; r < spec.items.length; r++) {
       const o = describeOptions(spec, 's', r);
-      expect(o).toHaveLength(4);
-      expect(o).toContain(spec.items[r].hanzi);
-      expect(new Set(o).size).toBe(4);
+      expect(o).toHaveLength(DESCRIBE_OPTION_COUNT);
+      expect(o.filter((x) => x === spec.items[r].hanzi)).toHaveLength(1);
+      expect(new Set(o).size).toBe(DESCRIBE_OPTION_COUNT);
+      for (const x of o) expect(pool.has(x)).toBe(true);
     }
+    // A small spec shows every word it has; a distractor equal to the answer never doubles it.
+    const small: DescribeSpec = { ...spec, items: spec.items.slice(0, 4), distractors: [{ hanzi: spec.items[0].hanzi, pinyin: '', english: '' }] };
+    expect(describeOptions(small, 's', 0).sort()).toEqual(spec.items.slice(0, 4).map((i) => i.hanzi).sort());
     const b = findActivity('build-sentences-1') as BuildSpec;
     for (let r = 0; r < b.items.length; r++) {
       for (const sid of ['a', 'b', 'c', 'd']) expect(builtText(b, r, buildPool(b, sid, r))).not.toBe(b.items[r].tiles.join(''));
@@ -89,11 +100,15 @@ describe('roles', () => {
   it('a tutor who is not in the call does not lead', () => {
     expect(start('quiz-tones-1', { tutor: 'someone-else', starter: S }).host).toBe(S);
   });
-  it('strangers are refused; host controls are host-only', () => {
-    const s = start('describe-food-1');
+  it('strangers are refused; restart / reset / swap are host-only; skip is the host’s or the describer’s', () => {
+    const s = start('describe-food-1'); // student = a = describer, tutor = b = guesser + host
     expect(reduceActivity(s, { type: 'skip' }, 'stranger', 1)).toBeNull();
-    expect(reduceActivity(s, { type: 'skip' }, S, 1)).toBeNull();
+    expect(reduceActivity(s, { type: 'skip' }, S, 1)).not.toBeNull();
     expect(reduceActivity(s, { type: 'skip' }, T, 1)).not.toBeNull();
+    for (const type of ['restart', 'reset_round', 'swap_roles'] as const) {
+      expect(reduceActivity(s, { type }, S, 1), type).toBeNull();
+      expect(reduceActivity(s, { type }, T, 1), type).not.toBeNull();
+    }
     // Either person may finish.
     expect(reduceActivity(s, { type: 'finish' }, S, 1)?.phase).toBe('done');
   });
@@ -128,7 +143,8 @@ describe('describe & guess', () => {
     expect(reduceActivity(s0, { type: 'pick', option: '不在选项里' }, T, 1)).toBeNull();
     const s1 = play(s0, [[T, { type: 'pick', option: right }]]);
     expect(s1.phase).toBe('reveal');
-    expect(s1.results).toEqual([{ round: 0, correct: true, answer: right }]);
+    expect(s1.results).toEqual([{ round: 0, correct: true, answer: right, by: T }]);
+    expect(s1.data.pick_by).toBe(T);
     expect(reduceActivity(s1, { type: 'pick', option: wrong }, T, 1)).toBeNull(); // one guess a round
     const s2 = play(s1, [[T, { type: 'next' }], [T, { type: 'pick', option: s1.spec.kind === 'describe' ? describeOptions(spec, 'sess-1', 1).find((o) => o !== spec.items[1].hanzi)! : '' }]]);
     expect(s2.round).toBe(1);
@@ -211,9 +227,9 @@ describe('sentence building', () => {
     s = reduceActivity(s, { type: 'unplace', tile: 1 }, T, 1)!;
     for (const i of order) s = reduceActivity(s, { type: 'place', tile: i }, i % 2 ? S : T, 1)!;
     expect(builtText(spec, 0, s.data.placed!)).toBe('我把书放在桌子上');
-    expect(reduceActivity(s, { type: 'reveal' }, S, 1)).toBeNull(); // the host reveals
+    expect(reduceActivity(s, { type: 'reveal' }, 'stranger', 1)).toBeNull();
     expect(reduceActivity(s, { type: 'said' }, S, 1)).toBeNull(); // not before the reveal
-    s = play(s, [[T, { type: 'reveal' }], [S, { type: 'said' }], [T, { type: 'said' }]]);
+    s = play(s, [[S, { type: 'reveal' }], [S, { type: 'said' }], [T, { type: 'said' }]]); // either reveals
     expect(s.results[0]).toEqual({ round: 0, correct: true, answer: '我把书放在桌子上' });
     expect(s.data.said).toEqual([S, T]);
     expect(reduceActivity(s, { type: 'said' }, S, 1)).toBeNull();
@@ -234,7 +250,7 @@ describe('quick quiz', () => {
     expect(s.data).toMatchObject({ pick: '0', play: 2 });
     expect(reduceActivity(s, { type: 'pick', option: '7' }, S, 1)).toBeNull();
     s = play(s, [[T, { type: 'reveal' }]]);
-    expect(s.results[0]).toEqual({ round: 0, correct: true, answer: 'mǎi 买 (buy)' });
+    expect(s.results[0]).toEqual({ round: 0, correct: true, answer: 'mǎi 买 (buy)', by: S });
     s = play(s, [[T, { type: 'mark', correct: false }]]);
     expect(s.results[0].correct).toBe(false);
     s = play(s, [[T, { type: 'next' }]]);
@@ -260,7 +276,7 @@ describe('dictation', () => {
     s = play(s, [[S, { type: 'submit' }]]);
     expect(reduceActivity(s, { type: 'draft', text: '改' }, S, 1)).toBeNull();
     s = play(s, [[T, { type: 'reveal' }]]);
-    expect(s.results[0]).toEqual({ round: 0, correct: true, answer: '你好！' });
+    expect(s.results[0]).toEqual({ by: S, round: 0, correct: true, answer: '你好！' });
     s = play(s, [[T, { type: 'next' }], [T, { type: 'ask' }], [S, { type: 'draft', text: 'x'.repeat(500) }]]);
     expect(s.data.draft).toHaveLength(120);
     s = play(s, [[T, { type: 'reveal' }], [T, { type: 'finish' }]]);
@@ -291,6 +307,116 @@ describe('robustness', () => {
     for (const spec of specs) {
       const s = startActivity(spec, { sessionId: 'x', starter: T, tutor: T, present: [T, S], names, now: 1 });
       for (const j of junk) for (const who of [T, S]) expect(() => reduceActivity(s, j as unknown as ActivityAction, who, 1)).not.toThrow();
+    }
+  });
+});
+
+describe('who may act (mayAct)', () => {
+  const ALL: ActivityAction['type'][] = ['next', 'skip', 'reset_round', 'swap_roles', 'restart', 'finish', 'pick', 'ask', 'play_audio', 'reveal', 'mark', 'draft', 'submit', 'place', 'unplace', 'clear_tiles', 'said', 'fill', 'line_done', 'line_back'];
+  const allowed = (s: ActivitySession, who: string) => ALL.filter((t) => mayAct(s, who, t));
+
+  it('describe: only the guesser picks; the describer moves on; the host also restarts / swaps', () => {
+    const s = start('describe-food-1'); // a = Jerome describes, b = Minghui guesses + hosts
+    expect(allowed(s, S)).toEqual(['next', 'skip', 'finish']);
+    expect(allowed(s, T)).toEqual(['next', 'skip', 'reset_round', 'swap_roles', 'restart', 'finish', 'pick']);
+    expect(allowed(s, 'stranger')).toEqual([]);
+    // After a swap the student guesses: now HE picks and she can't.
+    const swapped = reduceActivity(s, { type: 'swap_roles' }, T, 1)!;
+    expect(mayAct(swapped, S, 'pick')).toBe(true);
+    expect(mayAct(swapped, T, 'pick')).toBe(false);
+    expect(reduceActivity(swapped, { type: 'pick', option: swapped.data.options![0] }, T, 2)).toBeNull();
+  });
+  it('the describer (not only the host) presses Next after the reveal', () => {
+    const s0 = start('describe-food-1');
+    const s1 = play(s0, [[T, { type: 'pick', option: (s0.spec as DescribeSpec).items[0].hanzi }], [S, { type: 'next' }]]);
+    expect(s1.round).toBe(1);
+  });
+  it('a student who starts it gets the same roles and the tutor stays host', () => {
+    const s = start('describe-food-1', { starter: S, present: [S, T] });
+    expect(s.roles).toEqual({ a: S, b: T });
+    expect(s.host).toBe(T);
+    expect(mayAct(s, S, 'swap_roles')).toBe(false);
+    expect(mayAct(s, S, 'finish')).toBe(true);
+  });
+  it('quiz / dictation: the asker asks, plays, reveals, marks and moves on; the answerer / writer only answers', () => {
+    const q = start('quiz-tones-1'); // tutor = a = asker
+    expect(allowed(q, S)).toEqual(['finish', 'pick']);
+    expect(allowed(q, T)).toEqual(['next', 'skip', 'reset_round', 'swap_roles', 'restart', 'finish', 'ask', 'play_audio', 'reveal', 'mark']);
+    const d = start('dictation-everyday-1');
+    expect(allowed(d, S)).toEqual(['finish', 'draft', 'submit']);
+  });
+  it('role-play: the speaker of the line moves it on, the speaker of the previous one goes back', () => {
+    const s0 = start('roleplay-restaurant-1'); // line 0 is a's = tutor
+    expect(turnRoles(s0)).toEqual(['a']);
+    expect(mayAct(s0, S, 'line_done')).toBe(false);
+    expect(mayAct(s0, S, 'skip')).toBe(false);
+    const s1 = play(s0, [[T, { type: 'line_done' }]]); // line 1 is b's = student
+    expect(mayAct(s1, S, 'line_done')).toBe(true);
+    expect(mayAct(s1, S, 'line_back')).toBe(false); // line 0 was hers
+    const s2 = play(s1, [[S, { type: 'line_done' }]]);
+    expect(mayAct(s2, S, 'line_back')).toBe(true);
+    expect(s2.results[1].by).toBe(S);
+  });
+  it('build and information gap are for both', () => {
+    for (const id of ['build-sentences-1', 'info-gap-weekend-1']) {
+      const s = start(id);
+      expect(turnRoles(s)).toEqual(['a', 'b']);
+      for (const who of [S, T]) {
+        expect(mayAct(s, who, 'reveal'), `${id} ${who}`).toBe(true);
+        expect(mayAct(s, who, 'next'), `${id} ${who}`).toBe(true);
+      }
+    }
+  });
+  it('a solo player may do everything their roles allow', () => {
+    const solo = start('describe-food-1', { present: [T], tutor: T });
+    expect(allowed(solo, T)).toEqual(['next', 'skip', 'reset_round', 'swap_roles', 'restart', 'finish', 'pick']);
+  });
+});
+
+describe('attribution', () => {
+  it('the reveal and the summary name the person who picked', () => {
+    const s0 = start('describe-food-1', { starter: S });
+    const spec = s0.spec as DescribeSpec;
+    const wrong = s0.data.options!.find((o) => o !== spec.items[0].hanzi)!;
+    const s = play(s0, [[T, { type: 'pick', option: wrong }]]);
+    expect(s.data.pick_by).toBe(T);
+    expect(activitySummary(s).lines[0]).toBe(`🍎 苹果 (píngguǒ, apple) — Minghui picked ${wrong} ✗`);
+    const swapped = play(reduceActivity(s0, { type: 'swap_roles' }, T, 1)!, [[S, { type: 'pick', option: spec.items[0].hanzi }]]);
+    expect(activitySummary(swapped).lines[0]).toBe('🍎 苹果 (píngguǒ, apple) — Jerome picked 苹果 ✓');
+  });
+});
+
+describe('role badges', () => {
+  it('says what I do, and what changed on a swap', () => {
+    const spec = findActivity('describe-food-1')!;
+    expect(roleBadge(spec, 'a')).toBe('You describe');
+    expect(roleBadge(spec, 'b')).toBe('You guess');
+    expect(rolesSwappedNotice(spec, 'b')).toBe('Roles swapped — now you guess');
+    expect(roleBadge(findActivity('roleplay-restaurant-1')!, 'b')).toBe('You’re the 客人');
+    expect(rolesSwappedNotice(findActivity('roleplay-restaurant-1')!, 'b')).toBe('Roles swapped — now you’re the 客人');
+  });
+});
+
+describe('words you needed', () => {
+  it('lists the round’s answer then its hint words with their glossary, each once', () => {
+    const s0 = start('describe-food-1');
+    const one = wordsYouNeeded(s0, 0);
+    expect(one.map((w) => [w.hanzi, w.kind])).toEqual([['苹果', 'target'], ['水果', 'hint'], ['红色', 'hint'], ['很甜', 'hint']]);
+    expect(one[1]).toMatchObject({ pinyin: 'shuǐguǒ', english: 'fruit' });
+    const spec = s0.spec as DescribeSpec;
+    let s = play(s0, [[T, { type: 'pick', option: spec.items[0].hanzi }], [S, { type: 'next' }], [S, { type: 'skip' }], [T, { type: 'pick', option: spec.items[2].hanzi }]]);
+    const all = wordsYouNeeded(s);
+    expect(all.filter((w) => w.kind === 'target').map((w) => w.hanzi)).toEqual(['苹果', '西瓜']); // 香蕉 was skipped
+    expect(new Set(all.map((w) => w.hanzi)).size).toBe(all.length);
+    s = reduceActivity(s, { type: 'finish' }, S, 9)!;
+    expect(wordsYouNeeded(s)).toEqual(all);
+    expect(wordsYouNeeded(start('quiz-tones-1'))).toEqual([]);
+  });
+  it('every describe hint in the catalogue has a reading and a meaning', () => {
+    for (const spec of ACTIVITY_CATALOGUE) {
+      if (spec.kind !== 'describe') continue;
+      const s = startActivity(spec, { sessionId: 'x', starter: T, tutor: T, present: [T, S], names, now: 1 });
+      for (let r = 0; r < spec.items.length; r++) for (const w of wordsYouNeeded(s, r)) expect(w.pinyin && w.english, `${spec.id} ${w.hanzi}`).toBeTruthy();
     }
   });
 });
