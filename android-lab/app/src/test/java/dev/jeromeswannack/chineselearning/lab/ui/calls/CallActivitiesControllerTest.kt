@@ -158,6 +158,42 @@ class CallActivitiesControllerTest {
         assertEquals("字".repeat(60), drafts().last())
     }
 
+    /** `call.activity_start`'s role: tutor / student when both are here with a relationship, else solo. */
+    @Test fun theStarterRoleForAnalytics() {
+        val peer = dev.jeromeswannack.chineselearning.lab.core.calls.CallPeer("c-t", "tutor", "王老师", null, dev.jeromeswannack.chineselearning.lab.core.calls.PeerMediaState(mic = true, cam = true))
+        val remote = RemoteParticipant(peer, video = null, connection = "connected", tile = dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.TileStatus.LIVE)
+        assertEquals("student", activityStarterRole(CallState(myUserId = "me", tutorId = "tutor", remote = remote), "me"))
+        assertEquals("tutor", activityStarterRole(CallState(myUserId = "tutor", tutorId = "tutor", remote = remote), "tutor"))
+        assertEquals("solo", activityStarterRole(CallState(myUserId = "me", tutorId = "tutor", remote = null), "me"))
+        assertEquals("solo", activityStarterRole(CallState(myUserId = "me", tutorId = null, remote = remote), "me"))
+    }
+
+    /** Either person may start (the room decides roles); word adds need a running activity. */
+    @Test fun theStudentStartsAndAddsAWord() = runTest(UnconfinedTestDispatcher()) {
+        val rig = live()
+        rig.on(welcome()); runCurrent()
+        rig.controller.activityWordAdded("target", "round") // no activity: nothing to report, no crash
+        rig.controller.startActivity("describe-food-1")
+        assertEquals(1, rig.room.sent.count { it["type"]!!.jsonPrimitive.content == "activity_start" })
+        // The student (role A, describer) may press Next after the guesser's pick: the controller sends it.
+        val s = start("describe-food-1")
+        val picked = s.by("tutor", ActivityAction.Pick(s.data.options!!.first()))
+        rig.on(ServerMessage.Activity(picked, "c-t", "王老师")); runCurrent()
+        assertTrue(CallActivities.mayAct(picked, "me", "next"))
+        rig.controller.act(ActivityAction.Next)
+        assertEquals("next", rig.actions().last()["action"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        rig.controller.activityWordAdded("hint", "summary")
+    }
+
+    @Test fun nextPressersNamesWhoMayMoveOn() {
+        val s = start("describe-food-1") // tutor = host + guesser (B), me = describer (A)
+        val picked = s.by("tutor", ActivityAction.Pick(s.data.options!!.first()))
+        assertEquals("Jerome", nextPressers(picked, "tutor"))
+        assertEquals("王老师", nextPressers(picked, "me"))
+        val quiz = start("quiz-measure-words-1").by("tutor", ActivityAction.Ask).by("me", ActivityAction.Pick("0")).by("tutor", ActivityAction.Reveal)
+        assertEquals("王老师", nextPressers(quiz, "me"))
+    }
+
     @Test fun aNewSessionComesOntoTheStage() {
         val h = CallLayoutHolder()
         h.setActivity("sess-1")
