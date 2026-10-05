@@ -23,11 +23,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -186,7 +183,6 @@ fun SheetTitle(title: String, modifier: Modifier = Modifier, trailing: @Composab
  *   if (open) LabFormSheet(onDismiss = { open = false }, title = "Deck settings",
  *       footer = { SecondaryPill("Cancel", …); PrimaryPill("Save", …) }) { fields… }
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LabFormSheet(
     onDismiss: () -> Unit,
@@ -198,11 +194,7 @@ fun LabFormSheet(
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Lab.colors.card,
-    ) {
+    LabModalSheet(onDismiss) {
         SheetScaffold(
             header = if (title == null && header == null) null else {
                 {
@@ -223,15 +215,9 @@ fun LabFormSheet(
  * A bare bottom sheet (Lab look, no scrolling of its own) for a body that is already a
  * [SheetScaffold] — e.g. a reusable `FooForm` that pins its own footer.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LabSheetFrame(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Lab.colors.card,
-        content = content,
-    )
+    LabModalSheet(onDismiss, content = content)
 }
 
 /**

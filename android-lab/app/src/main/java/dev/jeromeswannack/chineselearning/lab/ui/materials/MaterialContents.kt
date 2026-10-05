@@ -13,11 +13,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.MaterialToc
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.data.api.MaterialDetailDto
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabModalSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
@@ -50,12 +48,11 @@ fun trackContentsOpen(where: String, c: MaterialToc.Contents) =
  * their first line — with the one on show marked; a tap jumps there ([onJump]; in a call a page turn both
  * people follow) and closes the sheet.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MaterialContentsSheet(contents: MaterialToc.Contents, page: Int, where: String, onJump: (Int) -> Unit, onDismiss: () -> Unit) {
     val current = MaterialToc.currentIndex(contents.entries, page)
     val list = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, current - 3))
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = Lab.colors.card) {
+    LabModalSheet(onDismiss) {
         Text(MaterialToc.CONTENTS_LABEL, style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.padding(horizontal = 24.dp))
         if (contents.source == MaterialToc.Source.PAGES) Text(
             "No chapters in this file — its pages by their first line.", color = Lab.colors.muted, fontSize = 13.sp,
