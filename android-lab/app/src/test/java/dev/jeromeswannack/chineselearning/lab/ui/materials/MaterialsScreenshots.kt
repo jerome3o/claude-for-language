@@ -29,4 +29,12 @@ class MaterialsScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun viewerUnfolded() = shoot("lab-materials-07-viewer-unfolded") { MaterialViewerScreen(viewer, MaterialViewerActions()) }
+
+    /** Round 6: ☰ Contents — the slide titles, the one on show marked. */
+    @Test fun viewerContents() = shoot("lab-materials-08-viewer-contents") { MaterialViewerScreen(viewer, MaterialViewerActions(), initialContentsOpen = true) }
+
+    /** No outline stored (an older upload / a PDF from the phone): its pages by their first line. */
+    @Test fun viewerContentsPages() = shoot("lab-materials-09-viewer-contents-pages") {
+        MaterialViewerScreen(viewer.copy(detail = MaterialsSamples.detail.copy(material = MaterialsSamples.detail.material.copy(toc = null))), MaterialViewerActions(), initialContentsOpen = true)
+    }
 }

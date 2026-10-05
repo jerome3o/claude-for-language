@@ -29,6 +29,7 @@ export async function addMaterial(file: File, opts: { title?: string; onProgress
       material.id,
       rendered.pages.map((p, index) => ({ index, text: p.text, notes: p.notes })),
       rendered.renderNote,
+      rendered.toc,
     );
     return done.material;
   } catch (err) {

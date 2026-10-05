@@ -222,4 +222,10 @@ object PptxSlides {
         )
         return NoteSearch.jsTrim(texts.joinToString("\n") { t -> t.paragraphs.joinToString("\n") { p -> (if (p.bullet) "• " else "") + p.text } })
     }
+
+    /** `slideTitle` (web pptx.ts): the title placeholder's text ("" when it has none) — the Contents entry. */
+    fun slideTitle(s: Slide): String {
+        val t = s.shapes.filterIsInstance<TextBox>().firstOrNull { it.placeholder == "title" || it.placeholder == "ctrTitle" } ?: return ""
+        return NoteSearch.jsTrim(t.paragraphs.joinToString(" ") { it.text })
+    }
 }

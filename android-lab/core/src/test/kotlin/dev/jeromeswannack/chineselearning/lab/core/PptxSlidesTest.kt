@@ -48,6 +48,8 @@ class PptxSlidesTest {
         assertEquals(24.0, body.paragraphs[0].runs[0].size)
         assertEquals("第五课：把字句\n• 我把作业做完了。\n• 把 + object + verb + result\nNo bullet here", PptxSlides.slideText(first))
         assertEquals("把 | bǎ", PptxSlides.slideText(second))
+        // Contents: the title placeholder's text; a slide without one has none (web pptx.test.ts).
+        assertEquals(listOf("第五课：把字句", ""), listOf(first, second).map(PptxSlides::slideTitle))
         // The title had no xfrm: -1 (its box comes from the layout's fallback when drawn).
         assertEquals(-1.0, (first.shapes[0] as PptxSlides.TextBox).w)
     }

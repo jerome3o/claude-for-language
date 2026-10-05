@@ -40,23 +40,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.MaterialToc
 import dev.jeromeswannack.chineselearning.lab.core.Materials
 import dev.jeromeswannack.chineselearning.lab.core.PresentedMaterial
 import dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke
 import dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText
 import dev.jeromeswannack.chineselearning.lab.core.calls.VideoFit
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
+import dev.jeromeswannack.chineselearning.lab.ui.materials.MaterialContentsSheet
+import dev.jeromeswannack.chineselearning.lab.ui.materials.trackContentsOpen
 import kotlinx.coroutines.launch
 
 /**
  * Where the material tile gets its pages (the app: [dev.jeromeswannack.chineselearning.lab.data.materials.MaterialStore],
  * cache-first; screenshots: a stand-in). [page] = the picture of one page (null = couldn't load it);
- * [notes] = each page's speaker notes (null = not known yet); [prefetch] keeps the whole material on the phone.
+ * [notes] = each page's speaker notes (null = not known yet); [prefetch] keeps the whole material on the phone;
+ * [contents] = its ☰ Contents (core MaterialToc; null = not known yet).
  */
 interface MaterialPageSource {
     suspend fun page(materialId: String, page: Int): ImageBitmap?
     suspend fun notes(materialId: String): List<String>?
     suspend fun prefetch(materialId: String) {}
+    suspend fun contents(materialId: String, pageCount: Int): MaterialToc.Contents? = null
 }
 
 /** What the material tile does (CallController's material actions). */
@@ -70,8 +75,8 @@ data class MaterialActions(
     val onClear: () -> Unit = {},
 )
 
-/** Screenshots: the material tile's tools already open, and the tool. */
-data class MaterialUiSeed(val drawing: Boolean = false, val tool: AnnotTool = AnnotTool.PEN, val editor: AnnotTextEditor? = null)
+/** Screenshots: the material tile's tools already open, the tool, the Contents sheet open. */
+data class MaterialUiSeed(val drawing: Boolean = false, val tool: AnnotTool = AnnotTool.PEN, val editor: AnnotTextEditor? = null, val contentsOpen: Boolean = false)
 
 /** The bar's height: TILE_HEADER.material (56) — in a top corner the faces box sits below it, never over it. */
 private val BAR = 56.dp
@@ -81,7 +86,9 @@ private val BAR = 56.dp
  * picture (from the phone when it has it), page turns both people share (‹ ›, and a swipe-free tap so the
  * phone's tile swipe keeps moving between tiles), the same Pen / Text layer as a shared screen scoped to
  * this page (kept per page per lesson by the room), and the speaker notes. The next page is fetched ahead
- * so turning is instant; the whole material is kept on the phone while it is presented.
+ * so turning is instant; the whole material is kept on the phone while it is presented. ☰ Contents
+ * (round 6) jumps to a section — a page turn both people follow. [barAction] = the tutor's
+ * "Show for student", in the bar so it never sits on the page's tools.
  */
 @Composable
 fun MaterialTile(
@@ -97,6 +104,7 @@ fun MaterialTile(
     /** Room at the bar's end for the tile's ⤢ (a wide layout with the material not focused). */
     endInset: Dp = 0.dp,
     seed: MaterialUiSeed = MaterialUiSeed(),
+    barAction: (@Composable () -> Unit)? = null,
 ) {
     val id = presenting.materialId
     val page = presenting.page
@@ -108,11 +116,14 @@ fun MaterialTile(
     var notes by remember(id) { mutableStateOf<List<String>?>(null) }
     var image by remember(id, page) { mutableStateOf<ImageBitmap?>(null) }
     var failed by remember(id, page) { mutableStateOf(false) }
+    var contents by remember(id) { mutableStateOf<MaterialToc.Contents?>(null) }
+    var contentsOpen by remember(id) { mutableStateOf(seed.contentsOpen) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(id, source) {
         if (source == null) return@LaunchedEffect
         notes = source.notes(id)
+        contents = source.contents(id, count)
         // The whole material on this phone for later / offline (web prefetchMaterial).
         scope.launch { runCatching { source.prefetch(id) } }
     }
@@ -135,6 +146,10 @@ fun MaterialTile(
                 "📑 ${presenting.title}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            val toc = contents
+            if (toc != null && count > 1 && toc.entries.isNotEmpty()) BarButton("☰", MaterialToc.CONTENTS_LABEL, enabled = true, tag = "material-contents") {
+                trackContentsOpen("call", toc); contentsOpen = true; onTick()
+            }
             BarButton("‹", "Previous page", enabled = page > 0) { actions.onTurn(Materials.turnPage(page, -1, count)); onTick() }
             Text("${page + 1} / $count", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("material-page"))
             BarButton("›", "Next page", enabled = page < count - 1) { actions.onTurn(Materials.turnPage(page, 1, count)); onTick() }
@@ -145,6 +160,7 @@ fun MaterialTile(
                     .bouncyClickable(role = Role.Button) { drawing = !drawing; onTick() }
                     .heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 10.dp),
             )
+            barAction?.invoke()
             BarButton("✕", "Stop presenting (for both)", enabled = true, onClick = actions.onStop)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -174,13 +190,16 @@ fun MaterialTile(
             modifier = Modifier.fillMaxWidth().background(Color(0xFF1E232A)).padding(horizontal = 12.dp, vertical = 8.dp).semantics { contentDescription = "Speaker notes: $note" },
         )
     }
+    val toc = contents
+    if (contentsOpen && toc != null) MaterialContentsSheet(toc, page, "call", onJump = { p -> actions.onTurn(Materials.turnPage(p, 0, count)); onTick() }, onDismiss = { contentsOpen = false })
 }
 
 @Composable
-private fun BarButton(label: String, desc: String, enabled: Boolean, onClick: () -> Unit) {
+private fun BarButton(label: String, desc: String, enabled: Boolean, tag: String? = null, onClick: () -> Unit) {
     Box(
         Modifier.size(40.dp).clip(CircleShape).background(Color(0x33FFFFFF)).alpha(if (enabled) 1f else 0.35f)
             .semantics { contentDescription = desc }
+            .then(if (tag != null) Modifier.testTag(tag) else Modifier)
             .then(if (enabled) Modifier.bouncyClickable(role = Role.Button, onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold) }

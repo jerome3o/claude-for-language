@@ -236,10 +236,16 @@ data class MaterialViewerActions(
     val onOriginal: () -> Unit = {},
 )
 
-/** Read a material page by page (cache-first, so one opened or presented before works offline), its text, the original. */
+/**
+ * Read a material page by page (cache-first, so one opened or presented before works offline), its ☰ Contents
+ * (round 6: its sections, else its pages by their first line), its text, the original.
+ */
 @Composable
-fun MaterialViewerScreen(ui: MaterialViewerUi, actions: MaterialViewerActions) {
+fun MaterialViewerScreen(ui: MaterialViewerUi, actions: MaterialViewerActions, initialContentsOpen: Boolean = false) {
     val d = ui.detail
+    var contentsOpen by remember { mutableStateOf(initialContentsOpen) }
+    val contents = remember(d) { d?.let { contentsOf(it) } }
+    if (contentsOpen && contents != null) MaterialContentsSheet(contents, ui.page, "viewer", onJump = actions.onPage, onDismiss = { contentsOpen = false })
     LabScreen(d?.material?.title ?: "Material", onBack = actions.onBack) {
         if (d == null) {
             item { if (ui.error != null) InlineNotice(ui.error, kind = NoticeKind.Error) else Text("Loading…", color = Lab.colors.muted) }
@@ -255,6 +261,9 @@ fun MaterialViewerScreen(ui: MaterialViewerUi, actions: MaterialViewerActions) {
                 PageButton("‹", "Previous page", ui.page > 0) { actions.onPage(Materials.turnPage(ui.page, -1, count)) }
                 Text("${if (count > 0) ui.page + 1 else 0} / $count", color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.testTag("viewer-page"))
                 PageButton("›", "Next page", ui.page < count - 1) { actions.onPage(Materials.turnPage(ui.page, 1, count)) }
+                if (contents != null && count > 1 && contents.entries.isNotEmpty()) PageButton("☰", "Contents", true) {
+                    trackContentsOpen("viewer", contents); contentsOpen = true
+                }
             }
         }
         item {

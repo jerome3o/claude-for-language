@@ -6,7 +6,7 @@
 }
 .act-bar {
   display: flex; align-items: center; gap: 0.35rem; flex: none; min-height: 48px;
-  padding: 0.3rem 3.5rem 0.3rem 0.5rem; /* right: the tile's ⠿ grip */
+  padding: 0.3rem calc(var(--tile-chrome-w, 3rem) + 0.65rem) 0.3rem 0.5rem; /* right: the tile's control row */
   background: #fff; border-bottom: 1px solid #e5e7eb;
 }
 .act-icon { font-size: 1.2rem; }
@@ -191,7 +191,7 @@
 }
 
 @media (max-width: 639px) {
-  .act-bar { gap: 0.25rem; padding-right: 0.4rem; }
+  .act-bar { gap: 0.25rem; padding-right: calc(var(--tile-chrome-w, 0px) + 0.4rem); }
   .act-title-zh, .act-role { display: none; }
   .act-hanzi { font-size: 2.2rem; }
   .act-emoji { font-size: 3.6rem; }

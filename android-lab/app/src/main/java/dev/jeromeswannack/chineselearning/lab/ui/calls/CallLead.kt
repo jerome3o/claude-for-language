@@ -55,12 +55,16 @@ data class LeadActions(
     val onStageWidth: (Double) -> Unit = {},
 )
 
-/** The tutor's corner button: "Show for student", or "Showing ✓" while that is what the student sees. */
+/**
+ * The tutor's button: "Show for student", or "Showing ✓" while that is what the student sees. It sits in
+ * the tile's own top row (board tabs, material / activity bar) — never over the tile's tools. [compact] =
+ * "👀 Show" where the row is narrow (a phone's material bar).
+ */
 @Composable
-fun ShowForStudentButton(showing: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun ShowForStudentButton(showing: Boolean, modifier: Modifier = Modifier, compact: Boolean = false, onClick: () -> Unit) {
     val bg by animateColorAsState(if (showing) Color(0xE6059669) else Color(0xE61F2937), label = "show-bg")
     Text(
-        if (showing) CallFollow.SHOWN_BUTTON_LABEL else "👀 ${CallFollow.SHOW_BUTTON_LABEL}",
+        if (showing) CallFollow.SHOWN_BUTTON_LABEL else if (compact) "👀 Show" else "👀 ${CallFollow.SHOW_BUTTON_LABEL}",
         color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))

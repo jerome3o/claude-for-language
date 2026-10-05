@@ -173,9 +173,9 @@
 .call-tiles { position: relative; width: 100%; height: 100%; overscroll-behavior: none; }
 @media (max-width: 639px) {
   .call-tile.role-stage { touch-action: pan-y pinch-zoom; }
-  /* Phones: one tile at a time (📝 / 💬 / swipe) — no layout menu, no per-tile buttons. */
-  .call-layout-wrap, .call-tile-chrome { display: none; }
-  .call-board-switch { padding-right: 0.4rem; }
+  /* Phones: one tile at a time (📝 / 💬 / swipe) — no layout menu, no per-tile buttons
+     (only the tutor's Show for student / Stop their share stay in the control row). */
+  .call-layout-wrap, .call-tile-chrome .call-tile-btn, .call-tile-chrome .call-move-wrap, .call-tile-chrome .call-tile-name { display: none; }
 }
 .call-tile {
   position: absolute;
@@ -307,7 +307,11 @@
   forced-color-adjust: none;
 }
 .call-paper > .tb, .call-paper > .wb, .call-paper > .call-chat { flex: 1; min-height: 0; }
-.call-board-switch { display: flex; gap: 0.25rem; padding: 0.25rem 3.5rem 0.25rem 0.4rem; border-bottom: 1px solid #e5e7eb; }
+.call-board-switch {
+  display: flex; gap: 0.25rem; border-bottom: 1px solid #e5e7eb;
+  /* right: the tile's control row (⠿ ⤢ ✕, the tutor's Show for student) — CallTiles measures it */
+  padding: 0.25rem calc(var(--tile-chrome-w, 3rem) + 0.65rem) 0.25rem 0.4rem;
+}
 .call-board-switch button {
   min-height: 40px;
   padding: 0 0.85rem;
@@ -709,7 +713,7 @@
   z-index: 3;
   top: 0.6rem;
   left: 0.6rem;
-  right: 7rem;
+  right: calc(var(--tile-chrome-w, 6.4rem) + 1rem);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -987,7 +991,8 @@
 /* ---- Lesson material presented in the call (round 4) ---- */
 .call-tile-body.mt { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; background: #f3f4f6; color: #111827; }
 .mt-bar {
-  display: flex; align-items: center; gap: 0.35rem; padding: 0.3rem 3.5rem 0.3rem 0.5rem; /* right: the tile's ⠿ grip */
+  display: flex; align-items: center; gap: 0.35rem; flex-wrap: nowrap;
+  padding: 0.3rem calc(var(--tile-chrome-w, 3rem) + 0.65rem) 0.3rem 0.5rem; /* right: the tile's control row */
   background: #fff; border-bottom: 1px solid #e5e7eb; min-height: 44px; flex: none;
 }
 .mt-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 0.9rem; }
@@ -997,7 +1002,7 @@
   background: #fff; color: #111827; font-size: 1rem; padding: 0 0.6rem; cursor: pointer;
 }
 .mt-btn:disabled { opacity: 0.4; cursor: default; }
-.mt-btn.mt-draw { font-size: 0.85rem; }
+.mt-btn.mt-draw, .mt-btn.mt-contents { font-size: 0.85rem; }
 .mt-btn.mt-draw.on { background: #2563eb; border-color: #2563eb; color: #fff; }
 .mt-btn.mt-stop { color: #b91c1c; }
 .mt-tools.annot-tools { position: static; padding: 0.3rem 0.5rem; background: #fff; border-top: 1px solid #e5e7eb; flex: none; right: auto; }
@@ -1010,7 +1015,8 @@
   background: #fffbeb; border-top: 1px solid #fde68a; color: #78350f; white-space: pre-wrap;
 }
 @media (max-width: 639px) {
-  .mt-bar { gap: 0.25rem; padding: 0.3rem 0.35rem; }
+  .mt-bar { gap: 0.25rem; padding: 0.3rem calc(var(--tile-chrome-w, 0px) + 0.6rem) 0.3rem 0.35rem; }
+  .mt-btn.mt-contents .mc-label { display: none; }
   .mt-btn { min-width: 40px; padding: 0 0.4rem; }
   .mt-page { min-width: 3em; }
   .mt-btn.mt-draw { font-size: 0; padding: 0; }
@@ -1035,10 +1041,10 @@
 
 /* ---------- round 5: the tutor leads (shared/calls/follow.ts) */
 .call-show-btn {
-  position: absolute;
-  top: 0.35rem;
-  right: 3.1rem;
-  z-index: 6;
+  /* In the tile's control row (TileSpec.actions), before ⠿ ⤢ ✕. */
+  pointer-events: auto;
+  flex: none;
+  white-space: nowrap;
   min-height: 36px;
   padding: 0 0.75rem;
   border: 1px solid rgba(37, 99, 235, 0.35);
@@ -1050,15 +1056,18 @@
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
-.call-show-btn.bottom { top: auto; right: auto; bottom: 0.6rem; left: 0.6rem; }
 .call-show-btn.on { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
-.call-tile-body.call-show-host { display: block; }
+.call-show-short { display: none; }
+@media (max-width: 639px) {
+  .call-show-long { display: none; }
+  .call-show-short { display: inline; }
+  .call-show-btn { padding: 0 0.6rem; }
+}
 .call-stop-their-share {
-  position: absolute;
-  bottom: 0.6rem;
-  left: 0.6rem;
-  z-index: 6;
-  min-height: 40px;
+  pointer-events: auto;
+  flex: none;
+  white-space: nowrap;
+  min-height: 36px;
   padding: 0 0.85rem;
   border: none;
   border-radius: 999px;

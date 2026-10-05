@@ -235,6 +235,12 @@ export function slideText(s: SlideModel): string {
   return texts.map((t) => t.paragraphs.map((p) => `${p.bullet ? '• ' : ''}${p.runs.map((r) => r.text).join('')}`).join('\n')).join('\n').trim();
 }
 
+/** A slide's title: its title placeholder's text ('' when it has none) — the Contents entry. */
+export function slideTitle(s: SlideModel): string {
+  const t = s.shapes.find((x): x is SlideTextBox => x.kind === 'text' && (x.placeholder === 'title' || x.placeholder === 'ctrTitle'));
+  return t ? t.paragraphs.map((p) => p.runs.map((r) => r.text).join('')).join(' ').trim() : '';
+}
+
 /** Boxes for text placeholders that inherit their position from the layout (no xfrm here). */
 function fallbackBox(t: SlideTextBox, s: SlideModel, nth: number): { x: number; y: number; w: number; h: number } {
   const W = s.width;

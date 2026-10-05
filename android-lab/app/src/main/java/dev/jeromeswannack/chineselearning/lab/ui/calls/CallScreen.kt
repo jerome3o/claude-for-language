@@ -539,14 +539,16 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         // Round 5: the controller's stage (follow / auto-show) is this screen's.
         LaunchedEffect(maxWidth) { actions.lead.onStageWidth(maxWidth.value.toDouble()) }
         val arrangement = CallLayout.arrangeTiles(layout, available, maxWidth.value.toDouble())
-        // Round 5: the tutor's corner button on a stage tile (the student is here; never in a solo call).
+        // Round 5: the tutor's button on a stage tile (the student is here; never in a solo call). It sits in
+        // the tile's own top row (board tabs, material / activity bar) or its top-right corner (screen), clear
+        // of the tile's tools and of the tiles chrome (⤢ ✕) — `compact` = "👀 Show" where the row is narrow.
         val showEnd = if (wide) 100.dp else 8.dp
-        val showButton: @Composable (CallLayout.TileId, CallLayout.Role, Modifier) -> Unit = { tile, role, mod ->
+        val showButton: @Composable (CallLayout.TileId, CallLayout.Role, Modifier, Boolean) -> Unit = { tile, role, mod, compact ->
             val kind = dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowKind.of(tile.wire)
             if (s.leads && role == CallLayout.Role.STAGE && kind != null) {
                 val view = if (kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowKind.TEXT) dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView.text(s.pages.shown)
                 else dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.ShowView(kind)
-                ShowForStudentButton(dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.isShowing(s.shown, s.myUserId, view), mod) { actions.lead.onShow(tile) }
+                ShowForStudentButton(dev.jeromeswannack.chineselearning.lab.core.calls.CallFollow.isShowing(s.shown, s.myUserId, view), mod, compact = compact) { actions.lead.onShow(tile) }
             }
         }
         val chatVisible = CallLayout.TileId.CHAT in arrangement.stage || (CallLayout.TileId.CHAT in layout.open && layout.mode == CallLayout.Mode.GRID)
@@ -568,7 +570,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     Tab(if (ScreenBoardSplit.isSplit(layout)) "$icon ⋯" else "+ $icon", false) { splitMenu = current }
                 }
                 Spacer(Modifier.weight(1f))
-                showButton(current, role, Modifier)
+                showButton(current, role, Modifier, false)
             }
         }
         val tiles = buildMap<CallLayout.TileId, TileSpec> {
@@ -639,7 +641,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     )
                     // Round 5: the tutor shows her own screen to the student / stops the student's share.
                     if (remoteSharing) { if (s.leads) StopTheirShareButton(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd)) { actions.lead.onStopTheirShare() } }
-                    else showButton(CallLayout.TileId.SCREEN, role, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd))
+                    else showButton(CallLayout.TileId.SCREEN, role, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd), false)
                 }
             })
             if (presenting != null) put(CallLayout.TileId.MATERIAL, TileSpec("📑 ${presenting.title}", onLongPress = { splitMenu = CallLayout.TileId.MATERIAL }) { role ->
@@ -651,9 +653,9 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         onKeep = actions.onAnnotationsKept, onTick = actions.onTick, nowMs = nowMs,
                         endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
                         seed = initialMaterial,
+                        // In the material's bar, before ✕ — never over the page or its Pen / Text tools.
+                        barAction = { showButton(CallLayout.TileId.MATERIAL, role, Modifier, !wide) },
                     )
-                    // Below the material's bar, over the page.
-                    showButton(CallLayout.TileId.MATERIAL, role, Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 8.dp))
                 }
             })
             if (activity != null) put(CallLayout.TileId.ACTIVITY, TileSpec("${dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.KIND_INFO[activity.spec.kind]?.icon ?: "🎲"} ${activity.spec.title}") { role ->
@@ -665,8 +667,9 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
                         compact = role != CallLayout.Role.STAGE,
                         seed = info.activitySeed,
+                        // In the activity's header, before ✕ — never over its answer buttons.
+                        headerAction = { showButton(CallLayout.TileId.ACTIVITY, role, Modifier, !wide) },
                     )
-                    showButton(CallLayout.TileId.ACTIVITY, role, Modifier.align(Alignment.BottomEnd).padding(bottom = 8.dp, end = 8.dp))
                 }
             })
             put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true, onLongPress = if (available.screen || available.material) ({ splitMenu = CallLayout.TileId.TEXT }) else null) { role ->
