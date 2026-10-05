@@ -22,3 +22,14 @@ The student page's Needs attention starts with "4 recordings need your ear".
 
 ![Queue on desktop](07-queue-desktop.png)
 The queue at ≥1024 px (two-column grid).
+
+## Lab app (Roborazzi)
+
+![Lab: Needs your ear](lab-teaching-23-recordings-queue.png)
+Lab app — the queue with highlighted characters.
+
+![Lab: empty queue](lab-teaching-23d-recordings-empty.png)
+Lab app — empty queue, scoring not set up.
+
+![Lab: mix-ups](lab-teaching-23f-insights-mixups.png)
+Lab app — Mix-ups on the insights screen.
