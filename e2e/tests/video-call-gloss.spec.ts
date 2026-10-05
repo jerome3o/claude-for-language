@@ -31,9 +31,9 @@ async function api<T = unknown>(request: APIRequestContext, path: string, opts: 
   return (await res.json()) as T;
 }
 
-async function seedUser(request: APIRequestContext, tag: string, name: string): Promise<SeededUser> {
+async function seedUser(request: APIRequestContext, tag: string, name: string, role?: 'tutor' | 'student'): Promise<SeededUser> {
   const email = `gloss-${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
-  const r = await api<{ user: { id: string }; session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name } });
+  const r = await api<{ user: { id: string }; session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name, role } });
   return { id: r.user.id, email, token: r.session_token };
 }
 
@@ -79,7 +79,7 @@ async function joinAndOpenBoard(page: Page, callId: string) {
 
 test('text board tab-complete: ghost after a pause, Tab accepts for both, Esc / typing / IME / setting', async ({ browser, request }) => {
   test.setTimeout(120_000);
-  const tutor = await seedUser(request, 'tutor', '王老师');
+  const tutor = await seedUser(request, 'tutor', '王老师', 'tutor'); // a tutor account, like Minghui's
   const student = await seedUser(request, 'student', 'Student');
   const rel = await api<{ data: { id: string } }>(request, '/api/relationships', { method: 'POST', token: tutor.token, data: { recipient_email: student.email, role: 'tutor' } });
   await api(request, `/api/relationships/${rel.data.id}/accept`, { method: 'POST', token: student.token });
@@ -144,6 +144,29 @@ test('text board tab-complete: ghost after a pause, Tab accepts for both, Esc / 
   expect(tAsked).not.toContain('再见');
   await cdp.send('Input.insertText', { text: '再见' });
   await expect(tGhost).toHaveText(/zàijiàn - goodbye/, { timeout: 5000 });
+  await tp.keyboard.press('Escape');
+
+  // ---- Some macOS IMEs in Chrome send compositionend BEFORE the input event with the committed text
+  // (still flagged isComposing). That used to leave the board "composing" for good: no suggestion ever
+  // again (Minghui, 5 Oct 2026). Replayed here as DOM events in that order.
+  await tp.keyboard.press('Enter');
+  await tBoard.evaluate((ta: HTMLTextAreaElement) => {
+    const fire = (e: Event) => ta.dispatchEvent(e);
+    const set = (v: string) => {
+      ta.value = v;
+      ta.setSelectionRange(v.length, v.length);
+    };
+    const base = ta.value;
+    fire(new CompositionEvent('compositionstart', { data: '', bubbles: true }));
+    fire(new CompositionEvent('compositionupdate', { data: 'nihao', bubbles: true }));
+    set(base + 'nihao');
+    fire(new InputEvent('input', { bubbles: true, isComposing: true, inputType: 'insertCompositionText', data: 'nihao' }));
+    fire(new CompositionEvent('compositionend', { data: '你好', bubbles: true }));
+    set(base + '你好');
+    fire(new InputEvent('input', { bubbles: true, isComposing: true, inputType: 'insertCompositionText', data: '你好' }));
+  });
+  await expect(tGhost).toHaveText(/nǐ hǎo - hello/, { timeout: 5000 });
+  await expect(sBoard).toHaveValue(/\n你好$/, { timeout: 10000 });
   await tp.keyboard.press('Escape');
 
   // ---- The ⋯ setting turns it off (remembered for this user).

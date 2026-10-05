@@ -198,6 +198,13 @@ export function TextBoard({
   const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownPage = useRef(session.page);
   const lastComposeAt = useRef(0);
+  /**
+   * Is an IME composition open in the textarea right now — the DOM's own word:
+   * compositionstart / compositionupdate → true, compositionend / blur → false.
+   * Not `session.isComposing`, which is the board's sync state and can be ended
+   * early by us (idle catch-up, blur) while the IME carries on.
+   */
+  const imeOpen = useRef(false);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** The other person whose caret dot (or name) the pointer is on: their name lights up below. */
   const [hovered, setHovered] = useState<string | null>(null);
@@ -232,7 +239,9 @@ export function TextBoard({
   );
   const suggest = useBoardGloss({
     taRef,
-    isComposing: () => session.isComposing,
+    // The DOM's composition, not the session's: a session flag left on by an odd event order must never
+    // switch tab-complete off for the rest of the lesson (Minghui, 5 Oct 2026).
+    isComposing: () => imeOpen.current,
     enabled: glossOn,
     fetchGloss,
     onInserted: () => {
@@ -398,17 +407,25 @@ export function TextBoard({
           defaultValue={text}
           onInput={(e) => {
             const ta = e.currentTarget;
-            if ((e.nativeEvent as InputEvent).isComposing) {
+            if ((e.nativeEvent as InputEvent).isComposing && imeOpen.current) {
               // A composition we ended (idle / blur) that the IME carries on with: composing again.
               if (!session.isComposing) session.setComposing(true);
               lastComposeAt.current = Date.now();
               return;
             }
-            if (session.isComposing) return;
+            // No composition is open in the textarea (compositionend has fired). Some macOS IMEs in Chrome
+            // send compositionend FIRST and the input event carrying the committed text after it, still
+            // flagged isComposing: that is typed text. It used to re-open the composition on our side, and
+            // nothing closed it again — no tab-complete for the rest of the call, and typing went out late.
+            if (session.isComposing) {
+              if (imeOpen.current) return;
+              endCompositionNow();
+            }
             session.localEdit(ta.value, caretOf(ta));
             onCaret();
           }}
           onCompositionStart={(e) => {
+            imeOpen.current = true;
             composeStart.current = codeUnitToCharIndex(e.currentTarget.value, e.currentTarget.selectionStart);
             lastComposeAt.current = Date.now();
             session.setComposing(true);
@@ -417,11 +434,13 @@ export function TextBoard({
           onCompositionUpdate={(e) => {
             // The other person sees my pinyin as I type it (beside my name), before I commit.
             lastComposeAt.current = Date.now();
+            imeOpen.current = true;
             if (!session.isComposing) session.setComposing(true);
             session.sendComposing(e.data ?? '', composeStart.current);
           }}
           onCompositionEnd={(e) => {
             const ta = e.currentTarget;
+            imeOpen.current = false;
             if (idleTimer.current) clearTimeout(idleTimer.current);
             idleTimer.current = null;
             session.setComposing(false, ta.value, caretOf(ta));
@@ -430,7 +449,7 @@ export function TextBoard({
             suggest.poke(); // …and the pause that may bring a suggestion starts now
           }}
           onKeyDown={(e) => {
-            if (!suggestion || e.nativeEvent.isComposing || session.isComposing) return;
+            if (!suggestion || e.nativeEvent.isComposing || imeOpen.current) return;
             if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
               if (suggest.accept()) e.preventDefault();
             } else if (e.key === 'Escape') {
@@ -445,6 +464,7 @@ export function TextBoard({
           onMouseUp={onCaret}
           onFocus={onCaret}
           onBlur={() => {
+            imeOpen.current = false;
             endCompositionNow(); // a composing span left open must not hold the other person's edits back
             session.clearSelection();
             suggest.clear();

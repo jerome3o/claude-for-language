@@ -63,7 +63,13 @@ test call), and the **Join the call** button that appears in the relationship's 
   and a grey ` - pīnyīn - meaning` appears right after the caret; **Tab** types it in (through the
   CRDT, like any typing, so the other person sees it and it is saved in `board_text`), typing on or
   **Esc** dismisses. On a touch screen a **⇥ pīnyīn - meaning** chip under the caret accepts on tap.
-  Only the typist sees the offer. The rules are `shared/calls/gloss.ts` (`findGlossSegment`: the
+  Only the typist sees the offer. "Composition open" is the DOM's own word on the web
+  (`compositionstart` / `compositionupdate` → open, `compositionend` / blur → closed), never the
+  board session's sync flag: some macOS IMEs in Chrome send `compositionend` BEFORE the input event
+  carrying the committed text (still flagged `isComposing`), which used to re-open the composition on
+  our side for good — no suggestion ever again (Minghui, 5 Oct 2026); that input now counts as typing
+  (`TextBoard.gloss.test.tsx`, and the gloss E2E replays the order). The Lab app reads the field's own
+  composition range, so it never had the flag. The rules are `shared/calls/gloss.ts` (`findGlossSegment`: the
   trailing run of Chinese characters / Chinese punctuation on the caret's line, ≤ 40 characters, only
   at the end of a line that has no ` - …` after it yet; `formatGloss`: always one line), ported to the
   Lab app as `CallGloss.kt` and parity-tested. `POST /api/calls/:id/gloss { text }` (members of the
