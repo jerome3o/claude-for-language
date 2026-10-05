@@ -396,6 +396,12 @@ applied by the CallRoom; worker tests with a mocked clock in `durable/__tests__/
   `presence()` (≤ 10 rooms, 2.5 s), which also ends a room past its deadline — so a call stuck from
   before this change is swept up on the first poll after deploy. No "missed call" push for a call
   ended more than 30 min after it was created.
+- **Never stuck live** (Oct 2026): a failed save when the last person leaves no longer skips the
+  presence plan (the end alarm is always armed); an alarm whose work throws arms its own retry
+  (`ROOM_RETRY_MS`, 60 s) instead of relying on the runtime's few retries; ending stores
+  `ended` + `endedAt` + `endPending` in the room first and writes D1 (`ended_at`, missed-call push,
+  processing) in `finishEnd`, retried on that alarm and on every `presence()` look until it lands.
+  `planRoom` counts unusable stored times (NaN, future) from now, so it never plans a NaN alarm.
 - **Leave** — the web's page unmount and the Lab's Leave send `{ type: 'leave' }` before closing;
   closing the tab sends it too plus a **beacon** on `pagehide` (`POST /api/calls/:id/leave`
   `{ client_id, token }`, no session — the token is the socket's secret from `welcome.leave_token`;
