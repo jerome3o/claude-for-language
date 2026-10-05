@@ -25,18 +25,26 @@ import {
   boardOnStage as isBoardOnStage,
   formatOffset,
   initialLinkHealth,
-  isAvailable,
-  followStep,
-  autoShowBoard,
-  isShowing,
-  showingBanner,
   shareStoppedNote,
-  tileForShow,
-  SHOW_BUTTON_LABEL,
-  SHOWN_BUTTON_LABEL,
   STOP_THEIR_SHARE_LABEL,
-  type AppliedShow,
-  type ShowView,
+  applyView,
+  keepJustShared,
+  theirLastView,
+  type TheirLastView,
+  bringLabel,
+  inviteText,
+  ownViewHint,
+  sameViewHint,
+  shouldSendView,
+  theyLookAroundText,
+  viewChipLabel,
+  viewOf,
+  viewStep,
+  OWN_VIEW_LABEL,
+  SAME_VIEW_LABEL,
+  type SharedView,
+  type StageView,
+  type ViewMode,
   layoutReducer,
   layoutShortcut,
   PRESETS,
@@ -115,6 +123,22 @@ function loadLayout(userId: string): CallLayout {
   }
 }
 
+/** "Same view" or "My own view", per call on this device (a reload keeps it). */
+function viewModeKey(callId: string): string {
+  return `call-view-mode:${callId}`;
+}
+
+function loadViewMode(callId: string): ViewMode {
+  try {
+    return localStorage.getItem(viewModeKey(callId)) === 'own' ? 'own' : 'same';
+  } catch {
+    return 'same';
+  }
+}
+
+/** Changes of my stage go out at most this often (dragging the split's divider); the last one always goes. */
+const VIEW_SEND_MS = 120;
+
 function isTyping(el: EventTarget | null): boolean {
   const e = el as HTMLElement | null;
   return !!e && (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' || e.tagName === 'SELECT' || e.isContentEditable);
@@ -177,9 +201,10 @@ export function CallPage() {
     if (!sharing) setAnnotating(false);
   }, [sharing]);
   useEffect(() => {
-    // Their screen share starts: put it on the stage, both faces over it (or the cameras separately, if chosen).
-    if (remoteSharing) dispatch({ type: 'shareStarted' });
-  }, [remoteSharing, dispatch]);
+    // A screen share starts (theirs or mine): it goes on the stage for both of us — the sharer sees it too —
+    // with both faces over it (or the cameras separately, if chosen).
+    if (sharing) dispatch({ type: 'shareStarted' });
+  }, [sharing, dispatch]);
   // A sideways swipe moves between tiles: it must never be the browser's "back" gesture.
   useEffect(() => {
     const root = document.documentElement;
@@ -243,48 +268,130 @@ export function CallPage() {
   }, [activityId]);
   const stageTiles = arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage;
   const chatVisible = stageTiles.includes('chat') || (layout.open.includes('chat') && layout.mode === 'grid');
-  const stageKey = stageTiles.join(',');
 
-  // ---- round 5 (shared/calls/follow.ts): the tutor leads the student's stage.
+  // ---- "Same view" (shared/calls/view.ts): the stage is shared — either of us changes it, both screens follow.
   const iLead = !!call.tutorId && call.tutorId === user!.id;
   // The board page I'm on (the text board's session changes it).
   const [boardPage, setBoardPage] = useState(call.textBoard.page);
   useEffect(() => call.textBoard.subscribe(() => setBoardPage(call.textBoard.page)), [call.textBoard]);
-  // Tutor: opening the board shows it to the student too; turning its page while it is shown follows.
-  const prevStageRef = useRef<string[]>(stageTiles);
+  const [viewMode, setViewModeState] = useState<ViewMode>(() => loadViewMode(callId));
+  /** The view I last applied or sent: a stage equal to it is not news. */
+  const knownViewRef = useRef<StageView | null>(null);
+  const appliedSeqRef = useRef(0);
+  const welcomeRef = useRef(0);
+  const [inviteSeq, setInviteSeq] = useState<number | null>(null);
+  /** The other person's last change on my stage (a 📝 / 💬 press right after it keeps their tile). */
+  const theirViewRef = useRef<TheirLastView | null>(null);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const pageRef = useRef(boardPage);
+  pageRef.current = boardPage;
+  const viewModeRef = useRef(viewMode);
+  viewModeRef.current = viewMode;
+  const sendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSendAtRef = useRef(0);
   useEffect(() => {
-    const prev = prevStageRef.current;
-    prevStageRef.current = stageTiles;
-    if (!iLead || call.phase !== 'live') return;
-    const kind = autoShowBoard(prev as TileId[], stageTiles);
-    if (kind) call.show(kind === 'text' ? { kind, page: call.textBoard.page || undefined } : { kind });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stageKey, iLead, call.phase]);
-  useEffect(() => {
-    const sh = call.shown;
-    if (!iLead || !boardPage || !sh || sh.by !== user!.id || sh.view.kind !== 'text' || sh.view.page === boardPage) return;
-    if (stageTiles.includes('text')) call.show({ kind: 'text', page: boardPage }, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardPage, iLead]);
-  // Student: each new show goes on my stage once (then my own layout wins); page turns follow while I'm on the board.
-  const appliedShowRef = useRef<AppliedShow | null>(null);
-  const [bannerShow, setBannerShow] = useState<string | null>(null);
-  useEffect(() => {
-    const sh = call.shown;
-    if (!sh) return;
-    const tile = tileForShow(sh.view);
-    const step = followStep(appliedShowRef.current, sh, user!.id, isAvailable(tile, available), stageTiles.includes(tile));
-    if (step.kind === 'none') return;
-    appliedShowRef.current = { id: sh.id, v: sh.v };
-    if (step.kind === 'stage') {
-      dispatch({ type: 'shown', tile: step.tile });
-      setBannerShow(sh.id);
+    try {
+      localStorage.setItem(viewModeKey(callId), viewMode);
+    } catch {
+      /* private mode */
     }
-    const page = step.kind === 'stage' ? step.page : step.page;
-    if (page && page !== call.textBoard.page) call.textBoard.openPage(page);
+    call.announceViewMode(viewMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [call.shown, available.screen, available.material, available.activity]);
-  const bannerOn = !!call.shown && bannerShow === call.shown.id && call.shown.by !== user!.id && stageTiles.includes(tileForShow(call.shown.view));
+  }, [viewMode, callId]);
+  useEffect(() => () => {
+    if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
+  }, []);
+  /** Put the shared view on my stage (and its board page) without sending it back. */
+  const applyShared = useCallback((v: SharedView) => {
+    appliedSeqRef.current = Math.max(appliedSeqRef.current, v.seq);
+    if (v.by !== user!.id) theirViewRef.current = theirLastView(viewOf(layoutRef.current, null), v, Date.now());
+    const page = v.page ?? call.textBoard.page ?? null;
+    knownViewRef.current = { mode: v.mode, main: v.main, second: v.second, ratio: v.ratio, dir: v.dir, open: v.open, page };
+    setLayout((l) => applyView(l, v));
+    if (v.page && v.page !== call.textBoard.page) call.textBoard.openPage(v.page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.textBoard]);
+  /** Send my stage now, or (dragging the divider) a moment later — whatever it is then. */
+  const flushView = useCallback(() => {
+    sendTimerRef.current = null;
+    const mine = viewOf(layoutRef.current, pageRef.current || null);
+    if (!shouldSendView(viewModeRef.current, knownViewRef.current, mine)) return;
+    lastSendAtRef.current = Date.now();
+    if (call.sendView(mine)) knownViewRef.current = mine;
+  }, [call]);
+  const scheduleView = useCallback(() => {
+    if (sendTimerRef.current) return;
+    const wait = VIEW_SEND_MS - (Date.now() - lastSendAtRef.current);
+    if (wait <= 0) flushView();
+    else sendTimerRef.current = setTimeout(flushView, wait);
+  }, [flushView]);
+  useEffect(() => {
+    if (call.phase !== 'live' || call.viewWelcome === 0) return;
+    const mine = viewOf(layout, boardPage || null);
+    // A (re)join: take the room's shared view, or give it mine when there is none yet.
+    if (welcomeRef.current !== call.viewWelcome) {
+      welcomeRef.current = call.viewWelcome;
+      appliedSeqRef.current = 0;
+      knownViewRef.current = null;
+      if (viewMode === 'same') {
+        if (call.sharedView) applyShared(call.sharedView);
+        else flushView();
+      } else if (call.sharedView) appliedSeqRef.current = call.sharedView.seq;
+      return;
+    }
+    // The room's view moved: follow it (Same view), or an invitation (my own view, they asked me over).
+    const v = call.sharedView;
+    if (v && v.seq > appliedSeqRef.current) {
+      const step = viewStep(v, { myId: user!.id, lastSentCid: call.lastViewCid(), mode: viewMode, appliedSeq: appliedSeqRef.current });
+      appliedSeqRef.current = v.seq;
+      if (step === 'apply') {
+        applyShared(v);
+        return;
+      }
+      if (step === 'invite') setInviteSeq(v.seq);
+    }
+    // My stage moved: it becomes the shared view.
+    if (shouldSendView(viewMode, knownViewRef.current, mine)) scheduleView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, boardPage, call.sharedView, call.viewWelcome, viewMode, call.phase]);
+  const theyOwnView = call.remote?.peer.state.view === 'own';
+  const chooseViewMode = (mode: ViewMode) => {
+    setViewMenuOpen(false);
+    setInviteSeq(null);
+    if (mode === viewMode) return;
+    track('call.view_mode', { mode });
+    setViewModeState(mode);
+    viewModeRef.current = mode;
+    if (mode === 'same') {
+      // Back to the shared view as it is now (whoever set it); none yet → mine becomes it.
+      if (call.sharedView) applyShared(call.sharedView);
+      else {
+        knownViewRef.current = null;
+        flushView();
+      }
+    }
+  };
+  /** "Bring <name> to my view": my view becomes the shared one; they follow, or are invited if on their own view. */
+  const bringThem = () => {
+    setViewMenuOpen(false);
+    track('call.view_bring', { mode: viewMode });
+    if (viewMode !== 'same') {
+      setViewModeState('same');
+      viewModeRef.current = 'same';
+    }
+    const mine = viewOf(layoutRef.current, pageRef.current || null);
+    if (call.sendView(mine, true)) knownViewRef.current = mine;
+  };
+  const joinInvite = () => {
+    track('call.view_join', {});
+    setInviteSeq(null);
+    setViewModeState('same');
+    viewModeRef.current = 'same';
+    if (call.sharedView) applyShared(call.sharedView);
+  };
+  const invite = inviteSeq !== null && call.sharedView && call.sharedView.seq === inviteSeq && viewMode === 'own' ? call.sharedView : null;
   // "Minghui stopped your screen share": a few seconds.
   useEffect(() => {
     if (!call.shareStoppedBy) return;
@@ -430,19 +537,6 @@ export function CallPage() {
   const chatOnStage = chatVisible;
   const first = otherName.split(' ')[0];
 
-  /** The tutor's corner button on a tile on her stage: "Show for student" / "Showing ✓". */
-  const showButton = (tile: TileId, view: ShowView) => {
-    if (!iLead || !stageTiles.includes(tile)) return null;
-    const on = isShowing(call.shown, call.myUserId, view);
-    // The boards have room in their tab row; elsewhere the top bar is full of controls → the bottom-left corner.
-    const corner = tile === 'text' || tile === 'draw' ? '' : ' bottom';
-    return (
-      <button type="button" className={`call-show-btn${corner}${on ? ' on' : ''}`} onClick={() => call.show(view)} data-testid={`show-${tile}`} title="Put this on the student's screen">
-        {on ? SHOWN_BUTTON_LABEL : `👁 ${SHOW_BUTTON_LABEL}`}
-      </button>
-    );
-  };
-
   const boardSwitch = (current: 'text' | 'draw') => (
     <div className="call-board-switch" role="tablist">
       <button type="button" role="tab" aria-selected={current === 'text'} className={current === 'text' ? 'active' : ''} onClick={() => dispatch({ type: 'swap', from: 'draw', to: 'text' })} data-testid={current === 'draw' ? 'board-tab-text' : undefined}>Board</button>
@@ -499,7 +593,6 @@ export function CallPage() {
             // My own shared screen, as big as any tile: I can draw on it too.
             <CallVideo stream={call.screenStream} muted screen className="call-self-screen" testId="my-screen" onVideoSize={setMyScreenSize} />
           )}
-          {iShare && showButton('screen', { kind: 'screen' })}
           {remoteSharing && iLead && (
             <button type="button" className="call-stop-their-share" onClick={() => call.stopTheirShare()} data-testid="stop-their-share">
               ⏹ {STOP_THEIR_SHARE_LABEL}
@@ -546,7 +639,6 @@ export function CallPage() {
       label: call.presenting ? `📑 ${call.presenting.title}` : 'Material',
       content: call.presenting ? (
         <div className="call-tile-body call-show-host">
-        {showButton('material', { kind: 'material' })}
         <MaterialTile
           presenting={call.presenting}
           store={call.materialAnnotations}
@@ -565,7 +657,6 @@ export function CallPage() {
       label: call.activity ? `🎲 ${call.activity.spec.title}` : 'Activity',
       content: call.activity ? (
         <div className="call-tile-body call-show-host">
-          {showButton('activity', { kind: 'activity' })}
           <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
         </div>
       ) : null,
@@ -576,7 +667,6 @@ export function CallPage() {
       content: (
         <div className="call-tile-body call-paper" data-testid="call-panel-text">
           {boardSwitch('text')}
-          {showButton('text', { kind: 'text', page: boardPage || undefined })}
           <TextBoard session={call.textBoard} gloss={{ callId, userId: call.myUserId }} />
         </div>
       ),
@@ -587,7 +677,6 @@ export function CallPage() {
       content: (
         <div className="call-tile-body call-paper" data-testid="call-panel-board">
           {boardSwitch('draw')}
-          {showButton('draw', { kind: 'draw' })}
           <Whiteboard items={call.board} live={call.liveStrokes} myUserId={call.myUserId} onCommit={call.commitBoard} onLive={call.sendLiveStroke} />
         </div>
       ),
@@ -610,13 +699,46 @@ export function CallPage() {
         <span className="call-time">{elapsed}</span>
         {someoneRecording && <span className="call-rec" data-testid="rec-badge">● REC</span>}
         {call.roomStatus === 'reconnecting' && <span className="call-chip warn">Reconnecting…</span>}
+        <div className="call-view-wrap">
+          {theyOwnView && <span className="call-view-note" data-testid="they-own-view">{theyLookAroundText(otherName)}</span>}
+          <button
+            type="button"
+            className={`call-view-chip${viewMode === 'own' ? ' own' : ''}`}
+            onClick={() => setViewMenuOpen((v) => !v)}
+            aria-expanded={viewMenuOpen}
+            aria-haspopup="menu"
+            title="Same view: you both see the same thing"
+            data-testid="view-chip"
+          >
+            {viewChipLabel(viewMode)}
+          </button>
+          {viewMenuOpen && (
+            <div className="call-view-menu" role="menu" data-testid="view-menu">
+              <button type="button" role="menuitemradio" aria-checked={viewMode === 'same'} className={viewMode === 'same' ? 'active' : ''} onClick={() => chooseViewMode('same')} data-testid="view-same">
+                <strong>👥 {SAME_VIEW_LABEL}</strong>
+                <small>{sameViewHint(otherName)}</small>
+              </button>
+              <button type="button" role="menuitemradio" aria-checked={viewMode === 'own'} className={viewMode === 'own' ? 'active' : ''} onClick={() => chooseViewMode('own')} data-testid="view-own">
+                <strong>👤 {OWN_VIEW_LABEL}</strong>
+                <small>{ownViewHint(otherName)}</small>
+              </button>
+              {(viewMode === 'own' || theyOwnView) && remote && (
+                <button type="button" role="menuitem" className="call-view-bring" onClick={bringThem} data-testid="view-bring">
+                  <strong>👁 {bringLabel(otherName)}</strong>
+                  {theyOwnView && <small>{theyLookAroundText(otherName)} — they’ll be asked to join.</small>}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="call-main">
-        {bannerOn && call.shown && (
-          <div className="call-showing-banner" role="status" data-testid="showing-banner">
-            <span>👁 {showingBanner(call.shown.name.split(' ')[0])}</span>
-            <button type="button" onClick={() => setBannerShow(null)} aria-label="Hide">✕</button>
+        {invite && (
+          <div className="call-showing-banner" role="status" data-testid="view-invite">
+            <span>👁 {inviteText(invite.name)}</span>
+            <button type="button" className="call-banner-action" onClick={joinInvite} data-testid="view-invite-join">Join</button>
+            <button type="button" onClick={() => setInviteSeq(null)} aria-label="Dismiss">✕</button>
           </div>
         )}
         {call.shareStoppedBy && (
@@ -709,6 +831,8 @@ export function CallPage() {
           className={`call-btn${boardOnStage ? ' active' : ''}`}
           onClick={() => {
             if (!boardOnStage) track('call.board', { tile: 'text' });
+            // They just opened it for both of us: my press (for the same reason) must not close it.
+            else if (viewMode === 'same' && keepJustShared(theirViewRef.current, layout.main === 'draw' || layout.second === 'draw' ? 'draw' : 'text', Date.now())) return;
             dispatch(boardButton(layout, typeof window !== 'undefined' && window.innerWidth < 640));
           }}
           aria-label="Board"
@@ -717,7 +841,7 @@ export function CallPage() {
         >
           📝
         </button>
-        <button type="button" className={`call-btn${chatOnStage ? ' active' : ''}`} onClick={() => { if (!chatOnStage) track('call.board', { tile: 'chat' }); dispatch({ type: 'focus', tile: chatOnStage ? 'remote' : 'chat' }); }} aria-label="Chat" title="Chat (C)" data-testid="open-chat">
+        <button type="button" className={`call-btn${chatOnStage ? ' active' : ''}`} onClick={() => { if (!chatOnStage) track('call.board', { tile: 'chat' }); else if (viewMode === 'same' && keepJustShared(theirViewRef.current, 'chat', Date.now())) return; dispatch({ type: 'focus', tile: chatOnStage ? 'remote' : 'chat' }); }} aria-label="Chat" title="Chat (C)" data-testid="open-chat">
           💬{unread > 0 && !chatOnStage && <span className="call-badge">{unread}</span>}
         </button>
         {canShareScreen() && (
@@ -766,17 +890,18 @@ export function CallPage() {
               <button type="button" role="menuitem" onClick={() => setPresentOpen(true)} data-testid="menu-present-material">📑 Present material</button>
               <button type="button" role="menuitem" onClick={() => setActivitiesOpen(true)} data-testid="menu-activities">🎲 Activities</button>
               <button type="button" role="menuitem" onClick={() => setDevicesOpen(true)} data-testid="menu-devices">🎛️ Camera, mic &amp; speaker</button>
-              <button type="button" role="menuitem" onClick={() => { trackLeft('call.leave'); void call.leave(); }} data-testid="menu-leave">🚪 Leave — the call goes on</button>
               {call.hasCamera && <button type="button" role="menuitem" onClick={() => void call.flipCamera()}>🔄 Flip camera</button>}
               {CallRecorder.supported() && (
                 <button type="button" role="menuitem" onClick={() => void (call.recording ? call.stopRecording() : call.startRecording())}>
                   {call.recording ? '⏹ Stop recording my mic' : '⏺ Record my mic'}
                 </button>
               )}
+              <button type="button" role="menuitem" className="call-menu-leave" onClick={() => { trackLeft('call.leave'); void call.leave(); }} data-testid="menu-leave">🚪 Leave — the call goes on</button>
               {!call.turn && <div className="call-more-note">No TURN relay configured — calls on strict networks may not connect.</div>}
             </div>
           )}
         </div>
+        <span className="call-controls-sep" aria-hidden="true" />
         <button
           type="button"
           className="call-btn leave"

@@ -186,3 +186,32 @@ export function inviteText(name: string): string {
 export function theyLookAroundText(name: string): string {
   return `${first(name, 'The other person')} is looking around on their own`;
 }
+
+/**
+ * Both people pressing 📝 when the tutor says "open the board" must not open it and
+ * close it again: a toggle pressed within this long of the other person putting that
+ * tile on the shared stage keeps it there.
+ */
+export const JUST_SHARED_MS = 3000;
+
+/** The last view the other person put on my stage: when, and the tiles it brought on. */
+export interface TheirLastView {
+  at: number;
+  tiles: TileId[];
+}
+
+/** Should a toggle that would take `tile` OFF the stage do nothing (they just put it there)? */
+export function keepJustShared(theirs: TheirLastView | null, tile: TileId, now: number): boolean {
+  return !!theirs && now - theirs.at < JUST_SHARED_MS && theirs.tiles.includes(tile);
+}
+
+/** What the other person's view brought onto my stage (tiles that weren't on it before), at `now`. */
+export function theirLastView(before: StageView, after: StageView, now: number): TheirLastView {
+  const was = stageTilesOf(before);
+  return { at: now, tiles: stageTilesOf(after).filter((t) => !was.includes(t)) };
+}
+
+/** The tiles a view puts on the stage (focus: one, split: two, grid: what is open). */
+export function stageTilesOf(v: StageView): TileId[] {
+  return v.mode === 'grid' ? v.open : v.mode === 'split' ? [v.main, v.second] : [v.main];
+}

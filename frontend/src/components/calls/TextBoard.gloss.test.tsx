@@ -114,3 +114,29 @@ describe('board tab-complete after an IME commit', () => {
     expect(fetchGloss).not.toHaveBeenCalled();
   });
 });
+
+describe('board tab-complete: the ghost sits at the caret', () => {
+  it('the ghost layer holds the whole text (invisible after the caret), so it scrolls exactly like the textarea', async () => {
+    const { ta } = mount();
+    // A long board; the caret at the end of a line in the middle (the ghost only comes at a line's end).
+    const below = Array.from({ length: 40 }, (_, i) => `第${i + 1}行`).join('\n');
+    act(() => {
+      ta.value = `开始\n你好\n${below}`;
+      ta.setSelectionRange(5, 5); // after 你好
+      ta.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '好' }));
+    });
+    await pause();
+    const ghost = host.querySelector('[data-testid="text-board-ghost"]')!;
+    expect(ghost.textContent).toContain('nǐ hǎo - hello');
+    const layer = ghost.parentElement!;
+    // Before the ghost: exactly the text up to the caret; after it: the rest — the layer is as tall as the textarea's text.
+    expect(layer.firstChild?.textContent).toBe('开始\n你好');
+    expect(layer.querySelector('.tb-ghost-after')?.textContent).toBe(`\n${below}`);
+    // …and it follows the textarea's scroll.
+    act(() => {
+      ta.scrollTop = 300;
+      ta.dispatchEvent(new Event('scroll'));
+    });
+    expect(layer.scrollTop).toBe(ta.scrollTop);
+  });
+});

@@ -99,7 +99,7 @@ describe('view: each device', () => {
     const board = viewOf(layoutReducer(DEFAULT_LAYOUT, { type: 'focus', tile: 'text' }), null);
     const chat = viewOf(layoutReducer(DEFAULT_LAYOUT, { type: 'focus', tile: 'chat' }), null);
     const order = [shared(board, 1, T, 't1'), shared(chat, 2, S, 's1')];
-    const screens = { [T]: { layout: applyView(DEFAULT_LAYOUT, board), last: 't1', seq: 0 }, [S]: { layout: applyView(DEFAULT_LAYOUT, chat), last: 's1', seq: 0 } };
+    const screens: Record<string, { layout: CallLayout; last: string; seq: number }> = { [T]: { layout: applyView(DEFAULT_LAYOUT, board), last: 't1', seq: 0 }, [S]: { layout: applyView(DEFAULT_LAYOUT, chat), last: 's1', seq: 0 } };
     for (const msg of order) {
       for (const who of [T, S]) {
         const me = screens[who];
@@ -133,5 +133,24 @@ describe('view: each device', () => {
     expect(bringLabel('Jerome Swannack')).toBe('Bring Jerome to my view');
     expect(inviteText('Minghui')).toBe('Minghui wants you to see their view');
     expect(theyLookAroundText('')).toBe('The other person is looking around on their own');
+  });
+});
+
+describe('view: pressing a toggle the other person just used', () => {
+  it('keeps a tile they put on the stage a moment ago', async () => {
+    const { keepJustShared, stageTilesOf, JUST_SHARED_MS } = await import('./view');
+    const board = viewOf({ ...DEFAULT_LAYOUT, main: 'text', open: ['remote', 'text', 'self'] }, null);
+    const theirs = { at: 1000, tiles: stageTilesOf(board) };
+    expect(keepJustShared(theirs, 'text', 1000 + JUST_SHARED_MS - 1)).toBe(true);
+    expect(keepJustShared(theirs, 'text', 1000 + JUST_SHARED_MS)).toBe(false);
+    expect(keepJustShared(theirs, 'chat', 1500)).toBe(false);
+    expect(keepJustShared(null, 'text', 1500)).toBe(false);
+    expect(stageTilesOf({ ...board, mode: 'split', second: 'screen' })).toEqual(['text', 'screen']);
+    expect(stageTilesOf({ ...board, mode: 'grid' })).toEqual(['remote', 'text', 'self']);
+    const { theirLastView } = await import('./view');
+    const cam = viewOf(DEFAULT_LAYOUT, null);
+    expect(theirLastView(cam, board, 5)).toEqual({ at: 5, tiles: ['text'] });
+    // A page turn on a board already up brings nothing new: my 📝 press then closes it as usual.
+    expect(theirLastView(board, { ...board, page: 'p9' }, 6).tiles).toEqual([]);
   });
 });

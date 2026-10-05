@@ -135,7 +135,8 @@ test('a dropped room socket reconnects without losing the picture (same link, sa
 
   // The board still works both ways over the new socket.
   await sp.getByTestId('open-board').click();
-  await tp.getByTestId('open-board').click();
+  // Same view: the student's board opens on the tutor's screen too (a second press would close it for both).
+  await expect(tp.getByTestId('call-tiles')).toHaveAttribute('data-stage', /text/, { timeout: 10000 });
   await sp.getByTestId('text-board').fill('断线以后还在');
   await expect(tp.getByTestId('text-board')).toHaveValue('断线以后还在', { timeout: 10000 });
 

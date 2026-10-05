@@ -130,7 +130,8 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
   await sp.getByTestId('open-chat').click();
   await sp.getByTestId('call-chat-input').fill('怎么说 a cup of coffee?');
   await sp.keyboard.press('Enter');
-  await tp.getByTestId('open-chat').click();
+  // Same view: the student opening the chat opens it on the tutor's screen too.
+  await expect(tp.getByTestId('call-tiles')).toHaveAttribute('data-stage', 'chat', { timeout: 10000 });
   await expect(tp.getByText('a cup of coffee')).toBeVisible({ timeout: 10000 });
 
   // Let each recorder write at least one 10 s chunk.
