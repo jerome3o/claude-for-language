@@ -21,6 +21,12 @@ export const EMPTY_CALL_END_MS = 10 * 60_000;
 export const UNJOINED_CALL_END_MS = 10 * 60_000;
 /** The room writes a socket's "last heard" time at most this often (a storage write per ping is wasteful). */
 export const PRESENCE_SEEN_WRITE_MS = 5_000;
+/**
+ * When an alarm's work fails (D1 or storage hiccup, an exception in the room), the room
+ * wakes again this soon instead of relying on the runtime's own alarm retries, which
+ * give up after a few attempts — a room that stopped waking never ended its call.
+ */
+export const ROOM_RETRY_MS = 60_000;
 /** A call ended later than this after it was created (a stuck room swept up hours later) sends no "missed call". */
 export const MISSED_ALERT_MAX_AGE_MS = 30 * 60_000;
 
@@ -89,8 +95,12 @@ export function planRoom(t: RoomTimeline): RoomPlan {
     return { stale, present, emptySince: null, end: false, wakeAt: Math.max(t.now + 1_000, oldest + PRESENCE_TIMEOUT_MS + 1_000) };
   }
   const everJoined = t.everJoined || t.sockets.length > 0;
-  const emptySince = everJoined ? t.emptySince ?? t.now : null;
-  const deadline = everJoined ? emptySince! + EMPTY_CALL_END_MS : (t.createdAt ?? t.firstKnownAt) + UNJOINED_CALL_END_MS;
+  // Stored times that aren't usable (missing, not a number, in the future) count from now: a NaN
+  // deadline would never end the call and a NaN alarm can't be set at all.
+  const usable = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v <= t.now;
+  const emptySince = everJoined ? (usable(t.emptySince) ? t.emptySince : t.now) : null;
+  const started = usable(t.createdAt) ? t.createdAt : usable(t.firstKnownAt) ? t.firstKnownAt : t.now;
+  const deadline = everJoined ? emptySince! + EMPTY_CALL_END_MS : started + UNJOINED_CALL_END_MS;
   const end = t.now >= deadline;
   return { stale, present, emptySince, end, wakeAt: end ? null : deadline };
 }

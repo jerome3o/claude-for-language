@@ -116,6 +116,8 @@ export const ANALYTICS_EVENTS = {
   'call.screen_share': e('calls', 'Started or stopped sharing the screen.', ['on']),
   'call.annotate': e('calls', 'Drew on a shared screen or material.', ['target']),
   'call.material_present': e('calls', 'Presented a lesson material.', ['material_kind', 'pages']),
+  'material.contents_open': e('calls', 'Opened a lesson material’s Contents (in a call or the material viewer).', ['where', 'source', 'entries']),
+  'material.contents_jump': e('calls', 'Jumped to a section from a lesson material’s Contents.', ['where', 'source']),
   'call.activity_start': e('calls', 'Started an in-call activity.', ['activity_kind']),
   'call.layout': e('calls', 'Changed the call layout (▦).', ['preset']),
   'call.view_mode': e('calls', 'Switched between "Same view" and "My own view" in a call.', ['mode']),

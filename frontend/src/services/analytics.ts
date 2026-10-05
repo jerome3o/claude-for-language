@@ -21,6 +21,7 @@ import {
   type AnalyticsEventName,
   type AnalyticsPlatform,
   type AnalyticsProps,
+  USAGE_UPLOAD_PATH,
 } from '@shared/analytics';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { BUILD_TIME } from '../utils/appUpdates';
@@ -266,7 +267,7 @@ export function flushAnalytics(opts: { keepalive?: boolean } = {}): Promise<{ se
         if (!batch.length) break;
         let res: Response;
         try {
-          res = await fetch(`${API_BASE}/api/analytics/events`, {
+          res = await fetch(`${API_BASE}${USAGE_UPLOAD_PATH}`, {
             method: 'POST',
             credentials: 'include',
             keepalive: opts.keepalive && batch.length < 100,

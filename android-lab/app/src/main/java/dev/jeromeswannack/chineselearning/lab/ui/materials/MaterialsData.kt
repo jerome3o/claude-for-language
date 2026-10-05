@@ -59,6 +59,9 @@ class CallMaterials(private val app: LabApp, private val scope: CoroutineScope) 
     override suspend fun notes(materialId: String): List<String>? =
         runCatching { notesOf(store.load(materialId).detail) }.getOrNull()
 
+    override suspend fun contents(materialId: String, pageCount: Int) =
+        runCatching { contentsOf(store.cachedDetail(materialId) ?: store.load(materialId).detail, pageCount) }.getOrNull()
+
     override suspend fun prefetch(materialId: String) {
         val d = store.cachedDetail(materialId) ?: runCatching { store.load(materialId).detail }.getOrNull() ?: return
         if (app.online.value) store.prefetch(d)

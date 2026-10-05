@@ -104,6 +104,27 @@ class CallMaterialScreenshots : LabScreenshotTest() {
         CallScreen(live.copy(presenting = null, materialAnnotations = Annotations()), info.copy(presentSheet = sheet.copy(stage = dev.jeromeswannack.chineselearning.lab.data.materials.UploadStage.Rendering(3, 12))), CallActions(), fakeVideo, now, initialPresentSheet = true)
     }
 
+    // ---- round 6: the tutor's "Show for student" in the material's bar (never over Pen / Text), ☰ Contents
+    private val student = CallPeer("c-s", CallsSamples.ME, "Jerome Swannack", null, PeerMediaState(mic = true, cam = true))
+    private val tutorLive = live.copy(
+        myUserId = CallsSamples.TUTOR, tutorId = CallsSamples.TUTOR,
+        remote = RemoteParticipant(student, video = "them", connection = "connected", tile = CallConnection.TileStatus.LIVE),
+    )
+    private val tutorInfo = info.copy(otherName = "Jerome Swannack", myName = "Minghui")
+
+    @Test fun tutorMaterialDrawingPhone() = shoot("lab-calls-r6-01-tutor-material-drawing-phone") {
+        CallScreen(tutorLive, tutorInfo, CallActions(), fakeVideo, now, layout = onStage(), initialMaterial = MaterialUiSeed(drawing = true))
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun tutorMaterialDrawingUnfolded() = shoot("lab-calls-r6-02-tutor-material-drawing-unfolded") {
+        CallScreen(tutorLive, tutorInfo, CallActions(), fakeVideo, now, layout = onStage(), initialMaterial = MaterialUiSeed(drawing = true))
+    }
+
+    @Test fun materialContentsPhone() = shoot("lab-calls-r6-03-material-contents-phone") {
+        CallScreen(live, info, CallActions(), fakeVideo, now, layout = onStage(), initialMaterial = MaterialUiSeed(contentsOpen = true))
+    }
+
     /** The ⋯ sheet's content (the sheet itself is a dialog window): 📑 Present material first. */
     @Test fun moreMenu() = shoot("lab-calls-r4-37-more-menu-present") {
         LabCard { Column { CallMoreMenu(live, info, CallActions(), close = {}) } }

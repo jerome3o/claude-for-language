@@ -45,6 +45,34 @@ const ev = (id: string, event: string, extra: Record<string, unknown> = {}) => (
   id, event, ts: iso(MIN), session_id: 'sess_1', platform: 'web', app_version: '2026-10-03T10:00:00.000Z', ...extra,
 });
 
+describe('POST /api/me/usage-events (the web upload path)', () => {
+  // Oct 2026: no browser event reached D1 — content blockers (EasyPrivacy's generic "/analytics/event")
+  // refused /api/analytics/events in the page. The clients now post here; the old path stays for old Lab builds.
+  it('stores a web-shaped batch exactly as the web client queues it', async () => {
+    const req = makeApp('tutor-1');
+    const web = (id: string, event: string, screen: string | null, props: Record<string, unknown>) => ({
+      id, ts: iso(MIN), event, screen, props, session_id: 's_6f1c2a4e-1b2c-4d5e-8f90-123456789abc', platform: 'web', app_version: '2026-10-03T18:01:09.171Z',
+    });
+    const batch = {
+      events: [
+        web('e_0mfx3k2a10000_k3j9x0aa', 'app.open', null, { install_kind: 'browser' }),
+        web('e_0mfx3k2a10001_p0q9z8yy', 'app.screen_view', '/connections/:id', { duration_ms: 27111 }),
+        web('e_0mfx3k2a10002_u7t6r5ee', 'tutor.budget_change', '/connections/:id', { new_cards: 5, secondary_cards: 10, reset: false }),
+        web('e_0mfx3k2a10003_c2v3b4nn', 'deck.check_started', '/decks/:id', { words: 319, scope: 'own' }),
+      ],
+    };
+    const res = await req('/api/me/usage-events', post(batch));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ accepted: 4, stored: 4, rejected: 0 });
+    const rows = db.rows<{ event: string; platform: string; app_version: string; user_id: string }>('SELECT event, platform, app_version, user_id FROM usage_events ORDER BY id');
+    expect(rows.map((r) => r.event)).toEqual(['app.open', 'app.screen_view', 'tutor.budget_change', 'deck.check_started']);
+    expect(rows.every((r) => r.platform === 'web' && r.user_id === 'tutor-1' && r.app_version === '2026-10-03T18:01:09.171Z')).toBe(true);
+    // The legacy path is the same handler (idempotent by id: nothing stored twice).
+    const legacy = await (await req('/api/analytics/events', post(batch))).json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(legacy).toMatchObject({ accepted: 4, stored: 0 });
+  });
+});
+
 describe('POST /api/analytics/events', () => {
   it('stores catalogue events once (idempotent by id) and never keeps a message body', async () => {
     const req = makeApp('tutor-1');

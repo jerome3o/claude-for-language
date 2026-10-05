@@ -5,7 +5,9 @@ import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test
  * uploads a PDF (pages drawn on the device with pdf.js, uploaded as pictures),
  * presents it in a call; both see the same page, either can turn it, a drawing
  * on a page reaches the other person, and the student can open it afterwards
- * (presenting shares it).
+ * (presenting shares it). Round 6: the PDF's outline becomes its ☰ Contents
+ * (either person jumps, both follow), and the tutor's "Show for student" sits
+ * in the tile's control row, clear of the Pen / Text tools.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
@@ -42,10 +44,10 @@ async function joinCall(page: Page, callId: string) {
   await page.getByTestId('call-live').waitFor({ timeout: 20000 });
 }
 
-/** A two-page PDF ("Lesson 5 page one" / "… page two"), written by hand. */
+/** A two-page PDF ("Lesson 5 page one" / "… page two") with an outline ("Part one", "第二部分"), written by hand. */
 function twoPagePdf(): Buffer {
   const objs: string[] = [];
-  objs.push('<< /Type /Catalog /Pages 2 0 R >>');
+  objs.push('<< /Type /Catalog /Pages 2 0 R /Outlines 8 0 R >>');
   objs.push('<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>');
   const page = (content: number) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Resources << /Font << /F1 7 0 R >> >> /Contents ${content} 0 R >>`;
   const stream = (text: string) => {
@@ -57,6 +59,10 @@ function twoPagePdf(): Buffer {
   objs.push(page(6));
   objs.push(stream('Lesson 5 page two'));
   objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  objs.push('<< /Type /Outlines /First 9 0 R /Last 10 0 R /Count 2 >>');
+  objs.push('<< /Title (Part one) /Parent 8 0 R /Next 10 0 R /Dest [3 0 R /Fit] >>');
+  // 第二部分 as a UTF-16BE string.
+  objs.push('<< /Title <FEFF7B2C4E8C90E85206> /Parent 8 0 R /Prev 9 0 R /Dest [5 0 R /Fit] >>');
   let out = '%PDF-1.4\n';
   const offsets: number[] = [];
   objs.forEach((o, i) => {
@@ -116,6 +122,17 @@ test('the tutor uploads a PDF and presents it; page turns and drawings reach bot
   expect(materials[0].page_count).toBe(2);
   const text = await (await request.fetch(`${API}/api/materials/${materials[0].id}/text`, { headers: { Authorization: `Bearer ${tutor.token}` } })).text();
   expect(text).toContain('page two');
+  // The outline was read on the device and stored as the Contents.
+  const detail = await api<{ material: { toc: { title: string; page: number; level: number }[] | null } }>(request, `/api/materials/${materials[0].id}`, { token: tutor.token });
+  expect(detail.material.toc).toEqual([
+    { title: 'Part one', page: 0, level: 0 },
+    { title: '第二部分', page: 1, level: 0 },
+  ]);
+  // The viewer's Contents jumps.
+  await tp.getByTestId('material-contents').click();
+  await expect(tp.getByTestId('material-contents-row')).toHaveText(['Part one1', '第二部分2']);
+  await tp.getByTestId('material-contents-row').nth(1).click();
+  await expect(tp.getByTestId('viewer-page')).toHaveText('2 / 2');
 
   // ---- Present it in a call.
   const { call } = await api<{ call: { id: string } }>(request, '/api/calls', { method: 'POST', token: tutor.token, data: { relationship_id: rel.data.id } });
@@ -138,8 +155,22 @@ test('the tutor uploads a PDF and presents it; page turns and drawings reach bot
   await expect(tp.getByTestId('material-page')).toHaveText('2 / 2', { timeout: 10000 });
   await expect(sp.getByTestId('material-page')).toHaveText('2 / 2');
 
+  // Contents: the student jumps to "Part one" — the tutor follows; she jumps back to 第二部分.
+  await sp.getByTestId('material-contents').click();
+  await expect(sp.getByTestId('material-contents-row')).toHaveCount(2);
+  await expect(sp.getByTestId('material-contents-row').nth(1)).toHaveAttribute('aria-current', 'true');
+  await sp.getByTestId('material-contents-row').first().click();
+  await expect(sp.getByTestId('material-contents-panel')).toHaveCount(0);
+  await expect(tp.getByTestId('material-page')).toHaveText('1 / 2', { timeout: 10000 });
+  await tp.getByTestId('material-contents').click();
+  await tp.getByTestId('material-contents-row').filter({ hasText: '第二部分' }).click();
+  await expect(sp.getByTestId('material-page')).toHaveText('2 / 2', { timeout: 10000 });
+
   // The tutor circles something on page 2 — the student sees it.
   await tp.getByTestId('material-draw').click();
+  // Same view replaced "Show for student": nothing of hers sits over the material's tools.
+  await expect(tp.getByTestId('material-tools')).toBeVisible();
+  await expect(tp.getByTestId('show-material')).toHaveCount(0);
   const box = await settledBox(tp, 'annot-material');
   await tp.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
   await tp.mouse.down();

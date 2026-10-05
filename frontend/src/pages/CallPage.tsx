@@ -585,6 +585,15 @@ export function CallPage() {
     },
     screen: {
       label: remoteSharing ? `${first}’s screen` : 'Your screen',
+      actions: sharing ? (
+        <>
+          {remoteSharing && iLead && (
+            <button type="button" className="call-stop-their-share" onClick={() => call.stopTheirShare()} data-testid="stop-their-share">
+              ⏹ {STOP_THEIR_SHARE_LABEL}
+            </button>
+          )}
+        </>
+      ) : null,
       content: sharing ? (
         <div className="call-tile-body call-tile-video" data-testid="screen-tile">
           {remoteSharing ? (
@@ -592,11 +601,6 @@ export function CallPage() {
           ) : (
             // My own shared screen, as big as any tile: I can draw on it too.
             <CallVideo stream={call.screenStream} muted screen className="call-self-screen" testId="my-screen" onVideoSize={setMyScreenSize} />
-          )}
-          {remoteSharing && iLead && (
-            <button type="button" className="call-stop-their-share" onClick={() => call.stopTheirShare()} data-testid="stop-their-share">
-              ⏹ {STOP_THEIR_SHARE_LABEL}
-            </button>
           )}
           <AnnotationLayer
             store={call.annotations}
@@ -638,7 +642,6 @@ export function CallPage() {
     material: {
       label: call.presenting ? `📑 ${call.presenting.title}` : 'Material',
       content: call.presenting ? (
-        <div className="call-tile-body call-show-host">
         <MaterialTile
           presenting={call.presenting}
           store={call.materialAnnotations}
@@ -650,15 +653,12 @@ export function CallPage() {
           annot={call.materialAnnot}
           active={stageTiles.includes('material')}
         />
-        </div>
       ) : null,
     },
     activity: {
       label: call.activity ? `🎲 ${call.activity.spec.title}` : 'Activity',
       content: call.activity ? (
-        <div className="call-tile-body call-show-host">
-          <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
-        </div>
+        <ActivityTile session={call.activity} myUserId={call.myUserId} act={call.actInActivity} close={call.closeActivity} />
       ) : null,
     },
     text: {

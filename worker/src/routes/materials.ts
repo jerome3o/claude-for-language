@@ -5,12 +5,12 @@
  *   POST   /materials                             { title?, file_name, mime_type, size } → 201 { material } (status uploading)
  *   PUT    /materials/:id/original                raw file bytes (≤ 50 MB) — the original, kept for download
  *   PUT    /materials/:id/pages/:n                raw JPEG / PNG / WebP — page n (0-based) as rendered on the uploader's device
- *   POST   /materials/:id/complete                { pages: [{ index, text?, notes? }], render_note? } → { material } (ready)
- *   GET    /materials/:id                         { material, pages: [{ page_index, width, height, text, notes, image_url }] }
+ *   POST   /materials/:id/complete                { pages: [{ index, text?, notes? }], render_note?, toc? } → { material } (ready)
+ *   GET    /materials/:id                         { material (+ toc: [{ title, page, level }] | null), pages: [{ page_index, width, height, text, notes, image_url }] }
  *   GET    /materials/:id/pages/:n/image          the page picture (owner / shared)
  *   GET    /materials/:id/original                the original file
  *   GET    /materials/:id/text?from=&to=          page texts (agents, MCP): { material, pages: [{ page, text, notes }] }
- *   PATCH  /materials/:id                         { title }
+ *   PATCH  /materials/:id                         { title?, toc? } (toc: the uploader's device filling in an older material's Contents)
  *   DELETE /materials/:id                         rows + R2 (owner)
  *   POST   /materials/:id/share                   { relationship_id } · DELETE /materials/:id/share/:relId
  *   GET    /materials/:id/annotations?lesson_id=  kept drawings / text per page in a lesson { pages: { [page]: KeptAnnotations } }
@@ -28,6 +28,7 @@ import {
   MaterialError,
   pageJson,
   requireMaterial,
+  tocColumn,
   requireOwnMaterial,
   shareMaterial,
   storeOriginal,
@@ -95,7 +96,7 @@ materials.post('/materials/:id/complete', async (c) => {
     const m = await requireOwnMaterial(c.env.DB, c.req.param('id'), c.get('user').id);
     const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
     const done = await completeMaterial(c.env.DB, m, body);
-    return c.json({ material: materialJson(done, { mine: true }) });
+    return c.json({ material: materialJson(done, { mine: true }, { toc: true }) });
   } catch (error) {
     return fail(c, error, 'Failed to finish the upload');
   }
@@ -105,7 +106,7 @@ materials.get('/materials/:id', async (c) => {
   try {
     const { material, mine } = await requireMaterial(c.env.DB, c.req.param('id'), c.get('user').id);
     const pages = await listPages(c.env.DB, material.id);
-    return c.json({ material: materialJson(material, { mine }), pages: pages.map(pageJson) });
+    return c.json({ material: materialJson(material, { mine }, { toc: true }), pages: pages.map(pageJson) });
   } catch (error) {
     return fail(c, error, 'Failed to load the material');
   }
@@ -162,11 +163,23 @@ materials.get('/materials/:id/text', async (c) => {
 materials.patch('/materials/:id', async (c) => {
   try {
     const m = await requireOwnMaterial(c.env.DB, c.req.param('id'), c.get('user').id);
-    const body = await c.req.json<{ title?: unknown }>().catch(() => ({} as { title?: unknown }));
-    const title = cleanMaterialTitle(body.title);
-    if (!title) throw new MaterialError(400, 'Give it a title');
-    await c.env.DB.prepare('UPDATE materials SET title = ?, updated_at = ? WHERE id = ?').bind(title, Date.now(), m.id).run();
-    return c.json({ material: materialJson({ ...m, title }, { mine: true }) });
+    const body = await c.req.json<{ title?: unknown; toc?: unknown }>().catch(() => ({} as { title?: unknown; toc?: unknown }));
+    let next = m;
+    if (body.title !== undefined) {
+      const title = cleanMaterialTitle(body.title);
+      if (!title) throw new MaterialError(400, 'Give it a title');
+      await c.env.DB.prepare('UPDATE materials SET title = ?, updated_at = ? WHERE id = ?').bind(title, Date.now(), m.id).run();
+      next = { ...next, title };
+    }
+    if (body.toc !== undefined) {
+      // The Contents is no edit of the material: updated_at stays.
+      const toc = tocColumn(body.toc, m.page_count);
+      if (toc === null) throw new MaterialError(400, 'Contents must be a list');
+      await c.env.DB.prepare('UPDATE materials SET toc = ? WHERE id = ?').bind(toc, m.id).run();
+      next = { ...next, toc };
+    }
+    if (body.title === undefined && body.toc === undefined) throw new MaterialError(400, 'Give it a title');
+    return c.json({ material: materialJson(next, { mine: true }, { toc: true }) });
   } catch (error) {
     return fail(c, error, 'Failed to rename');
   }

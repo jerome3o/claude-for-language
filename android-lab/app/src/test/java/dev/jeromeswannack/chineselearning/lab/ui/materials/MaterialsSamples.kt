@@ -65,7 +65,14 @@ object MaterialsSamples {
     val source = object : MaterialPageSource {
         override suspend fun page(materialId: String, page: Int): ImageBitmap = slideBitmap(page)
         override suspend fun notes(materialId: String): List<String> = slides.map { it.notes }
+        override suspend fun contents(materialId: String, pageCount: Int) = contentsOf(detail, pageCount)
     }
+
+    /** The slide titles as the upload stores them (core MaterialToc.slideTitlesToc). */
+    private val toc = kotlinx.serialization.json.Json.parseToJsonElement(
+        dev.jeromeswannack.chineselearning.lab.core.MaterialToc.slideTitlesToc(slides.map(PptxSlides::slideTitle))
+            .joinToString(",", "[", "]") { "{\"title\":\"${it.title}\",\"page\":${it.page},\"level\":${it.level}}" },
+    )
 
     val lesson5 = MaterialDto(
         "m1", "u-tutor", "第五课 把字句 — slides", "pptx", "Lesson 5 – 把字句.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -80,7 +87,7 @@ object MaterialsSamples {
     )
 
     val detail = MaterialDetailDto(
-        lesson5.copy(page_count = 3),
+        lesson5.copy(page_count = 3, toc = toc),
         slides.mapIndexed { i, s -> MaterialPageDto(i, 1600, 900, PptxSlides.slideText(s), s.notes, "/api/materials/m1/pages/$i/image") },
     )
 }

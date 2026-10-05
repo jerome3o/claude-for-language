@@ -17,6 +17,7 @@ import {
   materialFileProblem,
   materialKindOf,
   materialText,
+  sanitizeToc,
   titleFromFileName,
   MAX_MATERIAL_PAGES,
   MAX_PAGE_IMAGE_BYTES,
@@ -45,6 +46,8 @@ export interface MaterialRow {
   page_count: number;
   render_note: string | null;
   text: string | null;
+  /** Contents JSON (shared/materials/toc.ts; migration 0109): NULL = never computed. */
+  toc?: string | null;
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
@@ -60,10 +63,33 @@ export interface MaterialPageRow {
   notes: string | null;
 }
 
-/** What the API returns for a material (no keys; page pictures by URL). */
-export function materialJson(m: MaterialRow, extra: { owner_name?: string | null; shared_with?: string[]; mine?: boolean } = {}) {
-  const { original_key: _k, text: _t, deleted_at: _d, ...rest } = m;
-  return { ...rest, has_text: !!(m.text && m.text.trim()), ...extra };
+/** The stored Contents, checked (null = never computed / unreadable). */
+export function parseToc(m: Pick<MaterialRow, 'toc' | 'page_count'>) {
+  if (!m.toc) return null;
+  try {
+    return sanitizeToc(JSON.parse(m.toc), m.page_count);
+  } catch {
+    return null;
+  }
+}
+
+/** Contents sent by the uploader's device, as stored (null = nothing usable sent). */
+export function tocColumn(raw: unknown, pageCount: number): string | null {
+  const toc = sanitizeToc(raw, pageCount);
+  return toc ? JSON.stringify(toc) : null;
+}
+
+/**
+ * What the API returns for a material (no keys; page pictures by URL). `toc`
+ * (the Contents, null = never computed) only on one material, not in lists.
+ */
+export function materialJson(
+  m: MaterialRow,
+  extra: { owner_name?: string | null; shared_with?: string[]; mine?: boolean } = {},
+  opts: { toc?: boolean } = {},
+) {
+  const { original_key: _k, text: _t, deleted_at: _d, toc: _toc, ...rest } = m;
+  return { ...rest, has_text: !!(m.text && m.text.trim()), ...(opts.toc ? { toc: parseToc(m) } : {}), ...extra };
 }
 
 export function pageJson(p: MaterialPageRow) {
@@ -172,7 +198,7 @@ export async function storePage(env: { DB: D1Database; AUDIO_BUCKET: R2Bucket },
 export async function completeMaterial(
   db: D1Database,
   m: MaterialRow,
-  input: { pages?: unknown; render_note?: unknown },
+  input: { pages?: unknown; render_note?: unknown; toc?: unknown },
 ): Promise<MaterialRow> {
   const raw = Array.isArray(input.pages) ? input.pages.slice(0, MAX_MATERIAL_PAGES) : [];
   const pages = raw
@@ -190,8 +216,8 @@ export async function completeMaterial(
   const note = typeof input.render_note === 'string' ? input.render_note.slice(0, 300) : null;
   stmts.push(
     db
-      .prepare(`UPDATE materials SET status = 'ready', page_count = ?, render_note = ?, text = ?, updated_at = ? WHERE id = ?`)
-      .bind(count, note, materialText(pages.filter((p) => p.page_index < count)) || null, Date.now(), m.id),
+      .prepare(`UPDATE materials SET status = 'ready', page_count = ?, render_note = ?, text = ?, toc = ?, updated_at = ? WHERE id = ?`)
+      .bind(count, note, materialText(pages.filter((p) => p.page_index < count)) || null, tocColumn(input.toc, count), Date.now(), m.id),
   );
   await db.batch(stmts);
   return (await getMaterial(db, m.id))!;

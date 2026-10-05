@@ -133,3 +133,5 @@ export function sanitizePresented(raw: unknown): PresentedMaterial | null {
     by_name: typeof r.by_name === 'string' ? r.by_name.slice(0, 80) : '',
   };
 }
+
+export * from './toc';

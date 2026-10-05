@@ -396,6 +396,12 @@ applied by the CallRoom; worker tests with a mocked clock in `durable/__tests__/
   `presence()` (≤ 10 rooms, 2.5 s), which also ends a room past its deadline — so a call stuck from
   before this change is swept up on the first poll after deploy. No "missed call" push for a call
   ended more than 30 min after it was created.
+- **Never stuck live** (Oct 2026): a failed save when the last person leaves no longer skips the
+  presence plan (the end alarm is always armed); an alarm whose work throws arms its own retry
+  (`ROOM_RETRY_MS`, 60 s) instead of relying on the runtime's few retries; ending stores
+  `ended` + `endedAt` + `endPending` in the room first and writes D1 (`ended_at`, missed-call push,
+  processing) in `finishEnd`, retried on that alarm and on every `presence()` look until it lands.
+  `planRoom` counts unusable stored times (NaN, future) from now, so it never plans a NaN alarm.
 - **Leave** — the web's page unmount and the Lab's Leave send `{ type: 'leave' }` before closing;
   closing the tab sends it too plus a **beacon** on `pagehide` (`POST /api/calls/:id/leave`
   `{ client_id, token }`, no session — the token is the socket's secret from `welcome.leave_token`;
@@ -456,8 +462,14 @@ enforces who may do what — the **relationship's tutor** (`relationshipTutor`, 
 `welcome.tutor_id`; nobody in a solo call).
 
 - **Show for student** — on whatever is on the tutor's stage (the text board, the drawing board, a
-  material page, her own shared screen, an activity) a small corner button **👁 Show for student**
-  (**Showing ✓** while it is shown). It sends `show { view }`; the room keeps the latest
+  material page, her own shared screen, an activity) a button **👁 Show for student**
+  (**Showing ✓** while it is shown). Round 6: it lives in the tile's **top-right control row**
+  (`TileSpec.actions` in `CallTiles.tsx`, before ⠿ ⤢ ✕; "👁 Show" on phones), never over the tile's
+  own tools — it used to sit on a material's Pen / Text bar. CallTiles measures that row and sets
+  `--tile-chrome-w` on the tile, and every tile's own top bar (board tabs, `.mt-bar`, `.act-bar`, the
+  screen's draw tools) keeps that much room on its right. **Stop their share** sits in the same row.
+  Lab: the button is in the material / activity bar and the board's tab row (`barAction` /
+  `headerAction`). It sends `show { view }`; the room keeps the latest
   `ShownState { id, v, by, name, view, at }` in storage (so a reconnect gets it in `welcome.shown`)
   and broadcasts `shown`. **Opening the board shows it without the button** (`autoShowBoard`: a
   board tile came onto her stage). Turning the board page while the board is shown sends
@@ -553,9 +565,21 @@ both people as its own tile (`material`, transient like a shared screen: it exis
 - **Agents**: the lesson's presented materials (with the pages shown and their text) go into the notes the
   homework agent reads (`composeCallNotes` → "LESSON MATERIALS PRESENTED"); the agent also has `list_materials` /
   `read_material` for others the notes mention. MCP: `list_materials`, `read_material`.
+- **☰ Contents** (round 6, `shared/materials/toc.ts`, Lab `core/…/MaterialToc.kt`, parity-tested): the
+  material tile's bar and the `/materials/:id` viewer have a Contents button — a popover ≥ 640px, a bottom
+  sheet on phones (`components/materials/MaterialContents.tsx`; Lab `ui/materials/MaterialContents.kt`), the
+  entry on show marked. A tap in a call is a page turn (`material_page`), so both people go there. The list
+  is `materials.toc` (migration 0109, JSON `[{ title, page, level }]`, ≤ 200 entries, two levels), read on the
+  uploader's device: a PDF's outline via pdf.js (`getOutline` → `getDestination` / `getPageIndex`,
+  `outlineToToc`), a PowerPoint's slide titles (`slideTitlesToc`). `NULL` = never computed: the uploader's web
+  app reads it from the original when it next opens the material on the viewer and `PATCH`es it
+  (`services/materials/toc.ts`); a Lab-uploaded PDF stays NULL (PdfRenderer has no outline API). With nothing
+  stored the list is the pages by their first line of text (`pageListToc`). Events `material.contents_open` /
+  `material.contents_jump`.
 - API (`worker/src/routes/materials.ts`): `GET|POST /api/materials`, `PUT /api/materials/:id/original`,
-  `PUT /api/materials/:id/pages/:n`, `POST /api/materials/:id/complete`, `GET /api/materials/:id`,
-  `GET …/pages/:n/image`, `GET …/original`, `GET …/text`, `PATCH|DELETE /api/materials/:id`,
+  `PUT /api/materials/:id/pages/:n`, `POST /api/materials/:id/complete` (+ `toc`), `GET /api/materials/:id`
+  (material + `toc`), `GET …/pages/:n/image`, `GET …/original`, `GET …/text`,
+  `PATCH /api/materials/:id` (`{ title?, toc? }`), `DELETE /api/materials/:id`,
   `POST …/share`, `DELETE …/share/:relId`, `GET …/annotations?lesson_id=`.
 
 ## In-call activities: two-person mini lessons (prototype)

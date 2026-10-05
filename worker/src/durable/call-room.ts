@@ -17,7 +17,7 @@
  * ping every 10 s). An alarm follows the plan `planRoom` makes: while someone
  * is present it wakes when the oldest socket would time out (a phone that died
  * without closing its socket is dropped); when nobody is, it wakes at the end
- * deadline and ends the call exactly like the End button (3 min after the last
+ * deadline and ends the call exactly like the End button (10 min after the last
  * person left, 10 min after creation for a call nobody ever entered). The
  * worker's `GET /api/calls` asks each live room `presence()`, so the banners
  * only announce a call someone is actually in — and that same question sweeps
@@ -47,6 +47,7 @@ import {
   appendDiag,
   PRESENCE_TIMEOUT_MS,
   planRoom,
+  ROOM_RETRY_MS,
   isSocketPresent,
   shouldAlertMissed,
   PRESENCE_SEEN_WRITE_MS,
@@ -609,7 +610,11 @@ export class CallRoom extends DurableObject<Env> {
    * `leaving` is a socket being closed right now (it no longer counts).
    */
   private async reconcile(leaving?: WebSocket): Promise<RoomPresence> {
-    if ((await this.ctx.storage.get<boolean>('ended')) === true) return { present: [], ended: true };
+    if ((await this.ctx.storage.get<boolean>('ended')) === true) {
+      // Ended here but maybe not yet in D1 (the write failed): try again on every look.
+      await this.finishEnd();
+      return { present: [], ended: true };
+    }
     const now = Date.now();
     const all = this.sockets();
     const [createdAt, firstKnownAt, emptySince, joined] = await Promise.all([
@@ -1187,12 +1192,25 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   private async afterLeave(leaving: WebSocket): Promise<void> {
-    await this.snapshot();
+    // The snapshot is best effort; the presence plan (and with it the end-of-call alarm) must
+    // still happen — a failed save used to leave the room without an alarm, the call live.
+    try {
+      await this.snapshot();
+    } catch (err) {
+      console.error('[call-room] snapshot on leave failed:', err);
+    }
     await this.reconcile(leaving);
   }
 
   async alarm(): Promise<void> {
-    await this.reconcile();
+    try {
+      await this.reconcile();
+    } catch (err) {
+      // The runtime retries a throwing alarm only a few times, then the room never wakes again
+      // and the call stays live. Arm our own retry instead.
+      console.error('[call-room] alarm failed, trying again shortly:', err);
+      await this.ctx.storage.setAlarm(Date.now() + ROOM_RETRY_MS).catch(() => {});
+    }
   }
 
   /** `welcome`: what is presented, and its page's kept drawings. */
@@ -1226,32 +1244,59 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   private async endCall(by: { userId: string; name: string } | null, how: string): Promise<void> {
-    const callId = await this.ctx.storage.get<string>('callId');
-    await this.ctx.storage.put('ended', true);
+    const endedAt = Date.now();
+    // Ended in the room first (nobody can rejoin), with the D1 write still owed: `finishEnd` does
+    // it now and, if it fails, again on the retry alarm / the next presence look.
+    await this.ctx.storage.put({ ended: true, endedAt, endPending: true });
     await this.ctx.storage.deleteAlarm();
-    await this.logRoom(by ? `${by.name} ended the call for everyone (${how})` : `Call ended ${how}`, by);
-    this.broadcast({ type: 'ended', by: by?.userId ?? '' });
-    await this.snapshot();
-    if (callId) {
-      const endedAt = Date.now();
-      const newlyEnded = await markCallEnded(this.env.DB, callId, endedAt);
-      // "Missed video call" replaces the ringing notification — not for a room swept up hours later.
-      const createdAt = (await this.ctx.storage.get<number>('createdAt')) ?? (await this.ctx.storage.get<number>('firstKnownAt')) ?? null;
-      if (newlyEnded && shouldAlertMissed(createdAt, endedAt)) {
-        await alertCallMissed(this.env, callId, (await this.ctx.storage.get<string[]>('joined')) ?? []);
-      }
-      try {
-        await advanceCallProcessing(this.env, callId);
-      } catch (err) {
-        console.error('[call-room] processing kick failed:', err);
-      }
+    try {
+      await this.logRoom(by ? `${by.name} ended the call for everyone (${how})` : `Call ended ${how}`, by);
+      this.broadcast({ type: 'ended', by: by?.userId ?? '' });
+      await this.snapshot();
+    } catch (err) {
+      console.error('[call-room] end: snapshot failed (ending anyway):', err);
     }
+    await this.finishEnd();
     for (const { ws } of this.sockets()) {
       try {
         ws.close(1000, 'Call ended');
       } catch {
         /* already closed */
       }
+    }
+  }
+
+  /** The D1 side of ending (row ended, missed-call push, post-call processing), once; retried until it lands. */
+  private async finishEnd(): Promise<void> {
+    if ((await this.ctx.storage.get<boolean>('endPending')) !== true) return;
+    const callId = await this.ctx.storage.get<string>('callId');
+    if (!callId) {
+      await this.ctx.storage.put('endPending', false);
+      return;
+    }
+    const endedAt = (await this.ctx.storage.get<number>('endedAt')) ?? Date.now();
+    let newlyEnded: boolean;
+    try {
+      newlyEnded = await markCallEnded(this.env.DB, callId, endedAt);
+    } catch (err) {
+      console.error('[call-room] marking the call ended failed, trying again shortly:', err);
+      await this.ctx.storage.setAlarm(Date.now() + ROOM_RETRY_MS).catch(() => {});
+      return;
+    }
+    await this.ctx.storage.put('endPending', false);
+    // "Missed video call" replaces the ringing notification — not for a room swept up hours later.
+    const createdAt = (await this.ctx.storage.get<number>('createdAt')) ?? (await this.ctx.storage.get<number>('firstKnownAt')) ?? null;
+    if (newlyEnded && shouldAlertMissed(createdAt, endedAt)) {
+      try {
+        await alertCallMissed(this.env, callId, (await this.ctx.storage.get<string[]>('joined')) ?? []);
+      } catch (err) {
+        console.error('[call-room] missed-call alert failed:', err);
+      }
+    }
+    try {
+      await advanceCallProcessing(this.env, callId);
+    } catch (err) {
+      console.error('[call-room] processing kick failed:', err);
     }
   }
 

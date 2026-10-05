@@ -7,8 +7,9 @@
  *   (services/materials/pptx.ts) — an approximation, said so in `renderNote`.
  */
 
-import { MATERIAL_RENDER_WIDTH, MAX_MATERIAL_PAGES, PPTX_RENDER_NOTE, cleanPageText, type MaterialKind } from '@shared/materials';
-import { drawSlide, readPptx, slideText } from './pptx';
+import { MATERIAL_RENDER_WIDTH, MAX_MATERIAL_PAGES, PPTX_RENDER_NOTE, cleanPageText, slideTitlesToc, type MaterialKind, type MaterialTocEntry } from '@shared/materials';
+import { drawSlide, readPptx, slideText, slideTitle } from './pptx';
+import { pdfOutlineToc } from './toc';
 
 export interface RenderedPage {
   image: Blob;
@@ -21,6 +22,8 @@ export interface RenderedPage {
 export interface RenderResult {
   pages: RenderedPage[];
   renderNote: string | null;
+  /** Contents: the PDF outline / slide titles ([] = none found). */
+  toc: MaterialTocEntry[];
 }
 
 type Progress = (done: number, total: number) => void;
@@ -53,8 +56,9 @@ async function renderPdf(file: Blob, onProgress?: Progress): Promise<RenderResul
     page.cleanup();
     onProgress?.(i, total);
   }
+  const toc = await pdfOutlineToc(doc, total);
   await doc.destroy();
-  return { pages, renderNote: null };
+  return { pages, renderNote: null, toc };
 }
 
 async function renderImage(file: Blob): Promise<RenderResult> {
@@ -68,7 +72,7 @@ async function renderImage(file: Blob): Promise<RenderResult> {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
   bmp.close();
-  return { pages: [{ image: await canvasBlob(canvas), width: canvas.width, height: canvas.height, text: '', notes: '' }], renderNote: null };
+  return { pages: [{ image: await canvasBlob(canvas), width: canvas.width, height: canvas.height, text: '', notes: '' }], renderNote: null, toc: [] };
 }
 
 async function renderPptx(file: Blob, onProgress?: Progress): Promise<RenderResult> {
@@ -97,7 +101,7 @@ async function renderPptx(file: Blob, onProgress?: Progress): Promise<RenderResu
     onProgress?.(i + 1, slides.length);
   }
   images.forEach((b) => b.close());
-  return { pages, renderNote: PPTX_RENDER_NOTE };
+  return { pages, renderNote: PPTX_RENDER_NOTE, toc: slideTitlesToc(slides.map(slideTitle)) };
 }
 
 export async function renderMaterial(file: Blob, kind: MaterialKind, onProgress?: Progress): Promise<RenderResult> {
