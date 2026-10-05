@@ -19,7 +19,8 @@
  * catalogue version as the room (and generated activities can come later).
  */
 
-export type ActivityKind = 'describe' | 'info_gap' | 'roleplay' | 'build' | 'quiz' | 'dictation';
+export type ActivityKind = 'describe' | 'info_gap' | 'roleplay' | 'build' | 'quiz' | 'dictation' | 'review';
+/** The kinds the catalogue has samples of (`review` is built per call, never in the catalogue). */
 export const ACTIVITY_KINDS: ActivityKind[] = ['describe', 'info_gap', 'roleplay', 'build', 'quiz', 'dictation'];
 
 export type ActivityRole = 'a' | 'b';
@@ -114,7 +115,43 @@ export interface DictationSpec extends SpecBase {
   items: ActivityWord[];
 }
 
-export type ActivitySpec = DescribeSpec | InfoGapSpec | RoleplaySpec | BuildSpec | QuizSpec | DictationSpec;
+/** Why an item is on the Review list. */
+export type ReviewSource = 'recording' | 'flag' | 'needs_work';
+
+/** One thing to go through together: a recording from the "Needs your ear" queue, a flagged card, an earlier needs-work mark. */
+export interface ReviewItem extends ActivityWord {
+  /** Stable id: the review event id (recordings, needs-work) or the flag id. */
+  id: string;
+  source: ReviewSource;
+  /** The review event of the recording (null for a flag on a word with no recording). */
+  event_id: string | null;
+  flag_id: string | null;
+  note_id: string;
+  /** R2 key of the student's take / of the card's reference clip (played on both devices). */
+  recording_key: string | null;
+  reference_key: string | null;
+  /** Why it's here ("Heard: 音响", "Sounded off: 银 (tone)", "Flagged: …"). */
+  labels: string[];
+  transcript: string | null;
+  /** Characters that sounded off: char + tone | sound | missing | extra. */
+  weak: { char: string; kind: string }[];
+  flag_message: string | null;
+  /** The tutor's mark when the list was made. */
+  mark: { status: 'listened' | 'needs_work'; comment: string | null } | null;
+  recorded_at: string | null;
+}
+
+/**
+ * Review together (docs/RECORDING_REVIEW.md "In the call"): built by the room from the student's
+ * "Needs your ear" queue, open card flags and the tutor's recent needs-work marks — not in the catalogue.
+ * `round` = the selected item; either person selects and plays; the tutor marks.
+ */
+export interface ReviewSpec extends SpecBase {
+  kind: 'review';
+  items: ReviewItem[];
+}
+
+export type ActivitySpec = DescribeSpec | InfoGapSpec | RoleplaySpec | BuildSpec | QuizSpec | DictationSpec | ReviewSpec;
 
 /**
  * `ready`: the round is set up, the asker hasn't pushed it yet (quiz, dictation);
@@ -158,6 +195,8 @@ export interface ActivityRoundData {
   play?: number;
   /** info_gap: the filled cells, "row:col" → value. */
   answers?: Record<string, string>;
+  /** review: which clip the last `play` bump is for. */
+  clip?: 'recording' | 'reference' | null;
 }
 
 export interface ActivitySession {
@@ -209,7 +248,11 @@ export type ActivityAction =
   | { type: 'fill'; cell: string; value: string | null }
   // roleplay (the speaker of the line, or the host)
   | { type: 'line_done' }
-  | { type: 'line_back' };
+  | { type: 'line_back' }
+  // review (select / play: either person; review_mark: the host = the tutor)
+  | { type: 'select'; index: number }
+  | { type: 'play_clip'; clip: 'recording' | 'reference' }
+  | { type: 'review_mark'; status: 'listened' | 'needs_work'; comment?: string | null };
 
 /** What an activity left behind: kept with the lesson (review page, homework agent). */
 export interface ActivitySummary {
@@ -230,3 +273,6 @@ export interface ActivitySummary {
 
 /** Limits. */
 export const MAX_DRAFT_CHARS = 120;
+export const MAX_REVIEW_COMMENT_CHARS = 2000;
+/** The id the clients start the Review activity with (`activity_start { activity_id: REVIEW_ACTIVITY_ID }`). */
+export const REVIEW_ACTIVITY_ID = 'review-together';

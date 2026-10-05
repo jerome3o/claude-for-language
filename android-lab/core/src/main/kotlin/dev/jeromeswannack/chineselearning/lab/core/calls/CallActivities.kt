@@ -33,7 +33,9 @@ object ActivityKinds {
     const val BUILD = "build"
     const val QUIZ = "quiz"
     const val DICTATION = "dictation"
-    /** `ACTIVITY_KINDS`. */
+    /** Review together: built per call by the room, never in the catalogue (so not in [ALL]). */
+    const val REVIEW = "review"
+    /** `ACTIVITY_KINDS` (the kinds the catalogue has samples of). */
     val ALL = listOf(DESCRIBE, INFO_GAP, ROLEPLAY, BUILD, QUIZ, DICTATION)
 }
 
@@ -55,7 +57,11 @@ data class RolePair(val a: String = "", val b: String = "") {
     fun of(role: String): String = if (role == "a") a else b
 }
 
-/** An item of a describe (word + emoji + hints), build (tiles) or dictation (word) spec. */
+/**
+ * An item of a describe (word + emoji + hints), build (tiles), dictation (word) or review spec
+ * (`ReviewItem`: a recording / flagged card / needs-work mark to go through together — the review
+ * fields are null on every other kind).
+ */
 @Serializable
 data class ActivityItem(
     val emoji: String? = null,
@@ -64,7 +70,35 @@ data class ActivityItem(
     val pinyin: String = "",
     val english: String = "",
     val hints: List<String>? = null,
+    // ---- review (`ReviewItem`)
+    /** Stable id: the review event id (recordings, needs-work) or the flag id. */
+    val id: String? = null,
+    /** `ReviewSource`: recording | flag | needs_work. */
+    val source: String? = null,
+    @SerialName("event_id") val eventId: String? = null,
+    @SerialName("flag_id") val flagId: String? = null,
+    @SerialName("note_id") val noteId: String? = null,
+    /** R2 key of the student's take / of the card's reference clip (played on both devices). */
+    @SerialName("recording_key") val recordingKey: String? = null,
+    @SerialName("reference_key") val referenceKey: String? = null,
+    /** Why it's here ("Heard: 音响", "Sounded off: 银 (tone)", "Flagged: …"). */
+    val labels: List<String>? = null,
+    val transcript: String? = null,
+    /** Characters that sounded off: char + tone | sound | missing | extra. */
+    val weak: List<ReviewWeak>? = null,
+    @SerialName("flag_message") val flagMessage: String? = null,
+    /** The tutor's mark when the list was made. */
+    val mark: ReviewMark? = null,
+    @SerialName("recorded_at") val recordedAt: String? = null,
 )
+
+/** `ReviewItem.weak[]`: a character that sounded off and how. */
+@Serializable
+data class ReviewWeak(val char: String = "", val kind: String = "")
+
+/** A review mark: `listened` | `needs_work` + the tutor's comment. */
+@Serializable
+data class ReviewMark(val status: String = "", val comment: String? = null)
 
 @Serializable
 data class InfoGapCell(val value: String = "", val owner: String = "a")
@@ -148,6 +182,8 @@ data class ActivityRoundData(
     val mark: Boolean? = null,
     val play: Int? = null,
     val answers: Map<String, String>? = null,
+    /** review: which clip the last `play` bump is for (`recording` | `reference`). */
+    val clip: String? = null,
 )
 
 /** `ActivitySession`. */
@@ -221,6 +257,18 @@ sealed class ActivityAction(val type: String) {
     data class Fill(val cell: String, val value: String?) : ActivityAction("fill") {
         override fun toJson() = buildJsonObject { put("type", type); put("cell", cell); put("value", value?.let { JsonPrimitive(it) } ?: JsonNull) }
     }
+    /** review: select item [index] (either person). */
+    data class Select(val index: Int) : ActivityAction("select") {
+        override fun toJson() = buildJsonObject { put("type", type); put("index", index) }
+    }
+    /** review: play the selected item's `recording` / `reference` clip on both devices. */
+    data class PlayClip(val clip: String) : ActivityAction("play_clip") {
+        override fun toJson() = buildJsonObject { put("type", type); put("clip", clip) }
+    }
+    /** review: the tutor's mark ([status] `listened` | `needs_work`; [comment] null = none). */
+    data class MarkReview(val status: String, val comment: String? = null) : ActivityAction("review_mark") {
+        override fun toJson() = buildJsonObject { put("type", type); put("status", status); comment?.let { put("comment", it) } }
+    }
     /** Anything this build can't represent (unknown type, a field of the wrong type): always refused. */
     data class Invalid(val raw: String) : ActivityAction("invalid")
 
@@ -247,6 +295,10 @@ sealed class ActivityAction(val type: String) {
                 "draft" -> str("text")?.let { Draft(it) } ?: bad
                 "place" -> int("tile")?.let { Place(it) } ?: bad
                 "unplace" -> int("tile")?.let { Unplace(it) } ?: bad
+                "select" -> int("index")?.let { Select(it) } ?: bad
+                "play_clip" -> str("clip")?.let { PlayClip(it) } ?: bad
+                // TS: a non-string comment counts as none.
+                "review_mark" -> str("status")?.let { MarkReview(it, str("comment")) } ?: bad
                 "fill" -> {
                     val cell = str("cell") ?: return bad
                     when (val v = o["value"]) {
@@ -268,6 +320,10 @@ data class ActivityKindInfo(val icon: String, val name: String, val blurb: Strin
 object CallActivities {
     /** `MAX_DRAFT_CHARS`. */
     const val MAX_DRAFT_CHARS = 120
+    /** `MAX_REVIEW_COMMENT_CHARS`. */
+    const val MAX_REVIEW_COMMENT_CHARS = 2000
+    /** `REVIEW_ACTIVITY_ID`: what the clients start Review together with (`activity_start`). */
+    const val REVIEW_ACTIVITY_ID = "review-together"
 
     /** `DESCRIBE_OPTION_COUNT`: how many options a describe round shows the guesser. */
     const val DESCRIBE_OPTION_COUNT = 8
@@ -322,7 +378,7 @@ object CallActivities {
 
     /** `totalRounds`. */
     fun totalRounds(spec: ActivitySpec): Int = when (spec.kind) {
-        ActivityKinds.DESCRIBE, ActivityKinds.BUILD, ActivityKinds.DICTATION -> spec.itemList.size
+        ActivityKinds.DESCRIBE, ActivityKinds.BUILD, ActivityKinds.DICTATION, ActivityKinds.REVIEW -> spec.itemList.size
         ActivityKinds.INFO_GAP -> 1
         ActivityKinds.ROLEPLAY -> spec.lineList.size
         ActivityKinds.QUIZ -> spec.questionList.size
@@ -405,6 +461,7 @@ object CallActivities {
         ActivityKinds.BUILD -> ActivityPhases.PLAY to ActivityRoundData(pool = buildPool(spec, sessionId, round), placed = emptyList(), said = emptyList())
         ActivityKinds.QUIZ -> ActivityPhases.READY to ActivityRoundData(pick = null, mark = null, play = 0)
         ActivityKinds.DICTATION -> ActivityPhases.READY to ActivityRoundData(draft = "", submitted = false, mark = null, play = 0)
+        ActivityKinds.REVIEW -> ActivityPhases.PLAY to ActivityRoundData(play = 0, clip = null)
         else -> ActivityPhases.PLAY to ActivityRoundData()
     }
 
@@ -422,7 +479,7 @@ object CallActivities {
     fun turnRoles(s: ActivitySession): List<String> = when (s.spec.kind) {
         ActivityKinds.DESCRIBE, ActivityKinds.QUIZ, ActivityKinds.DICTATION -> listOf("a")
         ActivityKinds.ROLEPLAY -> s.spec.lineList.getOrNull(s.round)?.let { listOf(it.speaker) } ?: listOf("a", "b")
-        ActivityKinds.INFO_GAP, ActivityKinds.BUILD -> listOf("a", "b")
+        ActivityKinds.INFO_GAP, ActivityKinds.BUILD, ActivityKinds.REVIEW -> listOf("a", "b")
         // A kind this build doesn't know: nobody's turn (the host still may).
         else -> emptyList()
     }
@@ -454,6 +511,8 @@ object CallActivities {
             "place", "unplace", "clear_tiles", "said" -> kind == ActivityKinds.BUILD && player
             "fill" -> kind == ActivityKinds.INFO_GAP && player
             "line_done" -> kind == ActivityKinds.ROLEPLAY && (host || myTurn())
+            "select", "play_clip" -> kind == ActivityKinds.REVIEW
+            "review_mark" -> kind == ActivityKinds.REVIEW && host
             "line_back" -> {
                 if (kind != ActivityKinds.ROLEPLAY) false
                 else {
@@ -519,6 +578,9 @@ object CallActivities {
         if (!mayAct(s, actor, action.type)) return null
         val d = s.data
         val done = s.phase == ActivityPhases.DONE
+
+        // ---- review: no rounds to walk through, a list to pick from (round = the selected item)
+        if (spec.kind == ActivityKinds.REVIEW) return stepReview(s, action, isHost(s, actor))
 
         // ---- controls, any kind
         when (action) {
@@ -678,6 +740,60 @@ object CallActivities {
         }
     }
 
+    /**
+     * `stepReview`: either person selects an item and plays its clips — `play` only ever goes up (select
+     * keeps it), so each device plays when it sees it rise and never on a reload. Only the host marks; a
+     * mark is the item's result (`answer` = status, `detail` = [comment]). Either person may finish.
+     */
+    private fun stepReview(s: ActivitySession, action: ActivityAction, host: Boolean): ActivitySession? {
+        val d = s.data
+        when (action) {
+            ActivityAction.Finish -> return if (s.phase == ActivityPhases.DONE) null else s.copy(phase = ActivityPhases.DONE, data = ActivityRoundData(play = d.play ?: 0, clip = d.clip))
+            ActivityAction.Restart -> return if (!host || s.phase != ActivityPhases.DONE) null else s.copy(phase = ActivityPhases.PLAY)
+            else -> Unit
+        }
+        if (s.phase == ActivityPhases.DONE) return null
+        val items = s.spec.itemList
+        val item = items.getOrNull(s.round)
+        return when (action) {
+            is ActivityAction.Select ->
+                if (action.index < 0 || action.index >= items.size || action.index == s.round) null else s.copy(round = action.index)
+            is ActivityAction.PlayClip -> {
+                val key = when (action.clip) { "recording" -> item?.recordingKey; "reference" -> item?.referenceKey; else -> null }
+                // TS `if (!key)`: an empty key plays nothing.
+                if (item == null || key.isNullOrEmpty()) null else s.copy(data = d.copy(play = (d.play ?: 0) + 1, clip = action.clip))
+            }
+            is ActivityAction.MarkReview -> {
+                if (!host || item == null || (action.status != "listened" && action.status != "needs_work")) return null
+                val comment = action.comment?.let { dev.jeromeswannack.chineselearning.lab.core.NoteSearch.jsTrim(it).take(MAX_REVIEW_COMMENT_CHARS) } ?: ""
+                val prev = s.results.firstOrNull { it.round == s.round }
+                if (prev != null && prev.answer == action.status && (prev.detail?.firstOrNull() ?: "") == comment) return null
+                s.copy(results = withResult(s.results, ActivityRoundResult(round = s.round, correct = null, answer = action.status, detail = if (comment.isNotEmpty()) listOf(comment) else emptyList())))
+            }
+            else -> null
+        }
+    }
+
+    /** `reviewMarkOf`: the mark made in this session for item [i] (null = none yet). */
+    fun reviewMarkOf(s: ActivitySession, i: Int): ReviewMark? {
+        val r = s.results.firstOrNull { it.round == i } ?: return null
+        if (r.answer != "listened" && r.answer != "needs_work") return null
+        return ReviewMark(r.answer, r.detail?.firstOrNull())
+    }
+
+    /**
+     * Port of `reviewClipKey` (frontend ReviewView.tsx): the R2 key the last "play for both" was for —
+     * [clip] `recording` / `reference` of item [round]; null when there is nothing to play.
+     */
+    fun reviewClipKey(spec: ActivitySpec, round: Int, clip: String?): String? {
+        val it = spec.itemList.getOrNull(round) ?: return null
+        return when (clip) {
+            "recording" -> it.recordingKey
+            "reference" -> it.referenceKey
+            else -> null
+        }?.takeIf { k -> k.isNotEmpty() }
+    }
+
     /** JS `Number(s)` for the digit strings a quiz pick can hold. */
     private fun jsNumber(s: String): Double? = if (s.matches(Regex("[0-9]+"))) s.toDouble() else s.trim().toDoubleOrNull()
 
@@ -741,6 +857,14 @@ object CallActivities {
                     val it = spec.itemList[r.round]
                     lines += "${it.hanzi} (${it.pinyin}, ${it.english}) — wrote ${r.answer.orEmpty().ifEmpty { "(nothing)" }}${mark(r.correct)}"
                 }
+                ActivityKinds.REVIEW -> {
+                    val it = spec.itemList[r.round]
+                    val labels = it.labels.orEmpty()
+                    val why = if (labels.isNotEmpty()) " [${labels.joinToString("; ")}]" else ""
+                    val verdict = if (r.answer == "needs_work") "needs work" else "listened"
+                    val note = r.detail?.firstOrNull()?.takeIf { c -> c.isNotEmpty() }?.let { c -> ": $c" } ?: ""
+                    lines += "${it.hanzi} (${it.pinyin}, ${it.english})$why — $verdict$note"
+                }
             }
         }
         val sc = scoreOf(s)
@@ -766,6 +890,7 @@ object CallActivities {
         ActivityKinds.BUILD -> spec.itemList.getOrNull(i)?.tiles?.joinToString("") ?: "Sentence ${i + 1}"
         ActivityKinds.QUIZ -> spec.questionList.getOrNull(i)?.prompt?.ifEmpty { null } ?: "Question ${i + 1}"
         ActivityKinds.DICTATION -> spec.itemList.getOrNull(i)?.hanzi ?: "Word ${i + 1}"
+        ActivityKinds.REVIEW -> spec.itemList.getOrNull(i)?.hanzi ?: "Item ${i + 1}"
         else -> "Round ${i + 1}"
     }
 
@@ -778,6 +903,7 @@ object CallActivities {
         ActivityKinds.DICTATION -> if (role == "a") "You read out" else "You write"
         ActivityKinds.ROLEPLAY -> "You’re the ${spec.speakers?.of(role) ?: "undefined"}"
         ActivityKinds.INFO_GAP, ActivityKinds.BUILD -> "You: ${spec.roleNames.of(role)}"
+        ActivityKinds.REVIEW -> if (role == "a") "You mark" else "You listen"
         else -> "You: ${spec.roleNames.of(role)}"
     }
 
@@ -831,6 +957,7 @@ object CallActivities {
         ActivityKinds.BUILD to ActivityKindInfo("🧱", "Sentence building", "Put the words in order together"),
         ActivityKinds.QUIZ to ActivityKindInfo("❓", "Quick quiz", "Tutor asks, student answers live"),
         ActivityKinds.DICTATION to ActivityKindInfo("✍️", "Dictation", "Tutor says it, student writes it"),
+        ActivityKinds.REVIEW to ActivityKindInfo("🎧", "Review together", "Recordings and flagged cards — both hear them"),
     )
 
     /** `validateActivitySpec`: problems with a spec (empty = fine). */
@@ -862,6 +989,7 @@ object CallActivities {
                 if (q.prompt.isEmpty() && q.audio.isNullOrEmpty()) p += "question ${i + 1} needs a prompt or audio"
             }
             ActivityKinds.DICTATION -> if (spec.itemList.isEmpty()) p += "dictation needs words"
+            ActivityKinds.REVIEW -> if (spec.itemList.map { it.id }.toSet().size != spec.itemList.size) p += "review items must have different ids"
         }
         return p
     }

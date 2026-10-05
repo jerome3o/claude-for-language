@@ -77,6 +77,29 @@ subsequence; an unmatched stretch of the same length on both sides is read as su
 Unordered pairs, counted once per review, newest example words kept. On the insights report
 (`mix_ups`), the tutor's insights page, the Claude summary's input and MCP `get_student_insights`.
 
+## In the call: "Review together"
+
+Going through pronunciation in a lesson used to mean the tutor sharing her screen with the recordings
+page open in another tab — and the student couldn't hear their own recording. Now **⋯ → 🎲 Activities →
+🎧 Review together** (either person) starts a shared activity (`shared/call-activities`, kind `review`):
+
+- The CallRoom builds the list when it starts (`services/calls/review-activity.ts` `buildReviewSpec`,
+  last 60 days, ≤ 30 items): the student's "Needs your ear" queue, their open card flags (words without
+  a recording too) and the tutor's needs-work marks from the last 30 days. It rides inside the session
+  like every activity spec.
+- Both see the same list and the same selected item (`round`); **either** selects (`select`).
+- **🔊 Their recording — play for both** / **🔊 Reference** (`play_clip`) bump the session's `play`
+  counter with `data.clip`; each device plays the R2 clip itself when it sees the counter rise (never
+  on first sight, never through screen-share audio). Selecting keeps the counter, so nothing replays.
+- Only the tutor (the host) marks **✓ Listened / ✎ Needs work** + a note (`review_mark`); the room writes
+  it through the normal paths (`applyReviewMark`): `tutor_recording_marks` (so it leaves the queue and a
+  needs-work note shows once on the student's card) and, for a flagged word, the flag reply
+  (`replyToCardFlag` — resolves it and mirrors it into the chat).
+- The student doesn't record again in the call (kept simple — they just say it live).
+- Results land with the lesson like every activity (`call_activities`; "银行 (yínháng, bank) [Sounded
+  off: 银 (tone)] — needs work: …"), on the review page and in the homework agent's notes.
+- Lab app: `core/…/calls/CallActivities.kt` (parity-tested) + `ui/calls/ActivityTile.kt`.
+
 ## Privacy
 
 Recordings are only listed for the student's tutor (`requireTutor`); the check data never reaches

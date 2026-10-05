@@ -94,6 +94,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             devicePrefs = dev.jeromeswannack.chineselearning.lab.data.calls.CallDevicePrefsStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
             device = "Android ${Build.VERSION.RELEASE}; ${Build.MANUFACTURER} ${Build.MODEL}; Lab app",
             speak = { text -> speaker.speak(text) },
+            playClip = { key, text -> app.audio.play(key, text, app.online.value) },
             layout = layout,
             viewModes = PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
         ),

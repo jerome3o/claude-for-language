@@ -321,6 +321,11 @@ class CallDeps(
     val now: () -> Long = System::currentTimeMillis,
     /** In-call activities: say [text] on this device (cache-first TTS, `/api/practice/tts`) — the quiz / dictation audio both hear. */
     val speak: (String) -> Unit = {},
+    /**
+     * Review together: play an R2 clip (a student's take / a card's reference clip) on this device —
+     * [fallbackText] is said with the device voice when the clip can't be had ("" = nothing).
+     */
+    val playClip: (key: String, fallbackText: String) -> Unit = { _, _ -> },
     /** Every connection transition, for logcat (the connection log goes to the room too). */
     val log: (String) -> Unit = { runCatching { android.util.Log.i("CallController", it) } },
     /**
@@ -1149,12 +1154,18 @@ class CallController(
      * The room's latest session (it owns the state machine). One with the same session id and a lower
      * `v` is stale and ignored ([force]: a welcome, whatever it says). [live]: the quiz / dictation audio
      * plays here when `data.play` went up within the same session + round (never on first receipt).
+     * Review together keeps one counter for the whole list (selecting keeps it): the key is the session
+     * only, and a rise plays the selected item's R2 clip (`data.clip`) on this device (web ActivityTile).
      */
     private fun applyActivity(next: dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession?, live: Boolean, force: Boolean = false) {
         val cur = _state.value.activity
         if (!force && next != null && cur != null && next.sessionId == cur.sessionId && next.v < cur.v) return
-        if (live && next != null && cur != null && next.sessionId == cur.sessionId && next.round == cur.round && (next.data.play ?: 0) > (cur.data.play ?: 0)) {
-            activityAudio(next)?.let { runCatching { deps.speak(it) } }
+        if (live && next != null && cur != null && next.sessionId == cur.sessionId && (next.data.play ?: 0) > (cur.data.play ?: 0)) {
+            if (next.spec.kind == dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds.REVIEW) {
+                reviewClip(next)?.let { (key, fallback) -> runCatching { deps.playClip(key, fallback) } }
+            } else if (next.round == cur.round) {
+                activityAudio(next)?.let { runCatching { deps.speak(it) } }
+            }
         }
         if (next == null || next.sessionId != cur?.sessionId || next.round != cur.round) {
             draftJob?.cancel()
@@ -1171,11 +1182,22 @@ class CallController(
         else -> null
     }
 
+    /** Review together: the clip the last "play for both" asked for (R2 key) + what the device voice says without it (the word, for the reference clip only). */
+    fun reviewClip(s: dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession): Pair<String, String>? {
+        val key = dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.reviewClipKey(s.spec, s.round, s.data.clip) ?: return null
+        val word = s.spec.itemList.getOrNull(s.round)?.hanzi.orEmpty()
+        return key to (if (s.data.clip == "reference") word else "")
+    }
+
     /** ⋯ → 🎲 Activities: start one (replaces a running one); the room answers with `activity` to both. */
     fun startActivity(activityId: String) {
         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
             "call.activity_start",
-            mapOf("activity_kind" to dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind, "role" to activityStarterRole(_state.value, myId())),
+            mapOf(
+                "activity_kind" to (dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind
+                    ?: dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds.REVIEW.takeIf { activityId == dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.REVIEW_ACTIVITY_ID }),
+                "role" to activityStarterRole(_state.value, myId()),
+            ),
         )
         room?.send(CallProtocol.activityStart(activityId))
     }
