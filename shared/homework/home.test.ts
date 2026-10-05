@@ -70,29 +70,24 @@ describe('homeHomework rows', () => {
     expect(heading).toBe('From 明慧老师');
   });
 
-  it('long-term deck (daily review only) opens the deck; a lesson sent outside an assignment opens /lessons', () => {
+  it('a long-term deck (daily review only) is not a homework row; a lesson sent outside an assignment opens /lessons', () => {
     const longTerm: LongTermHomework[] = [
       { kind: 'deck', target_id: 'deck-lt', title: 'HSK 3', tutor_name: '明慧老师', sent_at: '2026-09-20T00:00:00Z', met: 5, total: 12 },
+      { kind: 'deck', target_id: 'deck-unknown', title: 'Not synced', tutor_name: null, sent_at: '2026-09-26T00:00:00Z', met: null, total: null },
       { kind: 'lesson', target_id: 'lesson-lt', title: '了 lesson', tutor_name: '明慧老师', sent_at: '2026-09-25T00:00:00Z', met: null, total: null },
     ];
     const { rows } = homeHomework([], longTerm);
-    expect(rows.map((r) => [r.key, r.route, r.progress, r.due])).toEqual([
-      ['lesson:lesson-lt', '/lessons', 'lesson', 'next session'],
-      ['deck:deck-lt', '/decks/deck-lt', '5 / 12', 'daily review'],
-    ]);
-    expect(rows[1].fraction).toBeCloseTo(5 / 12);
+    expect(rows.map((r) => [r.key, r.route, r.progress, r.due])).toEqual([['lesson:lesson-lt', '/lessons', 'lesson', 'next session']]);
   });
 
-  it('a long-term deck whose words are all met, or covered by a one-off row, is left out', () => {
+  it('only one-off rows (and long-term lessons) count: a long-term deck next to a one-off pass adds nothing', () => {
     const items = todo([deck]);
     const longTerm: LongTermHomework[] = [
       { kind: 'deck', target_id: 'deck-1', title: '餐厅点菜', tutor_name: '明慧老师', sent_at: '2026-09-27T00:00:00Z', met: 0, total: 4 },
-      { kind: 'deck', target_id: 'deck-done', title: 'Done', tutor_name: '明慧老师', sent_at: '2026-09-27T00:00:00Z', met: 8, total: 8 },
-      { kind: 'deck', target_id: 'deck-unknown', title: 'Not synced', tutor_name: null, sent_at: '2026-09-26T00:00:00Z', met: null, total: null },
+      { kind: 'deck', target_id: 'deck-other', title: 'HSK 3', tutor_name: '明慧老师', sent_at: '2026-09-27T00:00:00Z', met: 1, total: 40 },
     ];
     const { rows } = homeHomework(items, longTerm);
-    expect(rows.map((r) => r.key)).toEqual(['a-deck', 'deck:deck-unknown']);
-    expect(rows[1]).toMatchObject({ progress: '', fraction: null });
+    expect(rows.map((r) => r.key)).toEqual(['a-deck']);
   });
 
   it('done one-off items and cancelled ones never show; the limit leaves a "more" count', () => {

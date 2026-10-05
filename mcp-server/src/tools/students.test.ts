@@ -155,6 +155,7 @@ describe('compactStudentRow', () => {
     expect(row.needs_attention[0].wrong_answers).toEqual(['谢射']);
     expect('setup' in row).toBe(false);
     expect(row.homework).toEqual({
+      one_off: null,
       percent: 40,
       cards_total: 30,
       cards_started: 12,
@@ -163,6 +164,13 @@ describe('compactStudentRow', () => {
       lessons_completed: 0,
     });
     expect(row.last_conversation_id).toBe('conv-1');
+  });
+  it('carries the one-off homework headline when the API has it', () => {
+    const one_off = { state: 'all_done' as const, total: 2, done: 2, open: 0, overdue: 0, due_today: 0, percent: 100, label: '✓ All done this week', pill: 'Homework ✓ all done this week' };
+    const base = overview();
+    const row = compactStudentRow({ ...base, pills: { ...base.pills, homework_percent: 100, homework: one_off }, homework: { ...base.homework, percent: 100, one_off } }, API);
+    expect(row.homework.one_off).toEqual(one_off);
+    expect(row.pills.homework?.label).toBe('✓ All done this week');
   });
   it('includes the setup checklist for a brand-new student', () => {
     const row = compactStudentRow(overview({ is_new: true }), API);

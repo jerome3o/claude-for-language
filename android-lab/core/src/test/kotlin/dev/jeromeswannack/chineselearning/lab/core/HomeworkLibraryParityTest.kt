@@ -34,7 +34,11 @@ class HomeworkLibraryParityTest {
             val o = c.jsonObject
             val today = o["today"].str!!
             val due = o["due"].str
-            assertEquals(o["status"].str, HomeworkLibrary.libraryStatus(o["complete"].bool, o["started"].bool, due, today), "case[$i] status")
+            assertEquals(
+                o["status"].str,
+                HomeworkLibrary.libraryStatus(o["complete"].bool, o["started"].bool, due, today, longTerm = o["longTerm"].bool),
+                "case[$i] status",
+            )
             assertEquals(o["tone"].str, HomeworkLibrary.statusTone(o["toneStatus"].str!!, due, today), "case[$i] tone")
             assertEquals(o["dueText"].str, HomeworkLibrary.libraryDueText(due, today), "case[$i] dueText")
         }
@@ -64,6 +68,13 @@ class HomeworkLibraryParityTest {
             assertEquals(counts, HomeworkLibrary.libraryCounts(items), "case[$i] counts")
             assertEquals(expected("recent"), keys(HomeworkLibrary.mostRecentHomework(items, o["limit"]!!.jsonPrimitive.int)), "case[$i] recent")
         }
+    }
+
+    @Test
+    fun statusOrderAndLabelsMatchTypeScript() {
+        val order = fixture()["statusOrder"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(order.map { it["status"].str }, HomeworkLibrary.STATUSES)
+        for (o in order) assertEquals(o["label"].str, HomeworkLibrary.statusLabel(o["status"].str!!))
     }
 
     @Test
@@ -105,6 +116,10 @@ class HomeworkLibraryParityTest {
         assertEquals("amber", HomeworkLibrary.statusTone("in_progress", "2026-10-04", "2026-10-03"))
         assertEquals("blue", HomeworkLibrary.statusTone("in_progress", "2026-10-09", "2026-10-03"))
         assertEquals("grey", HomeworkLibrary.statusTone("not_started", null, "2026-10-03"))
+        // A long-term-only deck: "In long-term review", grey, whatever its progress or due date.
+        assertEquals("long_term", HomeworkLibrary.libraryStatus(true, true, "2026-10-01", "2026-10-03", longTerm = true))
+        assertEquals("grey", HomeworkLibrary.statusTone("long_term", "2026-10-03", "2026-10-03"))
+        assertEquals("In long-term review", HomeworkLibrary.statusLabel("long_term"))
         assertEquals("Was due 3 days ago", HomeworkLibrary.libraryDueText("2026-09-30", "2026-10-03"))
         val a = LibraryItem(key = "a", title = "A", sent_at = "2026-10-03T10:00:00Z")
         val b = LibraryItem(key = "b", title = "B", sent_at = "2026-10-03T09:40:00Z")

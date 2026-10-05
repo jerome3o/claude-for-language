@@ -80,7 +80,7 @@ fun toneColor(tone: String): Color = when (tone) {
     else -> Color(0xFF6B7280)
 }
 
-/** "Completed" / "In progress" / "Overdue" / "Not started" as a tinted pill. */
+/** "Completed" / "In progress" / "Overdue" / "Not started" / "In long-term review" as a tinted pill. */
 @Composable
 fun LibraryStatusChip(status: String, dueDate: String?, today: String, modifier: Modifier = Modifier) {
     StatusPill(HomeworkLibrary.statusLabel(status), toneColor(HomeworkLibrary.statusTone(status, dueDate, today)), modifier.testTag("hw-status"))
@@ -219,8 +219,16 @@ fun LibraryFilters(items: List<LibraryItem>, filter: LibraryFilter, onChange: (L
 fun libraryMeta(item: LibraryItem, today: String, showStudent: Boolean, now: Instant = Instant.now()): String = listOfNotNull(
     if (showStudent) first(item.student_name) else null,
     "Sent ${TeachingFormat.shortDate(item.sent_at, now)}",
-    if (item.status == HomeworkLibrary.COMPLETED && item.due_date == null) null else HomeworkLibrary.libraryDueText(item.due_date, today),
+    when {
+        // A long-term deck has no end: its words met instead of a due date (web LibraryRow).
+        item.status == HomeworkLibrary.LONG_TERM -> item.progress.ifBlank { null }
+        item.status == HomeworkLibrary.COMPLETED && item.due_date == null -> null
+        else -> HomeworkLibrary.libraryDueText(item.due_date, today)
+    },
 ).joinToString(" · ")
+
+/** A long-term deck has no end, so it never shows a % (docs/HOMEWORK.md §11). */
+fun showsPercent(item: LibraryItem): Boolean = item.status != HomeworkLibrary.LONG_TERM
 
 /** One row: kind icon, title, meta line, progress bar with % and words, status chip; the student's note on a link. */
 @Composable
@@ -236,7 +244,7 @@ fun LibraryRow(item: LibraryItem, today: String, showStudent: Boolean, busy: Boo
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(item.title.ifEmpty { HomeworkLibrary.kindLabel(item.kind) }, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(libraryMeta(item, today, showStudent, now), style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (showsPercent(item)) Row(verticalAlignment = Alignment.CenterVertically) {
                 ProgressBar(item.percent / 100f, Modifier.weight(1f), color = toneColor(tone))
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -276,7 +284,10 @@ private fun LibraryActionSheet(item: LibraryItem, ui: HomeworkLibraryUi, actions
     val dismiss = { actions.select(null) }
     LabBottomSheet(onDismiss = dismiss, title = item.title.ifEmpty { HomeworkLibrary.kindLabel(item.kind) }) {
         Text(
-            listOf(first(item.student_name), "${item.percent}%", HomeworkLibrary.statusLabel(item.status), HomeworkLibrary.libraryDueText(item.due_date, ui.today)).joinToString(" · "),
+            (
+                if (showsPercent(item)) listOf(first(item.student_name), "${item.percent}%", HomeworkLibrary.statusLabel(item.status), HomeworkLibrary.libraryDueText(item.due_date, ui.today))
+                else listOf(first(item.student_name), HomeworkLibrary.statusLabel(item.status), item.progress)
+            ).filter { it.isNotBlank() }.joinToString(" · "),
             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 24.dp),
         )
         Spacer(Modifier.height(4.dp))
@@ -425,14 +436,17 @@ private fun RecentRow(item: LibraryItem, today: String, onClick: () -> Unit) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(item.title.ifEmpty { HomeworkLibrary.kindLabel(item.kind) }, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${item.percent}% · ${HomeworkLibrary.libraryDueText(item.due_date, today)}", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1)
+            Text(
+                if (showsPercent(item)) "${item.percent}% · ${HomeworkLibrary.libraryDueText(item.due_date, today)}" else "${item.progress} · in their daily review",
+                style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1,
+            )
         }
         Spacer(Modifier.width(8.dp))
         LibraryStatusChip(item.status, item.due_date, today)
     }
 }
 
-/** The dashboard card's one line: "📚 HSK 1 · 40% · In progress" with the status colour. */
+/** The dashboard card's one line: "📚 HSK 1 · 40% · In progress" with the status colour (a long-term deck: no %). */
 @Composable
 fun RecentHomeworkLine(item: LibraryItem, today: String, onClick: () -> Unit) {
     val tone = toneColor(HomeworkLibrary.statusTone(item.status, item.due_date, today))
@@ -446,7 +460,7 @@ fun RecentHomeworkLine(item: LibraryItem, today: String, onClick: () -> Unit) {
             "${HomeworkLibrary.kindIcon(item.kind)} ${item.title.ifEmpty { HomeworkLibrary.kindLabel(item.kind) }}",
             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
         )
-        Text(" · ${item.percent}% · ", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, maxLines = 1)
+        Text(if (showsPercent(item)) " · ${item.percent}% · " else " · ", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, maxLines = 1)
         Text(HomeworkLibrary.statusLabel(item.status), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = tone, maxLines = 1)
     }
 }

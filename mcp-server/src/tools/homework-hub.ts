@@ -207,7 +207,7 @@ export function registerHomeworkHubTools(ctx: ToolContext): void {
 
   server.tool(
     'get_homework_library',
-    'The FULL history of homework the tutor has sent — one row per thing (word deck copy, lesson, reader, link) with student, sent date, due date, status (completed / in_progress / overdue / not_started), percent, progress ("5 / 12 words") and the student\'s note back on links. One student (relationship_id) or every student (omit it). Filter by status / kind / text. A row\'s due_assignment_id goes to update_homework_assignment (move the due date); words_behind > 0 means the student\'s deck copy lacks newer words (update_student_deck_copy).',
+    'The FULL history of homework the tutor has sent — one row per thing (word deck copy, lesson, reader, link) with student, sent date, due date, status (completed / in_progress / overdue / not_started, or long_term = a deck sent for long-term review only: a deck in the student\'s queue, not homework with an end — ignore its percent), percent, progress ("5 / 12 words") and the student\'s note back on links. One student (relationship_id) or every student (omit it). Filter by status / kind / text. A row\'s due_assignment_id goes to update_homework_assignment (move the due date); words_behind > 0 means the student\'s deck copy lacks newer words (update_student_deck_copy).',
     {
       relationship_id: z.string().optional().describe('One student (`relationship_id` from list_students); omit for all students.'),
       status: z.enum(LIBRARY_STATUSES as [LibraryStatus, ...LibraryStatus[]]).optional().describe('Only rows with this status.'),

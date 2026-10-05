@@ -95,7 +95,13 @@ export interface DashStudent {
     active_days_30: number;
     today: { reviews: number; accuracy: number | null; time_ms: number };
   };
-  pills: { struggling_words: number; recordings_to_hear: number; homework_percent: number | null };
+  /** homework_percent / homework: ONE-OFF homework only (homework missing on an older API). */
+  pills: {
+    struggling_words: number;
+    recordings_to_hear: number;
+    homework_percent: number | null;
+    homework?: { state: 'none' | 'all_done' | 'open' | 'overdue'; label: string; pill: string };
+  };
   needs_attention: DashNeedsAttention[];
   homework: {
     percent: number | null;

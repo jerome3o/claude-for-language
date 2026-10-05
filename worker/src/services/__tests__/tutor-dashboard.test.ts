@@ -4,7 +4,6 @@ import {
   computeStreak,
   computeStudyStatus,
   recentActivityDays,
-  homeworkPercent,
   summarizeHomework,
   pickNeedsAttention,
   deriveSetup,
@@ -14,6 +13,7 @@ import {
   type HomeworkDeckInput,
   type HomeworkLessonInput,
   type StudentUserRow,
+  type HomeworkAssignmentRef,
 } from '../tutor-dashboard';
 import { rankStruggling, listRecordings, type InsightReviewRow } from '../insights';
 import { dropGhostShares } from '../../db/tutor-dashboard-queries';
@@ -173,26 +173,63 @@ describe('recentActivityDays', () => {
   });
 });
 
+function assignment(overrides: Partial<HomeworkAssignmentRef> = {}): HomeworkAssignmentRef {
+  return { kind: 'deck', target_id: 'deck-1-copy', mode: 'both', status: 'active', due_date: '2026-09-20', completed_at: null, ...overrides };
+}
+
 describe('homework', () => {
-  it('is null when nothing has been assigned', () => {
-    expect(homeworkPercent({ cards_total: 0, cards_started: 0, cards_mastered: 0, lessons_total: 0, lessons_completed: 0 })).toBeNull();
-    expect(summarizeHomework([], []).percent).toBeNull();
+  it('says "No homework set" (null %) when nothing one-off has been assigned', () => {
+    const s = summarizeHomework([], []);
+    expect(s.percent).toBeNull();
+    expect(s.one_off).toMatchObject({ state: 'none', label: 'No homework set' });
   });
 
-  it('gives started cards half credit and mastered cards full credit', () => {
-    // 18 cards: 7 started (0 mastered) → 3.5 / 18 = 19%
-    expect(homeworkPercent({ cards_total: 18, cards_started: 7, cards_mastered: 0, lessons_total: 0, lessons_completed: 0 })).toBe(19);
-    // 18 cards all mastered → 100%
-    expect(homeworkPercent({ cards_total: 18, cards_started: 18, cards_mastered: 18, lessons_total: 0, lessons_completed: 0 })).toBe(100);
+  it('a long-term deck never moves the headline, however far through it the student is', () => {
+    // Jerome's case: 13% through a long-term deck, every one-off item done this week.
+    const decks = [deck({ cards_total: 90, cards_started: 12, cards_mastered: 0 }), deck({ shared_deck_id: 'sd-2', target_deck_id: 'week-copy' })];
+    const assignments = [
+      assignment({ target_id: 'deck-1-copy', mode: 'fsrs', due_date: null }),
+      assignment({ target_id: 'week-copy', mode: 'both', status: 'done', completed_at: '2026-09-17T09:00:00Z' }),
+    ];
+    const s = summarizeHomework(decks, [], undefined, [], assignments, '2026-09-18');
+    expect(s.percent).toBe(100);
+    expect(s.one_off).toMatchObject({ state: 'all_done', label: '✓ All done this week', total: 1, done: 1, open: 0 });
   });
 
-  it('counts a lesson as done once it has been completed', () => {
+  it('counts the one-off pass of a "both" assignment and of lessons / readers', () => {
+    const assignments = [
+      assignment({ mode: 'both', status: 'done', completed_at: '2026-09-16T09:00:00Z' }),
+      assignment({ kind: 'lesson', target_id: 'l1', mode: 'one_off', due_date: '2026-09-19' }),
+      assignment({ kind: 'reader', target_id: 'r1', mode: 'one_off', due_date: '2026-09-17' }),
+      assignment({ kind: 'deck', target_id: 'x', mode: 'fsrs', due_date: null }),
+      assignment({ kind: 'deck', target_id: 'y', mode: 'one_off', status: 'cancelled' }),
+    ];
+    const s = summarizeHomework([], [], undefined, [], assignments, '2026-09-18');
+    expect(s.one_off).toMatchObject({ state: 'overdue', total: 3, done: 1, open: 2, overdue: 1, label: '1 overdue · 1 of 3 done', pill: 'Homework 1 overdue' });
+    expect(s.percent).toBe(33);
+  });
+
+  it('marks each deck long-term unless it was sent one-off only', () => {
+    const decks = [
+      deck({ target_deck_id: 'a' }),
+      deck({ shared_deck_id: 'sd-b', target_deck_id: 'b' }),
+      deck({ shared_deck_id: 'sd-c', target_deck_id: 'c' }),
+      deck({ shared_deck_id: 'sd-d', target_deck_id: 'd' }),
+    ];
+    const assignments = [
+      assignment({ target_id: 'b', mode: 'fsrs' }),
+      assignment({ target_id: 'c', mode: 'one_off' }),
+      assignment({ target_id: 'd', mode: 'both' }),
+    ];
+    const s = summarizeHomework(decks, [], undefined, [], assignments, '2026-09-18');
+    expect(s.decks.map((d) => [d.mode, d.long_term])).toEqual([[null, true], ['fsrs', true], ['one_off', false], ['both', true]]);
+  });
+
+  it('counts a lesson as completed in the card totals', () => {
     const s = summarizeHomework([deck({ cards_total: 10, cards_started: 10, cards_mastered: 10 })], [
       lesson({ completions: 1 }),
       lesson({ lesson_id: 'lesson-2', completions: 0 }),
     ]);
-    // 10 mastered cards + 1 lesson done out of 10 cards + 2 lessons = 11/12
-    expect(s.percent).toBe(92);
     expect(s.lessons_total).toBe(2);
     expect(s.lessons_completed).toBe(1);
     expect(s.decks[0].percent_started).toBe(100);
@@ -345,7 +382,8 @@ describe('buildStudentOverview', () => {
     expect(o.is_new).toBe(true);
     expect(o.joined_via_invite).toBe(false);
     expect(o.setup.done_count).toBe(2);
-    expect(o.pills).toEqual({ struggling_words: 0, recordings_to_hear: 0, recordings_need_ear: 0, homework_percent: 19, flags_open: 0 });
+    expect(o.pills).toMatchObject({ struggling_words: 0, recordings_to_hear: 0, recordings_need_ear: 0, homework_percent: null, flags_open: 0 });
+    expect(o.pills.homework.label).toBe('No homework set');
     expect(o.needs_attention).toEqual([]);
     expect(o.activity).toEqual([]);
     expect(o.student).toEqual({ id: 'student-1', email: 'li.hua@example.com', name: 'Li Hua', picture_url: null });
@@ -385,10 +423,42 @@ describe('buildStudentOverview', () => {
     expect(o.joined_via_invite).toBe(true);
     expect(o.status.streak_days).toBe(3);
     expect(o.status.today.accuracy).toBe(0.5);
-    expect(o.pills).toEqual({ struggling_words: 2, recordings_to_hear: 2, recordings_need_ear: 0, homework_percent: 19, flags_open: 0 });
+    expect(o.pills).toMatchObject({ struggling_words: 2, recordings_to_hear: 2, recordings_need_ear: 0, homework_percent: null, flags_open: 0 });
     expect(o.needs_attention.map((i) => i.note.hanzi).sort()).toEqual(['刮风', '晴天']);
     expect(o.activity.map((d) => d.day)).toEqual(['2026-09-18', '2026-09-17']);
     expect(o.last_conversation_id).toBe('conv-9');
+  });
+});
+
+describe('buildStudentOverview — one-off headline', () => {
+  it("counts the student's one-off homework in their own day (tz offset), not the long-term deck", () => {
+    const o = buildStudentOverview({
+      relationship_id: 'rel-1',
+      student: student(),
+      joined_at: '2026-09-15T00:00:00Z',
+      activity_rows: [],
+      week_rows: [],
+      week_marks: [],
+      unheard_recordings: 0,
+      first_review_at: '2026-09-16T00:00:00Z',
+      total_reviews: 40,
+      homework_decks: [deck({ cards_total: 90, cards_started: 12 })],
+      homework_lessons: [],
+      assignments: [
+        assignment({ mode: 'fsrs', due_date: null }),
+        // Due "today" in Auckland (UTC+12) although it is still the 18th in UTC.
+        assignment({ kind: 'lesson', target_id: 'l1', mode: 'one_off', due_date: '2026-09-19' }),
+        assignment({ kind: 'reader', target_id: 'r1', mode: 'both', status: 'done', completed_at: '2026-09-18T01:00:00Z' }),
+      ],
+      audio_total: 0,
+      invite: null,
+      last_conversation_id: null,
+      tz_offset_minutes: -720,
+      now: new Date('2026-09-18T20:00:00Z'),
+    });
+    expect(o.pills.homework).toMatchObject({ state: 'open', total: 2, done: 1, due_today: 1, pill: 'Homework 1 of 2 done' });
+    expect(o.pills.homework_percent).toBe(50);
+    expect(o.homework.decks[0].long_term).toBe(true);
   });
 });
 

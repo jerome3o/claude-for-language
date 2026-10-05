@@ -30,6 +30,7 @@ import { moveDeckInQueue } from '../services/content';
 import { isQueueMove } from '@shared/decks';
 import { countOpenCardFlags } from '../services/card-flags';
 import { hasStudentProfile } from '../db/student-profile-queries';
+import { listRelationshipAssignments } from '../db/homework-queries';
 
 const tutorDashboard = new Hono<{ Bindings: Env }>();
 
@@ -74,7 +75,7 @@ async function loadOverview(
   const from7 = new Date(now.getTime() - 7 * DAY_MS).toISOString();
   const nowIso = now.toISOString();
 
-  const [student, activityRows, weekRows, weekMarks, unheard, needEar, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue, openFlags, hasProfile] =
+  const [student, activityRows, weekRows, weekMarks, unheard, needEar, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue, openFlags, hasProfile, assignments] =
     await Promise.all([
       q.fetchStudentUserRow(db, studentId),
       q.fetchActivityRows(db, studentId, from30),
@@ -91,6 +92,7 @@ async function loadOverview(
       q.fetchStudentDeckQueue(db, studentId),
       countOpenCardFlags(db, rel.id),
       hasStudentProfile(db, rel.id, tutorId).catch(() => false),
+      listRelationshipAssignments(db, rel.id, 500).catch(() => []),
     ]);
   if (!student) return null;
 
@@ -108,6 +110,7 @@ async function loadOverview(
     total_reviews: totals.total,
     homework_decks: decks,
     homework_lessons: lessons,
+    assignments,
     deck_queue: deckQueue,
     audio_total: audioTotal,
     invite,

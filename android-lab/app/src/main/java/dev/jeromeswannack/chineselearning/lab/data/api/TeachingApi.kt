@@ -74,6 +74,36 @@ data class HomeworkDeckDto(
     val days_to_go: Int = 0,
     val queue_position: Int? = null,
     val queue_total: Int = 0,
+    /** How it was sent: 'one_off' | 'fsrs' | 'both'; null = shared before assignments (or an older server). */
+    val mode: String? = null,
+    /**
+     * Part of the student's long-term learning (anything but a one-off-only copy). Null from an
+     * older server → treated as long-term (every deck was, before one-off passes).
+     */
+    val long_term: Boolean? = null,
+) {
+    /** Shown under "Long-term learning" (web: `long_term !== false`). */
+    val isLongTerm: Boolean get() = long_term != false
+}
+
+/**
+ * The one-off homework headline (shared/homework/summary.ts OneOffSummary, built by the worker):
+ * ONE-OFF homework only — long-term decks never count (docs/HOMEWORK.md §11).
+ */
+@Serializable
+data class OneOffSummaryDto(
+    /** 'none' | 'all_done' | 'open' | 'overdue'. */
+    val state: String = "none",
+    val total: Int = 0,
+    val done: Int = 0,
+    val open: Int = 0,
+    val overdue: Int = 0,
+    val due_today: Int = 0,
+    val percent: Int? = null,
+    /** "✓ All done this week" · "2 of 3 done" · "1 overdue · 2 of 3 done" · "No homework set". */
+    val label: String = "",
+    /** "Homework ✓ all done this week" · "Homework 2 of 3 done" · "Homework 1 overdue". */
+    val pill: String = "",
 )
 
 @Serializable
@@ -89,7 +119,10 @@ data class HomeworkLessonDto(
 
 @Serializable
 data class HomeworkSummaryDto(
+    /** The one-off headline as 0..100 (older servers: a blended %). */
     val percent: Int? = null,
+    /** The one-off headline (null from an older server). */
+    val one_off: OneOffSummaryDto? = null,
     val decks: List<HomeworkDeckDto> = emptyList(),
     val lessons: List<HomeworkLessonDto> = emptyList(),
 )
@@ -122,7 +155,10 @@ data class PillsDto(
     val recordings_to_hear: Int = 0,
     /** Of those, the ones in the "Needs your ear" queue (shared/recordings/queue.ts). */
     val recordings_need_ear: Int = 0,
+    /** One-off homework only, 0..100 (older servers: the blended %). */
     val homework_percent: Int? = null,
+    /** The one-off headline for the pill; null from an older server (→ "Homework N%"). */
+    val homework: OneOffSummaryDto? = null,
     val flags_open: Int = 0,
 )
 

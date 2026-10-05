@@ -1,7 +1,7 @@
 import { LIBRARY_STATUS_LABELS, statusTone, type LibraryStatus } from '@shared/homework';
 import './homework-library.css';
 
-/** Completed green · Overdue red · due soon amber · In progress blue · Not started grey. */
+/** Completed green · Overdue red · due soon amber · In progress blue · Not started / In long-term review grey. */
 export function StatusChip({ status, due, today }: { status: LibraryStatus; due: string | null; today: string }) {
   return (
     <span className={`hl-status hl-tone-${statusTone(status, due, today)}`} data-testid="hl-status" data-status={status}>

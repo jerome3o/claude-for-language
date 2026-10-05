@@ -143,6 +143,8 @@
 .td-pill-recordings { background: #fef3c7; color: #92400e; }
 .td-pill-flags { background: #fee2e2; color: #9f1239; }
 .td-pill-homework { background: #dbeafe; color: #1e40af; }
+.td-pill-homework-done { background: #dcfce7; color: #166534; }
+.td-pill-homework-overdue { background: #fee2e2; color: #b91c1c; }
 .td-pill-budget { background: #f3e8ff; color: #6b21a8; }
 .td-pill-ok { background: #dcfce7; color: #166534; }
 .td-pill-setup { background: #fef3c7; color: #92400e; font-size: 0.8125rem; }
@@ -1022,3 +1024,38 @@
 .td-card-recent > span { width: 100%; }
 .td-library-link { display: flex; justify-content: flex-end; margin-bottom: 0.4rem; }
 .td-library-link a { min-height: 44px; display: inline-flex; align-items: center; font-weight: 600; }
+
+/* ---------- One-off headline + Long-term learning (docs/HOMEWORK.md §11) ---------- */
+
+.td-hw-headline {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.375rem 0.875rem;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  margin-bottom: 0.75rem;
+  background: #dbeafe;
+  color: #1e40af;
+}
+.td-hw-headline-all_done { background: #dcfce7; color: #166534; }
+.td-hw-headline-overdue { background: #fee2e2; color: #b91c1c; }
+
+/* Quieter than Homework: no colour, smaller titles — decks in their queue, not homework with an end. */
+.td-long-term .td-long-term-intro {
+  margin: -0.25rem 0 0.75rem;
+  font-size: 0.875rem;
+}
+.td-long-term .td-hw-row {
+  background: transparent;
+  padding: 0.625rem 0.875rem;
+}
+.td-long-term .td-hw-title {
+  font-size: 1rem;
+}
+.td-long-term .td-bar {
+  height: 6px;
+}
+.td-long-term .td-bar-started {
+  background: #9ca3af;
+}

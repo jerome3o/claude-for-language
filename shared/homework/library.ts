@@ -9,9 +9,9 @@
  * Progress uses the existing maths:
  *  - deck with a one-off pass (one_off / both): words got right in the pass / words in the pass
  *    (all its day-parts together); complete when every part is done.
- *  - deck in long-term review only (fsrs, or shared before assignments): words met
- *    (any card studied) / words in the copy, minus words the student left out;
- *    complete when every word has been met.
+ *  - deck in long-term review only (fsrs, or shared before assignments): status
+ *    "In long-term review" whatever its progress — it is a deck in the queue, not homework
+ *    with an end; `percent` / progress still say words met / words (minus left out).
  *  - lesson: completed at least once (or its assignment done) → 100 %.
  *  - reader: read at least once (or its assignment done) → 100 %.
  *  - link: the student marked it done → 100 %.
@@ -27,14 +27,19 @@ import { hasOneOff, type HomeworkAssignment, type HomeworkMode } from './types';
 export type LibraryKind = 'deck' | 'lesson' | 'reader' | 'link';
 export const LIBRARY_KINDS: readonly LibraryKind[] = ['deck', 'lesson', 'reader', 'link'];
 
-export type LibraryStatus = 'completed' | 'in_progress' | 'overdue' | 'not_started';
-export const LIBRARY_STATUSES: readonly LibraryStatus[] = ['overdue', 'in_progress', 'not_started', 'completed'];
+/**
+ * `long_term`: a deck sent for long-term review only (fsrs, or shared before assignments). It is a
+ * deck in the student's queue, not homework with an end — no %, no "In progress" (docs/HOMEWORK.md §11).
+ */
+export type LibraryStatus = 'completed' | 'in_progress' | 'overdue' | 'not_started' | 'long_term';
+export const LIBRARY_STATUSES: readonly LibraryStatus[] = ['overdue', 'in_progress', 'not_started', 'completed', 'long_term'];
 
 export const LIBRARY_STATUS_LABELS: Record<LibraryStatus, string> = {
   completed: 'Completed',
   in_progress: 'In progress',
   overdue: 'Overdue',
   not_started: 'Not started',
+  long_term: 'In long-term review',
 };
 
 export const LIBRARY_KIND_LABELS: Record<LibraryKind, string> = {
@@ -53,14 +58,16 @@ export type StatusTone = 'green' | 'blue' | 'amber' | 'red' | 'grey';
  * The status of one item. Completed wins; then a due date before today makes
  * it Overdue; then anything started is In progress.
  */
-export function libraryStatus(input: { complete: boolean; started: boolean; due_date: string | null; today: string }): LibraryStatus {
+export function libraryStatus(input: { complete: boolean; started: boolean; due_date: string | null; today: string; long_term?: boolean }): LibraryStatus {
+  if (input.long_term) return 'long_term';
   if (input.complete) return 'completed';
   if (input.due_date && daysBetween(input.today, input.due_date) < 0) return 'overdue';
   return input.started ? 'in_progress' : 'not_started';
 }
 
-/** Completed green · Overdue red · due today / tomorrow amber · In progress blue · Not started grey. */
+/** Completed green · Overdue red · due today / tomorrow amber · In progress blue · Not started / long-term grey. */
 export function statusTone(status: LibraryStatus, due_date: string | null, today: string): StatusTone {
+  if (status === 'long_term') return 'grey';
   if (status === 'completed') return 'green';
   if (status === 'overdue') return 'red';
   if (due_date && daysBetween(today, due_date) <= 1) return 'amber';
@@ -87,7 +94,7 @@ export interface LibraryItem {
   due_date: string | null;
   /** How it was sent; null = shared before assignments existed (long-term review). */
   mode: HomeworkMode | null;
-  /** 0..100. */
+  /** 0..100 (a long_term deck: words met, shown as words, never as a %). */
   percent: number;
   /** "5 / 12 words", "8 / 20 words met", "done", "not started", "read", "not read yet". */
   progress: string;
@@ -219,6 +226,8 @@ interface RowCore {
   complete: boolean;
   started: boolean;
   completed_at: string | null;
+  /** A deck in long-term review only: status `long_term`. */
+  long_term?: boolean;
 }
 
 /** Every item sent in one relationship, newest first. */
@@ -240,7 +249,7 @@ export function buildHomeworkLibrary(input: LibraryInput): LibraryItem[] {
   ) => {
     const oneOff = list.filter((a) => hasOneOff(a.mode));
     const { due, dueId } = dueOf(oneOff);
-    const { complete, started, completed_at, ...rest } = partial;
+    const { complete, started, completed_at, long_term, ...rest } = partial;
     rest.sent_at = isoTime(rest.sent_at);
     const details = list.find((a) => a.details)?.details ?? null;
     items.push({
@@ -250,7 +259,7 @@ export function buildHomeworkLibrary(input: LibraryInput): LibraryItem[] {
       due_assignment_id: complete ? null : dueId,
       mode: modeOf(list),
       assignment_ids: list.map((a) => a.id),
-      status: libraryStatus({ complete, started, due_date: due, today }),
+      status: libraryStatus({ complete, started, due_date: due, today, long_term }),
       completed_at: complete ? isoTime(completed_at ?? latest(list.map((a) => a.completed_at))) : null,
       url: details?.url ?? null,
       instructions: details?.instructions ?? null,
@@ -297,6 +306,7 @@ export function buildHomeworkLibrary(input: LibraryInput): LibraryItem[] {
         complete,
         started,
         completed_at: null,
+        long_term: oneOff.length === 0,
       },
       list
     );
@@ -403,7 +413,7 @@ export function filterLibrary<T extends Pick<LibraryItem, 'status' | 'kind' | 't
 
 /** How many items per status (the filter chips' counts). */
 export function libraryCounts(items: Pick<LibraryItem, 'status'>[]): Record<LibraryStatus, number> {
-  const counts: Record<LibraryStatus, number> = { completed: 0, in_progress: 0, overdue: 0, not_started: 0 };
+  const counts: Record<LibraryStatus, number> = { completed: 0, in_progress: 0, overdue: 0, not_started: 0, long_term: 0 };
   for (const i of items) counts[i.status]++;
   return counts;
 }
