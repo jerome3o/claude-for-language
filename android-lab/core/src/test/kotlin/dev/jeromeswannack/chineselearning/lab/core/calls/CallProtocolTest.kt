@@ -249,5 +249,11 @@ class CallProtocolTest {
         assertEquals("""{"type":"state","state":{"mic":true,"cam":false,"screen":false,"recording":false,"view":"own"}}""", CallProtocol.state(PeerMediaState(mic = true, view = CallView.ViewMode.OWN)))
         assertEquals(CallView.ViewMode.OWN, CallProtocol.parseState(Json.parseToJsonElement("""{"view":"own"}""")).view)
         assertEquals(CallView.ViewMode.SAME, CallProtocol.parseState(Json.parseToJsonElement("""{"mic":true}""")).view)
+        // Round 6: a share's sound (only together with the share).
+        assertEquals(true, CallProtocol.parseState(Json.parseToJsonElement("""{"screen":true,"screen_audio":true}""")).screenAudio)
+        assertEquals(false, CallProtocol.parseState(Json.parseToJsonElement("""{"screen":false,"screen_audio":true}""")).screenAudio)
+        assertEquals(false, CallProtocol.parseState(Json.parseToJsonElement("""{"screen":true}""")).screenAudio)
+        assertTrue(CallProtocol.state(PeerMediaState(screen = true, screenAudio = true)).contains("\"screen_audio\":true"))
+        assertTrue(!CallProtocol.state(PeerMediaState(screen = true)).contains("screen_audio"))
     }
 }

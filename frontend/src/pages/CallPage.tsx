@@ -18,7 +18,7 @@ import { Whiteboard } from '../components/calls/Whiteboard';
 import { TextBoard } from '../components/calls/TextBoard';
 import { AnnotationLayer, type AnnotTool } from '../components/calls/AnnotationLayer';
 import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
-import { ANNOT_COLORS, defaultAnnotColor } from '@shared/calls';
+import { ANNOT_COLORS, defaultAnnotColor, myShareTile, shareAudioNote, theirShareSoundLabel, HIDE_MY_SHARE_LABEL } from '@shared/calls';
 import {
   arrangeTiles,
   boardButton,
@@ -57,7 +57,8 @@ import {
   type VideoSize,
 } from '@shared/calls';
 import { CallTiles, type TileSpec } from '../components/calls/CallTiles';
-import { CallVideo } from '../components/calls/CallVideo';
+import { CallAudio, CallVideo } from '../components/calls/CallVideo';
+import { SharingCard } from '../components/calls/SharingCard';
 import { MediaProblemCard } from '../components/calls/MediaProblemCard';
 import { DevicesSheet } from '../components/calls/DevicesSheet';
 import { MaterialTile } from '../components/calls/MaterialTile';
@@ -193,6 +194,8 @@ export function CallPage() {
   const [myScreenSize, setMyScreenSize] = useState<VideoSize | null>(null);
   const [annotPip, setAnnotPip] = useState<AnnotationPip | null>(null);
   const [theyDrawAt, setTheyDrawAt] = useState(0);
+  /** While I share: show my own screen in its tile anyway ("👁 Show it here"; otherwise a compact card). */
+  const [peekMine, setPeekMine] = useState(false);
   const remoteSharing = !!call.remote?.peer.state.screen;
   const iShare = !!call.screenStream && !remoteSharing;
   const pen = annotColor ?? defaultAnnotColor(iShare);
@@ -200,6 +203,9 @@ export function CallPage() {
   useEffect(() => {
     if (!sharing) setAnnotating(false);
   }, [sharing]);
+  useEffect(() => {
+    if (!call.screenStream) setPeekMine(false);
+  }, [call.screenStream]);
   useEffect(() => {
     // A screen share starts (theirs or mine): it goes on the stage for both of us — the sharer sees it too —
     // with both faces over it (or the cameras separately, if chosen).
@@ -594,10 +600,22 @@ export function CallPage() {
           )}
         </>
       ) : null,
-      content: sharing ? (
+      content: !sharing ? null : !remoteSharing && myShareTile({ annotating, peek: peekMine }) === 'card' ? (
+        // I share: no mirror of my own screen on my stage — the other person has it on theirs.
+        <SharingCard
+          otherName={call.remote?.peer.name || other?.name || null}
+          audio={call.screenAudio ?? 'none'}
+          onStop={() => void call.stopScreenShare()}
+          onDraw={() => {
+            dispatch({ type: 'preset', preset: 'screen' });
+            setAnnotating(true);
+          }}
+          onShow={() => setPeekMine(true)}
+        />
+      ) : (
         <div className="call-tile-body call-tile-video" data-testid="screen-tile">
           {remoteSharing ? (
-            remoteScreenStream && <CallVideo stream={remoteScreenStream} screen className="call-remote-screen" testId="remote-screen" onVideoSize={setRemoteSize} />
+            remoteScreenStream && <CallVideo stream={remoteScreenStream} screen muted className="call-remote-screen" testId="remote-screen" onVideoSize={setRemoteSize} />
           ) : (
             // My own shared screen, as big as any tile: I can draw on it too.
             <CallVideo stream={call.screenStream} muted screen className="call-self-screen" testId="my-screen" onVideoSize={setMyScreenSize} />
@@ -635,9 +653,15 @@ export function CallPage() {
                 <span className="annot-hint">{annotTool === 'text' ? 'Tap to type · drag a text to move · tap it again to edit' : 'Drag to circle · tap to point'}</span>
               </>
             )}
+            {!remoteSharing && peekMine && !annotating && (
+              <button type="button" className="annot-toggle" onClick={() => setPeekMine(false)} data-testid="sharing-hide">{HIDE_MY_SHARE_LABEL}</button>
+            )}
           </div>
+          {remoteSharing && remoteState?.screen_audio && (
+            <div className="call-share-sound" data-testid="share-sound-badge">{theirShareSoundLabel(otherName, true)}</div>
+          )}
         </div>
-      ) : null,
+      ),
     },
     material: {
       label: call.presenting ? `📑 ${call.presenting.title}` : 'Material',
@@ -757,6 +781,10 @@ export function CallPage() {
         />
       </div>
 
+      {/* Their shared screen's sound: its own element, so it plays whatever is on my stage. */}
+      {remoteSharing && remoteState?.screen_audio && remote?.screenAudio && !legacyShare && (
+        <CallAudio stream={remote.screenAudio} sinkId={call.devicePrefs.speakerId ?? null} testId="remote-screen-audio" />
+      )}
       {call.screenStream && (
         <div className={`call-share-bar${Date.now() - theyDrawAt < 6000 ? ' drawing' : ''}`} data-testid="share-bar">
           <span>
@@ -764,6 +792,9 @@ export function CallPage() {
               ? `✏️ ${call.annotations.lastRemoteName || otherName} is drawing on your screen`
               : '🖥️ You’re sharing your screen.'}
           </span>
+          {call.screenAudio === 'none' && (
+            <span className="call-share-note" data-testid="share-audio-note">🔇 {shareAudioNote('none', 'web')}</span>
+          )}
           <button
             type="button"
             className="call-share-btn"

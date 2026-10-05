@@ -43,6 +43,7 @@ import { TextBoardSession } from '../services/calls/textBoard';
 import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
 import { track as trackUsage } from '../services/analytics';
+import { displayCaptureOptions, shareAudioOf, type ShareAudio } from '@shared/calls';
 import { DEFAULT_ANNOT_PERSIST, announceDevice, deviceOnWhenOpened, CAMERA_ON_AT_START, type AnnotStroke, type AnnotText, type SharedView, type StageView, type ViewMode } from '@shared/calls';
 import { materialTarget, type PresentedMaterial } from '@shared/materials';
 import type { ActivityAction, ActivitySession } from '@shared/call-activities';
@@ -76,6 +77,8 @@ export interface RemoteParticipant {
   health: LinkHealth | null;
   /** Their shared screen (its own stream; frames only while they share). */
   screenStream: MediaStream | null;
+  /** Their shared screen's sound (its own stream; plays only while they share with sound). */
+  screenAudio: MediaStream | null;
   /** False with an older app: their screen arrives on the camera stream instead. */
   screenChannel: boolean;
 }
@@ -108,6 +111,8 @@ export function useCall(callId: string, myUserId: string) {
   const [camOn, setCamOn] = useState(CAMERA_ON_AT_START);
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  /** Does my share carry sound (null = not sharing; shared/calls/share.ts). */
+  const [screenAudio, setScreenAudio] = useState<ShareAudio | null>(null);
   const [remote, setRemote] = useState<RemoteParticipant | null>(null);
   const [roomStatus, setRoomStatus] = useState<RoomStatus>('connecting');
   const [board, setBoard] = useState<BoardItem[]>([]);
@@ -331,7 +336,7 @@ export function useCall(callId: string, myUserId: string) {
     if (opts.fresh) diag('peer', `${peer.name} started a new link — renegotiating`);
     else if (old && prevPeer?.instance && prevPeer.instance === peer.instance) diag('peer', `${peer.name} back — link was ${pcState}, renegotiating`);
     else diag('peer', `${peer.name} joined — new link`);
-    setRemote({ peer, stream: null, connection: 'new', away: false, health: null, screenStream: null, screenChannel: true });
+    setRemote({ peer, stream: null, connection: 'new', away: false, health: null, screenStream: null, screenAudio: null, screenChannel: true });
     // Updates from this link only (a newer link may have replaced it).
     let link: PeerLink | null = null;
     const mine = (r: RemoteParticipant | null): r is RemoteParticipant => !!r && !!link && linkRef.current === link;
@@ -341,11 +346,13 @@ export function useCall(callId: string, myUserId: string) {
       audioTrack: audioTrack(),
       videoTrack: cameraTrack(),
       screenTrack: screenRef.current?.getVideoTracks()[0] ?? null,
+      screenAudioTrack: screenRef.current?.getAudioTracks().find((t) => t.readyState === 'live') ?? null,
       // Signals go to wherever the other person's socket is now (it may have reconnected).
       sendSignal: (data: SignalData) => (remoteIdRef.current ? roomRef.current?.send({ type: 'signal', to: remoteIdRef.current, data }) ?? false : false),
       signallingOpen: () => !!roomRef.current?.isOpen && !!remoteIdRef.current,
       onRemoteStream: (stream) => setRemote((r) => (mine(r) ? { ...r, stream, screenChannel: link!.screenChannel } : r)),
       onRemoteScreen: (screenStream) => setRemote((r) => (mine(r) ? { ...r, screenStream, screenChannel: true } : r)),
+      onRemoteScreenAudio: (screenAudio) => setRemote((r) => (mine(r) ? { ...r, screenAudio } : r)),
       onConnectionState: (connection) => setRemote((r) => (mine(r) ? { ...r, connection } : r)),
       onHealth: (health) => setRemote((r) => (mine(r) ? { ...r, health } : r)),
       onDiag: diag,
@@ -718,8 +725,10 @@ export function useCall(callId: string, myUserId: string) {
     screenRef.current?.getTracks().forEach((t) => t.stop());
     screenRef.current = null;
     setScreenStream(null);
+    setScreenAudio(null);
     await linkRef.current?.setScreenTrack(null);
-    broadcastState({ screen: false });
+    await linkRef.current?.setScreenAudioTrack(null);
+    broadcastState({ screen: false, screen_audio: false });
   }, [broadcastState]);
 
   stopScreenShareRef.current = stopScreenShare;
@@ -727,19 +736,43 @@ export function useCall(callId: string, myUserId: string) {
   const startScreenShare = useCallback(async () => {
     if (!canShareScreen() || screenRef.current) return;
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15 } }, audio: false });
+      // The picture AND the tab's / system's sound (shared/calls/share.ts) — Minghui played Jerome's
+      // recordings in a shared tab and neither heard them. A browser that refuses an audio request
+      // outright (TypeError) is asked again for the picture only; a cancelled picker is not.
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia(displayCaptureOptions(true) as DisplayMediaStreamOptions);
+      } catch (err) {
+        if (!(err instanceof TypeError)) throw err;
+        stream = await navigator.mediaDevices.getDisplayMedia(displayCaptureOptions(false) as DisplayMediaStreamOptions);
+      }
       const track = stream.getVideoTracks()[0];
       track.contentHint = 'detail';
       track.onended = () => void stopScreenShare();
+      const sound = stream.getAudioTracks().find((t) => t.readyState === 'live') ?? null;
+      const audio = shareAudioOf(sound ? 1 : 0);
+      if (sound) {
+        sound.contentHint = 'music';
+        // The tab's sound can end on its own (the tab closed): the picture goes on, silent.
+        sound.onended = () => {
+          if (screenRef.current !== stream) return;
+          setScreenAudio('none');
+          void linkRef.current?.setScreenAudioTrack(null);
+          broadcastState({ screen_audio: false });
+        };
+      }
       screenRef.current = stream;
       setScreenStream(stream);
-      trackUsage('call.screen_share', { on: true });
+      setScreenAudio(audio);
+      trackUsage('call.screen_share', { on: true, sound: audio === 'shared' });
       await linkRef.current?.setScreenTrack(track);
-      broadcastState({ screen: true });
+      await linkRef.current?.setScreenAudioTrack(sound);
+      diag('media', `screen share started ${sound ? 'with' : 'without'} sound`);
+      broadcastState({ screen: true, screen_audio: !!sound });
     } catch {
       /* the picker was cancelled */
     }
-  }, [broadcastState, stopScreenShare]);
+  }, [broadcastState, stopScreenShare, diag]);
 
   const commitBoard = useCallback((op: BoardOp) => {
     setBoard((items) => applyBoardOp(items, op));
@@ -942,7 +975,7 @@ export function useCall(callId: string, myUserId: string) {
   }, []);
 
   return {
-    phase, error, mediaProblems, mediaAsked, mediaPending, localStream, screenStream, remote, roomStatus, turn,
+    phase, error, mediaProblems, mediaAsked, mediaPending, localStream, screenStream, screenAudio, remote, roomStatus, turn,
     devicePrefs, chooseDevice, requestMedia,
     micOn, camOn, facing, recording, pendingUploads, startedAt,
     board, liveStrokes: Object.values(liveStrokes), chat,

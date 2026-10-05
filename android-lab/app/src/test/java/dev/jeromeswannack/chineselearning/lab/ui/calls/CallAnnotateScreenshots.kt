@@ -99,8 +99,21 @@ class CallAnnotateScreenshots : LabScreenshotTest() {
         CallScreen(sharer, info.copy(screenOverlayOn = true), CallActions(), fakeVideo, now, initialAnnotating = true, layout = layout(Action.Preset(PresetId.SCREEN)))
     }
 
+    /** Sharing, not drawing: the compact "You're sharing your screen · Stop" card instead of a mirror (core CallShare). */
     @Test fun sharerBeforeDrawing() = shoot("calls-62-sharer-share-bar-draw-on-it") {
         CallScreen(live.copy(screenVideo = "screen@1080x2400"), info, CallActions(), fakeVideo, now, layout = layout(Action.Preset(PresetId.SCREEN)))
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun sharerCardUnfolded() = shoot("calls-65-sharer-card-unfolded") {
+        CallScreen(live.copy(screenVideo = "screen@1080x2400"), info, CallActions(), fakeVideo, now, layout = layout(Action.Preset(PresetId.SCREEN)))
+    }
+
+    /** The viewer of a browser tab shared with sound: "🔊 Sound from 王老师's screen". */
+    @Config(qualifiers = UNFOLDED)
+    @Test fun viewerHearsTheirScreen() = shoot("calls-66-viewer-screen-sound-unfolded") {
+        val withSound = live.copy(remote = live.remote!!.copy(screen = "screen@1920x1080", peer = tutor.copy(state = tutor.state.copy(screen = true, screenAudio = true))))
+        CallScreen(withSound, info, CallActions(), fakeVideo, now, layout = layout(Action.Preset(PresetId.SCREEN)))
     }
 
     // ---- the viewer: their laptop screen, my red strokes and their blue ones, "Keep" on (nothing fades)

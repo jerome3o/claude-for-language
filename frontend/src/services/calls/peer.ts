@@ -16,6 +16,15 @@
  * only one video m-line (an older app) gets the screen on the camera
  * transceiver instead, like before (`screenChannel` false).
  *
+ * The screen's SOUND (a shared tab's audio, shared/calls/share.ts) rides a
+ * second audio transceiver (the fourth m-line: audio, video, video, audio), so
+ * it never mixes with the microphone (the recorder keeps recording the mic
+ * only) and stops with the share. The other side plays it from its own
+ * stream (`onRemoteScreenAudio`). A peer that offered only three m-lines (an
+ * older app, or the Lab app before round 6) gets the fourth one added when my
+ * share first has sound — one renegotiation, by the perfect-negotiation rules.
+ * An older app receiving it adds it to the camera stream; nothing breaks.
+ *
  * Staying up (shared/calls/connection.ts): the link watches its own health —
  * `disconnected` gets a grace period, then an ICE restart; `failed` restarts at
  * once; later restarts back off — but only while the signalling socket is open
@@ -58,11 +67,15 @@ export interface PeerLinkOptions {
   videoSource?: VideoSource;
   /** My shared screen (sent on the screen transceiver). */
   screenTrack?: MediaStreamTrack | null;
+  /** My shared screen's sound (a tab's audio; sent on the screen-audio transceiver). */
+  screenAudioTrack?: MediaStreamTrack | null;
   /** Returns false when the signalling socket is down (the signal is lost). */
   sendSignal: (data: SignalData) => boolean | void;
   onRemoteStream: (stream: MediaStream) => void;
   /** Their shared screen (a stream of its own; only live while they share). */
   onRemoteScreen?: (stream: MediaStream) => void;
+  /** Their shared screen's sound (its own stream with one audio track). */
+  onRemoteScreenAudio?: (stream: MediaStream) => void;
   onConnectionState: (state: RTCPeerConnectionState) => void;
   onHealth?: (health: LinkHealth) => void;
   /** Is the room socket open right now (ICE restarts wait for it). */
@@ -85,6 +98,10 @@ export class PeerLink {
   private screen: RTCRtpTransceiver | null = null;
   private screenTrack: MediaStreamTrack | null;
   private readonly remoteScreen = new MediaStream();
+  /** The second audio m-line: my screen's sound out, theirs in. */
+  private screenAudio: RTCRtpTransceiver | null = null;
+  private screenAudioTrack: MediaStreamTrack | null;
+  private readonly remoteScreenAudio = new MediaStream();
   private audioTrack: MediaStreamTrack | null;
   private videoTrack: MediaStreamTrack | null;
   private videoSource: VideoSource;
@@ -105,6 +122,7 @@ export class PeerLink {
     this.videoTrack = opts.videoTrack;
     this.videoSource = opts.videoSource ?? 'camera';
     this.screenTrack = opts.screenTrack ?? null;
+    this.screenAudioTrack = opts.screenAudioTrack ?? null;
     this.pc = new RTCPeerConnection({ iceServers: opts.iceServers, bundlePolicy: 'max-bundle' });
     const send = opts.sendSignal;
     this.opts = { ...opts, sendSignal: (data: SignalData) => send({ ...data, link: this.id }) };
@@ -116,6 +134,13 @@ export class PeerLink {
       if (event.track.kind === 'video' && videos.indexOf(event.transceiver) === 1) {
         if (!this.remoteScreen.getTracks().includes(event.track)) this.remoteScreen.addTrack(event.track);
         opts.onRemoteScreen?.(this.remoteScreen);
+        return;
+      }
+      // The second audio m-line is their screen's sound.
+      const audios = this.pc.getTransceivers().filter((t) => t.receiver.track.kind === 'audio');
+      if (event.track.kind === 'audio' && audios.indexOf(event.transceiver) === 1) {
+        if (!this.remoteScreenAudio.getTracks().includes(event.track)) this.remoteScreenAudio.addTrack(event.track);
+        opts.onRemoteScreenAudio?.(this.remoteScreenAudio);
         return;
       }
       if (!this.remote.getTracks().includes(event.track)) this.remote.addTrack(event.track);
@@ -149,6 +174,7 @@ export class PeerLink {
       this.audio = this.pc.addTransceiver(this.audioTrack ?? 'audio', { direction: 'sendrecv' });
       this.video = this.pc.addTransceiver(this.videoTrack ?? 'video', { direction: 'sendrecv' });
       this.screen = this.pc.addTransceiver(this.screenTrack ?? 'video', { direction: 'sendrecv' });
+      this.screenAudio = this.pc.addTransceiver(this.screenAudioTrack ?? 'audio', { direction: 'sendrecv' });
       void this.applyEncodings();
     }
     this.statsTimer = setInterval(() => void this.readStats(false), STATS_EVERY_MS);
@@ -179,6 +205,10 @@ export class PeerLink {
 
   get remoteScreenStream(): MediaStream {
     return this.remoteScreen;
+  }
+
+  get remoteScreenAudioStream(): MediaStream {
+    return this.remoteScreenAudio;
   }
 
   /** Both sides have a screen transceiver (false with an older peer: the screen replaces the camera). */
@@ -221,16 +251,17 @@ export class PeerLink {
 
   /** Answerer: adopt the transceivers the offer created and send our tracks on them. */
   private async adoptTransceivers(): Promise<void> {
-    if (this.audio && this.video && this.screen) return;
+    if (this.audio && this.video && this.screen && this.screenAudio) return;
     for (const t of this.pc.getTransceivers()) {
       const kind = t.receiver.track.kind;
       if (kind === 'audio' && !this.audio) this.audio = t;
+      else if (kind === 'audio' && this.audio !== t && !this.screenAudio) this.screenAudio = t;
       else if (kind === 'video' && !this.video) this.video = t;
       else if (kind === 'video' && this.video !== t && !this.screen) this.screen = t;
     }
     // An older peer offered one video m-line: a share goes out on the camera transceiver.
     const legacyShare = !this.screen && this.screenTrack;
-    for (const [t, track] of [[this.audio, this.audioTrack], [this.video, legacyShare ? this.screenTrack : this.videoTrack], [this.screen, this.screenTrack]] as const) {
+    for (const [t, track] of [[this.audio, this.audioTrack], [this.video, legacyShare ? this.screenTrack : this.videoTrack], [this.screen, this.screenTrack], [this.screenAudio, this.screenAudioTrack]] as const) {
       if (!t) continue;
       t.direction = 'sendrecv';
       await t.sender.replaceTrack(track);
@@ -264,6 +295,8 @@ export class PeerLink {
           await this.adoptTransceivers();
           await this.pc.setLocalDescription();
           if (this.pc.localDescription) this.opts.sendSignal({ description: this.pc.localDescription.toJSON() });
+          // A share with sound started before their offer came, and the offer had no m-line for it.
+          this.ensureScreenAudio();
         }
       } else if ('candidate' in data) {
         try {
@@ -294,6 +327,32 @@ export class PeerLink {
     await this.video?.sender.replaceTrack(track ?? this.videoTrack);
     this.videoSource = track ? 'screen' : 'camera';
     await this.applyEncodings();
+  }
+
+  /**
+   * My shared screen's sound (null = none / the share stopped). On the second audio
+   * transceiver; a peer whose offer had none gets one added (one renegotiation).
+   */
+  async setScreenAudioTrack(track: MediaStreamTrack | null): Promise<void> {
+    this.screenAudioTrack = track;
+    if (this.screenAudio) {
+      await this.screenAudio.sender.replaceTrack(track);
+      return;
+    }
+    this.ensureScreenAudio();
+  }
+
+  /** Add the screen-audio m-line when I have sound to send and the negotiated session has none. */
+  private ensureScreenAudio(): void {
+    if (this.closed || this.screenAudio || !this.screenAudioTrack) return;
+    // Only once the first negotiation made the main transceivers (never an offer of my own before theirs).
+    if (!this.audio || !this.pc.remoteDescription) return;
+    try {
+      this.screenAudio = this.pc.addTransceiver(this.screenAudioTrack, { direction: 'sendrecv' });
+      this.opts.onDiag?.('media', 'added a screen-sound channel (renegotiating)');
+    } catch (err) {
+      console.error('[calls] screen audio transceiver failed:', err);
+    }
   }
 
   async setVideoTrack(track: MediaStreamTrack | null, source: VideoSource = 'camera'): Promise<void> {

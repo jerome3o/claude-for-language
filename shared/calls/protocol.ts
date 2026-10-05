@@ -34,6 +34,8 @@ export interface PeerMediaState {
   mic: boolean;
   cam: boolean;
   screen: boolean;
+  /** My share carries sound (a tab's / the system's; ./share.ts). Only with `screen`; absent = no sound. */
+  screen_audio?: boolean;
   recording: boolean;
   /** "Same view" or "My own view" (./view.ts; absent from an older app = same). */
   view?: ViewMode;

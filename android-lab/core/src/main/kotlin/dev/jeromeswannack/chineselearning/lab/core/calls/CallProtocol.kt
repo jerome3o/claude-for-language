@@ -118,7 +118,7 @@ object CallProtocol {
         val o = el as? JsonObject ?: return PeerMediaState()
         fun b(k: String) = (o[k] as? JsonPrimitive)?.booleanOrNull ?: false
         val view = (o["view"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-        return PeerMediaState(mic = b("mic"), cam = b("cam"), screen = b("screen"), recording = b("recording"), view = CallView.ViewMode.of(view))
+        return PeerMediaState(mic = b("mic"), cam = b("cam"), screen = b("screen"), screenAudio = b("screen") && b("screen_audio"), recording = b("recording"), view = CallView.ViewMode.of(view))
     }
 
     fun parseCursor(el: JsonElement?): TextCursor? {
@@ -148,7 +148,7 @@ object CallProtocol {
     fun chat(text: String): String = buildJsonObject { put("type", "chat"); put("text", text) }.toString()
     fun state(s: PeerMediaState): String = buildJsonObject {
         put("type", "state")
-        put("state", buildJsonObject { put("mic", s.mic); put("cam", s.cam); put("screen", s.screen); put("recording", s.recording); put("view", s.view.wire) })
+        put("state", buildJsonObject { put("mic", s.mic); put("cam", s.cam); put("screen", s.screen); if (s.screen && s.screenAudio) put("screen_audio", true); put("recording", s.recording); put("view", s.view.wire) })
     }.toString()
     // Annotations: [target] null = the shared screen; `material:<id>:<page>` = a presented material's page (round 4 PR 5).
     fun annot(stroke: AnnotStroke, target: String? = null): String = buildJsonObject { put("type", "annot"); put("stroke", stroke.toJson()); target?.let { put("target", it) } }.toString()
@@ -208,6 +208,8 @@ data class PeerMediaState(
     val mic: Boolean = false,
     val cam: Boolean = false,
     val screen: Boolean = false,
+    /** Their share carries sound (a tab's / the system's; web shared/calls/share.ts). This app never sends any. */
+    val screenAudio: Boolean = false,
     val recording: Boolean = false,
     /** "Same view" or "My own view" (core CallView; absent from an older app = same). */
     val view: CallView.ViewMode = CallView.ViewMode.SAME,

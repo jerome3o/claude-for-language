@@ -113,7 +113,7 @@ export const ANALYTICS_EVENTS = {
   'call.end': e('calls', 'Ended a call for everyone.', ['duration_ms']),
   'call.board': e('calls', 'Opened a board tile (text / draw / chat).', ['tile']),
   'call.board_page': e('calls', 'Added / turned / followed a board page.', ['action']),
-  'call.screen_share': e('calls', 'Started or stopped sharing the screen.', ['on']),
+  'call.screen_share': e('calls', 'Started or stopped sharing the screen (sound = the share carries a tab or system sound).', ['on', 'sound']),
   'call.annotate': e('calls', 'Drew on a shared screen or material.', ['target']),
   'call.material_present': e('calls', 'Presented a lesson material.', ['material_kind', 'pages']),
   'material.contents_open': e('calls', 'Opened a lesson material’s Contents (in a call or the material viewer).', ['where', 'source', 'entries']),

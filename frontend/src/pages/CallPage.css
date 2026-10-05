@@ -764,6 +764,66 @@
   text-align: center;
 }
 .call-share-bar.drawing { background: #7f1d1d; color: #fff; }
+.call-share-note {
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  color: #fcd34d;
+}
+
+/* ---------- my own share: a compact card instead of a mirror of my screen (shared/calls/share.ts) */
+.call-sharing-card-wrap { background: #111827; padding: 1rem; }
+.call-sharing-card {
+  max-width: 26rem;
+  width: 100%;
+  padding: 1.1rem 1.2rem;
+  border-radius: 16px;
+  background: #1f2937;
+  color: #e5e7eb;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.call-sharing-icon { font-size: 2rem; line-height: 1; }
+.call-sharing-title { margin-top: 0.4rem; font-size: 1.05rem; font-weight: 700; color: #f9fafb; }
+.call-sharing-sub { margin-top: 0.2rem; font-size: 0.875rem; color: #9ca3af; }
+.call-sharing-audio { margin-top: 0.6rem; font-size: 0.85rem; }
+.call-sharing-audio.on { color: #86efac; }
+.call-sharing-audio.off { color: #fcd34d; }
+.call-sharing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.call-sharing-stop {
+  min-height: 44px;
+  padding: 0 1rem;
+  border: none;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.call-sharing-actions .call-share-btn { min-height: 44px; }
+/* A compact card in a small tile (the rail, a phone split): just the title and Stop. */
+.call-tile.role-rail .call-sharing-sub,
+.call-tile.role-rail .call-sharing-audio,
+.call-tile.role-rail .call-sharing-actions .call-share-btn { display: none; }
+.call-hidden-audio { display: none; }
+/* The viewer: their screen's sound is coming through (bottom right: the tile's grip is top right). */
+.call-share-sound {
+  position: absolute;
+  z-index: 4;
+  bottom: 0.6rem;
+  right: 0.6rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.78);
+  color: #f9fafb;
+  font-size: 0.78rem;
+  pointer-events: none;
+}
 .call-share-btn {
   min-height: 40px;
   padding: 0 0.9rem;

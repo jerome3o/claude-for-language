@@ -1061,7 +1061,7 @@ export class CallRoom extends DurableObject<Env> {
       case 'state': {
         const s = msg.state;
         if (!s || typeof s !== 'object') return;
-        a.state = { mic: Boolean(s.mic), cam: Boolean(s.cam), screen: Boolean(s.screen), recording: Boolean(s.recording), ...(s.view === 'own' ? { view: 'own' as const } : s.view === 'same' ? { view: 'same' as const } : {}) };
+        a.state = { mic: Boolean(s.mic), cam: Boolean(s.cam), screen: Boolean(s.screen), ...(s.screen && s.screen_audio ? { screen_audio: true } : {}), recording: Boolean(s.recording), ...(s.view === 'own' ? { view: 'own' as const } : s.view === 'same' ? { view: 'same' as const } : {}) };
         ws.serializeAttachment(a);
         this.broadcast({ type: 'peer_state', client_id: a.clientId, state: a.state }, ws);
         return;
@@ -1132,7 +1132,7 @@ export class CallRoom extends DurableObject<Env> {
     }
     for (const { ws: tws, a: t } of targets) {
       this.send(tws, { type: 'share_stopped', by: a.userId, name: a.name });
-      t.state = { ...t.state, screen: false };
+      t.state = { ...t.state, screen: false, screen_audio: undefined };
       tws.serializeAttachment(t);
       this.broadcast({ type: 'peer_state', client_id: t.clientId, state: t.state }, tws);
       await this.logRoom(`${a.name} stopped ${t.name}'s screen share`, a);

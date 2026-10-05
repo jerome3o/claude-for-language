@@ -126,3 +126,24 @@ export function CallVideo({ stream, muted, mirrored, screen, fit, backdrop = tru
     </div>
   );
 }
+
+/**
+ * Sound with no picture: the other person's shared screen's sound (a tab's audio,
+ * shared/calls/share.ts). Its own element, mounted for as long as they share with
+ * sound, so it plays whichever tile is on my stage.
+ */
+export function CallAudio({ stream, sinkId, testId }: { stream: MediaStream | null; sinkId?: string | null; testId?: string }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.srcObject !== stream) el.srcObject = stream;
+    if (stream) void el.play().catch(() => {});
+  }, [stream]);
+  useEffect(() => {
+    const el = ref.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+    if (!el || !el.setSinkId || sinkId === undefined) return;
+    void el.setSinkId(sinkId ?? '').catch(() => {});
+  }, [sinkId]);
+  return <audio ref={ref} autoPlay data-testid={testId} className="call-hidden-audio" />;
+}
