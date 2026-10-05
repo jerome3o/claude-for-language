@@ -175,6 +175,19 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 @Composable
 fun CallRoute(nav: LabNav, id: String) {
     val vm: CallViewModel = viewModel(key = "call-$id", factory = CallViewModel.Factory(nav.app, id))
+    // "Words you needed" → + Add as card: the chat "Save as flashcard" calls (decks in queue order, top one preselected).
+    val activityCardTools = remember(nav.app) { dev.jeromeswannack.chineselearning.lab.ui.study.CardTools(nav.app) }
+    val activityCards = remember(nav.app) {
+        dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions(
+            decks = {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(nav.app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { it.id to it.name }
+                }
+            },
+            deckHas = activityCardTools::deckHas,
+            addCard = { deckId, c -> activityCardTools.addNote(deckId, dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody(c.hanzi, c.pinyin, c.english, c.funFacts)) },
+        )
+    }
     val s by vm.controller.state.collectAsStateWithLifecycle()
     val detail by vm.detail.state.collectAsStateWithLifecycle()
     val myId by vm.myId.collectAsStateWithLifecycle()
@@ -390,6 +403,9 @@ fun CallRoute(nav: LabNav, id: String) {
                         ActivityFeel.DONE -> { nav.app.haptics.celebrate(); nav.app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.FANFARE) }
                     }
                 },
+                cards = activityCards,
+                decksHolding = activityCardTools::decksHolding,
+                wordAdded = vm.controller::activityWordAdded,
             ),
         ),
         video = { handle, mirror, contain, overlay, onFrameSize, modifier -> RtcVideo(handle as? VideoTrack, eglContext, mirror, contain, overlay, onFrameSize, modifier) },

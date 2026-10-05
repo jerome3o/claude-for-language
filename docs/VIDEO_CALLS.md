@@ -598,12 +598,26 @@ own side; the tutor runs it; the result is kept with the lesson.
   activities can come later). The Lab app's `CallActivities.kt` is a port, parity-tested against vectors the
   TS engine makes (`android-lab/parity/fixtures/call-activities.ts`).
 - **Roles** — `a` / `b`, named per activity (`role_names`: Describer / Guesser, Reader / Writer, 服务员 /
-  客人 …). The relationship's **tutor** takes the spec's `tutor_role` and is the **host** (skip, reset the
-  round, swap roles, restart, next); whoever started it doesn't matter. Either person may end it (the
-  summary shows) or close it. In a **solo** test call one person holds both roles and a "viewing as A / B"
-  switch shows either side; someone joining a solo-started activity takes a role (`joinActivity`). The UI
-  shows a button only when the engine would accept that action from me (`reduceActivity(…) !== null`), so
-  screen and room never disagree.
+  客人 …). **Either person may start an activity** (⋯ → 🎲 Activities) and either may end / close it; the room keeps
+  ONE session and both see the same state. The relationship's **tutor** takes the spec's `tutor_role` and is the
+  **host** whoever started it. **Who may act** is one pure rule, `mayAct(session, actor, type)` (`engine.ts`, Lab
+  `CallActivities.kt`, parity-tested), which the engine applies to every action: the host alone restarts, resets a
+  round and swaps roles; **Next / Skip** are the host's or the person whose turn it is (`turnRoles`: the describer,
+  the asker, the speaker of the current line; both in building / information gap); each kind's own actions belong to
+  one role — only the guesser / answerer picks, only the asker asks / plays / reveals / marks, only the writer types;
+  building and filling the gap are for both. Someone in the call with no role yet (it was started while they were
+  away) takes one on their first action (`joinActivity`, also on rejoin). Every answer is **attributed** to who gave
+  it (`data.pick_by`, `results[].by`): the reveal says "✓ Jerome got it!" / "✗ Minghui picked 香蕉", and the summary
+  line too. Each side shows a big **role badge** (`roleBadge`: 🗣 You describe / 🤔 You guess, You ask / You
+  answer…) and, after a swap, "Roles swapped — now you guess" (`rolesSwappedNotice`). In a **solo** test call one
+  person holds both roles and a "viewing as A / B" switch shows either side. The UI shows a button only when the
+  engine would accept that action from me (`reduceActivity(…) !== null`), so screen and room never disagree.
+- **Describe & guess** — the describer sees the word, its pinyin / meaning and hint chips, never the choices; the
+  guesser picks from up to `DESCRIBE_OPTION_COUNT` (8): the spec's other items plus its same-category
+  `distractors`, never the answer twice. **Words you needed** (`wordsYouNeeded`): at a round's reveal and on the
+  summary, the answer then the hint words (reading + meaning from the spec's `glossary`), each with **+ Add as
+  card** (web `AddChunkModal`: top deck preselected, ⚡ Study it today when the word already exists; Lab: the same
+  add sheet); analytics `call.activity_word_add`, and `call.activity_start` carries the starter's `role`.
 - **Reconnect-safe** — the session lives in the room's storage (`activity`), comes back in
   `welcome.activity` after a reload / rejoin, and is written to D1 when it finishes, is closed or replaced,
   when someone leaves and when the call ends.

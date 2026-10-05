@@ -77,6 +77,11 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession
 import dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySpec
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
+import dev.jeromeswannack.chineselearning.lab.ui.study.AddChunkExisting
+import dev.jeromeswannack.chineselearning.lab.ui.study.AddChunkSheet
+import dev.jeromeswannack.chineselearning.lab.ui.study.Chunk
+import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
+import kotlinx.coroutines.launch
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -97,6 +102,12 @@ data class ActivityActions(
     /** Say a Chinese line on this device only (a dialogue line, a phrase, the answerer's replay). */
     val speak: (String) -> Unit = {},
     val feel: (ActivityFeel) -> Unit = {},
+    /** "Words you needed" → + Add as card: the same AddChunkSheet calls as chat "Save as flashcard" (decks in queue order). */
+    val cards: SentenceActions = SentenceActions(),
+    /** The deck names already holding a hanzi (non-empty → "⚡ Study it today" first instead of a duplicate). */
+    val decksHolding: suspend (String) -> List<String> = { emptyList() },
+    /** A word from "Words you needed" was added ([wordKind] target | hint, [where] round | summary) — analytics. */
+    val wordAdded: (wordKind: String, where: String) -> Unit = { _, _ -> },
 )
 
 /** The room the activity tile leaves at its top for the faces box in a top corner (render-only, like the web's CallTiles). */
@@ -109,7 +120,14 @@ private val Right = Palette.Good
 private val Wrong = Palette.Again
 
 /** Screenshots: render the tile as a solo player would after "Viewing as B" (null = the default). */
-data class ActivityUiSeed(val viewAs: String? = null, val pickerOpen: Boolean = false, val cellSheet: String? = null, val hostMenu: Boolean = false)
+data class ActivityUiSeed(
+    val viewAs: String? = null,
+    val pickerOpen: Boolean = false,
+    val cellSheet: String? = null,
+    val hostMenu: Boolean = false,
+    /** Show the "Roles swapped — now …" banner as if the roles had just swapped. */
+    val swapNotice: Boolean = false,
+)
 
 /**
  * The in-call activity on the stage (web components/calls/ActivityTile.tsx): the room's session,
@@ -139,6 +157,25 @@ fun ActivityTile(
         else -> "b"
     }
     val v = ActivityView(s, me, role, actions)
+
+    // "Roles swapped — now you guess": my role changed within the same session (never solo, never on first sight).
+    var swapNotice by remember { mutableStateOf(if (seed.swapNotice) CallActivities.rolesSwappedNotice(s.spec, role) else null) }
+    var lastRole by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val myRole = if (!solo && mine.isNotEmpty()) mine.first() else null
+    LaunchedEffect(s.sessionId, myRole) {
+        val prev = lastRole
+        lastRole = myRole?.let { s.sessionId to it }
+        if (myRole != null && prev != null && prev.first == s.sessionId && prev.second != myRole) {
+            swapNotice = CallActivities.rolesSwappedNotice(s.spec, myRole)
+            actions.feel(ActivityFeel.TICK)
+        }
+    }
+    LaunchedEffect(swapNotice) {
+        if (swapNotice != null && !seed.swapNotice) {
+            kotlinx.coroutines.delay(SWAP_NOTICE_MS)
+            swapNotice = null
+        }
+    }
 
     // Feel the reveals and the end (both devices), never on first sight.
     var seen by remember { mutableStateOf<String?>(null) }
@@ -174,6 +211,9 @@ fun ActivityTile(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    swapNotice?.let { SwapBanner(it) }
+                    // What I do, big: the badge for my role (solo: the role I'm viewing as); none for a stranger or at the end.
+                    if ((solo || mine.isNotEmpty()) && s.phase != ActivityPhases.DONE) RoleBadge(s.spec, role)
                     AnimatedContent(
                         targetState = Triple(s.sessionId, s.round, s.phase == ActivityPhases.DONE),
                         transitionSpec = { (fadeIn() + scaleIn(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow), initialScale = 0.96f)) togetherWith fadeOut() },
@@ -254,8 +294,8 @@ private fun ActivityHeader(v: ActivityView, solo: Boolean, onViewAs: (String) ->
             Text(progressLabel(s), color = Lab.colors.muted, fontSize = 11.sp, maxLines = 1)
         }
         if (score.scored > 0) Pill("✓ ${score.correct}/${score.scored}", if (score.correct > 0) Right.copy(alpha = 0.14f) else Lab.colors.faint, if (score.correct > 0) Right else Lab.colors.muted)
+        // My role is the big badge in the body; solo keeps the viewing-as switch here.
         if (solo) RoleSwitch(v, onViewAs)
-        else if (CallActivities.rolesOf(s, v.me).isNotEmpty()) Pill("You: ${s.spec.roleNames.of(v.role)}", Lab.colors.accentSoft, Lab.colors.accent, Modifier.widthIn(max = 150.dp))
         if (controls.isNotEmpty()) Box {
             HeaderButton("⋯", "Activity menu") { menu = true }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -298,6 +338,53 @@ private fun Pill(text: String, bg: Color, fg: Color, modifier: Modifier = Modifi
     )
 }
 
+// ------------------------------------------------------------------ role badge, swap banner
+
+/** How long "Roles swapped — now …" stays (web: ~4 s). */
+private const val SWAP_NOTICE_MS = 4_000L
+
+/** The icon in front of [CallActivities.roleBadge]: 🗣 You describe / 🤔 You guess… */
+internal fun roleBadgeIcon(kind: String, role: String): String = when (kind) {
+    ActivityKinds.DESCRIBE -> if (role == "a") "🗣" else "🤔"
+    ActivityKinds.QUIZ -> if (role == "a") "🎤" else "✋"
+    ActivityKinds.DICTATION -> if (role == "a") "📢" else "✍️"
+    ActivityKinds.ROLEPLAY -> "🎭"
+    ActivityKinds.INFO_GAP -> "🧩"
+    ActivityKinds.BUILD -> "🧱"
+    else -> "🎲"
+}
+
+/** One colour per role, so "you describe" and "you guess" never look alike. */
+private fun roleColor(role: String): Color = if (role == "a") Palette.Hard else Palette.Secondary
+
+/** The big "what I do" pill at the top of the body (web `.activity-role-badge`). */
+@Composable
+private fun RoleBadge(spec: ActivitySpec, role: String) {
+    val c = roleColor(role)
+    Row(
+        Modifier.clip(RoundedCornerShape(999.dp)).background(c).padding(horizontal = 20.dp, vertical = 10.dp).testTag("activity-role-badge"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(roleBadgeIcon(spec.kind, role), fontSize = 24.sp)
+        Text(CallActivities.roleBadge(spec, role), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** "Roles swapped — now you guess", for a few seconds after the host swaps. */
+@Composable
+private fun SwapBanner(text: String) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.accentSoft).border(1.5.dp, Lab.colors.accent, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp).testTag("activity-swap-banner"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("⇄", color = Lab.colors.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(text, color = Lab.colors.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
 // ------------------------------------------------------------------ shared pieces
 
 @Composable
@@ -326,7 +413,7 @@ private fun Card(modifier: Modifier = Modifier, border: Color = Lab.colors.cardB
 
 /** A big choice button: neutral, picked (accent), right (green) or wrong (red). */
 @Composable
-private fun OptionButton(label: String, state: OptionState, enabled: Boolean, modifier: Modifier = Modifier, big: Boolean = true, onClick: () -> Unit) {
+private fun OptionButton(label: String, state: OptionState, enabled: Boolean, modifier: Modifier = Modifier, big: Boolean = true, eight: Boolean = false, onClick: () -> Unit) {
     val bg by animateColorAsState(
         when (state) {
             OptionState.RIGHT -> Right.copy(alpha = 0.16f)
@@ -344,26 +431,26 @@ private fun OptionButton(label: String, state: OptionState, enabled: Boolean, mo
     }
     val pop by animateFloatAsState(if (state == OptionState.RIGHT || state == OptionState.PICKED) 1.03f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "pop")
     Box(
-        modifier.scale(pop).heightIn(min = if (big) 72.dp else 52.dp).clip(RoundedCornerShape(16.dp)).background(bg)
+        modifier.scale(pop).heightIn(min = if (big) 72.dp else if (eight) 60.dp else 52.dp).clip(RoundedCornerShape(16.dp)).background(bg)
             .border(if (state == OptionState.NONE) 1.dp else 2.dp, border, RoundedCornerShape(16.dp))
             .bouncyClickable(enabled = enabled, onClick = onClick).padding(horizontal = 10.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         val mark = when (state) { OptionState.RIGHT -> "✓ "; OptionState.WRONG -> "✗ "; else -> "" }
-        Text(mark + label, color = Lab.colors.ink, fontSize = if (big) 26.sp else 17.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+        Text(mark + label, color = Lab.colors.ink, fontSize = if (big) 26.sp else if (eight) 23.sp else 17.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
     }
 }
 
 private enum class OptionState { NONE, PICKED, RIGHT, WRONG }
 
 @Composable
-private fun OptionGrid(options: List<String>, big: Boolean, state: (Int, String) -> OptionState, enabled: Boolean, onPick: (Int, String) -> Unit) {
+private fun OptionGrid(options: List<String>, big: Boolean, state: (Int, String) -> OptionState, enabled: Boolean, eight: Boolean = false, onPick: (Int, String) -> Unit) {
     // Two columns (four options of a describe round, a measure-word quiz); one when the labels are long.
     val cols = if (options.size >= 3 && options.all { it.length <= 6 }) 2 else 1
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         options.withIndex().chunked(cols).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { (i, o) -> OptionButton(o, state(i, o), enabled, Modifier.weight(1f), big) { onPick(i, o) } }
+                row.forEach { (i, o) -> OptionButton(o, state(i, o), enabled, Modifier.weight(1f), big, eight) { onPick(i, o) } }
                 repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
@@ -389,7 +476,17 @@ private fun SpeakButton(text: String, speak: (String) -> Unit, label: String = "
 @Composable
 private fun NextButton(v: ActivityView, label: String = "Next ▸") {
     if (v.can(ActivityAction.Next)) PrimaryPill(label, Modifier.height(52.dp).testTag("activity-next")) { v.act(ActivityAction.Next) }
-    else if (v.phase == ActivityPhases.REVEAL) Waiting("${firstName(v.s.names[v.s.host] ?: "Your tutor")} moves on when you’re both ready")
+    else if (v.phase == ActivityPhases.REVEAL) Waiting("${nextPressers(v.s, v.me)} moves on when you’re both ready")
+}
+
+/**
+ * Who may press Next besides me (mayAct: the host or whoever's turn it is), by first name —
+ * "Jerome", "Minghui or Jerome"; "Your partner" when nobody else is named.
+ */
+internal fun nextPressers(s: ActivitySession, me: String): String {
+    val people = (listOf(s.host) + CallActivities.turnRoles(s).map { s.roles.of(it) })
+        .filter { it.isNotEmpty() && it != me && CallActivities.mayAct(s, it, "next") }.distinct()
+    return people.mapNotNull { s.names[it]?.let(::firstName) }.joinToString(" or ").ifEmpty { "Your partner" }
 }
 
 @Composable
@@ -407,18 +504,25 @@ private fun Verdict(correct: Boolean?, right: String, wrong: String) {
 private fun DescribeBody(v: ActivityView) {
     val item = v.spec.itemList.getOrNull(v.s.round) ?: return
     val options = v.s.data.options.orEmpty()
+    // The describer never sees the options (not while describing, not at the reveal) — only the guesser picks.
+    val describer = v.role == "a"
+    // Eight options: a tighter grid so four rows fit a folded Pixel.
+    val big = options.size <= 4
     if (v.phase == ActivityPhases.REVEAL) {
         Card(border = if (v.result?.correct == true) Right else Wrong) {
             Text(item.emoji.orEmpty(), fontSize = 56.sp)
             Text(item.hanzi.orEmpty(), color = Lab.colors.ink, fontSize = 34.sp, fontWeight = FontWeight.Bold)
             Text("${item.pinyin} · ${item.english}", color = Lab.colors.muted, fontSize = 15.sp)
         }
-        Verdict(v.result?.correct, "${v.name("b")} got it!", "${v.name("b")} picked ${v.s.data.pick}")
-        OptionGrid(options, big = true, state = { _, o -> if (o == item.hanzi) OptionState.RIGHT else if (o == v.s.data.pick) OptionState.WRONG else OptionState.NONE }, enabled = false) { _, _ -> }
+        // The verdict names whoever PICKED (data.pick_by), never the role.
+        val picker = v.s.data.pickBy?.let { v.s.names[it] }?.let(::firstName) ?: v.name("b")
+        Verdict(v.result?.correct, "$picker got it!", "$picker picked ${v.s.data.pick}")
+        if (!describer) OptionGrid(options, big = big, state = { _, o -> if (o == item.hanzi) OptionState.RIGHT else if (o == v.s.data.pick) OptionState.WRONG else OptionState.NONE }, enabled = false, eight = !big) { _, _ -> }
+        WordsNeeded(v, CallActivities.wordsYouNeeded(v.s, v.s.round), where = "round")
         Actions { NextButton(v) }
         return
     }
-    if (v.role == "a") {
+    if (describer) {
         Card {
             Text(item.emoji.orEmpty(), fontSize = 72.sp)
             Text(item.hanzi.orEmpty(), color = Lab.colors.ink, fontSize = 38.sp, fontWeight = FontWeight.Bold)
@@ -434,10 +538,60 @@ private fun DescribeBody(v: ActivityView) {
                 }
             }
         }
-        Waiting("${v.otherName().replaceFirstChar { it.uppercase() }} is guessing…")
+        Waiting("${v.otherName().replaceFirstChar { it.uppercase() }} is guessing from ${options.size}…")
     } else {
         Hint("Listen to ${v.name("a")}’s description and pick")
-        OptionGrid(options, big = true, state = { _, _ -> OptionState.NONE }, enabled = v.can(ActivityAction.Pick(options.firstOrNull() ?: ""))) { _, o -> v.act(ActivityAction.Pick(o)) }
+        OptionGrid(options, big = big, state = { _, _ -> OptionState.NONE }, enabled = v.can(ActivityAction.Pick(options.firstOrNull() ?: "")), eight = !big) { _, o -> v.act(ActivityAction.Pick(o)) }
+    }
+}
+
+/**
+ * "Words you needed" (web: under a describe round's verdict and on the summary): the answer, then
+ * the hint words — hanzi · pinyin · english — each with + Add as card (the shared AddChunkSheet:
+ * deck chips with the top of the queue preselected, ⚡ Study it today when he already has it).
+ */
+@Composable
+private fun WordsNeeded(v: ActivityView, words: List<CallActivities.NeededWord>, where: String) {
+    if (words.isEmpty()) return
+    var adding by remember { mutableStateOf<CallActivities.NeededWord?>(null) }
+    var existing by remember { mutableStateOf<List<String>>(emptyList()) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    Card(Modifier.testTag("activity-words-needed")) {
+        Text("Words you needed", color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth())
+        words.forEach { w ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(w.hanzi, color = Lab.colors.ink, fontSize = if (w.kind == "target") 20.sp else 18.sp, fontWeight = if (w.kind == "target") FontWeight.Bold else FontWeight.Medium)
+                        if (w.pinyin.isNotEmpty()) Text(w.pinyin, color = Lab.colors.accent, fontSize = 14.sp)
+                    }
+                    if (w.english.isNotEmpty()) Text(w.english, color = Lab.colors.muted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Text(
+                    "+ Add as card", color = Lab.colors.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.accentSoft)
+                        .bouncyClickable {
+                            v.actions.feel(ActivityFeel.TICK)
+                            scope.launch {
+                                existing = runCatching { v.actions.decksHolding(w.hanzi) }.getOrDefault(emptyList())
+                                adding = w
+                            }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 12.dp).testTag("add-word-${w.hanzi}"),
+                )
+            }
+        }
+    }
+    adding?.let { w ->
+        AddChunkSheet(
+            Chunk(w.hanzi, w.pinyin, w.english),
+            preferredDeck = "",
+            actions = v.actions.cards,
+            onDismiss = { adding = null },
+            bumpSource = "other",
+            existing = if (existing.isEmpty()) null else AddChunkExisting(existing),
+            onAdded = { v.actions.wordAdded(w.kind, where) },
+        )
     }
 }
 
@@ -687,7 +841,7 @@ private fun QuizBody(v: ActivityView) {
             }
             if (asker) {
                 OptionGrid(q.options, big = false, state = { i, _ -> if (i == pick) OptionState.PICKED else OptionState.NONE }, enabled = false) { _, _ -> }
-                if (pick != null) Text("${v.name("b")} picked: ${q.options.getOrNull(pick).orEmpty()}", color = Lab.colors.accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                if (pick != null) Text("${v.s.data.pickBy?.let { v.s.names[it] }?.let(::firstName) ?: v.name("b")} picked: ${q.options.getOrNull(pick).orEmpty()}", color = Lab.colors.accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 else Waiting("Waiting for ${v.otherName()} to pick…")
                 if (v.can(ActivityAction.Reveal)) PrimaryPill("Reveal", Modifier.height(52.dp)) { v.act(ActivityAction.Reveal) }
             } else {
@@ -819,6 +973,7 @@ private fun DoneBody(v: ActivityView) {
     Text("Well done!", color = Lab.colors.ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
     if (sum.scored > 0) Text("${sum.correct} / ${sum.scored} right", color = Right, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
     Text("${sum.played} of ${sum.totalRounds} ${if (v.spec.kind == ActivityKinds.ROLEPLAY) "lines" else "rounds"} played", color = Lab.colors.muted, fontSize = 14.sp)
+    WordsNeeded(v, CallActivities.wordsYouNeeded(v.s), where = "summary")
     if (sum.lines.isNotEmpty()) Card {
         sum.lines.take(24).forEach { l ->
             Text(
@@ -851,7 +1006,7 @@ fun ActivityPickerSheet(running: ActivitySession?, onPick: (String) -> Unit) {
         if (running != null && running.phase != ActivityPhases.DONE) {
             InlineNotice("“${running.spec.title}” is running. Starting another ends the current one (its result is kept).", kind = NoticeKind.Info, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         }
-        Hint("Two-person exercises you play together, live. Roles are set for you — the tutor leads.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        Hint("Two-person exercises you play together, live. Either of you can start one; roles are set for you, and the tutor can restart or swap them.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         for (kind in ActivityKinds.ALL) {
             val specs = dev.jeromeswannack.chineselearning.lab.core.calls.ActivityCatalogue.ALL.filter { it.kind == kind }
             if (specs.isEmpty()) continue

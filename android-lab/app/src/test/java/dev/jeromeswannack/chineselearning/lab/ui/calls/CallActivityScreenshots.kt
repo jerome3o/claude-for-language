@@ -82,6 +82,18 @@ class CallActivityScreenshots : LabScreenshotTest() {
     @Test fun describeTutor() = shot("lab-act-02-describe-tutor", T, describe)
     @Test fun describeReveal() = shot("lab-act-03-describe-reveal-student", S, describeWrong)
 
+    /** The guesser's reveal: the eight options marked, the verdict by name, the words the round needed. */
+    @Test fun describeRevealGuesser() = shot("lab-act-28-describe-reveal-guesser", T, describeWrong)
+
+    /** Two rounds played (the describer pressed Next), then ended: "Words you needed" from every round. */
+    private val describeDone = describeWrong.byRole("a", ActivityAction.Next).let { s -> s.byRole("b", ActivityAction.Pick(s.spec.itemList[s.round].hanzi!!)) }
+        .byRole("a", ActivityAction.Next).by(S, ActivityAction.Finish)
+
+    @Test fun describeDoneWords() = shot("lab-act-29-describe-done-words", S, describeDone)
+
+    /** The tutor swapped roles: the student now guesses — the banner and the new badge. */
+    @Test fun swapBanner() = shot("lab-act-30-swap-banner-student", S, describe.by(T, ActivityAction.SwapRoles), seed = ActivityUiSeed(swapNotice = true))
+
     // ---- information gap (tutor A, student B)
     private val gap = start("info-gap-weekend-1")
         .byRole("a", ActivityAction.Fill("0:1", "去超市"))
