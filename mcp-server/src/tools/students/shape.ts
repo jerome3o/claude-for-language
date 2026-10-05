@@ -98,6 +98,8 @@ export function compactStudentRow(o: StudentOverview, apiBase: string, needsAtte
     pills: o.pills,
     needs_attention: o.needs_attention.slice(0, needsAttentionLimit).map((i) => compactNeedsAttention(i, apiBase)),
     homework: {
+      /** One-off homework only — the headline (long-term decks never count). */
+      one_off: o.homework.one_off ?? null,
       percent: o.homework.percent,
       cards_total: o.homework.cards_total,
       cards_started: o.homework.cards_started,
@@ -143,6 +145,8 @@ export function compactStudentOverview(o: StudentOverview, apiBase: string) {
     ...compactStudentRow(o, apiBase, Number.MAX_SAFE_INTEGER),
     joined_via_invite: o.joined_via_invite,
     homework: {
+      /** One-off homework only — the headline (long-term decks never count). */
+      one_off: o.homework.one_off ?? null,
       percent: o.homework.percent,
       cards_total: o.homework.cards_total,
       cards_started: o.homework.cards_started,
@@ -153,6 +157,8 @@ export function compactStudentOverview(o: StudentOverview, apiBase: string) {
         shared_deck_id: d.shared_deck_id,
         name: d.source_deck_name,
         student_deck_id: d.target_deck_id,
+        mode: d.mode ?? null,
+        long_term: d.long_term ?? true,
         shared_at: d.shared_at,
         cards_total: d.cards_total,
         cards_started: d.cards_started,

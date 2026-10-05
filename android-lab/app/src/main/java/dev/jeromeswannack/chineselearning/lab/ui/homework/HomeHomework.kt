@@ -93,7 +93,7 @@ data class HomeHomeworkUi(
 )
 
 class HomeHomeworkActions(
-    /** A row's web path (the pass, the deck, /lessons). */
+    /** A row's web path (the pass, /lessons). */
     val onOpen: (String) -> Unit = {},
     val onAll: () -> Unit = {},
     val onMessage: (HomeHomeworkUi) -> Unit = {},
@@ -251,30 +251,19 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
         val (assignments, events) = input.homework ?: (emptyList<HomeworkAssignment>() to emptyList())
         val todo = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, Homework.localDate())).todo
         val p = pick(input.rel, input.sources, input.notifications)
+        // Lessons sent for long-term review (fsrs, or before assignments existed). Long-term DECKS are
+        // not homework rows any more (docs/HOMEWORK.md §11): they are decks in the queue ("Next up",
+        // the Decks tab) — web HomeworkHomeCard's useLongTerm.
         val longTerm = ArrayList<LongTermHomework>()
-        assignments.filter { it.mode == "fsrs" && it.status == "active" && (it.kind == "deck" || it.kind == "lesson") }
-            .forEach { longTerm += LongTermHomework(it.kind, it.target_id, it.title, it.tutor_name, it.created_at, null, null) }
-        when (val item = p?.item) {
-            is HwItem.Deck -> if (assignments.none { it.target_id == item.deckId }) longTerm += LongTermHomework("deck", item.deckId, item.name, p.tutorName, item.sentAt, null, null)
-            is HwItem.Lesson -> if (assignments.none { it.target_id == item.lessonId }) longTerm += LongTermHomework("lesson", item.lessonId, item.title, p.tutorName, item.sentAt, null, null)
-            null -> {}
-        }
-        val deckIds = longTerm.filter { it.kind == "deck" }.mapTo(HashSet()) { it.targetId }
-        val withMet = if (deckIds.isEmpty()) longTerm else {
-            val dao = app.repo.dao
-            val cards = dao.cards().filter { it.deckId in deckIds }
-            val notes = dao.allNotes().filter { it.deckId in deckIds }
-            longTerm.map { lt ->
-                if (lt.kind != "deck") return@map lt
-                val noteIds = notes.filter { it.deckId == lt.targetId }.map { it.id }
-                if (noteIds.isEmpty()) return@map lt // not on this phone yet
-                val (met, total) = HomeHomework.wordsMet(cards.filter { it.deckId == lt.targetId }.map { it.noteId to it.queue }, noteIds)
-                lt.copy(met = met, total = total)
-            }
+        assignments.filter { it.mode == "fsrs" && it.status == "active" && it.kind == "lesson" }
+            .forEach { longTerm += LongTermHomework("lesson", it.target_id, it.title, it.tutor_name, it.created_at, null, null) }
+        val item = p?.item
+        if (item is HwItem.Lesson && assignments.none { it.target_id == item.lessonId }) {
+            longTerm += LongTermHomework("lesson", item.lessonId, item.title, p?.tutorName, item.sentAt, null, null)
         }
         val unread = p?.unreadMessage
         return HomeHomeworkUi(
-            card = HomeHomework.build(todo, withMet, unreadFrom = if (unread != null) p.tutorName else null),
+            card = HomeHomework.build(todo, longTerm, unreadFrom = if (unread != null) p.tutorName else null),
             unread = unread,
             unreadRelId = p?.relationshipId,
             unreadFrom = p?.tutorName,

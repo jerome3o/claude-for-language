@@ -120,8 +120,21 @@ export function StudentCard({ overview, onSendHomework, recent }: { overview: St
             </Link>
           )
         )}
-        {pills.homework_percent != null && (
-          <Link to={`/connections/${relId}`} className="td-pill td-pill-homework">Homework {pills.homework_percent}%</Link>
+        {/* One-off homework only — a long-term deck is not "homework progress" (docs/HOMEWORK.md §11) */}
+        {pills.homework ? (
+          pills.homework.state !== 'none' && (
+            <Link
+              to={`/connections/${relId}#homework`}
+              className={`td-pill td-pill-homework${pills.homework.state === 'all_done' ? ' td-pill-homework-done' : pills.homework.state === 'overdue' ? ' td-pill-homework-overdue' : ''}`}
+              data-testid="td-pill-homework"
+            >
+              {pills.homework.pill}
+            </Link>
+          )
+        ) : (
+          pills.homework_percent != null && (
+            <Link to={`/connections/${relId}`} className="td-pill td-pill-homework">Homework {pills.homework_percent}%</Link>
+          )
         )}
         <BudgetPill overview={overview} relId={relId} />
         {overview.has_profile === false && <ProfileHint relId={relId} />}

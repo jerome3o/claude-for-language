@@ -181,7 +181,13 @@ class HomeworkLibraryViewModel(private val app: LabApp, relId: String?, private 
                     val today = Homework.localDate()
                     source.patch(item.key) { row ->
                         val complete = row.status == HomeworkLibrary.COMPLETED
-                        row.copy(due_date = date, status = HomeworkLibrary.libraryStatus(complete, row.status == HomeworkLibrary.IN_PROGRESS || row.percent > 0, date, today))
+                        row.copy(
+                            due_date = date,
+                            status = HomeworkLibrary.libraryStatus(
+                                complete, row.status == HomeworkLibrary.IN_PROGRESS || row.percent > 0, date, today,
+                                longTerm = row.status == HomeworkLibrary.LONG_TERM,
+                            ),
+                        )
                     }
                     say("${item.title} is now due ${Homework.shortDay(date)}.")
                     invalidate(item.relationship_id)

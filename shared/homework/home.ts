@@ -9,10 +9,12 @@
  *  1. one-off / both assignments still to do (the pass): overdue first, then by due date —
  *     `sortHomeworkItems().todo`. A tap opens the pass `/homework/:id` (deck: the word pass;
  *     lesson / reader: the regular player inside the pass, which records the `done` event).
- *  2. long-term homework (spaced repetition only): a tutor's deck with words not met yet →
- *     the deck page `/decks/:id`; a lesson the tutor sent outside an assignment → `/lessons`
+ *  2. a lesson the tutor sent outside an assignment (or for long-term review only) → `/lessons`
  *     (it comes up in the study session). Newest first. Anything already covered by a row of
  *     group 1 (same target) is left out.
+ *
+ * A long-term (fsrs-only) DECK is not a homework row any more (docs/HOMEWORK.md §11): it is a deck
+ * in the student's queue — Home's "Next up" line and the Decks tab — not an item with an end.
  */
 
 import type { DueLabel, DueTone } from './due';
@@ -135,7 +137,7 @@ export function homeHomework(
 
   const seen = new Set<string>();
   const extra = longTerm
-    .filter((l) => !covered.has(l.target_id) && longTermActive(l))
+    .filter((l) => l.kind !== 'deck' && !covered.has(l.target_id) && longTermActive(l))
     .slice()
     .sort((a, b) => (a.sent_at < b.sent_at ? 1 : a.sent_at > b.sent_at ? -1 : 0));
   for (const l of extra) {

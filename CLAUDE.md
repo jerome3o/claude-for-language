@@ -131,7 +131,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── text/              # numberHanzi.ts: number ↔ hanzi normalisation (transcripts, typed answers)
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
-│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan, Home's compact card rows (home.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts) — pure, unit-tested
+│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan, Home's compact card rows (home.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts), the one-off headline + long-term decks (summary.ts) — pure, unit-tested
 │   ├── tutor-notes/       # "Notes from your tutor": new / earlier merge, Home line, the practice rule (a rating counts only when the card is due) — parity-tested by the Lab app
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
@@ -1457,18 +1457,21 @@ the recent reviews; the deck page's History modal links to it. Shared list/threa
 The tutor's `/connections` becomes a **Students dashboard** once the account has an active
 student (`frontend/src/components/tutor/StudentsDashboard.tsx`): one card per student with a
 status line (studied today / streak / today's accuracy), three pills (words struggling = the
-insights `struggling` list over the last 7 days, 🎤 recordings not yet marked, Homework %), and
+insights `struggling` list over the last 7 days, 🎤 recordings not yet marked, the one-off Homework headline), and
 Message / Send homework. A student with no review events gets the **Getting set up** card (signed
 in · homework received · installed the app · first study session) — the same checklist replaces
 the empty progress page on their student page. Pending invite links show as muted rows (Resend /
 Revoke); the tutor's shared decks list under "My homework decks". The student page
 (`ConnectionDetailPage`) is ordered status → Message / Send homework → Needs attention → Homework
-(shared decks with progress bars + the student's lessons) → Conversations → Activity; Remove
+(the one-off headline, one-off items, the student's lessons) → Long-term learning (a quieter section: the daily
+budget, the long-term decks with words met / ~days / queue position — not homework, docs/HOMEWORK.md §11) → Conversations → Activity; Remove
 connection and the student's own shared decks live under ⋯. **Message** opens the most recent
 conversation directly (no title modal; a fresh one comes from the chat's own `?new=1` / `chat/new`). Sharing a deck asks for confirmation, and a deck already shared offers **Update their copy**
 (new notes only, progress kept). Pure aggregation lives in `services/tutor-dashboard.ts`
-(unit-tested); SQL in `db/tutor-dashboard-queries.ts`. Homework % = mastered cards + ½ started
-cards + completed lessons, over all cards + lessons the tutor sent.
+(unit-tested); SQL in `db/tutor-dashboard-queries.ts`. **The homework headline counts ONE-OFF homework only**
+(`summarizeOneOffHomework`, `shared/homework/summary.ts`; docs/HOMEWORK.md §11): the pass of one_off / both
+assignments, open + done this week — "✓ All done this week" / "2 of 3 done" / "1 overdue · …" / "No homework set"
+(`pills.homework`, `homework.one_off`; `homework_percent` = the same as 0..100). Long-term decks never count.
 The device reports itself during sync (`services/clientState.ts`, throttled to every 30 min):
 `display-mode: standalone` → `pwa`, the Capacitor shell → `android`, else `browser`, plus the
 cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_count`,
@@ -1588,6 +1591,7 @@ pure rules `shared/homework/library.ts` + `link.ts`; docs/HOMEWORK.md §8–10).
 sent (deck copy / lesson / reader / link) built by `buildHomeworkLibrary` from the share rows + the assignments on the same
 copy: sent, due, kind, % (pass words / words met / lesson completed / reader read / link done) and status Completed (green) ·
 In progress (blue, amber when due today / tomorrow) · Overdue (red) · Not started (grey) (`libraryStatus`, `statusTone`).
+A deck sent for long-term review only is **In long-term review** (grey, no %; docs/HOMEWORK.md §11).
 Web: `/connections/:relId/homework` (one student) and `/homework-library` (all; More → Teaching, Students dashboard) —
 `pages/tutor/HomeworkLibraryPage.tsx`, `components/tutor/library/` (filters, row actions Open · Edit · Update their copy ·
 Change due date · Remove); **Most recent homework** (`mostRecentHomework`: newest + whatever was sent within 30 min, max 3)
@@ -1869,7 +1873,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 
 | Tool | What it does |
 |------|--------------|
-| `list_students` | Every student card from `/api/tutor/dashboard` (status, streak, pills, needs-attention words, homework %, setup checklist for new students, `last_conversation_id`) + pending invite links + the tutor's homework decks, plus `my_tutors` / pending requests from `/api/relationships` |
+| `list_students` | Every student card from `/api/tutor/dashboard` (status, streak, pills, needs-attention words, the one-off homework headline, setup checklist for new students, `last_conversation_id`) + pending invite links + the tutor's homework decks, plus `my_tutors` / pending requests from `/api/relationships` |
 | `get_student_overview` | One student's full card (`/relationships/:relId/overview`): all needs-attention words, homework decks and lessons with progress, setup/install state, recent days, `study_budget` (new words + extra cards a day, who set it) and `student_profile` (the tutor's private note) |
 | `set_student_study_budget` | Set the student's ONE daily new-card budget (`new_cards_per_day` / `secondary_cards_per_day`, null = default 3 + 6; `PUT …/student-study-budget`) — the student gets a chat message and sees "Set by <tutor>" in Settings; `list_students` rows carry `study_budget` too |
 | `get_student_profile` / `update_student_profile` | The tutor's private profile of the student (`GET|PUT …/student-profile`): what kind of learner, what homework suits them; update changes only the fields passed. The server `instructions` tell Claude to read it before making anything for a student and never quote it to them |

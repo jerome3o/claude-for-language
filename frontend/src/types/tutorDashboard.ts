@@ -3,6 +3,7 @@
  * worker/src/services/tutor-dashboard.ts and routes/tutor-dashboard.ts.
  */
 import type { StudyBudgetInfo } from '@shared/decks';
+import type { HomeworkMode, OneOffSummary } from '@shared/homework';
 
 import type { UserSummary, RelationshipRole } from '../types';
 import type { InsightNoteRef } from './insights';
@@ -54,6 +55,10 @@ export interface HomeworkDeck {
   /** 1-based place in the student's deck queue (first = studied first); null when the copy is gone. */
   queue_position: number | null;
   queue_total: number;
+  /** How it was sent; null = before assignments existed (missing on older servers). */
+  mode?: HomeworkMode | null;
+  /** Part of the student's long-term learning (anything but a one-off-only copy); missing = true. */
+  long_term?: boolean;
 }
 
 export interface SharedDeckMoveResult {
@@ -74,7 +79,10 @@ export interface HomeworkLesson {
 }
 
 export interface HomeworkSummary {
+  /** One-off homework only (docs/HOMEWORK.md §11). */
   percent: number | null;
+  /** The one-off headline; missing on older servers. */
+  one_off?: OneOffSummary;
   cards_total: number;
   cards_started: number;
   cards_mastered: number;
@@ -128,7 +136,10 @@ export interface StudentOverview {
     recordings_to_hear: number;
     /** Of those, the ones in the "Needs your ear" queue (shared/recordings/queue.ts); missing on older servers. */
     recordings_need_ear?: number;
+    /** One-off homework only (= homework.one_off.percent); older clients read it. */
     homework_percent: number | null;
+    /** The one-off headline (shared/homework/summary.ts); missing on older servers. */
+    homework?: OneOffSummary;
     /** Flagged cards waiting for a reply */
     flags_open: number;
   };

@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -111,7 +112,7 @@ data class StudentPageUi(
     val lessonNotes: (@Composable () -> Unit)? = null,
     /** The tutor's private student profile (StudentProfileSection) — rendered just before the lesson notes. */
     val studentProfile: (@Composable () -> Unit)? = null,
-    /** "Daily new cards" — the student's budget row (DailyBudgetRow), rendered just before Homework. */
+    /** "Daily new cards" — the student's budget row (DailyBudgetRow), rendered in "Long-term learning". */
     val dailyBudget: (@Composable () -> Unit)? = null,
     /** "Most recent homework" (docs/HOMEWORK.md §9) — the first thing on the page. */
     val recentHomework: (@Composable () -> Unit)? = null,
@@ -293,14 +294,30 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
     item(key = "links") { StudentNavLinks(ui.relId, o?.pills?.recordings_to_hear ?: 0, actions.open, needEar = o?.pills?.recordings_need_ear ?: 0) }
 }
 
+@Composable
+private fun DeckRowFor(ui: StudentPageUi, actions: StudentPageActions, now: Instant, name: String, d: HomeworkDeckDto, quiet: Boolean) {
+    HomeworkDeckRow(
+        ui.relId, d, ui.updatingShare == d.shared_deck_id, { to -> actions.moveShare(d, to) }, { actions.updateShare(d) }, actions.open, now,
+        removeLabel = HomeworkRemoval.removalMenuLabel(HomeworkRemoval.DECK, name),
+        onRemove = { actions.removeHomework(RemovalTarget(HomeworkRemoval.DECK, d.shared_deck_id, d.source_deck_name)) },
+        onCheck = if (d.target_deck_name != null) ({ actions.checkDeck(d) }) else null,
+        quiet = quiet,
+    )
+}
+
 private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, showStudentDecks: Boolean, name: String) {
     val o = ui.overview.data
     ui.studentProfile?.let { section -> item(key = "student-profile") { section() } }
     ui.lessonNotes?.let { section -> item(key = "lesson-notes") { section() } }
-    ui.dailyBudget?.let { row -> item(key = "daily-budget") { row() } }
+    // Homework = ONE-OFF homework only: the headline, the dated items, decks sent one-off only,
+    // lessons and readers. Long-term decks get their own quieter section below (docs/HOMEWORK.md §11).
+    val decks = o?.homework?.decks.orEmpty()
+    val oneOffDecks = decks.filter { !it.isLongTerm }
+    val longTermDecks = decks.filter { it.isLongTerm }
     item(key = "homework") {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             TeachSectionTitle("Homework")
+            HomeworkHeadline(o?.homework?.one_off)
             val hw = ui.homework.data
             if (hw != null) AssignedHomeworkCard(hw, o?.student?.name ?: o?.student?.email ?: "the student", actions.moveDate, actions.cancelAssignment)
             else if (ui.homework.error != null && !ui.homework.offline) MutedLine("Could not load the homework plan")
@@ -311,16 +328,8 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
             }
         }
     }
-    o?.homework?.decks?.forEach { d ->
-        item(key = "deck-${d.shared_deck_id}") {
-            HomeworkDeckRow(
-                ui.relId, d, ui.updatingShare == d.shared_deck_id, { to -> actions.moveShare(d, to) }, { actions.updateShare(d) }, actions.open, now,
-                removeLabel = HomeworkRemoval.removalMenuLabel(HomeworkRemoval.DECK, name),
-                onRemove = { actions.removeHomework(RemovalTarget(HomeworkRemoval.DECK, d.shared_deck_id, d.source_deck_name)) },
-                onCheck = if (d.target_deck_name != null) ({ actions.checkDeck(d) }) else null,
-            )
-        }
-    }
+    // Decks sent one-off only: their copy lives in the pass, not in long-term review.
+    oneOffDecks.forEach { d -> item(key = "deck-${d.shared_deck_id}") { DeckRowFor(ui, actions, now, name, d, quiet = false) } }
     item(key = "lessons") {
         StudentLessonsCard(
             ui.relId, ui.lessons.data, ui.lessons.error, actions.open, now,
@@ -332,6 +341,20 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
         SharedReadersCard(ui.readers.data, HomeworkRemoval.removalMenuLabel(HomeworkRemoval.READER, name), { r ->
             actions.removeHomework(RemovalTarget(HomeworkRemoval.READER, r.id, r.title, copyGone = r.target_deleted))
         }, now)
+    }
+    // Long-term learning: decks in the student's queue — their pace, not homework with an end.
+    // Always shown once loaded, like the web: the budget row must stay reachable before any deck is sent.
+    if (o != null) {
+        item(key = "long-term") {
+            Column(Modifier.testTag("long-term-learning"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TeachSectionTitle("Long-term learning")
+                MutedLine(longTermIntro(name))
+                // The student's ONE daily new-card budget — what decides how fast these decks are introduced.
+                ui.dailyBudget?.invoke()
+                if (longTermDecks.isEmpty()) MutedLine("No long-term decks yet — a deck sent as Long-term or Both lands here.")
+            }
+        }
+        longTermDecks.forEach { d -> item(key = "deck-${d.shared_deck_id}") { DeckRowFor(ui, actions, now, name, d, quiet = true) } }
     }
     if (showStudentDecks) item(key = "student-decks") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
