@@ -79,6 +79,33 @@ describe('planRoom', () => {
   it('an ended room does nothing', () => {
     expect(planRoom(base({ ended: true, sockets: [{ userId: 'a', seen: NOW, open: true }] }))).toMatchObject({ end: false, wakeAt: null, present: [] });
   });
+
+  it('5 Oct: leave, reconnect after a crash, leave for good — the call ends 10 min after the LAST leave, however often the room is asked', () => {
+    // Both pages crashed and sent "leave" at once, came back seconds later, then left for good.
+    let plan = planRoom(base({ everJoined: true, sockets: [{ userId: 'a', seen: NOW, open: false, left: true }, { userId: 'b', seen: NOW, open: false, left: true }] }));
+    expect(plan).toMatchObject({ end: false, emptySince: NOW, wakeAt: NOW + EMPTY_CALL_END_MS });
+    const back = NOW + 7_000;
+    plan = planRoom(base({ now: back, everJoined: true, emptySince: plan.emptySince, sockets: [{ userId: 'a', seen: back, open: true }, { userId: 'b', seen: back, open: true }] }));
+    expect(plan).toMatchObject({ end: false, emptySince: null, present: ['a', 'b'] });
+    const gone = NOW + 30 * 60_000;
+    plan = planRoom(base({ now: gone, everJoined: true, emptySince: plan.emptySince, sockets: [] }));
+    expect(plan).toMatchObject({ end: false, emptySince: gone, wakeAt: gone + EMPTY_CALL_END_MS });
+    // The list endpoint asking every few seconds never moves the deadline.
+    for (const dt of [5_000, 60_000, EMPTY_CALL_END_MS - 1]) {
+      expect(planRoom(base({ now: gone + dt, everJoined: true, emptySince: plan.emptySince }))).toMatchObject({ end: false, wakeAt: gone + EMPTY_CALL_END_MS });
+    }
+    expect(planRoom(base({ now: gone + EMPTY_CALL_END_MS, everJoined: true, emptySince: plan.emptySince }))).toMatchObject({ end: true, wakeAt: null });
+  });
+
+  it('stored times that are not usable count from now — never a NaN deadline or alarm (the room would never end the call)', () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, NOW + 3600_000, 'x' as unknown as number]) {
+      const plan = planRoom(base({ everJoined: true, emptySince: bad }));
+      expect(plan).toMatchObject({ end: false, emptySince: NOW, wakeAt: NOW + EMPTY_CALL_END_MS });
+      const unjoined = planRoom(base({ createdAt: bad, firstKnownAt: bad }));
+      expect(unjoined).toMatchObject({ end: false, wakeAt: NOW + UNJOINED_CALL_END_MS });
+    }
+    expect(planRoom(base({ createdAt: Number.NaN, firstKnownAt: NOW - UNJOINED_CALL_END_MS }))).toMatchObject({ end: true });
+  });
 });
 
 describe('shouldAlertMissed', () => {
