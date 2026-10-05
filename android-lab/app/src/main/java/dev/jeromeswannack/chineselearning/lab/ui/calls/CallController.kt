@@ -1031,7 +1031,7 @@ class CallController(
         runCatching { deps.prepareScreenShare() }
         val video = media.startScreenShare(permission) { scope.launch { stopScreenShare() } } ?: return@launch
         link?.setScreen(video)
-        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.screen_share", mapOf("on" to true))
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.screen_share", mapOf("on" to true, "sound" to false)) // this app never shares sound (core CallShare)
         _state.update { it.copy(screenVideo = video) }
         applyEncoding()
         broadcastState { it.copy(screen = true) }

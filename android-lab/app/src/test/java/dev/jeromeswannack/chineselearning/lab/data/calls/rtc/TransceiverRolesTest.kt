@@ -15,6 +15,12 @@ class TransceiverRolesTest {
         assertTrue(r.screenChannel)
     }
 
+    /** Round 6: a browser's offer has a fourth m-line (its screen's sound); the roles stay audio / camera / screen. */
+    @Test fun theScreenSoundMLineIsLeftToWebRtc() {
+        val r = TransceiverRoles.adopt(listOf(AUDIO, VIDEO, VIDEO, AUDIO))
+        assertEquals(TransceiverRoles.Roles(audio = 0, camera = 1, screen = 2), r)
+    }
+
     @Test fun anOlderOfferHasNoScreenChannel() {
         val r = TransceiverRoles.adopt(listOf(AUDIO, VIDEO))
         assertEquals(TransceiverRoles.Roles(audio = 0, camera = 1, screen = null), r)

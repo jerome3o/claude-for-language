@@ -193,7 +193,8 @@ Minghui's sentences off), and the touch chip wraps to up to four lines instead o
   the cameras as `pip` says). 📝 (`boardButton`) now focuses the board with the faces over it; the
   "Board + camera" split only when the cameras are separate on a wide screen. With "Float <their>
   camera" off (wide screens), their camera stays in the rail and mine floats alone.
-- **Screen share has its own channel** — the offerer creates audio, camera and screen transceivers;
+- **Screen share has its own channel** — the offerer creates audio, camera and screen transceivers
+  (and, round 6, a second audio one for the screen's sound — see "Screen share: sound");
   the second video m-line is the screen, so the viewer sees the screen AND the sharer's camera. An
   older app that offers one video m-line gets the old behaviour (the screen replaces the camera;
   `screenChannel` false on the web).
@@ -451,6 +452,50 @@ shares." Rules in `shared/calls/view.ts` (Lab `core/…/calls/CallView.kt`, pari
   order, welcome, `show` compatibility, mode on the state), `e2e/tests/video-call-same-view.spec.ts` (two
   browsers: both ways, a preset, page turns, the double 📝, My own view, Bring + Join, reload, a share on
   both stages, Stop their share).
+
+## Screen share: sound, and no mirror for the sharer (round 6)
+
+Jerome's lesson with Minghui (5 Oct 2026): she shared a Chrome tab with his recordings page and played
+them — "我听不见", neither heard a thing; and "if I share my screen, I don't need to see my screen on the
+screen". Rules + words in `shared/calls/share.ts` (Lab `core/…/calls/CallShare.kt`, parity-tested by
+`parity/fixtures/calls-share.ts`).
+
+- **The sound is asked for** — `getDisplayMedia(displayCaptureOptions())`: `audio` with
+  `suppressLocalAudioPlayback: false` (the sharer keeps hearing the tab) and no voice processing,
+  `systemAudio: 'include'`, `preferCurrentTab: false`, `selfBrowserSurface: 'exclude'` (never the call's
+  own tab), `surfaceSwitching: 'include'`. A browser that refuses an audio request outright (TypeError)
+  is asked again for the picture only; a cancelled picker is left alone.
+- **Its own channel** — the share's sound rides a SECOND audio transceiver: the offerer now creates
+  audio, camera, screen, **screen sound** (four m-lines); the answerer adopts the second audio m-line.
+  It never mixes with the microphone (the recorder keeps recording the mic only, the transcript stays
+  the speaker's voice) and `replaceTrack(null)` when the share stops. A peer that offered three m-lines
+  (an older app, the Lab app before this round) gets the fourth one added when my share first has sound
+  (`ensureScreenAudio`, one renegotiation by the perfect-negotiation rules; never before the first
+  negotiation). The viewer plays it from its own `<audio>` (`CallAudio`, the chosen speaker), mounted
+  while they share with sound — so it plays whatever tile is on my stage — and the screen tile shows
+  **"🔊 Sound from Minghui's screen"**. The peer state carries `screen_audio` (the room keeps it only with
+  `screen`; Stop their share clears both).
+- **When there is none** — Chrome gives a TAB's sound when "Also share tab audio" is ticked
+  (Windows / ChromeOS also a whole screen's); a window or screen on macOS, Safari and Firefox give none.
+  The sharer then sees **"🔇 Sound isn't shared — share a Chrome tab and tick 'Also share tab audio'"** on
+  the share bar and the card. The Lab app can't send sound (its WebRTC — stream-webrtc-android — takes
+  audio from the microphone only; `AudioRecordDataCallback` exists in the API but the record thread never
+  calls it, so playback capture can't be mixed in without a custom audio device module): it says
+  "Sound isn't shared from the app — …". It RECEIVES a browser's screen sound: WebRTC plays every remote
+  audio track, and its offers carry the fourth m-line too (receive only).
+- **No mirror for the sharer** — since Same view a share is on both stages. The SHARER's screen tile is a
+  compact card: **"You're sharing your screen"**, "Jerome sees it on their screen.", the sound line,
+  **⏹ Stop sharing · ✏️ Draw on it · 👁 Show it here** (`myShareTile`: the card unless I draw on it or
+  asked to see it; *Hide my screen* goes back). In a rail / floating tile only the title and Stop. The
+  viewer's stage is unchanged; drawing on my own share (✏️ Draw on it, the Document PiP mini window, the
+  Lab's drawings over other apps) works as before.
+- Analytics: `call.screen_share` carries `sound` (boolean).
+- Tests: `shared/calls/share.test.ts`, `e2e/tests/video-call-screen-sound.spec.ts` (two browsers, a fake
+  tab with an oscillator: the options asked for, the sharer's card, the viewer's separate sound track
+  receiving packets, Show it here / Hide, Draw on it, Stop → the sound element goes, a share without
+  sound → the note), `screen-annotate.spec.ts` (the sharer opens her screen from the card), Lab
+  `CallsShareParityTest`, `CallProtocolTest` (`screen_audio`), `TransceiverRolesTest` (four m-lines),
+  Roborazzi `calls-62` / `calls-65` (the card), `calls-66` (the viewer's sound badge).
 
 ## The tutor leads: Show for student, Stop their share (round 5)
 

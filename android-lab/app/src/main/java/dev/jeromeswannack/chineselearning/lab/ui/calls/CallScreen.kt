@@ -83,6 +83,7 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallLayout
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.TileStatus
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTranscript
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallShare
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallView
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 import dev.jeromeswannack.chineselearning.lab.core.calls.VideoFit
@@ -525,6 +526,9 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     var annotTool by rememberSaveable { mutableStateOf(initialAnnot.tool) }
     val remoteSharing = rs?.screen == true
     val sharing = remoteSharing || s.sharingScreen
+    // While I share: my own screen in its tile anyway ("👁 Show it here"); otherwise a compact card (core CallShare).
+    var peekMine by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(s.sharingScreen) { if (!s.sharingScreen) peekMine = false }
     val pen = annotPen(annotColor, s)
     val presenting = s.presenting
     val activity = s.activity
@@ -609,7 +613,16 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 }
             })
             if (available.screen) put(CallLayout.TileId.SCREEN, TileSpec(if (remoteSharing) "$first’s screen" else "Your screen", onLongPress = { splitMenu = CallLayout.TileId.SCREEN }) { role ->
-                Box(Modifier.fillMaxSize().background(Color.Black)) {
+                // I share: no mirror of my own screen on my stage — the other person has it on theirs.
+                if (!remoteSharing && CallShare.myShareTile(annotating, peekMine) == CallShare.MyShareTile.CARD) {
+                    SharingCard(
+                        otherName = remote?.peer?.name?.takeIf { it.isNotBlank() } ?: info.otherName,
+                        compact = role != CallLayout.Role.STAGE,
+                        onStop = actions.onStopShare,
+                        onDraw = { dispatch(CallLayout.Action.Preset(CallLayout.PresetId.SCREEN)); annotating = true; actions.onTick() },
+                        onShow = { peekMine = true; actions.onTick() },
+                    )
+                } else Box(Modifier.fillMaxSize().background(Color.Black)) {
                     // Their shared screen — or MY own, as big as any tile: either person can draw on it
                     // (circle a character); a tap is a "look here" ping. Strokes show on both sides.
                     if (remoteSharing) remote?.screenVideo?.let { FittedVideo(it, false, screen = true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { f -> remoteScreenFrame = f }) }
@@ -637,6 +650,16 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     )
                     // Round 5: the tutor stops the student's share.
                     if (remoteSharing && s.leads) StopTheirShareButton(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd)) { actions.lead.onStopTheirShare() }
+                    // Their share's sound is coming through (played by WebRTC like their voice).
+                    CallShare.theirShareSoundLabel(otherName, remoteSharing && rs?.screenAudio == true)?.let { label ->
+                        Text(label, color = Color.White, fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp).clip(RoundedCornerShape(999.dp)).background(Color(0xC7111827)).padding(horizontal = 10.dp, vertical = 4.dp))
+                    }
+                    // I asked to see my own screen: one tap hides it again.
+                    if (!remoteSharing && peekMine && !annotating) Text(
+                        CallShare.HIDE_MY_SHARE_LABEL, color = Color(0xFF111827), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd).clip(RoundedCornerShape(999.dp)).background(Color(0xFFF9FAFB))
+                            .bouncyClickable { peekMine = false; actions.onTick() }.heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
                 }
             })
             if (presenting != null) put(CallLayout.TileId.MATERIAL, TileSpec("📑 ${presenting.title}", onLongPress = { splitMenu = CallLayout.TileId.MATERIAL }) { role ->
@@ -1102,6 +1125,48 @@ internal fun AnnotateTools(
     }
 }
 
+/**
+ * My own share's tile (core CallShare): "You're sharing your screen · Stop" instead of a mirror of my
+ * screen; the note that this app shares no sound; ✏️ Draw on it / 👁 Show it here bring the screen back.
+ * [compact] (a floating / rail tile): the title and Stop only.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun SharingCard(otherName: String?, compact: Boolean, onStop: () -> Unit, onDraw: () -> Unit, onShow: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Color(0xFF111827)).padding(12.dp), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.widthIn(max = 420.dp).clip(RoundedCornerShape(16.dp)).background(DarkCard).padding(horizontal = 16.dp, vertical = if (compact) 8.dp else 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
+        ) {
+            if (!compact) Text("🖥️", fontSize = 30.sp)
+            Text(CallShare.SHARING_CARD_TITLE, color = OnDark, fontWeight = FontWeight.Bold, fontSize = if (compact) 13.sp else 17.sp, textAlign = TextAlign.Center)
+            if (!compact) {
+                Text(CallShare.sharingCardSub(otherName), color = MutedDark, fontSize = 14.sp, textAlign = TextAlign.Center)
+                Text("🔇 " + CallShare.shareAudioLine(CallShare.ShareAudio.NONE, CallShare.Platform.LAB), color = Color(0xFFFCD34D), fontSize = 13.sp, textAlign = TextAlign.Center)
+            }
+            androidx.compose.foundation.layout.FlowRow(
+                Modifier.padding(top = if (compact) 2.dp else 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    CallShare.STOP_SHARING_LABEL, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFFDC2626)).bouncyClickable(onClick = onStop).heightIn(min = 44.dp).padding(horizontal = 14.dp, vertical = 11.dp),
+                )
+                if (!compact) {
+                    Text(
+                        "✏️ Draw on it", color = Color(0xFF111827), fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFFF9FAFB)).bouncyClickable(onClick = onDraw).heightIn(min = 44.dp).padding(horizontal = 14.dp, vertical = 11.dp),
+                    )
+                    Text(
+                        CallShare.SHOW_MY_SHARE_LABEL, color = Color(0xFF111827), fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFFF9FAFB)).bouncyClickable(onClick = onShow).heightIn(min = 44.dp).padding(horizontal = 14.dp, vertical = 11.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** While I share: "… is drawing on your screen", "✏️ Draw on it" and the switch for drawings over other apps. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -1123,6 +1188,8 @@ private fun ShareBar(a: Annotations, otherName: String, overlayOn: Boolean, now:
             if (overlayOn) "Drawings over apps: on" else "Show drawings over apps", color = Color(0xFF111827), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFFF9FAFB)).bouncyClickable(onClick = onToggleOverlay).heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 10.dp),
         )
+        // This app shares no sound (core CallShare): said small, on its own line.
+        Text("🔇 " + CallShare.shareAudioNote(CallShare.ShareAudio.NONE, CallShare.Platform.LAB).orEmpty(), color = Color(0xFFFCD34D), fontSize = 12.sp, modifier = Modifier.fillMaxWidth())
     }
 }
 

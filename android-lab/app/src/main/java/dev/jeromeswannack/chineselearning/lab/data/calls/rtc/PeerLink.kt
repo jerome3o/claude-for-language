@@ -50,6 +50,13 @@ import kotlin.coroutines.resume
  * video m-line: then [screenChannel] is false, a share replaces the camera like before and their
  * screen arrives on the camera stream.
  *
+ * Round 6 (screen sound, web shared/calls/share.ts): a web share's sound rides a SECOND audio
+ * transceiver (the fourth m-line: audio, video, video, audio). The offerer here creates it too (no
+ * track: this app never sends screen sound — its WebRTC takes audio from the microphone only), so
+ * a browser answering can send its tab's sound without a renegotiation; as the answerer the
+ * transceiver comes from the browser's offer. Either way the sound arrives as a remote audio track,
+ * which WebRTC plays like the other person's voice; nothing else here touches it.
+ *
  * Round 4: every signal carries this link's id (added by the CallController, which also sends the
  * `hello` a fresh link opens with and decides by `link` whether a signal belongs to this link —
  * core CallConnection.linkSignalAction); a `hello` from their side re-sends an offer of mine still
@@ -106,6 +113,8 @@ class PeerLink(
             audio = if (audioTrack != null) pc.addTransceiver(audioTrack, init) else pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, init)
             video = videoTrack?.let { pc.addTransceiver(it, init) } ?: pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, init)
             screen = screenTrack?.let { pc.addTransceiver(it, init) } ?: pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, init)
+            // Round 6: their screen's sound (a browser's tab audio) — received only, played by WebRTC.
+            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, init)
             cameraReceiverId = runCatching { video?.receiver?.id() }.getOrNull()
             screenReceiverId = runCatching { screen?.receiver?.id() }.getOrNull()
             applyScreenEncoding()
