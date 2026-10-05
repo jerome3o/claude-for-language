@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -70,7 +71,7 @@ fun Avatar(name: String?, email: String?, size: Dp = 44.dp, muted: Boolean = fal
     }
 }
 
-enum class PillTone { Struggling, Ok, Flags, Recordings, Homework, Setup, Muted }
+enum class PillTone { Struggling, Ok, Flags, Recordings, Homework, HomeworkDone, HomeworkOverdue, Setup, Muted }
 
 private fun PillTone.color(): Color = when (this) {
     PillTone.Struggling -> Palette.Hard
@@ -78,6 +79,8 @@ private fun PillTone.color(): Color = when (this) {
     PillTone.Flags -> Palette.Again
     PillTone.Recordings -> Palette.Secondary
     PillTone.Homework -> Palette.Easy
+    PillTone.HomeworkDone -> Palette.Good
+    PillTone.HomeworkOverdue -> Palette.Again
     PillTone.Setup -> Palette.Gold
     PillTone.Muted -> Color(0xFF6B7280)
 }
@@ -101,14 +104,20 @@ fun TeachPill(text: String, tone: PillTone, onClick: (() -> Unit)? = null) {
 
 /** A white rounded card with padding — one student, one section. */
 @Composable
-fun TeachCard(modifier: Modifier = Modifier, muted: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+fun TeachCard(
+    modifier: Modifier = Modifier,
+    muted: Boolean = false,
+    /** No fill, tighter padding — a quieter row (the student page's "Long-term learning"). */
+    quiet: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(if (muted) Lab.colors.card.copy(alpha = 0.6f) else Lab.colors.card)
+            .background(if (quiet) Color.Transparent else if (muted) Lab.colors.card.copy(alpha = 0.6f) else Lab.colors.card)
             .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(20.dp))
-            .padding(16.dp),
+            .padding(if (quiet) PaddingValues(horizontal = 14.dp, vertical = 10.dp) else PaddingValues(16.dp)),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         content = content,
     )
@@ -144,14 +153,14 @@ fun InlineButton(label: String, enabled: Boolean = true, danger: Boolean = false
 
 /** Two-tone progress bar: started (light) under mastered (solid). Values 0–100. */
 @Composable
-fun ProgressBar2(started: Int, mastered: Int, modifier: Modifier = Modifier) {
+fun ProgressBar2(started: Int, mastered: Int, modifier: Modifier = Modifier, color: Color = Palette.Good, height: Dp = 8.dp) {
     val s by animateFloatAsState(started.coerceIn(0, 100) / 100f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow), label = "started")
     val m by animateFloatAsState(mastered.coerceIn(0, 100) / 100f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow), label = "mastered")
     val track = Lab.colors.faint
-    Canvas(modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50))) {
+    Canvas(modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(50))) {
         drawRect(track)
-        drawRect(Palette.Good.copy(alpha = 0.35f), size = Size(size.width * s, size.height))
-        drawRect(Palette.Good, size = Size(size.width * m, size.height))
+        drawRect(color.copy(alpha = 0.35f), size = Size(size.width * s, size.height))
+        drawRect(color, size = Size(size.width * m, size.height))
     }
 }
 

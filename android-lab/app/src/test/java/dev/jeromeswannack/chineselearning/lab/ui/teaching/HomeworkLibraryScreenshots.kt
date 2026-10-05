@@ -57,6 +57,7 @@ class HomeworkLibraryScreenshots : LabScreenshotTest() {
             item("k1", "link", "《小幸运》— listen and sing along", "completed", 100, "2026-10-02T20:15:00Z", "2026-10-03", note = "我听懂了大部分！第二段有点快。", url = "https://youtu.be/dQw4w9WgXcQ"),
             item("r1", "reader", "小明在巴黎", "overdue", 0, "2026-09-28T18:00:00Z", "2026-10-01", progress = "not read yet"),
             item("d2", "deck", "HSK 1", "completed", 100, "2026-09-20T18:00:00Z", "2026-09-27", progress = "40 / 40 words"),
+            item("d4", "deck", "HSK 3 · Plans & time", "long_term", 35, "2026-09-29T18:00:00Z", null, progress = "14 / 40 words met").copy(mode = "fsrs", due_assignment_id = null),
             item("d3", "deck", "餐厅点菜", "in_progress", 65, "2026-09-30T18:00:00Z", "2026-10-09", student = "Lily Chen", progress = "13 / 20 words"),
             item("k2", "link", "爸爸去哪儿 · episode 3 (first 10 minutes)", "not_started", 0, "2026-09-30T18:05:00Z", null, student = "Lily Chen", url = "https://www.bilibili.com/video/BV1xx411c7mD"),
         )

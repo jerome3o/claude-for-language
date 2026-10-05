@@ -17,3 +17,11 @@ and a **one-off + long-term** deck (第五课：在餐厅) whose pass he finishe
 | Student Home: the long-term deck as a homework row | Only "Next up" / decks — no homework card when the one-off homework is done |
 
 Student page top: [before](before-02-student-page-top.png) · [after](after-02-student-page-top.png).
+
+## Lab app (Roborazzi)
+
+![Lab dashboard pills](lab-01-dashboard-pills.png) — the pill in its three tones (all done / open / overdue).
+
+![Lab student page](lab-02-student-page.png) — Homework headline + one-off items, then "Long-term learning".
+
+![Lab library](lab-03-library-long-term.png) — a long-term deck "In long-term review", no %.

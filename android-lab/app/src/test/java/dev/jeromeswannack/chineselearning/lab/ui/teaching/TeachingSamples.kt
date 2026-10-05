@@ -20,6 +20,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.LoadFsrsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LoadOneOffDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NeedsAttentionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteRefDto
+import dev.jeromeswannack.chineselearning.lab.data.api.OneOffSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PendingInviteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PillsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RecordingRefDto
@@ -57,13 +58,32 @@ object TeachingSamples {
             "sd1", "d1", "t1", "第四周作业：交通", "第四周作业：交通", "2026-09-20T10:00:00Z",
             cards_total = 72, cards_started = 45, cards_mastered = 18, notes_missing = 3, percent_started = 63, percent_mastered = 25,
             notes_total = 24, notes_introduced = 15, words_to_go = 9, days_to_go = 3, queue_position = 1, queue_total = 5,
+            mode = "both", long_term = true,
         ),
         HomeworkDeckDto(
             "sd2", "d2", "t2", "HSK 3 · Plans & time", "HSK 3 · Plans & time", "2026-09-02T10:00:00Z",
             cards_total = 120, cards_started = 110, cards_mastered = 86, percent_started = 92, percent_mastered = 72,
             notes_total = 40, notes_introduced = 40, words_to_go = 0, days_to_go = 0, queue_position = 3, queue_total = 5,
+            mode = "fsrs", long_term = true,
+        ),
+        // Sent one-off only: its copy lives in the pass (caps 0 + 0), so it stays with the homework.
+        HomeworkDeckDto(
+            "sd3", "d3", "t3", "天气 · this week only", "天气 · this week only", "2026-09-25T10:00:00Z",
+            cards_total = 24, cards_started = 6, cards_mastered = 0, percent_started = 25, percent_mastered = 0,
+            notes_total = 8, notes_introduced = 2, words_to_go = 6, days_to_go = 0, queue_position = 5, queue_total = 5,
+            mode = "one_off", long_term = false,
         ),
     )
+
+    /** The server's one-off headline for [homework] below (shared/homework/summary.ts). */
+    val oneOff = OneOffSummaryDto(
+        state = "overdue", total = 4, done = 1, open = 3, overdue = 1, due_today = 1, percent = 25,
+        label = "1 overdue · 1 of 4 done", pill = "Homework 1 overdue",
+    )
+    val oneOffAllDone = OneOffSummaryDto(
+        state = "all_done", total = 3, done = 3, open = 0, percent = 100, label = "✓ All done this week", pill = "Homework ✓ all done this week",
+    )
+    val oneOffOpen = OneOffSummaryDto(state = "open", total = 3, done = 2, open = 1, percent = 67, label = "2 of 3 done", pill = "Homework 2 of 3 done")
 
     val activity = listOf(
         ActivityDayDto("2026-09-27", 42, 0.86, 11 * 60_000L),
@@ -76,9 +96,9 @@ object TeachingSamples {
         joined_at = "2026-06-01T08:00:00Z",
         joined_via_invite = true,
         status = StudyStatusDto("2026-09-27T07:12:00Z", studied_today = true, streak_days = 12, active_days_30 = 24, today = TodayStatsDto(42, 0.86, 11 * 60_000L)),
-        pills = PillsDto(struggling_words = 5, recordings_to_hear = 4, recordings_need_ear = 2, homework_percent = 58, flags_open = 1),
+        pills = PillsDto(struggling_words = 5, recordings_to_hear = 4, recordings_need_ear = 2, homework_percent = 25, homework = oneOff, flags_open = 1),
         needs_attention = needsAttention,
-        homework = HomeworkSummaryDto(58, homeworkDecks, listOf(HomeworkLessonDto("l1", "了 for completed actions", "🎓", "2026-09-21T10:00:00Z", 2, "2026-09-25T10:00:00Z", 2))),
+        homework = HomeworkSummaryDto(25, oneOff, homeworkDecks, listOf(HomeworkLessonDto("l1", "了 for completed actions", "🎓", "2026-09-21T10:00:00Z", 2, "2026-09-25T10:00:00Z", 2))),
         activity = activity,
         last_conversation_id = "c1",
     )
