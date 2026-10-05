@@ -19,8 +19,8 @@ data class AnalyticsPrefBody(val share_usage: Boolean)
 /** `PUT /api/profile/analytics` — Settings → Advanced → "Share usage data". */
 suspend fun Api.setShareUsage(on: Boolean): AnalyticsPrefBody = put("/api/profile/analytics", AnalyticsPrefBody(on))
 
-/** `POST /api/analytics/events` with a prepared `{ events: [...] }` body → the HTTP status. */
-suspend fun Api.uploadUsageEvents(bodyJson: String): Int = send("POST", "/api/analytics/events", bodyJson).code
+/** `POST /api/me/usage-events` (shared USAGE_UPLOAD_PATH) with a prepared `{ events: [...] }` body → the HTTP status. */
+suspend fun Api.uploadUsageEvents(bodyJson: String): Int = send("POST", "/api/me/usage-events", bodyJson).code
 
 /** Builds and wires the app's [Analytics] (LabApp.onCreate). */
 object AnalyticsSetup {

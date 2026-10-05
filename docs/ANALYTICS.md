@@ -7,7 +7,7 @@ level switch below.
 
 ```
 web app  ─ services/analytics.ts ─┐                         ┌─ usage_summary / feature_adoption /
-Lab app  ─ data/analytics/ ───────┼─ POST /api/analytics/events ─ D1 usage_events ─┤  user_timeline / event_counts /
+Lab app  ─ data/analytics/ ───────┼─ POST /api/me/usage-events ── D1 usage_events ─┤  user_timeline / event_counts /
 worker   ─ trackServer() ─────────┘   (privacy filter again)                      └─ recent_errors / ai_usage (MCP, admin)
 worker   ─ request-log.ts ──────── Workers Observability (one JSON line per request)
 ```
@@ -67,7 +67,15 @@ time; Lab: `0.N (versionCode)`).
   never break or slow the app.
 - **Lab** (`android-lab/app/…/data/analytics/`): the same, in its own small Room database, uploaded
   by its `FeatureSync` and every ~60 s in the foreground.
-- **Server**: `POST /api/analytics/events` `{ events }` → `{ accepted, stored, rejected, opted_out, level }`;
+- **Upload path**: `POST /api/me/usage-events` (`USAGE_UPLOAD_PATH`, `shared/analytics/wire.ts`). It was
+  `/api/analytics/events` until Oct 2026, but content blockers with EasyPrivacy (uBlock Origin, AdGuard,
+  Brave, Ghostery) carry the generic rule `/analytics/event` and refused that request inside the browser
+  (`ERR_BLOCKED_BY_CLIENT`, never reaching the worker), so no web event from such a browser was stored.
+  The old path is still served (same handler) for Lab builds that predate the move. **Never name an
+  endpoint the web app calls with tracker words** (`analytics/event`, `track`, `telemetry`, `collect`,
+  `beacon`, `pixel`, …) — `analyticsUploadPathProblems` is the test's check. The events stay queued
+  while blocked (newest 5,000), so a browser delivers its backlog on the next flush.
+- **Server**: `POST /api/me/usage-events` `{ events }` → `{ accepted, stored, rejected, opted_out, level }`;
   idempotent by event id (`INSERT OR IGNORE`), unknown and server-only events rejected, props
   filtered again, future timestamps clamped.
 

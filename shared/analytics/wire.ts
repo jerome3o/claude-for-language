@@ -1,11 +1,50 @@
 /**
- * The upload format of POST /api/analytics/events and its validation (worker;
+ * The upload format of POST /api/me/usage-events and its validation (worker;
  * pure, unit-tested). Clients send `{ events: UsageEventInput[] }`; the server
  * keeps catalogue events only, runs the privacy filter again and is idempotent
  * by event id.
  */
 import { ANALYTICS_PLATFORMS, isClientEvent, type AnalyticsPlatform } from './events';
 import { isSafeToken, sanitizeProps, screenName, type AnalyticsProps } from './privacy';
+
+/**
+ * Where the apps upload their queued events. NOT `/api/analytics/events`: content
+ * blockers (uBlock Origin, AdGuard, Brave, Ghostery — anything with EasyPrivacy) carry
+ * the generic rule `/analytics/event`, which matches that path on ANY site, so the
+ * browser refused the request before it left the page (ERR_BLOCKED_BY_CLIENT): no
+ * web event reached D1 from a browser with a blocker (Oct 2026). The path must stay
+ * free of tracker-ish words — `analyticsUploadPathProblems` is the test's check.
+ */
+export const USAGE_UPLOAD_PATH = '/api/me/usage-events';
+/** The first path, still served for Lab builds that predate the move (okhttp has no blocker). */
+export const LEGACY_USAGE_UPLOAD_PATH = '/api/analytics/events';
+
+/**
+ * Generic (any-site) blocking rules from EasyPrivacy / uBlock / AdGuard tracking lists that
+ * an upload path must not match — a substring of the URL path, as those rules match.
+ */
+export const BLOCKER_PATH_RULES: readonly string[] = [
+  '/analytics/event', // EasyPrivacy, generic — what blocked the web uploads
+  '/analytics/track',
+  '/analytics.',
+  '/analytics?',
+  '/track/',
+  '/tracking/',
+  '/tracker',
+  '/telemetry',
+  '/collect?',
+  '/beacon',
+  '/pixel',
+  '/stats/event',
+  '/log/event',
+  '/events/track',
+];
+
+/** Rules from BLOCKER_PATH_RULES that `path` would trip ([] = safe). */
+export function analyticsUploadPathProblems(path: string): string[] {
+  const p = path.toLowerCase();
+  return BLOCKER_PATH_RULES.filter((rule) => p.includes(rule));
+}
 
 export interface UsageEventInput {
   /** Client-made unique id (dedupe key). */
