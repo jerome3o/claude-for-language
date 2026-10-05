@@ -10,6 +10,7 @@
  *   GET    /relationships/:relId/insights/summaries
  *   PUT    /relationships/:relId/recordings/:eventId/mark {status,comment?}
  *   DELETE /relationships/:relId/recordings/:eventId/mark
+ *   GET    /relationships/:relId/recordings/queue?from&to&view=queue|all  ("Needs your ear")
  *   GET    /relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit
  *
  * All of them are tutor-only.
@@ -21,6 +22,10 @@ import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services
 import { computeInsights, resolveRange, endOfDayIfBare } from '../services/insights';
 import { writeStudentSummary } from '../services/insights-summary';
 import * as q from '../db/insights-queries';
+import { buildRecordingQueue } from '../services/recording-queue';
+import { enqueueMissingChecks } from '../services/recording-checks';
+import { azureConfig } from '../services/pronunciation/azure';
+import type { RecordingQueueResponse } from '@shared/recordings/queue';
 
 const insights = new Hono<{ Bindings: Env }>();
 
@@ -190,6 +195,7 @@ insights.post('/relationships/:relId/insights/summary', async (c) => {
         totals: statsForStorage.totals,
         struggling: statsForStorage.struggling.slice(0, 12).map(({ events: _e, ...s }) => s),
         going_well: statsForStorage.going_well.slice(0, 12),
+        mix_ups: statsForStorage.mix_ups.slice(0, 8).map(({ examples: _e, ...m }) => m),
       }),
     });
     return c.json({ summary }, 201);
@@ -247,6 +253,42 @@ insights.delete('/relationships/:relId/recordings/:eventId/mark', async (c) => {
     return c.json({ success: true });
   } catch (error) {
     return errorResponse(c, error, 'Failed to clear mark');
+  }
+});
+
+// ============ "Needs your ear" queue ============
+
+insights.get('/relationships/:relId/recordings/queue', async (c) => {
+  try {
+    const relId = c.req.param('relId');
+    const { studentId } = await requireTutor(c.env.DB, relId, c.get('user').id);
+    const latest = await q.getLatestLessonAt(c.env.DB, relId);
+    const range = resolveRange({ from: c.req.query('from'), to: endOfDayIfBare(c.req.query('to')) }, latest?.lesson_at ?? null);
+    const view = c.req.query('view') === 'all' ? 'all' : 'queue';
+    const [rows, flags] = await Promise.all([
+      q.fetchRecordingQueueRows(c.env.DB, studentId, range.from, range.to),
+      q.fetchOpenFlags(c.env.DB, relId),
+    ]);
+    const all = buildRecordingQueue(rows, flags);
+    // Recordings never checked (uploaded before this existed, or a missed upload hook): start them.
+    if (rows.some((r) => r.check_status == null)) {
+      c.executionCtx.waitUntil(enqueueMissingChecks(c.env, studentId, range.from, range.to).catch(() => 0));
+    }
+    const queue = all.filter((i) => i.in_queue);
+    const body: RecordingQueueResponse = {
+      range: { from: range.from, to: range.to },
+      view,
+      items: view === 'all' ? all : queue,
+      counts: {
+        queue: queue.length,
+        all: all.length,
+        checking: rows.filter((r) => r.check_status == null || r.check_status === 'pending' || r.check_status === 'scoring').length,
+      },
+      scoring: !!azureConfig(c.env),
+    };
+    return c.json(body);
+  } catch (error) {
+    return errorResponse(c, error, 'Failed to load the recording queue');
   }
 });
 

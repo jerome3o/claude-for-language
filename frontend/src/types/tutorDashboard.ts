@@ -126,6 +126,8 @@ export interface StudentOverview {
   pills: {
     struggling_words: number;
     recordings_to_hear: number;
+    /** Of those, the ones in the "Needs your ear" queue (shared/recordings/queue.ts); missing on older servers. */
+    recordings_need_ear?: number;
     homework_percent: number | null;
     /** Flagged cards waiting for a reply */
     flags_open: number;

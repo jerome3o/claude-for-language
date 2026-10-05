@@ -118,6 +118,7 @@ fun InsightsScreen(ui: InsightsUi, actions: InsightsActions, now: Instant = Inst
         r.data?.let { report ->
             item { StatTiles(report) }
             item { NeedsAttentionList(report.struggling, ui.playingKey, actions.play, now) }
+            if (report.mix_ups.isNotEmpty()) item { MixUpsCard(report.mix_ups) }
             item { GoingWellList(report.going_well) }
             item { AlsoThisPeriod(report, now) }
             item { SummaryCard(ui, report.totals.reviews > 0, actions.writeSummary, now) }

@@ -16,7 +16,8 @@ import {
   getStudentSummaries,
   writeStudentSummary,
 } from '../../api/insights';
-import type { InsightsReport, StrugglingNote, GoingWellNote, StudentSummary, TutorLessonLogEntry } from '../../types/insights';
+import type { InsightsReport, StrugglingNote, GoingWellNote, StudentSummary, TutorLessonLogEntry, MixUp } from '../../types/insights';
+import { heardChars } from './recordingQueue';
 import { Loading } from '../../components/Loading';
 import {
   TutorPageFrame,
@@ -112,6 +113,7 @@ function InsightsBody({ relId, studentName }: { relId: string; studentName: stri
         <>
           <StatTiles report={insightsQuery.data} />
           <NeedsAttention items={insightsQuery.data.struggling} />
+          <MixUps items={insightsQuery.data.mix_ups ?? []} />
           <GoingWell items={insightsQuery.data.going_well} />
           <AlsoThisPeriod report={insightsQuery.data} />
           <SummaryCard relId={relId} range={insightsQuery.data.range} hasActivity={insightsQuery.data.totals.reviews > 0} />
@@ -316,6 +318,47 @@ function NeedsAttention({ items }: { items: StrugglingNote[] }) {
           )}
         </div>
       )}
+    </section>
+  );
+}
+
+// ---------- Mix-ups ----------
+
+/** 买 ↔ 卖 ×3 — characters the student confuses, with the words it happened in. Hidden when none. */
+function MixUps({ items }: { items: MixUp[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section className="tutor-section" data-testid="insights-mixups">
+      <div className="tutor-section-title">
+        <span>Mix-ups</span>
+        <span className="tutor-section-hint">characters they swap when typing or choosing</span>
+      </div>
+      <div className="tutor-word-list">
+        {items.map((m) => (
+          <div key={`${m.a}${m.b}`} className="tutor-word-row tutor-mixup-row">
+            <div className="tutor-mixup-pair" lang="zh">
+              <span>{m.a}</span>
+              <span className="tutor-mixup-arrow" aria-label="mixed up with">↔</span>
+              <span>{m.b}</span>
+              <span className="tutor-mixup-count">×{m.count}</span>
+            </div>
+            <ul className="tutor-mixup-examples">
+              {m.examples.map((ex) => (
+                <li key={`${ex.expected}-${ex.reviewed_at}`}>
+                  <span lang="zh">{ex.expected}</span>
+                  <span className="tutor-mixup-typed"> → typed </span>
+                  <span lang="zh">
+                    {heardChars(ex.answer, ex.expected).map((c, i) => (
+                      <span key={i} className={c.wrong ? 'tutor-diff-wrong-plain' : undefined}>{c.ch}</span>
+                    ))}
+                  </span>
+                  <span className="tutor-mixup-when"> · {formatDay(ex.reviewed_at)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

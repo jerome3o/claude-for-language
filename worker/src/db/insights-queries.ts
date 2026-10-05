@@ -359,3 +359,62 @@ export async function fetchStudentDecks(db: D1Database, studentId: string): Prom
     .all<{ id: string; name: string }>();
   return res.results || [];
 }
+
+// ---------- "Needs your ear" recording queue ----------
+
+export interface RecordingQueueRow {
+  event_id: string;
+  card_id: string;
+  card_type: string;
+  note_id: string;
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  note_audio_url: string | null;
+  deck_name: string;
+  rating: number;
+  reviewed_at: string;
+  recording_url: string;
+  user_answer: string | null;
+  mark_status: 'listened' | 'needs_work' | null;
+  mark_comment: string | null;
+  mark_updated_at: string | null;
+  check_status: string | null;
+  transcript: string | null;
+  transcript_match: number | null;
+  score: number | null;
+  char_scores: string | null;
+  score_note: string | null;
+}
+
+/** Every recording of the student in the range with its check and the tutor's mark, newest first. */
+export async function fetchRecordingQueueRows(db: D1Database, studentId: string, from: string, to: string, limit = 1000): Promise<RecordingQueueRow[]> {
+  const res = await db
+    .prepare(
+      `SELECT re.id AS event_id, re.card_id, c.card_type, n.id AS note_id, n.hanzi, n.pinyin, n.english,
+              n.audio_url AS note_audio_url, d.name AS deck_name, re.rating, re.reviewed_at, re.recording_url,
+              re.user_answer, m.status AS mark_status, m.comment AS mark_comment, m.updated_at AS mark_updated_at,
+              rc.status AS check_status, rc.transcript, rc.transcript_match, rc.score, rc.char_scores, rc.score_note
+       FROM review_events re
+       JOIN cards c ON c.id = re.card_id
+       JOIN notes n ON n.id = c.note_id
+       JOIN decks d ON d.id = n.deck_id
+       LEFT JOIN tutor_recording_marks m ON m.review_event_id = re.id
+       LEFT JOIN recording_checks rc ON rc.review_event_id = re.id
+       WHERE re.user_id = ? AND re.reviewed_at >= ? AND re.reviewed_at <= ? AND re.recording_url IS NOT NULL
+       ORDER BY re.reviewed_at DESC, re.id DESC
+       LIMIT ?`
+    )
+    .bind(studentId, from, to, limit)
+    .all<RecordingQueueRow>();
+  return res.results || [];
+}
+
+/** Open card flags in the relationship (the student asked the tutor to look at these words). */
+export async function fetchOpenFlags(db: D1Database, relId: string): Promise<Array<{ id: string; note_id: string; card_id: string | null; message: string; created_at: string }>> {
+  const res = await db
+    .prepare(`SELECT id, note_id, card_id, message, created_at FROM card_flags WHERE relationship_id = ? AND status = 'open' ORDER BY created_at DESC`)
+    .bind(relId)
+    .all<{ id: string; note_id: string; card_id: string | null; message: string; created_at: string }>();
+  return res.results || [];
+}

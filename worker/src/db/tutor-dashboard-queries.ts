@@ -4,6 +4,7 @@
  * rows into the card the tutor sees.
  */
 
+import { isInReviewQueue, parseCharScores, type RecordingCheck } from '@shared/recordings/queue';
 import type {
   ActivityRow,
   HomeworkDeckInput,
@@ -65,6 +66,38 @@ export async function countUnheardRecordings(db: D1Database, studentId: string):
     .bind(studentId)
     .first<{ n: number }>();
   return row?.n ?? 0;
+}
+
+/**
+ * "Needs your ear": unmarked recordings (all time, newest 500) that the shared queue rule
+ * (shared/recordings/queue.ts) puts in front of the tutor — mismatched transcript, Again / Hard,
+ * low score / a character that sounded off, or an open flag on the word.
+ */
+export async function countRecordingsNeedingEar(db: D1Database, studentId: string, relationshipId: string): Promise<number> {
+  const [rows, flags] = await Promise.all([
+    db
+      .prepare(
+        `SELECT re.rating, c.note_id, rc.status, rc.transcript, rc.transcript_match, rc.score, rc.char_scores
+         FROM review_events re
+         JOIN cards c ON c.id = re.card_id
+         LEFT JOIN tutor_recording_marks m ON m.review_event_id = re.id
+         LEFT JOIN recording_checks rc ON rc.review_event_id = re.id
+         WHERE re.user_id = ? AND re.recording_url IS NOT NULL AND m.review_event_id IS NULL
+         ORDER BY re.reviewed_at DESC LIMIT 500`
+      )
+      .bind(studentId)
+      .all<{ rating: number; note_id: string; status: string | null; transcript: string | null; transcript_match: number | null; score: number | null; char_scores: string | null }>(),
+    db.prepare(`SELECT note_id FROM card_flags WHERE relationship_id = ? AND status = 'open'`).bind(relationshipId).all<{ note_id: string }>(),
+  ]);
+  const flagged = new Set((flags.results ?? []).map((f) => f.note_id));
+  let n = 0;
+  for (const r of rows.results ?? []) {
+    const check: RecordingCheck | null = r.status
+      ? { status: 'done', transcript: r.transcript, transcript_match: r.transcript_match == null ? null : r.transcript_match === 1, score: r.score, char_scores: parseCharScores(r.char_scores) }
+      : null;
+    if (isInReviewQueue({ rating: r.rating, check, flagged: flagged.has(r.note_id), marked: false })) n++;
+  }
+  return n;
 }
 
 // ---------- Homework ----------

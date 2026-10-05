@@ -71,6 +71,7 @@ export function buildSummaryPayload(report: InsightsReport, range: { from: strin
       attempts: g.attempts,
       reason: g.reason === 'consistent' ? 'right every time' : `now scheduled ${g.max_interval_days} days out`,
     })),
+    mix_ups: (report.mix_ups ?? []).slice(0, 8).map((m) => ({ pair: `${m.a} ↔ ${m.b}`, times: m.count })),
     also: {
       mini_lessons_completed: report.activity.lessons.map((l) => l.title),
       readers_read: report.activity.readers.map((r) => `${r.title_chinese} / ${r.title_english}`),

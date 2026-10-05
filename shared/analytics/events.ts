@@ -136,7 +136,9 @@ export const ANALYTICS_EVENTS = {
   'tutor.catalogue_copy': e('tutor', 'Copied a catalogue sample into the library.', ['exercise_type']),
   'tutor.budget_change': e('tutor', "Changed a student's daily new cards.", ['new_cards', 'secondary_cards', 'reset']),
   'tutor.student_profile_save': e('tutor', 'Saved the private student profile.', []),
-  'tutor.recording_mark': e('tutor', 'Marked a recording (listened / needs work).', ['status']),
+  'tutor.recording_mark': e('tutor', 'Marked a recording (listened / needs work).', ['status', 'source']),
+  'tutor.recording_queue_open': e('tutor', 'Opened the "Needs your ear" recording queue (or All recordings).', ['view', 'items', 'scoring']),
+  'tutor.recording_reference_play': e('tutor', "Played the reference clip next to the student's recording.", ['source']),
   'tutor.flag_reply': e('tutor', 'Replied to a flagged card.', []),
   'tutor.queue_move': e('tutor', "Moved a deck in the student's queue.", ['to']),
   'tutor.invite_create': e('tutor', 'Created an invite link.', ['decks']),
@@ -211,6 +213,7 @@ export const ANALYTICS_EVENTS = {
   'server.ai_call': e('server', 'One model call: model, tokens and an estimated cost.', ['provider', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cost_usd', 'status', 'route'], { server: true }),
   'server.push_sent': e('server', 'A push notification was sent.', ['channel', 'kind', 'ok'], { server: true }),
   'server.email_sent': e('server', 'An e-mail was sent.', ['kind', 'ok'], { server: true }),
+  'server.recording_check': e('server', 'A pronunciation recording was checked (transcript + Azure score).', ['scored', 'match', 'note', 'audio_ms'], { server: true }),
   'server.coach_auto_detect': e('server', 'A coach conversation started WITHOUT an action (old clients).', [], { server: true, replacedBy: 'coach.start' }),
   'server.study_session_api': e('server', 'POST /api/study/sessions — kept only for old clients.', [], { server: true, replacedBy: 'study.session_start' }),
 } as const satisfies Record<string, AnalyticsEventDef>;

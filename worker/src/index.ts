@@ -110,6 +110,7 @@ import studentProfileRoutes from './routes/student-profile';
 import studentStudyBudgetRoutes from './routes/student-study-budget';
 import cardCheckRoutes from './routes/card-checks';
 import { cardCheckEnabled, runDeckCheckJob, runNotesCheck, type CardCheckMessage } from './services/card-check';
+import { enqueueRecordingCheck, runRecordingCheck, RetryLater, type RecordingCheckMessage } from './services/recording-checks';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
 import { sanitizeAttemptData } from '@shared/lesson';
@@ -2658,15 +2659,25 @@ app.post('/api/audio/upload', async (c) => {
     targetReviewId = recentReview.id;
   }
 
+  // Never overwrite another account's recording (the key is derived from the review id).
+  const existing = await c.env.DB.prepare('SELECT user_id FROM review_events WHERE id = ?')
+    .bind(targetReviewId).first<{ user_id: string }>();
+  if (existing && existing.user_id !== userId) {
+    return c.json({ error: 'No review found for this card' }, 404);
+  }
+
   const blob = file as Blob;
   const key = getRecordingKey(targetReviewId!);
   const arrayBuffer = await blob.arrayBuffer();
   await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type);
 
   // Update review event with recording URL
-  await c.env.DB.prepare('UPDATE review_events SET recording_url = ? WHERE id = ?')
-    .bind(key, targetReviewId)
+  // Only the caller's own review (a review_id of someone else's event changes nothing).
+  const updated = await c.env.DB.prepare('UPDATE review_events SET recording_url = ? WHERE id = ? AND user_id = ?')
+    .bind(key, targetReviewId, userId)
     .run();
+  // The tutor's "Needs your ear" check (transcript + Azure score), in the background.
+  if ((updated.meta?.changes ?? 0) > 0) c.executionCtx.waitUntil(enqueueRecordingCheck(c.env, targetReviewId!, userId));
 
   return c.json({ key, url: `/api/audio/${key}` }, 201);
 });
@@ -6612,12 +6623,12 @@ export default {
   },
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
     return runInScope({ env, userId: null, route: `queue:${batch.queue}`, waitUntil: (p) => ctx.waitUntil(p) }, () => handleQueueBatch(batch, env));
   },
 };
 
-async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage>, env: Env): Promise<void> {
+async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6921,6 +6932,22 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           console.error('[Queue] picture hunt crashed:', huntId, err);
         }
         message.ack();
+      }
+    } else if (queueName === 'recording-check-queue') {
+      // "Needs your ear": transcribe + score a pronunciation take. Paced for Azure's free tier
+      // (one consumer, a per-minute count in D1); RetryLater = come back after a delay.
+      for (const message of batch.messages) {
+        const { eventId } = message.body as RecordingCheckMessage;
+        try {
+          console.log('[Queue] recording check', eventId, await runRecordingCheck(env, eventId));
+          message.ack();
+        } catch (err) {
+          if (err instanceof RetryLater) message.retry({ delaySeconds: err.delaySeconds });
+          else {
+            console.error('[Queue] recording check crashed:', eventId, err);
+            message.retry({ delaySeconds: 60 });
+          }
+        }
       }
     } else if (queueName === 'card-check-queue') {
       // Word checks: new / edited notes, or one deck's "Check for errors" run (progress

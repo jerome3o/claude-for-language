@@ -9,6 +9,7 @@
  */
 
 import type { CardType } from '../types';
+import { deriveMixUps, type MixUp } from '@shared/recordings/mixups';
 
 // ---------- Inputs ----------
 
@@ -137,6 +138,8 @@ export interface InsightsReport {
   going_well: GoingWellNote[];
   activity: InsightActivity;
   recordings: InsightRecording[];
+  /** Characters the student confuses (wrong typed characters + wrong multiple-choice picks), most often first. */
+  mix_ups: MixUp[];
 }
 
 // ---------- Helpers ----------
@@ -429,6 +432,7 @@ export function computeInsights(input: {
     going_well: pickGoingWell(input.rows, input.cardStates),
     activity: input.activity,
     recordings: listRecordings(input.rows, input.marks),
+    mix_ups: deriveMixUps(input.rows),
   };
 }
 

@@ -59,6 +59,7 @@ function seed(db: SqliteD1) {
   exec(db, "INSERT INTO review_events (id, card_id, user_id, rating, reviewed_at, recording_url) VALUES ('s-ev', 's-card', ?, 0, '2026-09-02', 'recordings/s-ev.webm')", STUDENT);
   exec(db, "INSERT INTO shared_decks (id, relationship_id, source_deck_id, target_deck_id) VALUES ('share-1', 'rel-1', 't-deck', 's-copy')");
   exec(db, "INSERT INTO tutor_recording_marks (review_event_id, tutor_id, status) VALUES ('s-ev', ?, 'needs_work')", TUTOR);
+  exec(db, "INSERT INTO recording_checks (review_event_id, user_id, status, transcript) VALUES ('s-ev', ?, 'done', '边')", STUDENT);
 
   // Chat, flags, lesson log, summaries, notes jobs, call.
   exec(db, "INSERT INTO conversations (id, relationship_id, title) VALUES ('conv-1', 'rel-1', 'Chat')");

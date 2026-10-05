@@ -466,6 +466,27 @@ describe('registerStudentTools', () => {
     expect(JSON.parse(text)).toEqual({ shared_deck_id: 'sd-1', target_deck_id: 'deck-s', queue_position: 1, queue_total: 6 });
   });
 
+  it('list_student_recordings with queue: true reads the "Needs your ear" queue', async () => {
+    const item = {
+      event_id: 'ev-1',
+      note: { id: 'n', hanzi: '银行', pinyin: 'yínháng', english: 'bank', deck_name: 'D', audio_url: 'generated/n.mp3' },
+      card_type: 'hanzi_to_meaning', rating: 2, reviewed_at: '2026-10-01T10:00:00Z', recording_url: 'recordings/ev-1.webm',
+      user_answer: null, mark: null,
+      check: { status: 'done', transcript: '音行', transcript_match: false, score: 71.5, char_scores: [], weak_chars: [{ char: '银', score: 48, kind: 'tone' }], score_note: null },
+      flag: null, reasons: ['heard_different', 'low_score', 'sounded_off'], labels: ['Heard: 音行', 'Pronunciation score 72', 'Sounded off: 银 (tone)'], in_queue: true,
+    };
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships/rel-1/recordings/queue': () => ({ range: { from: 'a', to: 'b' }, view: 'queue', items: [item], counts: { queue: 1, all: 4, checking: 0 }, scoring: true }),
+    });
+    const out = parse(await tools.get('list_student_recordings')!.handler({ relationship_id: 'rel-1', queue: true }));
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/relationships/rel-1/recordings/queue' });
+    expect(out).toMatchObject({ in_queue: 1, total: 1, pronunciation_scoring: true });
+    const rec = (out.recordings as Array<Record<string, unknown>>)[0];
+    expect(rec).toMatchObject({ event_id: 'ev-1', heard: '音行', pronunciation_score: 71.5, why: ['Heard: 音行', 'Pronunciation score 72', 'Sounded off: 银 (tone)'] });
+    expect(rec.sounded_off).toEqual([{ char: '银', kind: 'tone', score: 48 }]);
+    expect(String(rec.reference_audio_url)).toContain('generated/n.mp3');
+  });
+
   it('list_student_homework tells Claude how to take homework back', () => {
     const { tools } = fakeContext({});
     const d = tools.get('list_student_homework')!.description;

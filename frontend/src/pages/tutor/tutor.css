@@ -738,6 +738,61 @@
   font-size: 0.875rem;
 }
 
+/* ---------- Mix-ups (Insights) ---------- */
+
+.tutor-mixup-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tutor-mixup-pair {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.tutor-mixup-arrow {
+  color: var(--color-text-light);
+  font-size: 1.125rem;
+  font-weight: 400;
+}
+
+.tutor-mixup-count {
+  margin-left: auto;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+}
+
+.tutor-mixup-examples {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.9375rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.tutor-mixup-typed,
+.tutor-mixup-when {
+  color: var(--color-text-light);
+  font-size: 0.8125rem;
+}
+
+.tutor-diff-wrong-plain {
+  color: #b91c1c;
+  background: #fee2e2;
+  border-radius: 3px;
+  padding: 0 0.0625rem;
+}
+
 /* ---------- Recordings inbox ---------- */
 
 .tutor-inbox-row {

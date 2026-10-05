@@ -65,15 +65,32 @@ export function NeedsAttention({
   relId,
   items,
   unheardTotal,
+  needEar,
 }: {
   relId: string;
   items: NeedsAttentionItem[];
   unheardTotal: number;
+  /** Recordings in the "Needs your ear" queue; undefined on older servers (then the unheard count is used). */
+  needEar?: number;
 }) {
+  const waiting = needEar ?? unheardTotal;
+  const waitingWords = needEar != null ? `need${needEar === 1 ? 's' : ''} your ear` : 'to hear';
   return (
     <div className="td-attention">
+      {needEar != null && needEar > 0 && (
+        <Link to={`/connections/${relId}/recordings`} className="td-attention-row td-attention-ear" data-testid="td-need-ear-row">
+          <span className="td-attention-hanzi" aria-hidden="true">🎤</span>
+          <span className="td-attention-main">
+            <div className="td-attention-word">{needEar} recording{needEar === 1 ? '' : 's'} {waitingWords}</div>
+            <div className="td-attention-detail">Heard differently, a tone off, rated Again or flagged</div>
+          </span>
+          <span className="td-chevron">›</span>
+        </Link>
+      )}
       {items.length === 0 ? (
-        <div className="td-empty">Nothing needs attention this week{unheardTotal > 0 ? ` — ${unheardTotal} recording${unheardTotal === 1 ? '' : 's'} to hear` : ''}.</div>
+        needEar != null && needEar > 0 ? null : (
+          <div className="td-empty">Nothing needs attention this week{waiting > 0 ? ` — ${waiting} recording${waiting === 1 ? '' : 's'} ${waitingWords}` : ''}.</div>
+        )
       ) : (
         items.map((item) => (
           <Link key={item.note.id} to={`/connections/${relId}/insights`} className="td-attention-row">
@@ -86,7 +103,7 @@ export function NeedsAttention({
           </Link>
         ))
       )}
-      <Link to={unheardTotal > 0 && items.every((i) => !i.recording) ? `/connections/${relId}/recordings` : `/connections/${relId}/insights`} className="td-attention-footer">
+      <Link to={waiting > 0 && items.every((i) => !i.recording) ? `/connections/${relId}/recordings` : `/connections/${relId}/insights`} className="td-attention-footer">
         All words &amp; recordings →
       </Link>
     </div>

@@ -106,10 +106,19 @@ export function StudentCard({ overview, onSendHomework, recent }: { overview: St
             🚩 {pills.flags_open} flagged card{pills.flags_open === 1 ? '' : 's'}
           </Link>
         )}
-        {pills.recordings_to_hear > 0 && (
-          <Link to={`/connections/${relId}/recordings`} className="td-pill td-pill-recordings">
-            🎤 {pills.recordings_to_hear} recording{pills.recordings_to_hear === 1 ? '' : 's'} to hear
-          </Link>
+        {pills.recordings_need_ear != null ? (
+          // Only the recordings worth her ear (shared/recordings/queue.ts); nothing when none.
+          pills.recordings_need_ear > 0 && (
+            <Link to={`/connections/${relId}/recordings`} className="td-pill td-pill-recordings" data-testid="td-pill-need-ear">
+              🎤 {pills.recordings_need_ear} need{pills.recordings_need_ear === 1 ? 's' : ''} your ear
+            </Link>
+          )
+        ) : (
+          pills.recordings_to_hear > 0 && (
+            <Link to={`/connections/${relId}/recordings`} className="td-pill td-pill-recordings">
+              🎤 {pills.recordings_to_hear} recording{pills.recordings_to_hear === 1 ? '' : 's'} to hear
+            </Link>
+          )
         )}
         {pills.homework_percent != null && (
           <Link to={`/connections/${relId}`} className="td-pill td-pill-homework">Homework {pills.homework_percent}%</Link>

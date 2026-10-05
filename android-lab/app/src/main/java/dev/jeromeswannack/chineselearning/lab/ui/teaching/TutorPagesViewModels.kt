@@ -5,16 +5,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.data.api.HistoryQuery
-import dev.jeromeswannack.chineselearning.lab.data.api.InsightRecordingDto
 import dev.jeromeswannack.chineselearning.lab.data.api.InsightsReportDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonLogEntryDto
-import dev.jeromeswannack.chineselearning.lab.data.api.MarkBody
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentSummaryDto
-import dev.jeromeswannack.chineselearning.lab.data.api.clearRecordingMark
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteLessonLogEntry
 import dev.jeromeswannack.chineselearning.lab.data.api.lessonLog
 import dev.jeromeswannack.chineselearning.lab.data.api.logLesson
-import dev.jeromeswannack.chineselearning.lab.data.api.markRecording
 import dev.jeromeswannack.chineselearning.lab.data.api.studentHistory
 import dev.jeromeswannack.chineselearning.lab.data.api.studentInsights
 import dev.jeromeswannack.chineselearning.lab.data.api.studentSummaries
@@ -169,46 +165,5 @@ class HistoryViewModel(private val app: LabApp, private val relId: String) : Vie
     class Factory(private val app: LabApp, private val relId: String) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = HistoryViewModel(app, relId) as T
-    }
-}
-
-class RecordingsViewModel(private val app: LabApp, private val relId: String) : ViewModel() {
-    private val loader = ReportLoader(app, this, relId)
-    val report: StateFlow<Loadable<InsightsReportDto>> = loader.state
-
-    data class Transient(val range: String = "30d", val filter: RecordingFilter = RecordingFilter.ALL, val saving: Set<String> = emptySet(), val markError: String? = null)
-    private val _t = MutableStateFlow(Transient())
-    val transient: StateFlow<Transient> = _t.asStateFlow()
-
-    init { setRange("30d") }
-
-    fun setRange(range: String) {
-        _t.update { it.copy(range = range) }
-        val from = if (range == "lesson") null else TutorPageFormat.daysAgo(range.removeSuffix("d").toInt())
-        // The preset keys match the Insights page's where they overlap (30d), so the two share a cache.
-        loader.load(if (range == "lesson") "lesson" else "d${range.removeSuffix("d")}", from, null)
-    }
-
-    fun setFilter(f: RecordingFilter) = _t.update { it.copy(filter = f) }
-
-    fun retry() = loader.refresh()
-
-    /** Listened / Needs work (tap again to clear) and the note, optimistic on the list. */
-    fun mark(r: InsightRecordingDto, status: String?, comment: String?) = viewModelScope.launch {
-        _t.update { it.copy(saving = it.saving + r.event_id, markError = null) }
-        attempt {
-            if (status == null) { app.repo.api.clearRecordingMark(relId, r.event_id); null }
-            else app.repo.api.markRecording(relId, r.event_id, MarkBody(status, comment))
-        }.onSuccess { mark ->
-            app.haptics.tick()
-            loader.resource?.update { rep -> rep!!.copy(recordings = rep.recordings.map { if (it.event_id == r.event_id) it.copy(mark = mark) else it }) }
-                ?: run { loader.state.update { s -> s.copy(data = s.data?.let { rep -> rep.copy(recordings = rep.recordings.map { if (it.event_id == r.event_id) it.copy(mark = mark) else it }) }) } }
-        }.onFailure { _t.update { it.copy(markError = "Could not save the mark. Try again.") } }
-        _t.update { it.copy(saving = it.saving - r.event_id) }
-    }
-
-    class Factory(private val app: LabApp, private val relId: String) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = RecordingsViewModel(app, relId) as T
     }
 }

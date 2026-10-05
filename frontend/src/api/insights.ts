@@ -13,6 +13,7 @@ import type {
   HistoryPage,
   HistoryQuery,
 } from '../types/insights';
+import type { RecordingQueueResponse } from '@shared/recordings/queue';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -104,6 +105,17 @@ export async function markRecording(
 
 export async function clearRecordingMark(relId: string, eventId: string): Promise<void> {
   await request<{ success: boolean }>(`/relationships/${relId}/recordings/${eventId}/mark`, { method: 'DELETE' });
+}
+
+// ---------- "Needs your ear" queue ----------
+
+export async function getRecordingQueue(
+  relId: string,
+  query: { from?: string; to?: string; view?: 'queue' | 'all' } = {}
+): Promise<RecordingQueueResponse> {
+  return request<RecordingQueueResponse>(
+    `/relationships/${relId}/recordings/queue${qs({ from: query.from, to: query.to, view: query.view })}`
+  );
 }
 
 // ---------- History ----------

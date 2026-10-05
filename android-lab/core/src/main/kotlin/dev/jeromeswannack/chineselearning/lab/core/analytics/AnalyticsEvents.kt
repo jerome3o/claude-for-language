@@ -96,7 +96,9 @@ object AnalyticsEvents {
         ev("tutor.catalogue_copy", "tutor", listOf("exercise_type")),
         ev("tutor.budget_change", "tutor", listOf("new_cards", "secondary_cards", "reset")),
         ev("tutor.student_profile_save", "tutor", emptyList()),
-        ev("tutor.recording_mark", "tutor", listOf("status")),
+        ev("tutor.recording_mark", "tutor", listOf("status", "source")),
+        ev("tutor.recording_queue_open", "tutor", listOf("view", "items", "scoring")),
+        ev("tutor.recording_reference_play", "tutor", listOf("source")),
         ev("tutor.flag_reply", "tutor", emptyList()),
         ev("tutor.queue_move", "tutor", listOf("to")),
         ev("tutor.invite_create", "tutor", listOf("decks")),
@@ -153,6 +155,7 @@ object AnalyticsEvents {
         ev("server.ai_call", "server", listOf("provider", "model", "input_tokens", "output_tokens", "cache_read_tokens", "cost_usd", "status", "route"), server = true),
         ev("server.push_sent", "server", listOf("channel", "kind", "ok"), server = true),
         ev("server.email_sent", "server", listOf("kind", "ok"), server = true),
+        ev("server.recording_check", "server", listOf("scored", "match", "note", "audio_ms"), server = true),
         ev("server.coach_auto_detect", "server", emptyList(), server = true, replacedBy = "coach.start"),
         ev("server.study_session_api", "server", emptyList(), server = true, replacedBy = "study.session_start"),
     )

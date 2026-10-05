@@ -467,7 +467,12 @@ export function ConnectionDetailPage() {
           {overview && !overview.is_new && (
             <section className="detail-section">
               <h2>Needs attention</h2>
-              <NeedsAttention relId={relId!} items={overview.needs_attention} unheardTotal={overview.pills.recordings_to_hear} />
+              <NeedsAttention
+                relId={relId!}
+                items={overview.needs_attention}
+                unheardTotal={overview.pills.recordings_to_hear}
+                needEar={overview.pills.recordings_need_ear}
+              />
             </section>
           )}
 
@@ -482,7 +487,7 @@ export function ConnectionDetailPage() {
             <Link to={`/connections/${relId}/insights`}>Insights</Link>
             <Link to={`/connections/${relId}/history`}>History</Link>
             <Link to={`/connections/${relId}/recordings`}>
-              Recordings{overview && overview.pills.recordings_to_hear > 0 ? ` (${overview.pills.recordings_to_hear})` : ''}
+              {recordingsLinkLabel(overview?.pills)}
             </Link>
             <Link to={`/connections/${relId}/progress`}>Progress</Link>
             <Link to={`/connections/${relId}/homework`}>Homework library</Link>
@@ -837,4 +842,13 @@ function TutorHomeworkRows({ relId }: { relId: string }) {
       <Link to="/homework" className="btn-link">My homework ›</Link>
     </div>
   );
+}
+
+/** "Recordings · 🎤 3 need your ear" (older servers: "Recordings (5)" unheard). */
+function recordingsLinkLabel(pills: { recordings_to_hear: number; recordings_need_ear?: number } | undefined): string {
+  if (!pills) return 'Recordings';
+  if (pills.recordings_need_ear != null) {
+    return pills.recordings_need_ear > 0 ? `Recordings · 🎤 ${pills.recordings_need_ear} need${pills.recordings_need_ear === 1 ? 's' : ''} your ear` : 'Recordings';
+  }
+  return pills.recordings_to_hear > 0 ? `Recordings (${pills.recordings_to_hear})` : 'Recordings';
 }
