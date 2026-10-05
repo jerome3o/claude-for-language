@@ -192,6 +192,14 @@ class CardTools(private val app: LabApp) {
         repo.dao.allNotes().any { it.deckId == deckId && it.hanzi == hanzi }
     }
 
+    /** Every deck (by name) already holding this hanzi — AddChunkSheet's `existing` ("You already have 香蕉 in …"). */
+    suspend fun decksHolding(hanzi: String): List<String> = withContext(Dispatchers.IO) {
+        val deckIds = repo.dao.allNotes().filter { it.hanzi == hanzi }.map { it.deckId }.distinct()
+        if (deckIds.isEmpty()) return@withContext emptyList()
+        val names = repo.dao.decks().associate { it.id to it.name }
+        deckIds.map { names[it] ?: "a deck" }
+    }
+
     /** "Already in <deck>" for the definition popup. */
     suspend fun deckHolding(hanzi: String): String? = withContext(Dispatchers.IO) {
         val note = repo.dao.allNotes().firstOrNull { it.hanzi == hanzi } ?: return@withContext null

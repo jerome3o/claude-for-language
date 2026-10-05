@@ -94,7 +94,7 @@ import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAn
 import { materialTarget, parseMaterialTarget, turnPage, type PresentedMaterial } from '@shared/materials';
 import { advanceCallProcessing } from '../services/calls/processing';
 import { relationshipTutor, saveActivityResult } from '../services/calls/activities';
-import { findActivity, joinActivity, reduceActivity, reviewMarkOf, startActivity, REVIEW_ACTIVITY_ID, type ActivitySession, type ActivitySpec } from '@shared/call-activities';
+import { findActivity, joinActivity, reduceActivity, reviewMarkOf, rolesOf, startActivity, REVIEW_ACTIVITY_ID, type ActivitySession, type ActivitySpec } from '@shared/call-activities';
 import { applyReviewMark, buildReviewSpec } from '../services/calls/review-activity';
 import { alertCallMissed } from '../services/calls/alerts';
 import { insertPage, linkCallPages, loadPageDoc, loadScopePages, savePages, type PageScope, type PageWrite, type RoomPage } from '../services/calls/pages';
@@ -1019,8 +1019,16 @@ export class CallRoom extends DurableObject<Env> {
           this.send(ws, { type: 'activity', session: cur });
           return;
         }
-        const next = reduceActivity(cur, msg.action, a.userId, Date.now());
+        // Someone in the call who holds no role yet (the activity was started while they were away):
+        // they take one now, so their first tap counts instead of being refused.
+        const base = rolesOf(cur, a.userId).length === 0 ? (joinActivity(cur, a.userId, a.name, await this.tutor(), Date.now()) ?? cur) : cur;
+        const next = reduceActivity(base, msg.action, a.userId, Date.now());
         if (!next) {
+          if (base !== cur) {
+            await this.ctx.storage.put('activity', base);
+            this.broadcast({ type: 'activity', session: base });
+            return;
+          }
           this.send(ws, { type: 'activity', session: cur });
           return;
         }

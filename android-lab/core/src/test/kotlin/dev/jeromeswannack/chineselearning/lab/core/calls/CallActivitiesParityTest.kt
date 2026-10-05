@@ -84,13 +84,31 @@ class CallActivitiesParityTest {
         assertTrue(options.size > 100)
         for (op in options) {
             val o = op.jsonObject
-            val sp = CallActivities.find(s(o["id"])!!)!!
+            val sp = o["spec"]?.let(::spec) ?: CallActivities.find(s(o["id"])!!)!!
             assertEquals(strs(o["out"]), CallActivities.describeOptions(sp, s(o["sid"])!!, o["round"]!!.jsonPrimitive.int), "options $o")
         }
         for (p in root["pools"]!!.jsonArray) {
             val o = p.jsonObject
             val sp = o["spec"]?.let(::spec) ?: CallActivities.find(s(o["id"])!!)!!
             assertEquals(ints(o["out"]), CallActivities.buildPool(sp, s(o["sid"])!!, o["round"]!!.jsonPrimitive.int), "pool $o")
+        }
+    }
+
+    private fun needed(e: JsonElement?) = e!!.jsonArray.map {
+        val o = it.jsonObject
+        CallActivities.NeededWord(s(o["hanzi"])!!, s(o["pinyin"])!!, s(o["english"])!!, s(o["kind"])!!, o["round"]!!.jsonPrimitive.int)
+    }
+
+    @Test fun roleBadgesMatch() {
+        val badges = root["badges"]!!.jsonArray
+        assertTrue(badges.size >= ActivityCatalogue.ALL.size * 2)
+        val odd = root["odd_runs"]!!.jsonArray.map { spec(it.jsonObject["spec"]!!) }
+        for (b in badges) {
+            val o = b.jsonObject
+            val sp = CallActivities.find(s(o["id"])!!) ?: odd.first { it.id == s(o["id"]) }
+            val role = s(o["role"])!!
+            assertEquals(s(o["badge"]), CallActivities.roleBadge(sp, role), "badge $o")
+            assertEquals(s(o["swapped"]), CallActivities.rolesSwappedNotice(sp, role), "swapped $o")
         }
     }
 
@@ -111,6 +129,13 @@ class CallActivitiesParityTest {
             val want = marks.jsonArray.map { m -> m.takeIf { it !is JsonNull }?.let { j.decodeFromJsonElement(ReviewMark.serializer(), it) } }
             assertEquals(want, got, "$label reviewMarkOf")
         }
+        val types = strs(root["action_types"])
+        for ((u, allowed) in v["may_act"]!!.jsonObject) {
+            assertEquals(strs(allowed), types.filter { CallActivities.mayAct(s, u, it) }, "$label mayAct $u")
+        }
+        assertEquals(strs(v["turn_roles"]), CallActivities.turnRoles(s), "$label turnRoles")
+        assertEquals(needed(v["words_round"]), CallActivities.wordsYouNeeded(s, s.round), "$label wordsYouNeeded(round)")
+        assertEquals(needed(v["words_all"]), CallActivities.wordsYouNeeded(s), "$label wordsYouNeeded")
     }
 
     /** Replays [steps] from [first] in Kotlin; every session (or refusal) must equal the TS one. */

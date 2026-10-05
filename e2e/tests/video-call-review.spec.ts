@@ -92,8 +92,8 @@ test('review together: shared list and selection, clips play on both devices, th
     await expect(p.getByTestId('review-activity')).toBeVisible({ timeout: 15000 });
     await expect(p.getByTestId('review-row')).toHaveCount(2); // 谢谢 sounded fine: not in the list
   }
-  await expect(tp.getByTestId('activity-role')).toHaveText('You: Tutor');
-  await expect(sp.getByTestId('activity-role')).toHaveText('You: Student');
+  await expect(tp.getByTestId('activity-role')).toHaveText('Tutor');
+  await expect(sp.getByTestId('activity-role')).toHaveText('Student');
 
   // The student selects the second item; the tutor's screen follows.
   const second = sp.getByTestId('review-row').nth(1);

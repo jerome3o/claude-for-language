@@ -25,15 +25,20 @@ import {
   describeOptions,
   hash32,
   joinActivity,
+  mayAct,
   reduceActivity,
   reviewMarkOf,
+  roleBadge,
+  rolesSwappedNotice,
   rolesOf,
   roundTitle,
   scoreOf,
   seededShuffle,
   startActivity,
   totalRounds,
+  turnRoles,
   validateActivitySpec,
+  wordsYouNeeded,
   type ActivitySession,
   type ActivitySpec,
   type ReviewItem,
@@ -61,6 +66,12 @@ const S = 'student-1';
 const X = 'stranger-1';
 const NAMES: Record<string, string> = { [T]: 'Minghui', [S]: 'Jerome' };
 const USERS = [T, S, X];
+/** Every action type (and one this engine doesn't know) for the who-may-act vectors. */
+const ACTION_TYPES = [
+  'next', 'skip', 'reset_round', 'swap_roles', 'restart', 'finish', 'pick', 'ask', 'play_audio', 'reveal', 'mark',
+  'draft', 'submit', 'place', 'unplace', 'clear_tiles', 'said', 'fill', 'line_done', 'line_back',
+  'select', 'play_clip', 'review_mark', 'bogus',
+] as const;
 
 // ---- shuffles
 const alphabet = ['a', 'Z', '0', ':', ' ', '好', '学', '😀', 'é', '\n', 'session', '-', '123'];
@@ -85,6 +96,33 @@ for (const spec of ACTIVITY_CATALOGUE) {
     }
   }
 }
+// Describe specs whose distractors repeat an item / the answer / each other or are blank (the pool dedupes).
+const describeOdd: ActivitySpec = {
+  id: 'describe-odd', kind: 'describe', title: 'Odd', level: 'beginner', topic: 't', summary: 's', role_names: { a: 'A', b: 'B' }, tutor_role: 'b',
+  items: [
+    { emoji: '1', hanzi: '一', pinyin: 'yī', english: 'one', hints: ['数字', '最小'] },
+    { emoji: '2', hanzi: '二', pinyin: 'èr', english: 'two', hints: ['数字'] },
+    { emoji: '3', hanzi: '三', pinyin: 'sān', english: 'three' },
+    { emoji: '4', hanzi: '四', pinyin: 'sì', english: 'four', hints: ['没有词'] },
+  ],
+  distractors: [
+    { hanzi: '五', pinyin: 'wǔ', english: 'five' }, { hanzi: '一', pinyin: 'yī', english: 'one' }, { hanzi: '', pinyin: '', english: '' },
+    { hanzi: '五', pinyin: 'wǔ', english: 'five' }, { hanzi: '六', pinyin: 'liù', english: 'six' }, { hanzi: '七', pinyin: 'qī', english: 'seven' },
+    { hanzi: '八', pinyin: 'bā', english: 'eight' }, { hanzi: '九', pinyin: 'jiǔ', english: 'nine' }, { hanzi: '十', pinyin: 'shí', english: 'ten' },
+  ],
+  glossary: [{ hanzi: '数字', pinyin: 'shùzì', english: 'number' }],
+};
+const describeFew: ActivitySpec = { ...describeOdd, id: 'describe-few', distractors: [{ hanzi: '五', pinyin: 'wǔ', english: 'five' }], glossary: undefined };
+for (const spec of [describeOdd, describeFew]) {
+  for (let i = 0; i < 20; i++) {
+    const sid = `odd-${Math.floor(r() * 1e9).toString(36)}`;
+    for (let round = -1; round <= totalRounds(spec); round++) options.push({ spec, sid, round, out: describeOptions(spec, sid, round) });
+  }
+}
+// Role badges / swap notices for every spec × role.
+const badges = [...ACTIVITY_CATALOGUE, describeOdd].flatMap((spec) =>
+  (['a', 'b'] as const).map((role) => ({ id: spec.id, role, badge: roleBadge(spec, role), swapped: rolesSwappedNotice(spec, role) })),
+);
 // A two-tile build whose every shuffle could be "right" (exercises the reversed fallback) and one-tile rounds.
 const tinyBuild: ActivitySpec = {
   id: 'build-tiny', kind: 'build', title: 'Tiny', level: 'beginner', topic: 't', summary: 's', role_names: { a: 'A', b: 'B' }, tutor_role: 'a',
@@ -230,6 +268,10 @@ function snapshot(s: ActivitySession | null) {
     built: s.spec.kind === 'build' ? builtText(s.spec, s.round, s.data.placed ?? []) : null,
     round_title: roundTitle(s.spec, s.round),
     review_marks: s.spec.kind === 'review' ? s.spec.items.map((_, i) => reviewMarkOf(s, i)) : null,
+    may_act: Object.fromEntries(USERS.map((u) => [u, ACTION_TYPES.filter((t) => mayAct(s, u, t as never))])),
+    turn_roles: turnRoles(s),
+    words_round: wordsYouNeeded(s, s.round),
+    words_all: wordsYouNeeded(s),
   };
 }
 
@@ -291,6 +333,7 @@ for (const spec of ACTIVITY_CATALOGUE) {
 // ---- odd specs: empty kinds, out-of-range values (validation + start / reduce never crash)
 const odd: ActivitySpec[] = [
   { ...tinyBuild },
+  describeOdd,
   { id: 'd', kind: 'describe', title: 'D', level: 'beginner', topic: '', summary: '', role_names: { a: 'A', b: 'B' }, tutor_role: 'a', items: [
     { emoji: '1', hanzi: '一', pinyin: 'yī', english: 'one' }, { emoji: '2', hanzi: '一', pinyin: 'yī', english: 'one' }, { emoji: '3', hanzi: '三', pinyin: 'sān', english: 'three' }] },
   { id: 'q', kind: 'quiz', title: 'Q', level: 'beginner', topic: '', summary: '', role_names: { a: 'A', b: 'B' }, tutor_role: 'a', questions: [
@@ -421,6 +464,8 @@ writeFileSync(
     cell_keys: [[0, 0], [3, 1], [12, 7]].map(([a, b]) => ({ row: a, col: b, key: cellKey(a, b) })),
     hashes,
     shuffles,
+    badges,
+    action_types: ACTION_TYPES,
     options,
     pools,
     runs,

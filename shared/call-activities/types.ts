@@ -49,11 +49,18 @@ interface SpecBase {
   tutor_role: ActivityRole;
 }
 
-/** A describes the thing in Chinese (without saying it); B picks it from four. */
+/** A describes the thing in Chinese (without saying it); B picks it from up to `DESCRIBE_OPTION_COUNT`. */
 export interface DescribeSpec extends SpecBase {
   kind: 'describe';
   items: (ActivityWord & { emoji: string; /** Words A might use. */ hints?: string[] })[];
+  /** Extra wrong options from the same category (never a round's answer), so the guesser has more to choose from. */
+  distractors?: ActivityWord[];
+  /** Reading + meaning of the hint words ("words you needed" → + Add as card). */
+  glossary?: ActivityWord[];
 }
+
+/** How many options a describe round shows the guesser (fewer when the spec has fewer words). */
+export const DESCRIBE_OPTION_COUNT = 8;
 
 /**
  * Information gap: a small table; each person sees only their half and fills
@@ -161,6 +168,8 @@ export interface ActivityRoundResult {
   /** info_gap: one line per blank cell ("星期六 上午 · 小红: wrote 看电影 ✓"). */
   detail?: string[];
   skipped?: boolean;
+  /** Who gave the answer (user id): the guesser who picked, the writer, the speaker. */
+  by?: string;
 }
 
 /** The current round's working state, per kind (only the fields the kind uses). */
@@ -169,6 +178,8 @@ export interface ActivityRoundData {
   options?: string[];
   /** describe: the hanzi B picked; quiz: the option index B picked, as a string ("0".."3"). */
   pick?: string | null;
+  /** describe / quiz: who picked (user id) — the reveal names this person, never "the guesser" by role. */
+  pick_by?: string | null;
   /** build: the tile order shown in the pool (indices into the item's tiles). */
   pool?: number[];
   /** build: the tiles placed so far, in order (indices). */

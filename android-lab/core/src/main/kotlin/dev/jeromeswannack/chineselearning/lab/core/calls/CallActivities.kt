@@ -144,6 +144,10 @@ data class ActivitySpec(
     val lines: List<RoleplayLine>? = null,
     /** quiz. */
     val questions: List<QuizQuestion>? = null,
+    /** describe: extra wrong options from the same category (never a round's answer). */
+    val distractors: List<ActivityWord>? = null,
+    /** describe: reading + meaning of the hint words ("words you needed" → + Add as card). */
+    val glossary: List<ActivityWord>? = null,
 ) {
     val itemList: List<ActivityItem> get() = items.orEmpty()
     val lineList: List<RoleplayLine> get() = lines.orEmpty()
@@ -159,6 +163,8 @@ data class ActivityRoundResult(
     val answer: String? = null,
     val detail: List<String>? = null,
     val skipped: Boolean? = null,
+    /** Who gave the answer (user id): the guesser who picked, the writer, the speaker. */
+    val by: String? = null,
 )
 
 /** `ActivityRoundData`: the current round's working state (only the fields the kind uses). */
@@ -166,6 +172,8 @@ data class ActivityRoundResult(
 data class ActivityRoundData(
     val options: List<String>? = null,
     val pick: String? = null,
+    /** describe / quiz: who picked (user id) — the reveal names this person, never "the guesser" by role. */
+    @SerialName("pick_by") val pickBy: String? = null,
     val pool: List<Int>? = null,
     val placed: List<Int>? = null,
     val said: List<String>? = null,
@@ -317,6 +325,9 @@ object CallActivities {
     /** `REVIEW_ACTIVITY_ID`: what the clients start Review together with (`activity_start`). */
     const val REVIEW_ACTIVITY_ID = "review-together"
 
+    /** `DESCRIBE_OPTION_COUNT`: how many options a describe round shows the guesser. */
+    const val DESCRIBE_OPTION_COUNT = 8
+
     /** The room's JSON: unknown keys ignored, nulls left out (TS `undefined` / `null` read the same). */
     val json = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = true; coerceInputValues = true }
 
@@ -410,12 +421,19 @@ object CallActivities {
         return spec.rowList.getOrNull(r)?.cells?.getOrNull(c)
     }
 
-    /** `describeOptions`: the item and three others, shuffled. */
+    /**
+     * `describeOptions`: the item and up to DESCRIBE_OPTION_COUNT − 1 others — the spec's other items
+     * and its distractors, never the answer twice — shuffled.
+     */
     fun describeOptions(spec: ActivitySpec, sessionId: String, round: Int): List<String> {
         val items = spec.itemList
         val target = items.getOrNull(round) ?: return emptyList()
-        val others = seededShuffle(items.filterIndexed { i, _ -> i != round }.map { it.hanzi.orEmpty() }, "$sessionId:$round:others").take(3)
-        return seededShuffle(listOf(target.hanzi.orEmpty()) + others, "$sessionId:$round:options")
+        val targetHanzi = target.hanzi.orEmpty()
+        val pool = ArrayList<String>()
+        val words = items.filterIndexed { i, _ -> i != round }.map { it.hanzi.orEmpty() } + spec.distractors.orEmpty().map { it.hanzi }
+        for (w in words) if (w.isNotEmpty() && w != targetHanzi && w !in pool) pool += w
+        val others = seededShuffle(pool, "$sessionId:$round:others").take(DESCRIBE_OPTION_COUNT - 1)
+        return seededShuffle(listOf(targetHanzi) + others, "$sessionId:$round:options")
     }
 
     /** `buildPool`: the tile order shown, never already right (when it can differ). */
@@ -450,6 +468,60 @@ object CallActivities {
     private fun ActivitySession.atRound(round: Int): ActivitySession {
         val (phase, data) = roundData(spec, sessionId, round)
         return copy(round = round, phase = phase, data = data)
+    }
+
+    // ------------------------------------------------------------------ who may act
+
+    /**
+     * `turnRoles`: whose turn the round is — the role(s) that drive it on (Next / Skip) besides the
+     * host: the describer, the asker, the speaker of the current line; both in the cooperative kinds.
+     */
+    fun turnRoles(s: ActivitySession): List<String> = when (s.spec.kind) {
+        ActivityKinds.DESCRIBE, ActivityKinds.QUIZ, ActivityKinds.DICTATION -> listOf("a")
+        ActivityKinds.ROLEPLAY -> s.spec.lineList.getOrNull(s.round)?.let { listOf(it.speaker) } ?: listOf("a", "b")
+        ActivityKinds.INFO_GAP, ActivityKinds.BUILD, ActivityKinds.REVIEW -> listOf("a", "b")
+        // A kind this build doesn't know: nobody's turn (the host still may).
+        else -> emptyList()
+    }
+
+    /**
+     * `mayAct`: THE who-may-act rule (roles only — phase and values are the engine's business). The
+     * host alone restarts, resets a round and swaps roles; Next / Skip are the host's or whoever's turn
+     * it is; each kind's own actions belong to one role; building and filling a gap are for both.
+     * Either person may end the activity. Someone with no role (and not the host) may do nothing.
+     */
+    fun mayAct(s: ActivitySession, actor: String, type: String): Boolean {
+        val host = isHost(s, actor)
+        val a = holds(s, actor, "a")
+        val b = holds(s, actor, "b")
+        val player = a || b
+        if (!player && !host) return false
+        val kind = s.spec.kind
+        fun myTurn() = turnRoles(s).any { holds(s, actor, it) }
+        return when (type) {
+            "finish" -> true
+            "restart", "reset_round", "swap_roles" -> host
+            "next", "skip" -> host || myTurn()
+            "pick" -> (kind == ActivityKinds.DESCRIBE || kind == ActivityKinds.QUIZ) && b
+            "ask", "play_audio", "mark" -> (kind == ActivityKinds.QUIZ || kind == ActivityKinds.DICTATION) && a
+            "reveal" ->
+                if (kind == ActivityKinds.QUIZ || kind == ActivityKinds.DICTATION) a
+                else (kind == ActivityKinds.INFO_GAP || kind == ActivityKinds.BUILD) && player
+            "draft", "submit" -> kind == ActivityKinds.DICTATION && b
+            "place", "unplace", "clear_tiles", "said" -> kind == ActivityKinds.BUILD && player
+            "fill" -> kind == ActivityKinds.INFO_GAP && player
+            "line_done" -> kind == ActivityKinds.ROLEPLAY && (host || myTurn())
+            "select", "play_clip" -> kind == ActivityKinds.REVIEW
+            "review_mark" -> kind == ActivityKinds.REVIEW && host
+            "line_back" -> {
+                if (kind != ActivityKinds.ROLEPLAY) false
+                else {
+                    val prev = s.spec.lineList.getOrNull(s.round - 1)
+                    host || (prev != null && holds(s, actor, prev.speaker))
+                }
+            }
+            else -> false
+        }
     }
 
     // ------------------------------------------------------------------ start
@@ -503,28 +575,25 @@ object CallActivities {
 
     private fun step(s: ActivitySession, action: ActivityAction, actor: String): ActivitySession? {
         val spec = s.spec
-        val host = isHost(s, actor)
-        val a = holds(s, actor, "a")
-        val b = holds(s, actor, "b")
-        if (!a && !b && !host) return null
+        if (!mayAct(s, actor, action.type)) return null
         val d = s.data
         val done = s.phase == ActivityPhases.DONE
 
         // ---- review: no rounds to walk through, a list to pick from (round = the selected item)
-        if (spec.kind == ActivityKinds.REVIEW) return stepReview(s, action, host)
+        if (spec.kind == ActivityKinds.REVIEW) return stepReview(s, action, isHost(s, actor))
 
         // ---- controls, any kind
         when (action) {
             ActivityAction.Finish -> return if (done) null else s.copy(phase = ActivityPhases.DONE, data = ActivityRoundData())
-            ActivityAction.Restart -> return if (!host) null else goTo(s.copy(results = emptyList()), 0)
-            ActivityAction.SwapRoles -> return if (!host || done) null else s.copy(roles = RolePair(s.roles.b, s.roles.a)).atRound(s.round)
-            ActivityAction.ResetRound -> return if (!host || done) null else s.copy(results = s.results.filter { it.round != s.round }).atRound(s.round)
+            ActivityAction.Restart -> return goTo(s.copy(results = emptyList()), 0)
+            ActivityAction.SwapRoles -> return if (done) null else s.copy(roles = RolePair(s.roles.b, s.roles.a)).atRound(s.round)
+            ActivityAction.ResetRound -> return if (done) null else s.copy(results = s.results.filter { it.round != s.round }).atRound(s.round)
             ActivityAction.Skip -> {
-                if (!host || done) return null
+                if (done) return null
                 if (s.phase == ActivityPhases.REVEAL) return goTo(s, s.round + 1)
                 return goTo(s.copy(results = withResult(s.results, ActivityRoundResult(round = s.round, correct = null, skipped = true))), s.round + 1)
             }
-            ActivityAction.Next -> return if (!host || s.phase != ActivityPhases.REVEAL) null else goTo(s, s.round + 1)
+            ActivityAction.Next -> return if (s.phase != ActivityPhases.REVEAL) null else goTo(s, s.round + 1)
             else -> Unit
         }
         if (done) return null
@@ -533,12 +602,12 @@ object CallActivities {
 
         when (spec.kind) {
             ActivityKinds.DESCRIBE -> {
-                if (action !is ActivityAction.Pick || !b || s.phase != ActivityPhases.PLAY) return null
+                if (action !is ActivityAction.Pick || s.phase != ActivityPhases.PLAY) return null
                 if (action.option !in d.options.orEmpty()) return null
                 val correct = action.option == spec.itemList[s.round].hanzi
                 return s.copy(
-                    phase = ActivityPhases.REVEAL, data = d.copy(pick = action.option),
-                    results = withResult(s.results, ActivityRoundResult(round = s.round, correct = correct, answer = action.option)),
+                    phase = ActivityPhases.REVEAL, data = d.copy(pick = action.option, pickBy = actor),
+                    results = withResult(s.results, ActivityRoundResult(round = s.round, correct = correct, answer = action.option, by = actor)),
                 )
             }
             ActivityKinds.INFO_GAP -> {
@@ -576,8 +645,7 @@ object CallActivities {
                 if (s.phase != ActivityPhases.PLAY) return null
                 if (action == ActivityAction.LineDone) {
                     val line = spec.lineList[s.round]
-                    if (!holds(s, actor, line.speaker) && !host) return null
-                    return goTo(s.copy(results = withResult(s.results, ActivityRoundResult(round = s.round, correct = null, answer = line.hanzi))), s.round + 1)
+                    return goTo(s.copy(results = withResult(s.results, ActivityRoundResult(round = s.round, correct = null, answer = line.hanzi, by = actor))), s.round + 1)
                 }
                 if (action == ActivityAction.LineBack) {
                     if (s.round == 0) return null
@@ -598,7 +666,7 @@ object CallActivities {
                     ActivityAction.ClearTiles ->
                         if (s.phase != ActivityPhases.PLAY || placed.isEmpty()) null else s.copy(data = d.copy(placed = emptyList()))
                     ActivityAction.Reveal -> {
-                        if (!host || s.phase != ActivityPhases.PLAY) null
+                        if (s.phase != ActivityPhases.PLAY) null
                         else {
                             val built = builtText(spec, s.round, placed)
                             s.copy(phase = ActivityPhases.REVEAL, results = withResult(s.results, ActivityRoundResult(round = s.round, correct = built == tiles.joinToString(""), answer = built)))
@@ -614,31 +682,31 @@ object CallActivities {
                 val q = spec.questionList[s.round]
                 return when (action) {
                     ActivityAction.Ask ->
-                        if (!a || s.phase != ActivityPhases.READY) null
+                        if (s.phase != ActivityPhases.READY) null
                         else s.copy(phase = ActivityPhases.PLAY, data = d.copy(play = (d.play ?: 0) + (if (!q.audio.isNullOrEmpty()) 1 else 0)))
                     ActivityAction.PlayAudio ->
-                        if (!a || q.audio.isNullOrEmpty() || s.phase == ActivityPhases.READY) null
+                        if (q.audio.isNullOrEmpty() || s.phase == ActivityPhases.READY) null
                         else s.copy(data = d.copy(play = (d.play ?: 0) + 1))
                     is ActivityAction.Pick -> {
                         // JS /^\d+$/ (ASCII digits, whole string) then Number(option).
                         val i = if (action.option.matches(Regex("[0-9]+"))) action.option.trimStart('0').ifEmpty { "0" }.toIntOrNull() else null
-                        if (!b || s.phase != ActivityPhases.PLAY || i == null || i >= q.options.size) null
-                        else s.copy(data = d.copy(pick = action.option))
+                        if (s.phase != ActivityPhases.PLAY || i == null || i >= q.options.size) null
+                        else s.copy(data = d.copy(pick = action.option, pickBy = actor))
                     }
                     ActivityAction.Reveal -> {
-                        if (!a || s.phase != ActivityPhases.PLAY) null
+                        if (s.phase != ActivityPhases.PLAY) null
                         else {
                             val pickIdx = d.pick?.let(::jsNumber)
                             val correct = pickIdx != null && pickIdx == q.answer.toDouble()
                             val answer = if (d.pick != null) q.options.getOrNull(pickIdx?.toInt() ?: -1) ?: "" else ""
-                            s.copy(phase = ActivityPhases.REVEAL, data = d.copy(mark = correct), results = withResult(s.results, ActivityRoundResult(round = s.round, correct = correct, answer = answer)))
+                            s.copy(phase = ActivityPhases.REVEAL, data = d.copy(mark = correct), results = withResult(s.results, ActivityRoundResult(round = s.round, correct = correct, answer = answer, by = d.pickBy?.ifEmpty { null })))
                         }
                     }
                     is ActivityAction.Mark -> {
-                        if (!a || s.phase != ActivityPhases.REVEAL) null
+                        if (s.phase != ActivityPhases.REVEAL) null
                         else {
                             val prev = s.results.firstOrNull { it.round == s.round }
-                            s.copy(data = d.copy(mark = action.correct), results = withResult(s.results, ActivityRoundResult(round = s.round, correct = action.correct, answer = prev?.answer ?: "")))
+                            s.copy(data = d.copy(mark = action.correct), results = withResult(s.results, ActivityRoundResult(round = s.round, correct = action.correct, answer = prev?.answer ?: "", by = prev?.by?.ifEmpty { null })))
                         }
                     }
                     else -> null
@@ -647,24 +715,24 @@ object CallActivities {
             ActivityKinds.DICTATION -> {
                 val item = spec.itemList[s.round]
                 return when (action) {
-                    ActivityAction.Ask -> if (!a || s.phase != ActivityPhases.READY) null else s.copy(phase = ActivityPhases.PLAY)
-                    ActivityAction.PlayAudio -> if (!a || s.phase == ActivityPhases.READY) null else s.copy(data = d.copy(play = (d.play ?: 0) + 1))
+                    ActivityAction.Ask -> if (s.phase != ActivityPhases.READY) null else s.copy(phase = ActivityPhases.PLAY)
+                    ActivityAction.PlayAudio -> if (s.phase == ActivityPhases.READY) null else s.copy(data = d.copy(play = (d.play ?: 0) + 1))
                     is ActivityAction.Draft ->
-                        if (!b || s.phase != ActivityPhases.PLAY || d.submitted == true) null
+                        if (s.phase != ActivityPhases.PLAY || d.submitted == true) null
                         else s.copy(data = d.copy(draft = action.text.take(MAX_DRAFT_CHARS)))
                     ActivityAction.Submit ->
-                        if (!b || s.phase != ActivityPhases.PLAY || d.submitted == true) null else s.copy(data = d.copy(submitted = true))
+                        if (s.phase != ActivityPhases.PLAY || d.submitted == true) null else s.copy(data = d.copy(submitted = true))
                     ActivityAction.Reveal -> {
-                        if (!a || s.phase != ActivityPhases.PLAY) null
+                        if (s.phase != ActivityPhases.PLAY) null
                         else {
                             val draft = d.draft ?: ""
                             val correct = LessonAnswers.isHanziCorrect(draft, item.hanzi.orEmpty())
-                            s.copy(phase = ActivityPhases.REVEAL, data = d.copy(submitted = true, mark = correct), results = withResult(s.results, ActivityRoundResult(round = s.round, correct = correct, answer = draft)))
+                            s.copy(phase = ActivityPhases.REVEAL, data = d.copy(submitted = true, mark = correct), results = withResult(s.results, ActivityRoundResult(round = s.round, correct = correct, answer = draft, by = s.roles.b)))
                         }
                     }
                     is ActivityAction.Mark ->
-                        if (!a || s.phase != ActivityPhases.REVEAL) null
-                        else s.copy(data = d.copy(mark = action.correct), results = withResult(s.results, ActivityRoundResult(round = s.round, correct = action.correct, answer = d.draft ?: "")))
+                        if (s.phase != ActivityPhases.REVEAL) null
+                        else s.copy(data = d.copy(mark = action.correct), results = withResult(s.results, ActivityRoundResult(round = s.round, correct = action.correct, answer = d.draft ?: "", by = s.roles.b)))
                     else -> null
                 }
             }
@@ -748,6 +816,9 @@ object CallActivities {
 
     fun scoreOf(s: ActivitySession): Score = scoreOf(s.results)
 
+    /** `byName`: "Jerome " — who answered, for a summary line ('' when not recorded). */
+    private fun byName(s: ActivitySession, by: String?): String = if (!by.isNullOrEmpty() && !s.names[by].isNullOrEmpty()) "${s.names[by]} " else ""
+
     private fun mark(c: Boolean?) = when (c) { true -> " ✓"; false -> " ✗"; null -> "" }
 
     /** `activitySummary`: the readable record of a session. */
@@ -762,7 +833,7 @@ object CallActivities {
             when (spec.kind) {
                 ActivityKinds.DESCRIBE -> {
                     val it = spec.itemList[r.round]
-                    lines += "${it.emoji} ${it.hanzi} (${it.pinyin}, ${it.english}) — picked ${r.answer ?: "?"}${mark(r.correct)}"
+                    lines += "${it.emoji} ${it.hanzi} (${it.pinyin}, ${it.english}) — ${byName(s, r.by)}picked ${r.answer ?: "?"}${mark(r.correct)}"
                 }
                 ActivityKinds.INFO_GAP -> {
                     lines += r.detail.orEmpty()
@@ -823,6 +894,56 @@ object CallActivities {
         else -> "Round ${i + 1}"
     }
 
+    // ------------------------------------------------------------------ role badges
+
+    /** `roleBadge`: the big "what I do" badge for a role: "You describe" / "You guess", "You ask" / "You answer"… */
+    fun roleBadge(spec: ActivitySpec, role: String): String = when (spec.kind) {
+        ActivityKinds.DESCRIBE -> if (role == "a") "You describe" else "You guess"
+        ActivityKinds.QUIZ -> if (role == "a") "You ask" else "You answer"
+        ActivityKinds.DICTATION -> if (role == "a") "You read out" else "You write"
+        ActivityKinds.ROLEPLAY -> "You’re the ${spec.speakers?.of(role) ?: "undefined"}"
+        ActivityKinds.INFO_GAP, ActivityKinds.BUILD -> "You: ${spec.roleNames.of(role)}"
+        ActivityKinds.REVIEW -> if (role == "a") "You mark" else "You listen"
+        else -> "You: ${spec.roleNames.of(role)}"
+    }
+
+    /** `rolesSwappedNotice`: said once on each side when the host swaps roles: "Roles swapped — now you guess". */
+    fun rolesSwappedNotice(spec: ActivitySpec, role: String): String {
+        val badge = roleBadge(spec, role)
+        return "Roles swapped — now ${badge.take(1).lowercase()}${badge.drop(1)}"
+    }
+
+    // ------------------------------------------------------------------ words you needed
+
+    /** `NeededWord`: [kind] "target" (the round's answer) or "hint" (a word the describer could use). */
+    data class NeededWord(val hanzi: String, val pinyin: String, val english: String, val kind: String, val round: Int)
+
+    /**
+     * `wordsYouNeeded`: the words a describe round needed — its answer, then its hint words (reading
+     * and meaning from the glossary, "" when none) — for "+ Add as card". [round] = one round; null =
+     * every round played so far (not skipped), as on the summary. Each hanzi once.
+     */
+    fun wordsYouNeeded(s: ActivitySession, round: Int? = null): List<NeededWord> {
+        val spec = s.spec
+        if (spec.kind != ActivityKinds.DESCRIBE) return emptyList()
+        val rounds = if (round != null) listOf(round) else s.results.filter { it.skipped != true }.map { it.round }
+        val out = ArrayList<NeededWord>()
+        val seen = HashSet<String>()
+        fun add(w: NeededWord) {
+            if (w.hanzi.isEmpty() || !seen.add(w.hanzi)) return
+            out += w
+        }
+        for (r in rounds) {
+            val it = spec.itemList.getOrNull(r) ?: continue
+            add(NeededWord(it.hanzi.orEmpty(), it.pinyin, it.english, "target", r))
+            for (h in it.hints.orEmpty()) {
+                val g = spec.glossary?.firstOrNull { x -> x.hanzi == h }
+                add(NeededWord(h, g?.pinyin ?: "", g?.english ?: "", "hint", r))
+            }
+        }
+        return out
+    }
+
     // ------------------------------------------------------------------ catalogue
 
     /** `findActivity`. */
@@ -848,6 +969,10 @@ object CallActivities {
             ActivityKinds.DESCRIBE -> {
                 if (spec.itemList.size < 4) p += "describe needs at least 4 items (four options a round)"
                 if (spec.itemList.map { it.hanzi }.toSet().size != spec.itemList.size) p += "describe items must differ"
+                for (d in spec.distractors.orEmpty()) if (spec.itemList.any { it.hanzi == d.hanzi }) p += "distractor ${d.hanzi} is also an item"
+                spec.glossary?.let { glossary ->
+                    for (it in spec.itemList) for (h in it.hints.orEmpty()) if (glossary.none { g -> g.hanzi == h }) p += "hint $h has no glossary entry"
+                }
             }
             ActivityKinds.INFO_GAP -> {
                 val hanzi = spec.choices.orEmpty().map { it.hanzi }.toSet()

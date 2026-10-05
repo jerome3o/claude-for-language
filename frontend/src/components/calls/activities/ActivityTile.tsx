@@ -13,7 +13,9 @@ import {
   ACTIVITY_KIND_INFO,
   activitySummary,
   reduceActivity,
+  roleBadge,
   rolesOf,
+  rolesSwappedNotice,
   scoreOf,
   totalRounds,
   type ActivityAction,
@@ -23,7 +25,7 @@ import {
 import { useLessonSpeak } from '../../editor/useLessonSpeak';
 import { createAudioPlayer } from '../../../utils/audioPlayback';
 import { getAudioUrl } from '../../../api/client';
-import { ActivityBody } from './ActivityViews';
+import { ActivityBody, NeededWords } from './ActivityViews';
 import { reviewClipKey } from './ReviewView';
 import './activities.css';
 
@@ -49,6 +51,22 @@ export function ActivityTile({ session, myUserId, act, close }: ActivityTileProp
   const role: ActivityRole = solo ? viewAs : (mine[0] ?? 'b');
   const [menu, setMenu] = useState(false);
   const can = (a: ActivityAction) => reduceActivity(session, a, myUserId, 0) !== null;
+
+  // Roles swapped (same session, my role changed): say so on each side for a few seconds.
+  const [swapNote, setSwapNote] = useState<string | null>(null);
+  const lastRole = useRef<{ id: string; role: ActivityRole } | null>(null);
+  const spec = session.spec;
+  useEffect(() => {
+    const prev = lastRole.current;
+    lastRole.current = { id: session.session_id, role };
+    if (solo || !prev || prev.id !== session.session_id || prev.role === role) return;
+    setSwapNote(rolesSwappedNotice(spec, role));
+  }, [session.session_id, role, solo]);
+  useEffect(() => {
+    if (!swapNote) return;
+    const t = setTimeout(() => setSwapNote(null), 4500);
+    return () => clearTimeout(t);
+  }, [swapNote]);
 
   // Play the asker's audio here when it goes up (not on first sight / a rejoin).
   // Review together: one counter for the whole list (selecting keeps it), the clip is an R2 key.
@@ -107,7 +125,7 @@ export function ActivityTile({ session, myUserId, act, close }: ActivityTileProp
             ))}
           </span>
         ) : (
-          <span className="act-role" data-testid="activity-role">You: {session.spec.role_names[role]}</span>
+          <span className="act-role" data-testid="activity-role">{session.spec.role_names[role]}</span>
         )}
         {controls.some(([, a]) => can(a)) && (
           <span className="act-menu-wrap">
@@ -124,6 +142,14 @@ export function ActivityTile({ session, myUserId, act, close }: ActivityTileProp
         <button type="button" className="act-btn act-close" onClick={close} title="Close the activity (for both)" aria-label="Close the activity" data-testid="activity-close">✕</button>
       </div>
       <div className="act-scroll">
+        {session.phase !== 'done' && (
+          <div className={`act-badge-row${swapNote ? ' swapped' : ''}`}>
+            <span className={`act-badge role-${role}`} data-testid="activity-role-badge" data-role={role}>
+              <span aria-hidden="true">{BADGE_ICON[session.spec.kind]?.[role] ?? '👤'}</span> {roleBadge(session.spec, role)}
+            </span>
+            {swapNote && <span className="act-swap-note" role="status" data-testid="activity-swap-note">⇄ {swapNote}</span>}
+          </div>
+        )}
         {session.phase === 'done' ? (
           <ActivityDone session={session} canRestart={can({ type: 'restart' })} act={act} close={close} />
         ) : (
@@ -133,6 +159,13 @@ export function ActivityTile({ session, myUserId, act, close }: ActivityTileProp
     </div>
   );
 }
+
+const BADGE_ICON: Partial<Record<ActivitySession['spec']['kind'], Record<ActivityRole, string>>> = {
+  describe: { a: '🗣', b: '🤔' },
+  quiz: { a: '🎤', b: '✋' },
+  dictation: { a: '🗣', b: '✍️' },
+  roleplay: { a: '🎭', b: '🎭' },
+};
 
 function ActivityDone({ session, canRestart, act, close }: { session: ActivitySession; canRestart: boolean; act: (a: ActivityAction) => void; close: () => void }) {
   const sum = activitySummary(session);
@@ -147,6 +180,7 @@ function ActivityDone({ session, canRestart, act, close }: { session: ActivitySe
       <ul className="act-done-lines">
         {sum.lines.map((l, i) => <li key={i}>{l}</li>)}
       </ul>
+      <NeededWords session={session} where="summary" />
       <p className="act-muted">Kept with this lesson — it shows on the review page and the homework assistant reads it.</p>
       <div className="act-actions">
         {canRestart && <button type="button" className="act-primary secondary" onClick={() => act({ type: 'restart' })} data-testid="activity-again">↻ Play again</button>}

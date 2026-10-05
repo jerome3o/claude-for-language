@@ -806,7 +806,10 @@ export function CallPage() {
           running={call.activity && call.activity.phase !== 'done' ? call.activity.spec.title : null}
           onPick={(id) => {
             call.startActivity(id);
-            track('call.activity_start', { activity_kind: id === REVIEW_ACTIVITY_ID ? 'review' : ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null });
+            track('call.activity_start', {
+              activity_kind: id === REVIEW_ACTIVITY_ID ? 'review' : ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null,
+              role: !call.remote ? 'solo' : call.tutorId === call.myUserId ? 'tutor' : 'student',
+            });
             setActivitiesOpen(false);
           }}
           onClose={() => setActivitiesOpen(false)}

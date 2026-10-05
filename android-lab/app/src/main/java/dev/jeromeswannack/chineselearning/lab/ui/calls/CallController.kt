@@ -1191,8 +1191,24 @@ class CallController(
 
     /** ⋯ → 🎲 Activities: start one (replaces a running one); the room answers with `activity` to both. */
     fun startActivity(activityId: String) {
-        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.activity_start", mapOf("activity_kind" to (dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind ?: dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds.REVIEW.takeIf { activityId == dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.REVIEW_ACTIVITY_ID })))
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
+            "call.activity_start",
+            mapOf(
+                "activity_kind" to (dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind
+                    ?: dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds.REVIEW.takeIf { activityId == dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.REVIEW_ACTIVITY_ID }),
+                "role" to activityStarterRole(_state.value, myId()),
+            ),
+        )
         room?.send(CallProtocol.activityStart(activityId))
+    }
+
+    /** "Words you needed" → + Add as card added one ([wordKind] target | hint, [where] round | summary). */
+    fun activityWordAdded(wordKind: String, where: String) {
+        val kind = _state.value.activity?.spec?.kind ?: return
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
+            "call.activity_word_add",
+            mapOf("activity_kind" to kind, "word_kind" to wordKind, "where" to where),
+        )
     }
 
     /** Act in the running activity; the room runs the engine and sends the new session to both of us. */
@@ -1696,4 +1712,14 @@ class CallController(
         /** Where "Same view" / "My own view" is remembered (web `call-view-mode:<callId>`). */
         fun viewModeKey(callId: String) = "call-view-mode:$callId"
     }
+}
+
+/**
+ * `call.activity_start`'s `role`: the starter's side — "solo" when nobody else is in the call or there
+ * is no relationship (no tutor), "tutor" when I am the relationship's tutor, else "student".
+ */
+internal fun activityStarterRole(s: CallState, me: String): String = when {
+    s.remote == null || s.tutorId == null -> "solo"
+    s.tutorId == me -> "tutor"
+    else -> "student"
 }
