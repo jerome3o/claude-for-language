@@ -279,7 +279,9 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
     }
     if (o != null && !o.is_new) item(key = "attention") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            TeachSectionTitle("Needs attention")
+            TeachSectionTitle("Needs attention") {
+                if (o.pills.recordings_need_ear > 0) TeachPill(needEarLabel(o.pills.recordings_need_ear), PillTone.Flags) { actions.open(Routes.recordings(ui.relId)) }
+            }
             NeedsAttentionCard(ui.relId, o.needs_attention, o.pills.recordings_to_hear, ui.playingKey, actions.playRecording, actions.open)
         }
     }
@@ -288,7 +290,7 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
     if (o != null && !(o.is_new && (claude?.total ?: 0) == 0)) item(key = "claude") {
         AskedClaudeSection(ui.relId, claude?.questions, claude?.total ?: 0, o.student.name, actions.open, now)
     }
-    item(key = "links") { StudentNavLinks(ui.relId, o?.pills?.recordings_to_hear ?: 0, actions.open) }
+    item(key = "links") { StudentNavLinks(ui.relId, o?.pills?.recordings_to_hear ?: 0, actions.open, needEar = o?.pills?.recordings_need_ear ?: 0) }
 }
 
 private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, showStudentDecks: Boolean, name: String) {

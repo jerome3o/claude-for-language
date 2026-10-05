@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.api.DeckRefDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HistoryEventDto
 import dev.jeromeswannack.chineselearning.lab.data.api.InsightRangeDto
-import dev.jeromeswannack.chineselearning.lab.data.api.InsightRecordingDto
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
@@ -63,20 +62,6 @@ fun groupByWord(events: List<HistoryEventDto>): List<WordGroup> {
     for (e in events) map.getOrPut(e.note_id) { mutableListOf() } += e
     return map.values.map { WordGroup(it.first(), it) }
         .sortedWith(compareByDescending<WordGroup> { it.forgot }.thenByDescending { it.events.size })
-}
-
-enum class RecordingFilter { ALL, UNLISTENED, NEEDS_WORK }
-
-/** Unlistened first, then needs work, then listened; newest first within each (web: InboxBody). */
-fun sortRecordings(list: List<InsightRecordingDto>): List<InsightRecordingDto> {
-    fun order(r: InsightRecordingDto) = when (r.mark?.status) { null -> 0; "needs_work" -> 1; else -> 2 }
-    return list.sortedWith(compareBy<InsightRecordingDto> { order(it) }.thenByDescending { TeachingFormat.parse(it.reviewed_at)?.toEpochMilli() ?: 0L })
-}
-
-fun filterRecordings(list: List<InsightRecordingDto>, f: RecordingFilter): List<InsightRecordingDto> = when (f) {
-    RecordingFilter.ALL -> list
-    RecordingFilter.UNLISTENED -> list.filter { it.mark == null }
-    RecordingFilter.NEEDS_WORK -> list.filter { it.mark?.status == "needs_work" }
 }
 
 // ---------------- history ----------------
@@ -195,107 +180,4 @@ private fun WordGroupRow(g: WordGroup, playing: String?, play: (String) -> Unit,
             g.events.forEach { ev -> AttemptLine(ev.reviewed_at, ev.card_type, ev.rating, ev.user_answer, ev.hanzi, ev.time_spent_ms, ev.recording_url, playing, play, now) }
         }
     }
-}
-
-// ---------------- recordings inbox ----------------
-
-val RECORDING_RANGES = listOf("lesson" to "Since last lesson", "30d" to "Last 30 days", "90d" to "Last 90 days", "365d" to "Last year")
-
-data class RecordingsUi(
-    val relId: String,
-    val studentName: String,
-    val range: String = "30d",
-    val filter: RecordingFilter = RecordingFilter.ALL,
-    val recordings: List<InsightRecordingDto>? = null,
-    val loading: Boolean = true,
-    val error: String? = null,
-    val offline: Boolean = false,
-    val playingKey: String? = null,
-    /** Event ids with a mark being saved. */
-    val saving: Set<String> = emptySet(),
-    val markError: String? = null,
-)
-
-data class RecordingsActions(
-    val back: () -> Unit = {},
-    val open: (String) -> Unit = {},
-    val setRange: (String) -> Unit = {},
-    val setFilter: (RecordingFilter) -> Unit = {},
-    val play: (String) -> Unit = {},
-    /** status null = clear the mark. */
-    val mark: (InsightRecordingDto, String?, String?) -> Unit = { _, _, _ -> },
-    val retry: () -> Unit = {},
-)
-
-/** Recordings inbox with Listened / Needs work + a note (web: RecordingsInboxPage.tsx). */
-@Composable
-fun RecordingsScreen(ui: RecordingsUi, actions: RecordingsActions, now: Instant = Instant.now()) {
-    var rangeSheet by remember { mutableStateOf(false) }
-    val all = ui.recordings.orEmpty()
-    val visible = filterRecordings(sortRecordings(all), ui.filter)
-    LabScreen("Recordings", onBack = actions.back, subtitle = ui.studentName, spacing = 10.dp) {
-        item { TutorPageTabs(ui.relId, "recordings", actions.open) }
-        item {
-            ChipRow {
-                LabChip("All (${all.size})", selected = ui.filter == RecordingFilter.ALL) { actions.setFilter(RecordingFilter.ALL) }
-                LabChip("Unlistened (${all.count { it.mark == null }})", selected = ui.filter == RecordingFilter.UNLISTENED) { actions.setFilter(RecordingFilter.UNLISTENED) }
-                LabChip("Needs work (${all.count { it.mark?.status == "needs_work" }})", selected = ui.filter == RecordingFilter.NEEDS_WORK) { actions.setFilter(RecordingFilter.NEEDS_WORK) }
-                LabChip(RECORDING_RANGES.first { it.first == ui.range }.second + " ▾") { rangeSheet = true }
-            }
-        }
-        when {
-            ui.recordings == null && ui.loading -> item { LoadingState(text = "Loading recordings...") }
-            ui.error != null -> item { InlineNotice(ui.error, kind = if (ui.offline) NoticeKind.Offline else NoticeKind.Error, actionLabel = "Retry", onAction = actions.retry) }
-        }
-        ui.markError?.let { item { InlineNotice(it, kind = NoticeKind.Error) } }
-        if (ui.recordings != null && visible.isEmpty()) item {
-            TeachCard { MutedLine(if (all.isEmpty()) "No recordings in this period. Recordings are made on the \"Hanzi → meaning\" card when the student taps the microphone." else "Nothing here for this filter.") }
-        }
-        items(visible, key = { it.event_id }) { r -> InboxRow(r, ui.playingKey == r.recording_url, r.event_id in ui.saving, actions, now) }
-    }
-    if (rangeSheet) ChoiceSheet("Range", RECORDING_RANGES, ui.range, { rangeSheet = false }) { actions.setRange(it) }
-}
-
-@Composable
-private fun InboxRow(r: InsightRecordingDto, playing: Boolean, saving: Boolean, actions: RecordingsActions, now: Instant) {
-    var showComment by remember { mutableStateOf(false) }
-    var comment by remember(r.mark?.comment) { mutableStateOf(r.mark?.comment ?: "") }
-    val status = r.mark?.status
-    val edge = when (status) { null -> Palette.Secondary; "needs_work" -> Palette.Hard; else -> Color.Transparent }
-    TeachCard(Modifier.animateContentSize().border(2.dp, edge.copy(alpha = if (status == "listened") 0f else 0.5f), RoundedCornerShape(20.dp))) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RecordingButton(r.recording_url, playing, actions.play)
-            androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 10.dp))
-            Column(Modifier.weight(1f)) { WordHead(r.note.hanzi, r.note.pinyin, r.note.english) { RatingDot(r.rating) } }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CardTypeChip(r.card_type)
-            MutedLine("${TutorPageFormat.dateTime(r.reviewed_at, now)} · ${r.note.deck_name ?: ""}")
-        }
-        if (!r.mark?.comment.isNullOrBlank() && !showComment) {
-            Text(r.mark!!.comment!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.Hard.copy(alpha = 0.08f)).padding(10.dp))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MarkButton("✓ Listened", status == "listened", Palette.Good, !saving, Modifier.weight(1f)) { actions.mark(r, if (status == "listened") null else "listened", r.mark?.comment) }
-            MarkButton("⚠ Needs work", status == "needs_work", Palette.Hard, !saving, Modifier.weight(1.3f)) { actions.mark(r, if (status == "needs_work") null else "needs_work", r.mark?.comment) }
-            MarkButton(if (!r.mark?.comment.isNullOrBlank()) "Edit note" else "+ Note", false, Lab.colors.accent, true, Modifier.weight(0.9f)) { showComment = !showComment }
-        }
-        if (showComment) {
-            OutlinedTextField(comment, { comment = it }, Modifier.fillMaxWidth(), minLines = 2, placeholder = { Text("What to tell them — e.g. second tone sounds like fourth") })
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TeachButton("Save note", Modifier.weight(1f), primary = true, enabled = !saving) { actions.mark(r, status ?: "needs_work", comment.trim().ifEmpty { null }); showComment = false }
-                TeachButton("Cancel", Modifier.weight(1f)) { showComment = false }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MarkButton(label: String, active: Boolean, color: Color, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Text(
-        label, color = if (active) Color.White else color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1,
-        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        modifier = modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(14.dp)).bouncyClickable(enabled, 0.94f, onClick = onClick)
-            .background(if (active) color else color.copy(alpha = 0.1f)).padding(vertical = 12.dp, horizontal = 2.dp),
-    )
 }

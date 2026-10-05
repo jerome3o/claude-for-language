@@ -120,6 +120,8 @@ data class ActivityDayDto(val day: String, val reviews: Int = 0, val accuracy: D
 data class PillsDto(
     val struggling_words: Int = 0,
     val recordings_to_hear: Int = 0,
+    /** Of those, the ones in the "Needs your ear" queue (shared/recordings/queue.ts). */
+    val recordings_need_ear: Int = 0,
     val homework_percent: Int? = null,
     val flags_open: Int = 0,
 )
@@ -604,7 +606,16 @@ data class InsightsReportDto(
     val going_well: List<GoingWellDto> = emptyList(),
     val activity: InsightActivityDto = InsightActivityDto(),
     val recordings: List<InsightRecordingDto> = emptyList(),
+    /** Character pairs the student confuses (shared/recordings/mixups.ts), most frequent first. */
+    val mix_ups: List<MixUpDto> = emptyList(),
 )
+
+@Serializable
+data class MixUpExampleDto(val expected: String = "", val answer: String = "", val reviewed_at: String = "")
+
+/** 买 ↔ 卖: [a] / [b] in the order first seen (expected, typed); [examples] newest first, one per word. */
+@Serializable
+data class MixUpDto(val a: String, val b: String, val count: Int = 0, val last_at: String = "", val examples: List<MixUpExampleDto> = emptyList())
 
 private fun qs(vararg p: Pair<String, String?>): String {
     val present = p.filter { !it.second.isNullOrEmpty() }

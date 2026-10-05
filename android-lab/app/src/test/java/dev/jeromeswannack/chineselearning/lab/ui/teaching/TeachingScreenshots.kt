@@ -135,8 +135,29 @@ class TeachingScreenshots : LabScreenshotTest() {
         HistoryScreen(HistoryUi("rel-jerome", "Jerome Swannack", events = P.history, decks = P.decks, range = P.report.range, loading = false, byWord = true), HistoryActions(), S.now)
     }
 
-    @Test fun recordings() = shoot("teaching-23-recordings") {
-        RecordingsScreen(RecordingsUi("rel-jerome", "Jerome Swannack", recordings = P.report.recordings, loading = false, playingKey = "recordings/e7.webm"), RecordingsActions(), S.now)
+    @Config(qualifiers = TALL)
+    @Test fun recordings() = shoot("teaching-23-recordings-queue") {
+        RecordingQueueScreen(RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue, loading = false, playingKey = "recordings/q1.webm"), RecordingQueueActions(), S.now)
+    }
+
+    @Test fun recordingsQueueTop() = shoot("teaching-23b-recordings-queue-top") {
+        RecordingQueueScreen(RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue, loading = false), RecordingQueueActions(), S.now)
+    }
+
+    @Test fun recordingsAll() = shoot("teaching-23c-recordings-all") {
+        RecordingQueueScreen(RecordingQueueUi("rel-jerome", "Jerome Swannack", view = "all", data = P.queueAll, loading = false), RecordingQueueActions(), S.now)
+    }
+
+    @Test fun recordingsEmpty() = shoot("teaching-23d-recordings-empty") {
+        RecordingQueueScreen(RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queueEmpty, loading = false), RecordingQueueActions(), S.now)
+    }
+
+    @Test fun recordingsDark() = shoot("teaching-23e-recordings-dark", dark = true) {
+        RecordingQueueScreen(RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue, loading = false), RecordingQueueActions(), S.now)
+    }
+
+    @Test fun mixUps() = shoot("teaching-23f-insights-mixups") {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(Lab.colors.background).padding(16.dp)) { MixUpsCard(P.report.mix_ups) }
     }
 
     @Config(qualifiers = UNFOLDED)

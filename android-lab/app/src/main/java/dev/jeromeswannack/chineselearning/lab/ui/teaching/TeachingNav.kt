@@ -139,13 +139,21 @@ private fun HistoryRoute(nav: LabNav, relId: String, name: String) {
 
 @Composable
 private fun RecordingsRoute(nav: LabNav, relId: String, name: String) {
-    val vm: RecordingsViewModel = viewModel(key = "recordings-$relId", factory = RecordingsViewModel.Factory(nav.app, relId))
-    val report by vm.report.collectAsStateWithLifecycle()
+    val vm: RecordingQueueViewModel = viewModel(key = "recordings-$relId", factory = RecordingQueueViewModel.Factory(nav.app, relId))
+    val state by vm.state.collectAsStateWithLifecycle()
     val t by vm.transient.collectAsStateWithLifecycle()
     val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
-    RecordingsScreen(
-        RecordingsUi(relId, name, t.range, t.filter, report.data?.recordings, report.loading, report.error, report.offline, playing, t.saving, t.markError),
-        RecordingsActions(back = nav::back, open = nav::open, setRange = vm::setRange, setFilter = { vm.setFilter(it) }, play = playToggle(nav), mark = { r, s, c -> vm.mark(r, s, c) }, retry = { vm.retry() }),
+    val online by nav.app.online.collectAsStateWithLifecycle()
+    RecordingQueueScreen(
+        RecordingQueueUi(relId, name, t.view, t.range, state.data, state.loading, state.error, state.offline, playing, t.saving, t.markError),
+        RecordingQueueActions(
+            back = nav::back, open = nav::open, setView = vm::setView, setRange = vm::setRange, play = playToggle(nav),
+            playReference = { key, hanzi ->
+                if (playing == key) nav.app.audio.stop()
+                else { vm.trackReferencePlay(); nav.app.audio.play(key, hanzi, online) }
+            },
+            mark = { r, s, c -> vm.mark(r, s, c) }, retry = vm::retry,
+        ),
     )
 }
 

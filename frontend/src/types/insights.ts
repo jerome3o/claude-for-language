@@ -113,6 +113,24 @@ export interface InsightsReport {
   going_well: GoingWellNote[];
   activity: InsightActivity;
   recordings: InsightRecording[];
+  /** Characters the student confuses (shared/recordings/mixups.ts); missing on older servers. */
+  mix_ups?: MixUp[];
+}
+
+/** One word a mix-up happened in: the card's hanzi and what the student answered. */
+export interface MixUpExample {
+  expected: string;
+  answer: string;
+  reviewed_at: string;
+}
+
+/** 买 ↔ 卖 ×3 — mirrors shared/recordings/mixups.ts `MixUp`. */
+export interface MixUp {
+  a: string;
+  b: string;
+  count: number;
+  last_at: string;
+  examples: MixUpExample[];
 }
 
 export interface TutorLessonLogEntry {

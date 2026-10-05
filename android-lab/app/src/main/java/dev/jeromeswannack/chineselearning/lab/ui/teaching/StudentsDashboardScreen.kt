@@ -170,7 +170,8 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
                 if (p.struggling_words > 0) TeachPill("${TeachingFormat.plural(p.struggling_words, "word")} struggling", PillTone.Struggling) { actions.open(Routes.insights(relId)) }
                 else TeachPill("No words struggling", PillTone.Ok)
                 if (p.flags_open > 0) TeachPill("🚩 ${TeachingFormat.plural(p.flags_open, "flagged card")}", PillTone.Flags) { actions.open(Routes.connection(relId)) }
-                if (p.recordings_to_hear > 0) TeachPill("🎤 ${TeachingFormat.plural(p.recordings_to_hear, "recording")} to hear", PillTone.Recordings) { actions.open(Routes.recordings(relId)) }
+                if (p.recordings_need_ear > 0) TeachPill(needEarLabel(p.recordings_need_ear), PillTone.Flags) { actions.open(Routes.recordings(relId)) }
+                else if (p.recordings_to_hear > 0) TeachPill("🎤 ${TeachingFormat.plural(p.recordings_to_hear, "recording")} to hear", PillTone.Recordings) { actions.open(Routes.recordings(relId)) }
                 if (p.homework_percent != null) TeachPill("Homework ${p.homework_percent}%", PillTone.Homework) { actions.open(Routes.connection(relId)) }
                 budgetChip(o.study_budget)?.let { TeachPill(it, PillTone.Muted) { actions.open(Routes.connection(relId)) } }
                 if (o.has_profile == false) ProfileHintPill { actions.open(Routes.connection(relId)) }

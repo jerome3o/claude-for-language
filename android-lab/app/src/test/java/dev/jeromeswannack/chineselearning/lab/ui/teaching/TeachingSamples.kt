@@ -76,7 +76,7 @@ object TeachingSamples {
         joined_at = "2026-06-01T08:00:00Z",
         joined_via_invite = true,
         status = StudyStatusDto("2026-09-27T07:12:00Z", studied_today = true, streak_days = 12, active_days_30 = 24, today = TodayStatsDto(42, 0.86, 11 * 60_000L)),
-        pills = PillsDto(struggling_words = 5, recordings_to_hear = 2, homework_percent = 58, flags_open = 1),
+        pills = PillsDto(struggling_words = 5, recordings_to_hear = 4, recordings_need_ear = 2, homework_percent = 58, flags_open = 1),
         needs_attention = needsAttention,
         homework = HomeworkSummaryDto(58, homeworkDecks, listOf(HomeworkLessonDto("l1", "了 for completed actions", "🎓", "2026-09-21T10:00:00Z", 2, "2026-09-25T10:00:00Z", 2))),
         activity = activity,

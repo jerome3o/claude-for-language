@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.teaching
 
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.recordingQueue
 import dev.jeromeswannack.chineselearning.lab.data.api.relationshipHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.teachingMe
 import dev.jeromeswannack.chineselearning.lab.data.api.tutorDashboard
@@ -31,6 +32,10 @@ object TeachingSync : FeatureSync {
         ctx.cache.put(TeachingKeys.DASHBOARD, TeachingKeys.KIND, dashboard)
         for (s in dashboard.students) {
             ctx.cache.put(TeachingKeys.overview(s.relationship_id), TeachingKeys.KIND, s)
+            // "Needs your ear": the default view ready for the train when something is waiting.
+            if (s.pills.recordings_need_ear > 0) {
+                attempt { ctx.cache.put(recordingQueueKey(s.relationship_id, RecordingQueueRules.QUEUE, "30d"), TeachingKeys.KIND, ctx.api.recordingQueue(s.relationship_id, RecordingQueueRules.QUEUE, recordingRangeFrom("30d"))) }
+            }
             val key = TeachingKeys.homework(s.relationship_id)
             if (ctx.full || !ctx.cache.isFresh(key, HOMEWORK_MAX_AGE)) {
                 attempt { ctx.cache.put(key, TeachingKeys.KIND, ctx.api.relationshipHomework(s.relationship_id)) }

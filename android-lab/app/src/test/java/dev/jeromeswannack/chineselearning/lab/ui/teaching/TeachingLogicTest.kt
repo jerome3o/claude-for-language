@@ -102,13 +102,6 @@ class TeachingLogicTest {
         assertEquals(listOf("换成"), groups[1].wrong) // 换乘 typed correctly is not a wrong answer
     }
 
-    @Test fun recordingsSortUnlistenedFirst() {
-        val sorted = sortRecordings(TutorPagesSamples.report.recordings)
-        assertEquals(listOf("e7", "e2", "e8", "e9"), sorted.map { it.event_id })
-        assertEquals(listOf("e8"), filterRecordings(sorted, RecordingFilter.NEEDS_WORK).map { it.event_id })
-        assertEquals(listOf("e7", "e2"), filterRecordings(sorted, RecordingFilter.UNLISTENED).map { it.event_id })
-    }
-
     @Test fun answerDiffMatchesTutorShared() {
         assertTrue(TutorPageFormat.answersMatch("我 学了，两年了。", "我学了两年了"))
         val (user, expected) = TutorPageFormat.answerDiff("大算", "打算")

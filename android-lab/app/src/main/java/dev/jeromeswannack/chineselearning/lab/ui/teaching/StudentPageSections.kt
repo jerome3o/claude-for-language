@@ -689,13 +689,16 @@ fun ActivityCard(relId: String, activity: List<ActivityDayDto>, open: (String) -
 
 /** Quick links to the deeper pages. */
 @Composable
-fun StudentNavLinks(relId: String, recordingsToHear: Int, open: (String) -> Unit) {
+fun StudentNavLinks(relId: String, recordingsToHear: Int, open: (String) -> Unit, needEar: Int = 0) {
     dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow {
         listOf(
             "📊 Insights" to Routes.insights(relId),
             "🕘 History" to Routes.studentHistory(relId),
-            ("🎤 Recordings" + if (recordingsToHear > 0) " ($recordingsToHear)" else "") to Routes.recordings(relId),
+            (if (needEar > 0) needEarLabel(needEar) else "🎤 Recordings" + if (recordingsToHear > 0) " ($recordingsToHear)" else "") to Routes.recordings(relId),
             "📈 Progress" to Routes.studentProgress(relId),
         ).forEach { (label, path) -> dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip(label) { open(path) } }
     }
 }
+
+/** "🎤 3 need your ear" — recordings in the tutor's "Needs your ear" queue (pills.recordings_need_ear). */
+fun needEarLabel(n: Int): String = "🎤 $n need${if (n == 1) "s" else ""} your ear"
