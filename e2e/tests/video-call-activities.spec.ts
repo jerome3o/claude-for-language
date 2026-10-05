@@ -90,8 +90,10 @@ test('dictation: the tutor starts a word, the student types it live, the tutor r
     await expect(p.getByTestId('call-tiles')).toHaveAttribute('data-stage', /activity/);
     await expect(p.getByTestId('activity-progress')).toHaveText('1 / 8');
   }
-  await expect(tp.getByTestId('activity-role')).toHaveText('You: Reader');
-  await expect(sp.getByTestId('activity-role')).toHaveText('You: Writer');
+  await expect(tp.getByTestId('activity-role')).toHaveText('Reader');
+  await expect(sp.getByTestId('activity-role')).toHaveText('Writer');
+  await expect(tp.getByTestId('activity-role-badge')).toContainText('You read out');
+  await expect(sp.getByTestId('activity-role-badge')).toContainText('You write');
   // Only the tutor sees the word and the controls.
   await expect(tp.getByTestId('dictation-word')).toHaveText('你好');
   await expect(sp.getByTestId('dictation-word')).toHaveCount(0);
@@ -148,18 +150,22 @@ test('describe & guess and sentence building: each sees their own side; both bui
   await startActivity(tp, 'describe-food-1');
   await expect(sp.getByTestId('describe-target')).toHaveText('苹果', { timeout: 15000 });
   await expect(tp.getByTestId('describe-target')).toHaveCount(0);
-  await expect(tp.getByTestId('describe-option')).toHaveCount(4);
+  await expect(tp.getByTestId('describe-option')).toHaveCount(8);
+  await expect(sp.getByTestId('describe-option')).toHaveCount(0); // the describer never sees the choices
   await tp.getByTestId('describe-option').filter({ hasText: '苹果' }).click();
-  for (const p of [tp, sp]) await expect(p.getByTestId('activity-verdict')).toContainText('got it', { timeout: 10000 });
-  // Only the host moves on.
-  await expect(sp.getByTestId('activity-next')).toHaveCount(0);
-  await tp.getByTestId('activity-next').click();
+  for (const p of [tp, sp]) await expect(p.getByTestId('activity-verdict')).toHaveText('✓ 王老师 got it!', { timeout: 10000 });
+  await expect(sp.getByTestId('describe-option')).toHaveCount(0);
+  // The describer moves on (whose turn it is), not only the host.
+  await sp.getByTestId('activity-next').click();
   await expect(sp.getByTestId('describe-target')).toHaveText('香蕉', { timeout: 10000 });
-  // Swap roles: now the tutor describes.
+  // Swap roles: now the tutor describes — both are told.
   await tp.getByTestId('activity-menu').click();
   await tp.getByTestId('activity-swap').click();
   await expect(tp.getByTestId('describe-target')).toHaveText('香蕉', { timeout: 10000 });
-  await expect(sp.getByTestId('describe-option')).toHaveCount(4);
+  await expect(sp.getByTestId('describe-option')).toHaveCount(8);
+  await expect(sp.getByTestId('activity-role-badge')).toContainText('You guess');
+  await expect(sp.getByTestId('activity-swap-note')).toHaveText('⇄ Roles swapped — now you guess');
+  await expect(tp.getByTestId('activity-swap-note')).toHaveText('⇄ Roles swapped — now you describe');
 
   // ---- Starting another replaces it.
   await startActivity(sp, 'build-sentences-1');
@@ -171,7 +177,8 @@ test('describe & guess and sentence building: each sees their own side; both bui
     await expect((i % 2 ? tp : sp).getByTestId('build-placed')).toHaveCount(i + 1, { timeout: 10000 });
   }
   await expect(sp.getByTestId('build-answer')).toHaveText('我把书放在桌子上');
-  await expect(sp.getByTestId('build-reveal')).toHaveCount(0);
+  // Building is for both: either may reveal.
+  await expect(sp.getByTestId('build-reveal')).toBeVisible();
   await tp.getByTestId('build-reveal').click();
   for (const p of [tp, sp]) await expect(p.getByTestId('activity-verdict')).toHaveText('✓ That’s it!', { timeout: 10000 });
   await sp.getByTestId('build-said').click();
@@ -196,4 +203,46 @@ test('role-play: each new line scrolls into view; starting another activity afte
     await expect(p.getByText("Couldn't open the call")).toHaveCount(0);
     await expect(p.getByTestId('tile-error')).toHaveCount(0);
   }
+});
+
+test('describe & guess started by the STUDENT: only the guesser picks, the pick is theirs, and a word they needed becomes a card', async ({ browser, request }) => {
+  test.setTimeout(180_000);
+  const { student, tp, sp } = await setup(browser, request);
+  await api(request, '/api/decks', { method: 'POST', token: student.token, data: { name: '课堂生词' } });
+
+  await startActivity(sp, 'describe-food-1');
+  for (const p of [tp, sp]) await expect(p.getByTestId('activity-tile')).toHaveAttribute('data-kind', 'describe', { timeout: 15000 });
+  // The tutor still guesses (her role in this activity) and hosts; the student describes.
+  await expect(sp.getByTestId('activity-role-badge')).toContainText('You describe');
+  await expect(tp.getByTestId('activity-role-badge')).toContainText('You guess');
+  await expect(sp.getByTestId('describe-describer')).toBeVisible();
+  await expect(sp.getByTestId('describe-option')).toHaveCount(0);
+  await expect(tp.getByTestId('describe-option')).toHaveCount(8);
+  // Her wrong pick is named as hers on both screens.
+  const wrong = tp.getByTestId('describe-option').filter({ hasNotText: '苹果' }).first();
+  const wrongText = (await wrong.textContent())!.trim();
+  await wrong.click();
+  for (const p of [tp, sp]) await expect(p.getByTestId('activity-verdict')).toHaveText(`✗ 王老师 picked ${wrongText}`, { timeout: 10000 });
+
+  // Words you needed: the answer first, then the hints.
+  const rows = sp.getByTestId('needed-word');
+  await expect(rows.first()).toContainText('苹果');
+  await expect(rows.first()).toHaveAttribute('data-kind', 'target');
+  await expect(sp.getByTestId('needed-word').filter({ hasText: '水果' })).toContainText('shuǐguǒ');
+  await sp.getByTestId('needed-word').filter({ hasText: '水果' }).getByTestId('needed-word-add').click();
+  await expect(sp.getByRole('dialog', { name: 'Add 水果 as a card' })).toBeVisible();
+  await expect(sp.getByRole('radio', { name: '课堂生词' })).toHaveAttribute('aria-checked', 'true');
+  await sp.getByRole('button', { name: 'Add to deck' }).click();
+  await expect(sp.getByTestId('needed-word').filter({ hasText: '水果' }).getByTestId('needed-word-add')).toHaveText('✓ Added', { timeout: 10000 });
+  const decks = await api<{ id: string; name: string }[] | { decks: { id: string; name: string }[] }>(request, '/api/decks', { token: student.token });
+  const list = Array.isArray(decks) ? decks : decks.decks;
+  const deck = await api<{ notes: { hanzi: string }[] }>(request, `/api/decks/${list.find((d) => d.name === '课堂生词')!.id}`, { token: student.token });
+  expect(deck.notes.map((n) => n.hanzi)).toContain('水果');
+
+  // The student ends it: the summary lists the words again, with who picked what.
+  await sp.getByTestId('activity-menu').click();
+  await sp.getByTestId('activity-finish').click();
+  for (const p of [tp, sp]) await expect(p.getByTestId('activity-done')).toBeVisible({ timeout: 10000 });
+  await expect(sp.getByTestId('activity-done')).toContainText(`王老师 picked ${wrongText}`);
+  await expect(sp.getByTestId('activity-done').getByTestId('needed-word').first()).toContainText('苹果');
 });

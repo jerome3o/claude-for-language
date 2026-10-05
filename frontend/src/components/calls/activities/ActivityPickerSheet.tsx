@@ -17,7 +17,7 @@ export function ActivityPickerSheet({ running, onPick, onClose }: { running: str
           <h2>🎲 Activities for two</h2>
           <button type="button" className="call-panel-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
-        <p className="call-muted">Short exercises you do together — both of you see it, each with your own part. The tutor runs it; the result is kept with the lesson.</p>
+        <p className="call-muted">Short exercises you do together — either of you can start one; both see it, each with your own part. The tutor can restart or swap roles; the result is kept with the lesson.</p>
         {running && <p className="act-sheet-note">“{running}” is running — starting another ends it (its result is kept).</p>}
         <div className="act-sheet-list">
           {ACTIVITY_KINDS.map((kind) => {
