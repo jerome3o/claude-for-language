@@ -230,6 +230,7 @@ export interface InsightsResponse {
   going_well: GoingWellNote[];
   activity: Record<string, unknown[]>;
   recordings: InsightRecording[];
+  mix_ups?: Array<{ a: string; b: string; count: number; last_at: string; examples: Array<{ expected: string; answer: string }> }>;
 }
 
 export interface HistoryEvent {

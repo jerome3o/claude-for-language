@@ -22,6 +22,7 @@ export interface Env {
   TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
   /** Word checks (services/card-check.ts): new / edited notes and per-deck "Check for errors" runs. */
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
+  RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
   TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
   /** One rate limiter per TTS provider (idFromName = minimax | azure | google; docs/AUDIO.md). Optional so tests run without it. */

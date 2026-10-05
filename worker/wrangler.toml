@@ -222,3 +222,18 @@ queue = "card-check-queue"
 max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 2
+
+# Queue for the tutor's "Needs your ear" recording checks (services/recording-checks.ts):
+# transcribe each pronunciation take and score it with Azure Pronunciation Assessment.
+# One at a time so the free tier's 20 requests / minute is never exceeded.
+# Create with: `wrangler queues create recording-check-queue`
+[[queues.producers]]
+queue = "recording-check-queue"
+binding = "RECORDING_CHECK_QUEUE"
+
+[[queues.consumers]]
+queue = "recording-check-queue"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 6
+max_concurrency = 1

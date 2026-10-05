@@ -252,6 +252,67 @@ testAuth.post('/merged-chats', async (c) => {
   return c.json({ conversation_id: primary, merged_ids: mergedIds });
 });
 
+/**
+ * POST /api/test/recordings — pronunciation recordings with their background check already
+ * done (E2E + screenshots for the tutor's "Needs your ear" queue), without running Whisper /
+ * Azure. Body: { user_id, deck_name?, audio_base64?, mime?, items: [{ hanzi, pinyin, english,
+ * rating, reviewed_at?, user_answer?, card_type?, recording?: boolean (default true),
+ * check?: { transcript, score?, char_scores?, score_note? } | null }] } → { deck_id, events: [{ id, note_id, card_id }] }.
+ */
+testAuth.post('/recordings', async (c) => {
+  const b = await c.req.json<{
+    user_id: string;
+    deck_name?: string;
+    audio_base64?: string;
+    mime?: string;
+    items: Array<{
+      hanzi: string; pinyin: string; english: string; rating: number; reviewed_at?: string; user_answer?: string | null;
+      card_type?: string; recording?: boolean;
+      check?: { transcript: string | null; score?: number | null; char_scores?: unknown[]; score_note?: string | null } | null;
+    }>;
+  }>();
+  const db = c.env.DB;
+  const deckId = crypto.randomUUID();
+  await db.prepare('INSERT INTO decks (id, user_id, name) VALUES (?, ?, ?)').bind(deckId, b.user_id, b.deck_name ?? 'Recordings test').run();
+  const audio = b.audio_base64 ? Uint8Array.from(atob(b.audio_base64), (ch) => ch.charCodeAt(0)) : null;
+  const events: Array<{ id: string; note_id: string; card_id: string }> = [];
+  const { transcriptMatches } = await import('@shared/recordings/transcript');
+  let i = 0;
+  for (const it of b.items) {
+    const noteId = crypto.randomUUID();
+    const cardId = crypto.randomUUID();
+    const eventId = crypto.randomUUID();
+    const refKey = `generated/test-ref-${noteId}.webm`;
+    const recKey = `recordings/${eventId}.webm`;
+    if (audio) {
+      await c.env.AUDIO_BUCKET.put(refKey, audio, { httpMetadata: { contentType: b.mime ?? 'audio/webm' } });
+      if (it.recording !== false) await c.env.AUDIO_BUCKET.put(recKey, audio, { httpMetadata: { contentType: b.mime ?? 'audio/webm' } });
+    }
+    await db.prepare('INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url) VALUES (?, ?, ?, ?, ?, ?)').bind(noteId, deckId, it.hanzi, it.pinyin, it.english, audio ? refKey : null).run();
+    await db.prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)').bind(cardId, noteId, it.card_type ?? 'hanzi_to_meaning').run();
+    const at = it.reviewed_at ?? new Date(Date.now() - (i++ + 1) * 60_000).toISOString();
+    await db
+      .prepare('INSERT INTO review_events (id, card_id, user_id, rating, user_answer, recording_url, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(eventId, cardId, b.user_id, it.rating, it.user_answer ?? null, it.recording === false ? null : recKey, at)
+      .run();
+    if (it.check && it.recording !== false) {
+      await db
+        .prepare(
+          `INSERT INTO recording_checks (review_event_id, user_id, status, transcript, transcript_provider, transcript_match, score, char_scores, score_note)
+           VALUES (?, ?, 'done', ?, 'whisper', ?, ?, ?, ?)`
+        )
+        .bind(
+          eventId, b.user_id, it.check.transcript,
+          it.check.transcript == null ? null : transcriptMatches(it.check.transcript, it.hanzi) ? 1 : 0,
+          it.check.score ?? null, it.check.char_scores ? JSON.stringify(it.check.char_scores) : null, it.check.score_note ?? null
+        )
+        .run();
+    }
+    events.push({ id: eventId, note_id: noteId, card_id: cardId });
+  }
+  return c.json({ deck_id: deckId, events });
+});
+
 testAuth.post('/cleanup', async (c) => {
   const db = c.env.DB;
 
@@ -272,7 +333,12 @@ testAuth.post('/cleanup', async (c) => {
   // Delete in order to respect foreign key constraints
   const placeholders = userIds.map(() => '?').join(',');
 
-  // Delete review events
+  // Delete review events (and their recording checks / marks first)
+  await db.prepare(`DELETE FROM recording_checks WHERE user_id IN (${placeholders})`).bind(...userIds).run();
+  await db
+    .prepare(`DELETE FROM tutor_recording_marks WHERE review_event_id IN (SELECT id FROM review_events WHERE user_id IN (${placeholders}))`)
+    .bind(...userIds)
+    .run();
   await db
     .prepare(`DELETE FROM review_events WHERE user_id IN (${placeholders})`)
     .bind(...userIds)

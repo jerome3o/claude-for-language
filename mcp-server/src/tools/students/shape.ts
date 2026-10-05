@@ -1,3 +1,4 @@
+import type { RecordingQueueItem } from '../../../../shared/recordings/queue';
 /**
  * Pure helpers for the student tools: trimming the API's responses down to
  * what Claude needs in a chat, defaults for dates, audio URLs. No I/O, so
@@ -468,5 +469,29 @@ export function mergeStudentProfile(
     level: patch.level !== undefined ? patch.level : base.level,
     handwriting: patch.handwriting !== undefined ? patch.handwriting : base.handwriting,
     words_per_lesson: patch.words_per_lesson !== undefined ? patch.words_per_lesson : base.words_per_lesson,
+  };
+}
+
+/** One "Needs your ear" queue item, trimmed for a chat (GET …/recordings/queue). */
+export function compactQueueItem(i: RecordingQueueItem, apiBase: string) {
+  return {
+    event_id: i.event_id,
+    hanzi: i.note.hanzi,
+    pinyin: i.note.pinyin,
+    english: i.note.english,
+    deck: i.note.deck_name,
+    card_type: i.card_type,
+    rating: ratingLabel(i.rating),
+    recorded_at: i.reviewed_at,
+    audio_url: audioUrl(apiBase, i.recording_url),
+    reference_audio_url: i.note.audio_url ? audioUrl(apiBase, i.note.audio_url) : null,
+    why: i.labels,
+    reasons: i.reasons,
+    heard: i.check?.transcript ?? null,
+    pronunciation_score: i.check?.score ?? null,
+    sounded_off: (i.check?.weak_chars ?? []).map((w) => ({ char: w.char, kind: w.kind, score: w.score })),
+    flag: i.flag ? i.flag.message : null,
+    mark: i.mark ? { status: i.mark.status, comment: i.mark.comment, updated_at: i.mark.updated_at } : null,
+    in_queue: i.in_queue,
   };
 }

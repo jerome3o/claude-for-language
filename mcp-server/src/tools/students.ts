@@ -42,6 +42,7 @@ import {
 } from '../../../shared/students/profile';
 import { STUDY_BUDGET_MAX, pickStudyBudgetUpdate } from '../../../shared/decks/budget';
 import { budgetSummary } from '../../../shared/decks/tutor-budget';
+import type { RecordingQueueResponse } from '../../../shared/recordings/queue';
 import {
   clampInt,
   mergeStudentProfile,
@@ -55,6 +56,7 @@ import {
   compactMessage,
   compactMyRelationships,
   compactRecording,
+  compactQueueItem,
   compactSessionNotesJob,
   compactSharedDeckProgress,
   compactStruggling,
@@ -62,7 +64,6 @@ import {
   compactStudentRow,
   compactStudyBudget,
   compactSummary,
-  filterRecordings,
   lastMessages,
   normalizeDateParam,
 } from './students/shape.js';
@@ -200,7 +201,7 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'get_student_insights',
-    `The pre-lesson briefing for one student over a date range: \`totals\` (reviews, unique words, days active, accuracy, again_rate, time, per-card-type stats, new words introduced), \`struggling\` (ranked worst first — each word with attempts, again/hard/forgot counts, average time, per-card-type accuracy and the actual \`wrong_answers\` the student typed, so you can see WHAT they confuse it with), \`going_well\` (consistently right or graduated to long intervals), \`activity\` (mini lessons, graded readers and quests completed), \`recordings\` (pronunciation clips with any tutor marks) and the \`range\` actually used plus \`since_lesson\` when it was anchored on the lesson log. ${RANGE_DOC} ${CARD_TYPE_DOC}`,
+    `The pre-lesson briefing for one student over a date range: \`totals\` (reviews, unique words, days active, accuracy, again_rate, time, per-card-type stats, new words introduced), \`struggling\` (ranked worst first — each word with attempts, again/hard/forgot counts, average time, per-card-type accuracy and the actual \`wrong_answers\` the student typed, so you can see WHAT they confuse it with), \`going_well\` (consistently right or graduated to long intervals), \`activity\` (mini lessons, graded readers and quests completed), \`recordings\` (pronunciation clips with any tutor marks), \`mix_ups\` (pairs of characters the student confuses — from wrong typed characters and wrong multiple-choice picks, e.g. 买 ↔ 卖 ×3 with the words it happened in) and the \`range\` actually used plus \`since_lesson\` when it was anchored on the lesson log. ${RANGE_DOC} ${CARD_TYPE_DOC}`,
     {
       relationship_id: RELATIONSHIP_ID,
       from: z.string().optional().describe('Range start (ISO). Default: the last logged lesson, else 14 days before `to`.'),
@@ -226,6 +227,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           activity: r.activity,
           recordings_total: r.recordings.length,
           recordings: r.recordings.slice(0, n).map((rec) => compactRecording(rec, apiBase)),
+          mix_ups: (r.mix_ups ?? []).slice(0, n).map((m) => ({ pair: `${m.a} ↔ ${m.b}`, times: m.count, last_at: m.last_at, in_words: m.examples.map((e) => `${e.expected} (typed ${e.answer})`) })),
         });
       })
   );
@@ -343,27 +345,32 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'list_student_recordings',
-    `The student's pronunciation recordings (they can record themselves on the "see the characters, say it" card) in a date range, each with the word, the rating they gave themselves, \`recorded_at\`, an \`audio_url\` to listen to (opens in the app; the tutor must be signed in) and the tutor's \`mark\` if any (listened / needs_work + comment). \`only_unmarked\` lists just the ones still waiting to be heard — the "recordings to hear" pill. Mark them with mark_recording. ${RANGE_DOC}`,
+    `The student's pronunciation recordings (they can record themselves on the "see the characters, say it" card) in a date range, each with the word, the rating they gave themselves, \`recorded_at\`, an \`audio_url\` to listen to (opens in the app; the tutor must be signed in) and the tutor's \`mark\` if any (listened / needs_work + comment). \`queue: true\` lists only the "Needs your ear" queue — unmarked recordings where the transcript didn't match the card, the student rated it Again / Hard, the Azure pronunciation score is low or a character sounded off (\`sounded_off\`: char + tone / sound / missed), or the student flagged the card — each with \`why\` (e.g. "Heard: 音响", "Sounded off: 银 (tone)") and a \`reference_audio_url\`; listen to those first. \`only_unmarked\` lists every recording still waiting to be heard. Mark them with mark_recording (a mark takes it out of the queue). ${RANGE_DOC}`,
     {
       relationship_id: RELATIONSHIP_ID,
       from: z.string().optional().describe('Range start (ISO). Default: the last logged lesson, else 14 days before `to`.'),
       to: z.string().optional().describe('Range end (ISO). Default: now.'),
+      queue: z.boolean().optional().describe('Only the "Needs your ear" queue (default false = all recordings).'),
       only_unmarked: z.boolean().optional().describe('Only recordings without a tutor mark yet (default false).'),
       limit: z.number().int().min(1).max(500).optional().describe('Max recordings to return, newest first (default 50).'),
     },
-    async ({ relationship_id, from, to, only_unmarked, limit }) =>
+    async ({ relationship_id, from, to, queue, only_unmarked, limit }) =>
       guard(async () => {
-        const r = await api.get<InsightsResponse>(`${rel(relationship_id)}/insights`, {
+        const n = clampInt(limit, 1, 500, 50);
+        const r = await api.get<RecordingQueueResponse>(`${rel(relationship_id)}/recordings/queue`, {
           from: normalizeDateParam(from, 'from'),
           to: normalizeDateParam(to, 'to'),
+          view: queue ? 'queue' : 'all',
         });
-        const filtered = filterRecordings(r.recordings, !!only_unmarked);
-        const n = clampInt(limit, 1, 500, 50);
+        const items = only_unmarked ? r.items.filter((i) => !i.mark) : r.items;
         return jsonResult({
           range: r.range,
-          total: filtered.length,
-          unmarked: r.recordings.filter((x) => !x.mark).length,
-          recordings: filtered.slice(0, n).map((rec) => compactRecording(rec, apiBase)),
+          total: items.length,
+          in_queue: r.counts.queue,
+          unmarked: r.items.filter((x) => !x.mark).length,
+          still_checking: r.counts.checking,
+          pronunciation_scoring: r.scoring,
+          recordings: items.slice(0, n).map((rec) => compactQueueItem(rec, apiBase)),
         });
       })
   );
