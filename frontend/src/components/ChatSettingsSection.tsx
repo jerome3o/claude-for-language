@@ -13,7 +13,9 @@ export function ChatSettingsSection() {
   const shown = autoCheckSettingShown(user?.chat_auto_check, user?.role);
   const [on, setOn] = useState(shown);
   const [note, setNote] = useState<string | null>(null);
-  useEffect(() => setOn(shown), [shown]);
+  useEffect(() => {
+    setOn(shown);
+  }, [shown]);
 
   const toggle = async (next: boolean) => {
     setOn(next);

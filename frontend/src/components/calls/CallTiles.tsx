@@ -38,6 +38,7 @@ import {
   type VideoSize,
 } from '@shared/calls';
 import { useElementSize } from './CallVideo';
+import { TileErrorBoundary } from './TileErrorBoundary';
 
 export interface TileSpec {
   label: string;
@@ -402,7 +403,7 @@ export function CallTiles({
               onKeyDown={r.role === 'rail' ? (e) => { if (e.key === 'Enter') tap(id); } : undefined}
               tabIndex={r.role === 'rail' ? 0 : undefined}
             >
-              {spec.content}
+              <TileErrorBoundary name={spec.label}>{spec.content}</TileErrorBoundary>
               {r.role !== 'floating' && r.role !== 'pair' && (
                 <div className="call-tile-chrome" ref={chromeRef}>
                   <span className="call-tile-name">{spec.label}</span>

@@ -78,9 +78,14 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                   Reload
                 </button>
               ) : (
-                <button className="btn btn-primary" onClick={this.handleReset}>
-                  Try Again
-                </button>
+                <>
+                  <button className="btn btn-primary" onClick={this.handleReset}>
+                    Try Again
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => window.location.reload()}>
+                    Reload
+                  </button>
+                </>
               )}
               <button
                 className="btn btn-secondary"

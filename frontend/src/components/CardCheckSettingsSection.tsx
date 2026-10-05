@@ -12,7 +12,9 @@ export function CardCheckSettingsSection() {
   const current = !!user?.card_check;
   const [on, setOn] = useState(current);
   const [note, setNote] = useState<string | null>(null);
-  useEffect(() => setOn(current), [current]);
+  useEffect(() => {
+    setOn(current);
+  }, [current]);
 
   const toggle = async (next: boolean) => {
     setOn(next);

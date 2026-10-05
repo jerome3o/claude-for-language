@@ -1105,3 +1105,9 @@
   .call-showing-banner.note { bottom: auto; top: 2.8rem; }
 }
 @keyframes call-banner-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* One tile failing stays inside the tile (TileErrorBoundary). */
+.call-tile-body.call-tile-error { flex-direction: column; gap: 0.5rem; padding: 1rem; text-align: center; background: #f9fafb; color: #111827; }
+.call-tile-error-title { font-weight: 600; margin: 0; }
+.call-tile-error-details { font-size: 0.75rem; color: #6b7280; max-width: 100%; }
+.call-tile-error-details pre { white-space: pre-wrap; word-break: break-word; margin: 0.25rem 0 0; }
