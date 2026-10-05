@@ -93,6 +93,8 @@ export interface StudentOverviewInput {
   week_marks: RecordingMark[];
   /** All-time count of the student's recordings the tutor has not marked yet. */
   unheard_recordings: number;
+  /** Of those, the ones in the "Needs your ear" queue (shared/recordings/queue.ts). */
+  recordings_need_ear?: number;
   /** Cards the student flagged for this tutor that have no reply yet */
   open_flags?: number;
   first_review_at: string | null;
@@ -195,6 +197,8 @@ export interface StudentOverview {
   pills: {
     struggling_words: number;
     recordings_to_hear: number;
+    /** Recordings in the "Needs your ear" queue — what the dashboard pill shows now. */
+    recordings_need_ear: number;
     homework_percent: number | null;
     /** Flagged cards waiting for a reply */
     flags_open: number;
@@ -499,6 +503,7 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
     pills: {
       struggling_words: struggling.length,
       recordings_to_hear: input.unheard_recordings,
+      recordings_need_ear: input.recordings_need_ear ?? 0,
       homework_percent: homework.percent,
       flags_open: input.open_flags ?? 0,
     },

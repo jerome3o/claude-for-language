@@ -74,13 +74,14 @@ async function loadOverview(
   const from7 = new Date(now.getTime() - 7 * DAY_MS).toISOString();
   const nowIso = now.toISOString();
 
-  const [student, activityRows, weekRows, weekMarks, unheard, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue, openFlags, hasProfile] =
+  const [student, activityRows, weekRows, weekMarks, unheard, needEar, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue, openFlags, hasProfile] =
     await Promise.all([
       q.fetchStudentUserRow(db, studentId),
       q.fetchActivityRows(db, studentId, from30),
       fetchReviewRows(db, studentId, from7, nowIso),
       fetchRecordingMarks(db, studentId, from7, nowIso),
       q.countUnheardRecordings(db, studentId),
+      q.countRecordingsNeedingEar(db, studentId, rel.id).catch(() => 0),
       q.fetchReviewTotals(db, studentId),
       q.fetchHomeworkDecks(db, rel.id),
       q.fetchHomeworkLessons(db, rel.id, tutorId, studentId),
@@ -101,6 +102,7 @@ async function loadOverview(
     week_rows: weekRows,
     week_marks: weekMarks,
     unheard_recordings: unheard,
+    recordings_need_ear: needEar,
     open_flags: openFlags,
     first_review_at: totals.first_review_at,
     total_reviews: totals.total,
