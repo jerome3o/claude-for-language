@@ -13,3 +13,4 @@ export * from './presence';
 export * from './lessons';
 export * from './follow';
 export * from './devices';
+export * from './view';

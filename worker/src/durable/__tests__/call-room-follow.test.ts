@@ -178,3 +178,53 @@ describe('CallRoom round 5: Show for student', () => {
     expect(ctx.store.get('shown')).toBeNull();
   });
 });
+
+describe('CallRoom: Same view (shared/calls/view.ts)', () => {
+  const board = { mode: 'focus', main: 'text', second: 'remote', ratio: 0.62, dir: 'row', open: ['remote', 'text', 'self'], page: 'p1' };
+
+  it('either person sets the shared view; everyone hears it in order, a reconnect gets it in welcome', async () => {
+    const { room, ctx, join, say } = await openRoom('c1');
+    const t = join(TUTOR, 'ct');
+    const s = join(STUDENT, 'cs');
+    // The student changes the stage (no tutor-only rule): both hear it, the sender too.
+    await say(s, { type: 'view', view: board, cid: 's1' });
+    expect(t.of('view').at(-1)!.view).toMatchObject({ ...board, seq: 1, by: STUDENT, cid: 's1' });
+    expect(s.of('view').at(-1)!.view.seq).toBe(1);
+    // The tutor splits it; a view without a page keeps the page.
+    await say(t, { type: 'view', view: { ...board, mode: 'split', second: 'screen', page: null }, cid: 't1', bring: true });
+    const v2 = s.of('view').at(-1)!.view;
+    expect(v2).toMatchObject({ seq: 2, by: TUTOR, mode: 'split', second: 'screen', page: 'p1', bring: true });
+    // Garbage is refused.
+    await say(t, { type: 'view', view: { mode: 'nope', main: 'text' }, cid: 'x' });
+    expect(s.of('view')).toHaveLength(2);
+    expect(ctx.store.get('view')).toEqual(v2);
+    // Reload: welcome carries it.
+    const pair = [new FakeWs(null), new FakeWs(null)];
+    (globalThis as { WebSocketPair?: unknown }).WebSocketPair = function WebSocketPair() {
+      return { 0: pair[0], 1: pair[1] };
+    };
+    await (room as unknown as { fetch(r: Request): Promise<Response> })
+      .fetch(new Request('https://x/ws', { headers: { Upgrade: 'websocket', 'X-Call-Id': 'c1', 'X-User-Id': STUDENT, 'X-Instance': 'reload' } }))
+      .catch(() => null);
+    expect(pair[1].of('welcome')[0].view).toEqual(v2);
+    delete (globalThis as { WebSocketPair?: unknown }).WebSocketPair;
+  });
+
+  it('an older app’s Show for student also moves the shared view', async () => {
+    const { join, say } = await openRoom('c1');
+    const t = join(TUTOR, 'ct');
+    const s = join(STUDENT, 'cs');
+    await say(t, { type: 'show', view: { kind: 'text', page: 'p4' } });
+    expect(s.of('view').at(-1)!.view).toMatchObject({ mode: 'focus', main: 'text', page: 'p4', by: TUTOR });
+  });
+
+  it('each person’s Same view / My own view rides on their state', async () => {
+    const { join, say } = await openRoom('c1');
+    const t = join(TUTOR, 'ct');
+    const s = join(STUDENT, 'cs');
+    await say(s, { type: 'state', state: { mic: true, cam: true, screen: false, recording: false, view: 'own' } });
+    expect(t.of('peer_state').at(-1)!.state).toEqual({ mic: true, cam: true, screen: false, recording: false, view: 'own' });
+    await say(s, { type: 'state', state: { mic: true, cam: true, screen: false, recording: false, view: 'bogus' } });
+    expect(t.of('peer_state').at(-1)!.state.view).toBeUndefined();
+  });
+});

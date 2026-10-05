@@ -168,14 +168,9 @@ test('the tutor uploads a PDF and presents it; page turns and drawings reach bot
 
   // The tutor circles something on page 2 — the student sees it.
   await tp.getByTestId('material-draw').click();
-  // Her "Show for student" is in the tile's control row: it covers none of the material's tools.
+  // Same view replaced "Show for student": nothing of hers sits over the material's tools.
   await expect(tp.getByTestId('material-tools')).toBeVisible();
-  const showBox = (await tp.getByTestId('show-material').boundingBox())!;
-  for (const id of ['material-tools', 'material-stop', 'material-draw', 'material-next', 'material-contents']) {
-    const b = (await tp.getByTestId(id).boundingBox())!;
-    const overlaps = showBox.x < b.x + b.width && showBox.x + showBox.width > b.x && showBox.y < b.y + b.height && showBox.y + showBox.height > b.y;
-    expect(overlaps, `Show for student covers ${id}`).toBe(false);
-  }
+  await expect(tp.getByTestId('show-material')).toHaveCount(0);
   const box = await settledBox(tp, 'annot-material');
   await tp.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
   await tp.mouse.down();

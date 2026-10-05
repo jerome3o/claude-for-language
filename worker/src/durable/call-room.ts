@@ -84,6 +84,10 @@ import {
   nextShown,
   sanitizeShowView,
   type ShownState,
+  nextSharedView,
+  sanitizeStageView,
+  viewForShow,
+  type SharedView,
 } from '@shared/calls';
 import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
 import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAnnotations, shareMaterial } from '../services/materials';
@@ -752,6 +756,7 @@ export class CallRoom extends DurableObject<Env> {
       leave_token: attachment.leaveToken,
       tutor_id: await this.tutor(),
       shown: (await this.ctx.storage.get<ShownState | null>('shown')) ?? null,
+      view: (await this.ctx.storage.get<SharedView | null>('view')) ?? null,
     });
     this.broadcast({ type: 'peer_joined', peer: this.peerOf(attachment) }, server);
     return new Response(null, { status: 101, webSocket: client });
@@ -1045,6 +1050,10 @@ export class CallRoom extends DurableObject<Env> {
         await this.showFor(ws, a, msg.view ?? null, msg.follow === true);
         return;
       }
+      case 'view': {
+        await this.setView(a, msg.view, String(msg.cid ?? ''), msg.bring === true);
+        return;
+      }
       case 'stop_share': {
         await this.stopTheirShare(ws, a);
         return;
@@ -1052,7 +1061,7 @@ export class CallRoom extends DurableObject<Env> {
       case 'state': {
         const s = msg.state;
         if (!s || typeof s !== 'object') return;
-        a.state = { mic: Boolean(s.mic), cam: Boolean(s.cam), screen: Boolean(s.screen), recording: Boolean(s.recording) };
+        a.state = { mic: Boolean(s.mic), cam: Boolean(s.cam), screen: Boolean(s.screen), recording: Boolean(s.recording), ...(s.view === 'own' ? { view: 'own' as const } : s.view === 'same' ? { view: 'same' as const } : {}) };
         ws.serializeAttachment(a);
         this.broadcast({ type: 'peer_state', client_id: a.clientId, state: a.state }, ws);
         return;
@@ -1092,6 +1101,24 @@ export class CallRoom extends DurableObject<Env> {
     await this.ctx.storage.put('shown', next);
     this.broadcast({ type: 'shown', shown: next });
     if (next.id !== cur?.id) await this.logRoom(`${a.name} showed the ${view.kind === 'text' ? 'board' : view.kind === 'draw' ? 'drawing board' : view.kind} to the student`, a);
+    // An older app's show is also a change of the shared view, so newer apps on "Same view" follow it.
+    const curView = (await this.ctx.storage.get<SharedView | null>('view')) ?? null;
+    await this.setView(a, viewForShow(curView, view), `show:${next.id}:${next.v}`, false);
+  }
+
+  /**
+   * "Same view" (shared/calls/view.ts): someone's stage changed. The room keeps the latest
+   * shared view (a reconnect gets it in `welcome.view`) and tells everyone, the sender
+   * included — the room's order decides when two changes cross (last one wins on both screens).
+   */
+  private async setView(a: Attachment, raw: unknown, cid: string, bring: boolean): Promise<void> {
+    const view = sanitizeStageView(raw);
+    if (!view) return;
+    const cur = (await this.ctx.storage.get<SharedView | null>('view')) ?? null;
+    const next = nextSharedView(cur, view, { userId: a.userId, name: a.name }, cid, bring, Date.now());
+    await this.ctx.storage.put('view', next);
+    this.broadcast({ type: 'view', view: next });
+    if (bring) await this.logRoom(`${a.name} brought the other person to their view`, a);
   }
 
   /** The tutor stops the other person's screen share: their device stops capturing; everyone hears they no longer share. */

@@ -43,7 +43,7 @@ import { TextBoardSession } from '../services/calls/textBoard';
 import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
 import { track as trackUsage } from '../services/analytics';
-import { DEFAULT_ANNOT_PERSIST, announceDevice, deviceOnWhenOpened, CAMERA_ON_AT_START, type AnnotStroke, type AnnotText, type ShowView, type ShownState } from '@shared/calls';
+import { DEFAULT_ANNOT_PERSIST, announceDevice, deviceOnWhenOpened, CAMERA_ON_AT_START, type AnnotStroke, type AnnotText, type SharedView, type StageView, type ViewMode } from '@shared/calls';
 import { materialTarget, type PresentedMaterial } from '@shared/materials';
 import type { ActivityAction, ActivitySession } from '@shared/call-activities';
 import {
@@ -171,9 +171,12 @@ export function useCall(callId: string, myUserId: string) {
     activityRef.current = next;
     setActivityState(next);
   };
-  // Round 5 (shared/calls/follow.ts): the relationship's tutor, what she last showed, and a "she stopped your share" note.
+  // Round 5 (shared/calls/follow.ts): the relationship's tutor and a "she stopped your share" note.
   const [tutorId, setTutorId] = useState<string | null>(null);
-  const [shown, setShown] = useState<ShownState | null>(null);
+  // "Same view" (shared/calls/view.ts): the room's shared view, and each welcome (the page re-syncs on it).
+  const [sharedView, setSharedView] = useState<SharedView | null>(null);
+  const [viewWelcome, setViewWelcome] = useState(0);
+  const lastViewCidRef = useRef<string | null>(null);
   const [shareStoppedBy, setShareStoppedBy] = useState<{ name: string; at: number } | null>(null);
   const stopScreenShareRef = useRef<() => Promise<void>>(async () => {});
   // A presented lesson material (round 4): what is shown, and the drawings / text on its current page.
@@ -445,7 +448,8 @@ export function useCall(callId: string, myUserId: string) {
         activityRef.current = null; // the room's word is final after a (re)join
         takeActivity(msg.activity ?? null);
         setTutorId(msg.tutor_id ?? null);
-        setShown(msg.shown ?? null);
+        setSharedView(msg.view ?? null);
+        setViewWelcome((n) => n + 1);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
         flushDiag();
         if (msg.peers.length > 0) openLink(msg.peers[0]);
@@ -526,8 +530,8 @@ export function useCall(callId: string, myUserId: string) {
       case 'activity':
         takeActivity(msg.session);
         return;
-      case 'shown':
-        setShown(msg.shown);
+      case 'view':
+        setSharedView(msg.view);
         return;
       case 'share_stopped':
         // The tutor stopped my screen share: stop capturing, like my own Stop button.
@@ -590,7 +594,7 @@ export function useCall(callId: string, myUserId: string) {
     }
     // No camera / no microphone is fine: join with what there is, turn the rest on later.
     // (The tracks' `enabled` is the on / off — the state captured by this closure may predate the preview.)
-    stateRef.current = { mic: !!audioTrack()?.enabled, cam: !!cameraTrack()?.enabled, screen: false, recording: false };
+    stateRef.current = { mic: !!audioTrack()?.enabled, cam: !!cameraTrack()?.enabled, screen: false, recording: false, ...(stateRef.current.view ? { view: stateRef.current.view } : {}) };
     diag('join', `joining with ${[audioTrack() ? (audioTrack()!.enabled ? 'mic' : 'mic muted') : 'no mic', cameraTrack() ? (cameraTrack()!.enabled ? 'camera' : 'camera off') : 'no camera'].join(', ')}; ${navigator.userAgent.slice(0, 120)}`);
     try {
       const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
@@ -835,9 +839,20 @@ export function useCall(callId: string, myUserId: string) {
     roomRef.current?.send({ type: 'annot_mode', persist });
   }, []);
 
-  // ---- round 5: the tutor leads (the room refuses anyone else)
-  /** Put `view` on the student's stage (`follow`: a page turn of what is already shown). null = stop showing. */
-  const show = useCallback((view: ShowView | null, follow = false) => roomRef.current?.send({ type: 'show', view, ...(follow ? { follow: true } : {}) }) ?? false, []);
+  // ---- "Same view" (shared/calls/view.ts)
+  /** My stage changed (or "Bring <name> to my view"): the room makes it the shared view. Returns false when the room isn't open. */
+  const sendView = useCallback((view: StageView, bring = false) => {
+    const cid = Math.random().toString(36).slice(2, 12);
+    const ok = roomRef.current?.send({ type: 'view', view, cid, ...(bring ? { bring: true } : {}) }) ?? false;
+    if (ok) lastViewCidRef.current = cid;
+    return ok;
+  }, []);
+  /** The id of the last view this page sent (its echo is applied; an older one isn't). */
+  const lastViewCid = useCallback(() => lastViewCidRef.current, []);
+  /** Tell the other person whether I follow the shared view or look around on my own. */
+  const announceViewMode = useCallback((mode: ViewMode) => broadcastState({ view: mode }), [broadcastState]);
+
+  // ---- round 5: the tutor stops the student's share (the room refuses anyone else)
   /** Stop the other person's screen share. */
   const stopTheirShare = useCallback(() => roomRef.current?.send({ type: 'stop_share' }) ?? false, []);
   const dismissShareStopped = useCallback(() => setShareStoppedBy(null), []);
@@ -939,7 +954,7 @@ export function useCall(callId: string, myUserId: string) {
     sendAnnotation, sendPing, clearAnnotations, annotPersist, setAnnotationsKept, sendAnnotText, deleteAnnotText,
     presenting, presentMaterial, turnMaterialPage, stopPresenting, materialAnnotations: materialAnnotRef.current, materialAnnot,
     activity, startActivity, actInActivity, closeActivity,
-    tutorId, shown, show, stopTheirShare, shareStoppedBy, dismissShareStopped,
+    tutorId, sharedView, viewWelcome, sendView, lastViewCid, announceViewMode, stopTheirShare, shareStoppedBy, dismissShareStopped,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
     myUserId,
