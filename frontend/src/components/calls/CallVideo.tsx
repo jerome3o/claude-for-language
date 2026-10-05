@@ -70,7 +70,9 @@ export function CallVideo({ stream, muted, mirrored, screen, fit, backdrop = tru
   sizeCb.current = onVideoSize;
 
   // The element and its srcObject stay put through a dropout: the last frame stays on screen.
-  useEffect(() => attach(videoRef.current, stream), [stream]);
+  useEffect(() => {
+    attach(videoRef.current, stream);
+  }, [stream]);
 
   useEffect(() => {
     const el = videoRef.current as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;

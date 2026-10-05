@@ -26,6 +26,21 @@ async function api<T = unknown>(request: APIRequestContext, path: string, opts: 
 
 async function openAs(browser: Browser, token: string): Promise<Page> {
   const ctx = await browser.newContext({ permissions: ['camera', 'microphone'], viewport: { width: 1280, height: 800 } });
+  // Newer Chrome (Minghui's and Jerome's, Oct 2026) returns a Promise from the scroll methods; an
+  // effect written `() => el.scrollIntoView()` then hands React a Promise as its cleanup and the call
+  // crashed ("n is not a function"). Emulate it so every activity here runs under that behaviour.
+  await ctx.addInitScript(() => {
+    for (const proto of [Element.prototype, window] as unknown as Record<string, (...a: unknown[]) => unknown>[]) {
+      for (const name of ['scrollIntoView', 'scrollTo', 'scrollBy', 'scroll']) {
+        const orig = proto[name];
+        if (typeof orig !== 'function') continue;
+        proto[name] = function (this: unknown, ...a: unknown[]) {
+          orig.apply(this, a);
+          return Promise.resolve();
+        };
+      }
+    }
+  });
   const page = await ctx.newPage();
   await page.goto(`/?session_token=${token}`);
   await page.locator('.header').waitFor({ timeout: 30000 });
@@ -161,4 +176,24 @@ test('describe & guess and sentence building: each sees their own side; both bui
   for (const p of [tp, sp]) await expect(p.getByTestId('activity-verdict')).toHaveText('✓ That’s it!', { timeout: 10000 });
   await sp.getByTestId('build-said').click();
   await expect(tp.getByText('✓ Jerome')).toBeVisible({ timeout: 10000 });
+});
+
+test('role-play: each new line scrolls into view; starting another activity after it keeps the call up', async ({ browser, request }) => {
+  test.setTimeout(120_000);
+  const { tp, sp } = await setup(browser, request);
+  await startActivity(tp, 'roleplay-directions-1');
+  await expect(sp.getByTestId('activity-tile')).toHaveAttribute('data-kind', 'roleplay', { timeout: 15000 });
+  // The tourist (student) reads line 1, the passer-by (tutor) line 2.
+  await sp.getByTestId('roleplay-done').click();
+  await expect(tp.getByTestId('roleplay-turn')).toHaveText('Your line — read it aloud', { timeout: 10000 });
+  await tp.getByTestId('roleplay-done').click();
+  await expect(sp.getByTestId('roleplay-turn')).toHaveText('Your line — read it aloud', { timeout: 10000 });
+  // A different activity replaces the role-play (its view unmounts).
+  await startActivity(tp, 'describe-food-1');
+  for (const p of [tp, sp]) {
+    await expect(p.getByTestId('activity-tile')).toHaveAttribute('data-kind', 'describe', { timeout: 15000 });
+    await expect(p.getByTestId('call-live')).toBeVisible();
+    await expect(p.getByText("Couldn't open the call")).toHaveCount(0);
+    await expect(p.getByTestId('tile-error')).toHaveCount(0);
+  }
 });

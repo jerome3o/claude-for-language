@@ -74,7 +74,9 @@ export function StrokePracticePage() {
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const [runKey, setRunKey] = useState(0);
 
-  useEffect(() => setDraft(text), [text]);
+  useEffect(() => {
+    setDraft(text);
+  }, [text]);
 
   useEffect(() => {
     recentWords(12).then(setRecent);

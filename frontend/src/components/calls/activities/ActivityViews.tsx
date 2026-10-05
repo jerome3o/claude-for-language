@@ -211,7 +211,12 @@ function RoleplayView({ session: s, me, role, act, can, speak, spec }: BodyProps
   const [pinyin, setPinyin] = useState(true);
   const [english, setEnglish] = useState(false);
   const currentRef = useRef<HTMLDivElement>(null);
-  useEffect(() => currentRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), [s.round]);
+  // A block body, never `() => el.scrollIntoView(…)`: newer Chrome returns a Promise from the scroll
+  // methods, React then takes it for the effect's cleanup and calls it → "n is not a function", which
+  // took the whole call down (5 Oct 2026).
+  useEffect(() => {
+    currentRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [s.round]);
   const line = spec.lines[s.round];
   const mineNow = s.roles[line.speaker] === me && (s.roles.a !== s.roles.b || line.speaker === role);
   return (
