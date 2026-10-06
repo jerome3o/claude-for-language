@@ -64,6 +64,7 @@ android-lab/
 │   ├── CardState.kt    port of shared/scheduler/compute-state.ts (replay, previews, formatInterval)
 │   ├── Budget.kt       port of shared/decks/budget.ts (global budget, deck queue)
 │   ├── StudyQueue.kt   getStudyQueue / selectNextItem from the web study session
+│   ├── Revisit.kt      port of shared/study/revisit.ts — when finished lessons / readers come back ("revisit later", Done for good)
 │   ├── AnswerKey.kt    typed-answer checking (utils/numberHanzi.ts + AnswerDiff)
 │   ├── Pinyin.kt       port of pinyin-pro 3.28.0 `pinyin()` (editors' offline 拼音 fill); dict in resources/pinyin, regenerate: node parity/extract-pinyin-dict.mjs
 │   ├── spec/           shared/lesson + shared/reader as JSON trees: validate, diff, export, the exercise catalogue (JsJson = JS semantics)

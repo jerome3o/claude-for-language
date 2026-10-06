@@ -16,8 +16,9 @@ class TodayPlanTest {
     private val now = Js.parseDate("2026-09-27T12:00:00.000Z")
     private val cutoff = StudyCutoff(Js.parseDate("2026-09-27T23:59:59.999Z"))
 
-    private fun item(id: String, queue: Int, due: Long? = null, next: String? = null, created: String = "2026-09-01T00:00:00Z") =
-        ScheduledItem(id, created, CardScheduler.initialCardState().copy(queue = queue, dueTimestamp = due, nextReviewAt = next))
+    /** NEW, or scheduled (any other queue) to come back at [due]. */
+    private fun item(id: String, queue: Int, due: Long? = null, @Suppress("UNUSED_PARAMETER") next: String? = null, created: String = "2026-09-01T00:00:00Z") =
+        ScheduledItem(id, created, if (queue == CardQueue.NEW) RevisitState.INITIAL else RevisitState(RevisitState.SCHEDULED, due ?: 0L, 14.0, null, 1))
 
     /** A lesson replayed from its events, like LessonStore does. */
     private fun replayed(id: String, events: List<ItemEvent>, created: String = "2026-09-01T00:00:00Z") =
@@ -28,7 +29,7 @@ class TodayPlanTest {
             item("new2", CardQueue.NEW, created = "2026-09-02T00:00:00Z"),
             item("new1", CardQueue.NEW, created = "2026-09-01T00:00:00Z"),
             item("new3", CardQueue.NEW, created = "2026-09-03T00:00:00Z"),
-            item("learning", CardQueue.LEARNING, due = now - 60_000),
+            item("learning", CardQueue.REVIEW, due = now - 60_000),
             item("review", CardQueue.REVIEW, due = now, next = "2026-09-27T09:00:00.000Z"),
             item("later", CardQueue.REVIEW, due = now + 5 * 86_400_000L, next = "2026-10-02T09:00:00.000Z"),
             item("homework", CardQueue.NEW, created = "2026-08-01T00:00:00Z"),
@@ -69,13 +70,27 @@ class TodayPlanTest {
         assertTrue(plan.isDone)
     }
 
-    @Test fun aLessonRatedBackIntoLearningIsToDoAgainNotDone() {
-        // Good on a new lesson = learning, due in 10 minutes: it comes back today (FSRS, uncapped).
-        val ev = listOf(ItemEvent("e1", "a", Rating.GOOD, "2026-09-27T11:55:00.000Z"))
+    @Test fun aLessonRatedAgainIsDoneForTodayAndBackTomorrow() {
+        // "Revisit later": even Again brings it back tomorrow at the soonest, never the same day.
+        val ev = listOf(ItemEvent("e1", "a", Rating.AGAIN, "2026-09-27T11:55:00.000Z"))
         val lessons = listOf(replayed("a", ev), item("b", CardQueue.NEW))
         val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone)
-        assertEquals(listOf("a", "b"), plan.toDo.map { it.id })
-        assertEquals(emptyList(), plan.done)
+        assertEquals(listOf("b"), plan.toDo.map { it.id })
+        assertEquals(listOf("a"), plan.done)
+    }
+
+    @Test fun overdueRevisitsComeBackTwoADay() {
+        val ev = listOf(
+            ItemEvent("o1", "r1", Rating.GOOD, "2026-08-01T08:00:00.000Z"),
+            ItemEvent("o2", "r2", Rating.GOOD, "2026-08-02T08:00:00.000Z"),
+            ItemEvent("o3", "r3", Rating.GOOD, "2026-08-03T08:00:00.000Z"),
+            ItemEvent("o4", "r4", Rating.GOOD, "2026-08-10T08:00:00.000Z"),
+            ItemEvent("t4", "r4", Rating.GOOD, "2026-09-27T08:00:00.000Z"), // revisited this morning
+        )
+        val lessons = listOf("r1", "r2", "r3", "r4").map { id -> replayed(id, ev.filter { it.itemId == id }) }
+        val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone)
+        assertEquals(listOf("r1"), plan.toDo.map { it.id }) // one slot left, most overdue first
+        assertEquals(listOf("r4"), plan.done)
     }
 
     @Test fun anOldLessonReviewedTodayDoesNotUseANewSlot() {
@@ -100,7 +115,7 @@ class TodayPlanTest {
     @Test fun readerStatesFollowThePick() {
         val story = item("s", CardQueue.NEW)
         assertIs<TodayPlan.Reader.ToDo>(TodayPlan.reader(ReaderSchedule.pickTodays(listOf(story), emptySet(), cutoff), readToday = false))
-        // Read today and rated Easy: pickTodays offers nothing more today → Done.
+        // Read today: pickTodays offers nothing more today → Done.
         val read = replayed("s", listOf(ItemEvent("r1", "s", Rating.EASY, "2026-09-27T08:00:00.000Z")))
         val readToday = ReaderSchedule.readToday(listOf(ItemEvent("r1", "s", Rating.EASY, "2026-09-27T08:00:00.000Z")), now, zone)
         val picked = ReaderSchedule.pickTodays(listOf(read, item("other", CardQueue.NEW)), readToday, cutoff)

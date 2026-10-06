@@ -34,7 +34,6 @@ import {
   getDueReaders,
   recordReaderReview,
   getReaderIntervalPreviews,
-  readerSchedulingFields,
 } from '../services/reader-study';
 import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from '../services/grammar-study';
 import {
@@ -42,7 +41,6 @@ import {
   completeCustomLesson as recordCustomLessonCompletion,
   type LessonRecording,
   getCustomLessonIntervalPreviews,
-  lessonSchedulingFields,
   syncCustomLessons,
   prefetchCustomLessonMedia,
 } from '../services/custom-lesson-study';
@@ -987,10 +985,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     trackWrite(persistReviewEvent(reviewId, cardId, rating, reviewedAt, timeSpentMs, userAnswer, recordingBlob));
   }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, sessionStats, reviewMutation, presentCard, presentSelection, presentNothing, trackWrite, persistReviewEvent, findDelayedLearningCard]);
 
-  // Rate the current reader and transition to the next item. Reader reviews
-  // follow the same FSRS cadence as cards; they aren't undoable yet, so
-  // rating one drops any pending card undo snapshot.
-  const rateReader = useCallback(async (rating: Rating, timeSpentMs: number) => {
+  // Rate the current reader and transition to the next item. The rating sets
+  // when it comes back ("revisit later", shared/study/revisit.ts; `retire` =
+  // Done for good); reader reviews aren't undoable yet, so rating one drops
+  // any pending card undo snapshot.
+  const rateReader = useCallback(async (rating: Rating, timeSpentMs: number, retire = false) => {
     const reader = currentCardState.reader;
     if (!reader) return;
     // Guard against double-taps while the async review write is in flight
@@ -1011,7 +1010,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     });
 
     try {
-      const { newState } = await recordReaderReview(reader.id, rating, timeSpentMs);
+      await recordReaderReview(reader.id, rating, timeSpentMs, { retire, source: 'session' });
 
       // Reading a story in-session counts as the day's reader activity
       // (streaks) — best effort, offline reviews just skip it.
@@ -1019,12 +1018,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         markDailyActivity('reader', reader.id).catch(() => {});
       }
 
-      // Keep the reader in the session while it's still in learning; otherwise
-      // FSRS has scheduled it out to a future day.
+      // Even Again brings a story back tomorrow at the earliest: it leaves the session.
       const newReaderQueue = readerQueue.filter(r => r.id !== reader.id);
-      if (newState.queue === CardQueue.LEARNING || newState.queue === CardQueue.RELEARNING) {
-        newReaderQueue.push({ ...reader, ...readerSchedulingFields(newState) });
-      }
 
       if (navigator.onLine) {
         syncService.syncEvents().catch(console.error);
@@ -1071,15 +1066,16 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
 
   // Complete the current custom mini lesson: record the rated completion
-  // event (synced up in the background) and advance. Like readers, a lesson
-  // rated back into learning stays in the session queue with its new
-  // scheduling; otherwise FSRS has pushed it out to a future day.
+  // event (synced up in the background) and advance. The rating sets when it
+  // comes back (a day at the soonest; `retire` = Done for good), so it always
+  // leaves the session.
   const completeCustomLessonAction = useCallback(async (
     correct: number,
     total: number,
     rating: Rating,
     attempt?: LessonAttemptData,
     recordings?: LessonRecording[],
+    retire = false,
   ) => {
     const lesson = currentCardState.customLesson;
     if (!lesson) return;
@@ -1094,12 +1090,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       };
     });
 
-    let newLessonQueue = customLessonQueue.filter(l => l.id !== lesson.id);
+    const newLessonQueue = customLessonQueue.filter(l => l.id !== lesson.id);
     try {
-      const { newState } = await recordCustomLessonCompletion(lesson.id, correct, total, rating, attempt, recordings);
-      if (newState.queue === CardQueue.LEARNING || newState.queue === CardQueue.RELEARNING) {
-        newLessonQueue = [...newLessonQueue, { ...lesson, ...lessonSchedulingFields(newState) }];
-      }
+      await recordCustomLessonCompletion(lesson.id, correct, total, rating, attempt, recordings, { retire, source: 'session' });
     } catch (err) {
       console.error('[useStudySession] Failed to record custom lesson completion:', err);
     }

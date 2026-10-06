@@ -56,7 +56,7 @@ describe('isStudyableReader', () => {
 });
 
 describe('recordReaderReview', () => {
-  it('creates an unsynced event and advances FSRS state', async () => {
+  it('creates an unsynced event; Good brings the story back in two weeks', async () => {
     const reader = makeReader();
     await db.readers.put(reader);
 
@@ -64,27 +64,26 @@ describe('recordReaderReview', () => {
 
     expect(event.reader_id).toBe(reader.id);
     expect(event._synced).toBe(0);
-    expect(newState.queue).toBe(CardQueue.LEARNING); // Good on NEW → learning
+    expect(newState.status).toBe('scheduled');
+    expect(newState.gap_days).toBe(14);
 
     const stored = await db.readers.get(reader.id);
-    expect(stored?.queue).toBe(CardQueue.LEARNING);
-    expect(stored?.due_timestamp).toBeGreaterThan(Date.now());
+    expect(stored?.queue).toBe(CardQueue.REVIEW);
+    expect(stored?.due_timestamp).toBeGreaterThan(Date.now() + 13 * 86_400_000);
 
     const events = await db.readerReviewEvents.toArray();
     expect(events).toHaveLength(1);
   });
 
-  it('Easy on a new reader graduates it straight to review', async () => {
+  it('Again brings it back tomorrow, not later today', async () => {
     const reader = makeReader();
     await db.readers.put(reader);
-
-    const { newState } = await recordReaderReview(reader.id, 3, 30_000);
-
-    expect(newState.queue).toBe(CardQueue.REVIEW);
-    expect(newState.next_review_at).not.toBeNull();
+    const { newState } = await recordReaderReview(reader.id, 0, 30_000);
+    expect(newState.gap_days).toBe(1);
+    expect(newState.due_ms).toBeGreaterThan(Date.now() + 23 * 3_600_000);
   });
 
-  it('state is derived from the full event history', async () => {
+  it('state is derived from the full event history (the gap grows)', async () => {
     const reader = makeReader();
     await db.readers.put(reader);
 
@@ -92,8 +91,17 @@ describe('recordReaderReview', () => {
     await recordReaderReview(reader.id, 2, 1000);
     const { newState } = await recordReaderReview(reader.id, 2, 1000);
 
-    expect(newState.reps).toBe(3);
+    expect(newState.finishes).toBe(3);
+    expect(newState.gap_days).toBe(56);
     expect(await db.readerReviewEvents.count()).toBe(3);
+  });
+
+  it('Done for good retires it', async () => {
+    const reader = makeReader({ id: 'r-dfg' });
+    await db.readers.put(reader);
+    const { newState } = await recordReaderReview(reader.id, 2, 1000, { retire: true });
+    expect(newState.status).toBe('retired');
+    expect((await db.readers.get('r-dfg'))?.retired).toBe(true);
   });
 });
 
@@ -101,13 +109,14 @@ describe('fixReaderState', () => {
   it('repairs a drifted cached state from events', async () => {
     const reader = makeReader();
     await db.readers.put(reader);
-    await recordReaderReview(reader.id, 3, 1000); // → REVIEW
+    await recordReaderReview(reader.id, 3, 1000); // Easy → six weeks
 
     // Corrupt the cached state
     await db.readers.update(reader.id, { queue: CardQueue.NEW, repetitions: 0 });
 
     const computed = await fixReaderState(reader.id);
-    expect(computed.queue).toBe(CardQueue.REVIEW);
+    expect(computed.status).toBe('scheduled');
+    expect(computed.gap_days).toBe(42);
 
     const stored = await db.readers.get(reader.id);
     expect(stored?.queue).toBe(CardQueue.REVIEW);
@@ -155,34 +164,30 @@ describe('getDueReaders — one reader a day', () => {
     expect(await getDueReaders()).toEqual([]);
   });
 
-  it("keeps today's reader for an Again repeat inside the session, and nothing else", async () => {
+  it('an Again does not bring the story back the same day', async () => {
     const readToday = makeReader({ id: 'r-again' });
     await db.readers.put(readToday);
-    await recordReaderReview(readToday.id, 0, 1000); // Again → learning, due in a minute
+    await recordReaderReview(readToday.id, 0, 1000); // Again → tomorrow
     await db.readers.put(makeReader({ id: 'r-unread' }));
 
-    const due = await getDueReaders();
-    expect(due.map(r => r.id)).toEqual(['r-again']);
+    expect(await getDueReaders()).toEqual([]);
   });
 
-  it('picks one of several due readers: learning repeat, then the most overdue review, then unread', async () => {
-    const learning = makeReader({ id: 'r-learning', queue: CardQueue.LEARNING, due_timestamp: Date.now() - 1000 });
+  it('picks one of several due readers: the most overdue revisit, then unread; never one done for good', async () => {
     const reviewDue = makeReader({ id: 'r-review-due', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() - 86_400_000).toISOString() });
     const reviewOverdue = makeReader({ id: 'r-review-overdue', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() - 5 * 86_400_000).toISOString() });
     const reviewFuture = makeReader({ id: 'r-review-future', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() + 7 * 86_400_000).toISOString() });
+    const retired = makeReader({ id: 'r-retired', queue: CardQueue.REVIEW, retired: true, created_at: '2099-01-01T00:00:00Z' });
     const unread = makeReader({ id: 'r-unread' });
-    await db.readers.bulkPut([learning, reviewDue, reviewOverdue, reviewFuture, unread]);
+    await db.readers.bulkPut([reviewDue, reviewOverdue, reviewFuture, retired, unread]);
 
-    expect((await getDueReaders()).map(r => r.id)).toEqual(['r-learning']);
-
-    await db.readers.delete('r-learning');
     expect((await getDueReaders()).map(r => r.id)).toEqual(['r-review-overdue']);
 
     await db.readers.bulkDelete(['r-review-overdue', 'r-review-due']);
     expect((await getDueReaders()).map(r => r.id)).toEqual(['r-unread']);
 
     await db.readers.delete('r-unread');
-    expect(await getDueReaders()).toEqual([]); // only a future review left → nothing today
+    expect(await getDueReaders()).toEqual([]); // only a future review + a retired one left → nothing today
   });
 });
 
@@ -201,19 +206,15 @@ describe('pickTodaysReader (pure)', () => {
     expect(pickTodaysReader([done, unread], new Set(['done']), cutoff)).toBeNull();
   });
 
-  it('a reader read today comes back only as its own learning repeat', () => {
-    const again = makeReader({ id: 'again', queue: CardQueue.LEARNING, due_timestamp: Date.now() + 60_000 });
-    const unread = makeReader({ id: 'unread' });
-    expect(pickTodaysReader([again, unread], new Set(['again']), cutoff)?.id).toBe('again');
+  it('a retired NEW reader is never picked', () => {
+    expect(pickTodaysReader([makeReader({ id: 'x', retired: true })], new Set(), cutoff)).toBeNull();
   });
 });
 
 describe('getReaderIntervalPreviews', () => {
-  it('returns a preview for every rating', () => {
+  it('returns the revisit gap for every rating', () => {
     const previews = getReaderIntervalPreviews(makeReader());
-    for (const rating of [0, 1, 2, 3] as const) {
-      expect(previews[rating].intervalText).toBeTruthy();
-    }
+    expect([0, 1, 2, 3].map(r => previews[r as 0].intervalText)).toEqual(['1 day', '2 days', '2 wk', '6 wk']);
   });
 });
 

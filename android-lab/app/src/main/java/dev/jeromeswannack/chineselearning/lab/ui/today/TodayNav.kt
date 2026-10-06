@@ -29,7 +29,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
@@ -176,12 +175,12 @@ class TodayReaderViewModel(private val app: LabApp) : ViewModel() {
     }
 
     /** The last page was rated: the review event + the day's reader mark, like the session. */
-    fun rate(rating: Int, timeSpentMs: Long, then: () -> Unit) {
+    fun rate(rating: Int, timeSpentMs: Long, retire: Boolean, then: () -> Unit) {
         val entry = (_state.value as? TodayItemState.Reader)?.entry ?: return
         _state.value = TodayItemState.Finished
         app.haptics.rated(rating)
         viewModelScope.launch {
-            TodayData(app).rateReader(entry.id, rating, timeSpentMs)
+            TodayData(app).rateReader(entry.id, rating, timeSpentMs, retire)
             TodayHomeLoader.celebrateIfAllClear(app)
             then()
         }
@@ -195,7 +194,7 @@ private fun TodayLessonRoute(nav: LabNav, state: TodayItemState, vm: TodayLesson
     when (state) {
         is TodayItemState.Lesson -> {
             val e = state.entry
-            val previews = remember(e) { CardScheduler.intervalPreviews(e.state, System.currentTimeMillis()) }
+            val previews = remember(e) { dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(e.state, e.settings) }
             LessonPlayer(
                 title = e.lesson.title,
                 icon = e.lesson.icon,
@@ -218,14 +217,14 @@ private fun TodayReaderRoute(nav: LabNav, state: TodayItemState, vm: TodayReader
     when (state) {
         is TodayItemState.Reader -> {
             val e = state.entry
-            val session = remember(e) { SessionReader(e.reader, CardScheduler.intervalPreviews(e.state, System.currentTimeMillis()), 1) }
+            val session = remember(e) { SessionReader(e.reader, dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(e.state, e.settings), 1) }
             val env = rememberReaderEnv(nav.app, e.id)
             Column(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Today's story", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted, modifier = Modifier.weight(1f).padding(start = 12.dp))
                     IconButton(onClick = nav::back) { Icon(Icons.Filled.Close, "Close", tint = Lab.colors.muted) }
                 }
-                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(session, env) { r, ms -> vm.rate(r, ms) { nav.back() } } }
+                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(session, env) { r, ms, retire -> vm.rate(r, ms, retire) { nav.back() } } }
             }
         }
         TodayItemState.Missing -> MissingItem("Today's story", "No story to read today. Your readers are all in More → Graded readers.", nav, Routes.readers())

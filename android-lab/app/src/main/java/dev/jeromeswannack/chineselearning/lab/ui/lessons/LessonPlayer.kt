@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAttempt
 import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
+import dev.jeromeswannack.chineselearning.lab.core.Rating
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttempts
@@ -81,7 +82,15 @@ fun flattenSpec(spec: CustomLessonSpec): List<FlatExercise> = spec.sections.flat
 }
 
 /** What a finished run hands back (StudyCustomLesson's onComplete). */
-data class LessonResult(val correct: Int, val total: Int, val rating: Int, val attempt: LessonAttemptData, val recordings: List<LessonRecording>)
+data class LessonResult(
+    val correct: Int,
+    val total: Int,
+    val rating: Int,
+    val attempt: LessonAttemptData,
+    val recordings: List<LessonRecording>,
+    /** "Done for good": finished (rated Good for the record) and never scheduled again. */
+    val retire: Boolean = false,
+)
 
 /** Where the player sits: the study session (counts), a homework pass, or a preview (nothing recorded). */
 sealed interface PlayerContext {
@@ -105,7 +114,7 @@ class LessonResumeHandle(
 /**
  * A custom mini lesson (the web's StudyCustomLesson): walks the flattened exercises,
  * builds the attempt (answer + time per exercise, recordings by media key) and ends with
- * the same FSRS rating bar as cards and readers. [PlayerContext.Preview] records nothing
+ * the rating bar (its gap sets when the lesson comes back — "revisit later") and Done for good. [PlayerContext.Preview] records nothing
  * and offers Try again / Done instead of a rating.
  */
 /** `lesson.start` / `lesson.complete` source: where the player sits. */
@@ -252,6 +261,14 @@ fun LessonPlayer(
                         val attempt = LessonAttemptData(Js.toIsoString(startedAt), System.currentTimeMillis() - startedAt, attempts.toList())
                         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.complete", mapOf("rating" to listOf("again", "hard", "good", "easy").getOrNull(r), "source" to lessonSource(context), "duration_ms" to System.currentTimeMillis() - startedAt))
                         onComplete(LessonResult(correct, total, r, attempt, recordings.toList()))
+                    }
+                    // "Revisit later": or never again (web: RatingButtons onDoneForGood).
+                    dev.jeromeswannack.chineselearning.lab.ui.kit.DoneForGoodButton(enabled = !rating) {
+                        if (rating) return@DoneForGoodButton
+                        rating = true
+                        val attempt = LessonAttemptData(Js.toIsoString(startedAt), System.currentTimeMillis() - startedAt, attempts.toList())
+                        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.complete", mapOf("rating" to "good", "source" to lessonSource(context), "duration_ms" to System.currentTimeMillis() - startedAt))
+                        onComplete(LessonResult(correct, total, Rating.GOOD, attempt, recordings.toList(), retire = true))
                     }
                 }
             }

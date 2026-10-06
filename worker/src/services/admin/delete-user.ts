@@ -164,6 +164,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   // Everything else the user owns.
   { label: 'folders', sql: `DELETE FROM folders WHERE user_id = ?1` },
   { label: 'study_bumps', sql: `DELETE FROM study_bumps WHERE user_id = ?1 OR note_id IN ${NOTES}` },
+  { label: 'revisit_events', sql: `DELETE FROM revisit_events WHERE user_id = ?1` },
   { label: 'lesson_note_files', sql: `DELETE FROM lesson_note_files WHERE lesson_note_id IN (SELECT id FROM lesson_notes WHERE user_id = ?1)` },
   { label: 'lesson_notes', sql: `DELETE FROM lesson_notes WHERE user_id = ?1` },
   { label: 'quests', sql: `DELETE FROM quests WHERE user_id = ?1` },

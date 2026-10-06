@@ -13,56 +13,19 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CustomLessonSpec, LessonExercise, countScoreable, EXERCISE_TYPE_INFO, exercisePrimaryText } from '@shared/lesson';
-import { computeCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
+import { computeRevisitState, type RevisitEvent, type RevisitSettings, type RevisitState } from '@shared/study/revisit';
 import { getCustomLessons, deleteCustomLessonById, CustomLessonListItem } from '../api/client';
-import { db, getStudyCutoff } from '../db/database';
-import { CardQueue, Rating } from '../types';
+import { db, getStudyCutoff, type LocalRevisitEvent } from '../db/database';
+import { markRevisit, readRevisitSettings, revisitChip } from '../services/revisit';
 import { Loading } from '../components/Loading';
 import './MiniLessonsPage.css';
 
-interface LessonSchedule {
-  queue: CardQueue;
-  next_review_at: string | null;
-  due_timestamp: number | null;
-  reps: number;
-}
-
-/** FSRS state for the chip, computed from the lesson's completion events. */
-function scheduleFromCompletions(lesson: CustomLessonListItem): LessonSchedule {
-  const completions = lesson.completions ?? [];
-  if (completions.length === 0) {
-    return { queue: CardQueue.NEW, next_review_at: null, due_timestamp: null, reps: 0 };
-  }
-  const state = computeCardState(
-    completions.map(c => ({
-      id: c.id,
-      card_id: c.lesson_id,
-      rating: (c.rating ?? 2) as Rating,
-      reviewed_at: c.completed_at,
-    })),
-    DEFAULT_DECK_SETTINGS,
-  );
-  return {
-    queue: state.queue,
-    next_review_at: state.next_review_at,
-    due_timestamp: state.due_timestamp,
-    reps: state.reps,
-  };
-}
-
-function scheduleChip(schedule: LessonSchedule): { label: string; cls: string } {
-  const cutoff = getStudyCutoff();
-  if (schedule.queue === CardQueue.NEW) return { label: 'New', cls: 'active' };
-  if (schedule.queue === CardQueue.LEARNING || schedule.queue === CardQueue.RELEARNING) {
-    return { label: 'Learning', cls: 'learning' };
-  }
-  const dueNow = !schedule.next_review_at || schedule.next_review_at <= cutoff.iso;
-  if (dueNow) return { label: 'Due today', cls: 'learning' };
-  const due = new Date(schedule.next_review_at!);
-  return {
-    label: `Due ${due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`,
-    cls: 'done',
-  };
+/** The lesson's "revisit later" schedule (shared/study/revisit.ts) from its
+ * completions + this device's Done-for-good / Bring-back events. */
+function scheduleFor(lesson: CustomLessonListItem, marks: LocalRevisitEvent[], settings: RevisitSettings): RevisitState {
+  const history: RevisitEvent[] = (lesson.completions ?? []).map(c => ({ id: c.id, at: c.completed_at, kind: 'rating' as const, rating: c.rating ?? null }));
+  for (const m of marks) if (m.item_kind === 'lesson' && m.item_id === lesson.id) history.push({ id: m.id, at: m.created_at, kind: m.action });
+  return computeRevisitState(history, settings);
 }
 
 const EXERCISE_LABELS = Object.fromEntries(
@@ -98,15 +61,16 @@ function exerciseCount(spec: CustomLessonSpec): number {
   return spec.sections.reduce((sum, s) => sum + s.exercises.length, 0);
 }
 
-function LessonCard({ lesson, onDelete, deleting }: {
+function LessonCard({ lesson, schedule, onDelete, deleting }: {
   lesson: CustomLessonListItem;
+  schedule: RevisitState;
   onDelete: (lesson: CustomLessonListItem) => void;
   deleting: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const created = new Date(lesson.created_at + (lesson.created_at.endsWith('Z') ? '' : 'Z'));
-  const schedule = scheduleFromCompletions(lesson);
-  const chip = scheduleChip(schedule);
+  const chip = revisitChip(schedule, getStudyCutoff().ts);
+  const retired = schedule.status === 'retired';
 
   return (
     <div className="mini-lesson-card">
@@ -117,7 +81,7 @@ function LessonCard({ lesson, onDelete, deleting }: {
           {lesson.description && <div className="mini-lesson-desc">{lesson.description}</div>}
           <div className="mini-lesson-meta">
             {exerciseCount(lesson.spec)} exercises ({countScoreable(lesson.spec)} scored)
-            {schedule.reps > 0 && ` · studied ${schedule.reps}×`}
+            {schedule.finishes > 0 && ` · studied ${schedule.finishes}×`}
             {' · '}from {lesson.source}
             {' · '}{created.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
           </div>
@@ -140,7 +104,16 @@ function LessonCard({ lesson, onDelete, deleting }: {
           ))}
           <div className="mini-lesson-actions">
             <Link to={`/lessons/${lesson.id}/edit`} className="btn btn-primary btn-sm">✏️ Edit</Link>
-            {schedule.reps > 0 && (
+            {retired ? (
+              <button className="btn btn-secondary btn-sm" onClick={() => void markRevisit('lesson', lesson.id, 'restore')} data-testid="lesson-bring-back">
+                ↩ Bring back
+              </button>
+            ) : schedule.finishes > 0 && (
+              <button className="btn btn-secondary btn-sm" onClick={() => void markRevisit('lesson', lesson.id, 'retire', 'list')}>
+                ✓ Done for good
+              </button>
+            )}
+            {schedule.finishes > 0 && (
               <Link to={`/lesson-attempts?lesson=${lesson.id}`} className="btn btn-secondary btn-sm">📝 My answers</Link>
             )}
             <button
@@ -188,6 +161,10 @@ export function MiniLessonsPage() {
     }));
   }, []);
 
+  // Done for good / Bring back (this device's events, pending ones included) and the gaps.
+  const marks = useLiveQuery(() => db.revisitEvents.toArray(), []) ?? [];
+  const settings = readRevisitSettings();
+
   const deleteMutation = useMutation({
     mutationFn: async (lesson: CustomLessonListItem) => {
       await deleteCustomLessonById(lesson.id);
@@ -217,16 +194,23 @@ export function MiniLessonsPage() {
       completions,
     }));
 
-  // Lessons recur on the FSRS cadence: split by whether they're up next
-  // (new / learning / due today) or scheduled out.
+  // Lessons come back on the "revisit later" schedule: split into up next
+  // (new / due today), scheduled out, and done for good.
   const cutoff = getStudyCutoff();
-  const isUpNext = (lesson: CustomLessonListItem) => {
-    const s = scheduleFromCompletions(lesson);
-    if (s.queue === CardQueue.NEW || s.queue === CardQueue.LEARNING || s.queue === CardQueue.RELEARNING) return true;
-    return !s.next_review_at || s.next_review_at <= cutoff.iso;
-  };
-  const upNext = lessons.filter(isUpNext);
-  const scheduled = lessons.filter(l => !isUpNext(l));
+  const withSchedule = lessons.map(lesson => ({ lesson, schedule: scheduleFor(lesson, marks, settings) }));
+  const upNext = withSchedule.filter(x => x.schedule.status === 'new' || (x.schedule.status === 'scheduled' && (x.schedule.due_ms ?? 0) <= cutoff.ts));
+  const scheduled = withSchedule.filter(x => x.schedule.status === 'scheduled' && (x.schedule.due_ms ?? 0) > cutoff.ts)
+    .sort((a, b) => (a.schedule.due_ms ?? 0) - (b.schedule.due_ms ?? 0));
+  const retired = withSchedule.filter(x => x.schedule.status === 'retired');
+  const card = ({ lesson, schedule }: { lesson: CustomLessonListItem; schedule: RevisitState }) => (
+    <LessonCard
+      key={lesson.id}
+      lesson={lesson}
+      schedule={schedule}
+      onDelete={handleDelete}
+      deleting={deleteMutation.isPending && deleteMutation.variables?.id === lesson.id}
+    />
+  );
 
   return (
     <div className="page">
@@ -234,8 +218,8 @@ export function MiniLessonsPage() {
         <h1>🎓 Mini Lessons</h1>
         <p className="text-light mini-lessons-sub">
           Custom lessons authored by Claude (from chat or MCP). They mix into
-          your study sessions and, once rated, come back on the same FSRS
-          cadence as cards.
+          your study sessions; once finished, your rating decides when one comes
+          back (Good: in two weeks, then longer each time — Settings → Lessons &amp; readers).
         </p>
         {!serverLessons && (
           <p className="mini-lessons-offline-note">
@@ -250,26 +234,20 @@ export function MiniLessonsPage() {
             Coach, or from any connected Claude chat: “make me a mini lesson on …”
           </p>
         )}
-        {upNext.map(lesson => (
-          <LessonCard
-            key={lesson.id}
-            lesson={lesson}
-            onDelete={handleDelete}
-            deleting={deleteMutation.isPending && deleteMutation.variables?.id === lesson.id}
-          />
-        ))}
+        {upNext.map(card)}
 
         {scheduled.length > 0 && (
           <>
-            <h2 className="mini-lessons-heading">Scheduled ({scheduled.length})</h2>
-            {scheduled.map(lesson => (
-              <LessonCard
-                key={lesson.id}
-                lesson={lesson}
-                onDelete={handleDelete}
-                deleting={deleteMutation.isPending && deleteMutation.variables?.id === lesson.id}
-              />
-            ))}
+            <h2 className="mini-lessons-heading">Coming back later ({scheduled.length})</h2>
+            {scheduled.map(card)}
+          </>
+        )}
+
+        {retired.length > 0 && (
+          <>
+            <h2 className="mini-lessons-heading">Done for good ({retired.length})</h2>
+            <p className="text-light" style={{ fontSize: '0.875rem' }}>Never offered again. Bring one back to put it in rotation.</p>
+            {retired.map(card)}
           </>
         )}
       </div>

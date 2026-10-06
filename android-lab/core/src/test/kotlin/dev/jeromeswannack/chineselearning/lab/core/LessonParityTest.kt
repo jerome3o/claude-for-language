@@ -178,7 +178,8 @@ class LessonParityTest {
                 ScheduledItem(
                     id = r["id"]!!.str!!,
                     createdAt = r["created_at"]!!.str!!,
-                    state = stateOf(r["queue"]!!.jsonPrimitive.int, due, r["next_review_at"]!!.str),
+                    // The cached row back into its revisit state (`rowRevisitState`).
+                    state = Revisit.rowState(r["queue"]!!.jsonPrimitive.int, r["retired"]!!.jsonPrimitive.boolean, 0.0, 0, due, r["next_review_at"]!!.str, null),
                     studyable = r["status"]!!.str == "ready" && r["pages"]!!.jsonPrimitive.int > 0,
                 )
             }
@@ -202,8 +203,6 @@ class LessonParityTest {
         assertEquals("小明在巴黎 · Xiaoming in Paris", ReaderFailures.title("小明在巴黎", "Xiaoming in Paris", null))
         assertEquals("Generating", ReaderFailures.title("生成中...", "Generating...", null))
     }
-
-    private fun stateOf(queue: Int, due: Long?, next: String?) = CardScheduler.initialCardState().copy(queue = queue, dueTimestamp = due, nextReviewAt = next)
 
     @Suppress("unused") private fun JsonArray.bools() = map { it.jsonPrimitive.booleanOrNull }
 }

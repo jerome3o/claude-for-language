@@ -5,6 +5,7 @@ import { ChatSettingsSection } from '../components/ChatSettingsSection';
 import { CardCheckSettingsSection } from '../components/CardCheckSettingsSection';
 import { Link } from 'react-router-dom';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget, updateShareUsage } from '../api/client';
+import { RevisitSettingsSection } from '../components/settings/RevisitSettingsSection';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
@@ -848,6 +849,7 @@ export function SettingsPage() {
         </div>
 
         {!role.isTutorOnly && <DailyBudgetSection />}
+        {!role.isTutorOnly && <RevisitSettingsSection />}
 
         <StartOnSection hasStudents={role.hasStudents} />
 

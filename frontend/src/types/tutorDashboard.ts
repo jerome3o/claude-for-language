@@ -250,4 +250,8 @@ export interface SharedReaderRow {
   page_count: number;
   read_count: number;
   last_read_at: string | null;
+  /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
+  next_revisit_at?: string | null;
+  /** The student marked it "Done for good". */
+  retired?: boolean;
 }

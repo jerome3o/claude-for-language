@@ -179,7 +179,7 @@ class StudyViewModel(
         }
     }
     /** The last page of today's reader was rated: record it, count it, move on. */
-    fun rateReader(rating: Int, timeSpentMs: Long) {
+    fun rateReader(rating: Int, timeSpentMs: Long, retire: Boolean = false) {
         val reader = (_ui.value.phase as? StudyPhase.Reader)?.reader ?: return
         if (busy) return
         busy = true
@@ -194,7 +194,7 @@ class StudyViewModel(
         }
         app.haptics.rated(rating)
         viewModelScope.launch {
-            extras.rateReader(reader.reader.id, rating, timeSpentMs)
+            extras.rateReader(reader.reader.id, rating, timeSpentMs, retire)
             _ui.update { it.copy(todayLeft = todayLeft()) }
             var next = nextItem(null)
             if (next == null) next = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }

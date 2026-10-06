@@ -63,6 +63,10 @@ export interface LibraryAssignment {
   last_score: { correct: number; total: number } | null;
   /** The newest attempt with per-exercise answers (null before any, or for runs recorded before attempts existed). */
   last_attempt_id?: string | null;
+  /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
+  next_revisit_at?: string | null;
+  /** The student marked it "Done for good". */
+  retired?: boolean;
   up_to_date: boolean;
 }
 
@@ -96,6 +100,10 @@ export interface StudentLessonSummary {
   last_score: { correct: number; total: number } | null;
   /** The newest attempt with per-exercise answers (null before any, or for runs recorded before attempts existed). */
   last_attempt_id?: string | null;
+  /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
+  next_revisit_at?: string | null;
+  /** The student marked it "Done for good". */
+  retired?: boolean;
 }
 
 /** What an editor chat is about: a student's lesson, a tutor's library item,

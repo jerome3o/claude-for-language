@@ -138,7 +138,8 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
 
 /**
  * A graded reader shown inside a study session: click through every page,
- * then rate it on the last page — same FSRS cadence as cards.
+ * then rate it on the last page: the rating sets when it comes back
+ * ("revisit later", shared/study/revisit.ts), or Done for good.
  */
 export function StudyReader({
   reader,
@@ -153,7 +154,8 @@ export function StudyReader({
   /** The session's queue counts; omitted in the homework pass (a "Homework" label instead). */
   counts?: QueueCounts;
   isRating: boolean;
-  onRate: (rating: Rating, timeSpentMs: number) => void;
+  /** `retire` = "Done for good": read, and never scheduled again. */
+  onRate: (rating: Rating, timeSpentMs: number, retire?: boolean) => void;
   onEnd: () => void;
 }) {
   const [currentPage, setCurrentPage] = useState(0);
@@ -171,6 +173,12 @@ export function StudyReader({
   const handleRate = (rating: Rating) => {
     track('reader.finish', { rating: (['again', 'hard', 'good', 'easy'] as const)[rating], pages: reader.pages.length });
     onRate(rating, Date.now() - startTime);
+  };
+
+  const handleDoneForGood = () => {
+    track('reader.finish', { rating: 'good', pages: reader.pages.length });
+    // Read (counts as Good for the record) and retired.
+    onRate(2, Date.now() - startTime, true);
   };
 
   return (
@@ -234,6 +242,7 @@ export function StudyReader({
           <RatingButtons
             intervalPreviews={intervalPreviews}
             onRate={handleRate}
+            onDoneForGood={handleDoneForGood}
             disabled={isRating}
           />
         </div>

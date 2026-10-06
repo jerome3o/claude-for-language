@@ -51,6 +51,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.study.RatingBar
+import dev.jeromeswannack.chineselearning.lab.ui.kit.DoneForGoodButton
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /** A reader in the study session. [key] changes when the same story comes back. */
@@ -58,10 +59,11 @@ data class SessionReader(val reader: GradedReaderDto, val previews: List<Interva
 
 /**
  * A graded reader inside the study session (the web's StudyReader): page through, then
- * rate it on the last page with the same FSRS bar as cards.
+ * rate it on the last page — the rating sets when it comes back ("revisit later"), or
+ * Done for good ([onRate]'s `retire`: read, rated Good for the record, never again).
  */
 @Composable
-fun StudyReaderView(session: SessionReader, env: ReaderEnv, onRate: (rating: Int, timeSpentMs: Long) -> Unit) {
+fun StudyReaderView(session: SessionReader, env: ReaderEnv, onRate: (rating: Int, timeSpentMs: Long, retire: Boolean) -> Unit) {
     val reader = session.reader
     var page by rememberSaveable(session.key) { mutableIntStateOf(0) }
     val started = remember(session.key) { System.currentTimeMillis() }
@@ -91,7 +93,12 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onRate: (rating: Int
                 RatingBar(session.previews, enabled = !rated) { r ->
                     if (rated) return@RatingBar
                     rated = true
-                    onRate(r, System.currentTimeMillis() - started)
+                    onRate(r, System.currentTimeMillis() - started, false)
+                }
+                DoneForGoodButton(enabled = !rated) {
+                    if (rated) return@DoneForGoodButton
+                    rated = true
+                    onRate(dev.jeromeswannack.chineselearning.lab.core.Rating.GOOD, System.currentTimeMillis() - started, true)
                 }
             }
         } else {

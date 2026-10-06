@@ -31,6 +31,8 @@ beforeEach(async () => {
   await db.homeworkAssignments.clear();
   await db.homeworkEvents.clear();
   await db.pendingNotePrefs.clear();
+  await db.revisitEvents.clear();
+  try { localStorage.removeItem('revisitSettings'); } catch { /* no storage */ }
 });
 
 // Clean up after each test

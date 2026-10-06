@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { STUDY_BUDGET_CHANGED, writeStudyBudget } from '../services/studyBudget';
+import { writeRevisitSettings } from '../services/revisit';
 import type { StudyBudgetInfo } from '@shared/decks';
 import { writeConversationVoices } from '../services/conversationVoices';
 import { AuthUser } from '../types';
@@ -29,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userData = await getCurrentUser();
       setUser(userData);
       writeStudyBudget(userData);
+      writeRevisitSettings(userData as { revisit_settings?: unknown });
       writeConversationVoices(userData.conversation_voices);
       if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);
       localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
@@ -81,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userData = await getCurrentUser();
         setUser(userData);
         writeStudyBudget(userData);
+        writeRevisitSettings(userData as { revisit_settings?: unknown });
         writeConversationVoices(userData.conversation_voices);
         if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);
         localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));

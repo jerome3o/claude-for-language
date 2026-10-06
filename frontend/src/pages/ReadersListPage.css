@@ -129,3 +129,23 @@
     flex-direction: row;
   }
 }
+
+/* "Revisit later": when the story comes back / Bring back (services/revisit.ts) */
+.reader-revisit-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.reader-revisit-chip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+}
+.reader-revisit-chip--learning { background: #fef3c7; color: #92400e; }
+.reader-revisit-chip--retired { background: #f3f4f6; color: var(--color-text-light); }

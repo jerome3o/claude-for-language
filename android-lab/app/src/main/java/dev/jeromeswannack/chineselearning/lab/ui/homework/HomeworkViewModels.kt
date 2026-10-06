@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
@@ -150,12 +149,11 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     /** Lesson / reader (web: LessonPass / ReaderPass): the local copy to play, or none (→ Missing). */
     private fun playerUi(a: HomeworkAssignment, complete: Boolean, targets: Targets?, finished: Boolean): PassUi.Player {
         val title = a.title.ifEmpty { if (a.kind == "reader") "Reader" else "Mini lesson" }
-        val now = System.currentTimeMillis()
         val lesson = targets?.lessons?.get(a.target_id)?.takeIf { a.kind == "lesson" }?.let {
-            PassLesson(it.id, it.lesson.title, it.lesson.icon, it.lesson.spec, CardScheduler.intervalPreviews(it.state, now))
+            PassLesson(it.id, it.lesson.title, it.lesson.icon, it.lesson.spec, dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(it.state, it.settings))
         }
         val reader = targets?.readers?.get(a.target_id)?.takeIf { a.kind == "reader" }?.let {
-            SessionReader(it.reader, CardScheduler.intervalPreviews(it.state, now), key = 1)
+            SessionReader(it.reader, dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(it.state, it.settings), key = 1)
         }
         return PassUi.Player(a.kind, title, complete, loaded = targets != null, lesson = lesson, reader = reader, finished = finished)
     }
@@ -208,17 +206,17 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     fun completeLesson(result: LessonResult) {
         val lessonId = (ui.value as? PassUi.Player)?.lesson?.id ?: return
         viewModelScope.launch {
-            runCatching { runtime.store.complete(lessonId, result.correct, result.total, result.rating, result.attempt, result.recordings) }
+            runCatching { runtime.store.complete(lessonId, result.correct, result.total, result.rating, result.attempt, result.recordings, retire = result.retire, source = "homework") }
             local.value = local.value.copy(finished = true)
             runtime.uploadSoon()
         }
     }
 
-    /** `recordReaderReview` from the pass (also records the homework `done`). */
-    fun rateReader(rating: Int, timeSpentMs: Long) {
+    /** `recordReaderReview` from the pass (also records the homework `done`); [retire] = Done for good. */
+    fun rateReader(rating: Int, timeSpentMs: Long, retire: Boolean = false) {
         val readerId = (ui.value as? PassUi.Player)?.reader?.reader?.id ?: return
         viewModelScope.launch {
-            runCatching { runtime.readers.rate(readerId, rating, timeSpentMs) }
+            runCatching { runtime.readers.rate(readerId, rating, timeSpentMs, retire = retire, source = "homework") }
             local.value = local.value.copy(finished = true)
             runtime.uploadSoon()
         }

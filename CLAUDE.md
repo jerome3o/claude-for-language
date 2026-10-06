@@ -121,7 +121,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── call-activities/   # In-call activities: two-person mini lessons (describe & guess, info gap, role-play, sentence building, quick quiz, dictation) — spec types, the state machine the CallRoom runs (engine.ts), the sample catalogue; parity-tested by the Lab app
 │   ├── materials/         # Lesson materials: kinds, limits, page text, `material:<id>:<page>` annotation targets, presented-material shape, PPTX_RENDER_NOTE
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP); inbox.ts = the Chats tab rules (sort, preview, relative time, search, badge, live updates) — parity-tested by the Lab app
-│   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts) — parity-tested by the Lab app
+│   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts), the "revisit later" schedule of lessons + readers (revisit.ts) — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── folders/           # Folders for decks / library lessons / readers: groupIntoFolders, one-level nesting rule (parentProblem), name rules, spliceGroupOrder, collapsed keys, copy (deleteFolderMessage, movedMessage) — parity-tested by the Lab app
 │   ├── chars/             # The character dictionary (card-independent): CharRecord, build rules from CC-CEDICT / Make Me a Hanzi / wordfreq (build.ts, msgpack.ts; scripts/build-char-dict.ts), the sheet's word statuses known / in_decks / none (status.ts — parity-tested by the Lab app)
@@ -326,7 +326,8 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `picture_hunts` / `picture_hunt_plays` - Picture hunts (migration 0082): source upload|generated, prompt, deck_ids, `image_key` (R2 `picture-hunts/<id>.<ext>`, protected — personal photos), size, status generating/ready/error + `progress`, `objects` JSON (`shared/picture-hunt`), best_found / play_count (recomputed from plays); plays are client-id rows (found_ids, hints_used, gave_up, duration)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
-- `custom_lesson_completions` - Idempotent offline completion events for custom lessons
+- `custom_lesson_completions` - Idempotent offline completion events for custom lessons (the rating sets when it comes back)
+- `revisit_events` - "Done for good" / "Bring back" on a lesson or reader (migration 0110; item_kind lesson|reader, item_id, action retire|restore, client id). With the ratings they make the "revisit later" schedule (`shared/study/revisit.ts`); `users.revisit_settings` = the account's gaps (JSON, NULL = defaults)
 - `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0079. See "Lesson pictures" below
 - `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0074
 - `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
@@ -1114,10 +1115,15 @@ agent can repair and retry.
 Lessons are cached whole in IndexedDB (`customLessons`) and studied fully offline,
 **mixed into the study session's card flow** — one is offered every ~8 card reviews
 (`LESSON_MIX_INTERVAL` in useStudySession), leftovers run before the readers, max 2 NEW
-lessons per session. Lessons are **scheduled with FSRS** like cards and readers: the
-lesson ends with Again/Hard/Good/Easy rating buttons, each completion event carries the
-rating, and the client computes scheduling state from the completion history (rating NULL
-on legacy events = Good). FSRS-due lessons re-enter the mix uncapped. Completions are
+lessons per session. Lessons and readers come back on the **"revisit later" schedule**, NOT
+FSRS (`shared/study/revisit.ts`, Lab `core/…/Revisit.kt` parity-tested; docs/STUDY_SESSION.md
+"Lessons and readers"): the lesson ends with Again/Hard/Good/Easy (+ **✓ Done for good**), each
+completion event carries the rating, and the next gap is Again 1 day · Hard 2 · Good 14 · Easy 42,
+growing ×2 (Hard ×1.2) each later visit, capped at 180 (rating NULL on legacy events = Good). Done for
+good / Bring back are `revisit_events` (migration 0110, `POST /api/me/revisit-events`, `revisit_events`
+on `/api/sync/changes`); the gaps are per account (`users.revisit_settings`, Settings → "Lessons &
+readers", `PUT /api/profile/revisit-settings`, `revisit_settings` on `/api/auth/me` + sync). Due
+revisits re-enter the mix at most `MAX_LESSON_REVISITS_PER_DAY` (2) a day, most overdue first. Completions are
 offline events (idempotent by id) uploaded in sync; other devices' completions come down
 inside `GET /api/custom-lessons`. Authoring paths: the MCP `create_custom_lesson` tool, the in-app
 Ask Claude chat's `create_custom_lesson` tool, or the REST endpoint. The shared exercise
@@ -1178,7 +1184,7 @@ errors, a preview built from the real `lesson-exercises.tsx` components, auto-pi
 it, and a tutor **lesson library**. Library model = *copy with link back*: the library item is
 the master; assigning creates a real `custom_lessons` row for the student (works offline, the
 student may edit it) that remembers `library_item_id` / `assigned_by` / `assigned_relationship_id`.
-"Push update" overwrites the copies' specs in place (same ids → completion history and FSRS
+"Push update" overwrites the copies' specs in place (same ids → completion history and revisit
 schedule survive) and re-queues describe_image illustrations whose prompt changed
 (`mergeKeptImages` in services/custom-lesson.ts). The editor is for both roles: students on their
 own lessons (`/lessons/:id/edit`), tutors on library items (`/library/:id/edit`) and on lessons
@@ -1833,7 +1839,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `create_custom_lesson` | Author a custom mini lesson (sections of exercises) for the user's next study session |
 | `list_custom_lessons` | List custom mini lessons (pending and completed) |
 | `get_custom_lesson` | Get one lesson with its full spec (fetch before editing) |
-| `update_custom_lesson` | Replace a lesson's content in place (same id — completion history + FSRS schedule kept) |
+| `update_custom_lesson` | Replace a lesson's content in place (same id — completion history + revisit schedule kept) |
 | `delete_custom_lesson` | Delete a custom mini lesson |
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
@@ -1930,7 +1936,7 @@ pasted into the descriptions plus the pure helpers (trimming, note normalisation
 | `duplicate_library_lesson` / `archive_library_lesson` | Copy as "Copy of …" / archive |
 | `assign_lesson_to_students` | **Send tool** (`confirm: true`). A library lesson as homework per relationship (`POST …/homework`, `mode` default `both`, `due_date` default each student's next logged lesson else +2 days); `assigned` / `already_had` (left as is) / `errors` |
 | `get_lesson_assignments` | Per student: completions, last rating/score, `up_to_date` |
-| `push_lesson_update` | **Send tool** (`confirm: true`, `relationship_ids` required). Overwrite those students' copies in place (history + FSRS kept) |
+| `push_lesson_update` | **Send tool** (`confirm: true`, `relationship_ids` required). Overwrite those students' copies in place (history + revisit schedule kept) |
 | `export_library_lesson` | Markdown with answer key / JSON / CSV |
 | `list_student_lessons` | Tutor's view of a student's lessons (`GET /api/relationships/:relId/student-lessons`) |
 | `create_homework_deck` | Create deck + notes in the TUTOR's account via the API (one batch); nothing is sent (`for_relationship_id` only labels who it is for). Only `send_now: true` + `relationship_id` + `confirm: true` sends it at once as homework (`POST …/homework`: `mode` default `both`, `due_date` default next logged lesson else +2 days, `priority`, `skip_known`); a failed send keeps the deck. Never waits for TTS: the worker copies each clip onto the student's copy when it is generated (`propagateNoteAudioToSharedCopies`); per-note failures are reported, not fatal |
