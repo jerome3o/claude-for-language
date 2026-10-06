@@ -6137,7 +6137,6 @@ app.post('/api/practice/tts', async (c) => {
     regenerate?: boolean;
   }>();
   if (!text) return c.json({ error: 'text required' }, 400);
-  if (typeof text !== 'string' || text.length > 2000) return c.json({ error: 'text too long' }, 400);
   // MiniMax accepts speeds in [0.5, 2.0]
   const clampedSpeed = typeof speed === 'number' ? Math.min(2, Math.max(0.5, speed)) : undefined;
   const conversation = kind === 'conversation';
