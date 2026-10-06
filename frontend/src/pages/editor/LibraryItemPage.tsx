@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { nextRevisitLabel } from '../../utils/revisitLabel';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getLibraryItem, getLibraryAssignments, pushLibraryUpdate } from '../../api/lessonEditor';
@@ -111,6 +112,7 @@ export function LibraryItemPage() {
                         <>
                           <div>{r.last_rating !== null ? RATING_LABELS[r.last_rating] ?? '' : ''}{r.last_score ? ` ${r.last_score.correct}/${r.last_score.total}` : ''}</div>
                           <div className="lib-cell-sub">{when(r.last_completed_at)}</div>
+                          {nextRevisitLabel(r) && <div className="lib-cell-sub">{nextRevisitLabel(r)}</div>}
                         </>
                       ) : <span className="text-light">not yet</span>}
                     </td>

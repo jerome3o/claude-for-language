@@ -2,11 +2,11 @@ package dev.jeromeswannack.chineselearning.lab.data.lessons
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import dev.jeromeswannack.chineselearning.lab.core.CardQueue
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAttempt
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
 import dev.jeromeswannack.chineselearning.lab.core.Rating
+import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.core.AttemptRecording
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.Api
@@ -56,6 +56,9 @@ class LessonStoreTest {
 
     /** Completions the fake server knows; the media endpoint 404s until the attempt is there. */
     private val serverCompletions = CopyOnWriteArrayList<String>()
+    /** Done-for-good / Bring-back events the fake server holds (as JSON) and its gaps. */
+    private val serverRevisit = CopyOnWriteArrayList<String>()
+    private var settingsJson = """{"hard_days":2,"good_days":14,"easy_days":42,"growth":2,"cap_days":180,"is_default":true}"""
 
     private fun lessonsJson(): String {
         val completions = serverCompletions.joinToString(",") { """{"id":"$it","lesson_id":"L1","correct":3,"total":4,"completed_at":"2026-09-27T10:00:00.000Z","rating":2}""" }
@@ -84,6 +87,11 @@ class LessonStoreTest {
                         if (id in serverCompletions) MockResponse().setBody("{}") else MockResponse().setResponseCode(404).setBody("""{"error":"Attempt not found"}""")
                     }
                     request.path == "/api/me/homework/events" -> MockResponse().setBody("""{"accepted":1}""")
+                    request.path == "/api/me/revisit-events" -> {
+                        Json.parseToJsonElement(body).jsonObject["events"]!!.jsonArray.forEach { serverRevisit += it.toString() }
+                        MockResponse().setBody("""{"accepted":[],"orphans":[],"invalid":[]}""")
+                    }
+                    request.path == "/api/me/revisit" -> MockResponse().setBody("""{"settings":$settingsJson,"events":[${serverRevisit.joinToString(",")}]}""")
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -117,8 +125,10 @@ class LessonStoreTest {
         )
         val state = store.complete("L1", 1, 1, Rating.AGAIN, attempt, listOf(LessonRecording("s0e0", rec, "audio/mp4")))
 
-        // Offline right now: the new state is local and the lesson stays in learning.
-        assertTrue(CardQueue.isLearning(state.queue))
+        // Offline right now: the new state is local — Again = back tomorrow ("revisit later").
+        assertEquals(RevisitState.SCHEDULED, state.status)
+        assertEquals(1.0, state.gapDays, 0.0)
+        assertTrue(store.dueLessons(cutoff).none { it.id == "L1" })
         assertEquals(1, store.entry("L1")!!.events.size)
         assertEquals(1, outbox.pendingCount())
         assertEquals(1, store.pendingMediaCount())
@@ -138,7 +148,42 @@ class LessonStoreTest {
         // The server now lists the completion; the local copy is dropped without double counting.
         val entry = store.entry("L1")!!
         assertEquals(1, entry.events.size)
-        assertEquals(state.queue, entry.state.queue)
+        assertEquals(state.status, entry.state.status)
+    }
+
+    @Test fun doneForGoodRetiresUploadsAndBringBackRestores() = runBlocking {
+        store.sync(prefetch = false)
+        val state = store.complete("L1", 1, 1, Rating.GOOD, null, emptyList(), retire = true)
+        assertEquals(RevisitState.RETIRED, state.status)
+        assertTrue(store.entry("L1")!!.retired)
+        assertEquals(listOf("L2"), store.dueLessons(cutoff).map { it.id })
+        // The completion and the retire event both wait in the outbox, in that order.
+        assertEquals(listOf("lessons", "revisit"), outbox.all().map { it.kind })
+
+        // A sync before the upload keeps the pending retire on top of the server's (empty) list.
+        store.revisit.sync()
+        assertTrue(store.entry("L1")!!.retired)
+
+        outbox.drain()
+        val up = requests.first { it.first == "POST /api/me/revisit-events" }.second
+        assertTrue(up.contains("\"item_kind\":\"lesson\"") && up.contains("\"item_id\":\"L1\"") && up.contains("\"action\":\"retire\""))
+        // Now the server lists it; Bring back puts it in rotation, due at once.
+        store.revisit.sync()
+        assertTrue(store.entry("L1")!!.retired)
+        store.markRevisit("L1", "restore")
+        val back = store.entry("L1")!!.state
+        assertEquals(RevisitState.SCHEDULED, back.status)
+        assertTrue(store.dueLessons(cutoff).any { it.id == "L1" })
+    }
+
+    @Test fun theAccountsGapsComeWithTheSync() = runBlocking {
+        settingsJson = """{"hard_days":1,"good_days":7,"easy_days":21,"growth":1.5,"cap_days":90,"is_default":false}"""
+        store.sync(prefetch = false)
+        store.revisit.sync()
+        store.complete("L1", 1, 1, Rating.GOOD, null, emptyList())
+        val e = store.entry("L1")!!
+        assertEquals(7.0, e.state.gapDays, 0.0)
+        assertEquals(listOf("1 day", "8 days", "11 days", "3 wk"), dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(e.state, e.settings).map { it.intervalText })
     }
 
     @Test fun oneOffHomeworkLessonsStayOutAndGetTheirDoneEvent() = runBlocking {

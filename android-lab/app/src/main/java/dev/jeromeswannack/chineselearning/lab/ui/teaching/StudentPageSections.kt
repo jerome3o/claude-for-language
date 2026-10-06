@@ -588,7 +588,8 @@ fun StudentLessonsCard(
                             MutedLine(
                                 (if (l.assigned_by_me) "Assigned by you" else if (l.assigned_by != null) "Assigned by another tutor" else "From ${l.source}") +
                                     " • ${l.exercise_count} exercises • " +
-                                    if (l.completions == 0) "not studied yet" else "studied ${l.completions}× · last ${l.last_rating?.let { RATING_LABELS[it] }.orEmpty()} ${TeachingFormat.shortDate(l.last_completed_at, now)}",
+                                    (if (l.completions == 0) "not studied yet" else "studied ${l.completions}× · last ${l.last_rating?.let { RATING_LABELS[it] }.orEmpty()} ${TeachingFormat.shortDate(l.last_completed_at, now)}") +
+                                    (dev.jeromeswannack.chineselearning.lab.core.Revisit.tutorLabel(l.next_revisit_at, l.retired, now.toEpochMilli())?.let { " • $it" } ?: ""),
                             )
                         }
                         if (l.last_attempt_id != null) InlineButton("📝 Answers") { open(Routes.studentLessonAttempts(relId, l.last_attempt_id)) }
@@ -621,7 +622,8 @@ fun SharedReadersCard(readers: List<SharedReaderDto>?, removeLabel: String, onRe
                         MutedLine(
                             "sent ${TeachingFormat.shortDate(r.shared_at, now)} · " +
                                 if (r.target_deleted) "they deleted their copy"
-                                else "${TeachingFormat.plural(r.page_count, "page")} · ${if (r.read_count == 0) "not read yet" else "read ${r.read_count}×"}",
+                                else "${TeachingFormat.plural(r.page_count, "page")} · ${if (r.read_count == 0) "not read yet" else "read ${r.read_count}×"}" +
+                                    (dev.jeromeswannack.chineselearning.lab.core.Revisit.tutorLabel(r.next_revisit_at, r.retired, now.toEpochMilli())?.let { " · $it" } ?: ""),
                         )
                     }
                     OverflowButton("More for ${r.title}") { menuFor = r }

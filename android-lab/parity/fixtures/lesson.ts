@@ -1,7 +1,7 @@
 /**
  * Golden vectors for package B (mini lessons + graded readers): the web's own
  * shared/lesson answer checking, voices, sample specs and attempt helpers, the
- * exercise helpers in lesson-exercises.tsx, and pickTodaysReader. The Kotlin port
+ * exercise helpers in lesson-exercises.tsx, and pickTodaysReader ("revisit later" rows). The Kotlin port
  * (core/…/Lesson*.kt) must reproduce them exactly — LessonParityTest.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -211,6 +211,8 @@ for (let i = 0; i < 300; i++) {
       next_review_at: due === null ? (queue === 2 && rand() < 0.5 ? null : null) : new Date(due).toISOString(),
       due_timestamp: due,
       last_reviewed_at: null,
+      // "Done for good" (shared/study/revisit.ts): never offered.
+      retired: queue !== 0 && rand() < 0.12,
       _synced_at: 0,
     };
   });
@@ -219,7 +221,7 @@ for (let i = 0; i < 300; i++) {
   const cutoff = { ts: cutoffTs, iso: new Date(cutoffTs).toISOString() };
   const picked = pickTodaysReader(readers as never, readToday, cutoff);
   readerCases.push({
-    readers: readers.map(r => ({ id: r.id, status: r.status, pages: r.pages.length, created_at: r.created_at, queue: r.queue, due_timestamp: r.due_timestamp, next_review_at: r.next_review_at })),
+    readers: readers.map(r => ({ id: r.id, status: r.status, pages: r.pages.length, created_at: r.created_at, queue: r.queue, due_timestamp: r.due_timestamp, next_review_at: r.next_review_at, retired: r.retired })),
     read_today: [...readToday],
     cutoff: cutoffTs,
     picked: picked?.id ?? null,

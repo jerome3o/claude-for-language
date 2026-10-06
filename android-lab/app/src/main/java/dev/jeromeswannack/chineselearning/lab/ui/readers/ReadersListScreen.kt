@@ -95,6 +95,10 @@ data class ReadersUi(
     val deletingAll: Boolean = false,
     /** A line from the ⋯ menu's Import JSON (invalid file, the server's problems). */
     val message: String? = null,
+    /** Each reader's "revisit later" state (web: ReaderRevisitLine), by id. */
+    val revisit: Map<String, dev.jeromeswannack.chineselearning.lab.core.RevisitState> = emptyMap(),
+    /** The end of today's study day, for "Due today". */
+    val cutoff: dev.jeromeswannack.chineselearning.lab.core.StudyCutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault()),
 )
 
 class ReadersActions(
@@ -116,6 +120,10 @@ class ReadersActions(
     val onMoveToFolder: (String) -> Unit = {},
     val onLift: () -> Unit = {},
     val onSlot: () -> Unit = {},
+    /** "✓ Done for good" on a read story (never offered again). */
+    val onDoneForGood: (String) -> Unit = {},
+    /** "↩ Bring back" on a story done for good (due again at once). */
+    val onBringBack: (String) -> Unit = {},
 )
 
 /** `formatDate` of the list: "Sep 27", with the year when it isn't this year. */
@@ -195,6 +203,7 @@ fun ReadersListScreen(
                             is FolderRow.Item -> ReaderCard(
                                 row.item,
                                 actions,
+                                revisit = ui.revisit[row.item.id]?.let { it to ui.cutoff },
                                 modifier = mod.padding(start = (row.depth * 16).dp),
                                 selection = if (folders?.selecting == true) row.item.id in folders.selected else null,
                                 onSelect = { folderActions.onToggleSelected(row.item.id) },
@@ -233,6 +242,8 @@ internal fun readerRows(readers: List<GradedReaderDto>, folders: List<Folder>, c
 private fun ReaderCard(
     r: GradedReaderDto,
     actions: ReadersActions,
+    /** When it comes back ("revisit later") and the study day's end; null = not known here. */
+    revisit: Pair<dev.jeromeswannack.chineselearning.lab.core.RevisitState, dev.jeromeswannack.chineselearning.lab.core.StudyCutoff>? = null,
     modifier: Modifier = Modifier,
     /** Select mode: null = off, else whether it is ticked (a tap toggles). */
     selection: Boolean? = null,
@@ -256,6 +267,7 @@ private fun ReaderCard(
             r.topic?.takeIf { it.isNotBlank() }?.let { Text("Topic: $it", fontSize = 12.sp, color = Lab.colors.muted) }
             if (generating) Text("Generating story and illustrations...", fontSize = 12.sp, fontStyle = FontStyle.Italic, color = Palette.Easy)
             else Text("${r.vocabularyUsed.size} vocabulary items · ${readerDate(r.createdAt)}", fontSize = 12.sp, color = Lab.colors.muted)
+            if (!generating && r.status == "ready" && revisit != null && !revisit.first.isNew) ReaderRevisitLine(r.id, revisit.first, revisit.second, actions)
         }
         HorizontalDivider(color = Lab.colors.cardBorder)
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -279,6 +291,18 @@ private fun ReaderCard(
             }
             SecondaryPill(if (generating) "Cancel" else "Delete", Modifier.heightIn(min = 44.dp), danger = true, onClick = onDelete)
         }
+    }
+}
+
+/** "Next revisit 20 Oct" / "Due today" / "Done for good" with ✓ Done for good or ↩ Bring back (web: ReaderRevisitLine). */
+@Composable
+private fun ReaderRevisitLine(id: String, state: dev.jeromeswannack.chineselearning.lab.core.RevisitState, cutoff: dev.jeromeswannack.chineselearning.lab.core.StudyCutoff, actions: ReadersActions) {
+    val (label, color) = dev.jeromeswannack.chineselearning.lab.ui.lessons.revisitChip(state, cutoff)
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        dev.jeromeswannack.chineselearning.lab.ui.kit.StatusPill(label, color)
+        Spacer(Modifier.weight(1f))
+        if (state.isRetired) SecondaryPill("↩ Bring back", Modifier.heightIn(min = 44.dp)) { actions.onBringBack(id) }
+        else SecondaryPill("✓ Done for good", Modifier.heightIn(min = 44.dp)) { actions.onDoneForGood(id) }
     }
 }
 

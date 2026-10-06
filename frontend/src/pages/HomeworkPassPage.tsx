@@ -375,9 +375,9 @@ function LessonPass({ assignmentTitle, targetId, complete, onExit }: { assignmen
     <StudyCustomLesson
       lesson={lesson}
       intervalPreviews={previews}
-      onComplete={(correct, total, rating, attempt, recordings) => {
+      onComplete={(correct, total, rating, attempt, recordings, retire) => {
         // The per-exercise attempt (and any recordings) travels with the completion, as in a study session.
-        void completeCustomLesson(lesson.id, correct, total, rating, attempt, recordings)
+        void completeCustomLesson(lesson.id, correct, total, rating, attempt, recordings, { retire, source: 'homework' })
           .then(() => {
             setFinished(true);
             if (navigator.onLine) void syncCustomLessons().catch(() => {});
@@ -409,9 +409,9 @@ function ReaderPass({ targetId, complete, onExit }: { targetId: string; complete
       reader={reader}
       intervalPreviews={previews}
       isRating={rating}
-      onRate={(r: Rating, ms: number) => {
+      onRate={(r: Rating, ms: number, retire?: boolean) => {
         setRating(true);
-        void recordReaderReview(reader.id, r, ms).then(() => setFinished(true));
+        void recordReaderReview(reader.id, r, ms, { retire, source: 'homework' }).then(() => setFinished(true));
       }}
       onEnd={onExit}
     />

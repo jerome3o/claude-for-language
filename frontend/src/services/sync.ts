@@ -1,6 +1,8 @@
 import type { Folder } from '@shared/folders';
 import { replaceLocalFolders, syncFolders } from './folders';
 import { replaceLocalBumps, syncBumps, uploadPendingBumps } from './studyBumps';
+import { replaceLocalRevisitEvents, syncRevisit, uploadRevisitEvents, writeRevisitSettings } from './revisit';
+import type { RevisitSettingsInfo } from '@shared/study/revisit';
 import type { ApiStudyBump } from '../api/bumps';
 import type { StudyBudgetInfo } from '@shared/decks';
 import { writeStudyBudget } from './studyBudget';
@@ -98,6 +100,9 @@ interface SyncChangesResponse {
   folders?: Folder[] | null;
   /** "⚡ Study it today": every active bump, sent whole (shared/decks/bumps.ts). */
   bumps?: ApiStudyBump[] | null;
+  /** "Revisit later" for lessons / readers: the gaps and every Done-for-good / Bring-back event. */
+  revisit_settings?: RevisitSettingsInfo | null;
+  revisit_events?: Array<{ id: string; item_kind: 'lesson' | 'reader'; item_id: string; action: 'retire' | 'restore'; created_at: string }> | null;
 }
 
 // Deletion tombstones (migration 0068) exist from 23 Sep 2026. A deck deleted
@@ -480,6 +485,9 @@ class SyncService {
    * sync — this content is additive to the core deck/note/card data.
    */
   private async syncReaders(): Promise<void> {
+    // "Revisit later": Done-for-good / Bring-back up, the gaps + events down (never throws);
+    // the reader and lesson syncs below recompute every schedule from the merged history.
+    await syncRevisit();
     try {
       await syncReadersFromServer();
       prefetchReaderMedia().catch(err =>
@@ -660,6 +668,9 @@ class SyncService {
     if (changes.folders) await replaceLocalFolders(changes.folders).catch(err => console.error('[Sync] Folders failed:', err));
     // "⚡ Study it today": the server's pocket, this device's pending changes on top.
     if (Array.isArray(changes.bumps)) await replaceLocalBumps(changes.bumps).catch(err => console.error('[Sync] Bumps failed:', err));
+    // "Revisit later": the gaps (recomputes the schedules when changed) and the Done-for-good events.
+    if (changes.revisit_settings) writeRevisitSettings(changes.revisit_settings);
+    if (Array.isArray(changes.revisit_events)) await replaceLocalRevisitEvents(changes.revisit_events).catch(err => console.error('[Sync] Revisit events failed:', err));
     const insertedCardIds: string[] = [];
     this.lastSyncDetails.decks_synced = changes.decks.length;
     this.lastSyncDetails.notes_synced = changes.notes.length;
@@ -863,6 +874,9 @@ class SyncService {
     } catch (err) {
       console.error('[Sync] Grammar completion upload failed:', err);
     }
+
+    // "Done for good" / "Bring back" on lessons and readers (idempotent by id)
+    await uploadRevisitEvents().catch(err => console.error('[Sync] Revisit event upload failed:', err));
 
     // Custom lesson completion events (same idempotent pattern)
     try {

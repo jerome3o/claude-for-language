@@ -10,7 +10,33 @@ import { Toast, useToast } from '../components/Toast';
 import { FolderGroups, FolderToolbar, SelectionBar, useFolderUi } from '../components/folders/FolderGroups';
 import { GradedReader, DifficultyLevel } from '../types';
 import { partitionReaders, friendlyReaderError, failedReadersLabel } from '../services/readerFailures';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, getStudyCutoff } from '../db/database';
+import { markRevisit, revisitChip, rowRevisitState } from '../services/revisit';
 import './ReadersListPage.css';
+
+/** When the story comes back ("revisit later"), and Bring back for one done for good. */
+function ReaderRevisitLine({ readerId }: { readerId: string }) {
+  const local = useLiveQuery(() => db.readers.get(readerId), [readerId]);
+  if (!local || local.status !== 'ready') return null;
+  const state = rowRevisitState(local);
+  if (state.status === 'new') return null;
+  const chip = revisitChip(state, getStudyCutoff().ts);
+  return (
+    <div className="reader-revisit-line" data-testid="reader-revisit" onClick={e => e.stopPropagation()}>
+      <span className={`reader-revisit-chip reader-revisit-chip--${chip.cls}`}>{chip.label}</span>
+      {state.status === 'retired' ? (
+        <button className="btn btn-secondary btn-sm" onClick={() => void markRevisit('reader', readerId, 'restore')} data-testid="reader-bring-back">
+          ↩ Bring back
+        </button>
+      ) : (
+        <button className="btn btn-secondary btn-sm" onClick={() => void markRevisit('reader', readerId, 'retire', 'list')}>
+          ✓ Done for good
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** Page-level ⋯ menu: Import JSON (a reader exported from the editor). */
 function ReadersOverflowMenu({ onImport }: { onImport: (file: File) => void }) {
@@ -146,6 +172,7 @@ function ReaderCard({ reader, onDelete, onMoveToFolder, selecting = false, selec
             {reader.vocabulary_used.length} vocabulary items &middot; {formatDate(reader.created_at)}
           </p>
         )}
+        {!isGenerating && <ReaderRevisitLine readerId={reader.id} />}
       </div>
       <div style={{
         display: 'flex',
