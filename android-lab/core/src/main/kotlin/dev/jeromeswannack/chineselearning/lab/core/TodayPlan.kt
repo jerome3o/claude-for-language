@@ -56,8 +56,9 @@ object TodayPlan {
     private fun localDate(iso: String, zone: ZoneId): LocalDate = Instant.ofEpochMilli(Js.parseDate(iso)).atZone(zone).toLocalDate()
 
     /**
-     * Today's lessons: [LessonSchedule.dueLessons] (unchanged — learning-due first, then new
-     * oldest first; one-off homework out), with the new ones limited to the day's slots
+     * Today's lessons: [LessonSchedule.dueLessons] (unchanged — due revisits most overdue first,
+     * at most two a day, then new oldest first; one-off homework and Done-for-good out), with the
+     * new ones limited to the day's slots
      * ([LessonSchedule.MAX_NEW_PER_SESSION] minus the lessons first completed today).
      */
     fun lessons(all: List<ScheduledItem>, events: List<ItemEvent>, oneOffOnly: Set<String>, cutoff: StudyCutoff, nowMs: Long, zone: ZoneId): Lessons {
@@ -68,7 +69,9 @@ object TodayPlan {
         val startedToday = byLesson.filterValues { ev -> localDate(ev.minBy { Js.parseDate(it.at) }.at, zone) == today }.size
         val slots = max(0, LessonSchedule.MAX_NEW_PER_SESSION - startedToday)
         var taken = 0
-        val toDo = LessonSchedule.dueLessons(all, oneOffOnly, cutoff).filter { it.queue != CardQueue.NEW || taken++ < slots }
+        // Revisits are capped per day (`lessonRevisitsToday`, every lesson's completions).
+        val revisited = LessonSchedule.revisitsToday(events, nowMs, zone)
+        val toDo = LessonSchedule.dueLessons(all, oneOffOnly, cutoff, revisited).filter { it.queue != CardQueue.NEW || taken++ < slots }
         val toDoIds = toDo.mapTo(HashSet()) { it.id }
         val done = all.filter { it.id in completedToday && it.id !in toDoIds }.map { it.id }
         return Lessons(toDo, done)

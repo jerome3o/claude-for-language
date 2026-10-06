@@ -188,3 +188,50 @@
   font-size: 0.8125rem;
   font-weight: 600;
 }
+
+/* Settings → "Lessons & readers" (components/settings/RevisitSettingsSection.tsx) */
+.revisit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 0.5rem;
+}
+.revisit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.revisit-field-label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.revisit-field-input {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.revisit-field-input input {
+  width: 5.5rem;
+  min-height: 44px;
+  font-size: 1rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface, #fff);
+  color: inherit;
+}
+.revisit-field-unit,
+.revisit-field-hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+.revisit-chain {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  margin: 0.25rem 0 0.75rem;
+}
+@media (min-width: 640px) {
+  .revisit-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

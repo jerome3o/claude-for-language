@@ -22,6 +22,7 @@ touching, and add a line to the table below.
 | `CountBadge(text)` / `StatusPill(text, color)` | `Rows.kt`, `States.kt` | Unread counts; "due today" / "overdue" labels. |
 | `PrimaryPill(label, modifier, enabled?, color?) { }` | `Buttons.kt` | The one main action on a screen (accent, springy). Give it `.height(56.dp)`. |
 | `SecondaryPill(label, danger?) { }` | `Buttons.kt` | Quieter action next to a PrimaryPill. |
+| `DoneForGoodButton(enabled) { }` | `DoneForGoodButton.kt` | "✓ Done for good · don't bring it back" under the rating bar of a finished mini lesson / graded reader ("revisit later": retire it). Quiet full-width outline, 48dp. |
 | `Modifier.bouncyClickable { }` | `Buttons.kt` | Any big tappable surface (cards, hero tiles): sinks and springs back, no ripple. |
 | `LabChip(label, selected?) { }` / `ChipRow { }` | `Chips.kt` | Filters, quick actions (coach chips), choices. |
 | `InlineNotice(text, kind, actionLabel?, onAction?)` | `States.kt` | Every error / info / offline message in the flow — never a Toast or `AlertDialog` for a failure. Kinds: Info, Success, Warning, Error, Offline. |

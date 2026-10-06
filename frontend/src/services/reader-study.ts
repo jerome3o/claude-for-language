@@ -1,10 +1,12 @@
 /**
  * Reader Study Service
  *
- * Graded readers join the study rotation with the same event-sourced FSRS
- * model as cards:
- * - Reader review events are the source of truth (append-only, deduped by id)
- * - Reader scheduling state is computed from events with the shared scheduler
+ * Graded readers join the study rotation on the "revisit later" schedule
+ * (shared/study/revisit.ts, same as mini lessons): a story is a big chunk,
+ * not a flashcard, so Good means "in two weeks".
+ * - Reader review events are the source of truth (append-only, deduped by id);
+ *   "Done for good" / "Bring back" are revisit events (services/revisit.ts)
+ * - Reader scheduling state is computed from those events
  * - Events sync to /api/reader-reviews (upload + cursor-paged download)
  *
  * Readers aren't deck-scoped, so they only appear in "All Decks" sessions.
@@ -19,17 +21,18 @@ import {
   updateEventSyncMeta,
   READER_EVENT_SYNC_ID,
 } from '../db/database';
-import {
-  computeCardState,
-  initialCardState,
-  applyReview,
-  getIntervalPreviews,
-  DEFAULT_DECK_SETTINGS,
-  ComputedCardState,
-} from '@shared/scheduler';
+import type { RevisitState } from '@shared/study/revisit';
 import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE } from '../api/client';
 import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
+import {
+  computeItemRevisitState,
+  markRevisit,
+  refreshRevisitRow,
+  revisitButtonPreviews,
+  revisitRowFields,
+  rowDueMs,
+} from './revisit';
 
 /**
  * ONE graded reader a day (Jerome's rule). The day's reader is whichever
@@ -46,53 +49,17 @@ export function isStudyableReader(reader: LocalReader): boolean {
   return reader.status === 'ready' && reader.pages.length > 0;
 }
 
-function toSchedulerEvents(events: LocalReaderReviewEvent[]) {
-  // The shared scheduler is card-shaped; a reader is "the card" here.
-  return events.map(e => ({
-    id: e.id,
-    card_id: e.reader_id,
-    rating: e.rating,
-    reviewed_at: e.reviewed_at,
-  }));
-}
+/** Scheduling fields of LocalReader derived from a revisit state. */
+export const readerSchedulingFields = revisitRowFields;
 
-async function getReaderEvents(readerId: string): Promise<LocalReaderReviewEvent[]> {
-  return db.readerReviewEvents.where('reader_id').equals(readerId).sortBy('reviewed_at');
-}
-
-/** Scheduling fields of LocalReader derived from a computed state. */
-export function readerSchedulingFields(state: ComputedCardState): Pick<
-  LocalReader,
-  'queue' | 'stability' | 'difficulty' | 'lapses' | 'interval' | 'repetitions' |
-  'next_review_at' | 'due_timestamp' | 'last_reviewed_at'
-> {
-  return {
-    queue: state.queue,
-    stability: state.stability,
-    difficulty: state.difficulty,
-    lapses: state.lapses,
-    interval: state.interval,
-    repetitions: state.repetitions,
-    next_review_at: state.next_review_at,
-    due_timestamp: state.due_timestamp,
-    last_reviewed_at: state.last_reviewed_at,
-  };
-}
-
-/** Recompute a reader's scheduling state from its full event history. */
-export async function computeReaderState(readerId: string): Promise<ComputedCardState> {
-  const events = await getReaderEvents(readerId);
-  if (events.length === 0) {
-    return initialCardState(DEFAULT_DECK_SETTINGS);
-  }
-  return computeCardState(toSchedulerEvents(events), DEFAULT_DECK_SETTINGS);
+/** A reader's schedule from its full history (reviews + Done for good / Bring back). */
+export function computeReaderState(readerId: string): Promise<RevisitState> {
+  return computeItemRevisitState('reader', readerId);
 }
 
 /** Recompute from events and persist onto the reader row (state repair). */
-export async function fixReaderState(readerId: string): Promise<ComputedCardState> {
-  const computed = await computeReaderState(readerId);
-  await db.readers.update(readerId, readerSchedulingFields(computed));
-  return computed;
+export function fixReaderState(readerId: string): Promise<RevisitState> {
+  return refreshRevisitRow('reader', readerId);
 }
 
 /**
@@ -102,15 +69,11 @@ export async function fixReaderState(readerId: string): Promise<ComputedCardStat
 export async function recordReaderReview(
   readerId: string,
   rating: Rating,
-  timeSpentMs: number
-): Promise<{ event: LocalReaderReviewEvent; newState: ComputedCardState }> {
+  timeSpentMs: number,
+  /** "Done for good": read, and never scheduled again. */
+  opts: { retire?: boolean; source?: string } = {},
+): Promise<{ event: LocalReaderReviewEvent; newState: RevisitState }> {
   const now = new Date().toISOString();
-
-  const events = await getReaderEvents(readerId);
-  const currentState = events.length > 0
-    ? computeCardState(toSchedulerEvents(events), DEFAULT_DECK_SETTINGS)
-    : initialCardState(DEFAULT_DECK_SETTINGS);
-  const newState = applyReview(currentState, rating, DEFAULT_DECK_SETTINGS, now);
 
   const event: LocalReaderReviewEvent = {
     id: crypto.randomUUID(),
@@ -123,39 +86,17 @@ export async function recordReaderReview(
   };
 
   await db.readerReviewEvents.put(event);
-  await db.readers.update(readerId, readerSchedulingFields(newState));
+  if (opts.retire) await markRevisit('reader', readerId, 'retire', opts.source);
+  const newState = await refreshRevisitRow('reader', readerId);
   // Reading it anywhere completes its homework (docs/HOMEWORK.md).
   await recordTargetDone('reader', readerId);
 
   return { event, newState };
 }
 
-/** FSRS interval previews for the reader rating buttons. */
+/** "2 wk"-style labels for the reader rating buttons (shared/study/revisit.ts). */
 export function getReaderIntervalPreviews(reader: LocalReader): Record<Rating, IntervalPreview> {
-  const state: ComputedCardState = {
-    queue: reader.queue,
-    stability: reader.stability || reader.interval || 1,
-    difficulty: reader.difficulty || 5,
-    scheduled_days: reader.interval,
-    reps: reader.repetitions,
-    lapses: reader.lapses,
-    next_review_at: reader.next_review_at,
-    due_timestamp: reader.due_timestamp,
-    last_reviewed_at: reader.last_reviewed_at,
-    ease_factor: 2.5,
-    interval: reader.interval,
-    repetitions: reader.repetitions,
-    learning_step: 0,
-  };
-  const previews = getIntervalPreviews(state, DEFAULT_DECK_SETTINGS, new Date());
-  const result = {} as Record<Rating, IntervalPreview>;
-  for (const rating of [0, 1, 2, 3] as Rating[]) {
-    const p = previews.find(pr => pr.rating === rating);
-    result[rating] = p
-      ? { intervalText: p.intervalText, queue: p.nextState }
-      : { intervalText: '?', queue: reader.queue };
-  }
-  return result;
+  return revisitButtonPreviews(reader);
 }
 
 /** Whether a stored UTC ISO timestamp falls on today's LOCAL date. A string
@@ -182,23 +123,14 @@ export async function readersReadToday(): Promise<Set<string>> {
   return ids;
 }
 
-function isLearning(reader: LocalReader): boolean {
-  return reader.queue === CardQueue.LEARNING || reader.queue === CardQueue.RELEARNING;
-}
-
-function learningDueBy(reader: LocalReader, cutoffTs: number): boolean {
-  return isLearning(reader) && (!reader.due_timestamp || reader.due_timestamp <= cutoffTs);
-}
-
 /**
  * Pure: the ONE reader for today, or null.
  *
- * - A reader already read today owns the day. It is returned only while it is
- *   still in learning and due again by the cutoff (an Again repeat inside the
- *   same session); otherwise today's slot is spent and nothing is offered.
- * - Otherwise the first of: a learning repeat due by the cutoff (earliest
- *   first), a review due by the cutoff (most overdue first), an unread NEW
- *   story (newest first — today's generated story before older leftovers).
+ * - A reader already read today owns the day: nothing more is offered (Again
+ *   brings it back tomorrow, never later the same day).
+ * - Otherwise the first of: a revisit due by the cutoff (most overdue first),
+ *   an unread NEW story (newest first — today's generated story before older
+ *   leftovers). Done-for-good readers are never offered.
  *
  * Exported for tests.
  */
@@ -207,24 +139,13 @@ export function pickTodaysReader(
   readToday: Set<string>,
   cutoff: { iso: string; ts: number },
 ): LocalReader | null {
-  const studyable = readers.filter(isStudyableReader);
+  if (readToday.size > 0) return null;
+  const studyable = readers.filter(r => isStudyableReader(r) && !r.retired);
 
-  if (readToday.size > 0) {
-    const repeat = studyable
-      .filter(r => readToday.has(r.id) && learningDueBy(r, cutoff.ts))
-      .sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-    return repeat[0] ?? null;
-  }
-
-  const learning = studyable
-    .filter(r => learningDueBy(r, cutoff.ts))
-    .sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-  if (learning[0]) return learning[0];
-
-  const review = studyable
-    .filter(r => r.queue === CardQueue.REVIEW && (!r.next_review_at || r.next_review_at <= cutoff.iso))
-    .sort((a, b) => (a.next_review_at || '').localeCompare(b.next_review_at || ''));
-  if (review[0]) return review[0];
+  const revisit = studyable
+    .filter(r => r.queue !== CardQueue.NEW && rowDueMs(r) <= cutoff.ts)
+    .sort((a, b) => rowDueMs(a) - rowDueMs(b));
+  if (revisit[0]) return revisit[0];
 
   const fresh = studyable
     .filter(r => r.queue === CardQueue.NEW)

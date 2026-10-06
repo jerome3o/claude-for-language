@@ -30,7 +30,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.core.CardQueue
+import dev.jeromeswannack.chineselearning.lab.core.Revisit
+import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseTypes
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.LessonSchedule
@@ -70,6 +71,10 @@ class MiniLessonsActions(
     val onAnswers: (id: String) -> Unit = {},
     val onDelete: (id: String) -> Unit = {},
     val onRetry: () -> Unit = {},
+    /** "✓ Done for good" on a finished lesson (never offered again). */
+    val onDoneForGood: (id: String) -> Unit = {},
+    /** "↩ Bring back" on a lesson done for good (due again at once). */
+    val onBringBack: (id: String) -> Unit = {},
 )
 
 private val DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
@@ -77,32 +82,40 @@ private val DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
 private fun shortDate(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String =
     iso?.let { runCatching { DAY.format(Instant.ofEpochMilli(Js.parseDate(it)).atZone(zone)) }.getOrNull() } ?: ""
 
-/** `scheduleChip`: New / Learning / Due today / Due Oct 3. */
-fun scheduleChip(entry: LessonEntry, cutoff: StudyCutoff): Pair<String, androidx.compose.ui.graphics.Color> {
-    val s = entry.state
-    return when {
-        s.queue == CardQueue.NEW -> "New" to Palette.New
-        CardQueue.isLearning(s.queue) -> "Learning" to Palette.Learning
-        LessonSchedule.isUpNext(s, cutoff) -> "Due today" to Palette.Hard
-        else -> "Due ${shortDate(s.nextReviewAt)}" to Palette.Good
+/** `revisitChip`: New / Due today / Next revisit 20 Oct / Done for good. */
+fun scheduleChip(entry: LessonEntry, cutoff: StudyCutoff): Pair<String, androidx.compose.ui.graphics.Color> = revisitChip(entry.state, cutoff)
+
+/** "Done for good" — the web's grey `retired` chip. */
+val RetiredGrey = androidx.compose.ui.graphics.Color(0xFF6B7280)
+
+/** The chip and its colour for a "revisit later" state (Mini Lessons and Readers lists). */
+fun revisitChip(s: RevisitState, cutoff: StudyCutoff): Pair<String, androidx.compose.ui.graphics.Color> {
+    val label = Revisit.chip(s, cutoff.ts)
+    return label to when {
+        s.isRetired -> RetiredGrey
+        s.isNew -> Palette.New
+        LessonSchedule.isUpNext(s, cutoff) -> Palette.Hard
+        else -> Palette.Good
     }
 }
 
 /**
- * `/lessons` — the web's MiniLessonsPage: what's waiting (new / learning / due) and what's
- * scheduled out, every exercise of a lesson, Edit, My answers and Delete. Renders the
- * cached lessons at once and refreshes behind them.
+ * `/lessons` — the web's MiniLessonsPage: Up next (new / due today), Coming back later (the
+ * "revisit later" schedule, soonest first) and Done for good (↩ Bring back), every exercise of
+ * a lesson, Edit, ✓ Done for good, My answers and Delete. Renders the cached lessons at once
+ * and refreshes behind them.
  */
 @Composable
 fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
     var confirm by rememberSaveable { mutableStateOf<String?>(null) }
     val lessons = ui.lessons
     val upNext = lessons.orEmpty().filter { LessonSchedule.isUpNext(it.state, ui.cutoff) }
-    val scheduled = lessons.orEmpty().filter { !LessonSchedule.isUpNext(it.state, ui.cutoff) }
+    val scheduled = lessons.orEmpty().filter { it.state.isScheduled && !LessonSchedule.isUpNext(it.state, ui.cutoff) }.sortedBy { it.state.dueMs ?: 0L }
+    val retired = lessons.orEmpty().filter { it.retired }
     LabScreen("🎓 Mini Lessons", onBack = actions.onBack) {
         item {
             Text(
-                "Custom lessons authored by Claude (from chat or MCP). They mix into your study sessions and, once rated, come back on the same FSRS cadence as cards.",
+                "Custom lessons authored by Claude (from chat or MCP). They mix into your study sessions; once finished, your rating decides when one comes back (Good: in two weeks, then longer each time — Settings → Lessons & readers).",
                 style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
             )
         }
@@ -123,8 +136,13 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
         }
         items(upNext, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
         if (scheduled.isNotEmpty()) {
-            item { SectionHeader("Scheduled (${scheduled.size})") }
+            item { SectionHeader("Coming back later (${scheduled.size})") }
             items(scheduled, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
+        }
+        if (retired.isNotEmpty()) {
+            item { SectionHeader("Done for good (${retired.size})") }
+            item { Text("Never offered again. Bring one back to put it in rotation.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
+            items(retired, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
         }
     }
     confirm?.let { id ->
@@ -172,6 +190,8 @@ private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLesso
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SecondaryPill("✏️ Edit") { actions.onEdit(l.id) }
+                    if (entry.retired) SecondaryPill("↩ Bring back") { actions.onBringBack(l.id) }
+                    else if (entry.reps > 0) SecondaryPill("✓ Done for good") { actions.onDoneForGood(l.id) }
                     if (entry.reps > 0) SecondaryPill("📝 My answers") { actions.onAnswers(l.id) }
                     SecondaryPill(if (ui.deleting == l.id) "Deleting…" else "🗑 Delete lesson", enabled = ui.deleting == null, danger = true, onClick = onDelete)
                 }

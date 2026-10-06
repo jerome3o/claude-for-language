@@ -32,7 +32,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.core.CardQueue
 import dev.jeromeswannack.chineselearning.lab.core.TodayPlan
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
@@ -68,8 +67,7 @@ data class TodayHome(
                 e.id, e.lesson.title.ifBlank { e.lesson.spec.title }, e.lesson.icon,
                 when {
                     done -> "Done"
-                    e.state.queue == CardQueue.NEW -> "New"
-                    CardQueue.isLearning(e.state.queue) -> "Again today"
+                    e.state.isNew -> "New"
                     else -> "Review"
                 },
                 done,

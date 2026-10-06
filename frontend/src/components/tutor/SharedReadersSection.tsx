@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { nextRevisitLabel } from '../../utils/revisitLabel';
 import { removalMenuLabel } from '@shared/homework';
 import { listSharedReaders } from '../../api/tutorDashboard';
 import { OverflowMenu } from './OverflowMenu';
@@ -36,7 +37,7 @@ export function SharedReadersSection({
                   sent {shortDate(r.shared_at)} ·{' '}
                   {r.target_deleted
                     ? 'they deleted their copy'
-                    : `${plural(r.page_count ?? 0, 'page')} · ${(r.read_count ?? 0) === 0 ? 'not read yet' : `read ${r.read_count}×`}`}
+                    : `${plural(r.page_count ?? 0, 'page')} · ${(r.read_count ?? 0) === 0 ? 'not read yet' : `read ${r.read_count}×`}${nextRevisitLabel(r) ? ` · ${nextRevisitLabel(r)}` : ''}`}
                 </span>
               </div>
               <OverflowMenu

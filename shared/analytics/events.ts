@@ -170,6 +170,8 @@ export const ANALYTICS_EVENTS = {
   // ── lessons ────────────────────────────────────────────────────────────
   'lesson.start': e('lessons', 'Started a mini lesson.', ['source', 'exercises']),
   'lesson.complete': e('lessons', 'Finished a mini lesson.', ['rating', 'source', 'duration_ms']),
+  'study.done_for_good': e('study', '"Done for good" on a finished lesson / reader: never scheduled again.', ['kind', 'source']),
+  'study.bring_back': e('study', '"Bring back" a lesson / reader that was done for good.', ['kind']),
   'lesson.grammar_start': e('lessons', 'Started the OLD fixed-phase grammar lesson.', [], { replacedBy: 'lesson.start' }),
   'lesson.editor_save': e('lessons', 'Saved a lesson in the editor.', []),
   'lesson.catalogue_try': e('lessons', 'Tried a catalogue sample lesson.', ['exercise_type']),
@@ -206,6 +208,7 @@ export const ANALYTICS_EVENTS = {
 
   // ── settings ───────────────────────────────────────────────────────────
   'settings.change': e('settings', 'Changed a setting (`setting` names it, `value` an enum).', ['setting', 'value']),
+  'settings.revisit_changed': e('settings', 'Changed the "Lessons & readers" revisit gaps (or reset them).', ['fields', 'reset']),
   'settings.analytics': e('settings', 'Turned usage data sharing on / off.', ['on']),
   'settings.full_sync': e('settings', 'Ran a full sync by hand.', []),
   'settings.debug_report': e('settings', 'Sent a debug report by hand.', []),

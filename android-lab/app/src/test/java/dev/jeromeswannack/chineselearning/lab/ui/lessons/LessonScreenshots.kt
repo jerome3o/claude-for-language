@@ -46,7 +46,8 @@ import kotlin.random.Random
 /** Every exercise type, before and after answering, the player's end + rating, and the Mini Lessons pages. */
 class LessonScreenshots : LabScreenshotTest() {
     private val now = Js.parseDate("2026-09-27T09:30:00.000Z")
-    private val previews = CardScheduler.intervalPreviews(CardScheduler.initialCardState(), now)
+    /** "Revisit later" labels for a lesson never finished: 1 day · 2 days · 2 wk · 6 wk. */
+    private val previews = dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(dev.jeromeswannack.chineselearning.lab.core.RevisitState.INITIAL)
 
     /** A soft "illustration" (a kitchen: fridge, counter, cake) so the picture slot renders like the real thing. */
     private val scene: java.io.File by lazy {
@@ -197,6 +198,11 @@ class LessonScreenshots : LabScreenshotTest() {
         tap("请把窗户关上。")
         tap("Continue")
     }
+    /** The finished lesson's rating row: the revisit gaps + "✓ Done for good · don't bring it back". */
+    @Test fun doneForGood() = shootAfter("revisit-01-lesson-rating", content = player(LessonSamples.choice)) {
+        tap("请把窗户关上。")
+        tap("Continue")
+    }
     @Test fun preview() = shootAfter("lessons-32-preview-finished", content = {
         LessonPlayer("The 把 sentence", "🧱", LessonSamples.lesson(LessonSamples.speak), env(), PlayerContext.Preview, null, {}, {})
     }) {
@@ -208,12 +214,12 @@ class LessonScreenshots : LabScreenshotTest() {
     @Test fun unfolded() = shoot("lessons-34-conversation-unfolded", content = player(LessonSamples.conversation))
 
     // ---- Mini Lessons page + My answers ----
-    private fun entry(id: String = "L1", spec: CustomLessonSpec = LessonSamples.full, events: List<ItemEvent> = emptyList(), created: String = "2026-09-20T10:00:00Z", source: String = "mcp"): LessonEntry =
+    private fun entry(id: String = "L1", spec: CustomLessonSpec = LessonSamples.full, events: List<ItemEvent> = emptyList(), created: String = "2026-09-20T10:00:00Z", source: String = "mcp", marks: List<dev.jeromeswannack.chineselearning.lab.core.RevisitMark> = emptyList()): LessonEntry =
         LessonEntry(
             CustomLessonDto(id, spec.title, spec.description, spec.icon, source, "active", created, null, spec,
                 events.map { LessonCompletionDto(it.id, id, 3, 4, it.at, it.rating) }),
             events,
-            ItemSchedule.state(events),
+            ItemSchedule.state(events, marks),
         )
 
     private val lessonsUi by lazy {
@@ -223,6 +229,8 @@ class LessonScreenshots : LabScreenshotTest() {
                 entry(),
                 entry("L2", LessonSamples.lesson(LessonSamples.conversation, LessonSamples.listenChoice).copy(title = "At the hotel", icon = "🏨", description = "Checking in, asking about breakfast"), listOf(ItemEvent("e0", "L2", 0, "2026-09-27T08:00:00.000Z")), source = "tutor"),
                 entry("L3", LessonSamples.lesson(LessonSamples.writeTyped, LessonSamples.dictation).copy(title = "Kitchen words", icon = "🍳", description = null), review, source = "chat"),
+                entry("L4", LessonSamples.lesson(LessonSamples.match).copy(title = "Numbers 1–10", icon = "🔢", description = null), listOf(ItemEvent("e5", "L4", 3, "2026-09-10T10:00:00.000Z")), source = "mcp",
+                    marks = listOf(dev.jeromeswannack.chineselearning.lab.core.RevisitMark("m1", "lesson", "L4", "retire", "2026-09-10T10:00:01.000Z"))),
             ),
             cutoff = StudyCutoff(Js.parseDate("2026-09-27T23:59:59.999Z")),
         )
@@ -231,6 +239,12 @@ class LessonScreenshots : LabScreenshotTest() {
     @Test fun miniLessons() = shoot("lessons-40-mini-lessons") { MiniLessonsScreen(lessonsUi, MiniLessonsActions(onBack = {})) }
     @Test fun miniLessonsExpanded() = shootAfter("lessons-41-mini-lessons-expanded", content = { MiniLessonsScreen(lessonsUi, MiniLessonsActions(onBack = {})) }) {
         compose.onNodeWithText("The 把 sentence").performClick()
+    }
+    /** Up next / Coming back later / Done for good, with ↩ Bring back on the retired one. */
+    @Test fun miniLessonsRevisit() = shootAfter("revisit-03-mini-lessons", content = { MiniLessonsScreen(lessonsUi, MiniLessonsActions(onBack = {})) }) {
+        compose.onNodeWithText("Numbers 1–10").performClick()
+        compose.mainClock.advanceTimeBy(600)
+        runCatching { compose.onNodeWithText("↩ Bring back").performScrollTo() }
     }
     @Test fun miniLessonsOffline() = shoot("lessons-42-mini-lessons-offline") {
         MiniLessonsScreen(lessonsUi.copy(offline = true, updatedAt = System.currentTimeMillis() - 3 * 3_600_000, lessons = lessonsUi.lessons!!.take(1)), MiniLessonsActions(onBack = {}))

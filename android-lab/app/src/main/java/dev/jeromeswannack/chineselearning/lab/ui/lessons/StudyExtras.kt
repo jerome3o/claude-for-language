@@ -7,8 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.CardQueue
-import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
+import dev.jeromeswannack.chineselearning.lab.core.ItemSchedule
 import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
 import dev.jeromeswannack.chineselearning.lab.core.LessonSchedule
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
@@ -69,7 +68,7 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
                     if (!app.online.value) return@repeat
                     runCatching { runtime.readers.refresh() }
                     val fresh = runtime.readers.todaysReader(System.currentTimeMillis(), cutoff, zone)
-                    if (fresh != null && fresh.state.queue == CardQueue.NEW) {
+                    if (fresh != null && fresh.state.isNew) {
                         readers = listOf(fresh)
                         onReaderArrived()
                         return@launch
@@ -105,25 +104,24 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
     /** The reader for a [SessionItem.Reader]. */
     fun presentReader(item: ScheduledItem): dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader? {
         val entry = readers.firstOrNull { it.id == item.id } ?: return null
-        return dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader(entry.reader, CardScheduler.intervalPreviews(entry.state, System.currentTimeMillis()), ++shown)
+        return dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader(entry.reader, ItemSchedule.previews(entry.state, entry.settings), ++shown)
     }
 
     /**
-     * `rateReader`: records the review; a reader rated back into learning stays in the session,
-     * otherwise FSRS has scheduled it out. Reading counts as the day's reader activity.
+     * `rateReader`: records the review (or Done for good, [retire]). Even Again brings a story
+     * back tomorrow at the earliest, so it always leaves the session. Reading counts as the
+     * day's reader activity.
      */
-    suspend fun rateReader(readerId: String, rating: Int, timeSpentMs: Long) {
-        val entry = readers.firstOrNull { it.id == readerId }
+    suspend fun rateReader(readerId: String, rating: Int, timeSpentMs: Long, retire: Boolean = false) {
         readers = readers.filter { it.id != readerId }
         lastRatedReaderId = readerId
-        val state = today.rateReader(readerId, rating, timeSpentMs)
-        if (entry != null && state != null && CardQueue.isLearning(state.queue)) readers = readers + entry.copy(state = state)
+        today.rateReader(readerId, rating, timeSpentMs, retire)
     }
 
     /** The lesson for a [SessionItem.Lesson]. */
     fun present(item: ScheduledItem): SessionLesson? {
         val entry = lessons.firstOrNull { it.id == item.id } ?: return null
-        return SessionLesson(entry, CardScheduler.intervalPreviews(entry.state, System.currentTimeMillis()), ++shown)
+        return SessionLesson(entry, ItemSchedule.previews(entry.state, entry.settings), ++shown)
     }
 
     val remainingLessons: Int get() = lessons.size
@@ -134,13 +132,12 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         lessons.map { "${it.lesson.icon ?: "📘"} ${it.lesson.title}" } + readers.map { "📖 ${it.reader.titleChinese.ifBlank { it.reader.titleEnglish }}" }
 
     /**
-     * Records the rated completion; a lesson rated back into learning stays in the session
-     * with its new state, otherwise FSRS has scheduled it out.
+     * Records the rated completion (or Done for good, `result.retire`). The rating sets when it
+     * comes back — a day at the soonest — so it always leaves the session.
      */
     suspend fun complete(lesson: SessionLesson, result: LessonResult) {
         lessons = lessons.filter { it.id != lesson.entry.id }
-        val state = today.completeLesson(lesson.entry.id, result)
-        if (state != null && CardQueue.isLearning(state.queue)) lessons = lessons + lesson.entry.copy(state = state)
+        today.completeLesson(lesson.entry.id, result)
     }
 
     fun stopAudio() {

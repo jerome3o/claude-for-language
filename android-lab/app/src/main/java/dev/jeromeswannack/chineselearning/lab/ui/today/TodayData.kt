@@ -1,7 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.today
 
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.ComputedCardState
+import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.core.ReaderSchedule
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.core.TodayPlan
@@ -38,8 +38,8 @@ data class TodaySnapshot(
  * today's lessons / reader for Home, today's lesson list, the reader route and the session
  * (ui/lessons/StudyExtras), and the one place their completions are recorded — so doing a
  * lesson or the story from Home counts exactly as in the session: the completion event
- * (with its attempt + recordings, through the Outbox), the FSRS rating, the reader review
- * event, the day's reader mark (`markDailyReader`) and the homework `done`.
+ * (with its attempt + recordings, through the Outbox), the rating that sets when it comes back
+ * ("revisit later") or Done for good, the reader review event, the day's reader mark (`markDailyReader`) and the homework `done`.
  */
 class TodayData(private val app: LabApp) {
     private val runtime get() = LessonRuntime.of(app)
@@ -67,18 +67,18 @@ class TodayData(private val app: LabApp) {
         )
     }
 
-    /** `completeCustomLesson` (+ upload soon). Null when it couldn't be written. */
-    suspend fun completeLesson(lessonId: String, result: LessonResult): ComputedCardState? {
+    /** `completeCustomLesson` (+ upload soon); `result.retire` = Done for good. Null when it couldn't be written. */
+    suspend fun completeLesson(lessonId: String, result: LessonResult, source: String = "session"): RevisitState? {
         val state = runCatching {
-            runtime.store.complete(lessonId, result.correct, result.total, result.rating, result.attempt, result.recordings)
+            runtime.store.complete(lessonId, result.correct, result.total, result.rating, result.attempt, result.recordings, retire = result.retire, source = source)
         }.getOrNull()
         runtime.uploadSoon()
         return state
     }
 
-    /** `recordReaderReview` + the day's reader mark (+ upload soon). */
-    suspend fun rateReader(readerId: String, rating: Int, timeSpentMs: Long): ComputedCardState? {
-        val state = runCatching { runtime.readers.rate(readerId, rating, timeSpentMs) }.getOrNull()
+    /** `recordReaderReview` + the day's reader mark (+ upload soon); [retire] = Done for good. */
+    suspend fun rateReader(readerId: String, rating: Int, timeSpentMs: Long, retire: Boolean = false): RevisitState? {
+        val state = runCatching { runtime.readers.rate(readerId, rating, timeSpentMs, retire = retire) }.getOrNull()
         runtime.uploadSoon()
         if (app.online.value) app.scope.launch { runCatching { app.repo.api.markDailyReader(readerId) } }
         return state

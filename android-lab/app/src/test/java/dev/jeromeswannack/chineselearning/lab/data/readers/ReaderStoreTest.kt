@@ -2,7 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.data.readers
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import dev.jeromeswannack.chineselearning.lab.core.CardQueue
+import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.Rating
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
@@ -89,17 +89,19 @@ class ReaderStoreTest {
 
     @Test fun oneReaderADayFromMergedEvents() = runBlocking {
         store.sync(zone, prefetch = false)
-        // r1 was read on another device (REVIEW, due later); r2 is new → today's reader.
-        assertEquals(CardQueue.REVIEW, store.entry("r1")!!.state.queue)
+        // r1 was read on another device (Easy: back in 6 weeks); r2 is new → today's reader.
+        assertEquals(RevisitState.SCHEDULED, store.entry("r1")!!.state.status)
+        assertEquals(42.0, store.entry("r1")!!.state.gapDays, 0.0)
         val now = Js.parseDate("2026-09-27T12:00:00.000Z")
         val cutoff = StudyQueue.cutoff(now, zone)
         assertEquals("r2", store.todaysReader(now, cutoff, zone)?.id)
 
         val state = store.rate("r2", Rating.GOOD, 90_000, now)
-        assertTrue(CardQueue.isLearning(state.queue))
+        // "Revisit later": Good = back in two weeks.
+        assertEquals(now + 14 * 86_400_000L, state.dueMs)
         assertEquals(1, outbox.pendingCount())
-        // Read today: only a learning repeat of r2 is offered, nothing new.
-        assertEquals("r2", store.todaysReader(now + 11 * 60_000, cutoff, zone)?.id)
+        // Read today: nothing more today (not even an Again repeat).
+        assertNull(store.todaysReader(now + 11 * 60_000, cutoff, zone))
 
         outbox.drain()
         val upload = requests.first { it.first == "POST /api/reader-reviews" }.second
@@ -107,6 +109,20 @@ class ReaderStoreTest {
         // The cursor moved: the next download asks from the last server event.
         store.downloadEvents()
         assertTrue(requests.last { it.first.startsWith("GET /api/reader-reviews?") }.first.contains("after_id=other"))
+    }
+
+    @Test fun doneForGoodReadersAreNeverOffered() = runBlocking {
+        store.sync(zone, prefetch = false)
+        val now = Js.parseDate("2026-09-27T12:00:00.000Z")
+        val cutoff = StudyQueue.cutoff(now, zone)
+        store.markRevisit("r2", "retire")
+        assertEquals(RevisitState.RETIRED, store.entry("r2")!!.state.status)
+        assertNull(store.todaysReader(now, cutoff, zone)) // r1 isn't due, r2 is done for good
+        store.markRevisit("r2", "restore")
+        // Bring back: in rotation again, due at once.
+        val later = System.currentTimeMillis()
+        assertEquals("r2", store.todaysReader(later, StudyQueue.cutoff(later, zone), zone)?.id)
+        assertEquals(listOf("revisit", "revisit"), outbox.all().map { it.kind })
     }
 
     @Test fun dailyReaderIsRequestedOncePerDayWhenNothingIsDue() = runBlocking {

@@ -140,3 +140,8 @@
   flex-wrap: wrap;
   margin-top: 0.5rem;
 }
+
+.mini-lesson-status.retired {
+  background: #f3f4f6;
+  color: var(--color-text-light);
+}

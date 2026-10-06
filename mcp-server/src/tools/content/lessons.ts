@@ -2,7 +2,7 @@
  * Lesson library tools for tutors: the library holds master copies of custom
  * mini lessons; assigning creates a real lesson row for the student (works
  * offline) that remembers where it came from, and push-update overwrites the
- * copies in place so completion history and FSRS scheduling survive.
+ * copies in place so completion history and revisit schedule survive.
  */
 import { z } from 'zod';
 import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from '../folders.js';
@@ -117,7 +117,7 @@ ${LESSON_SPEC_DOC}`,
 
   server.tool(
     'update_library_lesson',
-    `Replace a library lesson's content with a FULL spec (and optionally its tags). The library version bumps when the content changed; students who already have a copy keep the OLD content unless the tutor asked to update their copies too — then pass update_student_copies: true (same lesson ids, history + FSRS kept); otherwise push_lesson_update later, only when the tutor asks (get_lesson_assignments shows who is behind). Fetch with get_library_lesson first and edit. Same exercise types and rules as create_library_lesson.`,
+    `Replace a library lesson's content with a FULL spec (and optionally its tags). The library version bumps when the content changed; students who already have a copy keep the OLD content unless the tutor asked to update their copies too — then pass update_student_copies: true (same lesson ids, history + revisit schedule kept); otherwise push_lesson_update later, only when the tutor asks (get_lesson_assignments shows who is behind). Fetch with get_library_lesson first and edit. Same exercise types and rules as create_library_lesson.`,
     {
       library_id: LIBRARY_ID,
       spec: lessonSpecShape.describe('The complete revised spec — it replaces the stored one entirely'),
@@ -171,7 +171,7 @@ ${LESSON_SPEC_DOC}`,
 
   server.tool(
     'assign_lesson_to_students',
-    `${SEND_RULE} Give a library lesson to one or more students AS HOMEWORK (a real homework assignment per student, like the app's Send homework sheet): each gets their own copy (works offline) that remembers this library item. By default (\`mode: "both"\`) it is on their Homework list due by \`due_date\` (default: that student's next logged lesson, else in two days) AND mixed into their study sessions, scheduled with FSRS like their cards; "one_off" = the homework pass only (never in the session mix), "fsrs" = study sessions only, no date. You must be the tutor in every relationship. A student who already has a copy is reported under already_had and left as is (use assign_homework to give them a new dated assignment on it); per-relationship failures come back under errors. describe_image illustrations are generated in the background.`,
+    `${SEND_RULE} Give a library lesson to one or more students AS HOMEWORK (a real homework assignment per student, like the app's Send homework sheet): each gets their own copy (works offline) that remembers this library item. By default (\`mode: "both"\`) it is on their Homework list due by \`due_date\` (default: that student's next logged lesson, else in two days) AND mixed into their study sessions, coming back on the "revisit later" schedule (Good: in two weeks, then longer); "one_off" = the homework pass only (never in the session mix), "fsrs" = study sessions only, no date. You must be the tutor in every relationship. A student who already has a copy is reported under already_had and left as is (use assign_homework to give them a new dated assignment on it); per-relationship failures come back under errors. describe_image illustrations are generated in the background.`,
     {
       library_id: LIBRARY_ID,
       relationship_ids: z.array(z.string()).min(1).describe('Relationship ids of the students to assign to'),
@@ -220,7 +220,7 @@ ${LESSON_SPEC_DOC}`,
 
   server.tool(
     'push_lesson_update',
-    `${SEND_RULE} Overwrite the assigned copies of a library lesson with the current library content (same lesson ids, so the students\' completion history and FSRS schedule survive; illustrations whose prompt is unchanged are kept). Copies already up to date are skipped. Name the students in relationship_ids (get_lesson_assignments lists who has a copy).`,
+    `${SEND_RULE} Overwrite the assigned copies of a library lesson with the current library content (same lesson ids, so the students\' completion history and revisit schedule survive; illustrations whose prompt is unchanged are kept). Copies already up to date are skipped. Name the students in relationship_ids (get_lesson_assignments lists who has a copy).`,
     {
       library_id: LIBRARY_ID,
       relationship_ids: z.array(z.string()).min(1).describe('The students whose copies to update (relationship ids, from get_lesson_assignments) — only the ones the tutor asked for'),

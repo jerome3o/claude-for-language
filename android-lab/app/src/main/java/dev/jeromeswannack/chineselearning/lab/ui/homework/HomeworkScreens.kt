@@ -206,7 +206,7 @@ class PassActions(
     /** Lesson: the rated run (completion + attempt + recordings, then the homework `done`). */
     val onLessonComplete: (LessonResult) -> Unit = {},
     /** Reader: rated on its last page. */
-    val onReaderRated: (rating: Int, timeSpentMs: Long) -> Unit = { _, _ -> },
+    val onReaderRated: (rating: Int, timeSpentMs: Long, retire: Boolean) -> Unit = { _, _, _ -> },
     /** The example sentences' breakdown / add-as-card (the study card's); never a review. */
     val sentences: SentenceActions = SentenceActions(),
     /** ▶ on a sentence row: its clip, else the device voice. */

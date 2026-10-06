@@ -284,6 +284,10 @@ data class StudentLessonDto(
     val last_completed_at: String? = null,
     val last_rating: Int? = null,
     val last_attempt_id: String? = null,
+    /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
+    val next_revisit_at: String? = null,
+    /** The student marked it "Done for good". */
+    val retired: Boolean = false,
 )
 
 @Serializable

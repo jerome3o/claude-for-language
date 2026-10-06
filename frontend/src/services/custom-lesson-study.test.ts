@@ -3,12 +3,15 @@ import {
   getDueCustomLessons,
   completeCustomLesson,
   MAX_NEW_LESSONS_PER_SESSION,
+  computeLessonState,
   uploadCustomLessonCompletions,
   uploadLessonAttemptMedia,
 } from './custom-lesson-study';
 import { selectNextItem, LESSON_MIX_INTERVAL } from '../hooks/useStudySession';
 import { db, LocalCustomLesson, LocalCard, LocalReader, LocalGrammarLesson } from '../db/database';
 import { CardQueue } from '../types';
+import { MAX_LESSON_REVISITS_PER_DAY } from '@shared/study/revisit';
+import { markRevisit, writeRevisitSettings } from './revisit';
 
 function makeLesson(overrides: Partial<LocalCustomLesson> = {}): LocalCustomLesson {
   const id = overrides.id ?? `lesson-${Math.random().toString(36).slice(2, 8)}`;
@@ -86,64 +89,109 @@ describe('getDueCustomLessons', () => {
     expect(due.map(l => l.id)).toEqual(lessons.slice(0, MAX_NEW_LESSONS_PER_SESSION).map(l => l.id));
   });
 
-  it('includes FSRS-due review lessons uncapped, ahead of new ones', async () => {
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
-    const nextMonth = new Date(Date.now() + 30 * 86_400_000).toISOString();
+  it('offers due revisits, most overdue first, ahead of new ones', async () => {
+    const yesterday = Date.now() - 86_400_000;
+    const lastWeek = Date.now() - 7 * 86_400_000;
+    const nextMonth = Date.now() + 30 * 86_400_000;
     await db.customLessons.bulkPut([
-      makeLesson({ id: 'l-due', queue: CardQueue.REVIEW, next_review_at: yesterday }),
-      makeLesson({ id: 'l-future', queue: CardQueue.REVIEW, next_review_at: nextMonth }),
+      makeLesson({ id: 'l-due', queue: CardQueue.REVIEW, repetitions: 1, due_timestamp: yesterday }),
+      makeLesson({ id: 'l-overdue', queue: CardQueue.REVIEW, repetitions: 1, due_timestamp: lastWeek }),
+      makeLesson({ id: 'l-future', queue: CardQueue.REVIEW, repetitions: 1, due_timestamp: nextMonth }),
       makeLesson({ id: 'l-new' }),
     ]);
 
     const due = await getDueCustomLessons();
-    expect(due.map(l => l.id)).toEqual(['l-due', 'l-new']);
+    expect(due.map(l => l.id)).toEqual(['l-overdue', 'l-due', 'l-new']);
   });
 
-  it('includes learning lessons due by the study cutoff', async () => {
-    await db.customLessons.bulkPut([
-      makeLesson({ id: 'l-learning', queue: CardQueue.LEARNING, due_timestamp: Date.now() - 1000 }),
-      makeLesson({ id: 'l-learning-tomorrow', queue: CardQueue.LEARNING, due_timestamp: Date.now() + 2 * 86_400_000 }),
-    ]);
-
+  it('a backlog of overdue lessons trickles back a couple a day, never floods in', async () => {
+    await db.customLessons.bulkPut(
+      Array.from({ length: 6 }, (_, i) => makeLesson({ id: `l-old-${i}`, queue: CardQueue.REVIEW, repetitions: 1, due_timestamp: Date.now() - (i + 1) * 86_400_000 })),
+    );
     const due = await getDueCustomLessons();
-    expect(due.map(l => l.id)).toEqual(['l-learning']);
+    expect(due).toHaveLength(MAX_LESSON_REVISITS_PER_DAY);
+    expect(due.map(l => l.id)).toEqual(['l-old-5', 'l-old-4']);
+  });
+
+  it('never offers a lesson that is done for good', async () => {
+    await db.customLessons.bulkPut([
+      makeLesson({ id: 'l-retired', queue: CardQueue.REVIEW, repetitions: 1, retired: true }),
+      makeLesson({ id: 'l-new-retired', retired: true }),
+    ]);
+    expect(await getDueCustomLessons()).toEqual([]);
   });
 });
 
 describe('completeCustomLesson', () => {
-  it('records a rated event and schedules the lesson with FSRS', async () => {
+  it('records a rated event; Good brings it back in two weeks, not today', async () => {
     await db.customLessons.put(makeLesson({ id: 'l-1' }));
 
     const { event, newState } = await completeCustomLesson('l-1', 4, 5, 2);
 
     expect(event._synced).toBe(0);
     expect(event.rating).toBe(2);
+    expect(newState.status).toBe('scheduled');
+    expect(newState.gap_days).toBe(14);
     const lesson = await db.customLessons.get('l-1');
-    // Rated Good on first study → learning phase, still active (never 'done')
-    expect(lesson?.queue).toBe(newState.queue);
+    expect(lesson?.queue).toBe(CardQueue.REVIEW);
     expect(lesson?.status).toBe('active');
-    expect(newState.queue).not.toBe(CardQueue.NEW);
+    const days = ((lesson?.due_timestamp ?? 0) - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(13.9);
+    expect(days).toBeLessThanOrEqual(14);
+    expect((await getDueCustomLessons()).map(l => l.id)).not.toContain('l-1');
   });
 
-  it('Easy on a new lesson schedules it days out', async () => {
-    await db.customLessons.put(makeLesson({ id: 'l-2' }));
-
-    const { newState } = await completeCustomLesson('l-2', 5, 5, 3);
-
-    expect(newState.queue).toBe(CardQueue.REVIEW);
-    expect(newState.next_review_at && newState.next_review_at > new Date().toISOString()).toBe(true);
-    // Scheduled out — no longer due today
-    expect((await getDueCustomLessons()).map(l => l.id)).not.toContain('l-2');
+  it('Again brings it back tomorrow, Hard in two days, Easy in six weeks', async () => {
+    for (const [rating, gap] of [[0, 1], [1, 2], [3, 42]] as const) {
+      await db.customLessons.put(makeLesson({ id: `l-${rating}` }));
+      const { newState } = await completeCustomLesson(`l-${rating}`, 5, 5, rating);
+      expect(newState.gap_days).toBe(gap);
+    }
+    expect((await getDueCustomLessons()).map(l => l.id)).toEqual([]);
   });
 
-  it('state accumulates across repeated completions of the same lesson', async () => {
+  it('the gap grows across repeated completions of the same lesson', async () => {
     await db.customLessons.put(makeLesson({ id: 'l-3' }));
 
     const first = await completeCustomLesson('l-3', 3, 5, 2);
     const second = await completeCustomLesson('l-3', 5, 5, 2);
 
-    expect(second.newState.reps).toBeGreaterThan(first.newState.reps);
+    expect(first.newState.gap_days).toBe(14);
+    expect(second.newState.gap_days).toBe(28);
+    expect(second.newState.finishes).toBe(2);
     expect(await db.customLessonCompletionEvents.where('lesson_id').equals('l-3').count()).toBe(2);
+  });
+
+  it('Done for good: recorded as finished, never scheduled again; Bring back makes it due', async () => {
+    await db.customLessons.put(makeLesson({ id: 'l-dfg' }));
+    const { newState } = await completeCustomLesson('l-dfg', 5, 5, 2, undefined, [], { retire: true });
+    expect(newState.status).toBe('retired');
+    expect(await db.customLessonCompletionEvents.where('lesson_id').equals('l-dfg').count()).toBe(1);
+    const marks = await db.revisitEvents.toArray();
+    expect(marks).toMatchObject([{ item_kind: 'lesson', item_id: 'l-dfg', action: 'retire', _synced: 0 }]);
+    expect((await db.customLessons.get('l-dfg'))?.retired).toBe(true);
+    expect((await getDueCustomLessons()).map(l => l.id)).not.toContain('l-dfg');
+
+    await markRevisit('lesson', 'l-dfg', 'restore');
+    expect((await db.customLessons.get('l-dfg'))?.retired).toBe(false);
+    expect((await getDueCustomLessons()).map(l => l.id)).toContain('l-dfg');
+  });
+
+  it('legacy completions without a rating count as Good', async () => {
+    await db.customLessons.put(makeLesson({ id: 'l-legacy' }));
+    await db.customLessonCompletionEvents.put({ id: 'ev-old', lesson_id: 'l-legacy', correct: 1, total: 1, completed_at: new Date(Date.now() - 20 * 86_400_000).toISOString(), rating: null, _synced: 1 });
+    const state = await computeLessonState('l-legacy');
+    expect(state.gap_days).toBe(14);
+    expect(state.due_ms).toBeLessThan(Date.now()); // came back 6 days ago
+  });
+
+  it('a different account setting changes the gaps', async () => {
+    writeRevisitSettings({ hard_days: 3, good_days: 7, easy_days: 30, growth: 3, cap_days: 60 });
+    await db.customLessons.put(makeLesson({ id: 'l-custom' }));
+    await completeCustomLesson('l-custom', 1, 1, 2);
+    const { newState } = await completeCustomLesson('l-custom', 1, 1, 2);
+    expect(newState.gap_days).toBe(21);
+    localStorage.removeItem('revisitSettings');
   });
 });
 

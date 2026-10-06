@@ -6,38 +6,48 @@ import kotlin.random.Random
 
 /**
  * Mini lessons and graded readers in the study session — ports of
- * frontend/src/services/custom-lesson-study.ts (getDueCustomLessons),
+ * frontend/src/services/custom-lesson-study.ts (getDueCustomLessons, lessonRevisitsToday),
  * services/reader-study.ts (pickTodaysReader, readersReadToday) and the lesson / reader
  * branches of selectNextItem in hooks/useStudySession.ts.
  *
- * Both are scheduled like cards: FSRS state is replayed from their completion / review
- * events with the card scheduler ("the lesson is the card").
+ * Both come back on the "revisit later" schedule ([Revisit], shared/study/revisit.ts): the
+ * rating after finishing sets the gap (Again 1 day · Hard 2 · Good 14 · Easy 42, growing each
+ * later visit), "Done for good" retires one. The state is replayed from the completion /
+ * reader review events plus the retire / restore marks — never stored on its own.
  */
 
-/** A lesson completion or reader review, as the scheduler sees it. Null rating = Good (legacy). */
+/** A lesson completion or reader review, as the schedule sees it. Null rating = Good (legacy). */
 data class ItemEvent(val id: String, val itemId: String, val rating: Int?, val at: String)
+
+/** "Done for good" / "Bring back" on a lesson or reader (`revisit_events`; kind lesson | reader, action retire | restore). */
+data class RevisitMark(val id: String, val itemKind: String, val itemId: String, val action: String, val createdAt: String)
 
 /** A lesson or reader with its replayed state. */
 data class ScheduledItem(
     val id: String,
     val createdAt: String,
-    val state: ComputedCardState,
+    val state: RevisitState,
     /** Readers only: generation finished ('ready') and it has pages. */
     val studyable: Boolean = true,
 ) {
-    val queue: Int get() = state.queue
+    /** The row's queue as the web caches it (`revisitRowFields`): NEW until the first finish, then REVIEW. */
+    val queue: Int get() = if (state.isNew) CardQueue.NEW else CardQueue.REVIEW
+    val retired: Boolean get() = state.isRetired
+    /** `rowDueMs`: when it comes back (0 when unknown). */
+    val dueMs: Long get() = state.dueMs ?: 0L
 }
 
 object ItemSchedule {
-    /** `computeLessonState` / `computeReaderState`: replay the events sorted by time. */
-    fun state(events: List<ItemEvent>): ComputedCardState {
-        if (events.isEmpty()) return CardScheduler.initialCardState()
-        val sorted = events.sortedBy { it.at }
-        return CardScheduler.computeCardState(sorted.map { ReviewEventInput(it.id, it.itemId, it.rating ?: Rating.GOOD, it.at) })
-    }
+    /** An item's whole history in the shared shape (`revisitHistory`): finishes + its marks. */
+    fun history(events: List<ItemEvent>, marks: List<RevisitMark> = emptyList()): List<RevisitEvent> =
+        events.map { RevisitEvent.rating(it.id, it.at, it.rating) } + marks.map { RevisitEvent(it.id, it.createdAt, it.action) }
 
-    /** A rating recorded now (`applyReview` on the replayed state). */
-    fun afterRating(events: List<ItemEvent>, rating: Int, at: String): ComputedCardState = CardScheduler.applyReview(state(events), rating, at)
+    /** `computeLessonState` / `computeReaderState`: replay the history with the account's gaps. */
+    fun state(events: List<ItemEvent>, marks: List<RevisitMark> = emptyList(), settings: RevisitSettings = Revisit.DEFAULT): RevisitState =
+        Revisit.computeState(history(events, marks), settings)
+
+    /** The rating buttons' labels ("1 day", "2 wk", "6 wk") for an item as it stands. */
+    fun previews(state: RevisitState, settings: RevisitSettings = Revisit.DEFAULT): List<IntervalPreview> = Revisit.buttonPreviews(state, settings)
 }
 
 object LessonSchedule {
@@ -48,31 +58,40 @@ object LessonSchedule {
     const val MIX_INTERVAL = 8
 
     /**
-     * `getDueCustomLessons`: learning / review lessons due by the cutoff (learning-due first,
-     * by due time), then NEW lessons oldest first, at most [MAX_NEW_PER_SESSION]. Lessons
-     * assigned one-off only (homework) never join the rotation.
+     * `getDueCustomLessons`: revisits due by the cutoff, most overdue first, at most
+     * [Revisit.MAX_LESSON_REVISITS_PER_DAY] a day minus [revisitedToday] (`pickRevisitsForToday`),
+     * then NEW lessons oldest first, at most [MAX_NEW_PER_SESSION]. Done-for-good lessons and
+     * lessons assigned one-off only (homework) never join the rotation.
      */
-    fun dueLessons(lessons: List<ScheduledItem>, oneOffOnly: Set<String>, cutoff: StudyCutoff): List<ScheduledItem> {
-        val cutoffIso = Js.toIsoString(cutoff.ts)
-        val due = ArrayList<ScheduledItem>()
-        val fresh = ArrayList<ScheduledItem>()
-        for (lesson in lessons) {
-            if (lesson.id in oneOffOnly) continue
-            when (lesson.queue) {
-                CardQueue.NEW -> fresh += lesson
-                CardQueue.LEARNING, CardQueue.RELEARNING -> if (lesson.state.dueTimestamp.let { it == null || it == 0L || it <= cutoff.ts }) due += lesson
-                CardQueue.REVIEW -> if (lesson.state.nextReviewAt.let { it.isNullOrEmpty() || it <= cutoffIso }) due += lesson
-            }
-        }
-        return due.sortedBy { it.state.dueTimestamp ?: 0L } + fresh.sortedBy { it.createdAt }.take(MAX_NEW_PER_SESSION)
+    fun dueLessons(lessons: List<ScheduledItem>, oneOffOnly: Set<String>, cutoff: StudyCutoff, revisitedToday: Int = 0): List<ScheduledItem> {
+        val pool = lessons.filter { it.id !in oneOffOnly && !it.retired }
+        val fresh = pool.filter { it.queue == CardQueue.NEW }.sortedBy { it.createdAt }
+        val due = Revisit.pickForToday(pool.filter { it.queue != CardQueue.NEW }.map { it to it.state }, cutoff.ts, revisitedToday)
+        return due + fresh.take(MAX_NEW_PER_SESSION)
     }
 
-    /** Mini Lessons page: new / learning / due by the cutoff = "Up next", else "Scheduled". */
-    fun isUpNext(state: ComputedCardState, cutoff: StudyCutoff): Boolean {
-        if (state.queue != CardQueue.REVIEW) return true
-        val next = state.nextReviewAt
-        return next.isNullOrEmpty() || next <= Js.toIsoString(cutoff.ts)
+    /**
+     * `lessonRevisitsToday`: how many lessons were REVISITED today — finished on today's LOCAL
+     * date after an earlier finish (any lesson: the web counts every completion event).
+     */
+    fun revisitsToday(events: List<ItemEvent>, nowMs: Long, zone: ZoneId): Int {
+        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val first = HashMap<String, String>()
+        for (e in events) {
+            val f = first[e.itemId]
+            if (f == null || e.at < f) first[e.itemId] = e.at
+        }
+        val revisited = HashSet<String>()
+        for (e in events) {
+            val local = runCatching { Instant.ofEpochMilli(Js.parseDate(e.at)).atZone(zone).toLocalDate() }.getOrNull()
+            if (local == today && e.at > (first[e.itemId] ?: "")) revisited += e.itemId
+        }
+        return revisited.size
     }
+
+    /** Mini Lessons page "Up next": new, or due by the cutoff (not retired). */
+    fun isUpNext(state: RevisitState, cutoff: StudyCutoff): Boolean =
+        state.isNew || (state.isScheduled && (state.dueMs ?: 0L) <= cutoff.ts)
 }
 
 object ReaderSchedule {
@@ -85,23 +104,15 @@ object ReaderSchedule {
         return events.filter { Instant.ofEpochMilli(Js.parseDate(it.at)).atZone(zone).toLocalDate() == today }.mapTo(HashSet()) { it.itemId }
     }
 
-    private fun learningDueBy(r: ScheduledItem, cutoffTs: Long) =
-        CardQueue.isLearning(r.queue) && r.state.dueTimestamp.let { it == null || it == 0L || it <= cutoffTs }
-
     /**
-     * `pickTodaysReader`: a reader read today owns the day (offered again only while it is a
-     * learning repeat due by the cutoff); otherwise the earliest learning repeat, else the
-     * most overdue review, else the newest unread story.
+     * `pickTodaysReader`: a reader read today owns the day — nothing more is offered (Again
+     * brings it back tomorrow, never later the same day). Otherwise the most overdue revisit
+     * due by the cutoff, else the newest unread story. Done-for-good readers never.
      */
     fun pickTodays(readers: List<ScheduledItem>, readToday: Set<String>, cutoff: StudyCutoff): ScheduledItem? {
-        val studyable = readers.filter { it.studyable }
-        if (readToday.isNotEmpty()) {
-            return studyable.filter { it.id in readToday && learningDueBy(it, cutoff.ts) }.sortedBy { it.state.dueTimestamp ?: 0L }.firstOrNull()
-        }
-        studyable.filter { learningDueBy(it, cutoff.ts) }.sortedBy { it.state.dueTimestamp ?: 0L }.firstOrNull()?.let { return it }
-        val cutoffIso = Js.toIsoString(cutoff.ts)
-        studyable.filter { it.queue == CardQueue.REVIEW && it.state.nextReviewAt.let { n -> n.isNullOrEmpty() || n <= cutoffIso } }
-            .sortedBy { it.state.nextReviewAt ?: "" }.firstOrNull()?.let { return it }
+        if (readToday.isNotEmpty()) return null
+        val studyable = readers.filter { it.studyable && !it.retired }
+        studyable.filter { it.queue != CardQueue.NEW && it.dueMs <= cutoff.ts }.sortedBy { it.dueMs }.firstOrNull()?.let { return it }
         return studyable.filter { it.queue == CardQueue.NEW }.sortedByDescending { it.createdAt }.firstOrNull()
     }
 }
@@ -147,12 +158,11 @@ object SessionMix {
 
     /** Priority 4 of `selectNextItem`: learning readers due now, then new / review, then cooldown. */
     fun nextReader(readers: List<ScheduledItem>, lastRatedReaderId: String?, nowMs: Long, cutoff: StudyCutoff, random: Random): ScheduledItem? {
-        val learningDue = readers.filter { CardQueue.isLearning(it.queue) && it.state.dueTimestamp.let { d -> d != null && d != 0L && d <= nowMs } }
+        val learningDue = readers.filter { CardQueue.isLearning(it.queue) && it.dueMs.let { d -> d != 0L && d <= nowMs } }
         if (learningDue.isNotEmpty()) return learningDue.firstOrNull { it.id != lastRatedReaderId } ?: learningDue[0]
         val fresh = readers.filter { it.queue == CardQueue.NEW || it.queue == CardQueue.REVIEW }
         if (fresh.isNotEmpty()) return fresh[random.nextInt(fresh.size)]
-        val cooldown = readers.filter { CardQueue.isLearning(it.queue) && it.state.dueTimestamp.let { d -> d == null || d == 0L || d <= cutoff.ts } }
-            .sortedBy { it.state.dueTimestamp ?: 0L }
+        val cooldown = readers.filter { CardQueue.isLearning(it.queue) && it.dueMs <= cutoff.ts }.sortedBy { it.dueMs }
         if (cooldown.isNotEmpty()) return cooldown.firstOrNull { it.id != lastRatedReaderId } ?: cooldown[0]
         return null
     }
