@@ -1,13 +1,14 @@
 package dev.jeromeswannack.chineselearning.lab.data.lessons
 
-import dev.jeromeswannack.chineselearning.lab.core.CardQueue
-import dev.jeromeswannack.chineselearning.lab.core.ComputedCardState
 import dev.jeromeswannack.chineselearning.lab.core.ItemEvent
 import dev.jeromeswannack.chineselearning.lab.core.ItemSchedule
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
 import dev.jeromeswannack.chineselearning.lab.core.LessonSchedule
 import dev.jeromeswannack.chineselearning.lab.core.Lessons
+import dev.jeromeswannack.chineselearning.lab.core.RevisitMark
+import dev.jeromeswannack.chineselearning.lab.core.RevisitSettings
+import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.core.ScheduledItem
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.data.Api
@@ -19,6 +20,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.deleteCustomLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.putAttemptMedia
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
+import dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -59,11 +61,18 @@ data class PendingMedia(
 /** A recording handed over by the player. */
 data class LessonRecording(val mediaKey: String, val file: File, val mime: String)
 
-/** A cached lesson with its merged completion history and replayed FSRS state. */
-data class LessonEntry(val lesson: CustomLessonDto, val events: List<ItemEvent>, val state: ComputedCardState) {
+/** A cached lesson with its merged completion history and replayed "revisit later" state. */
+data class LessonEntry(
+    val lesson: CustomLessonDto,
+    val events: List<ItemEvent>,
+    val state: RevisitState,
+    /** The account's gaps the state was replayed with (for the rating buttons' labels). */
+    val settings: RevisitSettings = dev.jeromeswannack.chineselearning.lab.core.Revisit.DEFAULT,
+) {
     val id: String get() = lesson.id
     val item: ScheduledItem get() = ScheduledItem(lesson.id, lesson.createdAt, state)
-    val reps: Int get() = state.reps
+    val reps: Int get() = state.finishes
+    val retired: Boolean get() = state.isRetired
 }
 
 /**
@@ -72,8 +81,8 @@ data class LessonEntry(val lesson: CustomLessonDto, val events: List<ItemEvent>,
  * completions made here are appended locally and sent through the Outbox
  * (`POST /api/custom-lessons/offline-complete`, idempotent by event id, carrying the
  * attempt), recordings queue in their own list and go up by media key once their
- * attempt is on the server (a 404 means "not yet"). Scheduling is always replayed from
- * the merged events.
+ * attempt is on the server (a 404 means "not yet"). The "revisit later" schedule is always
+ * replayed from the merged events + the Done-for-good / Bring-back marks ([RevisitStore]).
  */
 class LessonStore(
     private val cache: JsonCache,
@@ -92,39 +101,51 @@ class LessonStore(
     private val listSerializer = ListSerializer(CustomLessonDto.serializer())
     private val localSerializer = ListSerializer(LocalCompletion.serializer())
     private val mediaSerializer = ListSerializer(PendingMedia.serializer())
+    /** Done for good / Bring back and the account's gaps ("revisit later"). */
+    val revisit = RevisitStore(cache, outbox, api)
 
     fun observe(): Flow<List<LessonEntry>> =
-        combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer)) { list, local -> merge(list.orEmpty(), local.orEmpty()) }
-            .flowOn(Dispatchers.Default)
+        combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer), revisit.observeMarks(), revisit.observeSettings()) { list, local, marks, settings ->
+            merge(list.orEmpty(), local.orEmpty(), marks, settings)
+        }.flowOn(Dispatchers.Default)
 
-    suspend fun entries(): List<LessonEntry> = merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty())
+    suspend fun entries(): List<LessonEntry> =
+        merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty(), revisit.marks(), revisit.settings())
 
     suspend fun hasCache(): Boolean = cache.entry(LIST) != null
 
     suspend fun entry(id: String): LessonEntry? = entries().firstOrNull { it.id == id }
 
-    /** `getDueCustomLessons` over the cache. */
-    suspend fun dueLessons(cutoff: StudyCutoff): List<LessonEntry> {
+    /** `getDueCustomLessons` over the cache (revisits capped per day, Done-for-good out). */
+    suspend fun dueLessons(cutoff: StudyCutoff, nowMs: Long = System.currentTimeMillis(), zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): List<LessonEntry> {
         val all = entries()
         val byId = all.associateBy { it.id }
-        return LessonSchedule.dueLessons(all.map { it.item }, homework.oneOffOnly(), cutoff).mapNotNull { byId[it.id] }
+        val revisited = LessonSchedule.revisitsToday(all.flatMap { it.events }, nowMs, zone)
+        return LessonSchedule.dueLessons(all.map { it.item }, homework.oneOffOnly(), cutoff, revisited).mapNotNull { byId[it.id] }
     }
 
-    private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>): List<LessonEntry> {
+    private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>, marks: List<RevisitMark>, settings: RevisitSettings): List<LessonEntry> {
         val localByLesson = local.groupBy { it.lessonId }
+        val marksByLesson = marks.filter { it.itemKind == "lesson" }.groupBy { it.itemId }
         return list.map { lesson ->
             val server = lesson.completions.map { ItemEvent(it.id, it.lessonId, it.rating, it.completedAt) }
             val seen = server.mapTo(HashSet()) { it.id }
             val mine = localByLesson[lesson.id].orEmpty().filter { it.id !in seen }.map { ItemEvent(it.id, it.lessonId, it.rating, it.completedAt) }
             val events = server + mine
-            LessonEntry(lesson, events, ItemSchedule.state(events))
+            LessonEntry(lesson, events, ItemSchedule.state(events, marksByLesson[lesson.id].orEmpty(), settings), settings)
         }
+    }
+
+    /** "✓ Done for good" / "↩ Bring back" from the Mini Lessons list (`markRevisit`). */
+    suspend fun markRevisit(lessonId: String, action: String, source: String = "list") {
+        revisit.mark("lesson", lessonId, action, source)
     }
 
     /**
      * `completeCustomLesson`: append the rated completion (with its attempt) and queue it for
      * upload; recordings wait in the media queue; the homework assignment is marked done.
-     * Returns the new scheduling state.
+     * [retire] = "Done for good": finished, and never scheduled again (a retire event too).
+     * Returns the new "revisit later" state.
      */
     suspend fun complete(
         lessonId: String,
@@ -134,10 +155,10 @@ class LessonStore(
         attempt: LessonAttemptData?,
         recordings: List<LessonRecording>,
         nowMs: Long = System.currentTimeMillis(),
-    ): ComputedCardState = lock.withLock {
+        retire: Boolean = false,
+        source: String = "session",
+    ): RevisitState = lock.withLock {
         val now = Js.toIsoString(nowMs)
-        val before = entries().firstOrNull { it.id == lessonId }?.events.orEmpty()
-        val newState = ItemSchedule.afterRating(before, rating, now)
         val id = UUID.randomUUID().toString()
         val event = LocalCompletion(id, lessonId, correct, total, now, rating)
         cache.put(LOCAL, KIND, cache.get(LOCAL, localSerializer).orEmpty() + event, localSerializer)
@@ -150,10 +171,11 @@ class LessonStore(
             val queued = cache.get(MEDIA, mediaSerializer).orEmpty() + recordings.map { PendingMedia(id, it.mediaKey, it.file.absolutePath, it.mime, nowMs) }
             cache.put(MEDIA, KIND, queued, mediaSerializer)
         }
+        if (retire) revisit.mark("lesson", lessonId, RevisitStore.RETIRE, source, nowMs)
         homework.recordDone("lesson", lessonId)
         // Completed: the half-done run is over (its recordings now wait in the media queue).
         progress?.clear(lessonId, deleteRecordings = false)
-        newState
+        entries().firstOrNull { it.id == lessonId }?.state ?: RevisitState.INITIAL
     }
 
     /** Where the player records an oral answer (moved into the media queue on completion). */
@@ -236,7 +258,7 @@ class LessonStore(
             }
         }
         // Pictures of EVERY lesson on the phone, not only today's: homework-only lessons skip
-        // the FSRS mix, and a picture drawn after the lesson first synced arrives with a later
+        // the session mix, and a picture drawn after the lesson first synced arrives with a later
         // sync (its key written in server-side).
         for (entry in entries()) {
             for (key in dev.jeromeswannack.chineselearning.lab.core.LessonImages.keys(entry.lesson.spec)) media.image(key, online = true)
@@ -245,9 +267,6 @@ class LessonStore(
         // ones are queued, and the catalogue samples' pictures come down.
         runCatching { pictures.topUpIfDue() }
     }
-
-    /** Cached queue state for the Mini Lessons chip. */
-    fun isLearning(entry: LessonEntry) = CardQueue.isLearning(entry.state.queue)
 
     companion object {
         const val KIND = "lessons"

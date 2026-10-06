@@ -1,10 +1,13 @@
 package dev.jeromeswannack.chineselearning.lab.data.readers
 
-import dev.jeromeswannack.chineselearning.lab.core.ComputedCardState
 import dev.jeromeswannack.chineselearning.lab.core.ItemEvent
 import dev.jeromeswannack.chineselearning.lab.core.ItemSchedule
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ReaderSchedule
+import dev.jeromeswannack.chineselearning.lab.core.Revisit
+import dev.jeromeswannack.chineselearning.lab.core.RevisitMark
+import dev.jeromeswannack.chineselearning.lab.core.RevisitSettings
+import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.core.ScheduledItem
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.data.Api
@@ -29,6 +32,7 @@ import dev.jeromeswannack.chineselearning.lab.data.lessons.HomeworkLink
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonMedia
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
+import dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -42,10 +46,17 @@ import java.io.File
 import java.time.ZoneId
 import java.util.UUID
 
-/** A cached reader with its replayed FSRS state. */
-data class ReaderEntry(val reader: GradedReaderDto, val events: List<ItemEvent>, val state: ComputedCardState) {
+/** A cached reader with its replayed "revisit later" state. */
+data class ReaderEntry(
+    val reader: GradedReaderDto,
+    val events: List<ItemEvent>,
+    val state: RevisitState,
+    /** The account's gaps the state was replayed with (for the rating buttons' labels). */
+    val settings: RevisitSettings = Revisit.DEFAULT,
+) {
     val id: String get() = reader.id
     val item: ScheduledItem get() = ScheduledItem(reader.id, reader.createdAt, state, reader.studyable)
+    val retired: Boolean get() = state.isRetired
 }
 
 @Serializable
@@ -55,8 +66,9 @@ private data class Cursor(val since: String, val afterId: String = "")
  * Graded readers offline — the web's services/readerSync.ts + reader-study.ts on the Lab
  * platform: the readers (with pages) in the JsonCache, review events merged from the server
  * (`GET /api/reader-reviews`, cursor-paged) and made here (sent through the Outbox,
- * idempotent by id), scheduling replayed from them, one reader a day, illustrations and
- * page narration cached for the train.
+ * idempotent by id), the "revisit later" schedule replayed from them + the Done-for-good /
+ * Bring-back marks ([RevisitStore]), one reader a day, illustrations and page narration
+ * cached for the train.
  */
 class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, private val api: Api) {
     private val filesDir: File = outbox.dir.parentFile ?: outbox.dir
@@ -64,29 +76,40 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
     private val homework = HomeworkLink(cache, outbox)
     private val listSerializer = ListSerializer(GradedReaderDto.serializer())
     private val eventsSerializer = ListSerializer(ReaderReviewDto.serializer())
+    /** Done for good / Bring back and the account's gaps ("revisit later"). */
+    val revisit = RevisitStore(cache, outbox, api)
 
     fun observe(): Flow<List<ReaderEntry>> =
-        combine(cache.observe(LIST, listSerializer), cache.observe(EVENTS, eventsSerializer)) { list, events -> merge(list.orEmpty(), events.orEmpty()) }
-            .flowOn(Dispatchers.Default)
+        combine(cache.observe(LIST, listSerializer), cache.observe(EVENTS, eventsSerializer), revisit.observeMarks(), revisit.observeSettings()) { list, events, marks, settings ->
+            merge(list.orEmpty(), events.orEmpty(), marks, settings)
+        }.flowOn(Dispatchers.Default)
 
     suspend fun hasCache(): Boolean = cache.entry(LIST) != null
 
     suspend fun entries(): List<ReaderEntry> {
         val list = cache.get(LIST, listSerializer).orEmpty()
         val events = events()
-        return withContext(Dispatchers.Default) { merge(list, events) }
+        val marks = revisit.marks()
+        val settings = revisit.settings()
+        return withContext(Dispatchers.Default) { merge(list, events, marks, settings) }
     }
 
     suspend fun entry(id: String): ReaderEntry? = entries().firstOrNull { it.id == id }
 
     private suspend fun events(): List<ReaderReviewDto> = cache.get(EVENTS, eventsSerializer).orEmpty()
 
-    private fun merge(list: List<GradedReaderDto>, events: List<ReaderReviewDto>): List<ReaderEntry> {
+    private fun merge(list: List<GradedReaderDto>, events: List<ReaderReviewDto>, marks: List<RevisitMark>, settings: RevisitSettings): List<ReaderEntry> {
         val byReader = events.groupBy { it.readerId }
+        val marksByReader = marks.filter { it.itemKind == "reader" }.groupBy { it.itemId }
         return list.map { r ->
             val ev = byReader[r.id].orEmpty().map { ItemEvent(it.id, it.readerId, it.rating, it.reviewedAt) }
-            ReaderEntry(r, ev, ItemSchedule.state(ev))
+            ReaderEntry(r, ev, ItemSchedule.state(ev, marksByReader[r.id].orEmpty(), settings), settings)
         }
+    }
+
+    /** "✓ Done for good" / "↩ Bring back" from the Readers list (`markRevisit`). */
+    suspend fun markRevisit(readerId: String, action: String, source: String = "list") {
+        revisit.mark("reader", readerId, action, source)
     }
 
     /** `getDueReaders`: at most one — today's reader (one-off homework readers stay out). */
@@ -99,19 +122,27 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
     }
 
     /**
-     * `recordReaderReview`: append the event, queue it for upload, mark homework done.
-     * Returns the new state (a reader rated back into learning stays in the session).
+     * `recordReaderReview`: append the event, queue it for upload, mark homework done. The
+     * rating sets when it comes back ("revisit later" — a day at the soonest, so it always
+     * leaves the session); [retire] = "Done for good": read, and never scheduled again.
+     * Returns the new state.
      */
-    suspend fun rate(readerId: String, rating: Int, timeSpentMs: Long, nowMs: Long = System.currentTimeMillis()): ComputedCardState = lock.withLock {
+    suspend fun rate(
+        readerId: String,
+        rating: Int,
+        timeSpentMs: Long,
+        nowMs: Long = System.currentTimeMillis(),
+        retire: Boolean = false,
+        source: String = "session",
+    ): RevisitState = lock.withLock {
         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("reader.finish", mapOf("rating" to listOf("again", "hard", "good", "easy").getOrNull(rating)))
         val now = Js.toIsoString(nowMs)
-        val before = events().filter { it.readerId == readerId }.map { ItemEvent(it.id, it.readerId, it.rating, it.reviewedAt) }
-        val state = ItemSchedule.afterRating(before, rating, now)
         val event = ReaderReviewDto(UUID.randomUUID().toString(), readerId, rating, timeSpentMs, now)
         cache.put(EVENTS, KIND, events() + event, eventsSerializer)
         outbox.enqueueJson("reader-reviews", "POST", "/api/reader-reviews", ReaderReviewsUpload(listOf(event.copy(createdAt = null))), id = event.id)
+        if (retire) revisit.mark("reader", readerId, RevisitStore.RETIRE, source, nowMs)
         homework.recordDone("reader", readerId)
-        state
+        entries().firstOrNull { it.id == readerId }?.state ?: RevisitState.INITIAL
     }
 
     /** A page illustration generated on demand, kept on the cached reader (`updateLocalReaderPageImage`). */

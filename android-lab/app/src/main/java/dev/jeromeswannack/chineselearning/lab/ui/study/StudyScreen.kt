@@ -137,7 +137,7 @@ class StudyActions(
     val lessonEnv: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(),
     val onLessonComplete: (dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) -> Unit = {},
     val readerEnv: @Composable (readerId: String) -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv = { dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv() },
-    val onReaderRated: (rating: Int, timeSpentMs: Long) -> Unit = { _, _ -> },
+    val onReaderRated: (rating: Int, timeSpentMs: Long, retire: Boolean) -> Unit = { _, _, _ -> },
     /** Lab "today split": Continue on the "Flashcards done" pause. (Later = [onClose].) */
     val onContinueExtras: () -> Unit = {},
 )

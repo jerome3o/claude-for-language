@@ -51,7 +51,8 @@ import java.io.File
 /** The reader in the session (hidden / revealed / rating), the reading view, the list and the generate page. */
 class ReaderScreenshots : LabScreenshotTest() {
     private val now = Js.parseDate("2026-09-27T09:30:00.000Z")
-    private val previews = CardScheduler.intervalPreviews(CardScheduler.initialCardState(), now)
+    /** "Revisit later" labels for a story never read: 1 day · 2 days · 2 wk · 6 wk. */
+    private val previews = dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(dev.jeromeswannack.chineselearning.lab.core.RevisitState.INITIAL)
 
     /** A soft "illustration" (sky, sun, hills) so the image slot renders like the real thing. */
     private val picture: File by lazy {
@@ -162,6 +163,8 @@ class ReaderScreenshots : LabScreenshotTest() {
         tap("Tap to reveal Chinese"); tap("Tap to reveal pinyin"); tap("Tap to reveal translation")
     }
     @Test fun lastPage() = shootAfter("readers-03-session-rate", session()) { tap("Next"); tap("Next") }
+    /** The last page's rating row: the revisit gaps + "✓ Done for good · don't bring it back". */
+    @Test fun doneForGood() = shootAfter("revisit-02-reader-rating", session()) { tap("Next"); tap("Next") }
 
     /** Everything revealed, then scrolled to the bottom of the page: the blue progress bar stays pinned at the top. */
     private fun revealAndScroll() {
@@ -206,6 +209,21 @@ class ReaderScreenshots : LabScreenshotTest() {
     @Test fun listFailedOpen() = shootAfter("readers-07-list-failed-open", { ReadersListScreen(listUi, ReadersActions(onBack = {})) }) {
         tap("2 failed generations")
         tap("Show details")
+    }
+    /** "Next revisit 11 Oct" with ✓ Done for good, and a story done for good with ↩ Bring back. */
+    @Test fun listRevisit() = shoot("revisit-04-readers-list") {
+        val day = 86_400_000L
+        ReadersListScreen(
+            listUi.copy(
+                readers = listUi.readers!!.filter { it.status != "generating" },
+                revisit = mapOf(
+                    reader.id to dev.jeromeswannack.chineselearning.lab.core.RevisitState("scheduled", Js.parseDate("2026-10-11T09:00:00.000Z"), 14.0, null, 1),
+                    "r2" to dev.jeromeswannack.chineselearning.lab.core.RevisitState("retired", null, 42.0, null, 1),
+                ),
+                cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyCutoff(Js.parseDate("2026-09-27T23:59:59.999Z") + 0 * day),
+            ),
+            ReadersActions(onBack = {}),
+        )
     }
     @Test fun empty() = shoot("readers-08-list-empty") { ReadersListScreen(ReadersUi(readers = emptyList(), offline = true, updatedAt = now), ReadersActions(onBack = {})) }
 

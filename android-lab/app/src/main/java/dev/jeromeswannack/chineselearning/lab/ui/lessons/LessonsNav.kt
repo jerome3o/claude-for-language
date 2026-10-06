@@ -50,6 +50,8 @@ fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
                 onAnswers = { nav.open(Routes.lessonAttempts() + "?lesson=" + Routes.seg(it)) },
                 onDelete = vm::delete,
                 onRetry = vm::refresh,
+                onDoneForGood = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RETIRE) },
+                onBringBack = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RESTORE) },
             ),
         )
     }
@@ -148,6 +150,15 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
             } catch (e: Exception) {
                 _ui.update { it.copy(refreshing = false, error = e.userMessage(), offline = e is java.io.IOException && e !is dev.jeromeswannack.chineselearning.lab.data.HttpException, lessons = it.lessons ?: emptyList()) }
             }
+        }
+    }
+
+    /** ✓ Done for good / ↩ Bring back: written here at once, uploaded through the outbox. */
+    fun revisit(id: String, action: String) {
+        viewModelScope.launch {
+            runtime.store.markRevisit(id, action)
+            app.haptics.tick()
+            runtime.uploadSoon()
         }
     }
 

@@ -19,3 +19,20 @@ Hard above Good is refused inline.
 
 ![Mini Lessons page](06-mini-lessons-next-revisit.png)
 Mini Lessons: "Coming back later" with "Next revisit Oct 20".
+
+Lab app:
+
+![Lab lesson rating](lab-revisit-01-lesson-rating.png)
+Lab: lesson finished — revisit gaps + Done for good.
+
+![Lab reader rating](lab-revisit-02-reader-rating.png)
+Lab: reader finished.
+
+![Lab mini lessons](lab-revisit-03-mini-lessons.png)
+Lab: Mini Lessons — Up next / Coming back later / Done for good.
+
+![Lab settings](lab-revisit-05-settings.png)
+Lab: Settings → Lessons & readers.
+
+![Lab settings problem](lab-revisit-07-settings-problem.png)
+Lab: Hard above Good refused.

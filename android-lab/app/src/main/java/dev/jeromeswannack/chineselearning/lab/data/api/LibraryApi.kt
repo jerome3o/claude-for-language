@@ -57,6 +57,10 @@ data class LibraryAssignmentDto(
     val last_score: LastScoreDto? = null,
     val last_attempt_id: String? = null,
     val up_to_date: Boolean = true,
+    /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
+    val next_revisit_at: String? = null,
+    /** The student marked it "Done for good". */
+    val retired: Boolean = false,
 )
 
 @Serializable

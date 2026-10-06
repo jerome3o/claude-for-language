@@ -188,6 +188,7 @@ private fun StudentCopyRow(r: LibraryAssignmentDto, actions: LibraryItemActions)
                     if (rating != null) withStyle(SpanStyle(color = color, fontWeight = FontWeight.SemiBold)) { append(rating) }
                     r.last_score?.let { append(" ${it.correct}/${it.total}") }
                     append(" · ${LibraryText.shortDate(r.last_completed_at)}")
+                    dev.jeromeswannack.chineselearning.lab.core.Revisit.tutorLabel(r.next_revisit_at, r.retired)?.let { append(" · $it") }
                 } else {
                     withStyle(SpanStyle(color = Lab.colors.muted)) { append("not yet") }
                 }

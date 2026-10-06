@@ -24,6 +24,7 @@ object FeatureSyncs {
         platform.register("study-mc", dev.jeromeswannack.chineselearning.lab.ui.study.MultipleChoice.Sync) // multiple-choice options for offline listen cards (A)
         platform.register("chars", dev.jeromeswannack.chineselearning.lab.data.chars.CharDict.Sync) // character sheet: dictionary records of the upcoming queue's characters (hourly)
         platform.register("study-time", dev.jeromeswannack.chineselearning.lab.data.study.StudyDayStore.Sync) // A: active study time per day → PUT /api/me/study-time
+        platform.register("revisit", dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitSync) // "revisit later": the gaps + Done-for-good events of lessons / readers
         platform.register("lessons", dev.jeromeswannack.chineselearning.lab.data.lessons.LessonsSync) // B: mini lessons (+ media)
         platform.register("readers", dev.jeromeswannack.chineselearning.lab.data.readers.ReadersSync) // B: graded readers (+ media)
         platform.register("quests", dev.jeromeswannack.chineselearning.lab.ui.quests.QuestsSync) // H: levels playable offline
