@@ -111,6 +111,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── doc.ts         # LESSON_SPEC_DOC: the spec text every lesson-authoring Claude reads (worker + MCP)
 │   │   ├── samples.ts     # Bundled sample lesson per type (tutor catalogue)
 │   │   ├── voices.ts      # Conversation voices: curated MiniMax catalogue (default_on), enabled pools, per-dialogue rotation (conversationVoicesFor), 0.9× speed + 200 ms turn gap
+│   │   ├── conversationAudio.ts # Conversation audio prefs (speed / delivery / voices per provider, per-conversation choices), resolveConversationAudio — docs/AUDIO.md "Conversation audio"
+│   │   ├── introWarnings.ts # Soft warning: a note before a conversation that quotes its dialogue (spoiler intro)
 │   │   ├── answer-check.ts # Typed-hanzi checking + character diff (diffHanzi)
 │   │   ├── attempt.ts     # Per-exercise attempt data (answers, time, recordings) + server sanitizer
 │   │   ├── validate.ts    # Structural validation for agent-authored specs
@@ -136,7 +138,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
-│   ├── tts/               # TTS provider settings (TtsConfig: stored / live order, voices, max RPM), voice catalogues, validation, speed mapping (docs/AUDIO.md "Providers")
+│   ├── tts/               # TTS provider settings (TtsConfig: stored / live order, voices, max RPM, conversation_rate), voice catalogues, validation, speed mapping (docs/AUDIO.md "Providers"); conversation.ts = conversation rates / voices / deliveries per provider
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
 │       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
 │       ├── validate.ts    # validateReaderSpec / normalizeReaderSpec
@@ -340,6 +342,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `student_profiles` - The tutor's PRIVATE profile of a student, one per `tutor_relationships` row (tutor_id, student_id, markdown `body` ≤ 8000, optional `level` / `handwriting` / `words_per_lesson`). Migration 0077. Only the tutor-only route, the dashboard's `has_profile` flag and the tutor-side content agents read it — never a student-facing path. See "Student profile" below
 - `study_bumps` - "⚡ Study it today" (migration 0106; `shared/decks/bumps.ts`, `services/study-bumps.ts`): one row per user + note the learner bumped to the front of today's study (id = client id, source, `bumped_by` = the learner or their tutor, created_at, `done_at` written lazily by the server once every bumped card was reviewed since the bump, `cleared_at` = taken out by hand). Active = both NULL; `/api/sync/changes` carries the active list as `bumps`
 - `folders` - Folders for organising decks, Lesson Library items and graded readers (migration 0105; `shared/folders`, `services/folders.ts`): user_id, `kind` deck|lesson|reader, name (≤ 60), `parent_id` (ONE level of nesting), `position`. Items carry a nullable `folder_id` (`decks`, `lesson_library`, `graded_readers`; NULL = Unfiled). Organisation only — the study queue never reads them. Deleting a folder unfiles its items and lifts its subfolders; nothing else is deleted. Copies made for a student never carry the tutor's folder_id
+- `users.conversation_audio` - Conversation audio preferences JSON (migration 0110; `shared/lesson/conversationAudio.ts`, docs/AUDIO.md "Conversation audio")
 - `users.voice_gender` - 'male' | 'female' | 'other' | NULL: the voice this person's chat messages are read aloud in (migration 0098; Profile → "Your voice when your messages are read aloud", admin `PUT /api/admin/users/:user/voice-gender`, MCP `admin_set_user_voice_gender`). See "Chat read-aloud voice"
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
@@ -1094,9 +1097,13 @@ sketch-pad fallback when the stroke data isn't on the device), `dictation` (hear
 transcribed server-side when a transcriber is configured) and `conversation` (a 2–3 speaker
 dialogue played with a distinct TTS voice per speaker — `shared/lesson/voices.ts`, `voice_id`
 on `/api/practice/tts`, cached per voice + speed for offline — then comprehension questions, one point
-each, transcript revealed at the end). Conversation lines are generated at `CONVERSATION_TTS_SPEED`
-(0.9; every other clip stays at 0.6) and play back to back with a `CONVERSATION_LINE_GAP_MS` (200 ms)
-beat. Voices come from the account's **enabled pool** (Settings → Advanced → Conversation voices,
+each, transcript revealed at the end). Conversation lines are spoken at the provider's own
+conversation rate (admin `conversation_rate`: MiniMax 0.85, Azure 0.75, Google 0.8; every other clip
+stays at 0.6) or the learner's speed, and play back to back with a `CONVERSATION_LINE_GAP_MS` (200 ms)
+beat. **⚙︎ Audio** on every conversation (speed, a voice per speaker, delivery, Regenerate audio) —
+account preferences `GET|PUT /api/conversation-audio` (docs/AUDIO.md "Conversation audio").
+Lessons built around a conversation open with a SPOILER-FREE intro (`CONVERSATION_INTRO_RULE` in
+`shared/lesson/doc.ts`; `conversationIntroWarnings` warns softly in the editor and MCP tools). Voices come from the account's **enabled pool** (Settings → Advanced → Conversation voices,
 `/settings/voices`; Lab: same path): `conversationVoicesFor(ex, enabled)` picks two different voices
 per dialogue, rotated by a hash of the dialogue (stable for one dialogue, varied across them), gender
 as the spec says / alternating. Selection per account in `users.conversation_voices` (migration
@@ -1366,6 +1373,9 @@ durations, booleans only — never message text, card content, answers, recordin
   `feature_adoption`, `user_timeline`, `event_counts`, `recent_errors`, `ai_usage` (`mcp-server/src/tools/usage.ts`).
 
 ### Conversation voices (`worker/src/routes/conversation-voices.ts`, `services/conversation-voices.ts`)
+- `GET /api/conversation-audio` - the account's conversation-audio prefs + the active provider, its default speed, speed steps, voices (with the deliveries each supports)
+- `PUT /api/conversation-audio` - partial update `{ speed?, delivery?, voices?: { <provider>: { female?, male? } }, exercise_voices?: { "<provider>:<key>": [voice|null…] | null } }` (400 + `problems`)
+- `POST /api/practice/tts` with `kind: 'conversation'` - a conversation line: `speed` = the provider's own rate (clamped), `delivery`, `regenerate`; `voice_id` may be any provider's conversation voice
 - `GET /api/conversation-voices` - catalogue + `enabled`, `customised`, `default_enabled`, `default_source` (admin | app), `is_admin`, `speed`
 - `PUT /api/conversation-voices` - `{ enabled: string[] }` (known ids, ≥ 1 female and ≥ 1 male; 400 with `problems`) or `{ reset: true }`; an admin's selection is everyone else's default
 - `GET /api/conversation-voices/sample?voice=` - `{ audio_base64, content_type }`: the sample line in that voice, MiniMax only (no fallback voice), made once and kept in R2 (`voice-samples/v1/…`)
