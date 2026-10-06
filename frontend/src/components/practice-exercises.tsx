@@ -14,7 +14,6 @@ import {
   diffHanzi,
   sentenceUsesWord,
   CONVERSATION_LINE_GAP_MS,
-  CONVERSATION_TTS_SPEED,
   speakerGender,
   type ConversationLine,
   type ConversationQuestion,
@@ -40,7 +39,9 @@ import { useAudioRecorder } from '../hooks/useAudio';
 import { useLessonClips } from '../hooks/useLessonClips';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { shuffledIndexes } from '../utils/shuffle';
-import { voicesForConversation } from '../services/conversationVoices';
+import { audioForConversation, onConversationAudioChange } from '../services/conversationAudio';
+import { ConversationAudioSheet } from './lesson/ConversationAudioSheet';
+import { track } from '../services/analytics';
 import './lesson-exercises.css';
 
 type Speak = (text: string) => void;
@@ -699,8 +700,28 @@ export function ConversationExercise(props: {
   onNext: OnNext;
 }) {
   const { situation, speakers, lines, questions, onNext } = props;
-  const voices = useMemo(() => voicesForConversation({ situation, speakers, lines }), [situation, speakers, lines]);
-  const { playClip, stop } = useLessonClips();
+  // Voices / speed / delivery from this account's ⚙︎ Audio choices; re-read when they change.
+  const [audioRev, setAudioRev] = useState(0);
+  useEffect(() => {
+    const off = onConversationAudioChange(() => setAudioRev(r => r + 1));
+    return () => { off(); };
+  }, []);
+  const audio = useMemo(
+    () => audioForConversation({ situation, speakers, lines }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [situation, speakers, lines, audioRev],
+  );
+  const { playLine: playConversationLine, stop } = useLessonClips();
+  const [audioMenu, setAudioMenu] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const regenerateNext = useRef(false);
+  const audioRef = useRef(audio);
+  audioRef.current = audio;
+  const playClip = (text: string, voice: string) => {
+    const a = audioRef.current;
+    const regenerate = regenerateNext.current;
+    return playConversationLine({ text, voice, speed: a.speed, delivery: a.delivery }, { regenerate });
+  };
   const [playing, setPlaying] = useState(false);
   const [currentLine, setCurrentLine] = useState<number | null>(null);
   const [listened, setListened] = useState(false);
@@ -722,7 +743,7 @@ export function ConversationExercise(props: {
     for (let i = 0; i < lines.length; i++) {
       if (runRef.current !== run) return;
       setCurrentLine(i);
-      const ok = await playClip(lines[i].hanzi, voices[lines[i].speaker], CONVERSATION_TTS_SPEED);
+      const ok = await playClip(lines[i].hanzi, audioRef.current.voices[lines[i].speaker]);
       if (!ok) failures++;
       if (runRef.current !== run) return;
       // A natural turn-taking beat before the next speaker, no more.
@@ -754,7 +775,22 @@ export function ConversationExercise(props: {
     runRef.current++;
     setPlaying(false);
     setCurrentLine(i);
-    void playClip(lines[i].hanzi, voices[lines[i].speaker], CONVERSATION_TTS_SPEED).then(() => setCurrentLine(c => (c === i ? null : c)));
+    void playClip(lines[i].hanzi, audioRef.current.voices[lines[i].speaker]).then(() => setCurrentLine(c => (c === i ? null : c)));
+  }
+
+  /** Make every line again (server + device), then play the conversation with the new audio. */
+  async function regenerateAudio() {
+    if (regenerating || !navigator.onLine) return;
+    track('lesson.conversation_audio_regenerate', { lines: lines.length, provider: audio.provider });
+    setRegenerating(true);
+    stopPlaying();
+    regenerateNext.current = true;
+    try {
+      await playAll();
+    } finally {
+      regenerateNext.current = false;
+      setRegenerating(false);
+    }
   }
 
   function setAnswer(i: number, patch: Partial<QuestionState>) {
@@ -773,7 +809,28 @@ export function ConversationExercise(props: {
 
   return (
     <div className="exercise convo">
-      <div className="phase-label">Conversation 💬</div>
+      <div className="convo-head">
+        <div className="phase-label">Conversation 💬</div>
+        <button
+          type="button"
+          className="convo-audio-btn"
+          onClick={() => setAudioMenu(true)}
+          aria-label="Audio settings: speed, voices, regenerate"
+          title="Audio: speed, voices, regenerate"
+          data-testid="convo-audio-menu"
+        >
+          ⚙︎
+        </button>
+      </div>
+      {audioMenu && (
+        <ConversationAudioSheet
+          speakers={speakers}
+          audio={audio}
+          regenerating={regenerating}
+          onRegenerate={() => { setAudioMenu(false); void regenerateAudio(); }}
+          onClose={() => setAudioMenu(false)}
+        />
+      )}
       <div className="convo-situation">{situation}</div>
       <div className="convo-speakers">
         {speakers.map((s, i) => (

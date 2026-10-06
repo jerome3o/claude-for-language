@@ -17,10 +17,14 @@ import {
   clearTtsConfigCache,
   loadTtsConfig,
   providerVoice,
+  conversationProviderVoice,
+  activeConversationProvider,
   saveTtsConfig,
   storedClipHash,
   voiceRole,
 } from '../tts/config';
+import { minimaxProvider } from '../tts/providers';
+import { conversationTtsCacheKey } from '../tts-cache';
 import { combineProviderFailures, generateConversationTTS, generateTTSDetailed, shouldTryNextProvider } from '../audio';
 import { accountFailureCondition } from '../tts/account';
 import { ttsSettings } from '../tts/settings';
@@ -331,5 +335,48 @@ describe('one limiter per provider', () => {
     const snap = await lim.snapshot();
     expect(snap.last_ok_at).toBe(Date.parse('2026-10-04T12:00:00Z'));
     expect(snap.last_error).toMatchObject({ reason: 'base_resp 2013 bad text' });
+  });
+});
+
+describe('conversation audio (docs/AUDIO.md "Conversation audio")', () => {
+  const c = cloneTtsConfig();
+  it('speaks a provider\'s own voice at its own conversation rate, mapping other voices by gender', () => {
+    expect(conversationProviderVoice('azure', c, { voiceId: 'zh-CN-YunjianNeural' })).toEqual({ voice: 'zh-CN-YunjianNeural', rate: 0.75 });
+    expect(conversationProviderVoice('azure', c, { voiceId: 'presenter_male', speed: 0.9 })).toEqual({ voice: 'zh-CN-YunxiNeural', rate: 0.9 });
+    expect(conversationProviderVoice('minimax', c, { voiceId: 'zh-CN-XiaoyiNeural', speed: 0.5 })).toEqual({ voice: 'Chinese (Mandarin)_News_Anchor', rate: 0.5 });
+    expect(conversationProviderVoice('azure', c, { voiceId: 'zh-CN-YunxiNeural', speed: 0.3 }).rate).toBe(0.6);
+    expect(conversationProviderVoice('minimax', c, { voiceId: 'presenter_male' }).rate).toBe(0.85);
+  });
+  it('adds the delivery the voice supports', () => {
+    expect(conversationProviderVoice('azure', c, { voiceId: 'zh-CN-XiaoxiaoNeural', delivery: 'calm' }).style).toBe('calm');
+    expect(conversationProviderVoice('azure', c, { voiceId: 'zh-CN-XiaochenNeural', delivery: 'calm' }).style).toBeUndefined();
+    expect(conversationProviderVoice('minimax', c, { voiceId: 'presenter_male', delivery: 'cheerful' }).emotion).toBe('happy');
+  });
+  it('the SSML carries express-as with the mstts namespace only when styled', () => {
+    const ssml = buildAzureSsml('你好', 'zh-CN-XiaoxiaoNeural', 0.75, 'calm');
+    expect(ssml).toContain('xmlns:mstts="https://www.w3.org/2001/mstts"');
+    expect(ssml).toContain('<mstts:express-as style="calm"><prosody rate="-25%">你好</prosody></mstts:express-as>');
+    expect(buildAzureSsml('你好', 'zh-CN-XiaoxiaoNeural', 0.75)).not.toContain('mstts');
+  });
+  it('MiniMax gets the emotion in voice_setting', async () => {
+    let body: Record<string, unknown> = {};
+    const fetcher = (async (_u: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ data: { audio: 'fff3' } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    await minimaxProvider.synthesize({ MINIMAX_API_KEY: 'k' } as Env, { text: '你好', voice: 'presenter_male', rate: 0.8, emotion: 'calm' }, fetcher);
+    expect(body.voice_setting).toEqual({ voice_id: 'presenter_male', speed: 0.8, emotion: 'calm' });
+  });
+  it('the active provider is the next stored one while the first is paused', () => {
+    expect(activeConversationProvider({ order: ['minimax', 'azure'], primaryUnavailable: true })).toBe('azure');
+    expect(activeConversationProvider({ order: ['minimax', 'azure'], primaryUnavailable: false })).toBe('minimax');
+    expect(activeConversationProvider({ order: [], primaryUnavailable: false })).toBe('minimax');
+  });
+  it('conversation clips get their own R2 keys per rate and delivery', async () => {
+    const a = await conversationTtsCacheKey('你好', 'azure', { voice: 'zh-CN-YunxiNeural', rate: 0.75 });
+    const b = await conversationTtsCacheKey('你好', 'azure', { voice: 'zh-CN-YunxiNeural', rate: 0.8 });
+    const d = await conversationTtsCacheKey('你好', 'azure', { voice: 'zh-CN-YunxiNeural', rate: 0.75, style: 'chat' });
+    expect(new Set([a, b, d]).size).toBe(3);
+    expect(a).toMatch(/^tts-cache\/v2\/c-[0-9a-f]{64}\.mp3$/);
   });
 });

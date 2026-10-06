@@ -138,9 +138,9 @@ async function settingsView(env: Env) {
       stored_primary: policy.primary,
       primary_unavailable: policy.primaryUnavailable,
       current_providers: policy.acceptable,
-      // The rate each provider speaks the card speed (0.6) and conversations (0.9) at.
+      // The rate each provider speaks the card speed (0.6) and conversations (its own conversation_rate) at.
       rates: Object.fromEntries(
-        TTS_PROVIDERS.map((id) => [id, { cards: id === 'minimax' ? speed : providerRate(config.providers[id], speed), conversations: id === 'minimax' ? 0.9 : providerRate(config.providers[id], 0.9) }]),
+        TTS_PROVIDERS.map((id) => [id, { cards: id === 'minimax' ? speed : providerRate(config.providers[id], speed), conversations: config.providers[id].conversation_rate }]),
       ),
     },
     updated_at: meta.updated_at,

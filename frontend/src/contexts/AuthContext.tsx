@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { STUDY_BUDGET_CHANGED, writeStudyBudget } from '../services/studyBudget';
 import type { StudyBudgetInfo } from '@shared/decks';
 import { writeConversationVoices } from '../services/conversationVoices';
+import { writeConversationAudio } from '../services/conversationAudio';
 import { AuthUser } from '../types';
 import { setSharingUsage } from '../services/analytics';
 import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
@@ -30,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(userData);
       writeStudyBudget(userData);
       writeConversationVoices(userData.conversation_voices);
+      writeConversationAudio(userData.conversation_audio);
       if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);
       localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
     } catch (err) {
@@ -82,6 +84,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
         writeStudyBudget(userData);
         writeConversationVoices(userData.conversation_voices);
+        writeConversationAudio(userData.conversation_audio);
+      writeConversationAudio(userData.conversation_audio);
         if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);
         localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
       } catch (err) {

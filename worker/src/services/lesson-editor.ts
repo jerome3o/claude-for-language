@@ -14,7 +14,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { CustomLessonSpec, validateLessonSpec } from '@shared/lesson';
+import { CustomLessonSpec, validateLessonSpec, CONVERSATION_INTRO_RULE } from '@shared/lesson';
 import { LESSON_SPEC_INPUT_SCHEMA } from './custom-lesson';
 export { mergeKeptImages } from './custom-lesson';
 
@@ -38,7 +38,7 @@ export const LESSON_STYLE_RULES = `Language rules:
 - Typing and handwriting are separate skills: write_typed vs write_handwriting (≤ 12 characters), and input "type" / "handwrite" on sentence_making and dictation. When the author asks for "writing" without saying which, use write_typed and mention the handwriting option.
 - sentence_making: 1-4 target words the learner must use in their own sentence; give a task (situation) and an example answer.
 - oral_expression: the answer is recorded for the tutor; give useful words as hints and a model answer as example.
-- conversation: 2 speakers (voice "female" / "male" so they sound different), 6-12 natural lines at the learner's level with pinyin + english, 2-4 comprehension questions in English about what happened (mostly multiple choice). Asked for a lesson about a situation ("booking a hotel, beginner"), build: a note with 2-3 key phrases → the conversation → a production exercise (oral_expression or sentence_making) in the same situation.`;
+- conversation: 2 speakers (voice "female" / "male" so they sound different), 6-12 natural lines at the learner's level with pinyin + english, 2-4 comprehension questions in English about what happened (mostly multiple choice). Asked for a lesson about a situation ("booking a hotel, beginner"), build: a spoiler-free intro note → the conversation → a note with the useful phrases → a production exercise (oral_expression or sentence_making) in the same situation. ${CONVERSATION_INTRO_RULE}`;
 
 export const LESSON_SPEC_SCHEMA_TEXT = `Lesson spec shape (JSON):
 { title, icon? (one emoji), description?, sections: [ { title?, exercises: [ ... ] } ] }

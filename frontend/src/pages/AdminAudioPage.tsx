@@ -13,6 +13,7 @@ import {
   cloneTtsConfig,
   mergeTtsConfig,
   providerRate,
+  PROVIDER_RATE_RANGE,
   type TtsConfig,
   type TtsProviderId,
   type TtsVoiceOption,
@@ -38,7 +39,6 @@ import './AdminAudioPage.css';
 
 const ROLE_LABELS: Record<TtsVoiceRole, string> = { default: 'Default', female: 'Female', male: 'Male' };
 const CARD_SPEED = 0.6;
-const CONVERSATION_SPEED = 0.9;
 
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -351,7 +351,6 @@ function ProviderCard({
 
   const fixedSpeed = id === 'minimax';
   const cardsRate = providerRate(p, CARD_SPEED);
-  const convRate = providerRate(p, CONVERSATION_SPEED);
   const canSample = !!status?.configured;
 
   return (
@@ -452,10 +451,27 @@ function ProviderCard({
       </label>
       <p className="audio-hint">
         {fixedSpeed
-          ? 'MiniMax is the reference: it speaks at the app’s own speed (cards 0.6, conversations 0.9).'
+          ? 'MiniMax is the reference: card clips are spoken at the app’s own speed (0.6).'
           : Number.isNaN(p.speed_factor)
             ? 'Enter a factor between 0 and 2.'
-            : `Cards 0.6 → ${cardsRate}, conversations 0.9 → ${convRate}.${id === 'azure' ? ' HD voices ignore it and speak at their own pace.' : ''}`}
+            : `Card clips 0.6 → ${cardsRate}.${id === 'azure' ? ' HD voices ignore it and speak at their own pace.' : ''}`}
+      </p>
+
+      <label className="audio-field">
+        <span>Conversation speed</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          min={PROVIDER_RATE_RANGE[id].good_min}
+          max={PROVIDER_RATE_RANGE[id].good_max}
+          step={0.05}
+          value={Number.isNaN(p.conversation_rate) ? '' : p.conversation_rate}
+          onChange={(e) => update((c) => { c.providers[id].conversation_rate = e.target.value === '' ? Number.NaN : Number(e.target.value); })}
+          data-testid={`provider-conversation-rate-${id}`}
+        />
+      </label>
+      <p className="audio-hint">
+        {`${TTS_PROVIDER_NAMES[id]}'s own rate for conversation exercises (1 = its natural pace; sounds natural ${PROVIDER_RATE_RANGE[id].good_min}–${PROVIDER_RATE_RANGE[id].good_max}). The default until a learner picks a speed in the exercise's Audio menu.`}
       </p>
 
       {id === 'azure' && status?.configured && (

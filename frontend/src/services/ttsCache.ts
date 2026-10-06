@@ -7,7 +7,8 @@
  * the same pattern with page-scoped keys (see readerSync).
  */
 
-import { generatePracticeTTS } from '../api/client';
+import { generateConversationLineTTS, generatePracticeTTS } from '../api/client';
+import type { ConversationDelivery } from '@shared/tts';
 import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED } from '../types';
 import { getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
 
@@ -76,5 +77,55 @@ export async function prefetchTTS(texts: string[], speed: number = DEFAULT_TTS_S
     if (!(await isAudioCached(ttsCacheKey(text, speed)))) {
       await getTTSWithCache(text, speed);
     }
+  }
+}
+
+// ---------- Conversation lines (docs/AUDIO.md "Conversation audio") ----------
+
+export interface ConversationClip {
+  text: string;
+  voice: string;
+  /** The provider's own rate (shared/tts/conversation.ts). */
+  speed: number;
+  delivery: ConversationDelivery;
+}
+
+/** A conversation line's device key: text + voice + delivery + speed, apart from every other clip. */
+export function conversationClipKey(clip: ConversationClip): string {
+  const input = `${clip.text}|${clip.voice}|conv:${clip.delivery}`;
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash + input.charCodeAt(i)) >>> 0;
+  }
+  return `tts/c-${hash.toString(36)}-x${clip.speed}`;
+}
+
+/**
+ * Cache-first conversation line. `regenerate` asks the server to make it
+ * again (replacing the stored clip) and overwrites the device copy; offline
+ * the cached copy is played as it is.
+ */
+export async function getConversationClip(clip: ConversationClip, opts: { regenerate?: boolean } = {}): Promise<Blob | null> {
+  const key = conversationClipKey(clip);
+  const cached = await getCachedAudio(key);
+  if (cached && (!opts.regenerate || !navigator.onLine)) return cached;
+  if (!navigator.onLine) return null;
+  try {
+    const result = await generateConversationLineTTS(clip.text, { ...clip, regenerate: opts.regenerate });
+    const blob = base64ToBlob(result.audio_base64, result.content_type);
+    await cacheAudio(key, blob);
+    return blob;
+  } catch (err) {
+    console.error('[ttsCache] conversation line failed:', err);
+    return cached ?? null;
+  }
+}
+
+/** Prefetch conversation lines not yet on the device. */
+export async function prefetchConversationClips(clips: ConversationClip[]): Promise<void> {
+  for (const clip of clips) {
+    if (!navigator.onLine) return;
+    if (!clip.text.trim()) continue;
+    if (!(await isAudioCached(conversationClipKey(clip)))) await getConversationClip(clip);
   }
 }

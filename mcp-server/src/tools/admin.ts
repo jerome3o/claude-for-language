@@ -153,7 +153,7 @@ export function registerAdminTools(ctx: ToolContext): void {
 
   server.tool(
     'audio_settings_get',
-    'ADMIN ONLY. Read-only. Which TTS provider speaks and in what order: `settings` = { stored_order (providers tried for clips that are KEPT: word / card sentence / sentence-set clips, lesson + chat clips cached on devices), live_order (played once: chat Read-aloud fallback, role-play replies), upgrade_backup_clips (remake a backup provider\'s clips with the first provider once it is available again), providers: { minimax | azure | google: { enabled, max_rpm, voices: { default, female, male }, speed_factor (rate = 1 + (app speed − 1) × factor) } } }; `defaults` (MiniMax only for stored, Google live fallback); `catalogue` (curated voices per provider); `providers` (configured? missing secrets, account problem, learned RPM, last success / error); `effective` (the orders minus disabled / unconfigured providers, which providers\' clips are current, the rates cards (0.6) and conversations (0.9) are spoken at). `azure_voices: true` also lists the zh-CN voices Azure offers in its region (proves the key works).',
+    'ADMIN ONLY. Read-only. Which TTS provider speaks and in what order: `settings` = { stored_order (providers tried for clips that are KEPT: word / card sentence / sentence-set clips, lesson + chat clips cached on devices), live_order (played once: chat Read-aloud fallback, role-play replies), upgrade_backup_clips (remake a backup provider\'s clips with the first provider once it is available again), providers: { minimax | azure | google: { enabled, max_rpm, voices: { default, female, male }, speed_factor (card clips: rate = 1 + (app speed − 1) × factor), conversation_rate (the provider\'s own rate for conversation exercises, default until a learner picks one) } } }; `defaults` (MiniMax only for stored, Google live fallback); `catalogue` (curated voices per provider); `providers` (configured? missing secrets, account problem, learned RPM, last success / error); `effective` (the orders minus disabled / unconfigured providers, which providers\' clips are current, the rates cards (0.6) and conversations are spoken at). `azure_voices: true` also lists the zh-CN voices Azure offers in its region (proves the key works).',
     { azure_voices: z.boolean().optional().describe('Also list the zh-CN voices of the configured Azure region (one read-only Azure call).') },
     async ({ azure_voices }) => guard(async () => jsonResult(await api.get('/api/admin/audio/settings', azure_voices ? { azure_voices: '1' } : undefined)))
   );
@@ -172,7 +172,8 @@ export function registerAdminTools(ctx: ToolContext): void {
             enabled: z.boolean().optional(),
             max_rpm: z.number().int().min(1).max(600).optional().describe('Hard cap on requests per minute (Azure F0 allows 20 / 60 s).'),
             voices: z.object({ default: z.string().optional(), female: z.string().optional(), male: z.string().optional() }).optional(),
-            speed_factor: z.number().min(0).max(2).optional(),
+            speed_factor: z.number().min(0).max(2).optional().describe('Card clips: rate = 1 + (app speed 0.6 − 1) × factor.'),
+            conversation_rate: z.number().min(0.25).max(2).optional().describe("The provider's own rate for conversation exercises when the learner hasn't picked one (1 = natural; sounds natural ~0.6–1.2; defaults MiniMax 0.85, Azure 0.75, Google 0.8)."),
           }),
         )
         .optional(),

@@ -702,3 +702,16 @@ textarea.ed-input { min-height: 0; resize: vertical; }
 .ed-voice { flex: 0 0 8.5rem; }
 .ed-line-speaker { flex: 0 0 7rem; align-self: flex-start; }
 .ed-question { display: flex; flex-direction: column; gap: 0.375rem; padding: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); }
+
+/* Soft warnings (saved anyway), e.g. an intro that gives a conversation away. */
+.editor-soft-warnings {
+  background: var(--color-warning-bg, #fff6e0);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.editor-soft-warnings p {
+  margin: 0.25rem 0;
+}

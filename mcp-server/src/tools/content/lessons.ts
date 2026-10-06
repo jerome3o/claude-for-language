@@ -9,6 +9,8 @@ import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from
 import type { ToolContext } from '../context.js';
 import { jsonResult, textResult, errorResult, guard } from '../context.js';
 import { LESSON_SPEC_DOC, lessonSpecProblems, formatProblems } from './specs.js';
+import { conversationIntroWarnings } from '../../../../shared/lesson/introWarnings';
+import type { CustomLessonSpec } from '../../../../shared/lesson/types';
 import { CONFIRM_SEND, NEEDS_CONFIRM, NOT_SENT, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_TODAY, assignLessonAsHomework, describeSend, resolveStudent, sentTo, type ResolvedStudent } from '../homework-send.js';
 import { UPDATE_STUDENT_COPIES, copiesForReply, updateStudentCopies } from '../student-copies.js';
 
@@ -98,7 +100,9 @@ ${LESSON_SPEC_DOC}`,
       const filed = await resolveFolder(api, 'lesson', { folder_id, folder });
       if (filed) body.folder_id = filed.id;
       const item = await api.post<LibraryItem>('/api/lesson-library', body);
+      const warnings = item.spec ? conversationIntroWarnings(item.spec as CustomLessonSpec) : [];
       return jsonResult({
+        ...(warnings.length ? { warnings } : {}),
         id: item.id,
         title: item.title,
         version: item.version,
@@ -125,7 +129,9 @@ ${LESSON_SPEC_DOC}`,
       if (problems.length > 0) return errorResult(formatProblems('Lesson spec', problems));
       const item = await api.put<LibraryItem>(`/api/lesson-library/${encodeURIComponent(library_id)}`, tags === undefined ? { spec } : { spec, tags });
       const copies = item.assignment_count ? await updateStudentCopies(api, 'lesson', library_id, update_student_copies) : null;
+      const warnings = conversationIntroWarnings(spec as unknown as CustomLessonSpec);
       return jsonResult({
+        ...(warnings.length ? { warnings } : {}),
         id: item.id,
         title: item.title,
         version: item.version,

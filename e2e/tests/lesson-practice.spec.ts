@@ -121,3 +121,25 @@ test('tutor catalogue lists every type; a sample lesson runs as a trial', async 
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   await expect(page.getByText('✓ Correct')).toBeVisible();
 });
+
+test('a conversation exercise has an Audio menu: speed and delivery are saved to the account', async ({ page, request }) => {
+  const tutor = await seedUser(request, 'convo-audio');
+  await page.goto(`/library/catalogue?session_token=${tutor.token}`);
+  await expect(page.getByRole('heading', { name: /Exercise catalogue/ })).toBeVisible({ timeout: 30000 });
+  await page.locator('#type-conversation').getByRole('link', { name: /Try it/ }).click();
+  await expect(page.getByText('Preview · nothing is recorded')).toBeVisible({ timeout: 15000 });
+  // The intro note sets the scene only, then the conversation.
+  await page.locator('.practice-btn.primary').first().click();
+  await page.getByTestId('convo-audio-menu').click();
+  const sheet = page.getByTestId('conversation-audio-sheet');
+  await expect(sheet).toBeVisible();
+  await sheet.getByTestId('convo-speed-0.7').click();
+  await expect(sheet.getByTestId('convo-speed-0.7')).toHaveAttribute('aria-checked', 'true');
+  await sheet.getByTestId('convo-delivery-calm').click();
+  await expect(sheet.getByTestId('convo-delivery-calm')).toHaveAttribute('aria-checked', 'true');
+  // Saved to the account (the other app and every conversation follow it).
+  await expect.poll(async () => (await api<{ prefs: { speed: number | null; delivery: string } }>(request, '/api/conversation-audio', { token: tutor.token })).prefs)
+    .toMatchObject({ speed: 0.7, delivery: 'calm' });
+  await sheet.getByRole('button', { name: 'Done' }).click();
+  await expect(sheet).toBeHidden();
+});

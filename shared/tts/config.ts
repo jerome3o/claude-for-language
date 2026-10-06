@@ -31,6 +31,12 @@ export interface TtsProviderConfig {
    * this provider: rate = 1 + (speed − 1) × factor. 1 = the same number.
    */
   speed_factor: number;
+  /**
+   * The provider's own rate for conversation lines (1 = its natural pace) when
+   * the learner hasn't picked a speed — conversations are a listening exercise,
+   * clearly slower than native but still natural (shared/tts/conversation.ts).
+   */
+  conversation_rate: number;
 }
 
 export interface TtsConfig {
@@ -106,6 +112,22 @@ export function isFixedRateVoice(provider: TtsProviderId, voice: string): boolea
   return provider === 'azure' && voice.includes(':');
 }
 
+/**
+ * Each provider's speaking-rate range (1 = its natural pace) and the part of it
+ * that still sounds natural for Mandarin (docs/AUDIO.md "Conversation speed"):
+ * - MiniMax `voice_setting.speed` accepts 0.5–2; the model re-synthesises at
+ *   the pace (no time-stretch), still clean at 0.5 (card clips are 0.6).
+ * - Azure `<prosody rate>` accepts 0.5–2× (x-slow = 0.5, slow = 0.64); neural
+ *   zh-CN voices drag and smear syllables below ~0.6.
+ * - Google `speakingRate` accepts 0.25–4; WaveNet sounds robotic below ~0.6.
+ * Above ~1.2 none of them is useful for a learner.
+ */
+export const PROVIDER_RATE_RANGE: Record<TtsProviderId, { min: number; max: number; good_min: number; good_max: number }> = {
+  minimax: { min: 0.5, max: 2, good_min: 0.5, good_max: 1.2 },
+  azure: { min: 0.5, max: 2, good_min: 0.6, good_max: 1.2 },
+  google: { min: 0.25, max: 4, good_min: 0.6, good_max: 1.2 },
+};
+
 /** Azure F0 (free) allows 20 requests / 60 s: start well below it. */
 export const AZURE_DEFAULT_MAX_RPM = 15;
 export const RPM_LIMIT = 600;
@@ -120,6 +142,7 @@ export const DEFAULT_TTS_CONFIG: TtsConfig = {
       max_rpm: 55,
       voices: { default: 'Chinese (Mandarin)_Radio_Host', female: 'Chinese (Mandarin)_News_Anchor', male: 'Chinese (Mandarin)_Male_Announcer' },
       speed_factor: 1,
+      conversation_rate: 0.85,
     },
     azure: {
       enabled: true,
@@ -127,12 +150,15 @@ export const DEFAULT_TTS_CONFIG: TtsConfig = {
       voices: { default: 'zh-CN-XiaoxiaoNeural', female: 'zh-CN-XiaoxiaoNeural', male: 'zh-CN-YunxiNeural' },
       // MiniMax 0.6 is slow but not half speed: 0.6 → 0.7 (−30 %), 0.9 → 0.925.
       speed_factor: 0.75,
+      // Azure's natural pace is brisk: 0.925 (the old 0.9 × factor) was "way too fast".
+      conversation_rate: 0.75,
     },
     google: {
       enabled: true,
       max_rpm: 60,
       voices: { default: 'cmn-CN-Wavenet-C', female: 'cmn-CN-Wavenet-C', male: 'cmn-CN-Wavenet-B' },
       speed_factor: 1,
+      conversation_rate: 0.8,
     },
   },
 };
@@ -222,6 +248,13 @@ export function mergeTtsConfig(base: TtsConfig, input: unknown): { config: TtsCo
           const n = Number(p.speed_factor);
           if (typeof p.speed_factor !== 'number' || !Number.isFinite(n) || n < 0 || n > 2) problems.push(`providers.${id}.speed_factor must be between 0 and 2`);
           else target.speed_factor = Math.round(n * 100) / 100;
+        }
+        if (p.conversation_rate !== undefined) {
+          const n = Number(p.conversation_rate);
+          const r = PROVIDER_RATE_RANGE[id];
+          if (typeof p.conversation_rate !== 'number' || !Number.isFinite(n) || n < r.good_min || n > r.good_max) {
+            problems.push(`providers.${id}.conversation_rate must be between ${r.good_min} and ${r.good_max}`);
+          } else target.conversation_rate = Math.round(n * 100) / 100;
         }
         if (p.voices !== undefined) {
           if (p.voices === null || typeof p.voices !== 'object') problems.push(`providers.${id}.voices must be an object`);

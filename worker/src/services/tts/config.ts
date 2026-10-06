@@ -17,6 +17,11 @@ import {
   parseStoredTtsConfig,
   providerRate,
   usableOrder,
+  clampConversationRate,
+  conversationVoiceGender,
+  conversationVoiceProvider,
+  deliveryParams,
+  type ConversationDelivery,
   type TtsConfig,
   type TtsProviderId,
   type TtsVoiceRole,
@@ -92,6 +97,38 @@ export function providerVoice(
   const p = config.providers[provider];
   const voice = p.voices[voiceRole(req.voiceId, config)];
   return { voice, rate: providerRate(p, req.speed) };
+}
+
+/**
+ * The voice, rate and style `provider` speaks a CONVERSATION line in
+ * (docs/AUDIO.md "Conversation audio"). The device resolves the voice in the
+ * active provider's own catalogue (shared/lesson/conversationAudio.ts); a
+ * voice of another provider — a fallback, or a clip asked for before the
+ * provider changed — is mapped through this provider's voice for its gender.
+ * The rate is the provider's own (clamped to its natural-sounding range);
+ * `speed` undefined = the provider's admin `conversation_rate`.
+ */
+export function conversationProviderVoice(
+  provider: TtsProviderId,
+  config: TtsConfig,
+  req: { voiceId?: string; speed?: number; delivery?: ConversationDelivery },
+): { voice: string; rate: number; style?: string; emotion?: string } {
+  const p = config.providers[provider];
+  let voice: string;
+  if (req.voiceId && conversationVoiceProvider(req.voiceId) === provider) voice = req.voiceId;
+  else {
+    const gender = (req.voiceId && conversationVoiceGender(req.voiceId)) || voiceRole(req.voiceId, config);
+    voice = p.voices[gender === 'female' || gender === 'male' ? gender : 'default'];
+  }
+  const rate = clampConversationRate(provider, req.speed ?? p.conversation_rate);
+  const params = deliveryParams(provider, voice, req.delivery ?? 'natural');
+  return { voice, rate, style: params?.azure_style, emotion: params?.minimax_emotion };
+}
+
+/** The provider conversation clips come from now: the first stored provider, the next while it is paused. */
+export function activeConversationProvider(policy: Pick<StoredClipPolicy, 'order' | 'primaryUnavailable'>): TtsProviderId {
+  if (!policy.order.length) return 'minimax';
+  return policy.primaryUnavailable && policy.order[1] ? policy.order[1] : policy.order[0];
 }
 
 /** The settings hash of a stored clip `provider` makes with its default voice at the house speed. */
