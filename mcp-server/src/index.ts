@@ -559,7 +559,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
 
     this.server.tool(
       "update_custom_lesson",
-      `Replace an existing custom mini lesson's content in place. The lesson keeps its id, so the user's completion history and FSRS schedule carry over — use this to fix a bad question, add exercises, or reword explanations without resetting progress. Send the FULL updated spec (title, icon, description, sections) — it replaces the old one entirely; fetch the current spec with get_custom_lesson first and edit it. Exercise types and rules are the same as create_custom_lesson. Illustrations already generated for describe_image exercises are kept when the image_prompt is unchanged.`,
+      `Replace an existing custom mini lesson's content in place. The lesson keeps its id, so the user's completion history and revisit schedule carry over — use this to fix a bad question, add exercises, or reword explanations without resetting progress. Send the FULL updated spec (title, icon, description, sections) — it replaces the old one entirely; fetch the current spec with get_custom_lesson first and edit it. Exercise types and rules are the same as create_custom_lesson. Illustrations already generated for describe_image exercises are kept when the image_prompt is unchanged.`,
       {
         lesson_id: z.string().describe("The lesson id (from list_custom_lessons / get_custom_lesson)"),
         title: z.string().describe("Lesson title"),

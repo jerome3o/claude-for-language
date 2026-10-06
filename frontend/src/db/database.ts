@@ -192,9 +192,12 @@ export interface LocalReaderPage {
 }
 
 /**
- * A graded reader cached for offline study. Readers join the FSRS rotation
- * like cards: the scheduling fields below are a cache computed from
- * readerReviewEvents (events are the source of truth, same as cards).
+ * A graded reader cached for offline study. Readers come back on the "revisit
+ * later" schedule (shared/study/revisit.ts): the scheduling fields below are a
+ * cache computed from readerReviewEvents + revisitEvents (events are the source
+ * of truth). queue NEW = never read; REVIEW = next_review_at / due_timestamp say
+ * when it comes back; `retired` = Done for good. The FSRS-only fields
+ * (stability, difficulty, lapses) are kept at 0 for old readers of the row.
  */
 export interface LocalReader {
   id: string;
@@ -204,7 +207,7 @@ export interface LocalReader {
   status: string; // 'generating' | 'ready' | 'failed'
   created_at: string;
   pages: LocalReaderPage[];
-  // FSRS scheduling state (computed from readerReviewEvents)
+  // Revisit schedule (computed from readerReviewEvents + revisitEvents)
   queue: CardQueue;
   stability: number;
   difficulty: number;
@@ -214,7 +217,20 @@ export interface LocalReader {
   next_review_at: string | null;
   due_timestamp: number | null;
   last_reviewed_at: string | null;
+  /** Done for good: never offered again (Mini Lessons / Readers page → Bring back). */
+  retired?: boolean;
   _synced_at: number | null;
+}
+
+/** "Done for good" / "Bring back" on a lesson or reader (shared/study/revisit.ts). */
+export interface LocalRevisitEvent {
+  id: string;
+  item_kind: 'lesson' | 'reader';
+  item_id: string;
+  action: 'retire' | 'restore';
+  created_at: string;
+  // Sync metadata (0 = waiting to upload, 1 = on the server)
+  _synced: number;
 }
 
 export interface LocalReaderReviewEvent {
@@ -286,10 +302,10 @@ export interface LocalGrammarCompletionEvent {
 
 /**
  * A custom mini lesson (agent-authored, schema-driven — see shared/lesson),
- * cached whole for offline study. Lessons are scheduled with FSRS like cards
- * and readers: completion events (each carrying an Again/Hard/Good/Easy
- * rating) are the source of truth, and the scheduling fields here are the
- * cached state computed from them.
+ * cached whole for offline study. Lessons come back on the "revisit later"
+ * schedule (shared/study/revisit.ts), like readers: completion events (each
+ * carrying an Again/Hard/Good/Easy rating) + revisitEvents are the source of
+ * truth, and the scheduling fields here are the cached state computed from them.
  */
 export interface LocalCustomLesson {
   id: string;
@@ -301,7 +317,7 @@ export interface LocalCustomLesson {
   status: 'active' | 'done';
   created_at: string;
   spec: import('@shared/lesson').CustomLessonSpec;
-  // FSRS scheduling state (computed from completion events)
+  // Revisit schedule (computed from completion events + revisitEvents)
   queue: CardQueue;
   stability: number;
   difficulty: number;
@@ -311,10 +327,12 @@ export interface LocalCustomLesson {
   next_review_at: string | null;
   due_timestamp: number | null;
   last_reviewed_at: string | null;
+  /** Done for good: never offered again (Mini Lessons / Readers page → Bring back). */
+  retired?: boolean;
   _synced_at: number | null;
 }
 
-/** One completed run of a lesson — doubles as its FSRS review event. */
+/** One completed run of a lesson — its rating sets when it comes back (shared/study/revisit.ts). */
 export interface LocalCustomLessonCompletionEvent {
   id: string;
   lesson_id: string;
@@ -655,6 +673,7 @@ export class ChineseLearningDB extends Dexie {
   // Folders (decks / lessons / readers), replaced whole on each sync
   folders!: Table<Folder, string>;
   studyBumps!: Table<LocalStudyBump, string>;
+  revisitEvents!: Table<LocalRevisitEvent, string>;
   // The character dictionary (services/charDict.ts): records + "More about 字" per character
   charDict!: Table<LocalCharDictEntry, string>;
   charExplanations!: Table<LocalCharExplanation, string>;
@@ -1107,6 +1126,12 @@ export class ChineseLearningDB extends Dexie {
     this.version(28).stores({
       charDict: 'char, cached_at',
       charExplanations: 'char',
+    });
+
+    // Version 29: "Revisit later" for lessons / readers (shared/study/revisit.ts) — the
+    // Done-for-good / Bring-back events; replaced by each sync except this device's pending ones.
+    this.version(29).stores({
+      revisitEvents: 'id, item_id, _synced',
     });
   }
 }
@@ -1822,7 +1847,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps, db.revisitEvents], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -1841,6 +1866,7 @@ export async function clearAllData(): Promise<void> {
     await db.tutorNotes.clear();
     await db.boardPages.clear();
     await db.studyBumps.clear();
+    await db.revisitEvents.clear();
   });
 }
 

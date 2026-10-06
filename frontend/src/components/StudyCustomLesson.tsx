@@ -98,7 +98,8 @@ export function StudyCustomLesson({
   intervalPreviews?: Record<Rating, IntervalPreview>;
   /** The session's queue counts; omitted in the homework pass (a "Homework" label instead). */
   counts?: QueueCounts;
-  onComplete: (correct: number, total: number, rating: Rating, attempt: LessonAttemptData, recordings: LessonRecording[]) => void;
+  /** `retire` = "Done for good": finished, and never scheduled again. */
+  onComplete: (correct: number, total: number, rating: Rating, attempt: LessonAttemptData, recordings: LessonRecording[], retire?: boolean) => void;
   onEnd: () => void;
   /** "Try it" for a tutor (library item, catalogue sample): no queue counts, no rating, no attempt — nothing is recorded. */
   preview?: boolean;
@@ -234,8 +235,8 @@ export function StudyCustomLesson({
         </div>
       </div>
 
-      {/* Fixed rating footer once the lesson is finished — same FSRS rating
-          bar as cards and readers, pinned to the bottom of the screen. */}
+      {/* Fixed rating footer once the lesson is finished — the rating sets when
+          it comes back ("revisit later"), or Done for good; pinned to the bottom. */}
       {done && !preview && intervalPreviews && (
         <div className="study-rating-sticky">
           <div className="study-reader-rating-header">
@@ -252,6 +253,13 @@ export function StudyCustomLesson({
               setIsRating(true);
               track('lesson.complete', { rating: (['again', 'hard', 'good', 'easy'] as const)[rating], source: lessonSource, duration_ms: Date.now() - startedAt.current.getTime() });
               onComplete(score.correct, score.total, rating, attemptData(), recordings.current);
+            }}
+            onDoneForGood={() => {
+              if (isRating) return;
+              setIsRating(true);
+              track('lesson.complete', { rating: 'good', source: lessonSource, duration_ms: Date.now() - startedAt.current.getTime() });
+              // Finished (counts as Good for the record) and retired.
+              onComplete(score.correct, score.total, 2, attemptData(), recordings.current, true);
             }}
             disabled={isRating}
           />

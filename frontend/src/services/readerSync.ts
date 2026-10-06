@@ -11,7 +11,7 @@
  */
 
 import { db, getDueNoteIds, getStudyCutoff, LocalReader, LocalReaderPage } from '../db/database';
-import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
+import { recomputeAllRevisitStates } from './revisit';
 import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage, generateDailyReader, getLocalDateString } from '../api/client';
 import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
@@ -94,7 +94,7 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
       await db.readerReviewEvents.where('reader_id').anyOf(removedIds).delete();
     }
 
-    const initialState = initialCardState(DEFAULT_DECK_SETTINGS);
+    const initialState = { status: 'new' as const, due_ms: null, gap_days: 0, last_ms: null, finishes: 0 };
     const rows: LocalReader[] = serverReaders.map(server => {
       const existing = localById.get(server.id);
       const scheduling = existing
@@ -108,6 +108,7 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
             next_review_at: existing.next_review_at,
             due_timestamp: existing.due_timestamp,
             last_reviewed_at: existing.last_reviewed_at,
+            retired: existing.retired,
           }
         : readerSchedulingFields(initialState);
       return {
@@ -124,6 +125,8 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
     });
     await db.readers.bulkPut(rows);
   });
+  // New readers arrive NEW; any whose events are already here get their schedule.
+  await recomputeAllRevisitStates();
 
   return { synced: serverReaders.length };
 }

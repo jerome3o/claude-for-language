@@ -6,6 +6,7 @@
  */
 
 import { Link } from 'react-router-dom';
+import { nextRevisitLabel } from '../../utils/revisitLabel';
 import { useQuery } from '@tanstack/react-query';
 import { getStudentLessons } from '../../api/lessonEditor';
 import { Loading } from '../Loading';
@@ -65,6 +66,7 @@ export function StudentLessonsSection({
                   {l.assigned_by_me ? 'Assigned by you' : l.assigned_by ? 'Assigned by another tutor' : `From ${l.source}`}
                   {' • '}{l.exercise_count} exercises
                   {' • '}{l.completions === 0 ? 'not studied yet' : `studied ${l.completions}× · last ${l.last_rating !== null ? RATING_LABELS[l.last_rating] : ''} ${when(l.last_completed_at)}`}
+                  {nextRevisitLabel(l) && ` • ${nextRevisitLabel(l)}`}
                 </span>
               </div>
               {l.last_attempt_id && (

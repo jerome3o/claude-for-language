@@ -2,17 +2,20 @@
  * Custom mini lesson study service.
  *
  * Custom lessons are agent-authored (MCP tools, the in-app chats), cached
- * whole in IndexedDB for fully offline study, and scheduled with the same
- * event-sourced FSRS model as cards and readers:
+ * whole in IndexedDB for fully offline study, and come back on the "revisit
+ * later" schedule (shared/study/revisit.ts, same as readers) — a lesson is a
+ * big chunk, not a flashcard, so Good means "in two weeks", not "in 10 min":
  * - Completion events are the source of truth (append-only, deduped by id),
- *   each carrying the learner's Again/Hard/Good/Easy rating.
- * - The lesson row caches the scheduling state computed from those events.
+ *   each carrying the learner's Again/Hard/Good/Easy rating; "Done for good"
+ *   is a revisit event (services/revisit.ts).
+ * - The lesson row caches the schedule computed from those events.
  * - Events upload via POST /api/custom-lessons/offline-complete (idempotent
  *   by id); other devices' events come down inside GET /api/custom-lessons
  *   (a lesson has only a handful, so they ride along with the content).
  */
 
 import { CustomLessonSpec, LessonAttemptData, lessonTtsClips, CONVERSATION_TTS_SPEED } from '@shared/lesson';
+import { pickRevisitsForToday, MAX_LESSON_REVISITS_PER_DAY, type RevisitState } from '@shared/study/revisit';
 import { voicesForConversation } from './conversationVoices';
 import {
   db,
@@ -20,14 +23,6 @@ import {
   LocalCustomLesson,
   LocalCustomLessonCompletionEvent,
 } from '../db/database';
-import {
-  computeCardState,
-  initialCardState,
-  applyReview,
-  getIntervalPreviews,
-  DEFAULT_DECK_SETTINGS,
-  ComputedCardState,
-} from '@shared/scheduler';
 import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
@@ -36,10 +31,18 @@ import { describeImageKeys } from '@shared/lesson/images';
 import { prefetchStrokeData } from './strokeData';
 import { writableCharacters } from '@shared/strokes';
 import { getAudioWithCache, isAudioCached } from './audioCache';
+import {
+  computeItemRevisitState,
+  markRevisit,
+  recomputeAllRevisitStates,
+  refreshRevisitRow,
+  revisitButtonPreviews,
+  revisitRowFields,
+  rowRevisitState,
+} from './revisit';
 
 /** At most this many NEW (never-studied) lessons join a single study session,
- * so a big batch of agent-created lessons can't swamp the cards. Lessons due
- * for FSRS review are never capped — that's the schedule talking. */
+ * so a big batch of agent-created lessons can't swamp the cards. */
 export const MAX_NEW_LESSONS_PER_SESSION = 2;
 
 interface ServerCompletion {
@@ -65,47 +68,12 @@ interface CustomLessonListResponse {
   }>;
 }
 
-function toSchedulerEvents(events: LocalCustomLessonCompletionEvent[]) {
-  // The shared scheduler is card-shaped; the lesson is "the card" here.
-  // Legacy events without a rating count as Good.
-  return events.map(e => ({
-    id: e.id,
-    card_id: e.lesson_id,
-    rating: (e.rating ?? 2) as Rating,
-    reviewed_at: e.completed_at,
-  }));
-}
+/** Scheduling fields of LocalCustomLesson derived from a revisit state. */
+export const lessonSchedulingFields = revisitRowFields;
 
-async function getLessonEvents(lessonId: string): Promise<LocalCustomLessonCompletionEvent[]> {
-  return db.customLessonCompletionEvents.where('lesson_id').equals(lessonId).sortBy('completed_at');
-}
-
-/** Scheduling fields of LocalCustomLesson derived from a computed state. */
-export function lessonSchedulingFields(state: ComputedCardState): Pick<
-  LocalCustomLesson,
-  'queue' | 'stability' | 'difficulty' | 'lapses' | 'interval' | 'repetitions' |
-  'next_review_at' | 'due_timestamp' | 'last_reviewed_at'
-> {
-  return {
-    queue: state.queue,
-    stability: state.stability,
-    difficulty: state.difficulty,
-    lapses: state.lapses,
-    interval: state.interval,
-    repetitions: state.repetitions,
-    next_review_at: state.next_review_at,
-    due_timestamp: state.due_timestamp,
-    last_reviewed_at: state.last_reviewed_at,
-  };
-}
-
-/** Recompute a lesson's scheduling state from its full event history. */
-export async function computeLessonState(lessonId: string): Promise<ComputedCardState> {
-  const events = await getLessonEvents(lessonId);
-  if (events.length === 0) {
-    return initialCardState(DEFAULT_DECK_SETTINGS);
-  }
-  return computeCardState(toSchedulerEvents(events), DEFAULT_DECK_SETTINGS);
+/** A lesson's schedule from its full history (completions + Done for good / Bring back). */
+export function computeLessonState(lessonId: string): Promise<RevisitState> {
+  return computeItemRevisitState('lesson', lessonId);
 }
 
 /**
@@ -126,14 +94,10 @@ export async function completeCustomLesson(
   rating: Rating,
   attempt?: LessonAttemptData,
   recordings: LessonRecording[] = [],
-): Promise<{ event: LocalCustomLessonCompletionEvent; newState: ComputedCardState }> {
+  /** "Done for good": finished, and never scheduled again. */
+  opts: { retire?: boolean; source?: string } = {},
+): Promise<{ event: LocalCustomLessonCompletionEvent; newState: RevisitState }> {
   const now = new Date().toISOString();
-
-  const events = await getLessonEvents(lessonId);
-  const currentState = events.length > 0
-    ? computeCardState(toSchedulerEvents(events), DEFAULT_DECK_SETTINGS)
-    : initialCardState(DEFAULT_DECK_SETTINGS);
-  const newState = applyReview(currentState, rating, DEFAULT_DECK_SETTINGS, now);
 
   const event: LocalCustomLessonCompletionEvent = {
     id: crypto.randomUUID(),
@@ -160,70 +124,68 @@ export async function completeCustomLesson(
       _synced: 0,
     });
   }
-  await db.customLessons.update(lessonId, lessonSchedulingFields(newState));
+  if (opts.retire) await markRevisit('lesson', lessonId, 'retire', opts.source);
+  const newState = await refreshRevisitRow('lesson', lessonId);
   // Finishing a lesson anywhere completes its homework (docs/HOMEWORK.md).
   await recordTargetDone('lesson', lessonId);
 
   return { event, newState };
 }
 
-/** FSRS interval previews for the lesson rating buttons. */
+/** "Back in 2 wk"-style labels for the lesson rating buttons (shared/study/revisit.ts). */
 export function getCustomLessonIntervalPreviews(lesson: LocalCustomLesson): Record<Rating, IntervalPreview> {
-  const state: ComputedCardState = {
-    queue: lesson.queue ?? CardQueue.NEW,
-    stability: lesson.stability || lesson.interval || 1,
-    difficulty: lesson.difficulty || 5,
-    scheduled_days: lesson.interval ?? 0,
-    reps: lesson.repetitions ?? 0,
-    lapses: lesson.lapses ?? 0,
-    next_review_at: lesson.next_review_at ?? null,
-    due_timestamp: lesson.due_timestamp ?? null,
-    last_reviewed_at: lesson.last_reviewed_at ?? null,
-    ease_factor: 2.5,
-    interval: lesson.interval ?? 0,
-    repetitions: lesson.repetitions ?? 0,
-    learning_step: 0,
-  };
-  const previews = getIntervalPreviews(state, DEFAULT_DECK_SETTINGS, new Date());
-  const result = {} as Record<Rating, IntervalPreview>;
-  for (const rating of [0, 1, 2, 3] as Rating[]) {
-    const p = previews.find(pr => pr.rating === rating);
-    result[rating] = p
-      ? { intervalText: p.intervalText, queue: p.nextState }
-      : { intervalText: '?', queue: lesson.queue ?? CardQueue.NEW };
+  return revisitButtonPreviews(lesson);
+}
+
+/** Whether a stored UTC ISO timestamp falls on today's LOCAL date. */
+function isTodayLocal(iso: string): boolean {
+  const d = new Date(iso);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
+/** How many lessons were REVISITED today (finished today after an earlier finish). */
+export async function lessonRevisitsToday(): Promise<number> {
+  const events = await db.customLessonCompletionEvents.toArray();
+  const first = new Map<string, string>();
+  for (const e of events) {
+    const f = first.get(e.lesson_id);
+    if (!f || e.completed_at < f) first.set(e.lesson_id, e.completed_at);
   }
-  return result;
+  const revisited = new Set<string>();
+  for (const e of events) {
+    if (isTodayLocal(e.completed_at) && e.completed_at > (first.get(e.lesson_id) ?? '')) revisited.add(e.lesson_id);
+  }
+  return revisited.size;
 }
 
 /**
- * Lessons due for study right now, mixed into the session's card flow:
- * - Learning/relearning lessons due by the study cutoff (end of today)
- * - Review lessons due by the cutoff
- * - NEW lessons, oldest first, capped at MAX_NEW_LESSONS_PER_SESSION
- * Learning-due lessons sort first so an Again'd lesson comes back promptly.
+ * Lessons for study right now, mixed into the session's card flow:
+ * - revisits due by the study cutoff (end of today), most overdue first, at
+ *   most MAX_LESSON_REVISITS_PER_DAY a day (so a backlog — e.g. lessons that
+ *   were overdue when the schedule changed — trickles back, never floods in);
+ * - NEW lessons, oldest first, capped at MAX_NEW_LESSONS_PER_SESSION.
+ * Done-for-good lessons and one-off homework lessons are never offered.
  */
 export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
   const cutoff = getStudyCutoff();
-  // One-off homework lessons are done in the homework pass, not rotated by FSRS.
-  const [allLessons, oneOffOnly] = await Promise.all([db.customLessons.toArray(), oneOffOnlyTargetIds()]);
-  const lessons = allLessons.filter(l => !oneOffOnly.has(l.id));
+  // One-off homework lessons are done in the homework pass, not rotated.
+  const [allLessons, oneOffOnly, revisitedToday] = await Promise.all([
+    db.customLessons.toArray(),
+    oneOffOnlyTargetIds(),
+    lessonRevisitsToday(),
+  ]);
+  const lessons = allLessons.filter(l => !oneOffOnly.has(l.id) && !l.retired);
 
-  const due: LocalCustomLesson[] = [];
-  const fresh: LocalCustomLesson[] = [];
-
-  for (const lesson of lessons) {
-    const queue = lesson.queue ?? CardQueue.NEW;
-    if (queue === CardQueue.NEW) {
-      fresh.push(lesson);
-    } else if (queue === CardQueue.LEARNING || queue === CardQueue.RELEARNING) {
-      if (!lesson.due_timestamp || lesson.due_timestamp <= cutoff.ts) due.push(lesson);
-    } else if (queue === CardQueue.REVIEW) {
-      if (!lesson.next_review_at || lesson.next_review_at <= cutoff.iso) due.push(lesson);
-    }
-  }
-
-  due.sort((a, b) => (a.due_timestamp ?? 0) - (b.due_timestamp ?? 0));
-  fresh.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const fresh = lessons
+    .filter(l => (l.queue ?? CardQueue.NEW) === CardQueue.NEW)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const due = pickRevisitsForToday(
+    lessons.filter(l => (l.queue ?? CardQueue.NEW) !== CardQueue.NEW).map(l => ({ item: l, state: rowRevisitState(l) })),
+    cutoff.ts,
+    revisitedToday,
+    MAX_LESSON_REVISITS_PER_DAY,
+  );
   return [...due, ...fresh.slice(0, MAX_NEW_LESSONS_PER_SESSION)];
 }
 
@@ -269,10 +231,6 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
     const serverIds = new Set(data.lessons.map(l => l.id));
     await db.customLessons.clear();
     for (const lesson of data.lessons) {
-      const events = await getLessonEvents(lesson.id);
-      const state = events.length > 0
-        ? computeCardState(toSchedulerEvents(events), DEFAULT_DECK_SETTINGS)
-        : initialCardState(DEFAULT_DECK_SETTINGS);
       await db.customLessons.put({
         id: lesson.id,
         title: lesson.title,
@@ -282,7 +240,7 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
         status: lesson.status,
         created_at: lesson.created_at,
         spec: lesson.spec,
-        ...lessonSchedulingFields(state),
+        ...revisitRowFields({ status: 'new', due_ms: null, gap_days: 0, last_ms: null, finishes: 0 }),
         _synced_at: Date.now(),
       });
     }
@@ -294,6 +252,8 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
       await db.customLessonCompletionEvents.bulkDelete(orphaned);
     }
   });
+  // The schedule from the merged history (+ Done for good / Bring back).
+  await recomputeAllRevisitStates();
 
   return { synced: data.lessons.length };
 }

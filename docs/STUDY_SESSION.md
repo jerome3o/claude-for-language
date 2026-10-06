@@ -235,20 +235,58 @@ today's session. One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-teste
   every word of a sentence; the MCP server has `bump_cards`, `list_bumped_cards`,
   `clear_bumped_card` and the tutor's `bump_student_cards`.
 
+## Lessons and readers: "revisit later", not FSRS
+
+Mini lessons and graded readers are big chunks, not flashcards: FSRS's short learning steps
+brought a Hard / Good one back within minutes or a day. They now follow one simple schedule
+(`shared/study/revisit.ts`; Lab `core/…/Revisit.kt`, parity-tested):
+
+| After finishing | Next visit |
+|---|---|
+| Again | 1 day (and the gap resets) |
+| Hard | 2 days, then ×1.2 each later visit |
+| Good | 14 days, then ×2 each later visit |
+| Easy | 42 days (~6 weeks), then ×2 |
+
+Next gap = max(the rating's base gap, previous gap × growth), capped at 180 days. Nothing comes
+back the same day — even Again is tomorrow. **✓ Done for good** under the rating buttons records
+the finish (as Good) and retires the item: never scheduled again, still listed on the Mini
+Lessons / Readers pages under "Done for good", where **↩ Bring back** puts it back in rotation
+(due at once, the gap it had is kept).
+
+- **Event-sourced**: the schedule is replayed from the history — the completion /
+  reader-review events (their ratings; a legacy lesson completion with no rating = Good) plus
+  `revisitEvents` (retire / restore; D1 `revisit_events`, migration 0110, `POST /api/me/revisit-events`
+  idempotent by id, the whole list on `/api/sync/changes` as `revisit_events`). The lesson / reader
+  row caches the result (`queue` NEW / REVIEW, `next_review_at`, `due_timestamp`, `interval` = gap,
+  `retired`), recomputed after every finish, sync and settings change (`services/revisit.ts`).
+- **Settings → "Lessons & readers"**: the Hard / Good / Easy gaps (days), growth and longest gap,
+  Reset to defaults — `users.revisit_settings` (JSON, NULL = defaults), `PUT /api/profile/revisit-settings`
+  (validated by `pickRevisitSettingsUpdate`: days 1–365 whole, growth 1–5, cap 1–3650, Hard ≤ Good ≤ Easy;
+  400 + `problems`), on `/api/auth/me` and `/api/sync/changes` as `revisit_settings`, mirrored in
+  localStorage for offline study.
+- **No flood**: lessons were rescheduled in place when this landed (state is derived), so an old
+  overdue backlog could all be due at once — revisits are capped at `MAX_LESSON_REVISITS_PER_DAY`
+  (2, most overdue first; finished revisits today count); new lessons keep their own cap of 2 per
+  session; readers stay one a day.
+- **The tutor** sees "next revisit 20 Oct" / "done for good" on the student's lessons, the library
+  item's assignments and shared readers (`next_revisit_at`, `retired` from the student's own gaps).
+- One-off homework passes are unchanged (not scheduled); a lesson / reader finished in a pass
+  records the same rated event, and "Done for good" is offered there too.
+
 ## Graded readers: one a day
 
 Graded readers close out an all-decks session (after the cards and any mini lessons), and
 there is **one reader a day** (`READERS_PER_DAY` in `frontend/src/services/reader-study.ts`):
 
-- `pickTodaysReader` chooses the day's story: a learning repeat due by the study cutoff first,
-  then the most overdue review, then the newest unread story. Only that one enters the
-  session; other due readers wait for later days, so a missed week never piles stories up.
+- `pickTodaysReader` chooses the day's story: the most overdue revisit due by the study cutoff,
+  then the newest unread story (never one done for good). Only that one enters the session;
+  other due readers wait for later days, so a missed week never piles stories up.
 - Once a reader has been read today (a `readerReviewEvents` row on today's local date) nothing
-  else is offered until tomorrow. The only exception is that same story coming back as an
-  Again repeat inside the session.
+  else is offered until tomorrow — Again brings it back tomorrow, not later the same day.
 - `ensureDailyReader` (study start + background sync) generates a new story **only when
-  nothing is due today** — no unread story, no review or learning repeat due, none read yet.
-  A due review *is* the day's reader, so no new story is written that day.
+  nothing is due today** — no unread story, no revisit due, none read yet.
+  A due revisit *is* the day's reader, so no new story is written that day.
 
 The reader's blue **page-progress bar** is held at the top, right under the study top bar
 (web `.study-reader-progress` in `StudyReader.tsx`, Lab `PinnedReaderProgress` in
