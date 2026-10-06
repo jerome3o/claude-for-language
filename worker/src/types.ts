@@ -20,6 +20,8 @@ export interface Env {
   /** Chat live delivery: one ChatHub Durable Object per user (docs/CHAT.md §4). */
   CHAT_HUB: DurableObjectNamespace<import('./durable/chat-hub').ChatHub>;
   TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
+  /** Audio lessons: write → speak → render one MP3 (services/audio-lessons/job.ts, docs/AUDIO_LESSONS.md). */
+  AUDIO_LESSON_QUEUE: Queue<import('./services/audio-lessons/job').AudioLessonJobMessage>;
   /** Word checks (services/card-check.ts): new / edited notes and per-deck "Check for errors" runs. */
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;

@@ -73,6 +73,8 @@ const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default:
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
 const PictureHuntsPage = lazy(() => import('./pages/PictureHuntsPage').then(m => ({ default: m.PictureHuntsPage })));
 const PictureHuntPlayPage = lazy(() => import('./pages/PictureHuntPlayPage').then(m => ({ default: m.PictureHuntPlayPage })));
+const AudioLessonsPage = lazy(() => import('./pages/AudioLessonsPage').then(m => ({ default: m.AudioLessonsPage })));
+const AudioLessonPlayerPage = lazy(() => import('./pages/AudioLessonPlayerPage').then(m => ({ default: m.AudioLessonPlayerPage })));
 const LessonEditorPage = lazy(() => import('./pages/editor/LessonEditorPage').then(m => ({ default: m.LessonEditorPage })));
 const LessonLibraryPage = lazy(() => import('./pages/editor/LessonLibraryPage').then(m => ({ default: m.LessonLibraryPage })));
 const LibraryItemPage = lazy(() => import('./pages/editor/LibraryItemPage').then(m => ({ default: m.LibraryItemPage })));
@@ -620,6 +622,26 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <PictureHuntsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/audio-lessons"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <AudioLessonsPage />
+          </ProtectedRoute>
+        }
+      />
+      {/* No <Header /> — the player is a full-screen (dark) page: it is listened to in bed. */}
+      <Route
+        path="/audio-lessons/:id"
+        element={
+          <ProtectedRoute>
+            <ErrorBoundary fallbackTitle="Couldn't load this audio lesson">
+              <AudioLessonPlayerPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />

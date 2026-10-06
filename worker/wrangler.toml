@@ -165,6 +165,21 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 2
 
+# Audio lessons (docs/AUDIO_LESSONS.md): an agent writes the lesson, every clip is
+# spoken through the TTS limiter, one MP3 is rendered. A job checkpoints in D1 and
+# re-enqueues itself (with a delay while the voice service is rate-limited), so a
+# delivery stays short. Create with: `wrangler queues create audio-lesson-queue`
+[[queues.producers]]
+queue = "audio-lesson-queue"
+binding = "AUDIO_LESSON_QUEUE"
+
+[[queues.consumers]]
+queue = "audio-lesson-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 2
+max_concurrency = 2
+
 # Every background TTS clip (one per message) and the audio backfill pump
 # (docs/AUDIO.md). Small batches, at most 2 at once: MiniMax allows a fixed
 # number of requests per minute and the TtsLimiter paces every call.

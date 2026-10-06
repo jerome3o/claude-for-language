@@ -87,7 +87,7 @@ export function SyncBadge({ inline = false }: { inline?: boolean }) {
 export function OfflineBanner() {
   const location = useLocation();
 
-  if (location.pathname.startsWith('/study') || location.pathname === '/tutor-notes/practice' || /^\/homework\/[^/]+\/?$/.test(location.pathname)) {
+  if (location.pathname.startsWith('/study') || location.pathname === '/tutor-notes/practice' || /^\/(homework|audio-lessons)\/[^/]+\/?$/.test(location.pathname)) {
     return null;
   }
 

@@ -154,6 +154,14 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     protectedReason: PERSON_MADE + ' (uploads are personal photos; the hunt delete path removes its picture)',
   },
   {
+    prefix: 'audio-lessons/',
+    what: 'Audio lessons: the rendered MP3 (`audio-lessons/<user>/<lesson>-<version>.mp3`) and, while one is being made, its clips (`audio-lessons/<user>/<lesson>/parts/`); also the files of the first, removed attempt (`audio-lessons/<lesson>.mp3`)',
+    writtenBy: 'services/audio-lessons/job.ts runAudioLessonJob (AUDIO_LESSON_PREFIX)',
+    referencedBy: ['audio_lessons.audio_key'],
+    collectable: false,
+    protectedReason: PERSON_MADE + ' (a learner\'s lesson; the lesson delete path and account deletion remove it)',
+  },
+  {
     prefix: 'screenshots/',
     what: 'Feature-request screenshots (uploaded before the request row exists)',
     writtenBy: 'index.ts POST /api/feature-requests/screenshot',
