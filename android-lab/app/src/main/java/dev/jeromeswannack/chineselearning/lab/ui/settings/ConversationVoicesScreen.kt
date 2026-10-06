@@ -43,6 +43,19 @@ import dev.jeromeswannack.chineselearning.lab.data.api.problems
 import dev.jeromeswannack.chineselearning.lab.data.api.saveConversationVoices
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache
+import dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationAudioCache
+import dev.jeromeswannack.chineselearning.lab.data.api.ConversationAudioViewDto
+import dev.jeromeswannack.chineselearning.lab.data.api.conversationAudio
+import dev.jeromeswannack.chineselearning.lab.data.api.updateConversationAudio
+import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
+import dev.jeromeswannack.chineselearning.lab.core.ConversationAudio
+import dev.jeromeswannack.chineselearning.lab.core.ConversationAudioPrefs
+import dev.jeromeswannack.chineselearning.lab.core.TtsConversation
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.platform.testTag
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
@@ -83,6 +96,22 @@ data class ConversationVoicesUi(
     val style: String = "all",
     val accent: String = "all",
     val onlyOn: Boolean = false,
+    /** Conversation speed + delivery (the same preferences as the ⚙︎ Audio menu on an exercise). */
+    val audio: ConversationAudioDefaultsUi = ConversationAudioDefaultsUi(),
+)
+
+/** Settings → Conversation voices → speed + delivery (web: components/lesson/ConversationAudioDefaults.tsx). */
+data class ConversationAudioDefaultsUi(
+    val provider: String = "minimax",
+    val providerName: String = TtsConversation.PROVIDER_NAMES.getValue("minimax"),
+    /** The effective speed (the provider's rate, clamped). */
+    val speed: Double = TtsConversation.DEFAULT_CONVERSATION_RATES.getValue("minimax"),
+    val isDefault: Boolean = true,
+    val steps: List<Double> = TtsConversation.speedSteps("minimax"),
+    val delivery: String = "natural",
+    /** Server answered (else the phone's cached settings, read-only). */
+    val loaded: Boolean = false,
+    val error: String? = null,
 )
 
 class ConversationVoicesActions(
@@ -95,6 +124,8 @@ class ConversationVoicesActions(
     val setOnlyOn: (Boolean) -> Unit = {},
     val reset: () -> Unit = {},
     val dismissNotice: () -> Unit = {},
+    val setAudioSpeed: (Double?) -> Unit = {},
+    val setAudioDelivery: (String) -> Unit = {},
 )
 
 /** The pure rules of the page (unit-tested; same as the web page). */
@@ -130,7 +161,7 @@ object VoiceSettingsLogic {
         ui.customised -> "Using your own choice."
         ui.defaultSource == "admin" -> "Using the default chosen by the admin."
         else -> "Using the app’s default voices."
-    } + " Conversations play at ${if (ui.speed == Math.floor(ui.speed)) ui.speed.toLong() else ui.speed}× speed with a short pause between speakers."
+    }
 }
 
 @Composable
@@ -146,6 +177,7 @@ fun ConversationVoicesScreen(ui: ConversationVoicesUi, actions: ConversationVoic
                 Text(VoiceSettingsLogic.scopeLine(ui), style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
             }
         }
+        item { ConversationAudioDefaults(ui.audio, actions) }
         ui.notice?.let { n -> item { InlineNotice(n, kind = ui.noticeKind, actionLabel = "OK", onAction = actions.dismissNotice) } }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -191,6 +223,35 @@ fun ConversationVoicesScreen(ui: ConversationVoicesUi, actions: ConversationVoic
             item {
                 SecondaryPill(if (ui.isAdmin) "Back to the app’s shipped defaults" else "Use the default voices", Modifier.fillMaxWidth(), onClick = actions.reset)
             }
+        }
+    }
+}
+
+@Composable
+fun ConversationAudioDefaults(a: ConversationAudioDefaultsUi, actions: ConversationVoicesActions) {
+    fun x(v: Double) = "${ConversationAudio.speedLabel(v)}×"
+    LabCard {
+        Column(Modifier.fillMaxWidth().padding(14.dp).testTag("conversation-audio-defaults"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("Conversation speed", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, fontSize = 16.sp)
+                Text("  ${x(a.speed)}${if (a.isDefault) " (default)" else ""}", color = Lab.colors.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+            ChipRow {
+                for (s in a.steps) LabChip(x(s), selected = a.speed == s, enabled = a.loaded) { actions.setAudioSpeed(s) }
+                if (!a.isDefault) LabChip("Default", enabled = a.loaded) { actions.setAudioSpeed(null) }
+            }
+            Text(
+                "Audio comes from ${a.providerName} right now; 1× is its natural pace. Change it, the voices and the delivery on any conversation with ⚙︎.",
+                style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text("Delivery", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, fontSize = 16.sp)
+            ChipRow {
+                for (d in TtsConversation.DELIVERIES) {
+                    LabChip(TtsConversation.DELIVERY_LABELS[d] ?: d, selected = a.delivery == d, enabled = a.loaded) { actions.setAudioDelivery(d) }
+                }
+            }
+            a.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.Again) }
         }
     }
 }
@@ -243,6 +304,9 @@ class ConversationVoicesViewModel(private val app: LabApp) : ViewModel() {
     init {
         viewModelScope.launch {
             ConversationVoiceCache.get(app.cache)?.let { cached -> _ui.update { it.copy(enabled = cached) } }
+            val cachedAudio = ConversationAudioCache.get(app.cache)
+            _ui.update { it.copy(audio = audioUi(cachedAudio.provider, cachedAudio.providerName, cachedAudio.prefs, cachedAudio.defaultSpeed, null, loaded = false)) }
+            launch { loadAudio() }
             load()
         }
         viewModelScope.launch {
@@ -261,6 +325,62 @@ class ConversationVoicesViewModel(private val app: LabApp) : ViewModel() {
         } catch (e: Exception) {
             notice(if (!app.online.value) "You’re offline — showing the voices saved on this phone." else "Couldn’t load your voices. ${e.userMessage()}", NoticeKind.Warning)
         }
+    }
+
+    private fun audioUi(provider: String, providerName: String, prefs: ConversationAudioPrefs, defaultSpeed: Double, steps: List<Double>?, loaded: Boolean, error: String? = null) =
+        ConversationAudioDefaultsUi(
+            provider = provider,
+            providerName = providerName,
+            speed = TtsConversation.clampRate(provider, prefs.speed ?: defaultSpeed),
+            isDefault = prefs.speed == null,
+            steps = steps?.takeIf { it.isNotEmpty() } ?: TtsConversation.speedSteps(provider),
+            delivery = prefs.delivery,
+            loaded = loaded,
+            error = error,
+        )
+
+    private suspend fun applyAudio(v: ConversationAudioViewDto) {
+        ConversationAudioCache.put(app.cache, v)
+        val provider = v.provider.takeIf { it in TtsConversation.PROVIDERS } ?: "minimax"
+        _ui.update {
+            it.copy(audio = audioUi(provider, v.provider_name ?: TtsConversation.PROVIDER_NAMES.getValue(provider), ConversationAudio.fromJson(v.prefs), v.default_speed ?: TtsConversation.DEFAULT_CONVERSATION_RATES.getValue(provider), v.speed_steps, loaded = true))
+        }
+    }
+
+    private suspend fun loadAudio() {
+        try {
+            applyAudio(withContext(Dispatchers.IO) { app.repo.api.conversationAudio() })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _ui.update { it.copy(audio = it.audio.copy(error = "Speed settings need a connection")) }
+        }
+    }
+
+    private fun saveAudio(update: JsonObject) {
+        _ui.update { it.copy(audio = it.audio.copy(error = null)) }
+        app.haptics.tick()
+        viewModelScope.launch {
+            try {
+                applyAudio(withContext(Dispatchers.IO) { app.repo.api.updateConversationAudio(update) })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val msg = (e as? HttpException)?.problems()?.firstOrNull() ?: "Could not save — check your connection"
+                _ui.update { it.copy(audio = it.audio.copy(error = msg)) }
+            }
+        }
+    }
+
+    fun setAudioSpeed(speed: Double?) {
+        val a = _ui.value.audio
+        if (speed != null) Analytics.track("lesson.conversation_audio_speed", mapOf("speed" to speed, "provider" to a.provider, "source" to "settings"))
+        saveAudio(JsonObject(mapOf("speed" to (speed?.let { JsonPrimitive(it) } ?: JsonNull))))
+    }
+
+    fun setAudioDelivery(delivery: String) {
+        Analytics.track("lesson.conversation_audio_delivery", mapOf("delivery" to delivery, "provider" to _ui.value.audio.provider, "source" to "settings"))
+        saveAudio(JsonObject(mapOf("delivery" to JsonPrimitive(delivery))))
     }
 
     private suspend fun apply(s: ConversationVoiceSettingsDto) {

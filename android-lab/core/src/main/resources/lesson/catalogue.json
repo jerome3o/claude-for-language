@@ -714,29 +714,24 @@
       "spec": {
         "title": "Checking in at a hotel",
         "icon": "🏨",
-        "description": "A conversation lesson: key phrases, the dialogue in two voices, then your turn.",
+        "description": "A conversation lesson: set the scene, listen to the dialogue in two voices, then the phrases and your turn.",
         "sections": [
           {
-            "title": "Key phrases",
+            "title": "The scene",
             "exercises": [
               {
                 "type": "note",
-                "body": "Three phrases you will hear at any hotel front desk.",
+                "body": "You’re checking in at a hotel front desk in Beijing. Two words you’ll hear:",
                 "sentences": [
                   {
-                    "hanzi": "请问有预订吗？",
-                    "pinyin": "Qǐngwèn yǒu yùdìng ma?",
-                    "english": "Do you have a reservation?"
+                    "hanzi": "护照",
+                    "pinyin": "hùzhào",
+                    "english": "passport"
                   },
                   {
-                    "hanzi": "我住三个晚上。",
-                    "pinyin": "Wǒ zhù sān ge wǎnshang.",
-                    "english": "I’m staying three nights."
-                  },
-                  {
-                    "hanzi": "祝您住得愉快！",
-                    "pinyin": "Zhù nín zhù de yúkuài!",
-                    "english": "Enjoy your stay!"
+                    "hanzi": "房卡",
+                    "pinyin": "fángkǎ",
+                    "english": "room key card"
                   }
                 ]
               }
@@ -841,6 +836,32 @@
                       "On the room door"
                     ],
                     "correct": 0
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "title": "Useful phrases",
+            "exercises": [
+              {
+                "type": "note",
+                "body": "Three phrases from the front desk worth keeping.",
+                "sentences": [
+                  {
+                    "hanzi": "请问有预订吗？",
+                    "pinyin": "Qǐngwèn yǒu yùdìng ma?",
+                    "english": "Do you have a reservation?"
+                  },
+                  {
+                    "hanzi": "我住三个晚上。",
+                    "pinyin": "Wǒ zhù sān ge wǎnshang.",
+                    "english": "I’m staying three nights."
+                  },
+                  {
+                    "hanzi": "祝您住得愉快！",
+                    "pinyin": "Zhù nín zhù de yúkuài!",
+                    "english": "Enjoy your stay!"
                   }
                 ]
               }

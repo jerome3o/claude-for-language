@@ -127,9 +127,15 @@ object ConversationVoices {
     fun speakerGender(speakers: List<ConversationSpeaker>, i: Int): String =
         speakers.getOrNull(i)?.voice?.takeIf { it == "male" || it == "female" } ?: if (i % 2 == 0) "female" else "male"
 
-    /** `resolveConversationVoices`: a distinct voice per speaker from the enabled pool, rotated by [seed]. */
-    fun resolve(speakers: List<ConversationSpeaker>, enabled: List<String>? = null, seed: Long = 0): List<String> {
-        val pools = pools(enabled)
+    /**
+     * `resolveConversationVoices`: a distinct voice per speaker from the enabled pool, rotated by [seed].
+     * [providerPools] (another TTS provider's voices, `TtsConversation.providerPools`) replace the
+     * enabled MiniMax voices when they hold at least two voices.
+     */
+    fun resolve(speakers: List<ConversationSpeaker>, enabled: List<String>? = null, seed: Long = 0, providerPools: Map<String, List<String>>? = null): List<String> {
+        val pools = if (providerPools != null && providerPools["female"].orEmpty().size + providerPools["male"].orEmpty().size >= 2) {
+            mapOf("female" to providerPools["female"].orEmpty(), "male" to providerPools["male"].orEmpty())
+        } else pools(enabled)
         val s = maxOf(0L, seed)
         val all = pools.getValue("female") + pools.getValue("male")
         val used = HashSet<String>()

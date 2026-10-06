@@ -229,11 +229,15 @@ class LessonStore(
         val handwritten = due.flatMap { dev.jeromeswannack.chineselearning.lab.core.StrokeQuiz.writableCharacters(Lessons.handwritingText(it.lesson.spec)) }.distinct()
         if (handwritten.isNotEmpty()) runCatching { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore(File(filesDir, "strokes")).prefetch(handwritten) }
         val voices = ConversationVoiceCache.get(cache)
+        val audio = ConversationAudioCache.get(cache)
         for (entry in due) {
-            for (clip in Lessons.ttsClips(entry.lesson.spec, voices)) {
-                if (clip.text.isBlank()) continue
-                media.tts(clip.text, clip.voice, speed = clip.speed ?: LessonMedia.DEFAULT_SPEED, online = true)
+            for (text in Lessons.ttsTexts(entry.lesson.spec)) {
+                if (text.isBlank()) continue
+                media.tts(text, online = true)
             }
+            // Conversation lines in this account's voices / speed / delivery (the ⚙︎ Audio menu).
+            val clips = dev.jeromeswannack.chineselearning.lab.core.ConversationAudio.lessonClips(entry.lesson.spec) { ConversationAudioCache.resolve(audio, voices, it) }
+            for (clip in clips) media.conversationLine(clip, online = true)
         }
         // Pictures of EVERY lesson on the phone, not only today's: homework-only lessons skip
         // the FSRS mix, and a picture drawn after the lesson first synced arrives with a later

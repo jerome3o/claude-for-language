@@ -33,6 +33,8 @@ data class MeDto(
     val landing_page: String? = null,
     /** The voices this account's conversation exercises use (data/lessons/ConversationVoiceCache.kt). */
     val conversation_voices: List<String>? = null,
+    /** Speed / delivery / voices of conversation exercises + where clips come from now (data/lessons/ConversationAudioCache.kt). */
+    val conversation_audio: dev.jeromeswannack.chineselearning.lab.data.api.ConversationAudioStateDto? = null,
     /** users.voice_gender (Profile → "Your voice when your messages are read aloud"): male | female | other | null. */
     val voice_gender: String? = null,
     /** A new chat message also sends an e-mail (Settings → Notifications → Chat e-mails; docs/CHAT.md). */

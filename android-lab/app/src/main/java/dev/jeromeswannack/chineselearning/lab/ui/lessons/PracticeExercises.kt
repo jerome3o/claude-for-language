@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -539,8 +540,13 @@ private class QuestionState(val choice: Int? = null, val text: String = "", val 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
-    // The account's enabled voices, read from the phone before the first line plays.
-    var voices by remember(ex) { mutableStateOf(ConversationVoices.forConversation(ex)) }
+    // Voices / speed / delivery from this account's ⚙︎ Audio choices (read from the phone before
+    // the first line plays); re-resolved whenever they change.
+    val controls = env.conversationAudio
+    var now by remember(ex) { mutableStateOf<ConversationAudioNow?>(null) }
+    var audioMenu by remember { mutableStateOf(false) }
+    var regenerating by remember { mutableStateOf(false) }
+    var regenerateNext by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var playing by remember { mutableStateOf(false) }
     var currentLine by remember { mutableStateOf<Int?>(null) }
@@ -555,22 +561,33 @@ fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolea
 
     fun icon(i: Int) = if (Lessons.speakerGender(ex.speakers, i) == "male") "👨" else "👩"
 
-    fun playAll() {
+    suspend fun current(): ConversationAudioNow = now ?: controls.resolve(ex).also { now = it }
+    suspend fun playClip(line: dev.jeromeswannack.chineselearning.lab.core.ConversationLine): Boolean {
+        val a = current().audio
+        val clip = dev.jeromeswannack.chineselearning.lab.core.ConversationClip(line.hanzi, a.voices.getOrNull(line.speaker), a.speed, a.delivery)
+        return env.playLine(clip, regenerateNext)
+    }
+
+    fun playAll(onEnd: () -> Unit = {}) {
         run?.cancel()
         plays++
         run = scope.launch {
-            playing = true
-            var failures = 0
-            for ((i, line) in ex.lines.withIndex()) {
-                currentLine = i
-                if (!env.playClip(line.hanzi, voices.getOrNull(line.speaker), ConversationVoices.SPEED)) failures++
-                // A natural turn-taking beat before the next speaker, no more.
-                if (i < ex.lines.lastIndex) delay(ConversationVoices.LINE_GAP_MS)
+            try {
+                playing = true
+                var failures = 0
+                for ((i, line) in ex.lines.withIndex()) {
+                    currentLine = i
+                    if (!playClip(line)) failures++
+                    // A natural turn-taking beat before the next speaker, no more.
+                    if (i < ex.lines.lastIndex) delay(ConversationVoices.LINE_GAP_MS)
+                }
+                playing = false
+                currentLine = null
+                listened = true
+                if (failures == ex.lines.size) audioUnavailable = true
+            } finally {
+                onEnd()
             }
-            playing = false
-            currentLine = null
-            listened = true
-            if (failures == ex.lines.size) audioUnavailable = true
         }
     }
     fun stopPlaying() {
@@ -585,14 +602,34 @@ fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolea
         playing = false
         currentLine = i
         run = scope.launch {
-            env.playClip(ex.lines[i].hanzi, voices.getOrNull(ex.lines[i].speaker), ConversationVoices.SPEED)
+            playClip(ex.lines[i])
             if (currentLine == i) currentLine = null
+        }
+    }
+    /** Make every line again (server + phone), then play the conversation with the new audio. */
+    fun regenerateAudio() {
+        if (regenerating || !controls.online.value) return
+        controls.track("lesson.conversation_audio_regenerate", mapOf("lines" to ex.lines.size, "provider" to (now?.audio?.provider ?: "minimax")))
+        regenerating = true
+        stopPlaying()
+        regenerateNext = true
+        playAll {
+            regenerateNext = false
+            regenerating = false
         }
     }
     // Start listening straight away, like every listening exercise.
     LaunchedEffect(Unit) {
-        voices = ConversationVoices.forConversation(ex, env.conversationVoices())
+        now = controls.resolve(ex)
         playAll()
+    }
+    // A choice in the ⚙︎ menu (or a sync) changed the settings: the next line plays in the new ones.
+    LaunchedEffect(controls) {
+        var first = true
+        controls.changes.collect {
+            if (first) { first = false; return@collect }
+            now = controls.resolve(ex)
+        }
     }
     DisposableEffect(Unit) { onDispose { run?.cancel() } }
 
@@ -601,7 +638,33 @@ fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolea
     val questionsOpen = listened || audioUnavailable
     val open = showTranscript || transcriptPeek
 
-    PhaseLabel("Conversation 💬")
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        PhaseLabel("Conversation 💬")
+        Box(
+            Modifier.align(Alignment.CenterEnd)
+                .size(44.dp)
+                .clip(CircleShape)
+                .bouncyClickable { env.onTap(); audioMenu = true }
+                .semantics { contentDescription = "Audio settings: speed, voices, regenerate" }
+                .testTag("convo-audio-menu"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("⚙︎", fontSize = 22.sp, color = Lab.colors.muted)
+        }
+    }
+    if (audioMenu) {
+        now?.let { n ->
+            ConversationAudioSheet(
+                speakers = ex.speakers,
+                now = n,
+                controls = controls,
+                regenerating = regenerating,
+                onTap = env.onTap,
+                onRegenerate = { audioMenu = false; regenerateAudio() },
+                onClose = { audioMenu = false },
+            )
+        }
+    }
     ContextBox(ex.situation)
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
         ex.speakers.forEachIndexed { i, s ->

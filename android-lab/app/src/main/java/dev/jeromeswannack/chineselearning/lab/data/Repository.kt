@@ -198,6 +198,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         if (info != null) prefs.budgetInfo = info
         else prefs.budget = StudyBudget(me.new_cards_per_day.coerceIn(0, StudyBudget.MAX), me.secondary_cards_per_day.coerceIn(0, StudyBudget.MAX))
         me.conversation_voices?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.put(platform.cache, it) }
+        me.conversation_audio?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationAudioCache.put(platform.cache, it) }
     }
 
     private fun deckEntity(d: DeckDto) = DeckEntity(d.id, d.name, d.description, d.new_cards_per_day, d.secondary_cards_per_day, d.study_priority, d.created_at, d.folder_id)

@@ -35,3 +35,20 @@ Default conversation speed + delivery on Settings → Conversation voices.
 
 ![Admin audio: conversation speed per provider](08-admin-conversation-speed.png)
 `/admin/audio`: "Conversation speed" per provider (Azure 0.75), separate from the card speed factor.
+
+## Lab app
+
+![Lab: the conversation with ⚙︎](lab/lessons-28-conversation.png)
+The conversation exercise with the ⚙︎ Audio button.
+
+![Lab: Audio sheet, MiniMax](lab/convo-audio-01-minimax.png)
+The Audio sheet while MiniMax speaks.
+
+![Lab: Audio sheet, Azure](lab/convo-audio-03-azure.png)
+Azure active: Azure voices, a chosen voice for the receptionist, Conversational delivery.
+
+![Lab: offline](lab/convo-audio-04-offline.png)
+Offline state.
+
+![Lab: Settings → Conversation voices](lab/convo-audio-06-settings.png)
+Speed + delivery on Settings → Conversation voices.
