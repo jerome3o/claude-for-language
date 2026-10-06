@@ -1,5 +1,5 @@
 /**
- * SQL for audio lessons (migrations 0046 + 0110; docs/AUDIO_LESSONS.md). Rows
+ * SQL for audio lessons (migrations 0046 + 0111; docs/AUDIO_LESSONS.md). Rows
  * are per user. Rows from the first, removed attempt have `format` NULL and are
  * never listed.
  */

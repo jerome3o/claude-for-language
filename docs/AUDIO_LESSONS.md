@@ -89,7 +89,7 @@ from the same clip lengths, so the chapter list lines up with the audio.
 
 ## Storage
 
-- D1 `audio_lessons` (migration 0046 reused, 0110 adds the columns; rows from the first, removed attempt
+- D1 `audio_lessons` (migration 0046 reused, 0111 adds the columns; rows from the first, removed attempt
   have `format` NULL and are never listed): status `queued | writing | speaking | rendering | ready |
   failed`, progress + clips done / total, input, agent transcript, plan, script, timeline (chapters +
   transcript), words, file key / size / duration, usage, pinned provider, `for_relationship_id` (a
