@@ -39,7 +39,8 @@ data class TodaySnapshot(
  * (ui/lessons/StudyExtras), and the one place their completions are recorded — so doing a
  * lesson or the story from Home counts exactly as in the session: the completion event
  * (with its attempt + recordings, through the Outbox), the rating that sets when it comes back
- * ("revisit later") or Done for good, the reader review event, the day's reader mark (`markDailyReader`) and the homework `done`.
+ * ("revisit later") or Done for good, the reader's finish (read once — never again), the day's
+ * reader mark (`markDailyReader`) and the homework `done`.
  */
 class TodayData(private val app: LabApp) {
     private val runtime get() = LessonRuntime.of(app)
@@ -52,9 +53,11 @@ class TodayData(private val app: LabApp) {
         val cutoff = StudyQueue.cutoff(nowMs, zone)
         val entries = runtime.store.entries()
         val oneOff = runtime.store.homework.oneOffOnly()
-        val plan = TodayPlan.lessons(entries.map { it.item }, entries.flatMap { it.events }, oneOff, cutoff, nowMs, zone)
+        val perDay = runtime.store.revisit.settings().newLessonsPerDayInt
+        val plan = TodayPlan.lessons(entries.map { it.item }, entries.flatMap { it.events }, oneOff, cutoff, nowMs, zone, perDay)
         val readers = runtime.readers.entries()
-        val readToday = ReaderSchedule.readToday(readers.flatMap { it.events }, nowMs, zone)
+        val readerOneOff = runtime.readers.oneOffOnly()
+        val readToday = ReaderSchedule.readToday(readers.filter { it.id !in readerOneOff }.flatMap { it.events }, nowMs, zone)
         val picked = runtime.readers.todaysReader(nowMs, cutoff, zone)
         val readerDone = readers.filter { it.id in readToday }.maxByOrNull { r -> r.events.maxOfOrNull { it.at } ?: "" }
         return TodaySnapshot(
@@ -76,12 +79,12 @@ class TodayData(private val app: LabApp) {
         return state
     }
 
-    /** `recordReaderReview` + the day's reader mark (+ upload soon); [retire] = Done for good. */
-    suspend fun rateReader(readerId: String, rating: Int, timeSpentMs: Long, retire: Boolean = false): RevisitState? {
-        val state = runCatching { runtime.readers.rate(readerId, rating, timeSpentMs, retire = retire) }.getOrNull()
+    /** `recordReaderFinish` + the day's reader mark (+ upload soon); [how] = finish | listened. False when it couldn't be written. */
+    suspend fun finishReader(readerId: String, timeSpentMs: Long, how: String = "finish"): Boolean {
+        val ok = runCatching { runtime.readers.finish(readerId, timeSpentMs, how) }.isSuccess
         runtime.uploadSoon()
         if (app.online.value) app.scope.launch { runCatching { app.repo.api.markDailyReader(readerId) } }
-        return state
+        return ok
     }
 
     /** `ensureDailyReader` (once per local day): true while today's story is being written. */

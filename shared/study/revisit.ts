@@ -1,9 +1,11 @@
 /**
- * "Revisit later" — the schedule of mini lessons and graded readers.
+ * "Revisit later" — the schedule of mini lessons. (Graded readers were on it
+ * too until Oct 2026; now a story is read once and never repeated —
+ * shared/study/daily-reader.ts.)
  *
- * Lessons and readers are big chunks, not flashcards: FSRS's short learning
- * steps brought a Hard / Good one back within minutes or a day. Instead, the
- * rating after finishing sets the gap until the next visit:
+ * Lessons are big chunks, not flashcards: FSRS's short learning steps brought
+ * a Hard / Good one back within minutes or a day. Instead, the rating after
+ * finishing sets the gap until the next visit:
  *
  *   Again → 1 day · Hard → 2 days · Good → 14 days · Easy → 42 days (~6 weeks)
  *
@@ -33,6 +35,8 @@ export interface RevisitSettings {
   growth: number;
   /** No gap is ever longer than this, in days. */
   cap_days: number;
+  /** At most this many NEW (never-finished) lessons are introduced per local day (0 = none). */
+  new_lessons_per_day: number;
 }
 
 export const DEFAULT_REVISIT_SETTINGS: Readonly<RevisitSettings> = Object.freeze({
@@ -41,6 +45,7 @@ export const DEFAULT_REVISIT_SETTINGS: Readonly<RevisitSettings> = Object.freeze
   easy_days: 42,
   growth: 2,
   cap_days: 180,
+  new_lessons_per_day: 1,
 });
 
 /** Again always comes back the next day. */
@@ -52,6 +57,7 @@ export const REVISIT_LIMITS = Object.freeze({
   days: { min: 1, max: 365 },
   growth: { min: 1, max: 5 },
   cap_days: { min: 1, max: 3650 },
+  new_lessons_per_day: { min: 0, max: 20 },
 });
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -158,10 +164,13 @@ export function revisitGapLabel(days: number): string {
 
 export type RevisitSettingsUpdate = { [K in keyof RevisitSettings]?: number | null };
 
-const KEYS = ['hard_days', 'good_days', 'easy_days', 'growth', 'cap_days'] as const;
+const KEYS = ['hard_days', 'good_days', 'easy_days', 'growth', 'cap_days', 'new_lessons_per_day'] as const;
 
 function limitFor(key: keyof RevisitSettings): { min: number; max: number } {
-  return key === 'growth' ? REVISIT_LIMITS.growth : key === 'cap_days' ? REVISIT_LIMITS.cap_days : REVISIT_LIMITS.days;
+  return key === 'growth' ? REVISIT_LIMITS.growth
+    : key === 'cap_days' ? REVISIT_LIMITS.cap_days
+    : key === 'new_lessons_per_day' ? REVISIT_LIMITS.new_lessons_per_day
+    : REVISIT_LIMITS.days;
 }
 
 function asNumber(v: unknown): number {
@@ -170,7 +179,8 @@ function asNumber(v: unknown): number {
 
 /**
  * Validate an update from an untrusted body: day fields whole numbers 1–365,
- * growth 1–5 (one decimal place is plenty, two allowed), cap 1–3650;
+ * growth 1–5 (one decimal place is plenty, two allowed), cap 1–3650,
+ * new lessons a day a whole number 0–20;
  * null = back to that default. Checks the merged result keeps Hard ≤ Good ≤ Easy.
  */
 export function pickRevisitSettingsUpdate(
@@ -189,6 +199,9 @@ export function pickRevisitSettingsUpdate(
     if (key === 'growth') {
       if (!Number.isFinite(n) || n < min || n > max) problems.push(`growth must be a number between ${min} and ${max}`);
       else update[key] = round2(n);
+    } else if (key === 'new_lessons_per_day') {
+      if (!Number.isInteger(n) || n < min || n > max) problems.push(`new_lessons_per_day must be a whole number between ${min} and ${max}`);
+      else update[key] = n;
     } else if (!Number.isInteger(n) || n < min || n > max) {
       problems.push(`${key} must be a whole number of days between ${min} and ${max}`);
     } else {
@@ -230,7 +243,7 @@ export function parseRevisitSettings(raw: unknown): RevisitSettings {
     if (Number.isFinite(n) && n >= min && n <= max) out[key] = key === 'growth' ? round2(n) : Math.round(n);
   }
   if (!(out.hard_days <= out.good_days && out.good_days <= out.easy_days)) {
-    return { ...DEFAULT_REVISIT_SETTINGS, growth: out.growth, cap_days: out.cap_days };
+    return { ...DEFAULT_REVISIT_SETTINGS, growth: out.growth, cap_days: out.cap_days, new_lessons_per_day: out.new_lessons_per_day };
   }
   return out;
 }
@@ -270,4 +283,41 @@ export function pickRevisitsForToday<T>(
     .sort((a, b) => (a.state.due_ms ?? 0) - (b.state.due_ms ?? 0))
     .slice(0, room)
     .map(x => x.item);
+}
+
+// ============ Pacing: new lessons per local DAY ============
+
+/**
+ * How many lessons were INTRODUCED today: lessons whose very first finish is at
+ * or after `dayStartMs` (local midnight) — derived from the completion events,
+ * never a counter (like introducedToday for cards). Lessons in `exclude` (one-off
+ * homework, done in the homework pass) don't count.
+ */
+export function newLessonsIntroducedToday(
+  events: Array<{ lesson_id: string; completed_at: string }>,
+  dayStartMs: number,
+  exclude: ReadonlySet<string> = new Set(),
+): number {
+  const first = new Map<string, number>();
+  for (const e of events) {
+    if (exclude.has(e.lesson_id)) continue;
+    const t = ms(e.completed_at);
+    const f = first.get(e.lesson_id);
+    if (f === undefined || t < f) first.set(e.lesson_id, t);
+  }
+  let n = 0;
+  for (const t of first.values()) if (t >= dayStartMs) n++;
+  return n;
+}
+
+/** The NEW lessons today still has room for: oldest first (ties by id), `perDay` minus those already introduced. */
+export function pickNewLessonsForToday<T extends { id: string; created_at: string }>(
+  fresh: T[],
+  introducedToday: number,
+  perDay: number = DEFAULT_REVISIT_SETTINGS.new_lessons_per_day,
+): T[] {
+  const room = Math.max(0, Math.floor(perDay) - introducedToday);
+  return [...fresh]
+    .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, room);
 }

@@ -10,7 +10,7 @@ import { db, type LocalNote } from '../db/database';
 import { recordPassEvent, syncHomework, titleParts } from '../services/homework';
 import { track } from '../services/analytics';
 import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
-import { recordReaderReview, getReaderIntervalPreviews } from '../services/reader-study';
+import { recordReaderFinish } from '../services/reader-study';
 import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { StudyReader } from '../components/StudyReader';
 import { SentenceSet } from '../components/SentenceSet';
@@ -20,7 +20,6 @@ import { LinkPass } from '../components/homework/LinkPass';
 import { useNoteAudio } from '../hooks/useAudio';
 import { API_BASE, updateDeckSettings } from '../api/client';
 import { useNetwork } from '../contexts/NetworkContext';
-import type { Rating } from '../types';
 import './StudyPage.css';
 import '../components/homework/homework.css';
 
@@ -390,7 +389,6 @@ function LessonPass({ assignmentTitle, targetId, complete, onExit }: { assignmen
 
 function ReaderPass({ targetId, complete, onExit }: { targetId: string; complete: boolean; onExit: () => void }) {
   const reader = useLiveQuery(() => db.readers.get(targetId), [targetId]);
-  const previews = useMemo(() => (reader ? getReaderIntervalPreviews(reader) : null), [reader]);
   const [rating, setRating] = useState(false);
   const [finished, setFinished] = useState(false);
   const title = reader?.title_chinese || reader?.title_english || 'Reader';
@@ -403,15 +401,14 @@ function ReaderPass({ targetId, complete, onExit }: { targetId: string; complete
     );
   }
   if (reader === undefined) return <div className="study-fullscreen" />;
-  if (!reader || !previews || reader.pages.length === 0) return <Missing title={title} onExit={onExit} />;
+  if (!reader || reader.pages.length === 0) return <Missing title={title} onExit={onExit} />;
   return (
     <StudyReader
       reader={reader}
-      intervalPreviews={previews}
-      isRating={rating}
-      onRate={(r: Rating, ms: number, retire?: boolean) => {
+      isFinishing={rating}
+      onFinish={(ms: number) => {
         setRating(true);
-        void recordReaderReview(reader.id, r, ms, { retire, source: 'homework' }).then(() => setFinished(true));
+        void recordReaderFinish(reader.id, ms).then(() => setFinished(true));
       }}
       onEnd={onExit}
     />

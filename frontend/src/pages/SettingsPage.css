@@ -235,3 +235,7 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.revisit-field--wide {
+  margin: 0.25rem 0 0.75rem;
+}

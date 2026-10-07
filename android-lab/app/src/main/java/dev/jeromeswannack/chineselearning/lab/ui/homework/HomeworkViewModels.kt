@@ -153,7 +153,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             PassLesson(it.id, it.lesson.title, it.lesson.icon, it.lesson.spec, dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(it.state, it.settings))
         }
         val reader = targets?.readers?.get(a.target_id)?.takeIf { a.kind == "reader" }?.let {
-            SessionReader(it.reader, dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(it.state, it.settings), key = 1)
+            SessionReader(it.reader, key = 1)
         }
         return PassUi.Player(a.kind, title, complete, loaded = targets != null, lesson = lesson, reader = reader, finished = finished)
     }
@@ -212,11 +212,11 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         }
     }
 
-    /** `recordReaderReview` from the pass (also records the homework `done`); [retire] = Done for good. */
-    fun rateReader(rating: Int, timeSpentMs: Long, retire: Boolean = false) {
+    /** `recordReaderFinish` from the pass (also records the homework `done`). */
+    fun finishReader(timeSpentMs: Long, how: String = "finish") {
         val readerId = (ui.value as? PassUi.Player)?.reader?.reader?.id ?: return
         viewModelScope.launch {
-            runCatching { runtime.readers.rate(readerId, rating, timeSpentMs, retire = retire, source = "homework") }
+            runCatching { runtime.readers.finish(readerId, timeSpentMs, how) }
             local.value = local.value.copy(finished = true)
             runtime.uploadSoon()
         }

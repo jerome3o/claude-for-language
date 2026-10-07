@@ -18,7 +18,6 @@ import { verifyRelationshipAccess, getMyRole, getOtherUserId } from './relations
 import { generateId } from './cards';
 import { parseReaderWords } from '@shared/reader/words';
 import { deleteGradedReader } from '../db/queries';
-import { revisitSummaries, type RevisitSummary } from './revisit';
 
 export interface SharedReader {
   id: string;
@@ -37,15 +36,11 @@ export interface SharedReaderWithDetails extends SharedReader {
   /** The student deleted their copy. */
   target_deleted: boolean;
   page_count: number;
-  /** How many times the student has rated (finished) their copy. */
+  /** How many times the student finished their copy (a story is read once — never scheduled again). */
   read_count: number;
   last_read_at: string | null;
   /** 0 again · 1 hard · 2 good · 3 easy, from the latest read. */
   last_rating: number | null;
-  /** When the student's copy comes back ("Revisit later"); null when unread or done for good. */
-  next_revisit_at: string | null;
-  /** The student marked it "Done for good". */
-  retired: boolean;
 }
 
 interface ReaderRow {
@@ -232,12 +227,6 @@ export async function listSharedReaders(
     .bind(relationshipId)
     .all<SharedReaderRow & { target_user_id?: string | null }>();
 
-  // When each copy comes back for the student ("Revisit later", the student's own gaps).
-  const studentId = result.results.find(r => r.target_user_id)?.target_user_id ?? null;
-  const revisits = studentId
-    ? await revisitSummaries(db, studentId, 'reader', result.results.filter(r => r.target_id).map(r => r.target_reader_id)).catch(() => new Map<string, RevisitSummary>())
-    : new Map<string, RevisitSummary>();
-
   return result.results.map(row => ({
     id: row.id,
     relationship_id: row.relationship_id,
@@ -254,8 +243,6 @@ export async function listSharedReaders(
     read_count: row.read_count ?? 0,
     last_read_at: row.last_read_at ?? null,
     last_rating: row.last_rating ?? null,
-    next_revisit_at: revisits.get(row.target_reader_id)?.next_revisit_at ?? null,
-    retired: revisits.get(row.target_reader_id)?.retired ?? false,
   }));
 }
 

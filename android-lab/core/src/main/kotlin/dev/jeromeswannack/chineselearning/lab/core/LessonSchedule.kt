@@ -10,10 +10,11 @@ import kotlin.random.Random
  * services/reader-study.ts (pickTodaysReader, readersReadToday) and the lesson / reader
  * branches of selectNextItem in hooks/useStudySession.ts.
  *
- * Both come back on the "revisit later" schedule ([Revisit], shared/study/revisit.ts): the
+ * Lessons come back on the "revisit later" schedule ([Revisit], shared/study/revisit.ts): the
  * rating after finishing sets the gap (Again 1 day · Hard 2 · Good 14 · Easy 42, growing each
- * later visit), "Done for good" retires one. The state is replayed from the completion /
- * reader review events plus the retire / restore marks — never stored on its own.
+ * later visit), "Done for good" retires one; NEW lessons are paced per local DAY ("New lessons a
+ * day", default 1). Graded readers are read ONCE ([DailyReader], shared/study/daily-reader.ts):
+ * one unread story a day, never a repeat. State is replayed from the events — never stored.
  */
 
 /** A lesson completion or reader review, as the schedule sees it. Null rating = Good (legacy). */
@@ -51,23 +52,35 @@ object ItemSchedule {
 }
 
 object LessonSchedule {
-    /** `MAX_NEW_LESSONS_PER_SESSION`. */
-    const val MAX_NEW_PER_SESSION = 2
-
     /** `LESSON_MIX_INTERVAL`: a lesson is offered after this many card reviews. */
     const val MIX_INTERVAL = 8
 
     /**
      * `getDueCustomLessons`: revisits due by the cutoff, most overdue first, at most
-     * [Revisit.MAX_LESSON_REVISITS_PER_DAY] a day minus [revisitedToday] (`pickRevisitsForToday`),
-     * then NEW lessons oldest first, at most [MAX_NEW_PER_SESSION]. Done-for-good lessons and
+     * [Revisit.MAX_LESSON_REVISITS_PER_DAY] a day minus [revisitedToday] (`pickRevisitsForToday`;
+     * they never count against the new-lesson budget), then NEW lessons oldest first
+     * (`pickNewLessonsForToday`): [newPerDay] ("New lessons a day", default 1) minus the lessons
+     * [introducedToday] (first-ever finish today — [introducedToday]). Done-for-good lessons and
      * lessons assigned one-off only (homework) never join the rotation.
      */
-    fun dueLessons(lessons: List<ScheduledItem>, oneOffOnly: Set<String>, cutoff: StudyCutoff, revisitedToday: Int = 0): List<ScheduledItem> {
+    fun dueLessons(
+        lessons: List<ScheduledItem>,
+        oneOffOnly: Set<String>,
+        cutoff: StudyCutoff,
+        revisitedToday: Int = 0,
+        introducedToday: Int = 0,
+        newPerDay: Int = Revisit.DEFAULT.newLessonsPerDayInt,
+    ): List<ScheduledItem> {
         val pool = lessons.filter { it.id !in oneOffOnly && !it.retired }
-        val fresh = pool.filter { it.queue == CardQueue.NEW }.sortedBy { it.createdAt }
+        val fresh = Revisit.pickNewForToday(pool.filter { it.queue == CardQueue.NEW }, { it.id }, { it.createdAt }, introducedToday, newPerDay)
         val due = Revisit.pickForToday(pool.filter { it.queue != CardQueue.NEW }.map { it to it.state }, cutoff.ts, revisitedToday)
-        return due + fresh.take(MAX_NEW_PER_SESSION)
+        return due + fresh
+    }
+
+    /** `newLessonsToday`: lessons first finished on today's LOCAL date (one-off homework left out). */
+    fun introducedToday(events: List<ItemEvent>, nowMs: Long, zone: ZoneId, exclude: Set<String> = emptySet()): Int {
+        val dayStart = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+        return Revisit.newLessonsIntroducedToday(events.map { it.itemId to it.at }, dayStart, exclude)
     }
 
     /**
@@ -96,25 +109,29 @@ object LessonSchedule {
 
 object ReaderSchedule {
     /** `READERS_PER_DAY`: one graded reader a day. */
-    const val READERS_PER_DAY = 1
+    const val READERS_PER_DAY = DailyReader.READERS_PER_DAY
 
     /** `readersReadToday`: readers with a review on today's LOCAL date. */
     fun readToday(events: List<ItemEvent>, nowMs: Long, zone: ZoneId): Set<String> {
         val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
-        return events.filter { Instant.ofEpochMilli(Js.parseDate(it.at)).atZone(zone).toLocalDate() == today }.mapTo(HashSet()) { it.itemId }
+        return events.filter { runCatching { Instant.ofEpochMilli(Js.parseDate(it.at)).atZone(zone).toLocalDate() }.getOrNull() == today }.mapTo(HashSet()) { it.itemId }
     }
 
     /**
-     * `pickTodaysReader`: a reader read today owns the day — nothing more is offered (Again
-     * brings it back tomorrow, never later the same day). Otherwise the most overdue revisit
-     * due by the cutoff, else the newest unread story. Done-for-good readers never.
+     * A reader's state from its reviews: NEW while unread, then "scheduled" with no due date —
+     * read, never offered again (`readerReadFields`).
      */
-    fun pickTodays(readers: List<ScheduledItem>, readToday: Set<String>, cutoff: StudyCutoff): ScheduledItem? {
-        if (readToday.isNotEmpty()) return null
-        val studyable = readers.filter { it.studyable && !it.retired }
-        studyable.filter { it.queue != CardQueue.NEW && it.dueMs <= cutoff.ts }.sortedBy { it.dueMs }.firstOrNull()?.let { return it }
-        return studyable.filter { it.queue == CardQueue.NEW }.sortedByDescending { it.createdAt }.firstOrNull()
+    fun state(events: List<ItemEvent>): RevisitState {
+        if (events.isEmpty()) return RevisitState.INITIAL
+        val last = events.maxOf { runCatching { Js.parseDate(it.at) }.getOrDefault(0L) }
+        return RevisitState(RevisitState.SCHEDULED, null, 0.0, last, events.size)
     }
+
+    private fun offer(r: ScheduledItem) = ReaderOffer(r.id, r.createdAt, r.studyable, !r.state.isNew)
+
+    /** `pickTodaysReader`: a reader read today owns the day; otherwise the newest UNREAD story. A read one never. */
+    fun pickTodays(readers: List<ScheduledItem>, readToday: Set<String>): ScheduledItem? =
+        DailyReader.pickTodays(readers, readToday.isNotEmpty(), ::offer)
 }
 
 /** What the session shows next (the non-card half of `selectNextItem`). */

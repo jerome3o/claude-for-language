@@ -169,26 +169,6 @@ class LessonParityTest {
         }
     }
 
-    @Test fun pickTodaysReader() {
-        for ((i, el) in root["readers"]!!.jsonArray.withIndex()) {
-            val c = el.jsonObject
-            val readers = c["readers"]!!.jsonArray.map {
-                val r = it.jsonObject
-                val due = r["due_timestamp"]!!.let { d -> if (d is JsonNull) null else d.jsonPrimitive.long }
-                ScheduledItem(
-                    id = r["id"]!!.str!!,
-                    createdAt = r["created_at"]!!.str!!,
-                    // The cached row back into its revisit state (`rowRevisitState`).
-                    state = Revisit.rowState(r["queue"]!!.jsonPrimitive.int, r["retired"]!!.jsonPrimitive.boolean, 0.0, 0, due, r["next_review_at"]!!.str, null),
-                    studyable = r["status"]!!.str == "ready" && r["pages"]!!.jsonPrimitive.int > 0,
-                )
-            }
-            val readToday = c["read_today"]!!.strings().toSet()
-            val picked = ReaderSchedule.pickTodays(readers, readToday, StudyCutoff(c["cutoff"]!!.jsonPrimitive.long))
-            assertEquals(c["picked"]!!.str, picked?.id, "reader case #$i")
-        }
-    }
-
     @Test fun readerFailures() {
         for (el in root["failures"]!!.jsonArray) {
             val c = el.jsonObject

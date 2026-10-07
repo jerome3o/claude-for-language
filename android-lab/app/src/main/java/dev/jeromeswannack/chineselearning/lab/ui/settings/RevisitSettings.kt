@@ -52,6 +52,12 @@ import kotlinx.coroutines.launch
 /** One field of Settings → "Lessons & readers" (RevisitSettingsSection's FIELDS). */
 private data class RevisitField(val key: String, val label: String, val hint: String, val unit: String)
 
+/** "New lessons a day" (its own row above the gaps). */
+private val NEW_LESSONS_FIELD = RevisitField(
+    "new_lessons_per_day", "New lessons a day",
+    "Lessons you haven't done yet join your study one at a time, oldest first. Lessons coming back don't count.", "",
+)
+
 private val FIELDS = listOf(
     RevisitField("hard_days", "Hard", "First gap after Hard", "days"),
     RevisitField("good_days", "Good", "First gap after Good", "days"),
@@ -96,8 +102,10 @@ class RevisitSettingsActions(
 const val REVISIT_SETTINGS_TAG = "revisit-settings"
 
 /**
- * Settings → "Lessons & readers" (the web's RevisitSettingsSection): when a finished mini lesson
- * or graded reader comes back — the Hard / Good / Easy gaps, the growth, the longest gap; the
+ * Settings → "Lessons & readers" (the web's RevisitSettingsSection): how many NEW mini lessons a
+ * day join the study session ("New lessons a day", default 1), and when a finished lesson comes
+ * back — the Hard / Good / Easy gaps, the growth, the longest gap. Graded readers are read once
+ * and never repeated (core DailyReader): nothing to set for them. The
  * "Good each time" chain follows the fields as they're typed; Save, Reset to defaults; the
  * problems (shared/study/revisit.ts, verbatim) inline. Saving needs a connection; the saved
  * settings live on the phone so the schedule works offline.
@@ -106,9 +114,15 @@ const val REVISIT_SETTINGS_TAG = "revisit-settings"
 fun RevisitSettingsSection(ui: RevisitSettingsUi, actions: RevisitSettingsActions) {
     SettingsSection(
         "Lessons & readers",
-        "When a finished mini lesson or story comes back. Again brings it back tomorrow; each later visit makes the gap longer. Done for good after finishing means it never comes back.",
+        "Graded readers are read once — a story never comes back, and a new one is written once you've read the last. Mini lessons:",
         Modifier.testTag(REVISIT_SETTINGS_TAG),
     ) {
+        FieldRow(NEW_LESSONS_FIELD, ui.draft[NEW_LESSONS_FIELD.key].orEmpty(), !ui.busy) { actions.onChange(NEW_LESSONS_FIELD.key, it) }
+        Text(
+            "When a finished lesson comes back: Again brings it back tomorrow; each later visit makes the gap longer. Done for good after finishing means it never comes back.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Lab.colors.muted,
+        )
         FIELDS.forEach { f -> FieldRow(f, ui.draft[f.key].orEmpty(), !ui.busy) { actions.onChange(f.key, it) } }
         Text(
             "Good each time: ${Revisit.goodChain(ui.preview)}",
@@ -133,7 +147,7 @@ fun RevisitSettingsSection(ui: RevisitSettingsUi, actions: RevisitSettingsAction
         if (ui.isDefault && !ui.dirty) {
             val d = Revisit.DEFAULT
             Text(
-                "Defaults: Hard ${Js.numberToString(d.hardDays)} days · Good ${Js.numberToString(d.goodDays)} days · Easy ${Js.numberToString(d.easyDays)} days · ×${Js.numberToString(d.growth)} · at most ${Js.numberToString(d.capDays)} days.",
+                "Defaults: ${d.newLessonsPerDayInt} new lesson a day · Hard ${Js.numberToString(d.hardDays)} days · Good ${Js.numberToString(d.goodDays)} days · Easy ${Js.numberToString(d.easyDays)} days · ×${Js.numberToString(d.growth)} · at most ${Js.numberToString(d.capDays)} days.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Lab.colors.muted,
             )
@@ -154,7 +168,7 @@ private fun FieldRow(f: RevisitField, value: String, enabled: Boolean, onChange:
             onValueChange = onChange,
             enabled = enabled,
             singleLine = true,
-            modifier = Modifier.width(88.dp).testTag("revisit-${f.key}").semantics { contentDescription = "${f.label} (${f.unit})" },
+            modifier = Modifier.width(88.dp).testTag("revisit-${f.key}").semantics { contentDescription = if (f.unit.isBlank()) f.label else "${f.label} (${f.unit})" },
             textStyle = TextStyle(fontSize = 17.sp, color = Lab.colors.ink, textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold),
             keyboardOptions = KeyboardOptions(keyboardType = if (f.key == "growth") KeyboardType.Decimal else KeyboardType.Number),
             shape = RoundedCornerShape(12.dp),

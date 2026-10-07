@@ -100,7 +100,7 @@ interface SyncChangesResponse {
   folders?: Folder[] | null;
   /** "⚡ Study it today": every active bump, sent whole (shared/decks/bumps.ts). */
   bumps?: ApiStudyBump[] | null;
-  /** "Revisit later" for lessons / readers: the gaps and every Done-for-good / Bring-back event. */
+  /** "Revisit later" for lessons: the gaps, new lessons a day and every Done-for-good / Bring-back event. */
   revisit_settings?: RevisitSettingsInfo | null;
   revisit_events?: Array<{ id: string; item_kind: 'lesson' | 'reader'; item_id: string; action: 'retire' | 'restore'; created_at: string }> | null;
 }
@@ -485,7 +485,7 @@ class SyncService {
    * sync — this content is additive to the core deck/note/card data.
    */
   private async syncReaders(): Promise<void> {
-    // "Revisit later": Done-for-good / Bring-back up, the gaps + events down (never throws);
+    // "Revisit later" (lessons): Done-for-good / Bring-back up, the settings + events down (never throws);
     // the reader and lesson syncs below recompute every schedule from the merged history.
     await syncRevisit();
     try {

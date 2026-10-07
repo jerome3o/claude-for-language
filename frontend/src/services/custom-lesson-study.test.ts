@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   getDueCustomLessons,
   completeCustomLesson,
-  MAX_NEW_LESSONS_PER_SESSION,
   computeLessonState,
   uploadCustomLessonCompletions,
   uploadLessonAttemptMedia,
@@ -79,14 +78,34 @@ function makeReader(): LocalReader {
 }
 
 describe('getDueCustomLessons', () => {
-  it('caps NEW lessons per session, oldest first', async () => {
-    const lessons = Array.from({ length: MAX_NEW_LESSONS_PER_SESSION + 2 }, (_, i) =>
-      makeLesson({ id: `l-${i}`, created_at: `2026-08-0${i + 1}T00:00:00Z` })
+  it('one NEW lesson a day by default, oldest first', async () => {
+    const lessons = Array.from({ length: 12 }, (_, i) =>
+      makeLesson({ id: `l-${i}`, created_at: `2026-08-${String(i + 1).padStart(2, '0')}T00:00:00Z` })
     );
     await db.customLessons.bulkPut([...lessons].reverse());
 
-    const due = await getDueCustomLessons();
-    expect(due.map(l => l.id)).toEqual(lessons.slice(0, MAX_NEW_LESSONS_PER_SESSION).map(l => l.id));
+    expect((await getDueCustomLessons()).map(l => l.id)).toEqual(['l-0']);
+
+    // Finished today → no other new lesson today, in this session or the next
+    await completeCustomLesson('l-0', 3, 3, 2);
+    expect(await getDueCustomLessons()).toEqual([]);
+  });
+
+  it('"New lessons a day" is a setting', async () => {
+    writeRevisitSettings({ new_lessons_per_day: 3 } as never);
+    await db.customLessons.bulkPut(Array.from({ length: 5 }, (_, i) => makeLesson({ id: `l-${i}`, created_at: `2026-08-0${i + 1}T00:00:00Z` })));
+    expect((await getDueCustomLessons()).map(l => l.id)).toEqual(['l-0', 'l-1', 'l-2']);
+    writeRevisitSettings({ new_lessons_per_day: 0 } as never);
+    expect(await getDueCustomLessons()).toEqual([]);
+    writeRevisitSettings({ new_lessons_per_day: 1 } as never);
+  });
+
+  it('a lesson first finished on an earlier day does not use up today', async () => {
+    await db.customLessons.bulkPut([makeLesson({ id: 'l-a', created_at: '2026-08-01T00:00:00Z' }), makeLesson({ id: 'l-b', created_at: '2026-08-02T00:00:00Z' })]);
+    const earlier = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    await db.customLessonCompletionEvents.put({ id: 'c-old', lesson_id: 'l-a', correct: 1, total: 1, completed_at: earlier, rating: 2, _synced: 1 });
+    await db.customLessons.update('l-a', { queue: CardQueue.REVIEW, repetitions: 1, due_timestamp: Date.now() + 10 * 86_400_000 });
+    expect((await getDueCustomLessons()).map(l => l.id)).toEqual(['l-b']);
   });
 
   it('offers due revisits, most overdue first, ahead of new ones', async () => {

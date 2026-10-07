@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,6 +33,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,37 +44,110 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
+import kotlinx.coroutines.launch
+import dev.jeromeswannack.chineselearning.lab.core.DailyReader
 import dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
-import dev.jeromeswannack.chineselearning.lab.ui.study.RatingBar
-import dev.jeromeswannack.chineselearning.lab.ui.kit.DoneForGoodButton
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
-/** A reader in the study session. [key] changes when the same story comes back. */
-data class SessionReader(val reader: GradedReaderDto, val previews: List<IntervalPreview>, val key: Int)
+/** A reader in the study session. [key] changes when the same story is presented again. */
+data class SessionReader(val reader: GradedReaderDto, val key: Int)
+
+/**
+ * "▶ Play whole story" hooks for a page's scrubber ([ReaderScrubber]): play as soon as the
+ * clip is ready, and tell the reader when it ended / was stopped / has no audio.
+ */
+class StoryPlayback(
+    val autoPlay: Boolean,
+    val onEnded: () -> Unit = {},
+    val onStopped: () -> Unit = {},
+    /** No clip on the phone ([missing] = true: offline and not downloaded) or it wouldn't play. */
+    val onUnavailable: (missing: Boolean) -> Unit = {},
+)
+
+/** The story button's test tag. */
+const val READER_PLAY_STORY_TAG = "reader-play-story"
+
+/** The Finish button's test tag. */
+const val READER_FINISH_TAG = "reader-finish"
 
 /**
  * A graded reader inside the study session (the web's StudyReader): page through, then
- * rate it on the last page — the rating sets when it comes back ("revisit later"), or
- * Done for good ([onRate]'s `retire`: read, rated Good for the record, never again).
+ * Finish on the last page — a story is read ONCE and never comes back (core [DailyReader]).
+ * Listen-first: "▶ Play whole story" plays every page's narration one after another, turning
+ * the pages, at the speed chip's speed; listening to the end counts as finishing
+ * ([onFinish]'s `how` = "listened"). Every page's narration is fetched onto the phone when the
+ * story opens, so it keeps playing when the train goes offline.
  */
 @Composable
-fun StudyReaderView(session: SessionReader, env: ReaderEnv, onRate: (rating: Int, timeSpentMs: Long, retire: Boolean) -> Unit) {
+fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpentMs: Long, how: String) -> Unit) {
     val reader = session.reader
     var page by rememberSaveable(session.key) { mutableIntStateOf(0) }
     val started = remember(session.key) { System.currentTimeMillis() }
-    var rated by remember(session.key) { mutableStateOf(false) }
+    var finished by remember(session.key) { mutableStateOf(false) }
+    var storyPlaying by rememberSaveable(session.key) { mutableStateOf(false) }
+    var storyNote by remember(session.key) { mutableStateOf<String?>(null) }
     val pages = reader.pages
     val last = page == pages.size - 1
     val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    var gapJob by remember(session.key) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    // Listen-first: every page's narration onto the phone in the background.
+    LaunchedEffect(session.key) { env.pageAudio?.let { load -> for (p in pages) runCatching { load(p, false) } } }
+
+    fun finish(how: String) {
+        if (finished) return
+        finished = true
+        onFinish(System.currentTimeMillis() - started, how)
+    }
+    fun stopStory(track: Boolean) {
+        gapJob?.cancel()
+        gapJob = null
+        if (storyPlaying && track) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("reader.story_stop", mapOf("page" to page + 1, "pages" to pages.size))
+        storyPlaying = false
+    }
+    fun turnTo(i: Int) {
+        // A manual turn while the story plays: it carries on from the new page.
+        gapJob?.cancel()
+        gapJob = null
+        page = i
+        env.onTap()
+    }
+    val story = StoryPlayback(
+        autoPlay = storyPlaying,
+        onEnded = {
+            if (storyPlaying) {
+                val next = DailyReader.storyNextPage(page, pages.size)
+                if (next == null) {
+                    storyPlaying = false
+                    finish("listened")
+                } else {
+                    gapJob = scope.launch {
+                        kotlinx.coroutines.delay(DailyReader.storyPageGapMs(env.speed))
+                        page = next
+                    }
+                }
+            }
+        },
+        onStopped = { stopStory(track = true) },
+        onUnavailable = { missing ->
+            if (storyPlaying) {
+                stopStory(track = false)
+                storyNote = if (missing) "This page's audio isn't on the phone yet — it downloads when you're online."
+                else "This page's audio wouldn't play — tap 🔊 to try again."
+            }
+        },
+    )
     Column(Modifier.fillMaxSize()) {
         // The blue progress bar stays pinned under the study top bar; the page scrolls beneath it.
         PinnedReaderProgress((page + 1f) / pages.size, scrolled = scroll.value > 0)
@@ -80,35 +157,52 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onRate: (rating: Int
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 PageTitle(reader.titleChinese, "${reader.titleEnglish} · Page ${page + 1} of ${pages.size}")
-                PagesContent(reader, page, env, scrubber = true)
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    StoryButton(
+                        playing = storyPlaying,
+                        label = when { storyPlaying -> "■ Stop the story"; page == 0 -> "▶ Play whole story"; else -> "▶ Play the rest" },
+                    ) {
+                        if (storyPlaying) stopStory(track = true)
+                        else {
+                            storyNote = null
+                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("reader.story_play", mapOf("from_page" to page + 1, "pages" to pages.size, "speed" to env.speed, "offline" to false))
+                            storyPlaying = true
+                            env.onTap()
+                        }
+                    }
+                    storyNote?.let { Text(it, fontSize = 12.sp, color = Color(0xFF92400E), textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp)) }
+                }
+                PagesContent(reader, page, env, scrubber = true, story = story)
                 Spacer(Modifier.height(16.dp))
             }
         }
         if (last) {
-            Column(Modifier.fillMaxWidth().background(Lab.colors.card).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (pages.size > 1) SecondaryPill("‹ Back") { page--; env.onTap() }
-                    Text("How well did you understand this story?", color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-                }
-                RatingBar(session.previews, enabled = !rated) { r ->
-                    if (rated) return@RatingBar
-                    rated = true
-                    onRate(r, System.currentTimeMillis() - started, false)
-                }
-                DoneForGoodButton(enabled = !rated) {
-                    if (rated) return@DoneForGoodButton
-                    rated = true
-                    onRate(dev.jeromeswannack.chineselearning.lab.core.Rating.GOOD, System.currentTimeMillis() - started, true)
+            Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (pages.size > 1) SecondaryPill("‹ Back", Modifier.weight(1f).height(54.dp)) { turnTo(page - 1) }
+                PrimaryPill("Finish ✓", Modifier.weight(2f).height(54.dp).testTag(READER_FINISH_TAG), enabled = !finished) {
+                    stopStory(track = false)
+                    finish("finish")
                 }
             }
         } else {
-            NavFooter(page, pages.size, onPrev = { page--; env.onTap() }, onNext = { page++; env.onTap() }, onFinish = null)
+            NavFooter(page, pages.size, onPrev = { turnTo(page - 1) }, onNext = { turnTo(page + 1) }, onFinish = null)
         }
     }
 }
 
+/** The "▶ Play whole story" pill (violet, filled while the story plays). */
 @Composable
-private fun PagesContent(reader: GradedReaderDto, page: Int, env: ReaderEnv, scrubber: Boolean = false) {
+private fun StoryButton(playing: Boolean, label: String, onClick: () -> Unit) {
+    val bg = if (playing) Color(0xFF6D28D9) else Color(0xFFF5F3FF)
+    val fg = if (playing) Color.White else Color(0xFF6D28D9)
+    Box(
+        Modifier.heightIn(min = 48.dp).clip(CircleShape).background(bg).bouncyClickable(onClick = onClick).testTag(READER_PLAY_STORY_TAG).padding(horizontal = 20.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+}
+
+@Composable
+private fun PagesContent(reader: GradedReaderDto, page: Int, env: ReaderEnv, scrubber: Boolean = false, story: StoryPlayback? = null) {
     AnimatedContent(
         page,
         transitionSpec = {
@@ -117,7 +211,7 @@ private fun PagesContent(reader: GradedReaderDto, page: Int, env: ReaderEnv, scr
                 (slideOutHorizontally(tween(200)) { -dir * it / 4 } + fadeOut(tween(150)))
         },
         label = "page",
-    ) { p -> reader.pages.getOrNull(p)?.let { ReaderPageView(it, env, scrubber) } }
+    ) { p -> reader.pages.getOrNull(p)?.let { ReaderPageView(it, env, scrubber, story?.takeIf { p == page }) } }
 }
 
 @Composable

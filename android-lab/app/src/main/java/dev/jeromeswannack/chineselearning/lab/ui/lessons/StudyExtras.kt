@@ -104,18 +104,17 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
     /** The reader for a [SessionItem.Reader]. */
     fun presentReader(item: ScheduledItem): dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader? {
         val entry = readers.firstOrNull { it.id == item.id } ?: return null
-        return dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader(entry.reader, ItemSchedule.previews(entry.state, entry.settings), ++shown)
+        return dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader(entry.reader, ++shown)
     }
 
     /**
-     * `rateReader`: records the review (or Done for good, [retire]). Even Again brings a story
-     * back tomorrow at the earliest, so it always leaves the session. Reading counts as the
-     * day's reader activity.
+     * `finishReader`: records the finish — a story is read once and never comes back, so it
+     * leaves the session. Reading counts as the day's reader activity.
      */
-    suspend fun rateReader(readerId: String, rating: Int, timeSpentMs: Long, retire: Boolean = false) {
+    suspend fun finishReader(readerId: String, timeSpentMs: Long, how: String = "finish") {
         readers = readers.filter { it.id != readerId }
         lastRatedReaderId = readerId
-        today.rateReader(readerId, rating, timeSpentMs, retire)
+        today.finishReader(readerId, timeSpentMs, how)
     }
 
     /** The lesson for a [SessionItem.Lesson]. */

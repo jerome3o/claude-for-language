@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * "Revisit later" (lessons + readers) must schedule exactly like the web:
+ * "Revisit later" (mini lessons) + "New lessons a day" must schedule exactly like the web:
  * shared/study/revisit.ts via parity/fixtures/revisit.ts → revisit.json. Doubles compared exactly.
  */
 class RevisitParityTest {
@@ -37,6 +37,7 @@ class RevisitParityTest {
         return RevisitSettings(
             o["hard_days"]!!.jsonPrimitive.double, o["good_days"]!!.jsonPrimitive.double, o["easy_days"]!!.jsonPrimitive.double,
             o["growth"]!!.jsonPrimitive.double, o["cap_days"]!!.jsonPrimitive.double,
+            o["new_lessons_per_day"]?.jsonPrimitive?.double ?: Revisit.DEFAULT.newLessonsPerDay,
         )
     }
 
@@ -104,6 +105,22 @@ class RevisitParityTest {
             val got = Revisit.pickForToday(items, c["cutoff"]!!.jsonPrimitive.long, c["doneToday"]!!.jsonPrimitive.int, perDay)
             assertEquals(c["picked"]!!.jsonArray.map { it.jsonPrimitive.content }, got, "pick $c")
         }
+    }
+
+    @Test fun newLessonsPerDay() {
+        val cases = list("newLessons")
+        assertTrue(cases.size >= 200)
+        for ((i, c) in cases.withIndex()) {
+            val events = c["events"]!!.jsonArray.map { it.jsonObject }.map { it["lesson_id"]!!.jsonPrimitive.content to it["completed_at"]!!.jsonPrimitive.content }
+            val exclude = c["exclude"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+            val introduced = Revisit.newLessonsIntroducedToday(events, c["day_start"]!!.jsonPrimitive.long, exclude)
+            assertEquals(c["introduced"]!!.jsonPrimitive.int, introduced, "introduced #$i $c")
+            val fresh = c["fresh"]!!.jsonArray.map { it.jsonObject }.map { it["id"]!!.jsonPrimitive.content to it["created_at"]!!.jsonPrimitive.content }
+            val perDay = intOrNull(c["per_day"]) ?: Revisit.DEFAULT.newLessonsPerDayInt
+            val got = Revisit.pickNewForToday(fresh, { it.first }, { it.second }, introduced, perDay).map { it.first }
+            assertEquals(c["picked"]!!.jsonArray.map { it.jsonPrimitive.content }, got, "picked #$i $c")
+        }
+        assertEquals(1, Revisit.DEFAULT.newLessonsPerDayInt)
     }
 
     @Test fun namedSchedule() {

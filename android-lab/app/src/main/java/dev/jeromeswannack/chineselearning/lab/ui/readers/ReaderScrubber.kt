@@ -87,7 +87,7 @@ fun sampleClipAnalysis(durationMs: Int, blocks: List<AudioBlocks.Block>, peaks: 
  * the 1 s grace scales (`ReaderSpeed.blockGraceMsAt`, a wall-clock reaction = 500 ms at 0.5×).
  */
 @Composable
-fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.State? = null) {
+fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.State? = null, story: StoryPlayback? = null) {
     val load = env.pageAudio
     var file by remember(page.id) { mutableStateOf<File?>(null) }
     var status by remember(page.id) { mutableStateOf("loading") }
@@ -105,6 +105,9 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
     // Callbacks outlive a composition (the completion listener, the polling loop): read the latest blocks
     val currentBlocks by rememberUpdatedState(blocks)
     val speed by rememberUpdatedState(env.speed)
+    // "▶ Play whole story": the latest hooks (the completion listener outlives a composition)
+    val storyNow by rememberUpdatedState(story)
+    var autoStarted by remember(page.id) { mutableStateOf(false) }
 
     fun positionMs(): Double = player[0]?.let { p -> runCatching { p.currentPosition.toDouble() }.getOrNull() } ?: head
 
@@ -150,23 +153,35 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
                 setDataSource(f.absolutePath)
                 prepare()
                 mediaDuration = this.duration
-                setOnCompletionListener { dispatch(BlockPlayback.Event.Ended) }
+                setOnCompletionListener {
+                    dispatch(BlockPlayback.Event.Ended)
+                    storyNow?.onEnded?.invoke()
+                }
             }
         }.getOrNull()?.also { player[0] = it }
     }
-    fun start() {
-        val p = mp() ?: return
-        runCatching {
+    fun start(): Boolean {
+        val p = mp() ?: return false
+        return runCatching {
             p.seekTo(play.anchorMs.toLong(), MediaPlayer.SEEK_CLOSEST)
             ReaderPlaybackSpeed.start(p.asSpeedPlayer(), speed)
             dispatch(BlockPlayback.Event.Play)
             env.onTap()
-        }
+        }.isSuccess
     }
     fun stop() {
         val pos = positionMs()
         runCatching { player[0]?.pause() }
         if (play.playing) dispatch(BlockPlayback.Event.Pause(pos)) else head = play.anchorMs
+    }
+    // Play whole story: play this page as soon as its clip is ready (once per page)
+    LaunchedEffect(status, story?.autoPlay) {
+        if (story?.autoPlay != true) { autoStarted = false; return@LaunchedEffect }
+        if (status == "unavailable") { story.onUnavailable(true); return@LaunchedEffect }
+        if (status == "ready" && !autoStarted && !play.playing) {
+            autoStarted = true
+            if (!start()) story.onUnavailable(false)
+        }
     }
     fun msAt(x: Float, width: Int): Double = if (width <= 0) 0.0 else (x / width).coerceIn(0f, 1f) * duration.toDouble()
 
@@ -240,7 +255,7 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
                 if (status == "unavailable") Text("audio unavailable offline", fontSize = 12.sp, color = Lab.colors.muted)
             }
             Box(
-                Modifier.size(56.dp).bouncyClickable(ready, 0.9f) { if (play.playing) stop() else start() }.clip(CircleShape)
+                Modifier.size(56.dp).bouncyClickable(ready, 0.9f) { if (play.playing) { stop(); storyNow?.onStopped?.invoke() } else start() }.clip(CircleShape)
                     .background(if (play.playing) Lab.colors.accent else Lab.colors.accentSoft).alpha(if (ready) 1f else 0.5f),
                 contentAlignment = Alignment.Center,
             ) {

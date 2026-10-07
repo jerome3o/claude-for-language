@@ -1,7 +1,7 @@
 /**
  * Golden vectors for package B (mini lessons + graded readers): the web's own
  * shared/lesson answer checking, voices, sample specs and attempt helpers, the
- * exercise helpers in lesson-exercises.tsx, and pickTodaysReader ("revisit later" rows). The Kotlin port
+ * exercise helpers in lesson-exercises.tsx (the session's reader pick is parity/fixtures/daily-reader.ts). The Kotlin port
  * (core/…/Lesson*.kt) must reproduce them exactly — LessonParityTest.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -32,7 +32,6 @@ import { formatDuration, sectionTimes, type LessonAttemptData } from '../../../s
 // then load them lazily (esbuild evaluates dynamic imports of bundled modules on demand).
 (import.meta as unknown as { env: Record<string, string> }).env ??= {};
 const { checkScrambleOrder, isExactHanziMatch } = await import('../../../frontend/src/components/lesson-exercises');
-const { pickTodaysReader } = await import('../../../frontend/src/services/reader-study');
 const { friendlyReaderError, failedReadersLabel } = await import('../../../frontend/src/services/readerFailures');
 
 const OUT = process.argv[2];
@@ -191,43 +190,6 @@ for (let i = 0; i < 20; i++) {
   attempts.push({ data, sections: sectionTimes(data) });
 }
 
-// ---- pickTodaysReader ----
-const T0 = Date.UTC(2026, 8, 27, 12, 0, 0);
-const DAY = 86_400_000;
-const readerCases: unknown[] = [];
-for (let i = 0; i < 300; i++) {
-  const n = int(0, 6);
-  const readers = Array.from({ length: n }, (_, k) => {
-    const queue = int(0, 3);
-    const due = queue === 0 ? null : rand() < 0.1 ? null : T0 + int(-3 * DAY, 3 * DAY);
-    return {
-      id: `r${k}`,
-      title_chinese: '', title_english: '', difficulty_level: 'beginner',
-      status: rand() < 0.85 ? 'ready' : pick(['generating', 'failed']),
-      created_at: new Date(T0 - int(0, 30) * DAY - int(0, 1000) * 1000).toISOString(),
-      pages: rand() < 0.9 ? [{ id: 'p', page_number: 1, content_chinese: '', content_pinyin: '', content_english: '', image_url: null, image_prompt: null }] : [],
-      queue,
-      stability: 1, difficulty: 5, lapses: 0, interval: 0, repetitions: 0,
-      next_review_at: due === null ? (queue === 2 && rand() < 0.5 ? null : null) : new Date(due).toISOString(),
-      due_timestamp: due,
-      last_reviewed_at: null,
-      // "Done for good" (shared/study/revisit.ts): never offered.
-      retired: queue !== 0 && rand() < 0.12,
-      _synced_at: 0,
-    };
-  });
-  const readToday = new Set(readers.filter(() => rand() < 0.15).map(r => r.id));
-  const cutoffTs = T0 + int(0, 12) * 3_600_000;
-  const cutoff = { ts: cutoffTs, iso: new Date(cutoffTs).toISOString() };
-  const picked = pickTodaysReader(readers as never, readToday, cutoff);
-  readerCases.push({
-    readers: readers.map(r => ({ id: r.id, status: r.status, pages: r.pages.length, created_at: r.created_at, queue: r.queue, due_timestamp: r.due_timestamp, next_review_at: r.next_review_at, retired: r.retired })),
-    read_today: [...readToday],
-    cutoff: cutoffTs,
-    picked: picked?.id ?? null,
-  });
-}
-
 const failureMessages = [
   null, '', 'ANTHROPIC_API_KEY not configured', 'HTTP 401', 'Request timed out after 30s', 'Deadline exceeded',
   'Rate limit reached', 'overloaded_error 529', 'Service Unavailable 503', 'Not enough learned vocabulary',
@@ -246,5 +208,4 @@ writeFileSync(join(OUT, 'lesson.json'), JSON.stringify({
   samples,
   durations: durations.map(ms => ({ ms, text: formatDuration(ms) })),
   attempts,
-  readers: readerCases,
 }));

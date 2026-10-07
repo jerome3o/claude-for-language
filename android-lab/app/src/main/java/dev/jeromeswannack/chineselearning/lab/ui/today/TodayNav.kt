@@ -174,13 +174,13 @@ class TodayReaderViewModel(private val app: LabApp) : ViewModel() {
         }
     }
 
-    /** The last page was rated: the review event + the day's reader mark, like the session. */
-    fun rate(rating: Int, timeSpentMs: Long, retire: Boolean, then: () -> Unit) {
+    /** Finished (Finish, or listened to the end): the finish + the day's reader mark, like the session. */
+    fun finish(timeSpentMs: Long, how: String, then: () -> Unit) {
         val entry = (_state.value as? TodayItemState.Reader)?.entry ?: return
         _state.value = TodayItemState.Finished
-        app.haptics.rated(rating)
+        app.haptics.rated(dev.jeromeswannack.chineselearning.lab.core.Rating.GOOD)
         viewModelScope.launch {
-            TodayData(app).rateReader(entry.id, rating, timeSpentMs, retire)
+            TodayData(app).finishReader(entry.id, timeSpentMs, how)
             TodayHomeLoader.celebrateIfAllClear(app)
             then()
         }
@@ -217,14 +217,14 @@ private fun TodayReaderRoute(nav: LabNav, state: TodayItemState, vm: TodayReader
     when (state) {
         is TodayItemState.Reader -> {
             val e = state.entry
-            val session = remember(e) { SessionReader(e.reader, dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(e.state, e.settings), 1) }
+            val session = remember(e) { SessionReader(e.reader, 1) }
             val env = rememberReaderEnv(nav.app, e.id)
             Column(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Today's story", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted, modifier = Modifier.weight(1f).padding(start = 12.dp))
                     IconButton(onClick = nav::back) { Icon(Icons.Filled.Close, "Close", tint = Lab.colors.muted) }
                 }
-                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(session, env) { r, ms, retire -> vm.rate(r, ms, retire) { nav.back() } } }
+                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(session, env) { ms, how -> vm.finish(ms, how) { nav.back() } } }
             }
         }
         TodayItemState.Missing -> MissingItem("Today's story", "No story to read today. Your readers are all in More → Graded readers.", nav, Routes.readers())

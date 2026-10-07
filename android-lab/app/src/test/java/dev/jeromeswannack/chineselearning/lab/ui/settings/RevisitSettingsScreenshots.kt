@@ -15,7 +15,7 @@ import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** Settings → "Lessons & readers" ("revisit later"): defaults, edited, and a rule broken. */
+/** Settings → "Lessons & readers": defaults (one new lesson a day), edited, and a rule broken. */
 class RevisitSettingsScreenshots : LabScreenshotTest() {
     private fun frame(ui: RevisitSettingsUi) = shoot(
         when {
@@ -37,6 +37,19 @@ class RevisitSettingsScreenshots : LabScreenshotTest() {
         assertEquals(mapOf("good_days" to 21.0, "growth" to 1.5), ui.changes)
         assertEquals("3 wk → 5 wk → 7 wk → 2 mo → 4 mo", Revisit.goodChain(ui.preview))
         frame(ui)
+    }
+
+    @Test fun newLessonsADay() {
+        val ui = RevisitSettingsUi(draft = revisitDraft(Revisit.DEFAULT) + ("new_lessons_per_day" to "2"))
+        assertTrue(ui.dirty)
+        assertEquals(mapOf("new_lessons_per_day" to 2.0), ui.changes)
+        shoot("listen-05-settings-new-lessons") {
+            Column(Modifier.fillMaxSize().background(Lab.colors.background).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                RevisitSettingsSection(ui, RevisitSettingsActions())
+            }
+        }
+        val bad = RevisitSettingsUi(draft = revisitDraft(Revisit.DEFAULT) + ("new_lessons_per_day" to "1.5"))
+        assertEquals(listOf("new_lessons_per_day must be a whole number between 0 and 20"), bad.draftProblems)
     }
 
     @Test fun brokenOrder() {

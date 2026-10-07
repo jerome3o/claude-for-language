@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { track } from '../services/analytics';
 import { LocalReader, LocalReaderPage } from '../db/database';
-import { Rating, IntervalPreview, QueueCounts } from '../types';
+import { QueueCounts } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
-import { RatingButtons } from './RatingButtons';
-import { updateLocalReaderPageImage } from '../services/readerSync';
+import { cacheReaderNarration, updateLocalReaderPageImage } from '../services/readerSync';
+import type { ReaderFinishHow } from '../services/reader-study';
+import { storyNextPage, storyPageGapMs } from '@shared/study/daily-reader';
+import { useReaderSpeed } from '../services/readerSpeed';
 import { generateReaderPageImage } from '../api/client';
 import { useCachedImageUrl } from '../hooks/useCachedImageUrl';
 import { ReaderAudioScrubber } from './ReaderAudioScrubber';
@@ -50,7 +52,15 @@ function usePageImage(readerId: string, page: LocalReaderPage): { imageUrl: stri
 
 // Rendered with key={page.id} so all reveal/audio state resets atomically on
 // every page turn — no effect-based resets, no stale-state flash.
-function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalReaderPage }) {
+/** "▶ Play whole story" hooks for the page's audio (see ReaderAudioScrubber). */
+interface StoryPlaybackHooks {
+  autoPlay: boolean;
+  onPlaybackEnded: () => void;
+  onStopped: () => void;
+  onUnavailable: (why: 'missing' | 'failed') => void;
+}
+
+function StudyReaderPage({ readerId, page, story }: { readerId: string; page: LocalReaderPage; story: StoryPlaybackHooks }) {
   // Listen-first flow, same as the standalone reader: Chinese starts hidden
   // so you can try the audio before reading, and can be hidden again to
   // re-test yourself without turning the page.
@@ -116,7 +126,13 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
         {/* Scrubbable audio: drag the circle to a spot on the waveform, and
             play/stop always restarts from there — for replaying one stretch
             when listening comprehension needs another pass. */}
-        <ReaderAudioScrubber page={page} />
+        <ReaderAudioScrubber
+          page={page}
+          autoPlay={story.autoPlay}
+          onPlaybackEnded={story.onPlaybackEnded}
+          onStopped={story.onStopped}
+          onUnavailable={story.onUnavailable}
+        />
 
         <div
           onClick={() => setShowPinyin(!showPinyin)}
@@ -137,48 +153,115 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
 }
 
 /**
- * A graded reader shown inside a study session: click through every page,
- * then rate it on the last page: the rating sets when it comes back
- * ("revisit later", shared/study/revisit.ts), or Done for good.
+ * A graded reader shown inside a study session (or a homework pass): click
+ * through every page, then Finish on the last page — a story is read ONCE and
+ * never comes back (shared/study/daily-reader.ts). Listen-first: "▶ Play whole
+ * story" plays every page's narration one after another, turning the pages,
+ * at the speed chip's speed; listening to the end counts as finishing.
  */
 export function StudyReader({
   reader,
-  intervalPreviews,
   counts,
-  isRating,
-  onRate,
+  isFinishing,
+  onFinish,
   onEnd,
 }: {
   reader: LocalReader;
-  intervalPreviews: Record<Rating, IntervalPreview>;
   /** The session's queue counts; omitted in the homework pass (a "Homework" label instead). */
   counts?: QueueCounts;
-  isRating: boolean;
-  /** `retire` = "Done for good": read, and never scheduled again. */
-  onRate: (rating: Rating, timeSpentMs: number, retire?: boolean) => void;
+  isFinishing: boolean;
+  /** Read: Finish was pressed, or the whole story was listened to the end. */
+  onFinish: (timeSpentMs: number, how: ReaderFinishHow) => void;
   onEnd: () => void;
 }) {
   const [currentPage, setCurrentPage] = useState(0);
   const [startTime] = useState(Date.now());
   const [scrolled, setScrolled] = useState(false);
+  const [storyPlaying, setStoryPlaying] = useState(false);
+  const [storyNote, setStoryNote] = useState<string | null>(null);
+  const speed = useReaderSpeed();
+  const gapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finishedRef = useRef(false);
 
   const page = reader.pages[currentPage];
   const isLastPage = currentPage === reader.pages.length - 1;
+  const source = counts ? 'session' : 'homework';
 
   useEffect(() => {
-    track('reader.open', { source: counts ? 'session' : 'homework', pages: reader.pages.length });
+    track('reader.open', { source, pages: reader.pages.length });
+    // Listen-first: every page's narration onto the device in the background,
+    // so "Play whole story" never waits (and keeps working when the train goes offline).
+    if (navigator.onLine) void cacheReaderNarration(reader).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reader.id]);
 
-  const handleRate = (rating: Rating) => {
-    track('reader.finish', { rating: (['again', 'hard', 'good', 'easy'] as const)[rating], pages: reader.pages.length });
-    onRate(rating, Date.now() - startTime);
+  useEffect(() => () => {
+    if (gapTimerRef.current) clearTimeout(gapTimerRef.current);
+  }, []);
+
+  const finish = useCallback((how: ReaderFinishHow) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    track('reader.finish', { how, pages: reader.pages.length });
+    onFinish(Date.now() - startTime, how);
+  }, [onFinish, reader.pages.length, startTime]);
+
+  const stopStory = useCallback(() => {
+    if (gapTimerRef.current) clearTimeout(gapTimerRef.current);
+    gapTimerRef.current = null;
+    setStoryPlaying(false);
+  }, []);
+
+  const startStory = () => {
+    setStoryNote(null);
+    track('reader.story_play', { from_page: currentPage + 1, pages: reader.pages.length, speed, offline: !navigator.onLine });
+    setStoryPlaying(true);
   };
 
-  const handleDoneForGood = () => {
-    track('reader.finish', { rating: 'good', pages: reader.pages.length });
-    // Read (counts as Good for the record) and retired.
-    onRate(2, Date.now() - startTime, true);
+  const story: StoryPlaybackHooks = {
+    autoPlay: storyPlaying,
+    onPlaybackEnded: () => {
+      if (!storyPlaying) return;
+      const next = storyNextPage(currentPage, reader.pages.length);
+      if (next === null) {
+        // Listened to the end: that is reading it.
+        setStoryPlaying(false);
+        finish('listened');
+        return;
+      }
+      gapTimerRef.current = setTimeout(() => {
+        gapTimerRef.current = null;
+        setCurrentPage(next);
+      }, storyPageGapMs(speed));
+    },
+    onStopped: () => {
+      if (!storyPlaying) return;
+      track('reader.story_stop', { page: currentPage + 1, pages: reader.pages.length });
+      stopStory();
+    },
+    onUnavailable: why => {
+      if (!storyPlaying) return;
+      stopStory();
+      setStoryNote(why === 'missing'
+        ? "This page's audio isn't on the device yet — it downloads when you're online."
+        : "This page's audio wouldn't play — tap 🔊 to try again.");
+    },
+  };
+
+  const turnTo = (index: number) => {
+    // A manual turn while the story plays: it carries on from the new page.
+    if (gapTimerRef.current) clearTimeout(gapTimerRef.current);
+    gapTimerRef.current = null;
+    setCurrentPage(index);
+  };
+
+  const toggleStory = () => {
+    if (!storyPlaying) {
+      startStory();
+      return;
+    }
+    track('reader.story_stop', { page: currentPage + 1, pages: reader.pages.length });
+    stopStory();
   };
 
   return (
@@ -215,47 +298,51 @@ export function StudyReader({
             📖 Graded Reader
           </div>
           <div className="hanzi" style={{ fontSize: '1.25rem', fontWeight: 600 }}>{reader.title_chinese}</div>
-          <div className="text-light" style={{ fontSize: '0.8125rem' }}>
+          <div className="text-light" style={{ fontSize: '0.8125rem' }} data-testid="study-reader-page-label">
             {reader.title_english} · Page {currentPage + 1} of {reader.pages.length}
           </div>
+          <button
+            type="button"
+            className={`study-reader-story-btn${storyPlaying ? ' playing' : ''}`}
+            onClick={toggleStory}
+            data-testid="reader-play-story"
+            aria-pressed={storyPlaying}
+          >
+            {storyPlaying ? '■ Stop the story' : currentPage === 0 ? '▶ Play whole story' : '▶ Play the rest'}
+          </button>
+          {storyNote && <div className="study-reader-story-note" role="status">{storyNote}</div>}
         </div>
 
-        <StudyReaderPage key={page.id} readerId={reader.id} page={page} />
+        <StudyReaderPage key={page.id} readerId={reader.id} page={page} story={story} />
       </div>
 
-      {/* Fixed footer: page navigation, or rating once the last page is reached */}
+      {/* Fixed footer: page navigation, or Finish once the last page is reached */}
       {isLastPage ? (
-        <div className="study-rating-sticky">
-          <div className="study-reader-rating-header">
-            {reader.pages.length > 1 && (
-              <button
-                className="btn btn-secondary study-reader-back-btn"
-                onClick={() => setCurrentPage(p => p - 1)}
-              >
-                ‹ Back
-              </button>
-            )}
-            <div className="study-reader-rating-prompt">
-              How well did you understand this story?
-            </div>
-          </div>
-          <RatingButtons
-            intervalPreviews={intervalPreviews}
-            onRate={handleRate}
-            onDoneForGood={handleDoneForGood}
-            disabled={isRating}
-          />
+        <div className="study-reader-nav study-reader-finish-row">
+          {reader.pages.length > 1 && (
+            <button className="btn btn-secondary" onClick={() => turnTo(currentPage - 1)}>
+              ‹ Back
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            onClick={() => { stopStory(); finish('finish'); }}
+            disabled={isFinishing}
+            data-testid="reader-finish"
+          >
+            Finish ✓
+          </button>
         </div>
       ) : (
         <div className="study-reader-nav">
           <button
             className="btn btn-secondary"
-            onClick={() => setCurrentPage(p => p - 1)}
+            onClick={() => turnTo(currentPage - 1)}
             disabled={currentPage === 0}
           >
             Previous
           </button>
-          <button className="btn btn-primary" onClick={() => setCurrentPage(p => p + 1)}>
+          <button className="btn btn-primary" onClick={() => turnTo(currentPage + 1)}>
             Next
           </button>
         </div>

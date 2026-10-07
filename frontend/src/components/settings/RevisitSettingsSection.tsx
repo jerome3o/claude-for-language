@@ -1,7 +1,9 @@
 /**
- * Settings → "Lessons & readers": when a finished mini lesson or graded reader
- * comes back (shared/study/revisit.ts). Hard / Good / Easy gaps in days, how
- * much the gap grows each later visit, and the longest gap; Reset to defaults.
+ * Settings → "Lessons & readers": how many NEW mini lessons a day join the
+ * study session, and when a finished lesson comes back (shared/study/revisit.ts):
+ * Hard / Good / Easy gaps in days, how much the gap grows each later visit, and
+ * the longest gap; Reset to defaults. Graded readers are read once and never
+ * repeated (shared/study/daily-reader.ts) — nothing to set for them.
  * Saved on the account (PUT /api/profile/revisit-settings) and mirrored on the
  * device so the schedule works offline (services/revisit.ts).
  */
@@ -20,7 +22,9 @@ import { track } from '../../services/analytics';
 
 type Draft = Record<keyof RevisitSettings, string>;
 
-const FIELDS: Array<{ key: keyof RevisitSettings; label: string; hint: string; unit: string; step: string }> = [
+type GapKey = Exclude<keyof RevisitSettings, 'new_lessons_per_day'>;
+
+const FIELDS: Array<{ key: GapKey; label: string; hint: string; unit: string; step: string }> = [
   { key: 'hard_days', label: 'Hard', hint: 'First gap after Hard', unit: 'days', step: '1' },
   { key: 'good_days', label: 'Good', hint: 'First gap after Good', unit: 'days', step: '1' },
   { key: 'easy_days', label: 'Easy', hint: 'First gap after Easy', unit: 'days', step: '1' },
@@ -34,6 +38,7 @@ const toDraft = (s: RevisitSettings): Draft => ({
   easy_days: String(s.easy_days),
   growth: String(s.growth),
   cap_days: String(s.cap_days),
+  new_lessons_per_day: String(s.new_lessons_per_day),
 });
 
 /** "14 days → 4 wk → 8 wk → 4 mo → 6 mo": what Good, Good, Good… does. */
@@ -73,7 +78,7 @@ export function RevisitSettingsSection() {
     setProblems([]);
     try {
       const next = await saveRevisitSettings(body);
-      track('settings.revisit_changed', { fields: reset ? 5 : Object.keys(body).length, reset });
+      track('settings.revisit_changed', { fields: reset ? 6 : Object.keys(body).length, reset, new_lessons_per_day: next.new_lessons_per_day });
       setSavedSettings(next);
       setDraft(toDraft(next));
       setDone(true);
@@ -102,8 +107,33 @@ export function RevisitSettingsSection() {
     <div className="settings-section" data-testid="revisit-settings">
       <h2>Lessons &amp; readers</h2>
       <p className="settings-section-desc">
-        When a finished mini lesson or story comes back. Again brings it back tomorrow; each later
-        visit makes the gap longer. <strong>Done for good</strong> after finishing means it never comes back.
+        Graded readers are read once — a story never comes back, and a new one is written once
+        you've read the last. Mini lessons:
+      </p>
+      <label className="revisit-field revisit-field--wide">
+        <span className="revisit-field-label">New lessons a day</span>
+        <span className="revisit-field-input">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={REVISIT_LIMITS.new_lessons_per_day.min}
+            max={REVISIT_LIMITS.new_lessons_per_day.max}
+            step="1"
+            value={draft.new_lessons_per_day}
+            onChange={e => setDraft(d => ({ ...d, new_lessons_per_day: e.target.value }))}
+            disabled={saving}
+            data-testid="revisit-new_lessons_per_day"
+            aria-label="New lessons a day"
+          />
+          <span className="revisit-field-unit">a day</span>
+        </span>
+        <span className="revisit-field-hint">
+          Lessons you haven't done yet join your study one at a time, oldest first. Lessons coming back don't count.
+        </span>
+      </label>
+      <p className="settings-section-desc">
+        When a finished lesson comes back: Again brings it back tomorrow; each later visit makes the
+        gap longer. <strong>Done for good</strong> after finishing means it never comes back.
       </p>
       <div className="revisit-grid">
         {FIELDS.map(f => (
@@ -146,7 +176,7 @@ export function RevisitSettingsSection() {
       </div>
       {isDefault && !dirty && (
         <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
-          Defaults: Hard {DEFAULT_REVISIT_SETTINGS.hard_days} days · Good {DEFAULT_REVISIT_SETTINGS.good_days} days ·
+          Defaults: {DEFAULT_REVISIT_SETTINGS.new_lessons_per_day} new lesson a day · Hard {DEFAULT_REVISIT_SETTINGS.hard_days} days · Good {DEFAULT_REVISIT_SETTINGS.good_days} days ·
           Easy {DEFAULT_REVISIT_SETTINGS.easy_days} days · ×{DEFAULT_REVISIT_SETTINGS.growth} · at most {DEFAULT_REVISIT_SETTINGS.cap_days} days.
         </p>
       )}
