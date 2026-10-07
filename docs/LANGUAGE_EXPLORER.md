@@ -83,7 +83,22 @@ Inside a view it pushes; elsewhere it opens a fresh stack. Used on:
 Not inside places where a tap already means something (answer inputs, the call board, games
 where tapping is the answer, example-sentence rows that reveal line by line).
 
+## Mini drills (`shared/explorer/drill.ts`)
+
+**🎯 Quick drill** on a Character view (target = the character, pool = its words) and a Word view
+(target = the word, pool = its related words) — shown only when `buildDrill(target, pool, 1)` makes
+one. 3–5 questions from what is on screen, in order: **meaning** (hanzi → pick the English),
+**listen** (hear it → pick the word; cached practice TTS), **tone** of the character(s) in the word
+(5 buttons), **reverse** (English → pick the word, when room) and **✍️ write** it on the stroke-order
+pad (perfect / good counts; Skip allowed). Options: the answer + up to 3 distractors from the pool,
+shuffled with a seeded mulberry32 (`seededRandom`) so the Lab port (`core/…/explorer/Drill.kt`) is
+parity-tested. Instant right / wrong feedback, pinyin after answering, a score line
+(`drillScoreLine`) with confetti at ≥ 60 %. The drill replaces the sheet's body; moving in the stack
+ends it. **Practice only**: no review events, no scheduling — results are analytics
+(`explorer.drill_start` / `drill_finish`). Works offline whenever the view itself does (audio /
+stroke data once cached).
+
 ## Analytics (`shared/analytics/events.ts`)
 
 `explorer.open` (source, kind), `explorer.push` (kind, from), `explorer.more` (kind),
-`explorer.add_card`, `explorer.bump`, `explorer.write`. Ids / enums / counts only.
+`explorer.add_card`, `explorer.bump`, `explorer.write`, `explorer.drill_start` (kind, items), `explorer.drill_finish` (kind, items, correct, duration_ms). Ids / enums / counts only.

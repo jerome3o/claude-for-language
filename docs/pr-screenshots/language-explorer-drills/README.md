@@ -1,3 +1,22 @@
+# Explorer quick drills — screenshots (412×915)
+
+## Web
+
+![Word view with the drill button](web-01-word-view-button.png)
+银行's Word view: 🎯 Quick drill next to ✨ More about this word.
+
+![Meaning](web-02-meaning.png)
+Question 1 of 5: what does it mean?
+
+![Answered wrong](web-03-answered-wrong.png)
+A wrong pick: red shake, the right answer green, pinyin revealed.
+
+![Tone](web-04-tone.png)
+Which tone is 行 here? — the word with the character marked, five tone buttons.
+
+![Done](web-05-done.png)
+The score: "4 / 5 — 很好！Nice", practice only, Again / Keep exploring.
+
 # Language explorer — quick drills
 
 ## Lab app (native, phone 412dp)
