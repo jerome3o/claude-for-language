@@ -61,6 +61,16 @@ export function sortDecksForQueue<T extends { priority: number; createdAt: strin
 }
 
 /**
+ * What is left of a deck's primary cap today. A deck's secondary cards studied
+ * beyond its own cap were funded by its primary cap (spill), so they count
+ * against it too.
+ */
+export function primaryCapLeft(p: DeckNewPool): number {
+  const deckOverflow = Math.max(0, p.studiedSecondary - p.capSecondary);
+  return Math.max(0, p.capPrimary - p.studiedPrimary - deckOverflow);
+}
+
+/**
  * How many new cards each deck may introduce right now.
  *
  * - The global primary budget (+ bonus) is spent walking decks in queue order;
@@ -88,11 +98,8 @@ export function allocateNewCards(
   const capLeft = new Map<string, { primary: number; secondary: number }>();
   for (const p of ordered) {
     out.set(p.deckId, { primary: 0, secondary: 0 });
-    // A deck's secondary cards studied beyond its own cap were funded by its
-    // primary cap (spill), so they count against it too.
-    const deckOverflow = Math.max(0, p.studiedSecondary - p.capSecondary);
     capLeft.set(p.deckId, {
-      primary: Math.max(0, p.capPrimary - p.studiedPrimary - deckOverflow),
+      primary: primaryCapLeft(p),
       secondary: Math.max(0, p.capSecondary - p.studiedSecondary),
     });
   }
@@ -133,6 +140,36 @@ export function allocateNewCards(
     }
   }
 
+  return out;
+}
+
+/**
+ * Re-spread the primary allocation when some primary cards were already chosen
+ * across decks ("new characters first across all decks", study-queue.ts): the
+ * TOTAL stays what `allocateNewCards` gave; each deck keeps its `firstPicks`
+ * and the rest is filled deck queue top-down, a deck taking at most
+ * min(its unseen cards, what is left of its primary cap). Secondary counts are
+ * untouched — when primary budget spilled into them every deck had already
+ * given all it could, so the spread is the same either way.
+ * `firstPicks` must stay within each deck's room (min(totalNew, primaryCapLeft)).
+ */
+export function respreadPrimary(
+  pools: DeckNewPool[],
+  allocation: ReadonlyMap<string, DeckAllocation>,
+  firstPicks: ReadonlyMap<string, number>
+): Map<string, DeckAllocation> {
+  let left = 0;
+  for (const a of allocation.values()) left += a.primary;
+  for (const n of firstPicks.values()) left -= n;
+  const out = new Map<string, DeckAllocation>();
+  for (const p of sortDecksForQueue(pools)) {
+    const a = allocation.get(p.deckId) ?? { primary: 0, secondary: 0 };
+    const first = firstPicks.get(p.deckId) ?? 0;
+    const room = Math.min(p.totalNew, primaryCapLeft(p));
+    const take = Math.max(0, Math.min(room - first, left));
+    left -= take;
+    out.set(p.deckId, { primary: first + take, secondary: a.secondary });
+  }
   return out;
 }
 

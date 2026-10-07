@@ -7,7 +7,9 @@
  *                                                         by the cutoff + the budget's new cards)
  *   - countQueue(...)                                   (the four numbers Home shows)
  *   - selectStudyQueue(..., noteText)                   ("new characters first": which brand-new
- *                                                         notes, in pick order — shared/decks/novelty.ts)
+ *                                                         notes, in pick order — shared/decks/novelty.ts;
+ *                                                         `globalNovelty`: across ALL decks first, caps,
+ *                                                         one-off decks and long-term choices)
  *   - selectStudyQueue(..., bumps) + bumpPocket(...)    ("⚡ Study it today": the bump pocket heads the
  *                                                         queue, NEW over the budget, one early review,
  *                                                         carry-over, done after review — shared/decks/bumps.ts)
@@ -266,5 +268,73 @@ for (let i = 0; i < 300; i++) {
   });
 }
 
-writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty, bumped }));
-console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) + ${bumped.length} (bumps) scenarios`);
+// "New characters first across ALL decks": many decks with their own character sets (a bottom
+// deck full of never-seen characters under a top deck of familiar ones), caps incl. a one-off
+// deck (0 + 0), opted-in / opted-out words, cards introduced today, bonus rounds.
+const EXTRA = [...'熊猫虎狗龙鸟鱼马牛羊猴鸡兔蛇鼠猪山水火木金土雨雪风云'];
+const globalNovelty: unknown[] = [];
+for (let i = 0; i < 300; i++) {
+  const dayStart = Date.parse('2026-10-06T23:00:00.000Z');
+  const now = dayStart + int(6, 22) * H;
+  const cutoff = Math.max(dayStart + DAY - 1, now + H);
+  const decks: QueueDeckInput[] = [];
+  for (let d = 0; d < int(2, 6); d++) {
+    const oneOff = rand() < 0.15;
+    decks.push({
+      id: `g${i}-${d}`,
+      priority: pick([0, 1, 2, 3, 5, 9]),
+      created_at: `2026-0${int(1, 9)}-${String(int(10, 28))}T10:00:00.000Z`,
+      cap_primary: oneOff ? 0 : pick([0, 1, 2, 3, 5, 20]),
+      cap_secondary: oneOff ? 0 : pick([0, 2, 6, 10]),
+    });
+  }
+  const cards: QueueCardInput[] = [];
+  const firstReviewAt: Record<string, number> = {};
+  const noteHanzi: Record<string, string> = {};
+  const longTerm: Record<string, 0 | 1> = {};
+  for (let n = 0; n < int(0, 40); n++) {
+    const noteId = `g${i}-n${String(n).padStart(2, '0')}`;
+    const deckIndex = int(0, decks.length - 1);
+    noteHanzi[noteId] = rand() < 0.5 ? pick(HANZI)
+      : Array.from({ length: int(1, 3) }, () => (rand() < 0.4 + 0.1 * deckIndex ? pick(EXTRA) : pick(HANZI).slice(0, 1))).join('');
+    const deckId = rand() < 0.04 ? `gone-${i}` : decks[deckIndex].id;
+    const reviewed = rand() < 0.35;
+    if (rand() < 0.1) longTerm[noteId] = pick([0, 1] as const);
+    const types = rand() < 0.1 ? TYPES.slice(1, 3) : TYPES.slice(0, int(1, 3));
+    for (const t of types) {
+      const id = `g${i}-c${n}-${t[0]}-${int(0, 9)}`;
+      const queue = reviewed ? pick([0, 1, 2, 2, 3]) : 0;
+      let due: number | null = null;
+      if (queue !== 0) {
+        due = now + int(-48, 48) * H;
+        firstReviewAt[id] = rand() < 0.3 ? dayStart + int(0, 5) * H : dayStart - int(1, 40) * DAY;
+      }
+      cards.push({ id, note_id: noteId, deck_id: deckId, card_type: t, queue, due_ms: due });
+    }
+  }
+  const budget = { new_cards_per_day: pick([0, 1, 3, 5, 10, 20]), secondary_cards_per_day: pick([0, 6]) };
+  const bonus = pick([0, 0, 10]);
+  const intro = introducedToday(cards, new Map(Object.entries(firstReviewAt)), dayStart);
+  const hanziMap = new Map(Object.entries(noteHanzi));
+  const longTermMap = new Map(Object.entries(longTerm));
+  const scopes: Array<string | null> = [null, pick(decks).id];
+  const queues = scopes.map(deckId => {
+    const q = selectStudyQueue(decks, cards, budget, bonus, intro, cutoff, deckId, { hanzi: hanziMap }, longTermMap);
+    return {
+      deckId,
+      due: q.due.map(c => c.id).sort(),
+      newOrder: q.due.filter(c => c.queue === 0).map(c => c.id),
+      counts: countQueue(q.due, q.reviewedNoteIds),
+      hasMoreNew: q.hasMoreNew,
+      allocation: [...q.allocation.entries()].map(([id, a]) => ({ deckId: id, primary: a.primary, secondary: a.secondary })),
+    };
+  });
+  globalNovelty.push({
+    now, dayStart, cutoff, decks, cards, firstReviewAt, budget, bonus, noteHanzi, seenNoteIds: null, longTerm,
+    introduced: [...intro.entries()].map(([deckId, v]) => ({ deckId, ...v })),
+    queues,
+  });
+}
+
+writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty, bumped, globalNovelty }));
+console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) + ${bumped.length} (bumps) + ${globalNovelty.length} (across decks) scenarios`);

@@ -163,7 +163,7 @@ object StudyQueue {
         }
         val elsewhere = introduced.filterKeys { it !in scopeIds }.values
         val spent = Spent(elsewhere.sumOf { it.primary }, elsewhere.sumOf { it.secondary })
-        val alloc = Budget.allocateNewCards(pools, budget, bonus, spent)
+        var alloc: Map<String, DeckAllocation> = Budget.allocateNewCards(pools, budget, bonus, spent)
 
         val due = ArrayList<QueueCard>(pocket.cards)
         for (card in cards) {
@@ -178,31 +178,73 @@ object StudyQueue {
         // New cards: deck queue order; within a deck the primary cards (best tier first, the
         // hanzi_to_meaning cards by novelty), then the secondary ones (best tier, then id).
         val hanziOf = { c: QueueCard -> noteHanzi?.get(c.noteId) ?: "" }
+        val newCards = ArrayList<QueueCard>()
         // "New characters first" only changes WHICH new words come; if it ever fails, the plain
         // order is used rather than failing the queue (Home, the session, the widget build it).
         var seen = noteHanzi?.let { h -> runCatching { NoveltyRank.seenFrom((seenNoteIds ?: reviewed).map { h[it] ?: "" }) }.getOrNull() }
+        // "New characters first across all decks": the budget's primary picks go first to unseen
+        // words in ANY deck in scope that bring never-seen characters; the rest deck by deck.
+        val globalPicks = HashSet<String>()
+        seen?.let { s ->
+            runCatching {
+                val picked = pickNewCharactersFirst(pools, newByDeck, reviewed, alloc.values.sumOf { it.primary }, hanziOf, s)
+                if (picked.isNotEmpty()) {
+                    val respread = Budget.respreadPrimary(pools, alloc, picked.groupingBy { it.deckId }.eachCount())
+                    picked.mapTo(globalPicks) { it.id }
+                    alloc = respread
+                    newCards += picked
+                }
+            }.onFailure { seen = null; globalPicks.clear(); newCards.clear() }
+        }
         for ((id, a) in alloc) {
+            if (a.primary <= 0 && a.secondary <= 0) continue
             val list = newByDeck[id].orEmpty()
                 .sortedWith(compareBy<QueueCard> { tier(it, reviewed) }.thenBy { it.id })
             val primaryList = list.filter { it.noteId !in reviewed }
-            val take = Math.max(0, a.primary)
+            val take = Math.max(0, a.primary - primaryList.count { it.id in globalPicks })
             val byNovelty = seen?.let { s ->
                 runCatching {
-                    val first = primaryList.filter { it.cardType == CardTypes.HANZI_TO_MEANING }
+                    val first = primaryList.filter { it.cardType == CardTypes.HANZI_TO_MEANING && it.id !in globalPicks }
                     val picked = NoveltyRank.pick(first, take, hanziOf, s)
                     val others = primaryList.filter { it.cardType != CardTypes.HANZI_TO_MEANING }.take(Math.max(0, take - picked.size))
                     for (c in others) NoveltyRank.markSeen(s, hanziOf(c))
                     picked + others
                 }.onFailure { seen = null }.getOrNull()
             }
-            due += byNovelty ?: primaryList.take(take)
-            due += list.filter { it.noteId in reviewed }.take(Math.max(0, a.secondary))
+            newCards += byNovelty ?: primaryList.filter { it.id !in globalPicks }.take(take)
+            newCards += list.filter { it.noteId in reviewed }.take(Math.max(0, a.secondary))
         }
+        due += newCards
         val hasMoreNew = pools.any { p ->
             val a = alloc[p.deckId] ?: DeckAllocation(0, 0)
             p.totalNew + p.totalSecondaryNew > a.primary + a.secondary
         }
         return BuiltQueue(due, reviewed, hasMoreNew, pools, alloc, pocket.cards, pocket.activeNoteIds)
+    }
+
+    /**
+     * Port of `pickNewCharactersFirst` (study-queue.ts): the first [take] primary picks —
+     * hanzi_to_meaning cards of unseen notes in ANY deck of [pools] that bring never-seen
+     * characters, each deck within min(unseen cards, primary cap left); ties by deck queue
+     * position, shorter, card id. Mutates [seen].
+     */
+    fun pickNewCharactersFirst(
+        pools: List<DeckNewPool>,
+        newByDeck: Map<String, List<QueueCard>>,
+        reviewed: Set<String>,
+        take: Int,
+        hanziOf: (QueueCard) -> String,
+        seen: SeenText,
+    ): List<QueueCard> {
+        if (take <= 0) return emptyList()
+        val position = Budget.sortForQueue(pools, { it.priority }, { it.createdAt }).withIndex().associate { (i, p) -> p.deckId to i }
+        val room = pools.associate { it.deckId to minOf(it.totalNew, Budget.primaryCapLeft(it)) }
+        val candidates = ArrayList<QueueCard>()
+        for ((deckId, list) in newByDeck) {
+            if ((room[deckId] ?: 0) <= 0) continue
+            for (c in list) if (c.cardType == CardTypes.HANZI_TO_MEANING && c.noteId !in reviewed) candidates += c
+        }
+        return NoveltyRank.pickAcrossGroups(candidates, take, hanziOf, { it.deckId }, { position[it] ?: 0 }, room, { it.id }, seen)
     }
 
     fun counts(queue: Collection<QueueCard>, reviewedNoteIds: Set<String>): QueueCounts {

@@ -43,6 +43,35 @@ object Budget {
     /** String.prototype.localeCompare for the ASCII timestamps we compare; UTF-16 order otherwise. */
     private fun jsCompare(a: String, b: String): Int = a.compareTo(b).coerceIn(-1, 1)
 
+    /** Port of `primaryCapLeft`: what is left of a deck's primary cap today (secondary spill counts against it). */
+    fun primaryCapLeft(p: DeckNewPool): Int {
+        val deckOverflow = Math.max(0, p.studiedSecondary - p.capSecondary)
+        return Math.max(0, p.capPrimary - p.studiedPrimary - deckOverflow)
+    }
+
+    /**
+     * Port of `respreadPrimary`: keep the TOTAL primary allocation, give each deck its
+     * [firstPicks] ("new characters first across all decks") and fill the rest deck queue
+     * top-down within min(unseen cards, primary cap left). Secondary counts unchanged.
+     */
+    fun respreadPrimary(
+        pools: List<DeckNewPool>,
+        allocation: Map<String, DeckAllocation>,
+        firstPicks: Map<String, Int>,
+    ): LinkedHashMap<String, DeckAllocation> {
+        var left = allocation.values.sumOf { it.primary } - firstPicks.values.sum()
+        val out = LinkedHashMap<String, DeckAllocation>()
+        for (p in sortForQueue(pools, { it.priority }, { it.createdAt })) {
+            val a = allocation[p.deckId] ?: DeckAllocation(0, 0)
+            val first = firstPicks[p.deckId] ?: 0
+            val room = minOf(p.totalNew, primaryCapLeft(p))
+            val take = Math.max(0, minOf(room - first, left))
+            left -= take
+            out[p.deckId] = DeckAllocation(first + take, a.secondary)
+        }
+        return out
+    }
+
     /** `allocateNewCards(pools, budget, bonus, spentElsewhere)`. Iteration order of the result = queue order. */
     fun allocateNewCards(
         pools: List<DeckNewPool>,
@@ -64,8 +93,7 @@ object Budget {
         for (p in ordered) {
             primary[p.deckId] = 0
             secondary[p.deckId] = 0
-            val deckOverflow = Math.max(0, p.studiedSecondary - p.capSecondary)
-            capPrimary[p.deckId] = Math.max(0, p.capPrimary - p.studiedPrimary - deckOverflow)
+            capPrimary[p.deckId] = primaryCapLeft(p)
             capSecondary[p.deckId] = Math.max(0, p.capSecondary - p.studiedSecondary)
         }
 
