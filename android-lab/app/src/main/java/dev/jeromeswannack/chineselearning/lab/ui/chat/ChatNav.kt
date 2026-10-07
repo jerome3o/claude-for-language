@@ -155,6 +155,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onReply = vm::reply,
             onPlay = vm::play,
             onOpenSheet = vm::openSheet,
+            onOpenCoach = { m, source -> vm.openInCoach(m, source)?.let(nav::open) },
             onReact = vm::react,
             onViewCheck = vm::viewCheck,
             onWord = vm::openWord,
@@ -288,7 +289,14 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 ),
                 onSaveCorrection = vm::saveCorrection,
                 onRemoveCorrection = vm::removeCorrection,
-                onMenuAction = vm::onMenuAction,
+                onMenuAction = { id, m ->
+                    if (id == dev.jeromeswannack.chineselearning.lab.core.MessageMenu.OPEN_COACH) {
+                        // Count the menu action like every other, then open the Coach.
+                        nav.app.analytics.track("chat.menu_action", mapOf("action" to id, "kind" to (m.attachment?.kind ?: "text")))
+                        vm.openInCoach(m, "menu")?.let(nav::open)
+                    } else vm.onMenuAction(id, m)
+                },
+                onOpenCoach = { m, source -> vm.openInCoach(m, source)?.let(nav::open) },
                 cards = rememberChatCardActions(nav.app),
                 onRetryExplain = vm::retryExplain,
                 onCloseExplain = vm::closeExplain,

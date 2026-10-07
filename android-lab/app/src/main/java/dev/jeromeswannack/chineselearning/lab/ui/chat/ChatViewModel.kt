@@ -349,7 +349,8 @@ data class ChatUi(
     fun menu(m: ChatMessageDto): MessageMenu.Menu = MessageMenu.messageMenu(
         MessageMenu.Message(
             senderId = m.sender_id, content = m.content, deletedAt = m.deleted_at, pending = false,
-            attachmentKind = m.attachment?.kind, transcript = m.attachment?.transcript, attachmentTranslation = m.attachment?.translation,
+            attachmentKind = m.attachment?.kind, transcript = m.attachment?.transcript, transcriptStatus = m.attachment?.transcript_status,
+            attachmentTranslation = m.attachment?.translation,
             translation = m.translation, hasCorrection = m.correction != null, correctionText = m.correction?.text,
             checkStatus = checkStatus(m), autoCheckStatus = m.auto_check?.status, autoCheckText = m.auto_check?.text,
             hasDiscussion = m.has_discussion, pinnedAt = m.pinned_at,
@@ -360,6 +361,18 @@ data class ChatUi(
     /** "corrected" | "improvable" | null — the ✎ on my own bubble and the menu's ✨ ([SayBetter.state], parity-tested). */
     fun sayBetter(m: ChatMessageDto): String? = dev.jeromeswannack.chineselearning.lab.core.SayBetter.state(
         m.sender_id, m.content, m.deleted_at, m.attachment?.kind, m.correction != null, m.correction?.text,
+        m.auto_check?.status, m.auto_check?.text, myId ?: "", m.attachment?.transcript, m.attachment?.transcript_status,
+    )
+
+    /** What "Open in Coach" sends for [m] (my own checked, theirs explained), or null without Chinese ([SayBetter.openInCoachRequest]). */
+    fun coachRequest(m: ChatMessageDto): dev.jeromeswannack.chineselearning.lab.core.SayBetter.CoachRequest? =
+        dev.jeromeswannack.chineselearning.lab.core.SayBetter.openInCoachRequest(
+            m.sender_id, m.content, m.deleted_at, m.attachment?.kind, m.attachment?.transcript, m.attachment?.transcript_status, myId ?: "",
+        )
+
+    /** The small "🎓 Open in Coach" chip under MY bubble: only when the auto-check found something ([SayBetter.showCoachChip]). */
+    fun showCoachChip(m: ChatMessageDto): Boolean = dev.jeromeswannack.chineselearning.lab.core.SayBetter.showCoachChip(
+        m.sender_id, m.content, m.deleted_at, m.attachment?.kind, m.attachment?.transcript, m.attachment?.transcript_status,
         m.auto_check?.status, m.auto_check?.text, myId ?: "",
     )
 
@@ -1312,6 +1325,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         app.analytics.track("chat.menu_action", mapOf("action" to id, "kind" to (m.attachment?.kind ?: "text")))
         when (id) {
             MessageMenu.SAY_BETTER -> openSheet(ChatSheet.SayBetter(m))
+            // Navigation: ChatNav routes OPEN_COACH to [openInCoach] before it gets here.
+            MessageMenu.OPEN_COACH -> {}
             MessageMenu.REPLY -> reply(m)
             MessageMenu.COPY -> copy(_ui.value.menuText(m))
             MessageMenu.TRANSLATE -> translateInline(m)
@@ -1334,6 +1349,18 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             MessageMenu.EDIT -> startEdit(m)
             MessageMenu.DELETE -> askDelete(m)
         }
+    }
+
+    /**
+     * "🎓 Open in Coach" (docs/CHAT.md "Chat ↔ Coach"): the Coach deep link for [m] — my message is
+     * checked there, theirs explained, at once (`from_message` lets the server reuse its auto-check).
+     * [source] = menu | chip | sheet. Null when the message has no Chinese.
+     */
+    fun openInCoach(m: ChatMessageDto, source: String): String? {
+        val req = _ui.value.coachRequest(m) ?: return null
+        _ui.update { it.copy(sheet = null) }
+        app.analytics.track("chat.open_in_coach", mapOf("source" to source, "action" to req.action))
+        return dev.jeromeswannack.chineselearning.lab.ui.coach.coachOpenPath(req.text, req.action, m.id)
     }
 
     /** A tap on a bubble shows / hides its time (the last bubble of a group always shows it). */

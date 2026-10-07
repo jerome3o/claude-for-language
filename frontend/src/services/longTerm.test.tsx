@@ -55,10 +55,11 @@ const dueNotes = async () => (await getStudyQueue()).dueCards.map((c) => c.note_
 
 describe('setNoteLongTerm', () => {
   it('switching a one-off word ON brings it into today\'s queue; OFF on a normal word keeps it out', async () => {
-    expect(await dueNotes()).toEqual(['n1', 'n2']);
+    // "Most common first" in the new-character tier: 月 (月亮) is more common than 太 (太阳).
+    expect(await dueNotes()).toEqual(['n2', 'n1']);
     await setNoteLongTerm('o1', 1);
     await setNoteLongTerm('n2', 0);
-    // Both bring new characters; "most common first": 太阳 before 刮风 (the deck order only breaks ties).
+    // Both bring new characters; the most common new character first: 太 before 风 / 刮 (the deck order only breaks ties).
     expect(await dueNotes()).toEqual(['n1', 'o1']);
     const counts = await getQueueCounts();
     expect(counts.new).toBe(2);

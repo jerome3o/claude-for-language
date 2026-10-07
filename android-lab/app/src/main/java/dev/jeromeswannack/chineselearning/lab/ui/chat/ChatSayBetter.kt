@@ -94,9 +94,11 @@ data class SayBetterView(
         fun of(m: ChatMessageDto, myId: String?, tutorName: String?, pinyinOf: (String) -> String = { dev.jeromeswannack.chineselearning.lab.core.ToneChange.autoPinyin(it) }): SayBetterView? {
             val state = SayBetter.state(
                 m.sender_id, m.content, m.deleted_at, m.attachment?.kind, m.correction != null, m.correction?.text,
-                m.auto_check?.status, m.auto_check?.text, myId ?: "",
+                m.auto_check?.status, m.auto_check?.text, myId ?: "", m.attachment?.transcript, m.attachment?.transcript_status,
             ) ?: return null
-            val check = m.auto_check?.takeIf { it.text == m.content }
+            // A photo's caption / a voice message's transcript is what was checked (SayBetter.autoCheckText).
+            val checkedText = SayBetter.autoCheckText(m.content, m.attachment?.kind, m.attachment?.transcript, m.attachment?.transcript_status)
+            val check = m.auto_check?.takeIf { it.text == checkedText }
             val correction = m.correction?.takeIf { state == SayBetter.CORRECTED }
             val corrected = correction?.text ?: check?.corrected.orEmpty()
             val sameAsCheck = check != null && check.corrected == corrected && check.corrected.isNotEmpty()
@@ -119,7 +121,7 @@ data class SayBetterView(
                 state = state,
                 header = if (correction != null) "✏️ $first corrected this" else null,
                 note = correction?.note?.takeIf { it.isNotBlank() },
-                original = m.content,
+                original = checkedText,
                 corrected = corrected,
                 pinyin = pinyin,
                 english = english,
@@ -137,6 +139,7 @@ object SayBetterTags {
     const val PLAY = "say-better-play"
     const val ADD = "say-better-add"
     const val ASK = "say-better-ask"
+    const val OPEN_COACH = "say-better-open-coach"
     fun mistake(i: Int) = "say-better-mistake-$i"
     fun mistakeCard(i: Int) = "say-better-mistake-card-$i"
 }
@@ -155,6 +158,8 @@ fun SayBetterContent(
     onAsk: () -> Unit,
     onClose: () -> Unit,
     initialAdding: Chunk? = null,
+    /** "🎓 Open in Coach": continue in the Sentence Coach with this result (docs/CHAT.md "Chat ↔ Coach"); null = hidden. */
+    onOpenCoach: (() -> Unit)? = null,
 ) {
     var adding by remember(v.original, v.corrected) { mutableStateOf(initialAdding) }
     Column(Modifier.fillMaxWidth().testTag(SayBetterTags.SHEET)) {
@@ -226,6 +231,12 @@ fun SayBetterContent(
                 if (online) "💬 Ask Claude about this" else "💬 Ask Claude about this · needs internet",
                 Modifier.fillMaxWidth().height(48.dp).testTag(SayBetterTags.ASK), enabled = online,
             ) { onAsk() }
+            onOpenCoach?.let { open ->
+                SecondaryPill(
+                    if (online) "🎓 Open in Coach" else "🎓 Open in Coach · needs internet",
+                    Modifier.fillMaxWidth().height(48.dp).testTag(SayBetterTags.OPEN_COACH), enabled = online,
+                ) { open() }
+            }
         }
         Spacer(Modifier.height(16.dp))
     }

@@ -312,11 +312,13 @@ export interface BatchNoteInput {
 export interface BatchNotesResult {
   created: Array<{ id: string; hanzi: string }>;
   failed: Array<{ index: number; hanzi: string; error: string }>;
+  /** With skipExisting: rows not added because the word is already in one of my decks. */
+  existing?: Array<{ index: number; hanzi: string; note_id: string; deck_name: string }>;
 }
 
 /** Many notes in one call (≤ 500); per-row failures come back in `failed`. Audio is queued. */
-export async function createNotesBatch(deckId: string, notes: BatchNoteInput[]): Promise<BatchNotesResult> {
-  return fetchJSON<BatchNotesResult>(`/decks/${deckId}/notes/batch`, {
+export async function createNotesBatch(deckId: string, notes: BatchNoteInput[], opts: { skipExisting?: boolean } = {}): Promise<BatchNotesResult> {
+  return fetchJSON<BatchNotesResult>(`/decks/${deckId}/notes/batch${opts.skipExisting ? '?skip_existing=1' : ''}`, {
     method: 'POST',
     body: JSON.stringify({ notes }),
   });
@@ -1527,13 +1529,17 @@ export async function startCoachConversation(
   text: string,
   action?: CoachAction,
   explanation?: SentenceBriefExplanation | null,
+  opts: { chatMessageId?: string | null } = {},
 ): Promise<{
   conversation: CoachConversation;
   messages: CoachMessage[];
+  reused?: boolean;
 }> {
+  // background: the reply is written by the server's queue (a pending message comes back at
+  // once and the page polls), so leaving the page never cancels it (docs/CHAT.md "Chat ↔ Coach").
   return fetchJSON('/coach/conversations', {
     method: 'POST',
-    body: JSON.stringify({ text, action, explanation: explanation ?? undefined }),
+    body: JSON.stringify({ text, action, explanation: explanation ?? undefined, background: true, chat_message_id: opts.chatMessageId ?? undefined }),
   });
 }
 
@@ -1548,14 +1554,23 @@ export async function getCoachConversation(id: string): Promise<{
   return fetchJSON(`/coach/conversations/${id}`);
 }
 
+/** A follow-up: 202 with my message and the pending reply (written in the background). */
 export async function sendCoachMessage(id: string, message: string): Promise<{
   messages: CoachMessage[];
   toolResults: CoachToolResult[];
 }> {
   return fetchJSON(`/coach/conversations/${id}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, background: true }),
   });
+}
+
+/** Retry a reply that failed: back on the server's queue. */
+export async function retryCoachReply(id: string, messageId: string): Promise<{
+  conversation: CoachConversation;
+  messages: CoachMessage[];
+}> {
+  return fetchJSON(`/coach/conversations/${id}/messages/${messageId}/retry`, { method: 'POST' });
 }
 
 export async function deleteCoachConversation(id: string): Promise<void> {

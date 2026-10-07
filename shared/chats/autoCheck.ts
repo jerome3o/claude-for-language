@@ -100,6 +100,22 @@ export function autoCheckSettingShown(setting: boolean | null | undefined, accou
   return accountRole !== 'tutor';
 }
 
+/**
+ * The text of a message the auto-check is about: a voice message's transcript
+ * (once there is one), otherwise the message text — which for a photo / file /
+ * video is its caption. '' = nothing to check.
+ */
+export function autoCheckText(msg: {
+  content: string;
+  attachment?: { kind: string; transcript?: string | null; transcript_status?: string | null } | null;
+}): string {
+  if (msg.attachment?.kind === 'voice') {
+    if (msg.attachment.transcript_status && msg.attachment.transcript_status !== 'done') return '';
+    return (msg.attachment.transcript ?? '').trim() ? (msg.attachment.transcript as string) : '';
+  }
+  return msg.content ?? '';
+}
+
 /** The indicator / sheet state of one message, as its sender sees it. The tutor's correction wins. */
 export type SayBetterState = 'corrected' | 'improvable' | null;
 
@@ -108,16 +124,61 @@ export function sayBetterState(
     sender_id: string;
     content: string;
     deleted_at?: string | null;
-    attachment?: unknown;
+    attachment?: { kind: string; transcript?: string | null; transcript_status?: string | null } | null;
     correction?: { text: string } | null;
     auto_check?: Pick<AutoCheckResult, 'status' | 'text'> | null;
   },
   viewerId: string,
 ): SayBetterState {
-  if (msg.deleted_at || msg.sender_id !== viewerId || msg.attachment) return null;
-  if (msg.correction && msg.correction.text) return 'corrected';
-  if (msg.auto_check && msg.auto_check.status === 'improvable' && msg.auto_check.text === msg.content) return 'improvable';
+  if (msg.deleted_at || msg.sender_id !== viewerId) return null;
+  if (!msg.attachment && msg.correction && msg.correction.text) return 'corrected';
+  const text = autoCheckText(msg);
+  if (text && msg.auto_check && msg.auto_check.status === 'improvable' && msg.auto_check.text === text) return 'improvable';
   return null;
+}
+
+// ---------- "Open in Coach" (docs/CHAT.md "Chat ↔ Coach") ----------
+
+/** Where "Open in Coach" was pressed (analytics `chat.open_in_coach` source). */
+export type OpenInCoachSource = 'menu' | 'chip' | 'sheet';
+
+/**
+ * What "Open in Coach" sends to the Sentence Coach for this message, or null
+ * when it has no Chinese. My own message is CHECKED (the text the auto-check
+ * looked at, so a stored result can be reused); someone else's is EXPLAINED.
+ */
+export function openInCoachRequest(
+  msg: {
+    sender_id: string;
+    content: string;
+    deleted_at?: string | null;
+    attachment?: { kind: string; transcript?: string | null; transcript_status?: string | null } | null;
+  },
+  viewerId: string,
+): { text: string; action: 'check' | 'explain' } | null {
+  if (msg.deleted_at) return null;
+  const text = autoCheckText(msg).trim();
+  if (!text || !HAN_ONE.test(text)) return null;
+  return { text, action: msg.sender_id === viewerId ? 'check' : 'explain' };
+}
+
+const HAN_ONE = /[㐀-鿿豈-﫿]/;
+
+/** The small "Open in Coach" chip under my bubble: only when the auto-check found something. */
+export function showCoachChip(
+  msg: Parameters<typeof sayBetterState>[0],
+  viewerId: string,
+): boolean {
+  if (msg.deleted_at || msg.sender_id !== viewerId) return false;
+  const text = autoCheckText(msg);
+  return !!text && !!msg.auto_check && msg.auto_check.status === 'improvable' && msg.auto_check.text === text;
+}
+
+/** The Coach deep link: `/coach?text=…&action=check&from_message=<id>` (an explicit action runs at once). */
+export function coachDeepLink(req: { text: string; action: 'check' | 'explain' }, messageId?: string | null): string {
+  const q = new URLSearchParams({ text: req.text, action: req.action });
+  if (messageId) q.set('from_message', messageId);
+  return `/coach?${q.toString()}`;
 }
 
 /** The accessible label of the ✎ mark. */

@@ -1,5 +1,5 @@
 import { looksLikeChinese } from './messageTools';
-import { sayBetterState } from './autoCheck';
+import { autoCheckText, openInCoachRequest, sayBetterState } from './autoCheck';
 
 /**
  * The long-press (phone) / right-click + hover ⋯ (desktop) menu of one chat
@@ -8,8 +8,10 @@ import { sayBetterState } from './autoCheck';
  * parity-tested). Bubbles carry no buttons any more: every tool lives here.
  *
  * Order (what someone reaches for first): How to say it better (my own message
- * when the auto-check found something or the tutor corrected it — always FIRST), Reply, Copy, Forward, Translate,
- * Pinyin, Explain, Save as flashcard, Make flashcards from selection, Check my
+ * when the auto-check found something or the tutor corrected it — always FIRST) and
+ * Open in Coach right after it, Reply, Copy, Forward, Translate,
+ * Pinyin, Explain, Save as flashcard, Open in Coach (any message with Chinese: mine is
+ * checked, theirs explained — docs/CHAT.md "Chat ↔ Coach"), Make flashcards from selection, Check my
  * Chinese, Correct, Read aloud, Word by word (Claude practice chat), Discuss with
  * Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top (`reactions`).
  */
@@ -18,6 +20,7 @@ type RelationshipRole = 'tutor' | 'student';
 
 export type MenuActionId =
   | 'say_better'
+  | 'open_coach'
   | 'reply'
   | 'copy'
   | 'forward'
@@ -47,7 +50,7 @@ export interface MenuMessage {
   deleted_at?: string | null;
   /** Still in the outbox. */
   pending?: boolean;
-  attachment?: { kind: string; transcript?: string | null; translation?: string | null } | null;
+  attachment?: { kind: string; transcript?: string | null; transcript_status?: string | null; translation?: string | null } | null;
   /** Machine translation already on the message (text messages). */
   translation?: string | null;
   correction?: { text: string } | null;
@@ -106,11 +109,17 @@ export function messageMenu(
   const translated = kind === 'voice' ? !!msg.attachment?.translation : !!msg.translation;
   const items: MenuItem[] = [];
   // Auto-check found something, or the tutor corrected it: the first thing to reach for.
-  if (sayBetterState({ ...msg, attachment: kind ? msg.attachment : null }, viewerId)) {
+  const sayBetter = !!sayBetterState({ ...msg, attachment: kind ? msg.attachment : null }, viewerId);
+  if (sayBetter) {
     items.push({ id: 'say_better', label: 'How to say it better', icon: '✨', needsInternet: false });
   }
+  // "Open in Coach": my own message (as the learner) is checked there, anyone else's explained.
+  const coach = openInCoachRequest({ ...msg, attachment: kind ? msg.attachment : null }, viewerId);
+  const openCoach = !!coach && (!isMine || isLearner);
+  const coachItem: MenuItem = { id: 'open_coach', label: 'Open in Coach', icon: '🎓', needsInternet: true };
+  if (openCoach && sayBetter) items.push(coachItem);
   // A current auto-check answers "Check my Chinese" already.
-  const autoChecked = !!msg.auto_check && msg.auto_check.text === msg.content;
+  const autoChecked = !!msg.auto_check && msg.auto_check.text === autoCheckText({ ...msg, attachment: kind ? msg.attachment : null });
   items.push({ id: 'reply', label: 'Reply', icon: '↩️', needsInternet: false });
   if (text) items.push({ id: 'copy', label: 'Copy', icon: '📋', needsInternet: false });
   if (!isAiConversation) items.push({ id: 'forward', label: 'Forward', icon: '↪️', needsInternet: true });
@@ -128,6 +137,7 @@ export function messageMenu(
     items.push({ id: 'explain', label: 'Explain', icon: '🔍', needsInternet: true });
     items.push({ id: 'save_card', label: 'Save as flashcard', icon: '🃏', needsInternet: true });
   }
+  if (openCoach && !sayBetter) items.push(coachItem);
   if (text) items.push({ id: 'select_cards', label: 'Make flashcards from selection', icon: '🗂️', needsInternet: true });
   if (isMine && zh && isLearner && !kind && !autoChecked) {
     if (msg.check_status === 'needs_improvement') items.push({ id: 'view_corrections', label: 'View corrections', icon: '📝', needsInternet: false });

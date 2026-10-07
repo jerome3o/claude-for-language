@@ -106,6 +106,8 @@ class ChatSheetActions(
     // ---- round 2 (docs/CHAT.md "Round 2") ----
     /** A long-press menu action (MessageMenu ids). */
     val onMenuAction: (id: String, ChatMessageDto) -> Unit = { _, _ -> },
+    /** "🎓 Open in Coach" from the How-to-say-it-better sheet (source "sheet"). */
+    val onOpenCoach: (ChatMessageDto, source: String) -> Unit = { _, _ -> },
     /** Explain / Save as flashcard: add a word or the sentence as a card (the Coach's AddChunkSheet calls). */
     val cards: dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions = dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions(),
     val onRetryExplain: () -> Unit = {},
@@ -157,6 +159,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
                     onPlay = { actions.onPlayText(playId, v.corrected) },
                     onAsk = { actions.onMenuAction(dev.jeromeswannack.chineselearning.lab.core.MessageMenu.DISCUSS, m) },
                     onClose = actions.onDismiss,
+                    onOpenCoach = if (ui.coachRequest(m) != null) ({ actions.onOpenCoach(m, "sheet") }) else null,
                 )
             }
         }

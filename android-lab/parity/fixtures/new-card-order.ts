@@ -6,7 +6,9 @@
  *   - frequencyRank(hanzi, the SHIPPED list) (shared/data/frequency/word-freq.txt — the Lab reads the
  *                                             same file as a core resource; proves both parse it alike)
  *   - wordPieces / isNewWord                 (what "met" means for "New words first")
- *   - pickNewCardsByOrder                    (random candidates, orders, rooms, studied text)
+ *   - pickNewCardsByOrder                    (random candidates, orders, rooms, studied text; plus the
+ *                                             new-character tier ranked by its most common NEW character:
+ *                                             hand-made cases + random ones over common words)
  * The queue scenarios with an order live in study-queue.json (`ordered`).
  * Writes new-card-order.json; core NewCardOrderParityTest asserts NewCardOrder.kt reproduces them.
  */
@@ -112,6 +114,53 @@ for (let i = 0; i < 300; i++) {
   const picked = pickNewCardsByOrder(items, take, x => x.hanzi, x => x.group, g => rank[g], new Map(Object.entries(room)), x => x.id,
     order, studiedFrom(studiedText, withPieces), useFrequency ? shipped : null);
   picker.push({ items, room, rank, studied: studiedText, withPieces, order, useFrequency, take, picked: picked.map(x => x.id) });
+}
+
+// ---- the new-character tier, the most common NEW character first (shipped list) ----
+// Hand-made: a common new character in a lower deck beats a rare one in a higher deck; ties (more new
+// characters → word frequency → deck → id; unlisted characters last); greedy re-ranking — each with every
+// switch combination that keeps "New characters first" on, with and without the list.
+const DIRECTED: Array<{ hanzi: string[]; group?: string[]; rank?: Record<string, number>; studied?: string[] }> = [
+  { hanzi: ['熊猫', '下'], group: ['g0', 'g1'], rank: { g0: 0, g1: 1 } },
+  { hanzi: ['山水', '上', '龙'], group: ['g0', 'g1', 'g2'], rank: { g0: 0, g1: 1, g2: 2 } },
+  { hanzi: ['人山', '人水', '下'] },
+  { hanzi: ['上', '上山', '山'] },
+  { hanzi: ['人天', '大人'], group: ['g0', 'g1'], rank: { g0: 0, g1: 1 } },
+  { hanzi: ['𠮷', '𪚥', '鬣'], group: ['g1', 'g0', 'g1'], rank: { g0: 0, g1: 1 } },
+  { hanzi: ['人在山上。', '火', '山火'], studied: ['人'] },
+  { hanzi: ['人山', '下', '我们', '你们', '我你'], studied: ['人', '们'] },
+];
+let directed = 0;
+for (const d of DIRECTED) {
+  for (let o = 0; o < 8; o++) {
+    const order: NewCardOrder = { new_characters_first: true, new_words_first: !!(o & 1), most_common_first: !!(o & 2), sentences_last: !!(o & 4) };
+    for (const useFrequency of [true, false]) {
+      const items = d.hanzi.map((hanzi, n) => ({ id: `d${directed}-${n}`, hanzi, group: d.group?.[n] ?? 'g0' }));
+      const groups = [...new Set(items.map(x => x.group))];
+      const room = Object.fromEntries(groups.map(g => [g, 9]));
+      const rank = d.rank ?? Object.fromEntries(groups.map(g => [g, 0]));
+      const take = items.length;
+      const studiedText = d.studied ?? [];
+      const picked = pickNewCardsByOrder(items, take, x => x.hanzi, x => x.group, g => rank[g], new Map(Object.entries(room)), x => x.id,
+        order, studiedFrom(studiedText), useFrequency ? shipped : null);
+      picker.push({ items, room, rank, studied: studiedText, withPieces: true, order, useFrequency, take, picked: picked.map(x => x.id) });
+      directed++;
+    }
+  }
+}
+// Random: many candidates sharing common characters, "New characters first" + "Most common first" on.
+const COMMON = [...words.slice(0, 1500), ...Array.from({ length: 200 }, () => pick(words.slice(0, 1500)) + pick(words.slice(0, 800)) + '。')];
+for (let i = 0; i < 80; i++) {
+  const groups = Array.from({ length: int(1, 4) }, (_, g) => `g${g}`);
+  const items = Array.from({ length: int(5, 40) }, (_, n) => ({ id: `f${i}-${String(n).padStart(2, '0')}`, hanzi: pick(COMMON), group: pick(groups) }));
+  const room: Record<string, number> = Object.fromEntries(groups.map(g => [g, int(1, 8)]));
+  const rank: Record<string, number> = Object.fromEntries(groups.map(g => [g, int(0, 3)]));
+  const studiedText = Array.from({ length: int(0, 30) }, () => pick(COMMON));
+  const order: NewCardOrder = { new_characters_first: true, new_words_first: bool(), most_common_first: true, sentences_last: bool() };
+  const take = int(1, 15);
+  const picked = pickNewCardsByOrder(items, take, x => x.hanzi, x => x.group, g => rank[g], new Map(Object.entries(room)), x => x.id,
+    order, studiedFrom(studiedText), shipped);
+  picker.push({ items, room, rank, studied: studiedText, withPieces: true, order, useFrequency: true, take, picked: picked.map(x => x.id) });
 }
 
 writeFileSync(join(OUT, 'new-card-order.json'), JSON.stringify({

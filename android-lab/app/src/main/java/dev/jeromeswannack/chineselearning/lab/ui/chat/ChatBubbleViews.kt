@@ -90,6 +90,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ChatReplyToDto
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaSizing
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatWaveforms
 import dev.jeromeswannack.chineselearning.lab.data.chat.LinkPreviewDto
+import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.launch
@@ -392,6 +393,8 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
                     onCard = { actions.onCorrectionCard(m) },
                 )
             }
+            // "🎓 Open in Coach" under MY bubble when the auto-check found something (the bubble stays clean).
+            if (!selecting && !hidden && ui.showCoachChip(m)) CoachChip { actions.onOpenCoach(m, "chip") }
             if (ui.checkingId == m.id) Status("Checking…")
             if (ui.translatingId == m.id) Status("Translating…")
         }
@@ -908,3 +911,25 @@ fun JumpToLatest(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier)
     }
 }
 
+
+/** Test tag on the "🎓 Open in Coach" chip under a bubble. */
+const val CHAT_COACH_CHIP_TAG = "chat-open-in-coach"
+
+/** The small "🎓 Open in Coach" chip under my bubble (docs/CHAT.md "Chat ↔ Coach"): quiet, 44 dp tall to tap. */
+@Composable
+private fun CoachChip(onClick: () -> Unit) {
+    Box(
+        Modifier.padding(top = 2.dp).heightIn(min = 44.dp).clip(RoundedCornerShape(50))
+            .bouncyClickable(onClick = onClick).testTag(CHAT_COACH_CHIP_TAG),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            "🎓 Open in Coach",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Lab.colors.accent,
+            modifier = Modifier.clip(RoundedCornerShape(50)).background(Lab.colors.accent.copy(alpha = 0.10f))
+                .border(1.dp, Lab.colors.accent.copy(alpha = 0.25f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}

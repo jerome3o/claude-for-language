@@ -60,6 +60,11 @@ export function parseFrequencyList(text: string): FrequencyIndex {
   return { words, chars };
 }
 
+/** A character's rank (1 = most frequent); UNRANKED_CHAR when it isn't in the list. */
+export function characterRank(ch: string, index: FrequencyIndex): number {
+  return index.chars.get(ch) ?? UNRANKED_CHAR;
+}
+
 /**
  * Smaller = more common. A note whose Han text is a listed word gets that word's rank;
  * anything else (a rarer word, a phrase, a sentence) ranks after every listed word, by

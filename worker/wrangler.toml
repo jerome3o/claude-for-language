@@ -247,6 +247,20 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 2
 
+# Queue for Sentence Coach replies (services/coach-replies.ts): the POST stores a
+# pending reply and returns; this writes it, so leaving the page never cancels it.
+# Checkpointed in D1 (answer + tool actions applied), retried on a busy model.
+# Create with: `wrangler queues create coach-reply-queue`
+[[queues.producers]]
+queue = "coach-reply-queue"
+binding = "COACH_REPLY_QUEUE"
+
+[[queues.consumers]]
+queue = "coach-reply-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 4
+
 # Queue for the tutor's "Needs your ear" recording checks (services/recording-checks.ts):
 # transcribe each pronunciation take and score it with Azure Pronunciation Assessment.
 # One at a time so the free tier's 20 requests / minute is never exceeded.

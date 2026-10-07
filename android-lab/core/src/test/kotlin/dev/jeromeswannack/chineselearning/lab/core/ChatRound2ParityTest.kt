@@ -40,6 +40,7 @@ class ChatRound2ParityTest {
             pending = o.bool("pending"),
             attachmentKind = a?.str("kind"),
             transcript = a?.str("transcript"),
+            transcriptStatus = a?.str("transcript_status"),
             attachmentTranslation = a?.str("translation"),
             translation = o.str("translation"),
             hasCorrection = o.obj("correction") != null,
@@ -176,11 +177,56 @@ class ChatRound2ParityTest {
     }
 
     @Test
+    fun openInCoachMatchesTypeScript() {
+        val cases = f["coachMsgs"]!!.jsonArray
+        assertTrue(cases.size > 1000)
+        for (c in cases) {
+            val o = c.jsonObject
+            val m = o.obj("message")!!
+            val a = m.obj("attachment")
+            val corr = m.obj("correction")
+            val auto = m.obj("auto_check")
+            val sender = m.str("sender_id")!!
+            val content = m.str("content")!!
+            val kind = a?.str("kind")
+            val transcript = a?.str("transcript")
+            val ts = a?.str("transcript_status")
+            assertEquals(o.str("text"), SayBetter.autoCheckText(content, kind, transcript, ts), "autoCheckText $m")
+            assertEquals(
+                o.str("sayBetter"),
+                SayBetter.state(sender, content, m.str("deleted_at"), kind, corr != null, corr?.str("text"), auto?.str("status"), auto?.str("text"), "me", transcript, ts),
+                "sayBetterState $m",
+            )
+            val want = o.obj("coach")?.let { SayBetter.CoachRequest(it.str("text")!!, it.str("action")!!) }
+            val got = SayBetter.openInCoachRequest(sender, content, m.str("deleted_at"), kind, transcript, ts, "me")
+            assertEquals(want, got, "openInCoachRequest $m")
+            assertEquals(o.bool("chip"), SayBetter.showCoachChip(sender, content, m.str("deleted_at"), kind, transcript, ts, auto?.str("status"), auto?.str("text"), "me"), "showCoachChip $m")
+            assertEquals(o.str("link"), got?.let { SayBetter.coachDeepLink(it, if (sender == "me") "msg-1" else null) }, "coachDeepLink $m")
+        }
+        for (c in f["coachLinks"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o.str("link"), SayBetter.coachDeepLink(SayBetter.CoachRequest(o.str("text")!!, o.str("action")!!), o.str("id")), "coachDeepLink $o")
+        }
+    }
+
+    @Test
+    fun openInCoachIsSecondAfterSayBetter() {
+        val photo = MessageMenu.Message("me", "我昨天去了商店买东西了", attachmentKind = "image", autoCheckStatus = "improvable", autoCheckText = "我昨天去了商店买东西了")
+        assertEquals(listOf("say_better", "open_coach", "reply"), MessageMenu.messageMenu(photo, "student", false, "me").items.take(3).map { it.id })
+        // A tutor's own message: no Open in Coach; the student's message for the tutor: explained, after Save as flashcard.
+        assertTrue(MessageMenu.messageMenu(photo.copy(autoCheckStatus = null), "tutor", false, "me").items.none { it.id == "open_coach" })
+        val ids = MessageMenu.messageMenu(photo.copy(senderId = "them"), "tutor", false, "me").items.map { it.id }
+        assertEquals(ids.indexOf("save_card") + 1, ids.indexOf("open_coach"))
+        // English: nothing to open.
+        assertTrue(MessageMenu.messageMenu(MessageMenu.Message("them", "See you"), "student", false, "me").items.none { it.id == "open_coach" })
+    }
+
+    @Test
     fun theTsTestsExamples() {
         // A couple of the vitest cases, readable here.
         val base = MessageMenu.Message("them", "你好，今天怎么样？")
         assertEquals(
-            listOf("reply", "copy", "forward", "translate", "pinyin", "explain", "save_card", "select_cards", "play", "discuss", "pin", "info", "select"),
+            listOf("reply", "copy", "forward", "translate", "pinyin", "explain", "save_card", "open_coach", "select_cards", "play", "discuss", "pin", "info", "select"),
             MessageMenu.messageMenu(base, "student", false, "me").items.map { it.id },
         )
         assertEquals("https://example.com", ChatBubbles.firstLink("see https://example.com."))
