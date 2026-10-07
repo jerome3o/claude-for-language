@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { CHAR_STATUS_LABEL, charWordsSummary, type CharRecord, type CharWord, type CharWordRow } from '@shared/chars';
-import { buildDrill, type DrillTarget } from '@shared/explorer';
+import { buildDrill, type DrillTarget, type FrequencyDecal } from '@shared/explorer';
 import { isHanCodePoint } from '@shared/progress/known';
 import { charWordStatuses, explainChar, lookupChar, type CharLookup } from '../../services/charDict';
 import { track } from '../../services/analytics';
 import { useExplorer } from './ExplorerContext';
+import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor, useFrequencyIndex } from './FrequencyDecal';
 
 const isHan = (ch: string | null | undefined) => !!ch && [...ch].length === 1 && isHanCodePoint(ch.codePointAt(0)!);
 
@@ -32,6 +33,8 @@ export function CharacterView({
   const [lookup, setLookup] = useState<CharLookup | null>(null);
   const [rows, setRows] = useState<CharWordRow<CharWord>[] | null>(null);
   const [more, setMore] = useState<{ state: 'idle' | 'loading' | 'done' | 'offline' | 'error'; text?: string }>({ state: 'idle' });
+  const freq = useFrequencyIndex();
+  const [keyOpen, setKeyOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -72,9 +75,16 @@ export function CharacterView({
     explorer.push({ kind: 'word', hanzi: row.word.hanzi, pinyin: row.word.pinyin, gloss: row.word.english });
   }
 
-  const charChip = (c: string) =>
+  // A tappable component is a character tile (with its decal); the radical is often a
+  // radical form (钅, 氵) rather than a character one learns, so it stays plain.
+  const charChip = (c: string, decal = false) =>
     isHan(c) && c !== char ? (
-      <button type="button" className="xp-inline-char" lang="zh-CN" onClick={() => explorer.push({ kind: 'char', char: c })}>
+      <button
+        type="button"
+        className={`xp-inline-char${decal ? decalClass(decalFor(freq, c, 'char')) : ''}`}
+        lang="zh-CN"
+        onClick={() => explorer.push({ kind: 'char', char: c })}
+      >
         {c}
       </button>
     ) : (
@@ -87,7 +97,7 @@ export function CharacterView({
   return (
     <div className="xp-view" data-testid="explorer-char-view">
       <div className="char-sheet-top">
-        <div className="char-sheet-glyph" lang="zh-CN">{char}</div>
+        <div className={`char-sheet-glyph${decalClass(decalFor(freq, char, 'char'))}`} lang="zh-CN" data-testid="explorer-char-glyph">{char}</div>
         <div className="char-sheet-summary">
           {readings && <div className="char-sheet-pinyin">{readings}</div>}
           {record?.meaning && <div className="char-sheet-meaning">{record.meaning}</div>}
@@ -127,7 +137,7 @@ export function CharacterView({
               {record.components.map((c, i) => (
                 <span key={c.char}>
                   {i > 0 && ' + '}
-                  {charChip(c.char)}{c.meaning ? ` (${c.meaning})` : ''}
+                  {charChip(c.char, true)}{c.meaning ? ` (${c.meaning})` : ''}
                 </span>
               ))}
             </div>
@@ -173,10 +183,13 @@ export function CharacterView({
       {record && record.words.length > 0 && (
         <section className="char-sheet-words" aria-label={`Words with ${char}`}>
           <div className="char-sheet-words-head">
-            <h3>Words with <span lang="zh-CN">{char}</span></h3>
+            <h3>
+              Words with <span lang="zh-CN">{char}</span> <FrequencyKeyButton open={keyOpen} onToggle={() => setKeyOpen((o) => !o)} />
+            </h3>
             {rows && <span className="char-sheet-words-count">{charWordsSummary(rows)}</span>}
           </div>
-          <WordRows rows={shownRows} highlight={char} onOpen={openRow} />
+          {keyOpen && <FrequencyKey />}
+          <WordRows rows={shownRows} highlight={char} onOpen={openRow} decalOf={freq ? (h) => decalFor(freq, h, 'word') : undefined} />
           <p className="char-sheet-credit">Dictionary: CC-CEDICT, Make Me a Hanzi, wordfreq — see Settings → About.</p>
         </section>
       )}
@@ -189,37 +202,43 @@ export function WordRows({
   rows,
   highlight,
   onOpen,
+  decalOf,
 }: {
   rows: ReadonlyArray<CharWordRow<CharWord>>;
   /** Characters to mark inside each word (the explored character / the shared ones). */
   highlight: string;
   onOpen: (row: CharWordRow<CharWord>) => void;
+  /** The word's frequency decal (an outline around its hanzi tile); none while the list loads. */
+  decalOf?: (hanzi: string) => FrequencyDecal | null;
 }) {
   return (
     <ul className="char-sheet-word-list">
-      {rows.map((row) => (
-        <li key={row.word.hanzi}>
-          <button
-            type="button"
-            className={`char-word-row char-word-row--${row.status}${row.current ? ' char-word-row--current' : ''}`}
-            onClick={() => onOpen(row)}
-            data-testid="char-word-row"
-            data-status={row.status}
-          >
-            <span className="char-word-hanzi" lang="zh-CN">
-              {[...row.word.hanzi].map((c, i) => (
-                <span key={i} className={highlight.includes(c) ? 'char-word-self' : undefined}>{c}</span>
-              ))}
-            </span>
-            <span className="char-word-text">
-              <span className="char-word-pinyin">{row.word.pinyin}</span>
-              <span className="char-word-english">{row.word.english}</span>
-            </span>
-            {row.status !== 'none' && <span className={`char-word-badge char-word-badge--${row.status}`}>{CHAR_STATUS_LABEL[row.status]}</span>}
-            <span className="xp-row-chevron" aria-hidden="true">›</span>
-          </button>
-        </li>
-      ))}
+      {rows.map((row) => {
+        const decal = decalOf?.(row.word.hanzi) ?? null;
+        return (
+          <li key={row.word.hanzi}>
+            <button
+              type="button"
+              className={`char-word-row char-word-row--${row.status}${row.current ? ' char-word-row--current' : ''}`}
+              onClick={() => onOpen(row)}
+              data-testid="char-word-row"
+              data-status={row.status}
+            >
+              <span className={`char-word-hanzi${decalClass(decal)}`} lang="zh-CN" data-freq={decal ?? undefined}>
+                {[...row.word.hanzi].map((c, i) => (
+                  <span key={i} className={highlight.includes(c) ? 'char-word-self' : undefined}>{c}</span>
+                ))}
+              </span>
+              <span className="char-word-text">
+                <span className="char-word-pinyin">{row.word.pinyin}</span>
+                <span className="char-word-english">{row.word.english}</span>
+              </span>
+              {row.status !== 'none' && <span className={`char-word-badge char-word-badge--${row.status}`}>{CHAR_STATUS_LABEL[row.status]}</span>}
+              <span className="xp-row-chevron" aria-hidden="true">›</span>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }

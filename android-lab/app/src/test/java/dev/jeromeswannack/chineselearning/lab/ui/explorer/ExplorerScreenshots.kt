@@ -57,7 +57,7 @@ class ExplorerScreenshots : LabScreenshotTest() {
 
     private fun yinUi(): CharSheetUi {
         val rows = CharWords.rows(ExplorerSamples.yin.words, listOf(dev.jeromeswannack.chineselearning.lab.core.CharStatusNote("n", "银行")), listOf(dev.jeromeswannack.chineselearning.lab.core.CharStatusCard("n", 2, 9.0)), "银行") { it.hanzi }
-        return CharSheetUi("银", CharDict.Lookup.Ok(ExplorerSamples.yin), rows)
+        return CharSheetUi("银", CharDict.Lookup.Ok(ExplorerSamples.yin), rows, decalOf = ExplorerSamples.decals)
     }
 
     /** Tapped 银 on the 银行 card: the Character view in the stack — components tappable, words open the Word view, ✍️ Write it pinned. */

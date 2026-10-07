@@ -37,10 +37,14 @@ object ExplorerSamples {
 
     val yinhang = WordRecordDto(
         hanzi = "银行", pinyin = "yínháng", syllables = listOf("yín", "háng"), english = "bank",
-        senses = listOf("bank", "banking institution"), rank = 1427,
+        senses = listOf("bank", "banking institution"), rank = 570,
     )
 
-    val ranks = mapOf("银行" to 1427, "自行车" to 2915, "进行" to 210, "不行" to 512, "旅行" to 1830, "流行" to 3310, "银行卡" to 8820, "银色" to 12040, "银子" to 15658, "银牌" to 9960, "行业" to 1675, "行为" to 1210, "执行" to 2020)
+    /** The shipped word-freq list's real ranks (shared/data/frequency/word-freq.txt). */
+    val ranks = mapOf("银行" to 570, "自行车" to 4506, "进行" to 108, "不行" to 1821, "旅行" to 2187, "流行" to 2279, "银行卡" to 11264, "银色" to 12987, "银子" to 15658, "银牌" to 17194, "行业" to 826, "行为" to 459, "执行" to 616)
+
+    /** Frequency decals from the list shipped with the app (the same ranks as [ranks]). */
+    val decals = shippedDecals()
 
     val statuses = mapOf("进行" to CharWordStatus.InDecks, "不行" to CharWordStatus.Known, "自行车" to CharWordStatus.Known, "旅行" to CharWordStatus.Known)
 
@@ -75,6 +79,7 @@ object ExplorerSamples {
         wordLookup = { word },
         myWord = myWord ?: { mine },
         rank = { ranks[it] },
+        decal = decals,
         online = { online },
         canWrite = true,
         bump = { h, _ -> "⚡ ${h.first()} is in today's study" },
@@ -96,5 +101,6 @@ object ExplorerSamples {
         online = online,
         statuses = statuses,
         rankOf = { ranks[it] },
+        decalOf = decals,
     )
 }

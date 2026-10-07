@@ -45,6 +45,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -66,6 +67,13 @@ import dev.jeromeswannack.chineselearning.lab.ui.study.Chunk
 import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.core.explorer.DecalKind
+import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyDecal
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.DecalOf
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.FrequencyKeyButton
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.FrequencyKeyLine
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.decalColor
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.frequencyDecal
 import kotlinx.coroutines.launch
 
 /*
@@ -95,6 +103,10 @@ data class CharSheetUi(
     val more: CharMore = CharMore.Idle,
     /** "✍️ Write it" is offered (the stroke-order practice). */
     val canWrite: Boolean = true,
+    /** Frequency decals on the glyph, component and word tiles (the explorer; null = none). */
+    val decalOf: DecalOf? = null,
+    /** The decal key under "Words with 字" starts open (screenshots). */
+    val keyOpen: Boolean = false,
 ) {
     val record: CharRecordDto? get() = (lookup as? CharDict.Lookup.Ok)?.record
 
@@ -223,7 +235,10 @@ fun CharacterSheetContent(
         // Glyph · readings · meaning · ×
         Row(verticalAlignment = Alignment.Top) {
             Box(
-                Modifier.widthIn(min = 76.dp).clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.widthIn(min = 76.dp).clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint)
+                    .frequencyDecal(decalColor(ui.decalOf?.invoke(char, DecalKind.CHAR)), RoundedCornerShape(14.dp))
+                    .testTag(CHAR_GLYPH_TAG)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(char, fontSize = 60.sp, lineHeight = 70.sp, fontWeight = FontWeight.Medium, color = Lab.colors.ink)
@@ -293,6 +308,7 @@ fun CharacterSheetContent(
                         val tappable = CharDict.isLookupChar(c.char) && c.char != char
                         Row(
                             Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint)
+                                .frequencyDecal(decalColor(if (tappable) ui.decalOf?.invoke(c.char, DecalKind.CHAR) else null), RoundedCornerShape(10.dp))
                                 .then(if (tappable) Modifier.clickable { onChar(c.char) }.testTag(CHAR_COMPONENT_TAG) else Modifier)
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -358,14 +374,19 @@ fun CharacterSheetContent(
             Spacer(Modifier.height(16.dp))
             HorizontalDivider(color = Lab.colors.cardBorder)
             Spacer(Modifier.height(12.dp))
+            var keyOpen by remember(char) { mutableStateOf(ui.keyOpen) }
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Words with $char", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.alignByBaseline())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Words with $char", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+                    if (ui.decalOf != null) FrequencyKeyButton(keyOpen, { keyOpen = !keyOpen }, Modifier.padding(start = 2.dp))
+                }
                 ui.rows?.let { rows ->
-                    Text(CharWords.summary(rows.map { it.status }), style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.alignByBaseline().padding(start = 8.dp))
+                    Text(CharWords.summary(rows.map { it.status }), style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically).padding(start = 8.dp))
                 }
             }
+            if (keyOpen) FrequencyKeyLine(Modifier.padding(top = 2.dp, bottom = 4.dp))
             Spacer(Modifier.height(6.dp))
-            for (row in ui.shownRows) WordRow(row, char) { onRow(row) }
+            for (row in ui.shownRows) WordRow(row, char, ui.decalOf?.invoke(row.word.hanzi, DecalKind.WORD)) { onRow(row) }
             Spacer(Modifier.height(12.dp))
             Text("Dictionary: CC-CEDICT, Make Me a Hanzi, wordfreq — see Settings → About.", style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
         }
@@ -377,6 +398,8 @@ const val CHAR_SHEET_TAG = "char-sheet"
 const val CHAR_WORD_ROW_TAG = "char-word-row"
 const val CHAR_COMPONENT_TAG = "char-component"
 const val CHAR_RADICAL_TAG = "char-radical"
+const val CHAR_GLYPH_TAG = "char-glyph"
+const val WORD_TILE_TAG = "word-tile"
 
 /** The yellow of the card's own word (web #fef9c3 + the secondary bar). */
 private val CurrentLight = Color(0xFFFEF9C3)
@@ -385,7 +408,7 @@ private val CurrentLight = Color(0xFFFEF9C3)
 private fun isDark() = Lab.colors.card.luminance() < 0.4f
 
 @Composable
-private fun WordRow(row: CharWordRow<CharWordDto>, char: String, onClick: () -> Unit) {
+private fun WordRow(row: CharWordRow<CharWordDto>, char: String, decal: FrequencyDecal?, onClick: () -> Unit) {
     val dark = isDark()
     val known = row.status == CharWordStatus.Known
     val bar = Palette.Gold
@@ -414,7 +437,12 @@ private fun WordRow(row: CharWordRow<CharWordDto>, char: String, onClick: () -> 
             },
             fontSize = 22.sp,
             color = Lab.colors.ink,
-            modifier = Modifier.widthIn(min = 60.dp).alpha(if (known) 0.6f else 1f),
+            textAlign = TextAlign.Center,
+            // The word tile: a rounded square, the same size with or without its frequency decal.
+            modifier = Modifier.widthIn(min = 60.dp).alpha(if (known) 0.6f else 1f)
+                .frequencyDecal(decalColor(decal), RoundedCornerShape(8.dp))
+                .testTag(WORD_TILE_TAG)
+                .padding(horizontal = 6.dp, vertical = 2.dp),
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f).alpha(if (known) 0.6f else 1f)) {
