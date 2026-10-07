@@ -37,6 +37,13 @@ object ChatVoice {
     /** CHAT_READ_ALOUD_SPEED — the card clips' slow default. */
     const val SPEED = 0.6
 
+    /**
+     * shared/tts `DEVICE_SPEECH_RATE`: `TextToSpeech.setSpeechRate` for the phone's own voice
+     * (every fallback: card / sentence audio, lessons, chat read-aloud offline). The engine's
+     * default 1.0 read new example sentences far too fast.
+     */
+    const val DEVICE_SPEECH_RATE = 0.7
+
     /** LESSON_VOICE_IDS — every id /api/practice/tts accepts. */
     val VOICE_IDS: Set<String> = setOf(DEFAULT_VOICE) + ConversationVoices.ALL.map { it.id }
 

@@ -28,9 +28,20 @@ export const PUMP_TICK_MS = 40_000;
 /** The pump waits for a batch slot at most this long per clip (it is the pacing). */
 export const PUMP_SLOT_WAIT_MS = 20_000;
 
-export function requeueDelaySeconds(retryAfterMs: number, minimax: boolean): number {
+/**
+ * A batch clip told to wait by our own limiter comes back no sooner than this
+ * (+ up to the same again, jittered). Hundreds of queued sentence-set clips
+ * each retrying after the limiter's few-second wait asked it ~260 times a
+ * minute for 9 tokens (Azure, Oct 2026) and gave up after MAX_CLIP_REQUEUES in
+ * minutes; spread out, they still use every batch token and keep their place.
+ */
+export const BATCH_REQUEUE_MIN_SECONDS = 30;
+
+export function requeueDelaySeconds(retryAfterMs: number, minimax: boolean, priority: TtsPriority = 'interactive', random: () => number = Math.random): number {
   if (minimax) return 60;
-  return Math.min(300, Math.max(1, Math.ceil(retryAfterMs / 1000)));
+  const wait = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  if (priority === 'batch') return Math.min(300, Math.max(wait, BATCH_REQUEUE_MIN_SECONDS + Math.floor(random() * BATCH_REQUEUE_MIN_SECONDS)));
+  return Math.min(300, wait);
 }
 
 export async function enqueueClip(
@@ -79,7 +90,7 @@ export async function handleClipMessage(env: Env, msg: Extract<TtsQueueMessage, 
         priority: msg.priority,
         force: msg.force,
         attempt,
-        delaySeconds: requeueDelaySeconds(result.retryAfterMs, result.minimax),
+        delaySeconds: requeueDelaySeconds(result.retryAfterMs, result.minimax, msg.priority),
       });
     } else {
       console.warn('[tts-queue] giving up requeueing (the backfill will find it):', msg.target);

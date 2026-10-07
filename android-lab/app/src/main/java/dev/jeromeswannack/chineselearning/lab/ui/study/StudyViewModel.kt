@@ -1046,6 +1046,18 @@ class StudyViewModel(
         app.haptics.correct()
     }
 
+    /** ▶ on a set row with no clip: [CardTools.ensureSentenceAudio], and the card shows the clip once it is there. */
+    suspend fun ensureSentenceAudio(sentenceId: String): String? {
+        val v = currentView() ?: return null
+        val answer = tools.ensureSentenceAudio(v.note.id, sentenceId)
+        if (!answer.audio_url.isNullOrBlank()) showSentences(v.note.id, withContext(Dispatchers.IO) { repo.dao.sentencesFor(v.note.id) })
+        return when {
+            !answer.audio_url.isNullOrBlank() -> answer.audio_url
+            answer.status == "queued" -> SentenceAudioWait.COMING
+            else -> null
+        }
+    }
+
     suspend fun clearSentences() {
         val v = currentView() ?: return
         tools.clearSet(v.note.id)

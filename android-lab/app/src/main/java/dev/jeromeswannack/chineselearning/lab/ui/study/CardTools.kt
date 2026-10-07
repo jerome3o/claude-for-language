@@ -131,6 +131,20 @@ class CardTools(private val app: LabApp) {
         return if (remote.isEmpty()) null else storeSet(noteId, remote)
     }
 
+    /**
+     * A set row with no clip yet (a new set while the provider is busy): ask the server to make
+     * it now / queue it ahead of the backfill; a clip that is there is written onto the row.
+     */
+    suspend fun ensureSentenceAudio(noteId: String, sentenceId: String): dev.jeromeswannack.chineselearning.lab.data.api.SentenceAudioAnswer {
+        val answer = api.ensureSentenceAudio(sentenceId)
+        val url = answer.audio_url
+        if (!url.isNullOrBlank()) withContext(Dispatchers.IO) {
+            val row = repo.dao.sentencesFor(noteId).firstOrNull { it.id == sentenceId }
+            if (row != null && row.audioUrl != url) repo.dao.upsertSentences(listOf(row.copy(audioUrl = url)))
+        }
+        return answer
+    }
+
     suspend fun clearSet(noteId: String) {
         runCatching { api.deleteSentenceSet(noteId) }
             .onFailure { app.prefs.sentencesCursor = null } // offline: re-reconcile the sets on the next sync

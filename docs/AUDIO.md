@@ -65,6 +65,19 @@ speed, as before). Azure **HD voices** (`…:DragonHDLatestNeural`, `…:DragonH
 take no `<prosody>` — they speak at their own pace (the hash records `own`) and exist only in some
 regions (eastus, westeurope, southeastasia).
 
+**The device's own voice** (Web Speech `utterance.rate`, Android `TextToSpeech.setSpeechRate`; only
+when no clip can be had) speaks at **`DEVICE_SPEECH_RATE` = 0.7** (`shared/tts/config.ts`; Lab
+`ChatVoice.DEVICE_SPEECH_RATE`, parity-tested) — the same slow-but-natural pace as Azure's card
+rate. The Lab app used to leave Android at its default 1.0: on a Pixel that is Google's TTS engine,
+and new example sentences were read "really fast in the Google Translate voice" (Oct 2026).
+
+**New sentence sets.** A set made by Generate gets the clips a provider can make within ~4 s in the
+request; the rest go on `tts-queue` at **interactive** priority (ahead of the backfill). ▶ on a row
+that has no clip yet asks `POST /api/sentences/:id/ensure-audio` (`ready` + `audio_url` · `queued` ·
+`failed`) and shows **"Audio coming…"** while it waits (every 4 s, ≤ 30 asks; web `SentenceSet` +
+`awaitSentenceAudio`, Lab `SentenceAudioWait`) instead of reading the row in the device voice; the
+device voice only when the clip can't be made or there is no connection.
+
 **Azure Speech.** `POST https://<AZURE_SPEECH_REGION>.tts.speech.microsoft.com/cognitiveservices/v1`,
 `Ocp-Apim-Subscription-Key: <AZURE_SPEECH_KEY>`, `Content-Type: application/ssml+xml`,
 `X-Microsoft-OutputFormat: audio-24khz-96kbitrate-mono-mp3`. Errors: 401 / 403 → account pause
@@ -170,6 +183,11 @@ empty, and nothing came back for it. A bulk import came out ~95 % silent.
 - MiniMax `1002` / `1039` / HTTP 429 → the limiter empties both buckets and blocks (15 s
   everyone, 60 s batch); the message is **requeued with a delay (60 s)** — never retried inside
   the request. A rate limit is not a failure.
+- Our own limiter's "wait" (any provider): an interactive message is requeued after the wait it
+  was given; a **batch** message after at least **30–60 s** (jittered, `BATCH_REQUEUE_MIN_SECONDS`).
+  With MiniMax paused and Azure at 15/min, hundreds of queued sentence-set clips each came back
+  after a few seconds — ~15,600 denials an hour for ~530 clips — and used up their 60 requeues in
+  minutes.
 - No Google fallback for stored clips (Google Wavenet is "pretty terrible"). A clip that can't be
   made now waits in the queue. See "Google fallback" for the only live exceptions.
 - The DO logs `{"type":"tts_limiter", …}` once a minute with tokens and last-hour counts, and

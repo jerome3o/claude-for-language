@@ -10,7 +10,11 @@ import {
   getSentenceExplanation,
   getTextExplanation,
   getCachedTextExplanation,
+  awaitSentenceAudio,
+  ensureSentenceAudio,
+  SENTENCE_AUDIO_COMING_LABEL,
 } from '../services/sentence-sets';
+import { isEffectivelyOffline } from '../services/offlineMode';
 import { SentenceBriefExplanation } from '../types';
 import { fetchNoteSentences, deleteNoteSentenceSet, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
@@ -150,6 +154,8 @@ export function SentenceSet({
   const [showAll, setShowAll] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  // ▶ on a set row whose clip isn't made yet: asking the server / queued ("Audio coming…").
+  const [audioWait, setAudioWait] = useState<Record<string, 'asking' | 'coming'>>({});
   // Explanations fetched this session, keyed by sentence id ('error' = failed)
   const [explanations, setExplanations] = useState<
     Record<string, SentenceBriefExplanation | 'error'>
@@ -194,6 +200,7 @@ export function SentenceSet({
 
   useEffect(() => {
     setRevealed({});
+    setAudioWait({});
     setEnglishFirst({});
     setShowAll(false);
     setExplanations({});
@@ -280,6 +287,35 @@ export function SentenceSet({
   };
 
   const playSentence = (row: DisplayRow) => {
+    const sentenceId = row.sentenceId;
+    // A new set's rows get their clips a moment after the set: wait for the real
+    // clip instead of reading the row in the device voice (Lab: SentenceAudioWait).
+    if (!row.audio_url && sentenceId && isOnline && !isEffectivelyOffline()) {
+      if (audioWait[row.key]) return;
+      const forNote = noteId;
+      const done = () => setAudioWait((prev) => {
+        const next = { ...prev };
+        delete next[row.key];
+        return next;
+      });
+      setAudioWait((prev) => ({ ...prev, [row.key]: 'asking' }));
+      void awaitSentenceAudio(() => ensureSentenceAudio(sentenceId), {
+        onComing: () => setAudioWait((prev) => ({ ...prev, [row.key]: 'coming' })),
+        stopped: () => noteIdRef.current !== forNote,
+      }).then((result) => {
+        if (noteIdRef.current !== forNote) return;
+        done();
+        if (result.kind === 'ready') {
+          setSentences((prev) => prev.map((s) => (s.id === sentenceId ? { ...s, audio_url: result.url } : s)));
+          setPlayingId(row.key);
+          play(result.url, row.hanzi, API_BASE);
+        } else if (result.kind === 'unavailable') {
+          setPlayingId(row.key);
+          play(null, row.hanzi, API_BASE);
+        }
+      });
+      return;
+    }
     setPlayingId(row.key);
     play(row.audio_url, row.hanzi, API_BASE);
   };
@@ -634,6 +670,11 @@ export function SentenceSet({
                       </span>
                     )}
                   </button>
+                  {audioWait[row.key] === 'coming' && (
+                    <span className="sentence-set-audio-coming" data-testid="sentence-audio-coming">
+                      {SENTENCE_AUDIO_COMING_LABEL}
+                    </span>
+                  )}
                   {isFullyShown && (showFocus || row.fromCard || row.focus_note) && (
                     <div className="sentence-set-focus">
                       {row.fromCard && <span className="sentence-set-badge">From the card</span>}
@@ -648,13 +689,13 @@ export function SentenceSet({
                 </div>
                 {/* Right: hear it — the first thing to do on a blank row. */}
                 <button
-                  className={`sentence-set-play${isThisPlaying ? ' is-playing' : ''}`}
+                  className={`sentence-set-play${isThisPlaying ? ' is-playing' : ''}${audioWait[row.key] ? ' is-waiting' : ''}`}
                   onClick={() => playSentence(row)}
-                  disabled={isThisPlaying}
+                  disabled={isThisPlaying || !!audioWait[row.key]}
                   aria-label="Play sentence"
-                  title="Play sentence"
+                  title={audioWait[row.key] ? SENTENCE_AUDIO_COMING_LABEL : 'Play sentence'}
                 >
-                  {isThisPlaying ? '⏸' : '▶'}
+                  {audioWait[row.key] ? '…' : isThisPlaying ? '⏸' : '▶'}
                 </button>
               </li>
             );
