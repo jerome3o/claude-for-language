@@ -217,8 +217,8 @@ class NoteAudioFixer(
         val hanzi = repo.dao.noteHanzi()
         val longTerm = repo.dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao)
-        val today = StudyQueue.build(decks, cards, repo.prefs.budget, bonus, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps).dueCards
-        val ahead = StudyQueue.build(decks, cards, repo.prefs.budget, bonus + NEXT_NEW, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps).dueCards
+        val today = StudyQueue.build(decks, cards, repo.prefs.budget, bonus, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps, order = repo.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped).dueCards
+        val ahead = StudyQueue.build(decks, cards, repo.prefs.budget, bonus + NEXT_NEW, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps, order = repo.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped).dueCards
         return (today + ahead).map { it.noteId }.distinct()
     }
 

@@ -1,4 +1,4 @@
-import type { StudyBudget, StudyBudgetInfo, StudyBudgetUpdate } from '@shared/decks';
+import type { NewCardOrderInfo, NewCardOrderUpdate, StudyBudget, StudyBudgetInfo, StudyBudgetUpdate } from '@shared/decks';
 import type { CoachAction } from '@shared/coach';
 import {
   Deck,
@@ -1359,6 +1359,11 @@ export async function shareDeck(
 /** The learner's daily new-card budget across all decks. */
 export async function updateStudyBudget(budget: StudyBudgetUpdate): Promise<StudyBudgetInfo> {
   return fetchJSON('/profile/study-budget', { method: 'PUT', body: JSON.stringify(budget) });
+}
+
+/** "Order new cards by" (shared/decks/new-card-order.ts): `{ reset: true }` = every default. */
+export async function updateNewCardOrder(update: NewCardOrderUpdate | { reset: true }): Promise<NewCardOrderInfo> {
+  return fetchJSON('/profile/new-card-order', { method: 'PUT', body: JSON.stringify(update) });
 }
 
 /** The tutor's view of a student's daily new-card budget (+ the deck at the top of their queue, for the hint). */

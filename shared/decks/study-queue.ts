@@ -10,10 +10,11 @@
  *   - review cards due by the cutoff,
  *   - new cards as the ONE daily budget allocates them, deck queue top-down
  *     (budget.ts `allocateNewCards`), highest-value tier first within a deck;
- *     with the notes' hanzi given, "new characters first" (novelty.ts): the
- *     budget's brand-new words go FIRST to unseen words in ANY deck that bring
- *     never-seen characters (each deck within its cap), then deck by deck, a
- *     deck's words with the most never-seen characters first.
+ *     with the notes' hanzi given, the account's "Order new cards by"
+ *     (new-card-order.ts): the budget's brand-new words go FIRST, in ANY deck
+ *     (each deck within its cap), to words that bring never-seen characters,
+ *     then never-met words, then (sentences last) every word before a sentence
+ *     — the most common first inside each tier — and the rest deck by deck.
  * The home screen's numbers are the counts of exactly this queue.
  *
  * A learner's per-word "long-term review" choice (long-term.ts, notes.long_term)
@@ -30,7 +31,8 @@
  */
 
 import { allocateNewCards, primaryCapLeft, respreadPrimary, sortDecksForQueue, type DeckAllocation, type DeckNewPool, type StudyBudget } from './budget';
-import { markSeen, pickByNovelty, pickNewCharactersAcrossGroups, seenFrom, type SeenText } from './novelty';
+import { DEFAULT_NEW_CARD_ORDER, orderWithinDeck, pickNewCardsByOrder, studiedFrom, type NewCardOrder, type StudiedIndex } from './new-card-order';
+import type { FrequencyIndex } from './frequency';
 import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } from './long-term';
 import { bumpPocket, type QueueBumps } from './bumps';
 
@@ -79,17 +81,21 @@ export interface QueueCounts {
 }
 
 /**
- * The notes' text, for "new characters first" (novelty.ts). Without it new
+ * The notes' text, for "Order new cards by" (new-card-order.ts). Without it new
  * cards keep the plain tier / id order.
  */
 export interface QueueNoteText {
   /** note id → hanzi: the candidate notes in scope and every reviewed note (all decks). */
   hanzi: ReadonlyMap<string, string>;
   /**
-   * Notes with a card past NEW across ALL decks — their characters are "seen".
-   * Defaults to the ones in `cards` (pass it when `cards` is one deck's).
+   * Notes with a card past NEW across ALL decks — their characters and words are
+   * "studied". Defaults to the ones in `cards` (pass it when `cards` is one deck's).
    */
   reviewedNoteIds?: Iterable<string>;
+  /** The account's "Order new cards by" (default: every switch on). */
+  order?: NewCardOrder | null;
+  /** Word frequency for "Most common first" (frequency.ts); without it that switch does nothing. */
+  frequency?: FrequencyIndex | null;
 }
 
 export interface StudyQueueResult<C extends QueueCardInput> {
@@ -224,46 +230,48 @@ export function selectStudyQueue<C extends QueueCardInput>(
   let allocation = allocateNewCards(pools, budget, bonus, spent);
 
   const due: C[] = [...pocket.cards];
-  // Seen characters / words, built once; every primary pick below adds to it.
+  // What has been studied (characters + word pieces), built once; every global pick adds to it.
   const hanziOf = (c: C) => noteText?.hanzi.get(c.note_id) ?? '';
-  const seen = noteText
-    ? seenFrom([...(noteText.reviewedNoteIds ?? reviewed)].map(id => noteText.hanzi.get(id) ?? ''))
+  const order = noteText ? noteText.order ?? DEFAULT_NEW_CARD_ORDER : null;
+  const frequency = noteText?.frequency ?? null;
+  const tiered = !!order && (order.new_characters_first || order.new_words_first || order.sentences_last);
+  const studied = noteText && tiered
+    ? studiedFrom([...(noteText.reviewedNoteIds ?? reviewed)].map(id => noteText.hanzi.get(id) ?? ''), order!.new_words_first)
     : null;
-  // "New characters first across all decks": the budget's primary picks go
-  // first to unseen words, in ANY deck in scope, that bring never-seen
-  // characters (each deck within its cap); the rest is filled deck by deck.
+  // "Order new cards by": the budget's primary picks go first, in ANY deck in scope (each
+  // deck within its cap), to the tiers (new characters, new words, words before sentences);
+  // the rest is filled deck by deck.
   const globalPicks = new Set<string>();
-  if (seen) {
+  let pickedIn = new Map<string, number>();
+  if (studied && order) {
     let total = 0;
     for (const a of allocation.values()) total += a.primary;
-    const picked = pickNewCharactersFirst(pools, newByDeck, reviewed, total, hanziOf, seen);
+    const picked = pickNewCardsFirst(pools, newByDeck, reviewed, total, hanziOf, studied, order, frequency);
     if (picked.length > 0) {
       for (const c of picked) globalPicks.add(c.id);
-      allocation = respreadPrimary(pools, allocation, picksPerDeck(picked.map(c => c.deck_id)));
+      pickedIn = picksPerDeck(picked.map(c => c.deck_id));
+      allocation = respreadPrimary(pools, allocation, pickedIn);
       due.push(...picked);
     }
   }
   // New cards: deck queue order (the allocation's order); within a deck the
-  // primary cards (best tier first, the hanzi_to_meaning cards by novelty),
-  // then the secondary ones (best tier first, then id).
+  // primary cards (best tier first; the hanzi_to_meaning cards sentences-last /
+  // most-common-first when ordering), then the secondary ones (best tier first, then id).
+  const byTierThenId = (x: C, y: C) => tierOf(x, reviewed) - tierOf(y, reviewed) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
   for (const [id, a] of allocation) {
-    if (a.primary <= 0 && a.secondary <= 0) continue;
-    const list = [...(newByDeck.get(id) ?? [])].sort(
-      (x, y) => tierOf(x, reviewed) - tierOf(y, reviewed) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)
-    );
-    const primaryList = list.filter(c => !reviewed.has(c.note_id));
-    if (seen) {
-      let take = a.primary;
-      for (const c of primaryList) if (globalPicks.has(c.id)) take--;
-      const first = primaryList.filter(c => c.card_type === 'hanzi_to_meaning' && !globalPicks.has(c.id));
-      const picked = pickByNovelty(first, take, hanziOf, seen);
-      const others = primaryList.filter(c => c.card_type !== 'hanzi_to_meaning').slice(0, take - picked.length);
-      for (const c of others) markSeen(seen, hanziOf(c));
-      due.push(...picked, ...others);
-    } else {
-      due.push(...primaryList.slice(0, a.primary));
+    const all = newByDeck.get(id) ?? [];
+    const take = a.primary - (pickedIn.get(id) ?? 0);
+    if (take > 0) {
+      const primaryList = all.filter(c => !reviewed.has(c.note_id) && !globalPicks.has(c.id)).sort(byTierThenId);
+      if (order) {
+        const first = orderWithinDeck(primaryList.filter(c => c.card_type === 'hanzi_to_meaning'), hanziOf, order, frequency).slice(0, take);
+        const others = primaryList.filter(c => c.card_type !== 'hanzi_to_meaning').slice(0, take - first.length);
+        due.push(...first, ...others);
+      } else {
+        due.push(...primaryList.slice(0, take));
+      }
     }
-    due.push(...list.filter(c => reviewed.has(c.note_id)).slice(0, a.secondary));
+    if (a.secondary > 0) due.push(...all.filter(c => reviewed.has(c.note_id)).sort(byTierThenId).slice(0, a.secondary));
   }
   for (const c of cards) {
     if (scopeIds.has(c.deck_id) && isDueByCutoff(c, cutoffMs) && !pocketIds.has(c.id)) due.push(c);
@@ -277,20 +285,21 @@ export function selectStudyQueue<C extends QueueCardInput>(
 }
 
 /**
- * "New characters first across all decks": the first `take` primary (blue)
- * picks — hanzi_to_meaning cards of unseen notes, in ANY deck of `pools`, that
- * bring never-seen characters (novelty.ts `pickNewCharactersAcrossGroups`),
- * each deck within min(its unseen cards, what is left of its cap). Ties: deck
- * queue position, shorter, card id. Greedy, so the first N of a longer run are
- * the run with take = N. Mutates `seen`.
+ * "Order new cards by" across all decks (new-card-order.ts `pickNewCardsByOrder`): the
+ * first `take` primary (blue) picks — hanzi_to_meaning cards of unseen notes, in ANY deck
+ * of `pools`, that fall in one of the account's tiers — each deck within min(its unseen
+ * cards, what is left of its cap). Ties: deck queue position, shorter, card id. Greedy,
+ * so the first N of a longer run are the run with take = N. Mutates `studied`.
  */
-export function pickNewCharactersFirst<C extends QueueCardInput>(
+export function pickNewCardsFirst<C extends QueueCardInput>(
   pools: readonly DeckNewPool[],
   newByDeck: ReadonlyMap<string, readonly C[]>,
   reviewed: ReadonlySet<string>,
   take: number,
   hanziOf: (card: C) => string,
-  seen: SeenText
+  studied: StudiedIndex,
+  order: NewCardOrder = DEFAULT_NEW_CARD_ORDER,
+  frequency?: FrequencyIndex | null
 ): C[] {
   if (take <= 0) return [];
   const position = new Map(sortDecksForQueue([...pools]).map((p, i) => [p.deckId, i]));
@@ -300,8 +309,8 @@ export function pickNewCharactersFirst<C extends QueueCardInput>(
     if ((room.get(deckId) ?? 0) <= 0) continue;
     for (const c of list) if (c.card_type === 'hanzi_to_meaning' && !reviewed.has(c.note_id)) candidates.push(c);
   }
-  return pickNewCharactersAcrossGroups(
-    candidates, take, hanziOf, c => c.deck_id, id => position.get(id) ?? 0, room, c => c.id, seen
+  return pickNewCardsByOrder(
+    candidates, take, hanziOf, c => c.deck_id, id => position.get(id) ?? 0, room, c => c.id, order, studied, frequency
   );
 }
 

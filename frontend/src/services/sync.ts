@@ -4,8 +4,9 @@ import { replaceLocalBumps, syncBumps, uploadPendingBumps } from './studyBumps';
 import { replaceLocalRevisitEvents, syncRevisit, uploadRevisitEvents, writeRevisitSettings } from './revisit';
 import type { RevisitSettingsInfo } from '@shared/study/revisit';
 import type { ApiStudyBump } from '../api/bumps';
-import type { StudyBudgetInfo } from '@shared/decks';
+import type { NewCardOrderInfo, StudyBudgetInfo } from '@shared/decks';
 import { writeStudyBudget } from './studyBudget';
+import { writeNewCardOrder } from './newCardOrder';
 import {
   db,
   LocalDeck,
@@ -96,6 +97,8 @@ interface SyncChangesResponse {
   server_time: string;
   /** The daily new-card budget (a tutor may have changed it; older servers omit it). */
   study_budget?: StudyBudgetInfo | null;
+  /** "Order new cards by" (shared/decks/new-card-order.ts); older servers omit it. */
+  new_card_order?: NewCardOrderInfo | null;
   /** Every folder of the account (all kinds), sent whole; older servers omit it. */
   folders?: Folder[] | null;
   /** "⚡ Study it today": every active bump, sent whole (shared/decks/bumps.ts). */
@@ -664,6 +667,8 @@ class SyncService {
     const changes: SyncChangesResponse = await response.json();
     // The study queue and Home counts read this mirror: the tutor's numbers apply the same day.
     if (changes.study_budget) writeStudyBudget(changes.study_budget);
+    // "Order new cards by": which new words come first, offline too.
+    if (changes.new_card_order) writeNewCardOrder(changes.new_card_order);
     // Folders (decks / lessons / readers): a short list, replaced whole.
     if (changes.folders) await replaceLocalFolders(changes.folders).catch(err => console.error('[Sync] Folders failed:', err));
     // "⚡ Study it today": the server's pocket, this device's pending changes on top.

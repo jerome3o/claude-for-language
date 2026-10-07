@@ -14,6 +14,16 @@ kotlin {
     compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
 
+// Static data shared with the web app, read as classpath resources: the word-frequency list
+// behind "Most common first" (shared/data/frequency/word-freq.txt → /frequency/word-freq.txt).
+sourceSets {
+    main {
+        resources {
+            srcDir(rootProject.file("../shared/data"))
+        }
+    }
+}
+
 dependencies {
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)

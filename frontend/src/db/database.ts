@@ -3,9 +3,11 @@ import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
 import { bumpPocket, type QueueBump, type QueueBumps } from '@shared/decks';
-import { selectStudyQueue, isDueByCutoff, pickNewCharactersFirst, respreadPrimary, seenFrom, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
+import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
+import { readNewCardOrder } from '../services/newCardOrder';
+import { loadWordFrequency } from '../services/wordFrequency';
 import { CardType, CardQueue, Rating } from '../types';
 
 // ============ Review Event Types ============
@@ -1514,8 +1516,8 @@ export interface DeckQueueRaw {
   /** Bumped notes with cards in the pocket ("⚡ 2 bumped for today"). */
   bumpedNotes?: number;
   /**
-   * "New characters first across all decks": positions in the global pick
-   * sequence (shared/decks/study-queue.ts `pickNewCharactersFirst`) that this
+   * "Order new cards by" across all decks: positions in the global pick
+   * sequence (shared/decks/study-queue.ts `pickNewCardsFirst`) that this
    * deck supplies. allocateQueueCounts gives the first N picks (N = the budget's
    * primary cards) to their decks and the rest deck by deck, like the session.
    */
@@ -1696,14 +1698,15 @@ function countRawQueues(
 
   for (const [id, set] of unseenByDeck) byDeck.get(id)!.unseenNotes = set.size;
 
-  // "New characters first across all decks" — the same greedy picks the session
+  // "Order new cards by" across all decks — the same greedy picks the session
   // makes (selectStudyQueue), run far enough for the budget plus a few "Study
   // more" rounds; allocateQueueCounts takes the first N for the per-deck rows.
   if (noteText) {
-    const seen = seenFrom([...(noteText.reviewedNoteIds ?? reviewedNoteIds)].map(id => noteText.hanzi.get(id) ?? ''));
+    const order = noteText.order ?? DEFAULT_NEW_CARD_ORDER;
+    const studied = studiedFrom([...(noteText.reviewedNoteIds ?? reviewedNoteIds)].map(id => noteText.hanzi.get(id) ?? ''), order.new_words_first);
     const pools = [...byDeck].map(([id, raw]) => poolOf(id, raw));
-    const picks = pickNewCharactersFirst(pools, newByDeck, reviewedNoteIds, budget.new_cards_per_day + NOVELTY_PICKS_AHEAD,
-      c => noteText.hanzi.get(c.note_id) ?? '', seen);
+    const picks = pickNewCardsFirst(pools, newByDeck, reviewedNoteIds, budget.new_cards_per_day + NOVELTY_PICKS_AHEAD,
+      c => noteText.hanzi.get(c.note_id) ?? '', studied, order, noteText.frequency);
     picks.forEach((c, i) => {
       const raw = byDeck.get(c.deck_id)!;
       (raw.noveltyPicks ??= []).push(i);
@@ -1712,7 +1715,7 @@ function countRawQueues(
   return byDeck;
 }
 
-/** Per-deck rows follow the global novelty picks for this many "Study more" cards past the budget. */
+/** Per-deck rows follow the global "Order new cards by" picks for this many "Study more" cards past the budget. */
 const NOVELTY_PICKS_AHEAD = 100;
 
 /** Single scan of the cards table producing raw per-deck counts. */
@@ -1746,18 +1749,23 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
 }
 
 /**
- * The notes' hanzi for "new characters first" (shared/decks/novelty.ts): a deck's
- * brand-new words are the ones with never-seen characters. Seen = every note with
- * a reviewed card in ANY deck, so a one-deck session loads those separately.
+ * The notes' hanzi + the account's "Order new cards by" (shared/decks/new-card-order.ts):
+ * which brand-new words come first. Studied = every note with a reviewed card in ANY deck,
+ * so a one-deck session loads those separately. The order is the device's cached copy
+ * (services/newCardOrder.ts) and the frequency list a precached chunk — both offline.
  */
 async function loadQueueNoteText(deckId?: string): Promise<QueueNoteText> {
-  const [notes, reviewedCards] = await Promise.all([
+  const order = readNewCardOrder();
+  const [notes, reviewedCards, frequency] = await Promise.all([
     db.notes.toArray(),
     deckId ? db.cards.where('queue').above(CardQueue.NEW).toArray() : Promise.resolve(null),
+    order.most_common_first ? loadWordFrequency() : Promise.resolve(null),
   ]);
   const hanzi = new Map<string, string>();
   for (const n of notes) hanzi.set(n.id, n.hanzi ?? '');
-  return reviewedCards ? { hanzi, reviewedNoteIds: reviewedCards.map(c => c.note_id) } : { hanzi };
+  return reviewedCards
+    ? { hanzi, reviewedNoteIds: reviewedCards.map(c => c.note_id), order, frequency }
+    : { hanzi, order, frequency };
 }
 
 /** The due-card selection described on getDueCards, over already-loaded inputs. */

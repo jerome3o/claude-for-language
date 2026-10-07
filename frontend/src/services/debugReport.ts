@@ -33,6 +33,7 @@ import {
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { readBonus, bonusKey } from '../utils/bonusNewCards';
 import { readStudyBudget } from './studyBudget';
+import { readNewCardOrder } from './newCardOrder';
 import { getDueReaders } from './reader-study';
 import { loadHomeworkItems, sortHomeworkItems } from './homework';
 import { detectInstallKind } from './clientState';
@@ -189,6 +190,7 @@ export async function buildDebugReport(): Promise<DebugReport> {
     introduced_basis:
       'derived from review events: a card\'s first-ever review at/after local midnight (shared/decks/study-queue.ts introducedToday)',
     budget: { ...budget },
+    new_card_order: readNewCardOrder(),
     bonus: { all: bonusAll, by_deck: byDeckBonus, day_key: bonusKey(undefined).split('_').pop() ?? '' },
     sync: {
       sync_meta: syncMeta,

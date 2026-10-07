@@ -41,7 +41,7 @@ export function LicencesPage() {
             <a href="https://www.gnu.org/licenses/lgpl-3.0.html" target="_blank" rel="noreferrer">GNU LGPL 3.0</a>.
           </li>
           <li>
-            <strong>wordfreq</strong> — word frequencies (word order and character frequency rank). ©
+            <strong>wordfreq</strong> — word frequencies (word order and character frequency rank on the character sheet, and the shipped word list behind “Most common first” when ordering new cards). ©
             Robyn Speer and contributors,{' '}
             <a href="https://github.com/rspeer/wordfreq" target="_blank" rel="noreferrer">github.com/rspeer/wordfreq</a>,
             data licensed{' '}

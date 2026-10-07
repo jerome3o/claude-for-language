@@ -197,6 +197,8 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         val info = me.study_budget?.toInfo()
         if (info != null) prefs.budgetInfo = info
         else prefs.budget = StudyBudget(me.new_cards_per_day.coerceIn(0, StudyBudget.MAX), me.secondary_cards_per_day.coerceIn(0, StudyBudget.MAX))
+        // "Order new cards by": every queue the app builds reads prefs.newCardOrder (offline too).
+        me.new_card_order?.let { prefs.newCardOrder = dev.jeromeswannack.chineselearning.lab.core.NewCardOrder.parse(it.toString()) }
         me.conversation_voices?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.put(platform.cache, it) }
         me.conversation_audio?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationAudioCache.put(platform.cache, it) }
     }
@@ -295,6 +297,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         changes.folders?.let { dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.replaceFromServer(platform.cache, db.platform(), it) }
         dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.reapplyPendingItems(dao, platform.cache, db.platform())
         changes.study_budget?.let { prefs.budgetInfo = it.toInfo() }
+        changes.new_card_order?.let { prefs.newCardOrder = dev.jeromeswannack.chineselearning.lab.core.NewCardOrder.parse(it.toString()) }
         changes.bumps?.let { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.replaceFromServer(db, db.platform(), it) }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).

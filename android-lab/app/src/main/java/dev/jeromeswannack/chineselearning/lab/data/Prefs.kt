@@ -110,6 +110,14 @@ class Prefs(context: Context) {
             .putString("budget_set_at", v.setAt)
             .apply()
 
+    /**
+     * "Order new cards by" (Settings → New cards; core NewCardOrder): which new words come first.
+     * From /api/auth/me, /api/sync/changes or a save; every StudyQueue.build reads it, offline too.
+     */
+    var newCardOrder: dev.jeromeswannack.chineselearning.lab.core.NewCardOrder
+        get() = dev.jeromeswannack.chineselearning.lab.core.NewCardOrder.parse(sp.getString("new_card_order", null))
+        set(v) = sp.edit().putString("new_card_order", v.toJson()).apply()
+
     /** Epoch ms of the last full sync (0 = never). */
     var lastFullSync: Long
         get() = sp.getLong("last_full_sync", 0)
