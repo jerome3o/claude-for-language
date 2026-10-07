@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
@@ -8,7 +8,9 @@ import {
   getCoachConversations,
   getCoachConversation,
   sendCoachMessage,
+  retryCoachReply,
   deleteCoachConversation,
+  explainSentenceText,
   getDecks,
   apiErrorStatus,
 } from '../api/client';
@@ -27,10 +29,18 @@ import {
   COACH_ACTION_LABELS,
   COACH_ACTION_BUSY,
   breakdownSentenceCard,
-  coachButtons,
+  coachDeepLinkAction,
   conversationAction,
+  newWordsInSentence,
+  COACH_NEW_WORDS_LABEL,
+  COACH_SENTENCE_CARD_LABEL,
+  coachButtons,
   type CoachAction,
+  type CoachWord,
 } from '@shared/coach';
+import { NewWordsSheet } from '../components/coach/NewWordsSheet';
+import { db, type LocalDeck } from '../db/database';
+import { orderDecksForQueue } from '../services/deckOrder';
 import { SentenceWordBreakdown } from '../components/SentenceWordBreakdown';
 import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
 import { bumpNotes, findSentenceBumps, syncBumps, useBumps } from '../services/studyBumps';
@@ -115,13 +125,32 @@ const ACTION_LOADING: Record<CoachAction, string> = {
   translate: 'Translating your sentence…',
 };
 
-function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disabled }: {
+/** The sentence's word breakdown the direct quick actions work from (Explain's own, else "What's going on here?"). */
+interface SentenceBreakdownView {
+  hanzi: string;
+  pinyin: string;
+  translation: string;
+  words: CoachWord[];
+  construction: string;
+}
+
+/** The hanzi of every note in a live deck on this device, and the decks in study-queue order. */
+async function loadLocalVocabulary(): Promise<{ hanzi: string[]; decks: LocalDeck[] }> {
+  const decks = await db.decks.toArray();
+  const live = new Set(decks.map((d) => d.id));
+  const notes = await db.notes.toArray();
+  return { hanzi: notes.filter((n) => live.has(n.deck_id)).map((n) => n.hanzi), decks: orderDecksForQueue(decks) };
+}
+
+function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disabled, breakdown, onAddSentenceCard }: {
   hanzi: string;
   decks: Deck[] | undefined;
   selectedDeckId: string;
   onDeckChange: (deckId: string) => void;
   onSend: (message: string) => void;
   disabled: boolean;
+  breakdown: SentenceBreakdownView | null;
+  onAddSentenceCard: (chunk: Chunk) => void;
 }) {
   const deck = decks?.find((d) => d.id === selectedDeckId) ?? decks?.[0] ?? null;
   // "⚡ Study … today" (shared/decks/sentence-bumps.ts): the sentence itself when it is a
@@ -137,9 +166,36 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
   }, [hanzi]);
   const exact = matches.exact;
   const exactBumped = !!exact && bumps.has(exact.id);
+  // "➕ Add new words (N)": the words of the sentence in none of his decks (shared/coach/newWords.ts).
+  const [newWords, setNewWords] = useState<CoachWord[]>([]);
+  const [queueDecks, setQueueDecks] = useState<LocalDeck[]>([]);
+  const [addingWords, setAddingWords] = useState(false);
+  const [vocabKey, setVocabKey] = useState(0);
+  const justAdded = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!breakdown) {
+      setNewWords([]);
+      return;
+    }
+    let cancelled = false;
+    loadLocalVocabulary()
+      .then(({ hanzi: known, decks: ordered }) => {
+        if (cancelled) return;
+        setQueueDecks(ordered);
+        setNewWords(newWordsInSentence(breakdown.words, [...known, ...justAdded.current]));
+      })
+      .catch(() => setNewWords([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [breakdown, vocabKey]);
+  // "🃏 Card for this sentence": the whole sentence as one card, unless it already is one (⚡ then).
+  const sentenceCard = breakdown && breakdown.translation && !exact ? breakdownSentenceCard(breakdown) : null;
   return (
     <div className="coach-quick" data-testid="coach-quick-actions">
-      <div className="coach-quick-row" role="group" aria-label="Quick actions">
+      {/* Direct actions (⚡ / ➕ / 🃏) wrap so none hides off-screen; the chat prompts scroll below. */}
+      {(exact || matches.words.length > 0 || newWords.length > 0 || sentenceCard) && (
+      <div className="coach-quick-row coach-quick-row--direct" role="group" aria-label="Words and cards">
         {exact ? (
           <button
             type="button"
@@ -165,7 +221,33 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
             {SENTENCE_BUMP_WORDS_LABEL}
           </button>
         )}
-        {QUICK_ACTIONS.map((a) => (
+        {newWords.length > 0 && (
+          <button
+            type="button"
+            className="coach-quick-chip coach-quick-chip--new"
+            disabled={disabled || queueDecks.length === 0}
+            onClick={() => setAddingWords(true)}
+            data-testid="coach-quick-new-words"
+            aria-haspopup="dialog"
+          >
+            {COACH_NEW_WORDS_LABEL(newWords.length)}
+          </button>
+        )}
+        {sentenceCard && (
+          <button
+            type="button"
+            className="coach-quick-chip coach-quick-chip--new"
+            disabled={disabled}
+            onClick={() => { track('coach.sentence_card'); onAddSentenceCard(sentenceCard); }}
+            data-testid="coach-quick-sentence-card"
+          >
+            {COACH_SENTENCE_CARD_LABEL}
+          </button>
+        )}
+      </div>
+      )}
+      <div className="coach-quick-row" role="group" aria-label="Quick actions">
+        {QUICK_ACTIONS.filter((a) => !(a.key === 'card-sentence' && sentenceCard)).map((a) => (
           <button
             key={a.key}
             type="button"
@@ -181,6 +263,15 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
       {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
       {picking && (
         <SentenceBumpSheet notes={matches.words} source="coach" onClose={() => setPicking(false)} onBumped={setBumpMsg} />
+      )}
+      {addingWords && breakdown && (
+        <NewWordsSheet
+          words={newWords}
+          sentence={{ hanzi: breakdown.hanzi, pinyin: breakdown.pinyin, translation: breakdown.translation }}
+          decks={queueDecks}
+          onAdded={(added) => added.forEach((h) => justAdded.current.add(h))}
+          onClose={() => { setAddingWords(false); setVocabKey((k) => k + 1); }}
+        />
       )}
       {decks && decks.length > 0 && (
         <label className="coach-quick-deck">
@@ -440,9 +531,47 @@ function ToolResultChips({ results }: { results: CoachToolResult[] }) {
   );
 }
 
-function CoachMessageView({ message, onAdd }: { message: CoachMessage; onAdd: (chunk: Chunk) => void }) {
+function CoachMessageView({ message, onAdd, action, onRetry, retrying }: {
+  message: CoachMessage;
+  onAdd: (chunk: Chunk) => void;
+  /** The conversation's action (what a pending first reply is doing). */
+  action: CoachAction;
+  onRetry: (messageId: string) => void;
+  retrying: boolean;
+}) {
   if (message.role === 'user') {
     return <div className="coach-bubble coach-bubble-user">{message.content}</div>;
+  }
+
+  // Written in the background (docs/CHAT.md "Chat ↔ Coach"): leaving the page never cancels it.
+  if (message.status === 'pending') {
+    if (message.content_type === 'analysis') {
+      return (
+        <div className="card" data-testid="coach-reply-pending">
+          <div className="sentence-loading">
+            <div className="sentence-loading-spinner" />
+            <p>{ACTION_LOADING[action]}</p>
+            <p className="coach-pending-note">You can leave — the answer will be here when you come back.</p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="coach-bubble coach-bubble-assistant coach-bubble-pending" data-testid="coach-reply-pending">
+        <span className="spinner" style={{ width: '16px', height: '16px' }} />
+        Thinking…
+      </div>
+    );
+  }
+  if (message.status === 'failed') {
+    return (
+      <div className="coach-error" role="alert" data-testid="coach-reply-failed">
+        {message.error || 'Claude couldn’t answer — try again.'}
+        <button type="button" className="coach-error-retry" onClick={() => onRetry(message.id)} disabled={retrying} data-testid="coach-reply-retry">
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>
+    );
   }
 
   if (message.content_type === 'analysis') {
@@ -482,6 +611,52 @@ function CoachMessageView({ message, onAdd }: { message: CoachMessage; onAdd: (c
       <ToolResultChips results={toolResults} />
     </div>
   );
+}
+
+// ============ The sentence's breakdown (for the direct quick actions) ============
+
+/**
+ * The words of the conversation's sentence: Explain's own breakdown, else the one this device
+ * keeps for the text ("What's going on here?" — shared with the card's example sentences), else
+ * asked once (Haiku, cached by text) when online. null until there is one.
+ */
+function useSentenceBreakdown(analysis: CoachAnalysis | null): SentenceBreakdownView | null {
+  const [view, setView] = useState<SentenceBreakdownView | null>(null);
+  const hanzi = analysis ? analysisSentence(analysis) : '';
+  const pinyin = !analysis ? '' : analysis.kind === 'chinese' ? analysis.coach.corrected.pinyin : analysis.kind === 'english' ? analysis.translation.primary.pinyin : analysis.breakdown.pinyin;
+  const english = !analysis ? '' : analysis.kind === 'chinese' ? analysis.coach.corrected.english : analysis.kind === 'english' ? analysis.translation.primary.english : analysis.breakdown.translation ?? '';
+  const own = analysis?.kind === 'explain' ? analysis.breakdown : null;
+  useEffect(() => {
+    let cancelled = false;
+    setView(null);
+    if (!hanzi) return;
+    const show = (b: { words: CoachWord[]; construction?: string | null; translation?: string | null }) => {
+      if (cancelled) return;
+      setView({
+        hanzi,
+        pinyin: pinyin || b.words.map((w) => w.pinyin).filter(Boolean).join(' '),
+        translation: (english || b.translation || '').trim(),
+        words: b.words,
+        construction: b.construction ?? '',
+      });
+    };
+    if (own) {
+      show(own);
+      return;
+    }
+    (async () => {
+      const cached = await getCachedTextExplanation(hanzi);
+      if (cached) return show(cached);
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      const fresh = await explainSentenceText({ hanzi, pinyin: pinyin || null, translation: english || null });
+      void cacheTextExplanation(hanzi, fresh);
+      show(fresh);
+    })().catch((err) => console.warn('[coach] no breakdown for the quick actions', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [hanzi, pinyin, english, own]);
+  return view;
 }
 
 // ============ Page ============
@@ -538,12 +713,15 @@ export function SentenceCoachPage() {
     queryKey: ['coach-conversations'],
     queryFn: getCoachConversations,
     enabled: !conversationId,
+    refetchInterval: (q) => (q.state.data?.some((c) => c.pending_reply) ? 4000 : false),
   });
 
   const conversationQuery = useQuery({
     queryKey: ['coach-conversation', conversationId],
     queryFn: () => getCoachConversation(conversationId!),
     enabled: !!conversationId,
+    // A reply still being written in the background: look again every few seconds until it lands.
+    refetchInterval: (q) => (q.state.data?.messages.some((m) => m.status === 'pending') ? 2500 : false),
   });
 
   // Explain's result the device already had, shown when the coach can't be reached.
@@ -551,13 +729,13 @@ export function SentenceCoachPage() {
   const [adding, setAdding] = useState<Chunk | null>(null);
 
   const startMutation = useMutation({
-    mutationFn: async ({ text, action }: { text: string; action: CoachAction }) => {
-      if (action !== 'explain') return startCoachConversation(text, action);
+    mutationFn: async ({ text, action, chatMessageId }: { text: string; action: CoachAction; chatMessageId?: string | null }) => {
+      if (action !== 'explain') return startCoachConversation(text, action, null, { chatMessageId });
       // Explain is the same brief breakdown as the example sentences' "What's going on here?",
       // cached by its text on this device: send the saved one (the server stores it, no Claude
       // call) and keep what comes back, so a second look works offline.
       const cached = await getCachedTextExplanation(text);
-      const res = await startCoachConversation(text, action, cached?.translation ? cached : null);
+      const res = await startCoachConversation(text, action, cached?.translation ? cached : null, { chatMessageId });
       const analysis = res.messages.find((m) => m.content_type === 'analysis');
       const parsed = analysis ? parseAnalysis(analysis.content) : null;
       if (parsed?.kind === 'explain') {
@@ -572,6 +750,7 @@ export function SentenceCoachPage() {
     retryDelay: 1500,
     onSuccess: (res, { action }) => {
       track('coach.start', { action });
+      startedHere.current.add(res.conversation.id);
       queryClient.setQueryData(['coach-conversation', res.conversation.id], res);
       queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
       setSentence('');
@@ -604,6 +783,7 @@ export function SentenceCoachPage() {
   const replyMutation = useMutation({
     mutationFn: ({ id, message }: { id: string; message: string }) => sendCoachMessage(id, message),
     onSuccess: (res, { id }) => {
+      startedHere.current.add(id);
       queryClient.setQueryData(
         ['coach-conversation', id],
         (prev: { conversation: unknown; messages: CoachMessage[] } | undefined) =>
@@ -626,20 +806,50 @@ export function SentenceCoachPage() {
     onError: (err) => trackError('coach_follow_up', err),
   });
 
+  const retryMutation = useMutation({
+    mutationFn: ({ id, messageId }: { id: string; messageId: string }) => retryCoachReply(id, messageId),
+    onSuccess: (res, { id }) => {
+      track('coach.reply_retry');
+      startedHere.current.add(id);
+      queryClient.setQueryData(['coach-conversation', id], res);
+    },
+    onError: (err) => trackError('coach_reply_retry', err),
+  });
+
+  // Conversations whose reply was asked for on this visit (vs. one still thinking when I came back).
+  const startedHere = useRef<Set<string>>(new Set());
+  const resumeTracked = useRef<Set<string>>(new Set());
+  const loaded = conversationQuery.data;
+  useEffect(() => {
+    if (!loaded || !conversationId) return;
+    if (loaded.messages.some((m) => m.status === 'pending') && !startedHere.current.has(conversationId) && !resumeTracked.current.has(conversationId)) {
+      resumeTracked.current.add(conversationId);
+      track('coach.reply_resumed');
+    }
+    // An Explain answer that came in the background is kept on the device too (offline second look).
+    const first = loaded.messages.find((m) => m.content_type === 'analysis' && !m.status);
+    const parsed = first ? parseAnalysis(first.content) : null;
+    if (parsed?.kind === 'explain') {
+      const { hanzi, pinyin: _p, ...explanation } = parsed.breakdown;
+      void getCachedTextExplanation(hanzi).then((have) => (have ? undefined : cacheTextExplanation(hanzi, explanation)));
+    }
+  }, [loaded, conversationId]);
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteCoachConversation(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['coach-conversations'] }),
   });
 
-  // Deep links (text selection) arrive as /coach?text=... English is translated at once;
-  // Chinese (or mixed) waits in the box on the Check / Explain buttons.
+  // Deep links arrive as /coach?text=…[&action=…&from_message=…] (coachDeepLinkAction): an explicit
+  // action runs at once ("Open in Coach" from a chat message — its auto-check is reused); without one,
+  // English is translated at once and Chinese (or mixed) waits in the box on the Check / Explain buttons.
   useEffect(() => {
     const text = searchParams.get('text');
     if (text && text.trim() && !autoSubmittedRef.current) {
       autoSubmittedRef.current = true;
       setSentence(text);
-      const buttons = coachButtons(text);
-      if (buttons.actions.length === 1) startMutation.mutate({ text: text.trim(), action: buttons.actions[0] });
+      const action = coachDeepLinkAction(text, searchParams.get('action'));
+      if (action) startMutation.mutate({ text: text.trim(), action, chatMessageId: searchParams.get('from_message') });
       setSearchParams({}, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -676,14 +886,15 @@ export function SentenceCoachPage() {
   };
 
   /** The Chinese sentence this conversation is about (its first analysis). */
-  const latestSentence = (() => {
-    const first = conversationQuery.data?.messages.find((m) => m.content_type === 'analysis');
-    const analysis = first ? parseAnalysis(first.content) : null;
-    return analysis ? analysisSentence(analysis) : null;
-  })();
+  const firstAnalysisJson = conversationQuery.data?.messages.find((m) => m.content_type === 'analysis' && !m.status)?.content ?? null;
+  // Parsed once per answer (the breakdown hook and the quick actions key on it).
+  const firstAnalysis = useMemo(() => (firstAnalysisJson ? parseAnalysis(firstAnalysisJson) : null), [firstAnalysisJson]);
+  const latestSentence = firstAnalysis ? analysisSentence(firstAnalysis) : null;
+  const breakdown = useSentenceBreakdown(firstAnalysis);
+  const replyPending = !!conversationQuery.data?.messages.some((m) => m.status === 'pending');
 
   const sendQuickAction = (message: string) => {
-    if (!conversationId || replyMutation.isPending) return;
+    if (!conversationId || replyMutation.isPending || replyPending) return;
     replyMutation.mutate({ id: conversationId, message });
   };
 
@@ -699,7 +910,7 @@ export function SentenceCoachPage() {
   const handleFollowUp = (e: React.FormEvent) => {
     e.preventDefault();
     const msg = followUp.trim();
-    if (!msg || !conversationId || replyMutation.isPending) return;
+    if (!msg || !conversationId || replyMutation.isPending || replyPending) return;
     track('coach.follow_up');
     replyMutation.mutate({ id: conversationId, message: msg });
   };
@@ -752,7 +963,14 @@ export function SentenceCoachPage() {
           {data && (
             <div className="coach-messages mt-3">
               {data.messages.map((m) => (
-                <CoachMessageView key={m.id} message={m} onAdd={setAdding} />
+                <CoachMessageView
+                  key={m.id}
+                  message={m}
+                  onAdd={setAdding}
+                  action={conversationAction(data.conversation)}
+                  onRetry={(messageId) => retryMutation.mutate({ id: data.conversation.id, messageId })}
+                  retrying={retryMutation.isPending}
+                />
               ))}
 
               {replyMutation.isPending && (
@@ -775,7 +993,9 @@ export function SentenceCoachPage() {
               selectedDeckId={selectedDeckId}
               onDeckChange={handleDeckChange}
               onSend={sendQuickAction}
-              disabled={replyMutation.isPending}
+              disabled={replyMutation.isPending || replyPending}
+              breakdown={breakdown}
+              onAddSentenceCard={setAdding}
             />
           )}
 
@@ -797,9 +1017,9 @@ export function SentenceCoachPage() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={!followUp.trim() || replyMutation.isPending}
+                disabled={!followUp.trim() || replyMutation.isPending || replyPending}
               >
-                {replyMutation.isPending ? '…' : 'Send'}
+                {replyMutation.isPending || replyPending ? '…' : 'Send'}
               </button>
             </form>
           )}
@@ -913,6 +1133,12 @@ export function SentenceCoachPage() {
                     {COACH_ACTION_ICONS[conversationAction(conv)]} {conv.title}
                   </div>
                   <div className="coach-conv-meta">
+                    {conv.pending_reply && (
+                      <span className="coach-conv-thinking" data-testid="coach-conv-thinking">
+                        <span className="spinner" style={{ width: '12px', height: '12px' }} /> Thinking… ·{' '}
+                      </span>
+                    )}
+                    {!conv.pending_reply && conv.failed_reply && <span className="coach-conv-failed">⚠ Reply failed — open to retry · </span>}
                     {conv.message_count} message{conv.message_count === 1 ? '' : 's'} ·{' '}
                     {new Date(conv.updated_at + (conv.updated_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                   </div>

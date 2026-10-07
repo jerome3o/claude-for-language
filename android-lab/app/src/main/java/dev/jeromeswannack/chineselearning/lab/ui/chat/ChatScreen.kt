@@ -134,6 +134,8 @@ class ChatActions(
     val onReply: (ChatMessageDto?) -> Unit = {},
     val onPlay: (ChatMessageDto) -> Unit = {},
     val onOpenSheet: (ChatSheet?) -> Unit = {},
+    /** "🎓 Open in Coach" (docs/CHAT.md "Chat ↔ Coach"): the chip under my bubble (source "chip"). */
+    val onOpenCoach: (ChatMessageDto, source: String) -> Unit = { _, _ -> },
     val onReact: (ChatMessageDto, String) -> Unit = { _, _ -> },
     val onViewCheck: (ChatMessageDto) -> Unit = {},
     val onWord: (hanzi: String, context: String) -> Unit = { _, _ -> },

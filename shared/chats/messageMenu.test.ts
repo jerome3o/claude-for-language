@@ -8,14 +8,14 @@ const base = { sender_id: 'them', content: '你好，今天怎么样？' };
 describe('messageMenu', () => {
   it('a Chinese message from the tutor, seen by the student: every learning tool, in order', () => {
     expect(ids(messageMenu(base, 'student', false, 'me'))).toEqual([
-      'reply', 'copy', 'forward', 'translate', 'pinyin', 'explain', 'save_card', 'select_cards', 'play', 'discuss', 'pin', 'info', 'select',
+      'reply', 'copy', 'forward', 'translate', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'play', 'discuss', 'pin', 'info', 'select',
     ]);
   });
 
   it('my own Chinese message as the learner: Check my Chinese, Edit, Delete', () => {
     const m = messageMenu({ ...base, sender_id: 'me' }, 'student', false, 'me');
     expect(ids(m)).toEqual([
-      'reply', 'copy', 'forward', 'translate', 'pinyin', 'explain', 'save_card', 'select_cards', 'check', 'play', 'discuss', 'pin', 'info', 'edit', 'delete', 'select',
+      'reply', 'copy', 'forward', 'translate', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'check', 'play', 'discuss', 'pin', 'info', 'edit', 'delete', 'select',
     ]);
     expect(m.items.find((i) => i.id === 'delete')?.danger).toBe(true);
     expect(ids(messageMenu({ ...base, sender_id: 'me', check_status: 'needs_improvement' }, 'student', false, 'me'))).toContain('view_corrections');
@@ -48,7 +48,7 @@ describe('messageMenu', () => {
   it('voice: tools work on the transcript; translate only when the transcript was translated; no read aloud / edit', () => {
     const v = { sender_id: 'me', content: '', attachment: { kind: 'voice', transcript: '我很好', translation: null } };
     expect(menuText(v)).toBe('我很好');
-    expect(ids(messageMenu(v, 'student', false, 'me'))).toEqual(['reply', 'copy', 'forward', 'pinyin', 'explain', 'save_card', 'select_cards', 'discuss', 'pin', 'info', 'delete', 'select']);
+    expect(ids(messageMenu(v, 'student', false, 'me'))).toEqual(['reply', 'copy', 'forward', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'discuss', 'pin', 'info', 'delete', 'select']);
     expect(ids(messageMenu({ ...v, attachment: { ...v.attachment, translation: "I'm fine" } }, 'student', false, 'me'))).toContain('translate');
     expect(ids(messageMenu({ ...v, attachment: { kind: 'voice', transcript: null } }, 'student', false, 'me'))).toEqual(['reply', 'forward', 'pin', 'info', 'delete', 'select']);
   });
@@ -68,8 +68,24 @@ describe('messageMenu', () => {
   });
 
   it('the Claude practice chat: Word by word, no pin / edit / delete / corrections', () => {
-    expect(ids(messageMenu(base, 'tutor', true, 'me'))).toEqual(['reply', 'copy', 'translate', 'pinyin', 'explain', 'save_card', 'select_cards', 'play', 'word_by_word', 'discuss', 'select']);
+    expect(ids(messageMenu(base, 'tutor', true, 'me'))).toEqual(['reply', 'copy', 'translate', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'play', 'word_by_word', 'discuss', 'select']);
     expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'tutor', true, 'me'))).toContain('check');
+  });
+});
+
+describe('Open in Coach', () => {
+  it('my own Chinese message checks it; theirs explains it; English and the tutor\'s own message have none', () => {
+    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'student', false, 'me'))).toContain('open_coach');
+    expect(ids(messageMenu(base, 'student', false, 'me'))).toContain('open_coach');
+    expect(ids(messageMenu({ sender_id: 'me', content: 'See you' }, 'student', false, 'me'))).not.toContain('open_coach');
+    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'tutor', false, 'me'))).not.toContain('open_coach');
+  });
+
+  it('second, right after How to say it better, when the auto-check found something (a photo caption too)', () => {
+    const photo = { sender_id: 'me', content: '我昨天去了商店买东西了', attachment: { kind: 'image' }, auto_check: { status: 'improvable' as const, text: '我昨天去了商店买东西了' } };
+    expect(ids(messageMenu(photo, 'student', false, 'me')).slice(0, 3)).toEqual(['say_better', 'open_coach', 'reply']);
+    const voice = { sender_id: 'me', content: '', attachment: { kind: 'voice', transcript: '我去了商店了', transcript_status: 'done' }, auto_check: { status: 'improvable' as const, text: '我去了商店了' } };
+    expect(ids(messageMenu(voice, 'student', false, 'me')).slice(0, 2)).toEqual(['say_better', 'open_coach']);
   });
 });
 

@@ -131,10 +131,14 @@ chatMessages.post('/conversations/:id/media', async (c) => {
   if (attachment.kind === 'voice') {
     const audio = bytes;
     // Transcript → translation + the transcript's word chips.
-    await background(c, transcribeVoiceMessage(env, id, audio, attachment.mime));
+    // Then the transcript is auto-checked like a typed message (docs/CHAT.md "Chat ↔ Coach").
+    await background(c, transcribeVoiceMessage(env, id, audio, attachment.mime).then((status) =>
+      status === 'done' ? autoCheckMessageInBackground(env, id) : undefined));
   } else if (caption) {
-    // A photo's Chinese caption gets a translation and word chips like a text message.
+    // A photo's Chinese caption gets a translation and word chips like a text message…
     await background(c, enrichMessageInBackground(env, id, caption));
+    // …and the learner's caption is auto-checked (it used to be skipped: photos never got a ✎).
+    await background(c, autoCheckMessageInBackground(env, id));
   }
   return c.json(message, 201);
 });

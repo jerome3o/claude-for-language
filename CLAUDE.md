@@ -363,7 +363,8 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
 - `chat_listening` / `users.chat_listening_default` - Chat listening mode (migration 0099, docs/CHAT.md "Listening mode"): per person + conversation `{ listening, since }` (messages after `since` arrive hidden) and the Settings default
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
-- `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0101; docs/CHAT.md "Auto-check")
+- `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message — the text, a photo / file / video caption, or a voice transcript once it exists (`autoCheckText`) — (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0101; docs/CHAT.md "Auto-check", "Chat ↔ Coach")
+- `coach_messages.status` / `error` / `attempts` / `checkpoint` / `started_at`, `coach_conversations.source_message_id` - Sentence Coach replies written in the background (NULL = done, pending, failed; migration 0114; `services/coach-replies.ts`, docs/CHAT.md "Chat ↔ Coach") and the chat message an "Open in Coach" conversation came from
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
 - `device_push_tokens` - FCM registration tokens of the Lab app per user (migration 0089)
 - `shared_decks` - Record of decks shared from tutor to student
@@ -904,7 +905,7 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 ### Notes
 - `GET /api/notes/:id` - Get note with cards
 - `POST /api/decks/:deckId/notes` - Create note (`hanzi`, `pinyin`, `english`, `fun_facts?`, `context?`, `sentence_clue?` + pinyin / translation, `alternatives?`); cards made, word + sentence TTS in the background, sentence set queued
-- `POST /api/decks/:deckId/notes/batch` - `{ notes: [...] }` (≤500) → `{ created, failed: [{ index, hanzi, error }] }`; audio queued
+- `POST /api/decks/:deckId/notes/batch` - `{ notes: [...] }` (≤500) → `{ created, failed: [{ index, hanzi, error }] }`; audio queued; `?skip_existing=1` leaves out words already in any of my decks → `existing: [{ index, hanzi, note_id, deck_name }]`
 - `PUT /api/notes/:id` - Update note (a changed hanzi gets a new word clip, a changed clue a new sentence clip)
 - `POST /api/notes/:id/check-issues/:issueId/apply` | `/dismiss` - a word check's "⚠ Possible issue" → `{ note }` (apply = the fix through updateNote)
 - `POST /api/notes/check` - `{ note_ids }` (≤ 100) run the word check now and store it → `{ issues: { [noteId]: NoteCheckIssue[] } }`
@@ -1036,11 +1037,20 @@ coach chat, chat "Discuss with Claude") shares ONE item schema, `FLASHCARD_ITEM_
 hanzi / pinyin / english / fun_facts (required) + sentence_clue (+ pinyin, translation) for word cards — the same
 fields the content service validates, so a coach-made card is a full standard card, never the critique as fun_facts.
 Conversations persist (`coach_conversations` / `coach_messages` tables); the chat's tools are create_flashcards,
-create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overall_stats.
-- `POST /api/coach/conversations` - Start a conversation from a sentence: `{ text, action?: check|explain|translate, explanation? }` (no action = auto-detect; 400 for check / explain without Chinese)
+create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overall_stats. **Replies are written in the
+background** (`routes/coach.ts`, `services/coach-replies.ts`, `coach-reply-queue`; docs/CHAT.md "Chat ↔ Coach"): with
+`background: true` the POST returns 202 with a pending assistant message, the queue writes it (checkpointed: answer +
+tool actions applied, retried on a busy model, failed → Retry), the page polls while pending — leaving never cancels it;
+the list shows "Thinking…". **Open in Coach** from a chat message (menu item, the chip under an improvable bubble, the
+How-to-say-it-better sheet) → `/coach?text=&action=check|explain&from_message=` (an explicit action runs at once,
+`coachDeepLinkAction`); my message's stored auto-check becomes the analysis without a Claude call. Direct quick actions:
+**➕ Add new words (N)** (`newWordsInSentence` in `shared/coach/newWords.ts`, picker with nothing ticked → enrich →
+`POST /api/decks/:id/notes/batch?skip_existing=1`, existing words get ⚡) and **🃏 Card for this sentence**.
+- `POST /api/coach/conversations` - Start a conversation from a sentence: `{ text, action?: check|explain|translate, explanation?, background?, chat_message_id? }` (no action = auto-detect; 400 for check / explain without Chinese; `background: true` → 202 with a pending analysis; 201 when ready at once; 200 `reused` for a chat message already opened)
 - `GET /api/coach/conversations` - List conversations
 - `GET /api/coach/conversations/:id` - Get conversation with messages
-- `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools)
+- `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools); `background: true` → 202 `[user, pending]` (409 while one is pending)
+- `POST /api/coach/conversations/:id/messages/:messageId/retry` - Re-queue a failed reply → 202
 - `DELETE /api/coach/conversations/:id` - Delete a conversation
 
 ### Audio lessons (`worker/src/routes/audio-lessons.ts`, `services/audio-lessons/`, page at `/audio-lessons`; read docs/AUDIO_LESSONS.md)
@@ -1097,7 +1107,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue`, `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md).
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `coach-reply-queue` (Sentence Coach replies, docs/CHAT.md "Chat ↔ Coach"), `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue`, `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md).
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)

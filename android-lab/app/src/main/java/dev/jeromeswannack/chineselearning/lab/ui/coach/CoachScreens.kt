@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.CoachAction
 import dev.jeromeswannack.chineselearning.lab.core.CoachActions
 import dev.jeromeswannack.chineselearning.lab.core.CoachBreakdownWord
+import dev.jeromeswannack.chineselearning.lab.core.CoachNewWords
+import dev.jeromeswannack.chineselearning.lab.core.CoachSentenceCard
 import dev.jeromeswannack.chineselearning.lab.core.SentenceBumps
 import dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
 import dev.jeromeswannack.chineselearning.lab.ui.bumps.SentenceBumpSheet
@@ -203,6 +205,16 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text("${CoachActions.conversationAction(conv.action, conv.input_language).icon} ${conv.title}", color = Lab.colors.ink, fontSize = 16.sp, maxLines = 2)
+                        // A reply still being written in the background / one that failed (docs/CHAT.md "Chat ↔ Coach").
+                        if (conv.pending_reply) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp).testTag(COACH_CONV_PENDING_TAG)) {
+                                SmallSpinner()
+                                Spacer(Modifier.width(8.dp))
+                                Text("Thinking…", color = Lab.colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        } else if (conv.failed_reply) {
+                            Text("⚠ Reply failed — open to retry", color = Palette.Again, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(vertical = 2.dp).testTag(COACH_CONV_FAILED_TAG))
+                        }
                         Text("${conv.message_count} message${if (conv.message_count == 1) "" else "s"} · ${shortDate(conv.updated_at)}", color = Lab.colors.muted, fontSize = 13.sp)
                     }
                     Box(Modifier.size(44.dp).clip(CircleShape).clickable { confirmDelete = conv }, contentAlignment = Alignment.Center) { Text("🗑", fontSize = 18.sp) }
@@ -258,7 +270,28 @@ data class CoachChatUi(
     val bumpPicker: Boolean = false,
     /** The bump's confirmation ("⚡ 银行 will come first in today’s study"), shown for a moment. */
     val bumpMessage: String? = null,
-)
+    /** A failed reply's Retry is on its way. */
+    val retrying: Boolean = false,
+    /**
+     * The sentence's word breakdown for the quick actions (Explain's own, else the device's cached
+     * explain-text, else fetched once): "➕ Add new words" and "🃏 Card for this sentence".
+     */
+    val breakdown: CoachBreakdownDto? = null,
+    /** The words of it in none of his decks (core CoachNewWords) — "➕ Add new words (N)" when any. */
+    val newWords: List<CoachBreakdownWord> = emptyList(),
+    /** The new-words picker, while open. */
+    val newWordsSheet: NewWordsSheetUi? = null,
+) {
+    /** A reply is being written in the background: Send and the quick actions wait for it. */
+    val replyPending: Boolean get() = thread.data?.hasPending == true
+
+    /** "🃏 Card for this sentence": the whole sentence as one card, unless it already is one (⚡ then). */
+    val sentenceCard: CoachSentenceCard? get() {
+        val b = breakdown ?: return null
+        if (b.translation.isNullOrBlank() || bumpExact != null) return null
+        return CoachActions.sentenceCard(b.hanzi, b.pinyin, b.translation, b.words.map { CoachBreakdownWord(it.hanzi, it.pinyin, it.gloss) }, b.construction)
+    }
+}
 
 data class CoachChatActions(
     val onBack: () -> Unit = {},
@@ -278,6 +311,11 @@ data class CoachChatActions(
     val onBumpPicked: (List<String>) -> Unit = {},
     /** The add-card sheet's "⚡ Study it today" (null = the app's real bump). */
     val bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = null,
+    /** Retry a reply that failed (its message id). */
+    val onRetryReply: (String) -> Unit = {},
+    /** "➕ Add new words (N)": open the picker, and its actions. */
+    val onOpenNewWords: () -> Unit = {},
+    val newWords: NewWordsActions = NewWordsActions(),
 )
 
 /** `/coach?c=<id>` — the conversation: the analysis, the chat, quick actions, the follow-up box. */
@@ -285,7 +323,8 @@ data class CoachChatActions(
 fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
     val thread = ui.thread.data
     val messages = thread?.messages.orEmpty()
-    val sentence = messages.firstOrNull { it.content_type == "analysis" }?.let { CoachAnalysisDto.parse(it.content)?.sentence }
+    val sentence = messages.firstOrNull { it.content_type == "analysis" && it.status == null }?.let { CoachAnalysisDto.parse(it.content)?.sentence }
+    val convAction = thread?.conversation?.let { CoachActions.conversationAction(it.action, it.input_language) } ?: CoachAction.CHECK
     val listState = rememberLazyListState()
     var adding by remember { mutableStateOf<Chunk?>(null) }
     val count = messages.size + (if (ui.pendingMessage != null) 2 else 0) + (if (ui.sendError != null) 1 else 0)
@@ -304,12 +343,25 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
                     else InlineNotice(ui.thread.error ?: "Couldn't load this conversation.", kind = if (ui.thread.offline) NoticeKind.Offline else NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRetryLoad)
                 }
             }
-            items(messages, key = { it.id }) { m -> MessageView(m, ui.online) { adding = it } }
+            items(messages, key = { it.id }) { m ->
+                when {
+                    m.isPending && m.content_type == "analysis" -> ThinkingCard(ACTION_LOADING.getValue(convAction), note = "You can leave — the answer will be here when you come back.", modifier = Modifier.testTag(COACH_REPLY_PENDING_TAG))
+                    m.isPending -> ThinkingBubble(Modifier.testTag(COACH_REPLY_PENDING_TAG))
+                    m.isFailed -> InlineNotice(
+                        m.error?.takeIf { it.isNotBlank() } ?: "Claude couldn’t answer — try again.",
+                        modifier = Modifier.testTag(COACH_REPLY_FAILED_TAG),
+                        kind = NoticeKind.Error,
+                        actionLabel = when { ui.retrying -> "Retrying…"; ui.online -> "Retry"; else -> null },
+                        onAction = { if (!ui.retrying) actions.onRetryReply(m.id) },
+                    )
+                    else -> MessageView(m, ui.online) { adding = it }
+                }
+            }
             ui.pendingMessage?.let { p ->
                 item(key = "pending-user") { UserBubble(p) }
                 item(key = "pending") { ThinkingBubble() }
             }
-            ui.sendError?.let { item(key = "err") { InlineNotice(it, kind = NoticeKind.Error) } }
+            ui.sendError?.let { item(key = "err") { InlineNotice(it, kind = if (!ui.online) NoticeKind.Offline else NoticeKind.Error) } }
         }
         if (thread != null) {
             Column(
@@ -317,7 +369,7 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
                     .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (sentence != null) QuickActions(sentence, ui, actions)
+                if (sentence != null) QuickActions(sentence, ui, actions) { adding = it }
                 Row(verticalAlignment = Alignment.Bottom) {
                     OutlinedTextField(
                         value = ui.followUp,
@@ -329,7 +381,7 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))
-                    PrimaryPill(if (ui.sending) "…" else "Send", Modifier.height(56.dp), enabled = ui.followUp.isNotBlank() && !ui.sending) { actions.onSend(ui.followUp.trim()) }
+                    PrimaryPill(if (ui.sending) "…" else "Send", Modifier.height(56.dp).testTag(COACH_SEND_TAG), enabled = ui.followUp.isNotBlank() && !ui.sending && !ui.replyPending) { actions.onSend(ui.followUp.trim()) }
                 }
             }
         }
@@ -344,10 +396,14 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
     if (ui.bumpPicker && ui.bumpWords.isNotEmpty()) {
         SentenceBumpSheet(ui.bumpWords, ui.bumpedNoteIds, onAdd = actions.onBumpPicked, onDismiss = actions.onCloseBumpPicker)
     }
+    ui.newWordsSheet?.let { CoachNewWordsSheet(it, actions.newWords) }
 }
 
 @Composable
-private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActions) {
+private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActions, onSentenceCard: (Chunk) -> Unit) {
+    // While a reply is being written (or a message is on its way) the chips wait.
+    val busy = ui.sending || ui.replyPending
+    val sentenceCard = ui.sentenceCard
     val deck = ui.decks.firstOrNull { it.id == ui.deckId } ?: ui.decks.firstOrNull()
     ui.bumpMessage?.let { InlineNotice(it, kind = NoticeKind.Success) }
     // The ⚡ chip arrives after the row is drawn (the local lookup is async): a lazy row keeps its
@@ -375,8 +431,25 @@ private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActio
                 LabChip(SentenceBumps.WORDS_LABEL, modifier = Modifier.testTag("coach-bump"), selected = true, onClick = actions.onOpenBumpPicker)
             }
         }
-        items(COACH_QUICK_ACTIONS, key = { it.key }) { a ->
-            LabChip(a.label, enabled = !ui.sending && !(a.needsDeck && deck == null), modifier = Modifier.alpha(if (ui.sending || (a.needsDeck && deck == null)) 0.5f else 1f)) {
+        // "➕ Add new words (N)": the words of the sentence in none of his decks (core CoachNewWords).
+        if (ui.newWords.isNotEmpty()) {
+            item(key = "new-words") {
+                val enabled = !busy && ui.decks.isNotEmpty()
+                LabChip(CoachNewWords.label(ui.newWords.size), modifier = Modifier.testTag(CoachNewWordsTags.CHIP).alpha(if (enabled) 1f else 0.5f), enabled = enabled, onClick = actions.onOpenNewWords)
+            }
+        }
+        // "🃏 Card for this sentence": the whole sentence as one card, straight to the add-card sheet.
+        if (sentenceCard != null) {
+            item(key = "sentence-card") {
+                LabChip(CoachNewWords.SENTENCE_CARD_LABEL, modifier = Modifier.testTag(CoachNewWordsTags.SENTENCE_CARD).alpha(if (busy) 0.5f else 1f), enabled = !busy) {
+                    dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("coach.sentence_card")
+                    onSentenceCard(Chunk(sentenceCard.hanzi, sentenceCard.pinyin, sentenceCard.english, sentenceCard.funFacts))
+                }
+            }
+        }
+        // The chat-prompt "📝 Card for the whole sentence" stays only as the fallback without a breakdown.
+        items(COACH_QUICK_ACTIONS.filter { !(it.key == "card-sentence" && sentenceCard != null) }, key = { it.key }) { a ->
+            LabChip(a.label, enabled = !busy && !(a.needsDeck && deck == null), modifier = Modifier.alpha(if (busy || (a.needsDeck && deck == null)) 0.5f else 1f)) {
                 dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("coach.quick_action", mapOf("action" to a.key))
                 actions.onSend(a.message(hanzi, deck))
             }
@@ -393,7 +466,7 @@ private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActio
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Lab.colors.ink,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).clickable(enabled = !ui.sending) { open = true }.padding(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).clickable(enabled = !busy) { open = true }.padding(horizontal = 10.dp, vertical = 8.dp),
                 )
                 DropdownMenu(open, onDismissRequest = { open = false }) {
                     ui.decks.forEach { d -> DropdownMenuItem(text = { Text(d.name) }, onClick = { open = false; actions.onDeck(d.id) }) }
@@ -606,8 +679,8 @@ private fun ThinkingDots() {
 }
 
 @Composable
-private fun ThinkingBubble() {
-    AnimatedVisibility(true, enter = fadeIn() + slideInVertically { it / 2 }) {
+private fun ThinkingBubble(modifier: Modifier = Modifier) {
+    AnimatedVisibility(true, modifier = modifier, enter = fadeIn() + slideInVertically { it / 2 }) {
         Row(
             Modifier.clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp)).padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -620,13 +693,29 @@ private fun ThinkingBubble() {
 }
 
 @Composable
-private fun ThinkingCard(text: String) {
-    Card {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ThinkingDots()
-            Spacer(Modifier.width(12.dp))
-            Text(text, color = Lab.colors.muted)
+private fun ThinkingCard(text: String, note: String? = null, modifier: Modifier = Modifier) {
+    Box(modifier) {
+        Card {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ThinkingDots()
+                Spacer(Modifier.width(12.dp))
+                Text(text, color = Lab.colors.muted)
+            }
+            note?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
         }
     }
 }
+
+/** The conversation list's small "still thinking" spinner. */
+@Composable
+private fun SmallSpinner() {
+    androidx.compose.material3.CircularProgressIndicator(Modifier.size(14.dp), color = Lab.colors.accent, strokeWidth = 2.dp, trackColor = Lab.colors.accent.copy(alpha = 0.2f))
+}
+
+/** Test tags. */
+const val COACH_REPLY_PENDING_TAG = "coach-reply-pending"
+const val COACH_REPLY_FAILED_TAG = "coach-reply-failed"
+const val COACH_CONV_PENDING_TAG = "coach-conv-pending"
+const val COACH_CONV_FAILED_TAG = "coach-conv-failed"
+const val COACH_SEND_TAG = "coach-send"
 

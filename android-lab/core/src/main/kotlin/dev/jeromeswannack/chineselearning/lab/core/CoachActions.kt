@@ -47,6 +47,30 @@ object CoachActions {
         else -> CoachButtons(kind, listOf(CoachAction.CHECK, CoachAction.EXPLAIN), true, "🇨🇳 Chinese — check it if you wrote it, or explain it word by word")
     }
 
+    /**
+     * Port of resolveCoachAction: the action the server runs, or null when it is refused (an
+     * unknown action, or check / explain without Chinese). No action = Chinese → check, else translate.
+     */
+    fun resolveAction(text: String, requested: String?): CoachAction? {
+        val chinese = hasHan(text)
+        if (requested.isNullOrEmpty()) return if (chinese) CoachAction.CHECK else CoachAction.TRANSLATE
+        val a = CoachAction.of(requested) ?: return null
+        if ((a == CoachAction.CHECK || a == CoachAction.EXPLAIN) && !chinese) return null
+        return a
+    }
+
+    /**
+     * Port of coachDeepLinkAction: which action a `/coach?text=…[&action=…]` deep link runs AT
+     * ONCE, or null (the text waits in the box on its buttons). An explicit valid action runs
+     * ("Open in Coach" sends check / explain); without one only English runs (translate).
+     */
+    fun deepLinkAction(text: String, action: String?): CoachAction? {
+        if (NoteSearch.jsTrim(text).isEmpty()) return null
+        if (!action.isNullOrEmpty()) return resolveAction(NoteSearch.jsTrim(text), action)
+        val b = buttons(text)
+        return if (b.enabled && b.actions.size == 1) b.actions[0] else null
+    }
+
     /** Port of conversationAction: the recorded action, else check (zh) / translate (en). */
     fun conversationAction(action: String?, inputLanguage: String?): CoachAction =
         CoachAction.of(action) ?: if (inputLanguage == "en") CoachAction.TRANSLATE else CoachAction.CHECK
