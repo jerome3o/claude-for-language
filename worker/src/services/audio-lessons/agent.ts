@@ -81,7 +81,7 @@ const SLEEP_PROMPT = `${COMMON}
 FORMAT: "sleep" — slow, calm, ALL-CHINESE immersion to fall asleep to. No pinyin is ever spoken, and the ONLY English is one short recap line per word (recap_en, below); everything else is Chinese (the english / pinyin fields are only shown on screen).
 The learner pastes a Chinese text. You find the words in it they do not know yet and teach them, one by one. The app builds the audio from your plan like this — you write only the content:
 - Your intro_zh, slowly.
-- For each word, in its own chapter: "这是一个新词。我说三遍。", the word three times with long pauses, your meaning_zh (what it MEANS), your characters_zh (its characters), sentence by sentence with pauses, "我们听三个句子。", then each of your three example sentences three times with pauses; then ONE English line in a calm English voice, "The word was <the word>: <your recap_en>"; then a long pause.
+- For each word, in its own chapter: "这是一个新词。我说三遍。", the word three times with long pauses, your meaning_zh (what it MEANS), then each character with its tone, built from your char_tones ("导，第三声。航，第二声。" — plus "在‘任务’里，‘务’读轻声。" where the word is said with another tone), then your characters_zh (its characters), sentence by sentence with pauses, "我们听三个句子。", then each of your three example sentences three times with pauses; then ONE English line in a calm English voice, "The word was <the word>: <your recap_en>"; then a long pause.
 - Your outro_zh; a short text is read once more at the end.
 
 Choosing the words
@@ -91,6 +91,7 @@ Choosing the words
 
 Explaining — two separate parts, both in VERY short, VERY simple Chinese built only from words the learner knows (check_known_words tells you which words, and which words containing these characters, they know). Never use a word harder than the one you explain. Quote words with ‘’ or “” if you like; no brackets.
 - meaning_zh (REQUIRED, 1–3 sentences): what the word MEANS — what it is, what it does, what it is like, when you use it, or its opposite. "邮局是一个地方。在邮局，你可以寄信。" A sentence about where a character comes from is NOT a meaning: the learner must understand the word itself from meaning_zh alone.
+- char_tones (REQUIRED): one entry per character of the word, in order: { char, pinyin, tone } with the character's CITATION (dictionary) tone — tone 1–4, or 5 for an inherently neutral character (了 le, 的 de, 吗 ma); pinyin = that one syllable with its tone mark, agreeing with the tone. 导航 → [{"char":"导","pinyin":"dǎo","tone":3},{"char":"航","pinyin":"háng","tone":2}]; 任务 → 务 wù 4; 你好 → 你 nǐ 3; 一样 → 一 yī 1; 不是 → 不 bù 4. Use the reading the word uses (银行 → 行 háng, not xíng). Don't write the tone lines yourself: the app says "导，第三声。" for each, and from the word's pinyin adds one short line where the word is said differently — a neutral syllable you write unmarked in the word's pinyin (任务 rènwu), third-tone sandhi (你好), 一 / 不 changes. So write the word's pinyin as it is really said (neutral syllables unmarked).
 - characters_zh (0–2 sentences, may be empty): relate its characters to words they know: "'银'就是'银行'的'银'。" Skip it when the characters don't help.
 - recap_en (REQUIRED): the meaning in plain English, spoken after "The word was <the word>: " — so write only what follows the colon, e.g. for 银行 "bank, as in the place where you keep your money, not the bank of a river." When the English word has several meanings, pin down the sense used here ("not the bank of a river", "to post a letter, not to send a text"). One short line, no pinyin, no Chinese needed.
 Example sentences: exactly three per word, each SHORT (≤ 16 characters is ideal, never more than 24) and simple, each containing the word exactly as written, everyday situations, mostly known words, calm content (this is for falling asleep — nothing alarming).
@@ -157,6 +158,19 @@ const SLEEP_PLAN_SCHEMA = {
             maxItems: 3,
             description: 'What the word MEANS, in 1–3 very short, very simple Chinese sentences from words the learner knows. Required; not where its characters come from.',
           },
+          char_tones: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                char: { type: 'string', description: 'One character of the word.' },
+                pinyin: { type: 'string', description: 'Its citation syllable with a tone mark ("dǎo"); no mark for 轻声.' },
+                tone: { type: 'integer', enum: [1, 2, 3, 4, 5], description: '1–4, 5 = 轻声.' },
+              },
+              required: ['char', 'pinyin', 'tone'],
+            },
+            description: 'One entry per character of the word, in order, with its citation tone. 导航 → 导 dǎo 3, 航 háng 2.',
+          },
           characters_zh: { type: 'array', items: { type: 'string' }, maxItems: 3, description: "Its characters related to known words (\"'银'就是'银行'的'银'。\"); may be empty." },
           related_known: { type: 'array', items: { type: 'string' } },
           sentences: { type: 'array', items: LINE, minItems: 3, maxItems: 3 },
@@ -165,7 +179,7 @@ const SLEEP_PLAN_SCHEMA = {
             description: 'English, spoken after "The word was <hanzi>: " — the meaning with the sense pinned down, e.g. "bank, as in the place where you keep your money, not the bank of a river."',
           },
         },
-        required: ['hanzi', 'pinyin', 'english', 'meaning_zh', 'characters_zh', 'related_known', 'sentences', 'recap_en'],
+        required: ['hanzi', 'pinyin', 'english', 'meaning_zh', 'char_tones', 'characters_zh', 'related_known', 'sentences', 'recap_en'],
       },
     },
     outro_zh: { type: 'string' },

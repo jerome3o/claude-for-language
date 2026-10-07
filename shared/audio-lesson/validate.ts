@@ -4,6 +4,7 @@
  * repair round, or shown to whoever sent the input.
  */
 import { hasHan } from './compile';
+import { charToneProblems } from './tones';
 import type { AudioLessonScript, DialoguePlan, SleepPlan } from './types';
 
 export const SCRIPT_LIMITS = {
@@ -175,6 +176,7 @@ export function validateSleepPlan(raw: unknown): string[] {
     if (meaning.length + (chars?.length ?? 0) > PLAN_LIMITS.explanationSentences.max) {
       problems.push(`words[${i}]: meaning_zh + characters_zh at most ${PLAN_LIMITS.explanationSentences.max} sentences together — keep it short`);
     }
+    if (str(w.hanzi)) problems.push(...charToneProblems(`words[${i}]`, w));
     checkRecap(`words[${i}].recap_en`, w.recap_en, problems);
     if (!Array.isArray(w.related_known)) problems.push(`words[${i}].related_known: a list (may be empty)`);
     const sentences = Array.isArray(w.sentences) ? w.sentences : [];

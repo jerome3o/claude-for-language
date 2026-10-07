@@ -47,6 +47,12 @@ export interface SpeechSegment {
   /** For the transcript under a Chinese line. */
   pinyin?: string;
   english?: string;
+  /**
+   * What the transcript shows when it differs from what is spoken: a character's tone line
+   * is SAID "导，第三声。" (a Chinese voice reads Latin pinyin as English letters) and SHOWN
+   * "导，dǎo，第三声。". Not part of the clip's identity (`speechKey`).
+   */
+  display?: string;
 }
 
 export interface PauseSegment {
@@ -113,6 +119,15 @@ export interface DialoguePlan {
   outro_en: string;
 }
 
+/** A sleep-lesson word's character and its citation tone (1–4, 5 = 轻声). */
+export interface SleepCharTone {
+  /** One Han character of the word, in order. */
+  char: string;
+  /** Its citation pinyin: one syllable with a tone mark ("dǎo"; no mark for 轻声). */
+  pinyin: string;
+  tone: 1 | 2 | 3 | 4 | 5;
+}
+
 export interface SleepPlan {
   title: string;
   /** Very simple Chinese, 1–3 short sentences. */
@@ -125,6 +140,14 @@ export interface SleepPlan {
        * never only where its characters come from.
        */
       meaning_zh: string[];
+      /**
+       * One entry per Han character of the word, in order, with its CITATION tone (导航 →
+       * 导 dǎo 3, 航 háng 2; 任务 → 务 wù 4 although the word is said rènwu). The compiler
+       * speaks "导，第三声。" for each and adds "在‘任务’里，‘务’读轻声。" where the word is
+       * said differently (neutral tone, third-tone sandhi, 一 / 不) — tones.ts. Optional only
+       * for plans written before it existed; validateSleepPlan requires it.
+       */
+      char_tones?: SleepCharTone[];
       /** Its characters, related to words the learner knows ("'银'就是'银行'的'银'。"): 0–3 sentences. */
       characters_zh: string[];
       /**

@@ -42,6 +42,8 @@ test('make a sleep lesson, then play it from the device', async ({ authenticated
   await expect(page.locator('.al-now-chapter')).toHaveText('寄 jì');
   await page.getByRole('button', { name: '📝 Transcript' }).click();
   await expect(page.getByLabel('Transcript').getByText('我想寄一封信。').first()).toBeVisible();
+  // Each character with its tone: spoken "寄，第四声。", shown with the pinyin.
+  await expect(page.getByLabel('Transcript').getByText('寄，jì，第四声。')).toBeVisible();
   // After the word's three sentences: ONE English recap line, the word inside it.
   await expect(page.getByLabel('Transcript').getByText('The word was 寄: to send by post, as in posting a letter, not sending a text message.')).toBeVisible();
 

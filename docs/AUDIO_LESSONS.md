@@ -23,7 +23,8 @@ dialogue). Chapters:
 spoken, and the only English is one recap line per word. For each new word (one chapter each):
 "这是一个新词。我说三遍。", the word three times (0.55, 2 s pauses), what it MEANS in very simple Chinese
 built from words the learner knows (`meaning_zh`, 1–3 sentences, REQUIRED: "邮局是一个地方。在邮局，你可以
-寄信。"), then its characters (`characters_zh`, 0–3: "'银'就是'银行'的'银'。"), "我们听三个句子。", three
+寄信。"), then **each character with its tone** (below), then its characters (`characters_zh`, 0–3:
+"'银'就是'银行'的'银'。"), "我们听三个句子。", three
 short simple sentences each said three times (0.6, 1.8 s between repeats, 3 s after), then ONE short English
 line in a calm English voice (role `recap`: Azure `en-US-EmmaNeural`, Google `en-US-Neural2-F`; 0.9):
 "The word was 银行: bank, as in the place where you keep your money, not the bank of a river." — Claude
@@ -33,6 +34,23 @@ the word inside it is the sleep voice's own clip (`sleepRecapText`, `mixed` with
 `validateSleepPlan` refuses a word without `meaning_zh`, a `meaning_zh` that only says where a character comes
 from (`isCharacterOrigin` — that belongs in `characters_zh`), and a missing / pinyin-laden `recap_en`. The
 transcript shows the recap as one row (`transcriptRows`: a `recap` line + the `sleep` word right after it).
+
+**Character tones** (`shared/audio-lesson/tones.ts`). Claude gives every Han character of the word its CITATION
+tone — `char_tones: [{ char: '导', pinyin: 'dǎo', tone: 3 }, { char: '航', pinyin: 'háng', tone: 2 }]` (tone 1–4,
+5 = 轻声 for an inherently neutral character like 了 / 的) — and the compiler (`charToneLines`) speaks, after the
+meaning, one line per distinct character, "导，第三声。" (0.6, `PAUSES.sleepCharTone` 1.5 s after each), shown in the
+transcript as "导，dǎo，第三声。" (`SpeechSegment.display` → the transcript line's text; the pinyin is not spoken —
+a Chinese voice reads Latin pinyin as letters, and the character alone IS that syllable). A polyphone whose reading
+alone (pinyin-pro's default, a stand-in for the voice's) differs is spoken inside the word: "银行的行，第二声。". Then,
+where the word is SAID with another tone, one line from the word's pinyin: a neutral syllable written unmarked
+("在‘任务’里，‘务’读轻声。" for rènwu), third-tone sandhi, which pinyin never writes ("在‘你好’里，‘你’读第二声。";
+in a run of 3rd tones all but the last), and the 一 / 不 changes via `applyYiBuToneChanges` ("在‘一样’里，‘一’读第二声。");
+a repeated character gets 第二个 (姐姐). `validateSleepPlan` (`charToneProblems`) refuses a missing list, one that isn't
+one entry per Han character in order, a tone outside 1–5, a pinyin that isn't one tone-marked syllable or whose mark
+disagrees with the tone, 一 / 不 not at yī 1 / bù 4, a syllable that isn't the one in the word's pinyin (行 xíng in
+银行 yínháng), and a tone the word's pinyin contradicts (other than a neutral syllable or 一 / 不). Joined pinyin is
+split where the characters' syllables say ("fāngàn" → fāng + àn). Plans written before `char_tones` compile without
+these lines.
 
 Speeds are on the app's scale (MiniMax's: 1 = normal, cards 0.6); Azure maps them with its
 `speed_factor` (0.75 → cards 0.7). Pauses: `PAUSES` in `shared/audio-lesson/compile.ts`.
@@ -194,7 +212,8 @@ with the audio backfill → roughly 5–15 minutes per lesson.
 ## Tests
 
 - `shared/audio-lesson/audio-lesson.test.ts`: compile (three plays, ×3 repeats, pauses ≥ 1.5 s, voices,
-  Chinese-only sleep, source text), plan validation, timeline, player helpers.
+  Chinese-only sleep, source text), plan validation, timeline, player helpers; character tones (导航 / 任务 /
+  你好 / 一样 / 不是 / 姐姐 / 银行 lines, their place and pauses, the transcript's pinyin, `char_tones` validation).
 - `worker/…/__tests__/audio-lesson-mp3.test.ts`: frame parsing (tags, Xing, junk), format check,
   silence, assembly (frame boundaries, durations, the Xing header + TOC).
 - `worker/…/__tests__/audio-lesson-job.test.ts`: the whole job on real SQLite with a mocked model and

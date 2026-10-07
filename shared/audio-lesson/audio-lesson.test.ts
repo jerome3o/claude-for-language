@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTimeline,
   chapterIndexAt,
+  charToneLines,
   compileDialogueLesson,
   compileSleepLesson,
   estimateScriptMs,
@@ -19,6 +20,7 @@ import {
   validateDialoguePlan,
   validateScript,
   validateSleepPlan,
+  type SleepCharTone,
   type SpeechSegment,
 } from './index';
 import { SAMPLE_DIALOGUE_PLAN, SAMPLE_SLEEP_PLAN, SAMPLE_SLEEP_SOURCE } from './samples';
@@ -266,5 +268,134 @@ describe('transcriptRows', () => {
     expect(rows.map((r) => r.text)).toContain('The word was 邮局: post office, the place where you send letters and parcels.');
     expect(rows.filter((r) => r.text === '邮局').length).toBe(3);
     expect(rows.find((r) => r.text.startsWith('The word was 寄'))?.lang).toBe('en');
+  });
+});
+
+describe('sleep: each character with its tone', () => {
+  type W = Parameters<typeof charToneLines>[0];
+  const word = (hanzi: string, pinyin: string, char_tones: W['char_tones']): W => ({ hanzi, pinyin, char_tones });
+
+  it('导航: one line per character, the pinyin shown but not spoken', () => {
+    const lines = charToneLines(
+      word('导航', 'dǎoháng', [
+        { char: '导', pinyin: 'dǎo', tone: 3 },
+        { char: '航', pinyin: 'háng', tone: 2 },
+      ]),
+    );
+    expect(lines).toEqual([
+      { spoken: '导，第三声。', display: '导，dǎo，第三声。' },
+      { spoken: '航，第二声。', display: '航，háng，第二声。' },
+    ]);
+  });
+
+  it('任务: the citation tone, then a line for the neutral tone in the word', () => {
+    const lines = charToneLines(
+      word('任务', 'rènwu', [
+        { char: '任', pinyin: 'rèn', tone: 4 },
+        { char: '务', pinyin: 'wù', tone: 4 },
+      ]),
+    );
+    expect(lines.map((l) => l.display)).toEqual(['任，rèn，第四声。', '务，wù，第四声。', '在‘任务’里，‘务’读轻声。']);
+    expect(lines[2].spoken).toBe('在‘任务’里，‘务’读轻声。');
+  });
+
+  it('你好: third-tone sandhi is said even though the pinyin never writes it', () => {
+    const lines = charToneLines(
+      word('你好', 'nǐ hǎo', [
+        { char: '你', pinyin: 'nǐ', tone: 3 },
+        { char: '好', pinyin: 'hǎo', tone: 3 },
+      ]),
+    );
+    expect(lines.map((l) => l.spoken)).toEqual(['你，第三声。', '好，第三声。', '在‘你好’里，‘你’读第二声。']);
+  });
+
+  it('一 / 不 changes, also when the word pinyin forgot them; repeated characters', () => {
+    const yiyang = charToneLines(word('一样', 'yīyàng', [{ char: '一', pinyin: 'yī', tone: 1 }, { char: '样', pinyin: 'yàng', tone: 4 }]));
+    expect(yiyang.at(-1)?.spoken).toBe('在‘一样’里，‘一’读第二声。');
+    const bushi = charToneLines(word('不是', 'bú shì', [{ char: '不', pinyin: 'bù', tone: 4 }, { char: '是', pinyin: 'shì', tone: 4 }]));
+    expect(bushi.at(-1)?.spoken).toBe('在‘不是’里，‘不’读第二声。');
+    const jiejie = charToneLines(word('姐姐', 'jiějie', [{ char: '姐', pinyin: 'jiě', tone: 3 }, { char: '姐', pinyin: 'jiě', tone: 3 }]));
+    expect(jiejie.map((l) => l.spoken)).toEqual(['姐，第三声。', '在‘姐姐’里，第二个‘姐’读轻声。']);
+  });
+
+  it('a polyphone is spoken inside the word, so the voice picks the right reading', () => {
+    const lines = charToneLines(word('银行', 'yínháng', [{ char: '银', pinyin: 'yín', tone: 2 }, { char: '行', pinyin: 'háng', tone: 2 }]));
+    expect(lines[1]).toEqual({ spoken: '银行的行，第二声。', display: '行，háng，第二声。' });
+  });
+
+  it('plans written before char_tones compile without the lines', () => {
+    expect(charToneLines(word('邮局', 'yóujú', undefined))).toEqual([]);
+  });
+
+  it('compiler: after the meaning, before characters_zh, each with a pause; the transcript shows the pinyin', () => {
+    const script = compileSleepLesson(SAMPLE_SLEEP_PLAN);
+    const ch = script.chapters.findIndex((c) => c.title.startsWith('邮局'));
+    const segs = script.segments.filter((s) => s.chapter === ch);
+    const texts = segs.map((s) => (s.kind === 'speech' ? s.text : null));
+    const you = texts.indexOf('邮，第二声。');
+    expect(you).toBeGreaterThan(texts.indexOf('在邮局，你可以寄信。'));
+    expect(texts.indexOf('局，第二声。')).toBe(you + 2);
+    expect(texts.indexOf('‘邮’是‘邮件’的‘邮’。')).toBeGreaterThan(you + 2);
+    for (const i of [you, you + 2]) {
+      const next = segs[i + 1];
+      expect(next.kind === 'pause' && next.ms >= 1500).toBe(true);
+    }
+    expect(segs[you]).toMatchObject({ kind: 'speech', lang: 'zh', voice: 'sleep', rate: 0.6, display: '邮，yóu，第二声。' });
+    expect(validateScript(script)).toEqual([]);
+    const frames = new Map(uniqueSpeech(script).map((u) => [u.key, 30]));
+    const transcript = buildTimeline(script, frames, 24).transcript.map((l) => l.text);
+    expect(transcript).toContain('邮，yóu，第二声。');
+    expect(transcript).toContain('寄，jì，第四声。');
+    expect(transcript).not.toContain('邮，第二声。');
+  });
+});
+
+describe('sleep plan validation: char_tones', () => {
+  const plan = (edit: (w: Record<string, unknown>) => void) => {
+    const p = clone(SAMPLE_SLEEP_PLAN);
+    edit(p.words[0] as unknown as Record<string, unknown>);
+    return validateSleepPlan(p).join('\n');
+  };
+  const swapWord = (hanzi: string, pinyin: string, char_tones: SleepCharTone[]) => {
+    const p = clone(SAMPLE_SLEEP_PLAN);
+    const w = p.words[0];
+    w.sentences.forEach((s) => (s.hanzi = s.hanzi.replace(w.hanzi, hanzi)));
+    Object.assign(w, { hanzi, pinyin, char_tones });
+    return p;
+  };
+
+  it('required, one entry per character, in order', () => {
+    expect(plan((w) => delete w.char_tones)).toMatch(/char_tones: required/);
+    expect(plan((w) => (w.char_tones = [{ char: '邮', pinyin: 'yóu', tone: 2 }]))).toMatch(/2 expected \(邮 局\), got 1/);
+    expect(plan((w) => (w.char_tones = [{ char: '局', pinyin: 'jú', tone: 2 }, { char: '邮', pinyin: 'yóu', tone: 2 }]))).toMatch(/char_tones\[0\]\.char: expected "邮"/);
+  });
+
+  it('a tone in 1–5 that agrees with the one syllable, written with a tone mark', () => {
+    const one = (e: Record<string, unknown>) => plan((w) => (w.char_tones = [e, { char: '局', pinyin: 'jú', tone: 2 }]));
+    expect(one({ char: '邮', pinyin: 'yóu', tone: 6 })).toMatch(/tone: 1, 2, 3, 4, or 5/);
+    expect(one({ char: '邮', pinyin: 'yóu', tone: 0 })).toMatch(/tone: 1, 2, 3, 4, or 5/);
+    expect(one({ char: '邮', pinyin: 'yóu', tone: 3 })).toMatch(/"yóu" is a tone 2 but tone is 3/);
+    expect(one({ char: '邮', pinyin: 'you', tone: 2 })).toMatch(/unmarked \(轻声\) but tone is 2/);
+    expect(one({ char: '邮', pinyin: 'you2', tone: 2 })).toMatch(/tone mark, not a number/);
+    expect(one({ char: '邮', pinyin: 'yóujú', tone: 2 })).toMatch(/ONE syllable/);
+    expect(one({ char: '邮', pinyin: 'yōu', tone: 1 })).toMatch(/tone 1 here but "yóu"/);
+  });
+
+  it('the reading the word uses; 一 / 不 at their citation tone', () => {
+    expect(validateSleepPlan(swapWord('银行', 'yínháng', [{ char: '银', pinyin: 'yín', tone: 2 }, { char: '行', pinyin: 'xíng', tone: 2 }])).join('\n')).toMatch(/"xíng" doesn't match "háng"/);
+    expect(validateSleepPlan(swapWord('银行', 'yínháng', [{ char: '银', pinyin: 'yín', tone: 2 }, { char: '行', pinyin: 'háng', tone: 2 }]))).toEqual([]);
+    expect(validateSleepPlan(swapWord('一样', 'yíyàng', [{ char: '一', pinyin: 'yí', tone: 2 }, { char: '样', pinyin: 'yàng', tone: 4 }])).join('\n')).toMatch(/give 一 its citation tone, yī/);
+    expect(validateSleepPlan(swapWord('一样', 'yíyàng', [{ char: '一', pinyin: 'yī', tone: 1 }, { char: '样', pinyin: 'yàng', tone: 4 }]))).toEqual([]);
+  });
+
+  it('a neutral syllable in the word is fine; another tone is a contradiction', () => {
+    const tones: SleepCharTone[] = [{ char: '任', pinyin: 'rèn', tone: 4 }, { char: '务', pinyin: 'wù', tone: 4 }];
+    expect(validateSleepPlan(swapWord('任务', 'rènwu', tones))).toEqual([]);
+    expect(validateSleepPlan(swapWord('任务', 'rènwú', tones)).join('\n')).toMatch(/tone 4 here but "wú"/);
+  });
+
+  it('joined pinyin that reads two ways is split where the characters say', () => {
+    expect(validateSleepPlan(swapWord('方案', 'fāngàn', [{ char: '方', pinyin: 'fāng', tone: 1 }, { char: '案', pinyin: 'àn', tone: 4 }]))).toEqual([]);
+    expect(validateSleepPlan(swapWord('词二', 'cíèr', [{ char: '词', pinyin: 'cí', tone: 2 }, { char: '二', pinyin: 'èr', tone: 4 }]))).toEqual([]);
   });
 });

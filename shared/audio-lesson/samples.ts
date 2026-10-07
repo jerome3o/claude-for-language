@@ -62,6 +62,10 @@ export const SAMPLE_SLEEP_PLAN: SleepPlan = {
       pinyin: 'yóujú',
       english: 'post office',
       meaning_zh: ['邮局是一个地方。', '在邮局，你可以寄信。'],
+      char_tones: [
+        { char: '邮', pinyin: 'yóu', tone: 2 },
+        { char: '局', pinyin: 'jú', tone: 2 },
+      ],
       characters_zh: ['‘邮’是‘邮件’的‘邮’。'],
       recap_en: 'post office, the place where you send letters and parcels.',
       related_known: ['地方', '信'],
@@ -76,6 +80,7 @@ export const SAMPLE_SLEEP_PLAN: SleepPlan = {
       pinyin: 'jì',
       english: 'to send by post',
       meaning_zh: ['寄就是送东西给别人。', '可是不是你自己去送。'],
+      char_tones: [{ char: '寄', pinyin: 'jì', tone: 4 }],
       characters_zh: [],
       recap_en: 'to send by post, as in posting a letter, not sending a text message.',
       related_known: ['送', '东西'],

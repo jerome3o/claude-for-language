@@ -4,3 +4,4 @@ export * from './validate';
 export * from './timeline';
 export * from './input';
 export * from './samples';
+export * from './tones';
