@@ -226,10 +226,20 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
         ChatSheet.Rename -> if (ui.isAi) RenameSheet(ui, actions)
         ChatSheet.Voice -> VoiceSheet(ui, actions)
         is ChatSheet.Discuss -> DiscussSheet(s.message, ui, actions)
-        is ChatSheet.ChatWord -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordSheet(
-            s.word, s.sentence, known = s.word.text.trim() in ui.known, actions = actions.wordActions,
-            onDismiss = actions.onDismiss, onAdded = actions.onWordAdded, bumpSource = "chat",
-        )
+        is ChatSheet.ChatWord -> {
+            // A chat word chip opens the language explorer's Word view (ui/explorer); the old word sheet without one.
+            val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("chat")
+            val item = dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack.itemForText(s.word.text, s.word.pinyin, s.word.gloss, s.sentence)
+            if (explore != null && item != null) {
+                androidx.compose.runtime.LaunchedEffect(s) {
+                    actions.onDismiss()
+                    explore(item)
+                }
+            } else dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordSheet(
+                s.word, s.sentence, known = s.word.text.trim() in ui.known, actions = actions.wordActions,
+                onDismiss = actions.onDismiss, onAdded = actions.onWordAdded, bumpSource = "chat",
+            )
+        }
         ChatSheet.Review -> ui.review?.let { r ->
             dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet(onDismiss = actions.review.onClose) { ReviewPanel(r, ui.decks, ui.online, actions.review) }
         }
