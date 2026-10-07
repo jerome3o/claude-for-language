@@ -159,6 +159,12 @@ data class SegmentedDto(val translation: String = "", val segmentation: ChatBrea
 suspend fun Api.translateSegmented(messageId: String): SegmentedDto = post("/api/messages/${enc(messageId)}/translate-segmented")
 
 @Serializable
+data class TranslationDto(val translation: String = "")
+
+/** The message menu's Translate: one short reply, cached on the message for both people (routes/message-translate.ts). */
+suspend fun Api.translateMessage(messageId: String): TranslationDto = post("/api/messages/${enc(messageId)}/translate")
+
+@Serializable
 data class ResponseOptionsBody(val intendedMeaning: String, val guess: String? = null)
 
 @Serializable

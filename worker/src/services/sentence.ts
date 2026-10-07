@@ -101,6 +101,9 @@ export async function analyzeSentence(
 
   const userPrompt = USER_PROMPT_TEMPLATE.replace(/\{input\}/g, sentence.trim());
 
+  // ~30 output tokens per character (chunk + pinyin + gloss + indices + note); a reply cut
+  // off at max_tokens is invalid JSON, so it is retried with double the budget.
+  let maxTokens = Math.min(8000, Math.max(2000, 600 + sentence.length * 30));
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
@@ -109,12 +112,18 @@ export async function analyzeSentence(
     try {
       const response = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        max_tokens: maxTokens,
         messages: [
           { role: 'user', content: userPrompt }
         ],
         system: SENTENCE_ANALYSIS_SYSTEM_PROMPT,
       });
+
+      if (response.stop_reason === 'max_tokens') {
+        maxTokens = Math.min(maxTokens * 2, 16_000);
+        lastError = new Error(`Sentence breakdown was cut off at ${response.usage?.output_tokens ?? '?'} tokens`);
+        continue;
+      }
 
       // Extract text from response
       const textContent = response.content.find(c => c.type === 'text');

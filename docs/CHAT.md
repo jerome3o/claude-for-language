@@ -207,6 +207,14 @@ ALTER TABLE messages ADD COLUMN correction TEXT;   -- JSON { text, note, by, at 
   messages. `message_updated` when they land.
 - **Pinyin / Translate toggles** per message (pinyin from `words`; translation from `translation`), remembered per
   conversation on the device. A "Show pinyin for all" switch in the chat header menu.
+  A message with no `translation` yet asks `POST /api/messages/:id/translate` → `{ translation }`
+  (`routes/message-translate.ts`, `translateChineseText` in `services/translation.ts`: ONE short forced-tool Haiku
+  reply, Sonnet 5 as the last try, stored for both people); failures are 503 `{ error, retryable }` / 502 with a
+  readable reason, shown inline, and the toggle switches back off so the next tap retries (both apps give up after
+  30 s). The word-by-word breakdown is a SEPARATE call (`segmentChineseText`, budget scaled to the length, doubled when
+  cut off) behind `POST /api/messages/:id/translate-segmented`, which still answers with the translation and a
+  chunk-less stand-in when only the breakdown fails. (Until 7 Oct 2026 both came from one free-text JSON call capped
+  at 2000 tokens: a long tutor message was cut off after ~17 s and Translate always failed.)
 - **Tap a word** (chips when words exist) → the reader word sheet (hanzi · pinyin · gloss · ▶ · the sentence ·
   "More about this word" via `/api/reader-words/explain` · **+ Add as card**).
 - **Make flashcards from this chat**: header ⋯ → select messages (or "Today" / "Last 50 messages") →

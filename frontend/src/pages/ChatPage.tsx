@@ -20,7 +20,7 @@ import {
   getConversations,
   markNotificationsReadByConversation,
   toggleMessageReaction,
-  translateMessageSegmented,
+  translateMessage,
   coachSentence,
 } from '../api/client';
 import type { VocabularyDefinition } from '../api/client';
@@ -533,8 +533,11 @@ export function ChatPage() {
   const ensureTranslation = (msg: MessageWithSender) => {
     if (msg.attachment || msg.translation || fetchedTranslations.has(msg.id)) return;
     setFetchedTranslations((prev) => new Map(prev).set(msg.id, null));
-    translateMessageSegmented(msg.id)
-      .then((r) => setFetchedTranslations((prev) => new Map(prev).set(msg.id, r.translation || '')))
+    translateMessage(msg.id)
+      .then((r) => {
+        if (!r.translation) throw new Error('No translation came back.');
+        setFetchedTranslations((prev) => new Map(prev).set(msg.id, r.translation));
+      })
       .catch((error) => {
         setFetchedTranslations((prev) => {
           const next = new Map(prev);

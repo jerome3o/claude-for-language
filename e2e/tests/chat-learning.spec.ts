@@ -85,6 +85,31 @@ async function noWords(page: Page) {
   await page.route('**/api/messages/*/words', (route) => route.fulfill({ status: 503, json: { error: 'busy' } }));
 }
 
+/**
+ * CI has a real Claude key, so the server's background step may translate a message
+ * before the test taps Translate. Hide that stored translation from this page (list,
+ * polling and the live socket) so the tap always goes through the mocked endpoint.
+ */
+async function hideStoredTranslation(page: Page, messageId: string) {
+  const strip = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(strip);
+    if (v && typeof v === 'object') {
+      const o = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, strip(x)]));
+      if (o.id === messageId && 'translation' in o) o.translation = null;
+      return o;
+    }
+    return v;
+  };
+  await page.route('**/api/live/ticket', (route) => route.fulfill({ status: 503, json: { error: 'off in this test' } }));
+  await page.route('**/api/conversations/*/messages**', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch();
+    const body = await res.json().catch(() => null);
+    if (body === null) return route.fulfill({ response: res });
+    await route.fulfill({ response: res, json: strip(body) });
+  });
+}
+
 const WORDS = [
   { text: '我们', pinyin: 'wǒmen', gloss: 'we' },
   { text: '明天', pinyin: 'míngtiān', gloss: 'tomorrow' },
@@ -106,8 +131,9 @@ test('word chips from words, the word sheet, and the 拼 / EN toggles', async ({
       asked.push(route.request().url());
       await route.fulfill({ json: { words: WORDS, source: 'content', cached: false } });
     });
-    await p.route(`**/api/messages/${m.id}/translate-segmented`, (route) =>
-      route.fulfill({ json: { translation: "Let's go to the shop tomorrow!", segmentation: { chunks: [] } } }),
+    await hideStoredTranslation(p, m.id);
+    await p.route(`**/api/messages/${m.id}/translate`, (route) =>
+      route.fulfill({ json: { translation: "Let's go to the shop tomorrow!" } }),
     );
   });
 
@@ -140,6 +166,38 @@ test('word chips from words, the word sheet, and the 拼 / EN toggles', async ({
   await expect(again.locator('rt').first()).toHaveText('wǒmen', { timeout: 20000 });
   await again.getByRole('button', { name: 'More actions' }).click();
   await expect(page.locator('[data-tool="pinyin"]')).toHaveText('拼Hide pinyin');
+
+  await page.context().close();
+});
+
+test('Translate that fails says so inline, switches itself off, and works on the next tap', async ({ browser, request }) => {
+  test.setTimeout(120_000);
+  const { tutor, student, relId, convId } = await seedChat(request);
+  const m = await say(request, tutor, convId, '明天我们上课的时候先复习一下上次学的生词，然后我会给你讲一个新的语法点。');
+  let calls = 0;
+  const page = await openAs(browser, student, `/connections/${relId}/chat/${convId}`, undefined, async (p) => {
+    await noWords(p);
+    await hideStoredTranslation(p, m.id);
+    await p.route(`**/api/messages/${m.id}/translate`, (route) => {
+      calls += 1;
+      return calls === 1
+        ? route.fulfill({ status: 503, json: { error: 'Translation is busy right now — try again in a moment.', retryable: true } })
+        : route.fulfill({ json: { translation: 'In class tomorrow we will first review the new words.' } });
+    });
+  });
+
+  const bubble = page.locator(`[data-msg-id="${m.id}"]`);
+  await expect(bubble).toBeVisible({ timeout: 20000 });
+  await bubble.getByRole('button', { name: 'More actions' }).click();
+  await page.locator('[data-tool="translate"]').click();
+  await expect(page.getByRole('alert')).toContainText("Couldn't translate that message. Translation is busy right now");
+  await expect(bubble.getByTestId('chat-translation')).toHaveCount(0);
+
+  await bubble.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.locator('[data-tool="translate"]')).toContainText('Translate');
+  await page.locator('[data-tool="translate"]').click();
+  await expect(bubble.getByTestId('chat-translation')).toHaveText('In class tomorrow we will first review the new words.');
+  expect(calls).toBe(2);
 
   await page.context().close();
 });
