@@ -1264,6 +1264,22 @@ export interface VocabularyDefinition {
   example?: string;
 }
 
+/**
+ * Translate one chat message (the message menu's Translate): one short reply, cached
+ * on the message for both people. Gives up after 30 s so the button never spins on.
+ */
+export async function translateMessage(messageId: string): Promise<{ translation: string }> {
+  const signal = typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(30_000) : undefined;
+  try {
+    return await fetchJSON<{ translation: string }>(`/messages/${messageId}/translate`, { method: 'POST', signal });
+  } catch (error) {
+    if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      throw new Error('It took too long — try again.');
+    }
+    throw error;
+  }
+}
+
 export async function translateMessageSegmented(
   messageId: string
 ): Promise<{ translation: string; segmentation: SentenceBreakdown }> {

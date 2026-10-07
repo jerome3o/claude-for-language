@@ -39,6 +39,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.setVoiceSettings
 import dev.jeromeswannack.chineselearning.lab.data.api.startConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.toggleReaction
 import dev.jeromeswannack.chineselearning.lab.data.api.translateMessageCard
+import dev.jeromeswannack.chineselearning.lab.data.api.translateMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.translateSegmented
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.markChatRead
@@ -99,6 +100,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import java.io.File
 
 data class Notice(val text: String, val error: Boolean)
@@ -1338,7 +1341,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     /**
      * Translate / Hide translation: the toggle; a text message not translated yet asks the server
-     * first (`translate-segmented`, which stores the translation on the message for both people).
+     * first (`/translate`: one short reply, stored on the message for both people). A failure says
+     * why inline and switches nothing on, so the next tap simply tries again; 30 s at most.
      */
     private fun translateInline(m: ChatMessageDto) {
         val s = _ui.value
@@ -1348,15 +1352,15 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         _ui.update { it.copy(translatingId = m.id) }
         viewModelScope.launch {
             try {
-                val r = api.translateSegmented(m.id)
-                val t = r.translation.ifBlank { r.segmentation.english }
-                if (t.isBlank()) { error("Couldn't translate that message."); return@launch }
+                val t = withTimeout(TRANSLATE_TIMEOUT_MS) { api.translateMessage(m.id) }.translation
+                if (t.isBlank()) { error("Couldn't translate that message. Try again in a moment."); return@launch }
                 replaceLocal(m.id) { it.copy(translation = t) }
-                _ui.update { it.copy(segmentations = it.segmentations + (m.id to r)) }
                 if (!_ui.value.aids.translation(m.id)) setAids(_ui.value.aids.toggleTranslation(m.id))
                 app.haptics.tick()
+            } catch (e: TimeoutCancellationException) {
+                error("Couldn't translate that message. It took too long — try again.")
             } catch (e: Exception) {
-                error("Couldn't translate that message.")
+                error("Couldn't translate that message. ${e.userMessage()}")
             } finally {
                 _ui.update { it.copy(translatingId = null) }
             }
@@ -2089,6 +2093,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             )
         }
         const val CACHE_LIMIT = 300
+        /** Translate gives up (and says so) after this long. */
+        const val TRANSLATE_TIMEOUT_MS = 30_000L
         /** ScrollRequest id for "the end of the list". */
         const val END = "\u0000end"
         const val RETRY_MS = 5_000L

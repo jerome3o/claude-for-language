@@ -147,7 +147,9 @@ function defaultTranslate(env: Pick<Env, 'ANTHROPIC_API_KEY'>): Translate | null
   if (!env.ANTHROPIC_API_KEY) return null;
   return async (text) => {
     const { translateAndSegment } = await import('../translation');
-    return translateAndSegment(env.ANTHROPIC_API_KEY, text);
+    const r = await translateAndSegment(env.ANTHROPIC_API_KEY, text);
+    // A failed breakdown is left NULL so the word-by-word view makes it later.
+    return { translation: r.translation, segmentation: r.segmented === false ? null : r.segmentation };
   };
 }
 
@@ -196,7 +198,7 @@ export async function enrichMessageInBackground(
   const values: unknown[] = [];
   if (translated.status === 'fulfilled' && translated.value) {
     sets.push('translation = ?', 'segmentation = ?');
-    values.push(translated.value.translation, JSON.stringify(translated.value.segmentation));
+    values.push(translated.value.translation, translated.value.segmentation == null ? null : JSON.stringify(translated.value.segmentation));
   }
   if (segmented.status === 'fulfilled' && segmented.value) {
     sets.push('words = ?');

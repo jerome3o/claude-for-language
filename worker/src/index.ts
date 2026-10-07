@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
+import messageTranslateRoutes from './routes/message-translate';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
@@ -549,6 +550,7 @@ app.use('/api/*', bindAnalyticsScope);
 // and the conversation get / create / rename routes (routes/one-chat.ts).
 mountMergedConversations(app);
 app.route('/api', oneChatRoutes);
+app.route('/api', messageTranslateRoutes);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
 app.route('/api', lessonEditor);
@@ -4458,70 +4460,7 @@ Respond with ONLY a JSON object in this exact format:
   }
 });
 
-// Translate and segment a message for interactive translation
-app.post('/api/messages/:id/translate-segmented', async (c) => {
-  const userId = c.get('user').id;
-  const msgId = c.req.param('id');
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  try {
-    // Get message and verify access (same auth as translate-flashcard)
-    const message = await c.env.DB
-      .prepare('SELECT * FROM messages WHERE id = ?')
-      .bind(msgId)
-      .first<{ id: string; conversation_id: string; content: string; translation: string | null; segmentation: string | null }>();
-
-    if (!message) {
-      return c.json({ error: 'Message not found' }, 404);
-    }
-
-    // Check conversation access
-    const conv = await c.env.DB
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .bind(message.conversation_id)
-      .first<{ id: string; relationship_id: string }>();
-
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    const rel = await c.env.DB
-      .prepare('SELECT * FROM tutor_relationships WHERE id = ? AND status = ? AND (requester_id = ? OR recipient_id = ?)')
-      .bind(conv.relationship_id, 'active', userId, userId)
-      .first();
-
-    if (!rel) {
-      return c.json({ error: 'Access denied' }, 403);
-    }
-
-    // Return cached if already translated
-    if (message.translation && message.segmentation) {
-      return c.json({
-        translation: message.translation,
-        segmentation: JSON.parse(message.segmentation)
-      });
-    }
-
-    // Translate and segment
-    const { translateAndSegment } = await import('./services/translation');
-    const result = await translateAndSegment(c.env.ANTHROPIC_API_KEY, message.content);
-
-    // Update message with translation
-    await c.env.DB
-      .prepare('UPDATE messages SET translation = ?, segmentation = ? WHERE id = ?')
-      .bind(result.translation, JSON.stringify(result.segmentation), msgId)
-      .run();
-
-    return c.json(result);
-  } catch (error) {
-    console.error('Translate segmented error:', error);
-    const errMsg = error instanceof Error ? error.message : 'Failed to translate message';
-    return c.json({ error: errMsg }, 500);
-  }
-});
+// POST /api/messages/:id/translate and /translate-segmented: routes/message-translate.ts
 
 // Helper: extract JSON object from AI text response using brace-depth tracking
 // Handles cases where AI wraps JSON in markdown code fences or adds extra text
