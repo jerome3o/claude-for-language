@@ -171,6 +171,7 @@ export const ANALYTICS_EVENTS = {
   'audio_lesson.complete': e('lessons', 'Listened to an audio lesson to the end.', ['format', 'duration_ms']),
   'audio_lesson.sleep_timer': e('lessons', 'Set the sleep timer in the audio-lesson player (0 = off, -1 = end of chapter).', ['minutes', 'format']),
   'audio_lesson.download': e('lessons', 'Saved an audio lesson on the device for offline listening.', ['format']),
+  'audio_lesson.podcast_feed': e('lessons', 'Settings → Audio lessons → Podcast feed (action: copy, open, open_apple, reset, off).', ['action']),
 
   // ── lessons ────────────────────────────────────────────────────────────
   'lesson.start': e('lessons', 'Started a mini lesson.', ['source', 'exercises']),
@@ -227,6 +228,7 @@ export const ANALYTICS_EVENTS = {
   // ── server (written by the worker) ─────────────────────────────────────
   'server.content_created': e('server', 'A deck / notes / lesson / reader was created through the API.', ['kind', 'count', 'via'], { server: true }),
   'server.audio_lesson_built': e('server', 'An audio lesson finished rendering.', ['format', 'minutes', 'clips'], { server: true }),
+  'server.podcast_feed_fetched': e('server', "A podcast app fetched a user's private audio-lesson feed.", ['items'], { server: true }),
   'server.homework_assigned': e('server', 'Homework assignments were written for a student.', ['kind', 'mode', 'count'], { server: true }),
   'server.ai_call': e('server', 'One model call: model, tokens and an estimated cost.', ['provider', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cost_usd', 'status', 'route'], { server: true }),
   'server.push_sent': e('server', 'A push notification was sent.', ['channel', 'kind', 'ok'], { server: true }),

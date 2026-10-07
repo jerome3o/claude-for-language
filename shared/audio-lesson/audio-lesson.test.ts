@@ -6,8 +6,10 @@ import {
   compileSleepLesson,
   estimateScriptMs,
   formatClock,
+  isCharacterOrigin,
   previousChapterTarget,
   sleepFadeVolume,
+  sleepRecapText,
   speechChars,
   speechKey,
   splitChineseSentences,
@@ -92,14 +94,42 @@ describe('format B (sleep)', () => {
   const script = compileSleepLesson(SAMPLE_SLEEP_PLAN, { sourceText: SAMPLE_SLEEP_SOURCE });
   const speech = script.segments.filter((s): s is SpeechSegment => s.kind === 'speech');
 
-  it('is Chinese only, slow, with the fixed phrases', () => {
-    expect(speech.every((s) => s.lang === 'zh' && s.voice === 'sleep' && s.rate <= 0.6)).toBe(true);
+  it('is Chinese, slow, with the fixed phrases — English only in the recap voice', () => {
+    const zh = speech.filter((s) => s.lang === 'zh');
+    expect(zh.every((s) => s.voice === 'sleep' && s.rate <= 0.6)).toBe(true);
+    expect(speech.filter((s) => s.lang === 'en').every((s) => s.voice === 'recap')).toBe(true);
+    expect(speech.filter((s) => s.voice === 'recap').every((s) => s.lang === 'en')).toBe(true);
     expect(speech.filter((s) => s.text === '这是一个新词。').length).toBe(2);
     expect(validateScript(script)).toEqual([]);
   });
 
+  it('per word: word ×3, meaning, characters, sentences ×3, then ONE English recap', () => {
+    const ch = script.chapters.findIndex((c) => c.title.startsWith('邮局'));
+    const texts = speech.filter((s) => s.chapter === ch).map((s) => s.text);
+    const at = (t: string) => texts.indexOf(t);
+    const repeats = texts.flatMap((t, j) => (t === '邮局' ? [j] : []));
+    expect(repeats.length).toBe(4); // ×3, then once inside the recap
+    expect(at('邮局是一个地方。')).toBeGreaterThan(repeats[2]);
+    expect(at('‘邮’是‘邮件’的‘邮’。')).toBeGreaterThan(at('在邮局，你可以寄信。'));
+    expect(at('我们听三个句子。')).toBeGreaterThan(at('‘邮’是‘邮件’的‘邮’。'));
+    const english = speech.filter((s) => s.chapter === ch && s.lang === 'en');
+    expect(english.map((s) => s.text)).toEqual(['The word was', ': post office, the place where you send letters and parcels.']);
+    // The recap comes after the last example sentence, and the word in it is the same clip as its repeats.
+    expect(texts.indexOf('The word was')).toBeGreaterThan(texts.lastIndexOf('邮局几点开门？'));
+    const inRecap = speech.filter((s) => s.chapter === ch)[texts.indexOf('The word was') + 1];
+    expect(inRecap).toMatchObject({ lang: 'zh', voice: 'sleep', text: '邮局', rate: 0.55 });
+    expect(speech.filter((s) => s.text === 'The word was').length).toBe(SAMPLE_SLEEP_PLAN.words.length);
+  });
+
+  it('sleepRecapText', () => {
+    expect(sleepRecapText('银行', 'bank, as in the place where you keep your money, not the bank of a river')).toBe(
+      'The word was 银行: bank, as in the place where you keep your money, not the bank of a river.',
+    );
+    expect(sleepRecapText('银行', 'The word was 银行: bank.')).toBe('The word was 银行: bank.');
+  });
+
   it('each word ×3 and each sentence ×3 with pauses of at least 1.5 s', () => {
-    expect(speech.filter((s) => s.text === '邮局').length).toBe(3);
+    expect(speech.filter((s) => s.text === '邮局').length).toBe(4); // ×3 + once in the English recap
     expect(speech.filter((s) => s.text === '我去邮局寄信。').length).toBe(3);
     const segs = script.segments;
     segs.forEach((s, i) => {
@@ -142,13 +172,34 @@ describe('plan validation', () => {
 
   it('sleep: English in the Chinese, a sentence without the word, the wrong count', () => {
     const p = clone(SAMPLE_SLEEP_PLAN);
-    p.words[0].explanation_zh = ['邮局 means post office.'];
+    p.words[0].meaning_zh = ['邮局 means post office.'];
     p.words[0].sentences[1].hanzi = '我去银行。';
     p.words[1].sentences = p.words[1].sentences.slice(0, 2);
     const problems = validateSleepPlan(p);
     expect(problems.some((x) => x.includes('Chinese only'))).toBe(true);
     expect(problems.some((x) => x.includes('must contain "邮局"'))).toBe(true);
     expect(problems.some((x) => x.includes('exactly 3'))).toBe(true);
+  });
+
+  it('sleep: every word must say what it MEANS, and have an English recap', () => {
+    const p = clone(SAMPLE_SLEEP_PLAN) as unknown as { words: Array<Record<string, unknown>> };
+    delete p.words[0].meaning_zh;
+    p.words[1].meaning_zh = ['‘寄’是‘寄信’的‘寄’。'];
+    delete p.words[1].recap_en;
+    const problems = validateSleepPlan(p);
+    expect(problems.some((x) => x.startsWith('words[0].meaning_zh') && x.includes('required'))).toBe(true);
+    expect(problems.some((x) => x.startsWith('words[1].meaning_zh') && x.includes('characters_zh'))).toBe(true);
+    expect(problems.some((x) => x.startsWith('words[1].recap_en') && x.includes('required'))).toBe(true);
+    const q = clone(SAMPLE_SLEEP_PLAN);
+    q.words[0].recap_en = 'yóujú, post office';
+    expect(validateSleepPlan(q).some((x) => x.startsWith('words[0].recap_en: no pinyin'))).toBe(true);
+  });
+
+  it('isCharacterOrigin', () => {
+    expect(isCharacterOrigin("'银'就是'银行'的'银'。")).toBe(true);
+    expect(isCharacterOrigin('‘邮’是‘邮件’的‘邮’。')).toBe(true);
+    expect(isCharacterOrigin('邮局是一个地方。')).toBe(false);
+    expect(isCharacterOrigin('寄就是送东西给别人。')).toBe(false);
   });
 
   it('sleep sentences must stay simple (short)', () => {
@@ -205,5 +256,15 @@ describe('transcriptRows', () => {
     expect(rows.filter((r) => r.text === "I'd like a bowl of beef noodles.")).toEqual([]);
     const lineByLine = rows.filter((r) => r.text === '我要一碗牛肉面。' && r.last > r.first);
     expect(lineByLine.length).toBe(1);
+  });
+
+  it('a sleep lesson recap is one row; the Chinese lines around it stay their own', async () => {
+    const { transcriptRows } = await import('./timeline');
+    const script = compileSleepLesson(SAMPLE_SLEEP_PLAN);
+    const frames = new Map(uniqueSpeech(script).map((u) => [u.key, 30]));
+    const rows = transcriptRows(buildTimeline(script, frames, 24).transcript);
+    expect(rows.map((r) => r.text)).toContain('The word was 邮局: post office, the place where you send letters and parcels.');
+    expect(rows.filter((r) => r.text === '邮局').length).toBe(3);
+    expect(rows.find((r) => r.text.startsWith('The word was 寄'))?.lang).toBe('en');
   });
 });

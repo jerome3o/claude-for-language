@@ -43,6 +43,12 @@ const SLEEP_VOICES: Record<TtsProviderId, RoleVoice> = {
   google: { voice: 'cmn-CN-Wavenet-A', lang: 'cmn-CN' },
 };
 
+/** The calm English voice of a sleep lesson's one-line recap after each word. */
+const RECAP_VOICES: Partial<Record<TtsProviderId, RoleVoice>> = {
+  azure: { voice: 'en-US-EmmaNeural', lang: 'en-US' },
+  google: { voice: 'en-US-Neural2-F', lang: 'en-US' },
+};
+
 /** The English host, in provider order. */
 export const ENGLISH_ORDER: readonly TtsProviderId[] = ['azure', 'google'];
 const NARRATOR_VOICES: Partial<Record<TtsProviderId, RoleVoice>> = {
@@ -53,6 +59,7 @@ const NARRATOR_VOICES: Partial<Record<TtsProviderId, RoleVoice>> = {
 /** The voice for `role` with `provider`; null = this provider does not speak this role (English on MiniMax). */
 export function roleVoice(provider: TtsProviderId, role: VoiceRole, speakers: ScriptSpeaker[], config: TtsConfig): RoleVoice | null {
   if (role === 'narrator') return NARRATOR_VOICES[provider] ?? null;
+  if (role === 'recap') return RECAP_VOICES[provider] ?? null;
   if (role === 'sleep') return SLEEP_VOICES[provider];
   if (role === 'teacher') return { voice: config.providers[provider].voices.default, lang: provider === 'google' ? 'cmn-CN' : 'zh-CN' };
   const me = speakers.find((s) => s.role === role);

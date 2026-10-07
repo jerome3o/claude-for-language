@@ -6,13 +6,15 @@ import dev.jeromeswannack.chineselearning.lab.core.AudioLessonWord
 import dev.jeromeswannack.chineselearning.lab.data.api.AudioLessonDto
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import org.junit.Test
 import org.robolectric.annotation.Config
 
 /** Lessons shaped like shared/audio-lesson/samples.ts as the worker times them. */
 object SampleAudioLessons {
     private fun l(ms: Long, voice: String, text: String, ch: Int, pinyin: String? = null, english: String? = null) =
-        AudioLessonTranscriptLine(ms, if (voice == "narrator") "en" else "zh", voice, text, pinyin, english, ch)
+        AudioLessonTranscriptLine(ms, if (voice == "narrator" || voice == "recap") "en" else "zh", voice, text, pinyin, english, ch)
 
     val dialogue = AudioLessonDto(
         id = "al1",
@@ -89,6 +91,15 @@ object SampleAudioLessons {
             l(20_000, "sleep", "银行", 1, "yínháng", "bank"),
             l(26_000, "sleep", "银行", 1, "yínháng", "bank"),
             l(33_000, "sleep", "银行是放钱的地方。", 1),
+            l(38_000, "sleep", "‘银’是‘银色’的‘银’。", 1),
+            l(43_000, "sleep", "我们听三个句子。", 1),
+            l(47_000, "sleep", "我去银行取钱。", 1, "wǒ qù yínháng qǔ qián.", "I'm going to the bank to take out money."),
+            l(52_000, "sleep", "我去银行取钱。", 1),
+            l(57_000, "sleep", "我去银行取钱。", 1),
+            l(63_000, "recap", "The word was", 1),
+            l(64_200, "sleep", "银行", 1),
+            l(65_600, "recap", ": bank, as in the place where you keep your money, not the bank of a river.", 1),
+            l(80_000, "sleep", "这是一个新词。我说三遍。", 2),
         ),
         words = listOf(
             AudioLessonWord("银行", "yínháng", "bank", "new"),
@@ -175,6 +186,34 @@ class AudioLessonScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun listUnfolded() = shoot("audio-lessons-11-list-unfolded") { AudioLessonsScreen(s.list, AudioLessonsActions()) }
+
+    @Test fun playerSleepRecap() = shoot("audio-lessons-13-player-sleep-recap") {
+        AudioLessonPlayerScreen(
+            AudioLessonPlayerUi(lesson = s.sleep, savedOnPhone = true, canPlay = true, playing = true, positionMs = 64_500, showTranscript = true),
+            AudioLessonPlayerActions(),
+        )
+    }
+
+    private val feed = dev.jeromeswannack.chineselearning.lab.data.api.PodcastFeedDto(
+        url = "https://chinese-learning-api.jeromeswannack.workers.dev/api/podcast/o_SLkX2f9QdW3bq7Lm0pZr8Tn4Yc6Hv1Ja5Ue2Gtcg8/feed.xml",
+        podcast_url = "podcast://chinese-learning-api.jeromeswannack.workers.dev/api/podcast/o_SLkX2f9QdW3bq7Lm0pZr8Tn4Yc6Hv1Ja5Ue2Gtcg8/feed.xml",
+        apple_url = "pcast://chinese-learning-api.jeromeswannack.workers.dev/api/podcast/o_SLkX2f9QdW3bq7Lm0pZr8Tn4Yc6Hv1Ja5Ue2Gtcg8/feed.xml",
+        created_at = "2026-10-07T08:00:00Z",
+    )
+
+    @Test fun podcastFeed() = shoot("audio-lessons-14-podcast-feed") {
+        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.padding(16.dp)) { PodcastFeedSection(PodcastFeedUi(feed = feed), PodcastFeedActions()) }
+    }
+
+    @Test fun podcastFeedCopied() = shoot("audio-lessons-15-podcast-feed-copied") {
+        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.padding(16.dp)) {
+            PodcastFeedSection(PodcastFeedUi(feed = feed.copy(last_fetched_at = "2026-10-07T21:30:00Z", fetch_count = 4), copied = true), PodcastFeedActions())
+        }
+    }
+
+    @Test fun podcastFeedOff() = shoot("audio-lessons-16-podcast-feed-off") {
+        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.padding(16.dp)) { PodcastFeedSection(PodcastFeedUi(off = true), PodcastFeedActions()) }
+    }
 
     @Test fun listDark() = shoot("audio-lessons-12-list-dark", dark = true) { AudioLessonsScreen(s.list, AudioLessonsActions()) }
 }

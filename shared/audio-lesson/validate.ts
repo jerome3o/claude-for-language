@@ -22,7 +22,13 @@ export const PLAN_LIMITS = {
   dialogueLines: { min: 4, max: 16 },
   points: { min: 2, max: 10 },
   sleepWords: { min: 2, max: 18 },
+  /** What a sleep-lesson word means (required) / where its characters come from (optional). */
+  meaningSentences: { min: 1, max: 3 },
+  characterSentences: { min: 0, max: 3 },
+  /** Sentences of meaning + characters together. */
   explanationSentences: { min: 1, max: 5 },
+  /** A sleep-lesson word's English recap (after "The word was 银行: "). */
+  maxRecapChars: 220,
   /** A dialogue line / example sentence (characters). */
   maxLineChars: 60,
   /** A sleep example sentence: "only simple sentences". */
@@ -103,6 +109,28 @@ export function validateDialoguePlan(raw: unknown): string[] {
   return problems;
 }
 
+/**
+ * "'银'就是'银行'的'银'。" / "'寄'是'寄信'的'寄'。" — a sentence that only says which known word
+ * a character comes from. Fine in characters_zh, not as the whole meaning.
+ */
+export function isCharacterOrigin(sentence: string): boolean {
+  const s = sentence.replace(/[\s‘’“”'"「」『』]/g, '').replace(/[。！？!?，,]+$/u, '');
+  // X (就)是 …X… (里)的 X (字) — the same character on both ends, inside a word in the middle.
+  return /^(.{1,2}?)(?:就|也)?是.{0,5}\1.{0,5}?(?:里|中)?的\1字?$/u.test(s);
+}
+
+/** A sleep-lesson word's English recap: plain English (the word itself is added in front). */
+function checkRecap(where: string, v: unknown, problems: string[]): void {
+  if (!str(v)) {
+    problems.push(`${where}: required — the meaning in English, spoken after "The word was <hanzi>: " (e.g. "bank, as in the place where you keep your money, not the bank of a river")`);
+    return;
+  }
+  if (!/[A-Za-z]/.test(v)) problems.push(`${where}: English is required`);
+  if (v.length > PLAN_LIMITS.maxRecapChars) problems.push(`${where}: too long (${v.length} characters, at most ${PLAN_LIMITS.maxRecapChars}) — one short line`);
+  const englishOnly = v.replace(/[㐀-鿿豈-﫿][^A-Za-z]*/g, ' ');
+  if (TONE_MARKS.test(englishOnly)) problems.push(`${where}: no pinyin — it is read by an English voice`);
+}
+
 export function validateSleepPlan(raw: unknown): string[] {
   const problems: string[] = [];
   if (!raw || typeof raw !== 'object') return ['The plan is missing'];
@@ -124,14 +152,30 @@ export function validateSleepPlan(raw: unknown): string[] {
       if (seen.has(w.hanzi)) problems.push(`words[${i}]: "${w.hanzi}" appears twice`);
       seen.add(w.hanzi);
     }
-    const ex = Array.isArray(w.explanation_zh) ? w.explanation_zh : [];
-    const em = PLAN_LIMITS.explanationSentences;
-    if (ex.length < em.min || ex.length > em.max) problems.push(`words[${i}].explanation_zh: ${em.min}–${em.max} short sentences`);
-    ex.forEach((s, j) => {
-      if (!str(s) || !hasHan(s)) problems.push(`words[${i}].explanation_zh[${j}]: simple Chinese is required`);
-      else if (/[A-Za-z]/.test(s)) problems.push(`words[${i}].explanation_zh[${j}]: Chinese only — no English or pinyin`);
-      else if ([...s].length > 40) problems.push(`words[${i}].explanation_zh[${j}]: too long — one short sentence (at most 40 characters)`);
-    });
+    const meaning = Array.isArray(w.meaning_zh) ? w.meaning_zh : [];
+    const chars = Array.isArray(w.characters_zh) ? w.characters_zh : w.characters_zh === undefined ? [] : null;
+    const mm = PLAN_LIMITS.meaningSentences;
+    const cm = PLAN_LIMITS.characterSentences;
+    if (meaning.length < mm.min || meaning.length > mm.max) {
+      problems.push(`words[${i}].meaning_zh: ${mm.min}–${mm.max} very short, very simple Chinese sentences saying what "${str(w.hanzi) ? w.hanzi : 'the word'}" MEANS, in words the learner knows — required`);
+    }
+    if (chars === null) problems.push(`words[${i}].characters_zh: a list (may be empty)`);
+    else if (chars.length > cm.max) problems.push(`words[${i}].characters_zh: at most ${cm.max} sentences`);
+    const checkZh = (field: string, list: unknown[]) =>
+      list.forEach((s, j) => {
+        if (!str(s) || !hasHan(s)) problems.push(`words[${i}].${field}[${j}]: simple Chinese is required`);
+        else if (/[A-Za-z]/.test(s)) problems.push(`words[${i}].${field}[${j}]: Chinese only — no English or pinyin`);
+        else if ([...s].length > 40) problems.push(`words[${i}].${field}[${j}]: too long — one short sentence (at most 40 characters)`);
+      });
+    checkZh('meaning_zh', meaning);
+    checkZh('characters_zh', chars ?? []);
+    if (meaning.length >= mm.min && meaning.every((s) => typeof s === 'string' && isCharacterOrigin(s))) {
+      problems.push(`words[${i}].meaning_zh: only says where a character comes from — that goes in characters_zh; meaning_zh must say what the word MEANS (what it is, what it does, what it is like, or its opposite)`);
+    }
+    if (meaning.length + (chars?.length ?? 0) > PLAN_LIMITS.explanationSentences.max) {
+      problems.push(`words[${i}]: meaning_zh + characters_zh at most ${PLAN_LIMITS.explanationSentences.max} sentences together — keep it short`);
+    }
+    checkRecap(`words[${i}].recap_en`, w.recap_en, problems);
     if (!Array.isArray(w.related_known)) problems.push(`words[${i}].related_known: a list (may be empty)`);
     const sentences = Array.isArray(w.sentences) ? w.sentences : [];
     if (sentences.length !== 3) problems.push(`words[${i}].sentences: exactly 3 (got ${sentences.length})`);

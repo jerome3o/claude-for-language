@@ -29,6 +29,8 @@ export type VoiceRole =
   | 'teacher'
   /** The calm, slow voice of a sleep lesson (format B). */
   | 'sleep'
+  /** The one short English recap after each word of a sleep lesson (format B), a calm English voice. */
+  | 'recap'
   | 'speaker_a'
   | 'speaker_b';
 
@@ -117,8 +119,20 @@ export interface SleepPlan {
   intro_zh: string;
   words: Array<
     PlanLine & {
-      /** 2–4 very short, very simple Chinese sentences, built from words the learner knows. */
-      explanation_zh: string[];
+      /**
+       * What the word MEANS: 1–3 very short, very simple Chinese sentences built from
+       * words the learner knows ("邮局是一个地方。在邮局，你可以寄信。"). Required —
+       * never only where its characters come from.
+       */
+      meaning_zh: string[];
+      /** Its characters, related to words the learner knows ("'银'就是'银行'的'银'。"): 0–3 sentences. */
+      characters_zh: string[];
+      /**
+       * The ONE English line after the word's block, spoken as "The word was 银行: <recap_en>"
+       * — the meaning, with the sense pinned down when the English word has several
+       * ("bank, as in the place where you keep your money, not the bank of a river").
+       */
+      recap_en: string;
       /** The known words the explanation leans on (for the record). */
       related_known: string[];
       /** Exactly three short, simple example sentences. */
@@ -217,4 +231,22 @@ export interface AudioLessonDetail extends AudioLessonSummary {
   speakers: ScriptSpeaker[];
   usage: AudioLessonUsage | null;
   for_relationship_id: string | null;
+}
+
+/**
+ * The private podcast feed of a user's audio lessons (GET /api/me/podcast-feed,
+ * worker services/podcast-feed.ts; docs/AUDIO_LESSONS.md "Podcast feed").
+ */
+export interface PodcastFeedInfo {
+  /** The feed URL (secret — it is the only credential). Null when it can't be shown any more: Reset makes a new one. */
+  url: string | null;
+  /** The same as podcast:// (AntennaPod, Pocket Casts, Podcast Addict …). */
+  podcast_url: string | null;
+  /** The same as pcast:// (Apple Podcasts). */
+  apple_url: string | null;
+  created_at: string;
+  rotated_at: string | null;
+  /** When a podcast app last fetched the feed. */
+  last_fetched_at: string | null;
+  fetch_count: number;
 }

@@ -324,6 +324,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
 - `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0104): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
 - `audio_lessons` - Audio lessons (migration 0046 reused + 0111; docs/AUDIO_LESSONS.md): format dialogue|sleep, status queued/writing/speaking/rendering/ready/failed, progress + clips done/total, input, the agent transcript, plan, script, timeline (chapters + transcript), words, `audio_key` (R2 `audio-lessons/`), usage, pinned `zh_provider`, `for_relationship_id` (a label only). Rows with `format` NULL are the removed first attempt
+- `podcast_feeds` - The private podcast feed of a user's audio lessons (migration 0112): one row per user, `token_hash` (SHA-256, how a feed request finds the user), `token_enc` (AES-GCM, so Settings can show the link again), created / rotated / last fetched, fetch count. Reset = new token; Turn off = row deleted
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
@@ -1023,16 +1024,27 @@ create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overal
 
 ### Audio lessons (`worker/src/routes/audio-lessons.ts`, `services/audio-lessons/`, page at `/audio-lessons`; read docs/AUDIO_LESSONS.md)
 Agent-written listening lessons rendered to ONE MP3 each. **dialogue** = English host + a Chinese dialogue
-played three times, line by line, then the new words / structures; **sleep** = all Chinese, very slow:
-the new words of a pasted text, each ×3 with simple explanations and three sentences ×3, long pauses.
+played three times, line by line, then the new words / structures; **sleep** = Chinese, very slow:
+the new words of a pasted text, each ×3, what it MEANS in simple Chinese (`meaning_zh`, required), its characters
+(`characters_zh`), three sentences ×3, long pauses, then ONE English recap line in a calm English voice ("The word
+was 银行: bank, as in the place where you keep your money, not the bank of a river." — `recap_en`, voice role `recap`).
 Claude Opus 5.5 (`agent.ts`, tools `check_known_words` + `submit_lesson`, transcript checkpointed) writes a
 PLAN; `shared/audio-lesson/compile.ts` makes the speech/pause SCRIPT; each distinct clip goes through
 `callProviderTTS` (`synth.ts`; Chinese in the stored order with the first provider PINNED per lesson,
 English Azure → Google; all clips 24 kHz mono MP3); `mp3.ts` joins frames + generated silence + one Xing
 header in the Worker. Queue `audio-lesson-queue` (re-enqueues on rate limits / after 4 min). R2
 `audio-lessons/` (person-made). Web player: offline (Cache API), chapters, ±10 s, speed, transcript,
-sleep timer, Media Session. MCP `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons`.
+sleep timer, Media Session. MCP `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` / `get_audio_lesson_feed`.
 - `GET|POST /api/audio-lessons`, `GET|DELETE /api/audio-lessons/:id`, `GET /api/audio-lessons/:id/audio`, `POST /api/audio-lessons/:id/retry`
+- **Private podcast feed** (`routes/podcast.ts`, `services/podcast-feed.ts`, docs/AUDIO_LESSONS.md "Podcast feed"): public,
+  mounted BEFORE the auth middleware — `GET /api/podcast/:token/feed.xml` (RSS 2.0 + iTunes + `podcast:chapters`, one item
+  per ready lesson), `GET /api/podcast/:token/lessons/:id/:version/audio.mp3` (Range → 206, HEAD, 416),
+  `…/lessons/:id/chapters.json`; the token (32 random bytes) is the only credential and grants that user's lessons only;
+  stored as SHA-256 (lookup) + AES-GCM (key from `SESSION_SECRET`, so Settings shows it again); wrong / reset token = 404;
+  rate-limited (`PODCAST_RATE_LIMITER` `[[ratelimits]]`, 120/min per token, per IP for unknown tokens); never logged (the
+  request log carries the route pattern). Signed in: `GET /api/me/podcast-feed` (made on first use), `POST …/reset`,
+  `DELETE` (off). Settings → "🎧 Audio lessons · Podcast feed" (`components/settings/PodcastFeedSection.tsx`; Lab
+  `ui/audiolessons/PodcastFeed.kt`, also a sheet from the Audio lessons screen). Artwork `frontend/public/podcast-artwork.jpg`.
 
 ### Quests (tile-map mini-games, page at `/quests`, play at `/quests/:id`)
 A quest is a small top-down grid world with a character the learner drives with on-screen
@@ -1870,6 +1882,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
 | `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` | Audio lessons (`tools/audio-lessons.ts`): start one (dialogue: `description` / `dialogue`; sleep: `text`; `target_minutes`; a tutor's `for_relationship_id` is only a label) / status, chapters, transcript, usage / the list |
+| `get_audio_lesson_feed` | The signed-in user's private podcast feed URL of their audio lessons (`GET /api/me/podcast-feed`; made on first use) + podcast:// link; private — give it to the user only |
 | `list_picture_hunts` / `create_picture_hunt` | The user's picture hunts (status, objects, best score) / start one from a scene description (`tools/picture-hunts.ts`) |
 | `list_folders` / `create_folder` / `rename_folder` / `delete_folder` / `move_to_folder` | Folders for decks, library lessons and readers (`tools/folders.ts`): list with paths + item counts, create (one level inside a top-level folder), rename / re-parent, delete (items → Unfiled, nothing deleted), file items by `folder_id` or by folder name (found or made). `list_decks`, `list_lesson_library`, `list_readers` show each item's folder and take a `folder_id` filter (`'unfiled'`); `create_deck`, `create_library_lesson`, `create_reader`, `generate_reader` take `folder_id` / `folder` |
 | `bump_cards` / `list_bumped_cards` / `clear_bumped_card` / `bump_student_cards` | "⚡ Study it today" (`tools/bumps.ts`): put words the user ALREADY has first in today's study (note_ids or hanzi; new cards even past the daily limit) instead of adding duplicates / the pocket / take one out / the tutor bumps a student's cards (the student sees "⚡ from <tutor>"). `search_notes` / `batch_search_notes` point at it |

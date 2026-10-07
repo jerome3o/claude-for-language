@@ -18,11 +18,13 @@ const DETAIL = {
   speakers: [], usage: null, for_relationship_id: null,
 };
 
+const FEED = { url: 'https://api.example/api/podcast/TOKEN/feed.xml', podcast_url: 'podcast://api.example/api/podcast/TOKEN/feed.xml', apple_url: 'pcast://api.example/api/podcast/TOKEN/feed.xml', created_at: '2026-10-07', rotated_at: null, last_fetched_at: null, fetch_count: 0 };
+
 function fakeContext() {
   const tools = new Map<string, Handler>();
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   const api = {
-    get: async (path: string) => { calls.push({ method: 'GET', path }); return path.endsWith('/a1') ? { lesson: DETAIL } : { lessons: [SUMMARY] }; },
+    get: async (path: string) => { calls.push({ method: 'GET', path }); return path === '/api/me/podcast-feed' ? { feed: FEED } : path.endsWith('/a1') ? { lesson: DETAIL } : { lessons: [SUMMARY] }; },
     post: async (path: string, body: unknown) => { calls.push({ method: 'POST', path, body }); return { lesson: { ...SUMMARY, status: 'queued' } }; },
   };
   const server = { tool: (name: string, _d: string, _s: unknown, handler: Handler) => { tools.set(name, handler); } };
@@ -53,5 +55,13 @@ describe('audio lesson tools', () => {
     expect(out.lesson.minutes).toBe(10);
     expect(out.lesson.chapters[1]).toEqual({ title: '邮局 yóujú', at: '1:05' });
     expect(out.lesson.transcript).toEqual(['这是一个新词。', '邮局 — post office']);
+  });
+
+  it('get_audio_lesson_feed: the signed-in user’s feed link from the API', async () => {
+    const { tools, calls } = fakeContext();
+    const out = JSON.parse(text(await tools.get('get_audio_lesson_feed')!({})));
+    expect(calls).toEqual([{ method: 'GET', path: '/api/me/podcast-feed' }]);
+    expect(out).toMatchObject({ feed_url: FEED.url, open_in_podcast_app: FEED.podcast_url, open_in_apple_podcasts: FEED.apple_url });
+    expect(out.how_to).toContain('Reset link');
   });
 });

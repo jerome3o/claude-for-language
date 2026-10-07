@@ -205,6 +205,15 @@ class_name = "TtsLimiter"
 tag = "v3-tts-limiter"
 new_sqlite_classes = ["TtsLimiter"]
 
+# The private podcast feed of audio lessons (routes/podcast.ts): 120 requests a minute per
+# feed token (and per IP for unknown tokens). namespace_id is unique within the account.
+# (The unsafe.bindings form: this repo's Wrangler 4.64 does not know the newer top-level [[ratelimits]].)
+[[unsafe.bindings]]
+name = "PODCAST_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "5410"
+simple = { limit = 120, period = 60 }
+
 # Workers AI (for speech-to-text transcription)
 [ai]
 binding = "AI"

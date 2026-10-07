@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -96,7 +98,7 @@ private data class FormatChoice(val id: String, val icon: String, val label: Str
 
 private val FORMATS = listOf(
     FormatChoice("dialogue", "🎙️", "Dialogue", "An English host, a short Chinese dialogue played three times, then the new words explained."),
-    FormatChoice("sleep", "🌙", "Sleep", "All Chinese, very slow and calm: the new words from a text, each said three times with simple sentences."),
+    FormatChoice("sleep", "🌙", "Sleep", "Very slow and calm Chinese: the new words from a text, each said three times, explained in simple Chinese, with simple sentences — then one English line to check."),
 )
 
 data class AudioLessonsUi(
@@ -133,6 +135,8 @@ data class AudioLessonsActions(
     val onRetry: (String) -> Unit = {},
     val onDelete: (String) -> Unit = {},
     val onRefresh: () -> Unit = {},
+    /** "Listen in a podcast app →": the podcast feed sheet (PodcastFeed.kt). */
+    val onPodcastFeed: () -> Unit = {},
 )
 
 /** `/audio-lessons` — the web's AudioLessonsPage: the new-lesson card, then the lessons. */
@@ -141,13 +145,25 @@ fun AudioLessonsScreen(ui: AudioLessonsUi, actions: AudioLessonsActions) {
     var confirmDelete by remember { mutableStateOf<AudioLessonDto?>(null) }
     val l = ui.lessons
     LabScreen("🎧 Audio lessons", onBack = actions.onBack) {
-        item {
+        item { Column {
             Text(
                 "Lessons to listen to — on the train, or to fall asleep to. Claude writes each one for you, checking it against your cards, and the app records it as one audio file you can keep offline.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Lab.colors.muted,
             )
-        }
+            Text(
+                "Listen in a podcast app →",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = Lab.colors.accent,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .heightIn(min = 44.dp)
+                    .wrapContentHeight(Alignment.CenterVertically)
+                    .bouncyClickable(onClick = actions.onPodcastFeed)
+                    .testTag("al-podcast-link"),
+            )
+        } }
         item { NewLessonCard(ui, actions) }
         if (l.offline && l.hasData) item { OfflineNotice(updatedAt = l.updatedAt) }
         else if (l.error != null && l.hasData) item { InlineNotice(l.error, kind = NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRefresh) }
@@ -251,7 +267,7 @@ private fun NewLessonCard(ui: AudioLessonsUi, actions: AudioLessonsActions) {
             OutlinedTextField(
                 value = ui.text,
                 onValueChange = { actions.onText(it.take(L.TEXT)) },
-                placeholder = { Text("Claude finds the words you don't know yet and teaches them slowly, all in Chinese.") },
+                placeholder = { Text("Claude finds the words you don't know yet and teaches them slowly in Chinese, with one English line per word.") },
                 minLines = 7,
                 maxLines = 12,
                 shape = RoundedCornerShape(12.dp),

@@ -2,7 +2,9 @@
 
 Agent-written listening lessons, rendered to ONE audio file per lesson, for the train and for falling
 asleep. A prototype (Oct 2026). Web: More → 🎧 Audio lessons (`/audio-lessons`, player at
-`/audio-lessons/:id`). MCP: `create_audio_lesson`, `get_audio_lesson`, `list_audio_lessons`.
+`/audio-lessons/:id`). MCP: `create_audio_lesson`, `get_audio_lesson`, `list_audio_lessons`,
+`get_audio_lesson_feed`. Every ready lesson is also an episode of the user's private podcast feed
+(see "Podcast feed").
 
 ## The two formats
 
@@ -17,11 +19,20 @@ dialogue). Chapters:
    dialogue line that uses it, an extra example (Chinese, English, Chinese), the word once more.
 6. *Final listen* — the whole dialogue again, then the outro.
 
-**Sleep (format B, slow immersion).** Input: any Chinese text. All Chinese, no English or pinyin is
-spoken. For each new word (one chapter each): "这是一个新词。我说三遍。", the word three times (0.55,
-2 s pauses), a very simple explanation built from words the learner knows ("'银'就是'银行'的'银'。"),
-"我们听三个句子。", three short simple sentences each said three times (0.6, 1.8 s between repeats,
-3 s after), 5 s before the next word. A text of ≤ 600 characters is read once more at the end (原文).
+**Sleep (format B, slow immersion).** Input: any Chinese text. Chinese throughout — no pinyin is ever
+spoken, and the only English is one recap line per word. For each new word (one chapter each):
+"这是一个新词。我说三遍。", the word three times (0.55, 2 s pauses), what it MEANS in very simple Chinese
+built from words the learner knows (`meaning_zh`, 1–3 sentences, REQUIRED: "邮局是一个地方。在邮局，你可以
+寄信。"), then its characters (`characters_zh`, 0–3: "'银'就是'银行'的'银'。"), "我们听三个句子。", three
+short simple sentences each said three times (0.6, 1.8 s between repeats, 3 s after), then ONE short English
+line in a calm English voice (role `recap`: Azure `en-US-EmmaNeural`, Google `en-US-Neural2-F`; 0.9):
+"The word was 银行: bank, as in the place where you keep your money, not the bank of a river." — Claude
+writes only what follows the colon (`recap_en`) and pins down the sense when the English word has several;
+the word inside it is the sleep voice's own clip (`sleepRecapText`, `mixed` with the recap / sleep voices).
+5 s before the next word. A text of ≤ 600 characters is read once more at the end (原文).
+`validateSleepPlan` refuses a word without `meaning_zh`, a `meaning_zh` that only says where a character comes
+from (`isCharacterOrigin` — that belongs in `characters_zh`), and a missing / pinyin-laden `recap_en`. The
+transcript shows the recap as one row (`transcriptRows`: a `recap` line + the `sleep` word right after it).
 
 Speeds are on the app's scale (MiniMax's: 1 = normal, cards 0.6); Azure maps them with its
 `speed_factor` (0.75 → cards 0.7). Pauses: `PAUSES` in `shared/audio-lesson/compile.ts`.
@@ -104,6 +115,41 @@ from the same clip lengths, so the chapter list lines up with the audio.
 - `POST /api/audio-lessons` `{ format: dialogue|sleep, description?, dialogue?, text?, title?, target_minutes? (5–40), for_relationship_id? }` → 202 (400 + `problems`; 409 at 3 lessons being made; 503 without the Claude key)
 - `GET /api/audio-lessons/:id/audio` · `POST /api/audio-lessons/:id/retry` · `DELETE /api/audio-lessons/:id`
 
+## Podcast feed
+
+A private RSS feed per user, so the lessons play in any podcast app (AntennaPod, Pocket Casts, Apple
+Podcasts) — downloads, chapters, the app's own sleep timer. `worker/src/routes/podcast.ts`,
+`services/podcast-feed.ts`, migration 0112 `podcast_feeds`.
+
+- **Public routes, before the auth middleware** (the token in the path is the only credential):
+  `GET /api/podcast/<token>/feed.xml` — RSS 2.0 + iTunes tags + Podcasting 2.0 (`podcast:chapters`,
+  `podcast:locked`, `itunes:block` so no directory lists it), one `<item>` per READY lesson, newest first:
+  title, description (format, the words, the chapters as `0:00 开始` timestamps — tappable in most apps),
+  pubDate (finished_at), `itunes:duration`, `guid` = `audio-lesson-<id>-<version>` (a rebuilt lesson is a new
+  episode), enclosure. `GET /api/podcast/<token>/lessons/<id>/<version>/audio.mp3` — `audio/mpeg`,
+  `Accept-Ranges`, Content-Length; a valid Range is always 206 (end clamped to the file), past the end 416,
+  HEAD supported. `GET /api/podcast/<token>/lessons/<id>/chapters.json` — JSON chapters.
+- **Token**: 32 random bytes, base64url (43 characters; anything else is refused before D1 is asked). Stored
+  twice, never in clear: `token_hash` = SHA-256 (how a request finds its user) and `token_enc` = AES-GCM with a
+  key derived from `SESSION_SECRET`, so Settings can show the same link again. If that secret ever changes the
+  link can't be shown (it still works); Settings then offers "Make a new link".
+- **Scope**: every lesson lookup is `id AND user_id = <the token's user>` and the version must match, so a token
+  reads one user's ready lessons and nothing else; a wrong, malformed or reset token is a plain 404.
+- **Reset / off**: `POST /api/me/podcast-feed/reset` writes a new token (the old feed AND file URLs 404 at
+  once); `DELETE /api/me/podcast-feed` removes the row. `GET /api/me/podcast-feed` makes it on first use.
+- **Rate limit**: Workers rate-limit binding `PODCAST_RATE_LIMITER` (wrangler.toml, 120 requests / 60 s) keyed
+  per token (feed and files separately) and per client IP for unknown tokens → 429 + `Retry-After: 60`; a
+  per-isolate fixed window with the same numbers when the binding is absent (tests, dev).
+- **Never logged**: the request log line carries the route PATTERN (`/api/podcast/:token/feed.xml`) and nothing
+  in these routes prints the path (`podcast-feed.test.ts` checks every console line). Cloudflare's own
+  invocation logs (dashboard only) still record request URLs — visible only to the account owner.
+- **UI**: web Settings → "🎧 Audio lessons · Podcast feed" (`components/settings/PodcastFeedSection.tsx`;
+  linked from the Audio lessons page as `/settings#podcast-feed`): the link shown masked, Copy link, Open in
+  podcast app (`podcast://`), Apple Podcasts (`pcast://`), Reset link, Turn off, when a podcast app last
+  fetched it. Lab: the same section in Settings and as a sheet from the Audio lessons screen
+  (`ui/audiolessons/PodcastFeed.kt`). MCP `get_audio_lesson_feed`. Analytics `audio_lesson.podcast_feed`
+  (action), `server.podcast_feed_fetched` (items).
+
 ## Offline (web)
 
 `frontend/src/services/audioLessons.ts`: the list + each ready lesson's details in localStorage, the
@@ -154,6 +200,9 @@ with the audio backfill → roughly 5–15 minutes per lesson.
 - `worker/…/__tests__/audio-lesson-job.test.ts`: the whole job on real SQLite with a mocked model and
   voices — a repair round, a rate-limit wait → re-enqueue → resume without remaking clips, rendering,
   parts deleted, provider pinning, failure + Retry, the nudge.
+- `worker/src/routes/__tests__/podcast-feed.test.ts`: feed XML well-formed with one item per ready lesson,
+  token scope (wrong / malformed / other user's lesson → 404), reset and turn off invalidate feed + files,
+  Range / HEAD / 416, the token never in a log line, rate limit.
 - `mcp-server/src/tools/audio-lessons.test.ts`; `e2e/tests/audio-lessons.spec.ts` (E2E_TEST_MODE: fake
   model = the sample plans, fake voices = silent lesson-format clips; make → play → chapters →
   transcript → sleep timer → offline).
