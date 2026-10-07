@@ -484,14 +484,19 @@ turns the card back to the question as the new take starts, so the word is said 
 alone, not read off the pinyin / English. The question shows a pulsing mic, the time so far, the
 level, "Tap anywhere to stop" and **Stop** / **Cancel**; the ratings stay up. A tap anywhere on
 the card (or Stop) saves the take and turns back to the answer, where it is transcribed as usual
-("You said …", live Soniox or the upload). Back (the Android back gesture / browser back), Esc or
+("You said …", live Soniox or the upload) and **the card's own clip plays again** — the reveal's
+auto-play (the note's recordings in turn, else its clip; a clip still being made is waited for), once,
+with his own take's playback stopped — so the right pronunciation follows straight after his.
+Cancelled, or a take that came out empty, plays nothing. Back (the Android back gesture / browser back), Esc or
 Cancel throws the new take away and the answer comes back with the previous take and its result —
 the previous take is replaced only when the new one is saved. Rating, FSRS and the upload are
 unchanged; the first Record on the question works as before. Web: `reRecording` /
 `renderReRecordPanel` in `StudyPage.tsx` (a history entry is pushed while recording so back
 cancels), `useAudioRecorder` `keepPrevious` / `cancelRecording`; e2e `study-record-again.spec.ts`.
 Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRecording` /
-`keepNewTake` in `StudyViewModel.kt` (`RecordAgainFlipTest`).
+`keepNewTake` in `StudyViewModel.kt` (`RecordAgainFlipTest`). The replay: web
+`replayAfterReRecordRef` in `StudyPage.tsx` (plays when the new take's blob lands); Lab
+`recordingAgain` / `playWordAfterRecordAgain` in `StudyViewModel.kt` (`RecordAgainAutoplayTest`).
 
 ## Character sheet
 
