@@ -5,7 +5,7 @@
  * downloaded again and the old file dropped), and where the learner stopped.
  * A saved lesson plays with no connection at all.
  */
-import type { AudioLessonDetail, AudioLessonSummary } from '@shared/audio-lesson';
+import { LESSON_MUSIC, parseMusicOn, parseMusicVolume, type AudioLessonDetail, type AudioLessonSummary } from '@shared/audio-lesson';
 import * as api from '../api/audioLessons';
 
 const LIST_KEY = 'audio-lessons-list-v1';
@@ -146,6 +146,74 @@ export function savedPosition(id: string): number {
 
 export function savePosition(id: string, ms: number): void {
   writeJson(POSITION_KEY(id), { ms: Math.max(0, Math.round(ms)), at: Date.now() });
+}
+
+// ---------- The music bed (docs/AUDIO_LESSONS.md "Music") ----------
+
+const MUSIC_CACHE = 'audio-lesson-music-v1';
+const MUSIC_ON_KEY = (format: string) => `audio-lesson-music-on-v1:${format}`;
+const MUSIC_VOLUME_KEY = 'audio-lesson-music-volume-v1';
+
+/**
+ * The music track as a blob (an object URL plays it without Range requests through the service
+ * worker): kept in its own Cache API cache after the first fetch, so it plays offline even when
+ * the PWA precache (which also holds it) is gone. Null when it can't be had right now.
+ */
+export async function lessonMusicBlob(): Promise<Blob | null> {
+  let cache: Cache | null = null;
+  try {
+    cache = typeof caches === 'undefined' ? null : await caches.open(MUSIC_CACHE);
+    const hit = cache ? await cache.match(LESSON_MUSIC.path) : undefined;
+    if (hit) return await hit.blob();
+  } catch {
+    /* fall through to the network */
+  }
+  try {
+    const res = await fetch(LESSON_MUSIC.path);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    try {
+      await cache?.put(LESSON_MUSIC.path, new Response(blob, { headers: { 'Content-Type': 'audio/mpeg' } }));
+    } catch {
+      /* storage full: it still plays now */
+    }
+    return blob;
+  } catch {
+    return null;
+  }
+}
+
+/** Music on / off for lessons of this format: the learner's last choice, else on for sleep, off for dialogue. */
+export function readMusicOn(format: string): boolean {
+  try {
+    return parseMusicOn(localStorage.getItem(MUSIC_ON_KEY(format)), format);
+  } catch {
+    return parseMusicOn(null, format);
+  }
+}
+
+export function writeMusicOn(format: string, on: boolean): void {
+  try {
+    localStorage.setItem(MUSIC_ON_KEY(format), on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readMusicVolume(): number {
+  try {
+    return parseMusicVolume(localStorage.getItem(MUSIC_VOLUME_KEY));
+  } catch {
+    return parseMusicVolume(null);
+  }
+}
+
+export function writeMusicVolume(volume: number): void {
+  try {
+    localStorage.setItem(MUSIC_VOLUME_KEY, String(parseMusicVolume(volume)));
+  } catch {
+    /* ignore */
+  }
 }
 
 export function formatMb(bytes: number | null | undefined): string {

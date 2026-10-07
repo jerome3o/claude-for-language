@@ -28,13 +28,26 @@ export const RATES = {
   word: 0.6,
   /** Chinese inside the English explanations. */
   teacher: 0.7,
-  /** Sleep lessons: every sentence. The cards' speed — slow but still natural. */
-  sleep: 0.6,
-  /** Sleep lessons: the new word itself. MiniMax's floor is 0.5. */
-  sleepWord: 0.55,
-  /** Sleep lessons: the English recap after each word — calm, a little slow. */
+  /**
+   * Sleep lessons: every Chinese line, on the app's scale — MiniMax's floor (0.5). Each provider
+   * actually speaks the sleep voice at its own slowest natural rate, `SLEEP_ZH_PROVIDER_RATE`.
+   */
+  sleep: 0.5,
+  /** Sleep lessons: the new word itself (the same clip as the word inside the English recap). */
+  sleepWord: 0.5,
+  /** Sleep lessons: the English recap after each word and each example sentence's translation — calm, a little slow. */
   recap: 0.9,
 } as const;
+
+/**
+ * The sleep voice's Chinese speaking rate per TTS provider, in the PROVIDER's own scale (1 = its
+ * natural pace) — the slowest each still sounds natural at (docs/AUDIO_LESSONS.md "Speech rates"):
+ * MiniMax re-synthesises at the pace and stays clean down to its floor, 0.5; Azure's neural zh-CN
+ * voices drag and smear syllables below ~0.6 (`<prosody rate="-40%">`); Google's WaveNet turns
+ * robotic below ~0.6. Applied by the worker to every `sleep`-voice clip instead of the app-scale
+ * mapping (`providerRate`), so a sleep lesson is as slow as each voice allows.
+ */
+export const SLEEP_ZH_PROVIDER_RATE = { minimax: 0.5, azure: 0.6, google: 0.6 } as const;
 
 /** Pauses in ms. */
 export const PAUSES = {
@@ -48,17 +61,35 @@ export const PAUSES = {
   wordRepeat: 900,
   afterPoint: 2000,
   short: 500,
-  // Format B
-  sleepWordRepeat: 2000,
-  sleepSentence: 2000,
-  sleepSentenceRepeat: 1800,
-  sleepAfterSentences: 3000,
-  sleepBetweenWords: 5000,
-  sleepPhrase: 1200,
-  /** Before and after a word's English recap line. */
-  sleepRecap: 1500,
+  // Format B (docs/AUDIO_LESSONS.md "Pacing")
+  /** Between "这是一个新词。" and "我说三遍。" — heard every word, so short. */
+  sleepIntroPhrase: 500,
+  /** After "我说三遍。", before the word. */
+  sleepAfterIntro: 900,
+  /** Between the word's three repeats. */
+  sleepWordRepeat: 1300,
+  /** After the third repeat. */
+  sleepAfterWord: 2000,
   /** After each character's tone line ("导，第三声。") — a beat to hear it, shorter than a sentence. */
   sleepCharTone: 1500,
+  /** After each sentence of the intro / outro / characters. */
+  sleepSentence: 2000,
+  /** After each sentence of the meaning — slow comprehensible input, room to take it in. */
+  sleepMeaning: 2200,
+  /** Before and after a word's English recap line. */
+  sleepRecap: 1500,
+  /** After a fixed phrase ("我们听三个句子。"). */
+  sleepPhrase: 1200,
+  /** Between an example sentence's three repeats. */
+  sleepSentenceRepeat: 1800,
+  /** After its third repeat, before its English translation. */
+  sleepBeforeTranslation: 1200,
+  /** After a sentence's English translation, before the next sentence. */
+  sleepAfterTranslation: 2500,
+  /** After the word's last sentence (the next word's intro follows). */
+  sleepBetweenWords: 3500,
+  /** After the outro, before the source text. */
+  sleepBeforeSource: 3000,
 } as const;
 
 /** Han ideographs (the main blocks — enough for splitting narration). */
@@ -275,13 +306,23 @@ export function sleepRecapText(hanzi: string, recapEn: string): string {
   return `The word was ${hanzi}: ${sentence}`;
 }
 
+/** An example sentence's English translation as spoken after its three repeats: one sentence, closed. */
+export function sleepTranslationText(english: string): string {
+  const t = english.trim();
+  return /[.!?]["”’)]?$/.test(t) ? t : `${t}.`;
+}
+
 /** Read the source text at the end of a sleep lesson only when it is this short. */
 export const SLEEP_SOURCE_MAX_CHARS = 600;
 
 /**
- * Format B: all Chinese, very slow, every word three times, long pauses. Per word: the
- * word ×3, what it means, each character's tone, its characters, three sentences ×3 — then ONE short English
- * recap line (the only English in the lesson).
+ * Format B: Chinese, as slow as the voice allows, every word three times. Per word
+ * (docs/AUDIO_LESSONS.md "Sleep"):
+ * a) "这是一个新词。我说三遍。" and the word ×3 — short pauses, it comes every word;
+ * b) each character with its tone ("导，第三声。", + where the word says it differently), then its characters;
+ * c) what it means: 5–8 short sentences circling the meaning (comprehensible input), slowly, with room after each;
+ * d) ONE English recap line ("The word was 银行: bank, as in …");
+ * e) "我们听三个句子。" and each example sentence three times, then its English translation once.
  */
 export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string } = {}): AudioLessonScript {
   const b = new ScriptBuilder();
@@ -294,26 +335,22 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
     sleepy(s);
     b.pause(PAUSES.sleepSentence);
   }
-  b.pause(PAUSES.sleepAfterSentences);
+  b.pause(PAUSES.sleepPhrase);
 
   plan.words.forEach((w) => {
     b.chapter(`${w.hanzi} ${w.pinyin}`);
+    // a) The intro and the word ×3.
     sleepy(SLEEP_PHRASES.newWord);
-    b.pause(PAUSES.sleepPhrase);
+    b.pause(PAUSES.sleepIntroPhrase);
     sleepy(SLEEP_PHRASES.sayThree);
-    b.pause(PAUSES.sleepPhrase + 300);
+    b.pause(PAUSES.sleepAfterIntro);
     for (let i = 0; i < 3; i++) {
       if (i === 0) b.zh('sleep', w, RATES.sleepWord);
       else sleepy(w.hanzi, RATES.sleepWord);
-      b.pause(PAUSES.sleepWordRepeat);
+      b.pause(i < 2 ? PAUSES.sleepWordRepeat : PAUSES.sleepAfterWord);
     }
-    b.pause(PAUSES.sleepPhrase);
-    // What it means first, then its characters: each one's tone ("导，第三声。"), where the
-    // word says it differently ("在‘任务’里，‘务’读轻声。"), then where they come from.
-    for (const s of (w.meaning_zh ?? []).flatMap(splitChineseSentences)) {
-      sleepy(s);
-      b.pause(PAUSES.sleepSentence);
-    }
+    // b) Its characters: each one's tone ("导，第三声。"), where the word says it differently
+    // ("在‘任务’里，‘务’读轻声。"), then where they come from.
     for (const line of charToneLines(w)) {
       b.say('zh', 'sleep', line.spoken, RATES.sleep, { display: line.display });
       b.pause(PAUSES.sleepCharTone);
@@ -322,21 +359,28 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
       sleepy(s);
       b.pause(PAUSES.sleepSentence);
     }
-    b.pause(PAUSES.sleepPhrase);
-    sleepy(SLEEP_PHRASES.sentences);
-    b.pause(PAUSES.sleepPhrase + 300);
-    for (const s of w.sentences) {
-      for (let i = 0; i < 3; i++) {
-        if (i === 0) sleepy(s.hanzi, RATES.sleep, s);
-        else sleepy(s.hanzi);
-        b.pause(i < 2 ? PAUSES.sleepSentenceRepeat : PAUSES.sleepAfterSentences);
-      }
+    // c) What it means, said over and over in simple words.
+    for (const s of (w.meaning_zh ?? []).flatMap(splitChineseSentences)) {
+      sleepy(s);
+      b.pause(PAUSES.sleepMeaning);
     }
+    // d) The English recap.
     if (w.recap_en?.trim()) {
-      b.pause(PAUSES.sleepRecap);
       b.mixed(sleepRecapText(w.hanzi, w.recap_en), RATES.sleepWord, { en: 'recap', zh: 'sleep', enRate: RATES.recap });
       b.pause(PAUSES.sleepRecap);
     }
+    // e) The example sentences: each ×3, then its English once.
+    sleepy(SLEEP_PHRASES.sentences);
+    b.pause(PAUSES.sleepPhrase + 300);
+    w.sentences.forEach((s, j) => {
+      for (let i = 0; i < 3; i++) {
+        if (i === 0) sleepy(s.hanzi, RATES.sleep, s);
+        else sleepy(s.hanzi);
+        b.pause(i < 2 ? PAUSES.sleepSentenceRepeat : PAUSES.sleepBeforeTranslation);
+      }
+      if (s.english?.trim()) b.say('en', 'recap', sleepTranslationText(s.english), RATES.recap);
+      if (j < w.sentences.length - 1) b.pause(PAUSES.sleepAfterTranslation);
+    });
     b.pause(PAUSES.sleepBetweenWords);
   });
 
@@ -350,7 +394,7 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
     b.chapter('原文');
     b.pause(PAUSES.sleepPhrase);
     sleepy(SLEEP_PHRASES.sourceIntro);
-    b.pause(PAUSES.sleepAfterSentences);
+    b.pause(PAUSES.sleepBeforeSource);
     for (const s of splitChineseSentences(source)) {
       sleepy(s);
       b.pause(2500);

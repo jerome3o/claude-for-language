@@ -12,7 +12,7 @@ export const SCRIPT_LIMITS = {
   maxSegmentChars: 300,
   maxSegments: 1500,
   /** Distinct clips to synthesise (repeats are made once): bounds TTS cost and time. */
-  maxUniqueSpeech: 220,
+  maxUniqueSpeech: 260,
   maxPauseMs: 20_000,
   minRate: 0.5,
   maxRate: 1.5,
@@ -23,11 +23,17 @@ export const PLAN_LIMITS = {
   dialogueLines: { min: 4, max: 16 },
   points: { min: 2, max: 10 },
   sleepWords: { min: 2, max: 18 },
-  /** What a sleep-lesson word means (required) / where its characters come from (optional). */
-  meaningSentences: { min: 1, max: 3 },
+  /**
+   * What a sleep-lesson word means — comprehensible input: 5–8 short sentences that circle the
+   * meaning, restate it, give a tiny situation, contrast it with a known word (required) — and
+   * where its characters come from (optional).
+   */
+  meaningSentences: { min: 5, max: 8 },
+  /** One meaning sentence (characters): short. */
+  maxMeaningSentenceChars: 30,
   characterSentences: { min: 0, max: 3 },
-  /** Sentences of meaning + characters together. */
-  explanationSentences: { min: 1, max: 5 },
+  /** A sleep example sentence's English translation, spoken once after its three repeats. */
+  maxTranslationChars: 140,
   /** A sleep-lesson word's English recap (after "The word was 银行: "). */
   maxRecapChars: 220,
   /** A dialogue line / example sentence (characters). */
@@ -158,24 +164,28 @@ export function validateSleepPlan(raw: unknown): string[] {
     const mm = PLAN_LIMITS.meaningSentences;
     const cm = PLAN_LIMITS.characterSentences;
     if (meaning.length < mm.min || meaning.length > mm.max) {
-      problems.push(`words[${i}].meaning_zh: ${mm.min}–${mm.max} very short, very simple Chinese sentences saying what "${str(w.hanzi) ? w.hanzi : 'the word'}" MEANS, in words the learner knows — required`);
+      problems.push(
+        `words[${i}].meaning_zh: ${mm.min}–${mm.max} very short, very simple Chinese sentences (got ${meaning.length}) saying what "${str(w.hanzi) ? w.hanzi : 'the word'}" MEANS, ` +
+          'in words the learner knows, circling it again and again: say it, say it again another way, a tiny everyday situation, a contrast with a word they know — required',
+      );
     }
     if (chars === null) problems.push(`words[${i}].characters_zh: a list (may be empty)`);
     else if (chars.length > cm.max) problems.push(`words[${i}].characters_zh: at most ${cm.max} sentences`);
-    const checkZh = (field: string, list: unknown[]) =>
+    const checkZh = (field: string, list: unknown[], maxChars: number) =>
       list.forEach((s, j) => {
         if (!str(s) || !hasHan(s)) problems.push(`words[${i}].${field}[${j}]: simple Chinese is required`);
         else if (/[A-Za-z]/.test(s)) problems.push(`words[${i}].${field}[${j}]: Chinese only — no English or pinyin`);
-        else if ([...s].length > 40) problems.push(`words[${i}].${field}[${j}]: too long — one short sentence (at most 40 characters)`);
+        else if ([...s].length > maxChars) problems.push(`words[${i}].${field}[${j}]: too long — one short sentence (at most ${maxChars} characters)`);
       });
-    checkZh('meaning_zh', meaning);
-    checkZh('characters_zh', chars ?? []);
-    if (meaning.length >= mm.min && meaning.every((s) => typeof s === 'string' && isCharacterOrigin(s))) {
-      problems.push(`words[${i}].meaning_zh: only says where a character comes from — that goes in characters_zh; meaning_zh must say what the word MEANS (what it is, what it does, what it is like, or its opposite)`);
+    checkZh('meaning_zh', meaning, PLAN_LIMITS.maxMeaningSentenceChars);
+    checkZh('characters_zh', chars ?? [], 40);
+    const origins = meaning.flatMap((s, j) => (typeof s === 'string' && isCharacterOrigin(s) ? [j] : []));
+    if (origins.length) {
+      problems.push(`words[${i}].meaning_zh[${origins.join(', ')}]: only says where a character comes from — that goes in characters_zh; meaning_zh must say what the word MEANS (what it is, what it does, what it is like, when you use it, or its opposite)`);
     }
-    if (meaning.length + (chars?.length ?? 0) > PLAN_LIMITS.explanationSentences.max) {
-      problems.push(`words[${i}]: meaning_zh + characters_zh at most ${PLAN_LIMITS.explanationSentences.max} sentences together — keep it short`);
-    }
+    const norm = (s: unknown) => (typeof s === 'string' ? s.replace(/[\s，,。！？!?、‘’“”'"]/g, '') : '');
+    const dupes = meaning.filter((s, j) => norm(s) && meaning.findIndex((t) => norm(t) === norm(s)) !== j);
+    if (dupes.length) problems.push(`words[${i}].meaning_zh: "${String(dupes[0])}" is there twice — restate the meaning in a slightly DIFFERENT way each time`);
     if (str(w.hanzi)) problems.push(...charToneProblems(`words[${i}]`, w));
     checkRecap(`words[${i}].recap_en`, w.recap_en, problems);
     if (!Array.isArray(w.related_known)) problems.push(`words[${i}].related_known: a list (may be empty)`);
@@ -184,6 +194,12 @@ export function validateSleepPlan(raw: unknown): string[] {
     sentences.forEach((s, j) => {
       checkLine(`words[${i}].sentences[${j}]`, s, problems, PLAN_LIMITS.maxSleepSentenceChars);
       if (s && str(s.hanzi) && str(w.hanzi) && !s.hanzi.includes(w.hanzi)) problems.push(`words[${i}].sentences[${j}]: must contain "${w.hanzi}"`);
+      // The translation is SPOKEN (once, by the English voice, after the three repeats).
+      if (s && str(s.english)) {
+        if (!/[A-Za-z]/.test(s.english)) problems.push(`words[${i}].sentences[${j}].english: an English translation is required — it is spoken after the sentence`);
+        else if (s.english.length > PLAN_LIMITS.maxTranslationChars) problems.push(`words[${i}].sentences[${j}].english: too long (${s.english.length} characters, at most ${PLAN_LIMITS.maxTranslationChars}) — a plain translation`);
+        else if (TONE_MARKS.test(s.english)) problems.push(`words[${i}].sentences[${j}].english: no pinyin — it is read by an English voice`);
+      }
     });
   });
   return problems;

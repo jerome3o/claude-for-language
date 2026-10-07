@@ -42,6 +42,8 @@ data class AudioLessonTranscriptRow(
     val text: String,
     val pinyin: String? = null,
     val english: String? = null,
+    /** How many times the line is said in a row (a sleep word ×3, an example sentence ×3); null = once. */
+    val repeat: Int? = null,
 )
 
 object AudioLessonTimeline {
@@ -147,18 +149,36 @@ object AudioLessonTimeline {
     /** JS String.prototype.trim (ECMAScript WhiteSpace + LineTerminator). */
     private fun jsTrim(s: String): String = s.trim { it.isWhitespace() || it == '﻿' || it == ' ' }
 
+    private val TRAILING_STOP = Regex("[.!?]+[\"”’)]?$")
+
+    /** Port of sameEnglish: "Thin, please" and "Thin, please." are the same translation. */
+    private fun sameEnglish(a: String, b: String): Boolean {
+        fun t(s: String) = jsTrim(jsTrim(s).replace(TRAILING_STOP, ""))
+        return t(a) == t(b)
+    }
+
     /**
      * Port of transcriptRows: an English sentence with Chinese inside ("a 兰州拉面 place") is
-     * spoken as several clips, shown as ONE row.
+     * spoken as several clips, shown as ONE row; a Chinese line said several times in a row is
+     * ONE row with [AudioLessonTranscriptRow.repeat] ("邮局 ×3"); a translation read right after
+     * the line it translates joins that line's row.
      */
     fun transcriptRows(lines: List<AudioLessonTranscriptLine>): List<AudioLessonTranscriptRow> {
         val rows = ArrayList<AudioLessonTranscriptRow>()
         lines.forEachIndexed { i, l ->
             val prev = rows.lastOrNull()
             val prevLine = lines.getOrNull(i - 1)
-            // The host reading the translation of the line just shown under it ("Line by line"): one row.
-            if (prev != null && l.voice == "narrator" && !prev.english.isNullOrEmpty() && jsTrim(prev.english) == jsTrim(l.text)) {
+            // The host reading the translation of the line just shown under it ("Line by line"), or a sleep
+            // lesson's English voice translating the example sentence it just heard: one row.
+            if (prev != null && prev.last == i - 1 && (l.voice == "narrator" || l.voice == "recap") && !prev.english.isNullOrEmpty() && sameEnglish(prev.english, l.text)) {
                 rows[rows.size - 1] = prev.copy(last = i)
+                return@forEachIndexed
+            }
+            // The same Chinese line again, right after itself (same voice, same chapter): one row, "×N".
+            if (prev != null && prevLine != null && prev.last == i - 1 && prev.lang == "zh" && l.lang == "zh" &&
+                prevLine.voice == l.voice && prevLine.chapter == l.chapter && prevLine.text == l.text
+            ) {
+                rows[rows.size - 1] = prev.copy(last = i, repeat = (prev.repeat ?: 1) + 1)
                 return@forEachIndexed
             }
             val open = prev != null && prevLine != null && isNarration(lines, i - 1) && isNarration(lines, i) &&

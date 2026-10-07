@@ -6,7 +6,7 @@
  * be joined into the lesson file.
  */
 import type { Env } from '../../types';
-import type { ScriptSpeaker, VoiceRole } from '@shared/audio-lesson';
+import { SLEEP_ZH_PROVIDER_RATE, type ScriptSpeaker, type VoiceRole } from '@shared/audio-lesson';
 import { providerRate, usableOrder, type TtsConfig, type TtsProviderId } from '@shared/tts';
 import { callProviderTTS, combineProviderFailures, shouldTryNextProvider, type ProviderCallOutcome } from '../audio';
 import { configuredProviders } from '../tts/providers';
@@ -28,6 +28,16 @@ export type ClipOutcome =
   /** Try again later (rate limit, account pause): nothing is wrong with the clip. */
   | { ok: false; wait: true; retryAfterMs: number; reason: string }
   | { ok: false; wait: false; permanent: boolean; reason: string };
+
+/**
+ * The rate a provider is asked for. The sleep voice's Chinese goes at that provider's own slowest
+ * natural rate (`SLEEP_ZH_PROVIDER_RATE`: MiniMax 0.5, Azure 0.6, Google 0.6); everything else is
+ * the app-scale rate mapped per provider (`providerRate`; MiniMax's scale IS the app's).
+ */
+export function lessonClipRate(provider: TtsProviderId, clip: Pick<ClipRequest, 'lang' | 'voice' | 'rate'>, config: TtsConfig): number {
+  if (clip.voice === 'sleep' && clip.lang === 'zh') return SLEEP_ZH_PROVIDER_RATE[provider];
+  return provider === 'minimax' ? clip.rate : providerRate(config.providers[provider], clip.rate);
+}
 
 /** The providers a clip may use: the pinned one, else the stored order (Chinese) / English order. */
 export function clipOrder(env: Env, config: TtsConfig, lang: 'zh' | 'en', pinned: TtsProviderId | null): TtsProviderId[] {
@@ -51,7 +61,7 @@ export async function speakClip(
   for (const provider of order) {
     const rv = roleVoice(provider, clip.voice, speakers, config);
     if (!rv) continue;
-    const rate = provider === 'minimax' ? clip.rate : providerRate(config.providers[provider], clip.rate);
+    const rate = lessonClipRate(provider, clip, config);
     const out = await callProviderTTS(
       env,
       provider,

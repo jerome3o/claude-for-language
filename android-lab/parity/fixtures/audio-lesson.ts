@@ -9,6 +9,15 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AUDIO_LESSON_SPEEDS,
+  MUSIC_DEFAULT_VOLUME,
+  MUSIC_MAX_VOLUME,
+  MUSIC_MIN_VOLUME,
+  musicDefaultOn,
+  musicOutputVolume,
+  musicShouldPlay,
+  musicVolumeLabel,
+  parseMusicOn,
+  parseMusicVolume,
   SLEEP_FADE_MS,
   SLEEP_TIMER_CHOICES,
   SAMPLE_DIALOGUE_PLAN,
@@ -99,6 +108,12 @@ const rowCases = [
   [L(0, 'zh', 'sleep', '这是一个新词。'), L(900, 'zh', 'sleep', '我说三遍。'), L(1800, 'zh', 'sleep', '寄')],
   [L(0, 'en', 'recap', 'The word was'), L(600, 'zh', 'sleep', '寄', 1), L(900, 'en', 'recap', ': to post.', 1)],
   [L(0, 'en', 'recap', 'The word was'), L(600, 'zh', 'sleep', '寄', 0, 'jì'), L(900, 'en', 'recap', ': to post.')],
+  // Repeats: one row "×N" (same voice, same chapter, straight after itself); a translation joins the row it translates.
+  [L(0, 'zh', 'sleep', '寄', 0, 'jì', 'to post'), L(500, 'zh', 'sleep', '寄'), L(1000, 'zh', 'sleep', '寄'), L(1500, 'zh', 'sleep', '寄，第四声。')],
+  [L(0, 'zh', 'sleep', '我想寄信。', 0, 'wǒ xiǎng jì xìn.', 'I want to send a letter'), L(900, 'zh', 'sleep', '我想寄信。'), L(1800, 'zh', 'sleep', '我想寄信。'), L(2700, 'en', 'recap', 'I want to send a letter.'), L(3600, 'zh', 'sleep', '寄到北京。', 0, 'jì dào Běijīng.', 'Send it to Beijing.'), L(4500, 'en', 'recap', 'Send it to Beijing')],
+  [L(0, 'zh', 'sleep', '好。'), L(500, 'zh', 'teacher', '好。'), L(1000, 'zh', 'teacher', '好。', 1), L(1500, 'zh', 'teacher', '好。', 1)],
+  [L(0, 'zh', 'sleep', '你好。', 0, 'nǐ hǎo', 'Hello!'), L(400, 'en', 'recap', 'Hello?'), L(800, 'en', 'recap', '  hello  ')],
+  [L(0, 'en', 'narrator', 'Again'), L(400, 'en', 'narrator', 'Again')],
   [],
 ].map((lines) => ({ lines, rows: transcriptRows(lines as never) }));
 
@@ -120,5 +135,19 @@ writeFileSync(
     speeds: AUDIO_LESSON_SPEEDS,
     timer: SLEEP_TIMER_CHOICES.map((m) => ({ minutes: m, label: sleepTimerLabel(m) })),
     fadeMs: SLEEP_FADE_MS,
+    music: {
+      defaultVolume: MUSIC_DEFAULT_VOLUME,
+      minVolume: MUSIC_MIN_VOLUME,
+      maxVolume: MUSIC_MAX_VOLUME,
+      defaults: ['sleep', 'dialogue', null, 'other'].map((format) => ({ format, on: musicDefaultOn(format) })),
+      on: [null, '1', '0', 'yes', ''].flatMap((raw) => ['sleep', 'dialogue', null].map((format) => ({ raw, format, on: parseMusicOn(raw, format) }))),
+      volumes: [null, 0, 0.01, 0.05, 0.333, 0.335, 0.35, 0.5, 0.999, 1, 1.5, -2]
+        .concat(Array.from({ length: 30 }, () => Math.round(r() * 120) / 100))
+        .map((raw) => ({ raw, volume: parseMusicVolume(raw), label: musicVolumeLabel(raw ?? Number.NaN) })),
+      outputs: [[0.35, 1], [0.35, 0.5], [0.6, 0], [2, 2], [-1, 1], [0.35, 0.3333]]
+        .concat(Array.from({ length: 30 }, () => [Math.round(r() * 100) / 100, r()]))
+        .map(([volume, fade]) => ({ volume, fade, out: musicOutputVolume(volume, fade) })),
+      plays: [true, false].flatMap((on) => [true, false].map((lessonPlaying) => ({ on, lessonPlaying, play: musicShouldPlay({ on, lessonPlaying }) }))),
+    },
   }),
 );

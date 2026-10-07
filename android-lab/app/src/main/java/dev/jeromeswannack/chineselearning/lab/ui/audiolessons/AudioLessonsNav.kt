@@ -27,6 +27,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.createAudioLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.retryAudioLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonEngine
+import dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonPrefs
 import dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonPlayback
 import dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonPlaybackState
 import dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonStore
@@ -99,6 +100,8 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
                 onChapters = vm::toggleChapters,
                 onTranscript = vm::toggleTranscript,
                 onWords = vm::toggleWords,
+                onMusic = { app.haptics.tick(); vm.toggleMusic() },
+                onMusicVolume = vm::setMusicVolume,
             ),
         )
     }
@@ -218,6 +221,7 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
     private val store = AudioLessonStore(app.cache, app.repo.api, app.filesDir)
     private val screen = MutableStateFlow(AudioLessonPlayerUi())
     private val file = MutableStateFlow<File?>(null)
+    private val prefs = AudioLessonPrefs(app)
 
     /** The engine's state for THIS lesson (another lesson playing in the background is not shown here). */
     private val playback = AudioLessonPlayback.engine.flatMapLatest { e -> e?.state ?: flowOf(AudioLessonPlaybackState()) }
@@ -231,7 +235,8 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
 
     val ui: StateFlow<AudioLessonPlayerUi> = combine(screen, playback, AudioLessonPlayback.engine, clock, file) { s, p, engine, now, f ->
         if (p.lessonId != id || engine == null || f == null) {
-            s.copy(canPlay = false, playing = false, speed = p.speed)
+            // Not in the player yet: the music as it will start (the remembered choice for this format).
+            s.copy(canPlay = false, playing = false, speed = p.speed, musicOn = prefs.musicOn(s.lesson?.format), musicVolume = prefs.musicVolume)
         } else {
             s.copy(
                 canPlay = true,
@@ -240,6 +245,8 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
                 speed = p.speed,
                 timerMinutes = p.timerMinutes,
                 timerLeftMs = p.timerLeftMs(now),
+                musicOn = p.musicOn,
+                musicVolume = p.musicVolume,
             )
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AudioLessonPlayerUi())
@@ -317,6 +324,24 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
     fun setTimer(minutes: Int) {
         screen.update { it.copy(showTimer = false) }
         engine()?.setSleepTimer(minutes)
+    }
+
+    /** 🎵: before the lesson is in the player, the choice is only remembered (the engine reads it on load). */
+    fun toggleMusic() {
+        val e = engine()
+        if (e != null) {
+            e.setMusicOn(!e.state.value.musicOn)
+            return
+        }
+        val format = screen.value.lesson?.format
+        val on = !prefs.musicOn(format)
+        prefs.setMusicOn(format, on)
+        screen.update { it.copy(musicOn = on) } // re-emits ui, which reads the remembered choice
+    }
+
+    fun setMusicVolume(volume: Double, commit: Boolean) {
+        val e = engine()
+        if (e != null) e.setMusicVolume(volume, commit) else if (commit) prefs.musicVolume = volume
     }
 
     fun toggleTimerSheet() = screen.update { it.copy(showTimer = !it.showTimer) }

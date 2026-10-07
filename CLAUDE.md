@@ -1027,9 +1027,14 @@ create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overal
 ### Audio lessons (`worker/src/routes/audio-lessons.ts`, `services/audio-lessons/`, page at `/audio-lessons`; read docs/AUDIO_LESSONS.md)
 Agent-written listening lessons rendered to ONE MP3 each. **dialogue** = English host + a Chinese dialogue
 played three times, line by line, then the new words / structures; **sleep** = Chinese, very slow:
-the new words of a pasted text, each ×3, what it MEANS in simple Chinese (`meaning_zh`, required), its characters
-(`characters_zh`), three sentences ×3, long pauses, then ONE English recap line in a calm English voice ("The word
-was 银行: bank, as in the place where you keep your money, not the bank of a river." — `recap_en`, voice role `recap`).
+the new words of a pasted text, per word: "这是一个新词。我说三遍。" + the word ×3 (short pauses), each character's tone
+(`char_tones`) + its characters (`characters_zh`), what it MEANS in 5–8 short comprehensible-input sentences
+(`meaning_zh`), ONE English recap line in a calm English voice ("The word was 银行: bank, as in …" — `recap_en`, voice
+role `recap`), then three sentences each ×3 followed by its English translation (recap voice). The sleep voice runs at
+each provider's slowest natural rate (`SLEEP_ZH_PROVIDER_RATE`: MiniMax 0.5, Azure 0.6, Google 0.6). Both players mix a
+soft procedural music loop under the lesson (`shared/audio-lesson/music.ts`; CC0, made by
+`scripts/audio/generate-lesson-music.mjs` → `frontend/public/audio/lesson-music-v1.mp3` + Lab `res/raw/lesson_music.mp3`;
+🎵 toggle + volume, on for sleep / off for dialogue); the MP3 and the podcast feed stay speech-only.
 Claude Opus 5.5 (`agent.ts`, tools `check_known_words` + `submit_lesson`, transcript checkpointed) writes a
 PLAN; `shared/audio-lesson/compile.ts` makes the speech/pause SCRIPT; each distinct clip goes through
 `callProviderTTS` (`synth.ts`; Chinese in the stored order with the first provider PINNED per lesson,

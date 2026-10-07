@@ -130,6 +130,7 @@ object AnalyticsEvents {
         ev("audio_lesson.sleep_timer", "lessons", listOf("minutes", "format")),
         ev("audio_lesson.download", "lessons", listOf("format")),
         ev("audio_lesson.podcast_feed", "lessons", listOf("action")),
+        ev("audio_lesson.music", "lessons", listOf("on", "format", "volume_pct")),
         ev("lesson.start", "lessons", listOf("source", "exercises")),
         ev("lesson.complete", "lessons", listOf("rating", "source", "duration_ms")),
         ev("study.done_for_good", "study", listOf("kind", "source")),

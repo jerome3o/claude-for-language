@@ -21,7 +21,7 @@ const SITUATIONS: Array<{ zh: string; en: string }> = [
 
 const FORMATS: Array<{ id: AudioLessonFormat; icon: string; label: string; blurb: string }> = [
   { id: 'dialogue', icon: '🎙️', label: 'Dialogue', blurb: 'An English host, a short Chinese dialogue played three times, then the new words explained.' },
-  { id: 'sleep', icon: '🌙', label: 'Sleep', blurb: 'Very slow and calm Chinese: the new words from a text, each said three times, explained in simple Chinese, with simple sentences — then one English line to check.' },
+  { id: 'sleep', icon: '🌙', label: 'Sleep', blurb: 'Very slow and calm Chinese over soft music: the new words from a text, each said three times, its tones, its meaning told again and again in simple Chinese, one English line to check — then simple sentences, each with its English.' },
 ];
 
 export function statusLine(l: AudioLessonSummary): string {

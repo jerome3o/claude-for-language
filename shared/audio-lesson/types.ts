@@ -135,9 +135,11 @@ export interface SleepPlan {
   words: Array<
     PlanLine & {
       /**
-       * What the word MEANS: 1–3 very short, very simple Chinese sentences built from
-       * words the learner knows ("邮局是一个地方。在邮局，你可以寄信。"). Required —
-       * never only where its characters come from.
+       * What the word MEANS, comprehensible-input style: 5–8 very short, very simple Chinese
+       * sentences built from words the learner knows that circle the meaning — say it, say it
+       * again another way, a tiny everyday situation, a contrast with a known word ("邮局是一个
+       * 地方。" "在邮局，你可以寄信。" "邮局不是银行。…"). Required — never where its characters
+       * come from (that is characters_zh).
        */
       meaning_zh: string[];
       /**
@@ -158,7 +160,10 @@ export interface SleepPlan {
       recap_en: string;
       /** The known words the explanation leans on (for the record). */
       related_known: string[];
-      /** Exactly three short, simple example sentences. */
+      /**
+       * Exactly three short, simple example sentences. Each is said three times, then its
+       * `english` translation once by the English voice.
+       */
       sentences: PlanLine[];
     }
   >;

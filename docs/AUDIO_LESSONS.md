@@ -19,26 +19,35 @@ dialogue). Chapters:
    dialogue line that uses it, an extra example (Chinese, English, Chinese), the word once more.
 6. *Final listen* — the whole dialogue again, then the outro.
 
-**Sleep (format B, slow immersion).** Input: any Chinese text. Chinese throughout — no pinyin is ever
-spoken, and the only English is one recap line per word. For each new word (one chapter each):
-"这是一个新词。我说三遍。", the word three times (0.55, 2 s pauses), what it MEANS in very simple Chinese
-built from words the learner knows (`meaning_zh`, 1–3 sentences, REQUIRED: "邮局是一个地方。在邮局，你可以
-寄信。"), then **each character with its tone** (below), then its characters (`characters_zh`, 0–3:
-"'银'就是'银行'的'银'。"), "我们听三个句子。", three
-short simple sentences each said three times (0.6, 1.8 s between repeats, 3 s after), then ONE short English
-line in a calm English voice (role `recap`: Azure `en-US-EmmaNeural`, Google `en-US-Neural2-F`; 0.9):
-"The word was 银行: bank, as in the place where you keep your money, not the bank of a river." — Claude
-writes only what follows the colon (`recap_en`) and pins down the sense when the English word has several;
-the word inside it is the sleep voice's own clip (`sleepRecapText`, `mixed` with the recap / sleep voices).
-5 s before the next word. A text of ≤ 600 characters is read once more at the end (原文).
-`validateSleepPlan` refuses a word without `meaning_zh`, a `meaning_zh` that only says where a character comes
-from (`isCharacterOrigin` — that belongs in `characters_zh`), and a missing / pinyin-laden `recap_en`. The
-transcript shows the recap as one row (`transcriptRows`: a `recap` line + the `sleep` word right after it).
+**Sleep (format B, slow immersion, comprehensible input).** Input: any Chinese text. Chinese throughout —
+no pinyin is ever spoken; the only English is one recap line per word and one translation per example sentence,
+both in a calm English voice (role `recap`: Azure `en-US-EmmaNeural`, Google `en-US-Neural2-F`; app rate 0.9). For
+each new word (one chapter each, round 3 order, Oct 2026):
+1. **"这是一个新词。我说三遍。" + the word ×3** — Jerome hears this every word, so its pauses are short (0.5 s
+   between the two phrases, 0.9 s before the word, 1.3 s between repeats, 2 s after).
+2. **Its characters**: each with its tone (below, "导，第三声。"), then `characters_zh` (0–3: "'银'就是'银行'的'银'。").
+3. **What it MEANS** (`meaning_zh`, REQUIRED, 5–8 short sentences, each ≤ 30 characters): comprehensible input — the
+   meaning said, then said again a little differently, a tiny everyday situation, a contrast with a known word, and
+   restated plainly, all with words the learner knows ("邮局是一个地方。" "在邮局，你可以寄信。" "你想给妈妈寄一封信，
+   你去邮局。" … "邮局不是银行。银行里有钱，邮局里有信。" "邮局，就是寄信的地方。"); 2.2 s after each sentence.
+4. **ONE English recap line**: "The word was 银行: bank, as in the place where you keep your money, not the bank of a
+   river." — Claude writes only what follows the colon (`recap_en`) and pins down the sense when the English word has
+   several; the word inside it is the sleep voice's own clip (`sleepRecapText`, `mixed` with the recap / sleep voices).
+5. **"我们听三个句子。" and the three example sentences**: each said three times (1.8 s between, 1.2 s after), then its
+   `english` translation ONCE in the recap voice (`sleepTranslationText`), 2.5 s, the next sentence.
+3.5 s before the next word. A text of ≤ 600 characters is read once more at the end (原文).
+`validateSleepPlan` refuses a word whose `meaning_zh` has fewer than 5 or more than 8 sentences, repeats a sentence
+word for word, or has a sentence that only says where a character comes from (`isCharacterOrigin` — that belongs in
+`characters_zh`); a missing / pinyin-laden `recap_en`; and an example sentence without a spoken English translation
+(letters required, ≤ 140 characters, no pinyin). The
+transcript shows the recap as one row (`transcriptRows`: a `recap` line + the `sleep` word right after it); a line
+said several times in a row is ONE row with "×3" (`TranscriptRow.repeat`), and an example sentence's spoken
+translation joins that sentence's row (it is already its `english`).
 
 **Character tones** (`shared/audio-lesson/tones.ts`). Claude gives every Han character of the word its CITATION
 tone — `char_tones: [{ char: '导', pinyin: 'dǎo', tone: 3 }, { char: '航', pinyin: 'háng', tone: 2 }]` (tone 1–4,
 5 = 轻声 for an inherently neutral character like 了 / 的) — and the compiler (`charToneLines`) speaks, after the
-meaning, one line per distinct character, "导，第三声。" (0.6, `PAUSES.sleepCharTone` 1.5 s after each), shown in the
+word ×3, one line per distinct character, "导，第三声。" (the sleep rate, `PAUSES.sleepCharTone` 1.5 s after each), shown in the
 transcript as "导，dǎo，第三声。" (`SpeechSegment.display` → the transcript line's text; the pinyin is not spoken —
 a Chinese voice reads Latin pinyin as letters, and the character alone IS that syllable). A polyphone whose reading
 alone (pinyin-pro's default, a stand-in for the voice's) differs is spoken inside the word: "银行的行，第二声。". Then,
@@ -54,6 +63,72 @@ these lines.
 
 Speeds are on the app's scale (MiniMax's: 1 = normal, cards 0.6); Azure maps them with its
 `speed_factor` (0.75 → cards 0.7). Pauses: `PAUSES` in `shared/audio-lesson/compile.ts`.
+
+### Speech rates (sleep)
+
+The sleep voice's Chinese is as slow as each provider still sounds natural — `SLEEP_ZH_PROVIDER_RATE`
+(`compile.ts`), in the PROVIDER's own scale, applied by the worker to every `sleep`-voice clip instead of the usual
+mapping (`lessonClipRate`, `synth.ts`):
+
+| Provider | Sleep rate | Why there |
+|---|---|---|
+| MiniMax (`audiobook_female_1`) | 0.5 | its floor; it re-synthesises at the pace (no time-stretch) and stays clean at 0.5 |
+| Azure (Xiaoxiao, style `gentle`) | 0.6 (`<prosody rate="-40%">`) | neural zh-CN voices drag and smear syllables below ~0.6 |
+| Google (Wavenet A) | 0.6 | WaveNet turns robotic below ~0.6 |
+
+Before round 3 the sleep lines were MiniMax 0.6 / 0.55 (word) and Azure 0.7 / 0.66. The script records the app rate
+0.5 (`RATES.sleep`, `RATES.sleepWord`) — the estimate and the clip identity use it. English (recap + translations)
+stays at the app's 0.9 (Azure 0.93): calm but natural. These were chosen from the providers' documented ranges and
+the rates the app already uses; no clip was synthesised to compare them in the build container (no TTS keys there).
+
+### Pacing (sleep, per word)
+
+| Step | Pause after |
+|---|---|
+| 这是一个新词。 | 0.5 s (`sleepIntroPhrase`) |
+| 我说三遍。 | 0.9 s (`sleepAfterIntro`) |
+| the word ×3 | 1.3 s between (`sleepWordRepeat`), 2 s after the third (`sleepAfterWord`) |
+| each tone line | 1.5 s (`sleepCharTone`) |
+| each `characters_zh` sentence | 2 s (`sleepSentence`) |
+| each meaning sentence | 2.2 s (`sleepMeaning`) |
+| the English recap | 1.5 s (`sleepRecap`) |
+| 我们听三个句子。 | 1.5 s |
+| each example sentence | 1.8 s between repeats, 1.2 s before its translation, 2.5 s after the translation |
+| end of the word | 3.5 s (`sleepBetweenWords`) |
+
+A word now takes about 2.7 minutes (`SLEEP_MINUTES_PER_WORD`, `agent.ts`): the briefing asks for
+`round((minutes − 0.5) / 2.7)` words (2–12; 20 min → 7) and a plan estimated over `1.3 × target + 2` minutes is sent
+back ("teach fewer words"). The distinct-clip limit is 260 (each word ≈ 17 clips).
+
+## Music
+
+A very soft, slow ambient bed under the lesson — mixed in the PLAYERS, not the file (the Worker can't decode / mix MP3
+cheaply), so the lesson MP3 and the **podcast feed stay speech-only** for now.
+
+- **The track**: `frontend/public/audio/lesson-music-v1.mp3` and the Lab's identical
+  `android-lab/app/src/main/res/raw/lesson_music.mp3` (480 KB, 24 kHz mono 40 kbps, a 96 s loop), made by
+  `scripts/audio/generate-lesson-music.mjs` — procedural (four slow pad chords Dmaj9 → Bm7 → Gmaj7 → Asus2, soft sine
+  partials with a detuned twin, 8 s crossfades, a slow swell), no samples, no third-party audio; written for this app
+  and dedicated to the public domain (**CC0 1.0**). It is rendered circularly (exactly periodic) and breathes out to
+  near silence at its seam, so a player's loop restart or an encoder's padding is never heard. Peak −12 dBFS, ~−26 dB
+  RMS. Rebuild: `FFMPEG=/path/to/ffmpeg node scripts/audio/generate-lesson-music.mjs` (needs libmp3lame); bump the
+  file name (`LESSON_MUSIC` in `shared/audio-lesson/music.ts`) when the track changes.
+- **Rules** (`shared/audio-lesson/music.ts`, Lab `core/…/AudioLessonMusic.kt`, parity-tested): on by default for
+  sleep lessons, off for dialogue lessons, the learner's choice remembered per format; it plays only while the lesson
+  plays (pause, the end, headphones out and the sleep timer stop it); volume 0.05–1, default 0.35, × the sleep timer's
+  fade (`musicOutputVolume`), so it fades out with the voice.
+- **Web** (`AudioLessonPlayerPage.tsx`): a second `<audio loop>` from an object URL of the track (Cache API
+  `audio-lesson-music-v1` after the first fetch; also in the PWA precache via `includeAssets`), 🎵 Music chip
+  (`aria-pressed`) + a volume slider under the chips. localStorage `audio-lesson-music-on-v1:<format>`,
+  `audio-lesson-music-volume-v1`.
+- **Lab** (`data/audiolessons/LessonMusic.kt`): `LessonMusic` drives an `ExoMusicTrack` — a second ExoPlayer in the
+  background service (`REPEAT_MODE_ONE`, `CONTENT_TYPE_MUSIC`, no audio focus of its own: the lesson's player holds it,
+  and a call / another app pauses the lesson and with it the music); `AudioLessonEngine` calls it from
+  `onIsPlayingChanged`, `STATE_ENDED` and the sleep-timer tick. 🎵 chip + slider in the player.
+- Analytics `audio_lesson.music` (on, format, volume_pct).
+- **Follow-up (not done)**: a pre-mixed music version for the podcast feed — would need decoding + mixing PCM and
+  re-encoding (a Container / a native encoder), or rendering the lesson's speech over a pre-encoded music bed frame by
+  frame; not worth it until someone asks for music in the podcast app.
 
 ## How it is made
 
@@ -71,7 +146,7 @@ into the *script*: ordered `speech` / `pause` segments in chapters, with voice r
 structure (three plays, ×3 repeats, pauses) is code, so it is always right; `validateDialoguePlan` /
 `validateSleepPlan` / `validateScript` (`validate.ts`) check the rest (no pinyin in English narration,
 the point is in its line, 3 sentences containing the word, sentences short, Chinese-only for sleep, at
-most 220 distinct clips, length vs target). Problems go back to Claude as the tool's error → it repairs
+most 260 distinct clips, length vs target). Problems go back to Claude as the tool's error → it repairs
 in the same conversation.
 
 **Writing (the agent).** `claude-opus-5-5`, adaptive thinking (always on for Opus 5.5), effort `high`,
@@ -178,7 +253,7 @@ afterwards it plays with no connection.
 ## The player (web)
 
 Full screen and dark: chapter name, scrubber, ⏮ ↺10 ▶ 10↻ ⏭, speed (0.75 / 0.9 / 1 / 1.25×, pitch kept,
-remembered), 🌙 sleep timer (10–60 min or end of chapter; the last 30 s fade out), ☰ chapters, 📝
+remembered), 🎵 music (see "Music"), 🌙 sleep timer (10–60 min or end of chapter; the last 30 s fade out), ☰ chapters, 📝
 transcript (on for dialogue, off for sleep; the current line highlighted and followed, tap a line to
 jump; an English sentence with Chinese inside shows as one row, `transcriptRows`), the word list,
 Media Session (lock screen / headphones: play, pause, ±10 s, chapter back / next, seek). The page must
@@ -204,19 +279,22 @@ seeking so chapter / transcript taps land exactly. The player's pure helpers are
 `usage_json` / `get_audio_lesson.usage`: Claude tokens (input incl. cache writes, output, cache reads),
 rounds, Claude's cost at list price ($4 / $20 per M), TTS characters per language and distinct clips,
 the providers used. Typical (estimates): a 12-minute dialogue ≈ 60–80 distinct clips, ~1.5k Chinese +
-~2.5k English characters; a 20-minute sleep lesson ≈ 80–100 clips, ~2–3k Chinese characters. Azure
+~2.5k English characters; a 20-minute sleep lesson (7 words) ≈ 120 clips, ~2.5–3.5k Chinese + ~1k English characters. Azure
 neural TTS is ~$16 per M characters (F0: 0.5 M free a month) → well under $0.10; Claude (3–5 rounds
 with adaptive thinking) ≈ $0.10–0.40. Time is bound by the TTS rate: Azure F0 = 15 clips/min shared
 with the audio backfill → roughly 5–15 minutes per lesson.
 
 ## Tests
 
-- `shared/audio-lesson/audio-lesson.test.ts`: compile (three plays, ×3 repeats, pauses ≥ 1.5 s, voices,
-  Chinese-only sleep, source text), plan validation, timeline, player helpers; character tones (导航 / 任务 /
+- `shared/audio-lesson/audio-lesson.test.ts`: compile (three plays, ×3 repeats, the sleep word order a–e, the short
+  intro pauses, the translations after each triplet, voices and rates, source text), plan validation (5–8 meaning
+  sentences, no repeats / origins, a spoken English translation per sentence), timeline, transcript rows (×3, the
+  translation joined), the music rules, player helpers; character tones (导航 / 任务 /
   你好 / 一样 / 不是 / 姐姐 / 银行 lines, their place and pauses, the transcript's pinyin, `char_tones` validation).
 - `worker/…/__tests__/audio-lesson-mp3.test.ts`: frame parsing (tags, Xing, junk), format check,
   silence, assembly (frame boundaries, durations, the Xing header + TOC).
-- `worker/…/__tests__/audio-lesson-job.test.ts`: the whole job on real SQLite with a mocked model and
+- `worker/…/__tests__/audio-lesson-job.test.ts`: the sleep rates per provider (`lessonClipRate`), the word target
+  and length limit, the prompt's order; the whole job on real SQLite with a mocked model and
   voices — a repair round, a rate-limit wait → re-enqueue → resume without remaking clips, rendering,
   parts deleted, provider pinning, failure + Retry, the nudge.
 - `worker/src/routes/__tests__/podcast-feed.test.ts`: feed XML well-formed with one item per ready lesson,
@@ -224,7 +302,10 @@ with the audio backfill → roughly 5–15 minutes per lesson.
   Range / HEAD / 416, the token never in a log line, rate limit.
 - `mcp-server/src/tools/audio-lessons.test.ts`; `e2e/tests/audio-lessons.spec.ts` (E2E_TEST_MODE: fake
   model = the sample plans, fake voices = silent lesson-format clips; make → play → chapters →
-  transcript → sleep timer → offline).
+  transcript (×3 rows with the translation) → music on by default for sleep, plays / pauses with the lesson,
+volume, off remembered, off for dialogue → sleep timer → offline, music included). Lab: `LessonMusicTest` (the music
+starts / stops with playback, the fade, the toggle), `AudioLessonParityTest` (rows + music rules), screenshots
+`audio-lessons-17-player-sleep-music` / `18-player-dialogue-music-off`.
 
 ## Lessons from the first attempt (June 2026, removed in #321)
 

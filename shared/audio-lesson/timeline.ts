@@ -119,12 +119,22 @@ export interface TranscriptRow {
   text: string;
   pinyin?: string;
   english?: string;
+  /** How many times the line is said in a row (a sleep word ×3, an example sentence ×3); absent = once. */
+  repeat?: number;
 }
 
 /**
  * The transcript as the player shows it: an English sentence with Chinese inside
- * ("a 兰州拉面 place") is spoken as several clips, shown as ONE row.
+ * ("a 兰州拉面 place") is spoken as several clips, shown as ONE row; a Chinese line said
+ * several times in a row is ONE row with `repeat` ("邮局 ×3"); a translation read right
+ * after the line it translates joins that line's row.
  */
+/** "Thin, please" and "Thin, please." are the same translation (a spoken one gets a full stop). */
+function sameEnglish(a: string, b: string): boolean {
+  const t = (s: string) => s.trim().replace(/[.!?]+["”’)]?$/, '').trim();
+  return t(a) === t(b);
+}
+
 export function transcriptRows(lines: AudioLessonTranscriptLine[]): TranscriptRow[] {
   const rows: TranscriptRow[] = [];
   // English narration and the Chinese spoken inside it: format A's host + teacher, and a sleep
@@ -141,9 +151,16 @@ export function transcriptRows(lines: AudioLessonTranscriptLine[]): TranscriptRo
   lines.forEach((l, i) => {
     const prev = rows[rows.length - 1];
     const prevLine = lines[i - 1];
-    // The host reading the translation of the line just shown under it ("Line by line"): one row.
-    if (prev && l.voice === 'narrator' && prev.english && prev.english.trim() === l.text.trim()) {
+    // The host reading the translation of the line just shown under it ("Line by line"), or a sleep
+    // lesson's English voice translating the example sentence it just heard: one row.
+    if (prev && prev.last === i - 1 && (l.voice === 'narrator' || l.voice === 'recap') && prev.english && sameEnglish(prev.english, l.text)) {
       prev.last = i;
+      return;
+    }
+    // The same Chinese line again, right after itself (same voice, same chapter): one row, "×N".
+    if (prev && prevLine && prev.last === i - 1 && prev.lang === 'zh' && l.lang === 'zh' && prevLine.voice === l.voice && prevLine.chapter === l.chapter && prevLine.text === l.text) {
+      prev.last = i;
+      prev.repeat = (prev.repeat ?? 1) + 1;
       return;
     }
     const open = prev && prevLine && isNarration(i - 1) && isNarration(i) && prevLine.chapter === l.chapter && !/[.!?:]["”’)]?$/.test(prevLine.text.trim());
