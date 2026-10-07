@@ -534,3 +534,51 @@
   border-color: #fcd34d;
   color: #92400e;
 }
+
+/* ---------- Replies written in the background (docs/CHAT.md "Chat ↔ Coach") ---------- */
+.coach-pending-note {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+.coach-conv-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--color-primary, #2563eb);
+  font-weight: 600;
+}
+.coach-conv-failed {
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* ---------- Direct quick actions: ➕ Add new words (N) · 🃏 Card for this sentence ---------- */
+.coach-quick-chip--new {
+  border-color: rgba(34, 139, 84, 0.55);
+  background: #ecfdf3;
+  color: #14643a;
+  font-weight: 600;
+}
+.coach-new-words-deck {
+  margin: 0.75rem 0 0.25rem;
+}
+.coach-new-words-done {
+  margin: 0.5rem 0 0.75rem;
+  font-weight: 600;
+  color: #14643a;
+}
+.coach-new-words-existing {
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.coach-new-words-existing .btn {
+  width: auto;
+  min-height: 40px;
+  white-space: nowrap;
+}
+.coach-quick-row--direct {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  margin-bottom: 0.5rem;
+}

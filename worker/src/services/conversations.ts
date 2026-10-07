@@ -1,4 +1,4 @@
-import { parseAutoCheck } from '@shared/chats/autoCheck';
+import { autoCheckText, parseAutoCheck } from '@shared/chats/autoCheck';
 import { copyDeckForUser } from './content';
 import type { HomeworkPriority } from '@shared/decks';
 import { CARD_STANDARD } from '@shared/cards';
@@ -389,7 +389,7 @@ async function queryMessages(
       words_source: words?.source ?? null,
       correction: deleted ? null : parseCorrection(row.correction),
       // The background check is the sender's own (docs/CHAT.md "Auto-check"); never shown to the other person.
-      auto_check: deleted || row.sender_id !== viewerId ? null : parseAutoCheck(row.auto_check, row.content),
+      auto_check: deleted || row.sender_id !== viewerId ? null : parseAutoCheck(row.auto_check, autoCheckText({ content: row.content, attachment })),
       sender: {
         id: row.u_id,
         name: row.u_name,

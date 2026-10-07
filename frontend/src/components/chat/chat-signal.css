@@ -1066,3 +1066,39 @@ body:has(.chat-page) .sync-badge-offline {
   background: #fff8e6;
   font-weight: 600;
 }
+
+/* ---------- "Open in Coach" under my bubble when the auto-check found something (docs/CHAT.md "Chat ↔ Coach") ---------- */
+.chat-message .chat-coach-chip {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: auto;
+  min-height: 32px;
+  margin: 0.2rem 0.25rem 0 auto;
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 196, 80, 0.9);
+  background: #fff8e8;
+  color: #7a4b00;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  position: relative;
+}
+/* A 44px tap target without a bigger chip. */
+.chat-message .chat-coach-chip::after {
+  content: '';
+  position: absolute;
+  inset: -6px -2px;
+}
+.chat-message .chat-coach-chip:active {
+  transform: scale(0.97);
+}
+@media (prefers-color-scheme: dark) {
+  .chat-message .chat-coach-chip {
+    background: rgba(255, 196, 80, 0.14);
+    color: #ffd27a;
+  }
+}

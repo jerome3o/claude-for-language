@@ -203,6 +203,11 @@ export const ANALYTICS_EVENTS = {
   'coach.start': e('coach', 'Started a Sentence Coach conversation.', ['action']),
   'coach.quick_action': e('coach', 'Used a quick-action chip.', ['action']),
   'coach.follow_up': e('coach', 'Sent a follow-up message in the coach chat.', []),
+  'coach.reply_resumed': e('coach', 'Came back to a coach conversation whose reply was still being written in the background.', []),
+  'coach.reply_retry': e('coach', 'Pressed Retry on a coach reply that failed.', []),
+  'coach.add_new_words': e('coach', '"➕ Add new words": added words of the sentence that were in no deck.', ['count', 'existing']),
+  'coach.sentence_card': e('coach', '"🃏 Card for this sentence": opened the add-card sheet with the whole sentence.', []),
+  'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 
   // ── decks ──────────────────────────────────────────────────────────────
   'deck.create': e('decks', 'Created a deck.', ['source']),

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { autoPinyin } from '../../utils/autoPinyin';
-import { sayBetterState, type AutoCheckCard } from '@shared/chats/autoCheck';
+import { autoCheckText, sayBetterState, type AutoCheckCard } from '@shared/chats/autoCheck';
 import type { MessageWithSender } from '../../types';
 import { AddChunkModal, type Chunk } from '../AddChunkModal';
 import { CorrectionDiffLine } from './ChatCorrection';
@@ -22,6 +22,7 @@ export function SayBetterSheet({
   playing,
   onPlay,
   onDiscuss,
+  onOpenCoach,
   onClose,
 }: {
   message: MessageWithSender;
@@ -30,15 +31,19 @@ export function SayBetterSheet({
   playing: boolean;
   onPlay: (text: string) => void;
   onDiscuss: () => void;
+  /** "Open in Coach": continue in the Sentence Coach with this result (docs/CHAT.md "Chat ↔ Coach"). */
+  onOpenCoach?: () => void;
   onClose: () => void;
 }) {
   const [adding, setAdding] = useState<Chunk | null>(null);
   const state = sayBetterState(message, viewerId);
-  const check = message.auto_check && message.auto_check.text === message.content ? message.auto_check : null;
+  // A photo's caption / a voice message's transcript is what was checked.
+  const checkedText = autoCheckText(message);
+  const check = message.auto_check && message.auto_check.text === checkedText ? message.auto_check : null;
   const correction = state === 'corrected' ? message.correction! : null;
 
   const view = useMemo(() => {
-    const original = message.content;
+    const original = checkedText;
     if (correction) {
       const sameAsCheck = check && check.corrected === correction.text;
       const pinyin = sameAsCheck && check.corrected_pinyin ? check.corrected_pinyin : devicePinyin(correction.text);
@@ -67,7 +72,7 @@ export function SayBetterSheet({
         ? cardChunk(check.card)
         : { hanzi: check.corrected, pinyin: check.corrected_pinyin || devicePinyin(check.corrected), english: check.corrected_english },
     };
-  }, [message, check, correction]);
+  }, [message, check, correction, checkedText]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !adding && onClose();
@@ -165,6 +170,11 @@ export function SayBetterSheet({
           <button type="button" className="chat-saybetter-ask" onClick={onDiscuss}>
             💬 Ask Claude about this
           </button>
+          {onOpenCoach && (
+            <button type="button" className="chat-saybetter-ask" onClick={onOpenCoach} data-testid="chat-saybetter-open-coach">
+              🎓 Open in Coach
+            </button>
+          )}
         </div>
       </div>
     </div>

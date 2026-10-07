@@ -531,7 +531,9 @@ ALTER TABLE users ADD COLUMN chat_auto_check INTEGER;   -- NULL = default (on fo
   80–500 out ≈ $0.005–0.009 per check.
 - **Who** (`autoCheckApplies`): the student side of a tutor chat and the person in a Claude practice chat by default; the
   account switch wins either way. **Skipped** (`autoCheckSkipReason`): no Chinese / emoji only, ≤ 2 content characters,
-  more English words than Han characters, > 400 characters, photos / voice / files.
+  more English words than Han characters, > 400 characters. A photo / file / video is checked on its **caption** and a
+  voice message on its **transcript** once it exists (`autoCheckText`; before Oct 2026 every media message was skipped —
+  see "Chat ↔ Coach").
 - **Result** `{ text, status: ok | improvable, corrected, corrected_pinyin, corrected_english, mistakes: [{ quote, fix, why,
   card }], alternative, severity: minor | moderate | major, card, checked_at }`. The prompt flags only grammar errors, wrong
   words and clearly unnatural phrasing; `normalizeAutoCheck` turns an "improvable" that only changes punctuation into ok and
@@ -551,3 +553,65 @@ ALTER TABLE users ADD COLUMN chat_auto_check INTEGER;   -- NULL = default (on fo
 - **Setting**: `PUT /api/profile/chat-prefs { chat_auto_check: true | false | null }`; `/api/auth/me` → `chat_auto_check`
   (null = default). Settings → Chat → "Check my Chinese automatically" shows `autoCheckSettingShown` (on unless a tutor account).
 - E2E seam: `POST /api/test/chat-auto-check { message_id, result? }` runs the real store + broadcast with a canned answer.
+
+# Chat ↔ Coach (migration 0114_coach_background.sql)
+
+Jerome: "Every message I send should be checked — I sent one with a photo and got nothing. When it finds something, give
+me a clear way into the Coach. And Coach replies shouldn't die when I press back."
+
+**Why the photo wasn't checked**: `autoCheckMessageInBackground` returned `skipped` for any message with an attachment,
+and the media upload route (`POST /conversations/:id/media`) never scheduled a check at all. Now the checked text is
+`autoCheckText(msg)` (`shared/chats/autoCheck.ts`): the caption of a photo / file / video, a voice message's transcript
+once `transcript_status = 'done'` (the transcription job runs the check when it finishes), else the text. The result is
+stored as before, served while `auto_check.text === autoCheckText(msg)`, and written only while the content AND the
+attachment JSON are unchanged. `sayBetterState` (✎ + "How to say it better") follows the same text, so photo captions and
+voice transcripts get the mark and the sheet ("You wrote" = the caption / transcript).
+
+**Open in Coach** (web + Lab, same rules):
+- `openInCoachRequest(msg, viewerId)` → `{ text, action }`: my own message is CHECKED, anyone else's EXPLAINED; null
+  without Chinese. `coachDeepLink(req, messageId)` → `/coach?text=…&action=check|explain&from_message=<id>`.
+- Message menu item `open_coach` "🎓 Open in Coach" (`messageMenu`): any message with Chinese (my own only when I'm the
+  learner) — SECOND, right after "How to say it better" when that shows, else after "Save as flashcard".
+- A small "🎓 Open in Coach" chip UNDER my bubble when the auto-check found something (`showCoachChip`: improvable, current
+  text) — the bubble itself stays clean — and an "Open in Coach" button in the How-to-say-it-better sheet.
+- The Coach runs a deep link with an explicit action at once (`coachDeepLinkAction`, shared/coach/actions.ts: an explicit
+  valid action runs; without one only English runs — translate — and Chinese waits on its two buttons).
+- `POST /api/coach/conversations { …, chat_message_id }`: when the message is MINE and its stored auto-check is about this
+  very text, the check result becomes the analysis (`coachAnalysisFromAutoCheck`) — 201, no Claude call; the conversation
+  remembers the message (`coach_conversations.source_message_id`), so opening it again returns the same conversation
+  (200, `reused: true`). Someone else's message is never read for its check.
+- Analytics `chat.open_in_coach { source: menu | chip | sheet, action }`.
+
+**Coach replies keep going when you leave** (`worker/src/services/coach-replies.ts`, routes `worker/src/routes/coach.ts`):
+- With `background: true` (both apps send it; older clients still get the inline answer) the start and every follow-up
+  store the learner's message plus a PENDING assistant message (`coach_messages.status = 'pending'`) and return at once
+  (202). `coach-reply-queue` (`max_batch_size = 1`, `max_batch_timeout = 0`) runs `runCoachReply`: claim (`attempts`,
+  `started_at`), the first analysis (check / explain / translate) or the follow-up agent (`coachChatWithTools`), then the
+  tool actions through the content service. Checkpoint: the model's answer + actions are saved BEFORE any action runs and
+  `applied` after each, so a redelivery never asks Claude again nor makes a card twice. Busy / dropped model (429 / 5xx /
+  network) → `retry` (another delivery 10 s later), ≤ 3 attempts; a refusal or the last attempt → `status = 'failed'` with
+  a readable `error`. `POST …/messages/:id/retry` re-queues it (checkpoint kept). A reply pending > 10 minutes (a lost
+  delivery) is swept to failed when the conversation / list is read. Without the queue binding it runs in `waitUntil`.
+- Clients: a pending first answer shows the loading card ("You can leave — the answer will be here when you come back"), a
+  pending follow-up "Thinking…"; the conversation polls every 2.5 s while anything is pending; failed → the reason +
+  Retry; the list shows "Thinking…" (`pending_reply`) / "⚠ Reply failed — open to retry" (`failed_reply`) and polls while
+  any is thinking. Sending is disabled while a reply is pending (409 server-side). Offline: the send fails with "You're
+  offline — the coach needs a connection" and the typed text is kept (not queued). Analytics `coach.reply_resumed` (opened
+  a conversation still thinking from an earlier visit), `coach.reply_retry`.
+- E2E_TEST_MODE: a stand-in model (2.5 s per answer, a tiny lexicon for Explain) so tests can leave the page first.
+
+**Coach quick actions** (a wrapping row of direct actions above the scrolling chat-prompt chips):
+- "⚡ Study … today" (#525, unchanged).
+- "➕ Add new words (N)": the sentence's words (Explain's breakdown, else the device's cached "What's going on here?"
+  breakdown, else fetched once via `/api/sentences/explain-text`) that are in NONE of my decks — `newWordsInSentence`
+  (`shared/coach/newWords.ts`; normalised hanzi like the bump picker, particles 的 了 吗 … never offered, one row per
+  spelling, ≤ 20). A picker with NOTHING ticked, a deck picker defaulting to the top of the study queue; Add = missing
+  pinyin from the device / meanings from gloss-words, `newWordCards` (the sentence as the example when it contains the
+  word), fun_facts + a short example via `enrich-words` (saved without when Claude can't be reached), ONE
+  `POST /api/decks/:id/notes/batch?skip_existing=1` — a word already in a deck comes back in `existing` and gets
+  "⚡ Study it today" instead. Analytics `coach.add_new_words { count, existing }`.
+- "🃏 Card for this sentence": `breakdownSentenceCard` → the add-card sheet (replaces the chat prompt "📝 Card for the
+  whole sentence" when a breakdown with a translation exists; not shown when the sentence already is a card).
+  Analytics `coach.sentence_card`.
+- Lab: core `SayBetter.kt` / `MessageMenu.kt` / `CoachActions.kt` / `CoachNewWords.kt`, parity-tested
+  (`parity/fixtures/chat-round2.ts`, `coach.ts`).
