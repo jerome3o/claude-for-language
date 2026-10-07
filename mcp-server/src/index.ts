@@ -45,6 +45,7 @@ import { registerAdminTools } from './tools/admin.js';
 import { registerDebugTools } from './tools/debug.js';
 import { registerUsageTools } from './tools/usage.js';
 import { registerPictureHuntTools } from './tools/picture-hunts.js';
+import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerBumpTools } from './tools/bumps.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerTutorApps } from './tools/apps.js';
@@ -1961,6 +1962,8 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     // Usage analytics: who used which feature, timelines, errors, AI cost (admin only; docs/ANALYTICS.md).
     registerUsageTools(ctx);
     registerPictureHuntTools(ctx);
+    // Audio lessons: an agent-written listening lesson rendered to one audio file (docs/AUDIO_LESSONS.md).
+    registerAudioLessonTools(ctx);
     registerBumpTools(ctx);
     registerMaterialTools(ctx);
   }

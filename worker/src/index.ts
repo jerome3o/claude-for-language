@@ -31,6 +31,7 @@ import { translateSentence } from './services/sentence-translate';
 import { generateSentenceSet } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
 import pictureHuntRoutes from './routes/picture-hunts';
+import audioLessonRoutes from './routes/audio-lessons';
 import { runPictureHuntJob } from './services/picture-hunt';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
@@ -136,6 +137,7 @@ import { installAiUsageCapture } from './services/analytics/ai-usage';
 import { trackServer } from './services/analytics/server-events';
 import { pruneUsageEvents } from './services/analytics/usage';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
+import { runAudioLessonJob, type AudioLessonJobMessage } from './services/audio-lessons/job';
 import { deleteReaderWithImages } from './services/shared-readers';
 import {
   createRelationship,
@@ -628,6 +630,8 @@ app.route('/api', cardCheckRoutes);
 app.route('/api', conversationVoicesRoutes);
 // Picture hunts: type what you see in a picture (routes/picture-hunts.ts, built on picture-hunt-queue)
 app.route('/api', pictureHuntRoutes);
+// Audio lessons: an agent-written listening lesson rendered to one MP3 (routes/audio-lessons.ts, built on audio-lesson-queue)
+app.route('/api', audioLessonRoutes);
 // Active study time per local day and device: PUT|GET /api/me/study-time (routes/study-time.ts)
 app.route('/api', studyTimeRoutes);
 // Usage analytics: event upload, the opt-out, admin usage questions (routes/analytics.ts)
@@ -2831,6 +2835,8 @@ app.get('/api/audio/*', async (c) => {
   const key = c.req.path.replace('/api/audio/', '');
   // Chat photos / voice messages are private: only GET /api/chat-media/:messageId serves them.
   if (key.startsWith('chat-media/')) return c.json({ error: 'Audio not found' }, 404);
+  // An audio lesson is its learner's: only GET /api/audio-lessons/:id/audio serves it.
+  if (key.startsWith('audio-lessons/')) return c.json({ error: 'Audio not found' }, 404);
 
   // <audio> streams media with Range requests. Answering every one with the
   // full body (200) forces the element to re-buffer from zero whenever it
@@ -7006,6 +7012,19 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
         } catch (err) {
           console.error('[Queue] card check crashed:', body, err);
           message.retry();
+        }
+      }
+    } else if (queueName === 'audio-lesson-queue') {
+      // Audio lessons: write → speak → render (services/audio-lessons/job.ts). The job
+      // checkpoints in D1 and re-enqueues itself, so every message is acked.
+      for (const message of batch.messages) {
+        const { lessonId } = message.body as AudioLessonJobMessage;
+        try {
+          console.log('[Queue] audio lesson', lessonId, await runAudioLessonJob(env, lessonId));
+          message.ack();
+        } catch (err) {
+          console.error('[Queue] audio lesson crashed:', lessonId, err);
+          message.retry({ delaySeconds: 30 });
         }
       }
     } else if (queueName === 'tutor-notes-queue') {

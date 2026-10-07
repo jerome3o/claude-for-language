@@ -20,11 +20,22 @@ export interface SynthRequest {
   rate: number;
   /** MiniMax only: another model (the admin calibration). */
   model?: string;
-  /** Azure only: `<mstts:express-as style>` (conversation delivery; the voice must support it). */
+  /** SSML language (Azure); default zh-CN. An English voice needs en-US / en-GB. */
+  lang?: string;
+  /** Azure only: a speaking style (`mstts:express-as`), ignored by voices without it. */
   style?: string;
+  /**
+   * The audio-lesson format (docs/AUDIO_LESSONS.md): 24 kHz mono MP3, so every
+   * provider's clips can be joined into one file. Azure and Google already
+   * answer at 24 kHz; MiniMax is asked for it.
+   */
+  lessonFormat?: boolean;
   /** MiniMax only: `voice_setting.emotion` (conversation delivery). */
   emotion?: string;
 }
+
+/** MiniMax's encode for audio lessons: MPEG-2 Layer III at 24 kHz, like Azure's and Google's. */
+export const LESSON_MINIMAX_AUDIO_SETTING = { format: 'mp3', sample_rate: 24000, bitrate: 64000, channel: 1 } as const;
 
 export type ProviderOutcome =
   | { ok: true; bytes: Uint8Array; mime: string }
@@ -79,7 +90,7 @@ export const minimaxProvider: TtsProvider = {
           stream: false,
           voice_setting: { voice_id: req.voice, speed: req.rate, ...(req.emotion ? { emotion: req.emotion } : {}) },
           // Pin the encode: a service-side default change is inaudible in logs but very audible on the phone.
-          audio_setting: { ...TTS_AUDIO_SETTING },
+          audio_setting: req.lessonFormat ? { ...LESSON_MINIMAX_AUDIO_SETTING } : { ...TTS_AUDIO_SETTING },
         }),
       });
       if (!response.ok) {
@@ -132,12 +143,12 @@ function xmlEscape(s: string): string {
  * The SSML for one clip. HD voices (`name:DragonHD…`) take no <prosody>: they
  * speak at their own pace, so the rate is left out for them.
  */
-export function buildAzureSsml(text: string, voice: string, rate: number, style?: string): string {
+export function buildAzureSsml(text: string, voice: string, rate: number, opts: { lang?: string; style?: string } = {}): string {
   const body = xmlEscape(text);
   let inner = isFixedRateVoice('azure', voice) || rate === 1 ? body : `<prosody rate="${azureRateAttr(rate)}">${body}</prosody>`;
-  if (style) inner = `<mstts:express-as style="${xmlEscape(style)}">${inner}</mstts:express-as>`;
-  const ns = style ? ' xmlns:mstts="https://www.w3.org/2001/mstts"' : '';
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"${ns} xml:lang="zh-CN"><voice name="${xmlEscape(voice)}">${inner}</voice></speak>`;
+  if (opts.style) inner = `<mstts:express-as style="${xmlEscape(opts.style)}">${inner}</mstts:express-as>`;
+  const mstts = opts.style ? ' xmlns:mstts="https://www.w3.org/2001/mstts"' : '';
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"${mstts} xml:lang="${xmlEscape(opts.lang ?? 'zh-CN')}"><voice name="${xmlEscape(voice)}">${inner}</voice></speak>`;
 }
 
 /**
@@ -172,7 +183,7 @@ export const azureProvider: TtsProvider = {
           'X-Microsoft-OutputFormat': AZURE_OUTPUT_FORMAT,
           'User-Agent': 'chinese-learning-worker',
         },
-        body: buildAzureSsml(req.text, req.voice, req.rate, req.style),
+        body: buildAzureSsml(req.text, req.voice, req.rate, { lang: req.lang, style: req.style }),
       });
       if (!response.ok) {
         const body = await response.text().catch(() => '');

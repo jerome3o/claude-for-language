@@ -353,7 +353,7 @@ describe('conversation audio (docs/AUDIO.md "Conversation audio")', () => {
     expect(conversationProviderVoice('minimax', c, { voiceId: 'presenter_male', delivery: 'cheerful' }).emotion).toBe('happy');
   });
   it('the SSML carries express-as with the mstts namespace only when styled', () => {
-    const ssml = buildAzureSsml('你好', 'zh-CN-XiaoxiaoNeural', 0.75, 'calm');
+    const ssml = buildAzureSsml('你好', 'zh-CN-XiaoxiaoNeural', 0.75, { style: 'calm' });
     expect(ssml).toContain('xmlns:mstts="https://www.w3.org/2001/mstts"');
     expect(ssml).toContain('<mstts:express-as style="calm"><prosody rate="-25%">你好</prosody></mstts:express-as>');
     expect(buildAzureSsml('你好', 'zh-CN-XiaoxiaoNeural', 0.75)).not.toContain('mstts');

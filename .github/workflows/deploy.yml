@@ -111,6 +111,7 @@ jobs:
           npx wrangler queues create card-check-queue || true
           npx wrangler queues create recording-check-queue || true
           npx wrangler queues create tts-queue || true
+          npx wrangler queues create audio-lesson-queue || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}
