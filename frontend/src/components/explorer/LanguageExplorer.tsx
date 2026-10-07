@@ -44,7 +44,9 @@ export function LanguageExplorer({
   };
   const drilling = drill && drill.key === itemKey(top) ? drill : null;
   // Moving in the stack ends a drill.
-  useEffect(() => setDrill(null), [stack]);
+  useEffect(() => {
+    setDrill(null);
+  }, [stack]);
   const scrolls = useRef<number[]>([]);
   const prevDepth = useRef(stack.length);
   const direction = stack.length >= prevDepth.current ? 'push' : 'pop';
