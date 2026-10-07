@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import type { FrequencyIndex } from '@shared/decks';
 import type { CharRecord, CharWord, CharWordRow, WordRecord } from '@shared/chars';
 import { buildDrill, relatedWords, resolveWord, wordChars, wordFrequencyLabel, type DrillTarget, type WordItem } from '@shared/explorer';
 import { hanCharacters } from '@shared/progress/known';
@@ -20,6 +21,7 @@ import { BumpButton } from '../bumps/BumpButton';
 import { ExplorableText } from './ExplorableText';
 import { useExplorer } from './ExplorerContext';
 import { WordRows } from './CharacterView';
+import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor } from './FrequencyDecal';
 
 const online = () => typeof navigator === 'undefined' || navigator.onLine;
 
@@ -82,6 +84,8 @@ export function WordView({
   const [charRecords, setCharRecords] = useState<CharRecord[]>([]);
   const [rank, setRank] = useState<number | null>(null);
   const [rankOf, setRankOf] = useState<((w: string) => number | null) | null>(null);
+  const [freqIdx, setFreqIdx] = useState<FrequencyIndex | null>(null);
+  const [keyOpen, setKeyOpen] = useState(false);
   const [existing, setExisting] = useState<Array<{ note: LocalNote; deckName: string }> | null>(null);
   const [examples, setExamples] = useState<Example[]>([]);
   const [related, setRelated] = useState<CharWordRow<CharWord>[] | null>(null);
@@ -113,6 +117,7 @@ export function WordView({
       if (!alive || !idx) return;
       setRank(idx.words.get(hanzi) ?? null);
       setRankOf(() => (w: string) => idx.words.get(w) ?? null);
+      setFreqIdx(idx);
     });
     void findExistingNotes(hanzi).then((e) => alive && setExisting(e)).catch(() => alive && setExisting([]));
     void examplesFor(hanzi).then((e) => alive && setExamples(e));
@@ -205,7 +210,7 @@ export function WordView({
             <button
               key={`${c.char}-${i}`}
               type="button"
-              className={`xp-char-chip${c.tone ? ` tone-${c.tone}` : ''}`}
+              className={`xp-char-chip${c.tone ? ` tone-${c.tone}` : ''}${decalClass(decalFor(freqIdx, c.char, 'char'))}`}
               onClick={() => explorer.push({ kind: 'char', char: c.char })}
               aria-label={`The character ${c.char}${c.syllable ? `, ${c.syllable}` : ''}`}
             >
@@ -267,11 +272,15 @@ export function WordView({
       {related && related.length > 0 && (
         <section className="char-sheet-words" aria-label="Related words">
           <div className="char-sheet-words-head">
-            <h3>Related words</h3>
+            <h3>
+              Related words <FrequencyKeyButton open={keyOpen} onToggle={() => setKeyOpen((o) => !o)} />
+            </h3>
           </div>
+          {keyOpen && <FrequencyKey />}
           <WordRows
             rows={related}
             highlight={hanzi}
+            decalOf={freqIdx ? (h) => decalFor(freqIdx, h, 'word') : undefined}
             onOpen={(row) => explorer.push({ kind: 'word', hanzi: row.word.hanzi, pinyin: row.word.pinyin, gloss: row.word.english })}
           />
         </section>

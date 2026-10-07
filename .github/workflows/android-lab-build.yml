@@ -100,7 +100,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          sparse-checkout: android-lab
+          # shared/data = the word-frequency list core ships as a resource ("Most common first",
+          # the explorer's ranks and frequency decals); without it WordFrequency.shipped is null.
+          sparse-checkout: |
+            android-lab
+            shared/data
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -156,7 +160,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          sparse-checkout: android-lab
+          # shared/data = the word-frequency list core ships as a resource ("Most common first",
+          # the explorer's ranks and frequency decals); without it WordFrequency.shipped is null.
+          sparse-checkout: |
+            android-lab
+            shared/data
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -204,7 +212,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          sparse-checkout: android-lab
+          # shared/data = the word-frequency list core ships as a resource ("Most common first",
+          # the explorer's ranks and frequency decals); without it WordFrequency.shipped is null.
+          sparse-checkout: |
+            android-lab
+            shared/data
 
       - name: Setup Java
         uses: actions/setup-java@v4

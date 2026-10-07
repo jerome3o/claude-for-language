@@ -243,7 +243,7 @@ private fun CharacterViewHost(char: String, controller: ExplorerController, env:
         }
     }
     CharacterView(
-        CharSheetUi(char, lookup, rows, more, canWrite = false),
+        CharSheetUi(char, lookup, rows, more, canWrite = false, decalOf = env.decal),
         controller.stack,
         canWrite = env.canWrite,
         onBack = controller::pop,
@@ -293,7 +293,7 @@ fun CharacterView(
 private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController, env: ExplorerEnv, refresh: Int, onAdd: (Chunk) -> Unit) {
     val hanzi = item.hanzi
     val chars = remember(hanzi) { hanzi.codePoints().toArray().map { String(Character.toChars(it)) }.distinct() }
-    var ui by remember { mutableStateOf(WordViewUi(item, rank = env.rank(hanzi), online = env.online(), rankOf = env.rank)) }
+    var ui by remember { mutableStateOf(WordViewUi(item, rank = env.rank(hanzi), online = env.online(), rankOf = env.rank, decalOf = env.decal)) }
     var bumping by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 

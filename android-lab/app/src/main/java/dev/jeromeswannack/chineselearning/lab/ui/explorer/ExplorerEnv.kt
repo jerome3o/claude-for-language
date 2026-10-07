@@ -45,6 +45,8 @@ class ExplorerEnv(
     val myWord: suspend (String) -> MyWord = { MyWord() },
     /** Rank in the shipped word-freq list (null = not listed). */
     val rank: (String) -> Int? = { null },
+    /** Frequency decals (outlines on word / character tiles) from the shipped list; null = none. */
+    val decal: DecalOf? = null,
     val online: () -> Boolean = { false },
     /** "✨ More about this word": the reader-word explanation (cached on the server and the device). */
     val cachedExplanation: suspend (word: String, sentence: String) -> ReaderWordExplanationDto? = { _, _ -> null },
@@ -104,6 +106,7 @@ fun rememberExplorerEnv(app: LabApp, nav: LabNav?, close: () -> Unit): ExplorerE
             wordLookup = wordDict::lookup,
             myWord = { ExplorerData.myWord(app, it) },
             rank = { h -> WordFrequency.shipped?.words?.get(h) },
+            decal = shippedDecals(),
             online = online,
             cachedExplanation = { w, s -> runCatching { readers.cachedExplanation(w, s) }.getOrNull() },
             explain = { w, s, p, g -> readers.explainWord(w, s, p, g) },

@@ -67,6 +67,12 @@ test('homework answer side → character → word → character → back, back �
   // The card's own word comes first; open another word with 行.
   const rows = explorer.getByTestId('char-word-row');
   await expect(rows.first()).toContainText('银行');
+  // Frequency decals: 行 is a top-100 character, 银行 (#570) a top-1,000 word; ⓘ opens the key.
+  await expect(explorer.getByTestId('explorer-char-glyph')).toHaveClass(/freq-decal--top100/);
+  await expect(rows.first().locator('.char-word-hanzi')).toHaveAttribute('data-freq', 'top1000');
+  await expect(explorer.getByTestId('freq-key')).toHaveCount(0);
+  await explorer.getByTestId('freq-key-toggle').click();
+  await expect(explorer.getByTestId('freq-key')).toContainText('purple top 100');
   await rows.filter({ hasText: '进行' }).first().click();
 
   const word = page.getByRole('dialog', { name: 'The word 进行' });

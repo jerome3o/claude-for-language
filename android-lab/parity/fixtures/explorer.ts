@@ -12,6 +12,9 @@ import {
   charSegments,
   explorableSegments,
   explorerReducer,
+  FREQUENCY_DECAL_KEY,
+  frequencyKeyLine,
+  frequencyTier,
   EXPLORER_MAX_DEPTH,
   itemForText,
   relatedWords,
@@ -124,6 +127,12 @@ const chars = CHAR_CASES.map(([hanzi, pinyin, syllables]) => ({ hanzi, pinyin, s
 const ranks = [null, 0, -3, 1, 570, 999, 1000, 1001, 2915, 5000, 5001, 15658, 29999, 30000, 30001, 51006, 1234567];
 const freq = ranks.map((rank) => ({ rank, out: wordFrequencyLabel(rank) }));
 
+// Frequency decals: every edge of both cutoffs, plus seeded ranks across the list.
+const decalRanks = [null, 0, -1, 1, 2, 99, 100, 101, 500, 999, 1000, 1001, 1500, 1999, 2000, 2001, 3000, 3499, 3500, 3501, 5000, 9999, 10000, 10001, 29999, 30000, 1234567];
+for (let i = 0; i < 80; i++) decalRanks.push(int(1, 40000));
+const decals = decalRanks.map((rank) => ({ rank, word: frequencyTier(rank, 'word'), char: frequencyTier(rank, 'char'), default: frequencyTier(rank) }));
+const decalKey = { entries: FREQUENCY_DECAL_KEY, line: frequencyKeyLine() };
+
 const record = { hanzi: '银行', pinyin: 'yínháng', syllables: ['yín', 'háng'], english: 'bank', senses: ['bank', 'banking'], rank: 570 };
 const resolveCases = [
   { hanzi: '银行', sources: { record, rank: 600 } },
@@ -186,6 +195,8 @@ writeFileSync(
     for_text: forText,
     chars,
     freq,
+    decals,
+    decal_key: decalKey,
     resolved,
     related,
     segments,

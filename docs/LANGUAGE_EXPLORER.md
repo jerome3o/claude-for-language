@@ -63,6 +63,34 @@ a word row opens the **Word view** (which has Add / ⚡ Study it today) instead 
 Pinyin and meaning are resolved dictionary-first (`resolveWord`): the word dictionary, else a
 character record's word list, else the learner's own card, else what the tapped place said.
 
+## Frequency decals (`shared/explorer/frequency-tier.ts`)
+
+A thin outline around each word tile ("Words with 字", "Related words") and character tile (the
+Character view's glyph, the Word view's character chips, the tappable "Built from" components —
+not the radical, often a radical form like 钅) says at a glance how common it is:
+
+| Outline | Rank in the shipped word-freq list |
+| --- | --- |
+| purple | top 100 |
+| green | 101 – 1,000 |
+| orange | 1,001 – 2,000 |
+| none | 2,001 – the rare cutoff |
+| grey ("rare") | beyond the cutoff, or not in the list |
+
+`frequencyTier(rank, kind)` — words rank against the 30,000-word list, rare beyond **10,000**
+(`RARE_WORD_RANK`); characters against the 8,000-character list, rare beyond **3,500**
+(`RARE_CHAR_RANK`, the size of 现代汉语常用字表). The rank is one map lookup in the list the app
+already loads (web `services/wordFrequency.ts`, Lab `WordFrequency.shipped`); while it loads there
+are no decals (never a flash of grey). Port: `core/…/explorer/FrequencyDecal.kt`, parity-tested.
+
+Look: 1.5px (web: `box-shadow: inset`, or the chip's own border + 0.5px; Lab: `Modifier.border`)
+so a decal never changes a tile's size. Tokens (web `--freq-*` in `explorer.css`, Lab
+`DecalColors`): light purple `#8b5cf6` · green `#16a34a` · orange `#ea580c` · grey `#9ca3af`
+(≥ 3:1 on the sheet for the three tiers, grey 2.5:1 on purpose); dark `#a78bfa` · `#4ade80` ·
+`#fb923c` · `#71717a` (≥ 3:1 on the Lab's dark card). The web app is light-only, so the dark set
+applies only under an explicit `data-theme="dark"`. An **ⓘ** next to the list header opens the
+one-line key: "purple top 100 · green top 1,000 · orange top 2,000 · grey rare".
+
 ## Data and offline
 
 | Data | Where | Offline |

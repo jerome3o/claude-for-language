@@ -28,6 +28,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -40,6 +44,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -51,6 +56,8 @@ import dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerWord
+import dev.jeromeswannack.chineselearning.lab.core.explorer.DecalKind
+import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyDecal
 import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyTier
 import dev.jeromeswannack.chineselearning.lab.core.explorer.RelatedWord
 import dev.jeromeswannack.chineselearning.lab.core.explorer.RelatedWords
@@ -107,6 +114,10 @@ data class WordViewUi(
     val bumped: String? = null,
     /** Rank of a related word in the shipped word-freq list. */
     val rankOf: (String) -> Int? = { null },
+    /** Frequency decals on the character chips and the related-word tiles (null = none). */
+    val decalOf: DecalOf? = null,
+    /** The decal key under "Related words" starts open (screenshots). */
+    val keyOpen: Boolean = false,
 ) {
     val hanzi: String get() = item.hanzi
     private val chars: List<String> get() = hanzi.codePoints().toArray().map { String(Character.toChars(it)) }
@@ -179,6 +190,7 @@ const val EXPLORER_WORD_TAG = "explorer-word"
 const val EXPLORER_WORD_CHAR_TAG = "explorer-word-char"
 const val EXPLORER_RELATED_TAG = "explorer-related"
 const val EXPLORER_MORE_TAG = "explorer-more"
+const val EXPLORER_RELATED_TILE_TAG = "explorer-related-tile"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -232,6 +244,7 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
                 val meaning = charChipMeaning(ui.charRecords[wc.char], wc.syllable)
                 Column(
                     Modifier.widthIn(min = 64.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint)
+                        .frequencyDecal(decalColor(ui.decalOf?.invoke(wc.char, DecalKind.CHAR)), RoundedCornerShape(12.dp))
                         .bouncyClickable { actions.onChar(wc.char) }.testTag(EXPLORER_WORD_CHAR_TAG)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -331,9 +344,14 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
             Spacer(Modifier.height(16.dp))
             HorizontalDivider(color = Lab.colors.cardBorder)
             Spacer(Modifier.height(12.dp))
-            SectionLabel("Related words")
+            var keyOpen by remember(ui.hanzi) { mutableStateOf(ui.keyOpen) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Related words", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+                if (ui.decalOf != null) FrequencyKeyButton(keyOpen, { keyOpen = !keyOpen }, Modifier.padding(start = 2.dp))
+            }
+            if (keyOpen) FrequencyKeyLine(Modifier.padding(bottom = 6.dp))
             val shared = ui.hanzi.codePoints().toArray().map { String(Character.toChars(it)) }.toSet()
-            for (row in related) RelatedWordRow(row, shared) {
+            for (row in related) RelatedWordRow(row, shared, ui.decalOf?.invoke(row.related.word.hanzi, DecalKind.WORD)) {
                 ExplorerStack.itemForText(row.related.word.hanzi, row.related.word.pinyin, row.related.word.english)?.let(actions.onWord)
             }
         }
@@ -355,7 +373,7 @@ private fun Pill(text: String, bg: Color, fg: Color) {
 }
 
 @Composable
-private fun RelatedWordRow(row: RelatedRow, explored: Set<String>, onClick: () -> Unit) {
+private fun RelatedWordRow(row: RelatedRow, explored: Set<String>, decal: FrequencyDecal?, onClick: () -> Unit) {
     val dark = isDark()
     val known = row.status == CharWordStatus.Known
     val w = row.related.word
@@ -370,8 +388,12 @@ private fun RelatedWordRow(row: RelatedRow, explored: Set<String>, onClick: () -
                     if (s in explored) withStyle(SpanStyle(color = Lab.colors.accent)) { append(s) } else append(s)
                 }
             },
-            fontSize = 22.sp, color = Lab.colors.ink,
-            modifier = Modifier.widthIn(min = 64.dp).alpha(if (known) 0.6f else 1f),
+            fontSize = 22.sp, color = Lab.colors.ink, textAlign = TextAlign.Center,
+            // The word tile (same size with or without its frequency decal), as in "Words with 字".
+            modifier = Modifier.widthIn(min = 64.dp).alpha(if (known) 0.6f else 1f)
+                .frequencyDecal(decalColor(decal), RoundedCornerShape(8.dp))
+                .testTag(EXPLORER_RELATED_TILE_TAG)
+                .padding(horizontal = 6.dp, vertical = 2.dp),
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f).alpha(if (known) 0.6f else 1f)) {

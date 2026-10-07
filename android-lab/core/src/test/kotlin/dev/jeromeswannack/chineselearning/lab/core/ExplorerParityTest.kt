@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.core
 
 import dev.jeromeswannack.chineselearning.lab.core.explorer.CharWordList
 import dev.jeromeswannack.chineselearning.lab.core.explorer.Crumb
+import dev.jeromeswannack.chineselearning.lab.core.explorer.DecalKind
 import dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorableSegment
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorableSegments
@@ -9,6 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAction
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerWord
+import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyDecals
 import dev.jeromeswannack.chineselearning.lab.core.explorer.RelatedWords
 import dev.jeromeswannack.chineselearning.lab.core.explorer.WORD_BATCH_MAX
 import dev.jeromeswannack.chineselearning.lab.core.explorer.WORD_DICT_VERSION
@@ -133,6 +135,22 @@ class ExplorerParityTest {
             assertEquals(out["text"].str(), got.text, "label of ${c["rank"]}")
             assertEquals(out["tier"].str(), got.tier.wire, "tier of ${c["rank"]}")
         }
+    }
+
+    @Test
+    fun frequencyDecalMatchesTypeScript() {
+        val cases = fixture["decals"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size > 50)
+        for (c in cases) {
+            val rank = c["rank"].intOrNull()
+            assertEquals(c["word"].str(), FrequencyDecals.tier(rank, DecalKind.WORD)?.wire, "word decal of $rank")
+            assertEquals(c["char"].str(), FrequencyDecals.tier(rank, DecalKind.CHAR)?.wire, "char decal of $rank")
+            assertEquals(c["default"].str(), FrequencyDecals.tier(rank)?.wire, "default decal of $rank")
+        }
+        val key = fixture["decal_key"]!!.jsonObject
+        assertEquals(key["line"].str(), FrequencyDecals.keyLine())
+        val entries = key["entries"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(entries.map { Triple(it["tier"].str(), it["colour"].str(), it["label"].str()) }, FrequencyDecals.KEY.map { Triple(it.tier.wire, it.colour, it.label) })
     }
 
     @Test
