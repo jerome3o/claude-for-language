@@ -33,6 +33,9 @@ val COACH_QUICK_ACTIONS = listOf(
 )
 
 object CoachRules {
+    /** The offline notice (the typed text is kept). */
+    const val OFFLINE = "You're offline — the coach needs a connection. Your text is kept; try again when you're back online."
+
     /** Port of `containsChinese` (utils/textLanguage.ts): any Han character → treat as Chinese. */
     fun containsChinese(text: String): Boolean = text.any { c -> c in '㐀'..'䶿' || c in '一'..'鿿' || c in '豈'..'﫿' }
 
