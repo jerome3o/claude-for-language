@@ -160,3 +160,68 @@ test('the pass sentence: reveal, breakdown, add a word — and nothing is record
   expect(await countRows(page, 'homeworkEvents')).toBe(1);
   expect(await countRows(page, 'reviewEvents')).toBe(reviewsBefore);
 });
+
+/**
+ * A third of the card sentences were written without pinyin or English (MCP-added / older notes).
+ * The row must still reveal like the set rows: Chinese → the device's pinyin → the English, fetched
+ * once from explain-text (only the line is kept), with "From the card" out of the English's way.
+ */
+test('a card sentence with no pinyin or English still reveals both', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const BARE = '服务员，我们要点菜。';
+  const tutor = await seedUser(request, 'tutor', 'Minghui');
+  const student = await seedUser(request, 'student', 'Jerome');
+  const rel = await api<{ data: { id: string } }>(request, '/api/relationships', {
+    method: 'POST', token: tutor.token, data: { recipient_email: student.email, role: 'tutor' },
+  });
+  const relId = rel.data.id;
+  await api(request, `/api/relationships/${relId}/accept`, { method: 'POST', token: student.token });
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token: tutor.token, data: { name: 'Restaurant' } });
+  await api(request, `/api/decks/${deck.id}/notes`, {
+    method: 'POST',
+    token: tutor.token,
+    data: { hanzi: '点菜', pinyin: 'diǎn cài', english: 'to order food', sentence_clue: BARE },
+  });
+  const due = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+  await api(request, `/api/relationships/${relId}/homework`, {
+    method: 'POST', token: tutor.token, data: { items: [{ kind: 'deck', source_id: deck.id, mode: 'one_off', due_date: due }] },
+  });
+  const mine = await api<{ assignments: Array<{ id: string }> }>(request, '/api/me/homework', { token: student.token });
+
+  let explainCalls = 0;
+  await page.route('**/api/sentences/explain-text', async (route) => {
+    explainCalls++;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        explanation: {
+          words: [{ hanzi: '服务员', pinyin: 'fúwùyuán', gloss: 'waiter' }],
+          construction: '要 + verb: want to.',
+          translation: "Waiter, we'd like to order.",
+        },
+      }),
+    });
+  });
+
+  await page.goto(`/?session_token=${student.token}`);
+  await expect(page.getByTestId('homework-home-card')).toBeVisible({ timeout: 60_000 });
+  await page.goto(`/homework/${mine.assignments[0].id}`);
+  await expect(page.getByTestId('hw-pass-card')).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId('hw-show').click();
+
+  const sentences = page.locator('.sentence-set--pass');
+  await expect(sentences.locator('.sentence-set-hanzi')).toHaveText(BARE);
+  await expect(sentences.locator('.sentence-set-corner')).toHaveText('From the card');
+  await expect(sentences.locator('.sentence-set-next')).toHaveText('Tap for pinyin');
+  await sentences.locator('.sentence-set-reveal').click();
+  await expect(sentences.locator('.sentence-set-pinyin')).toContainText('cài');
+  await expect(sentences.locator('.sentence-set-next')).toHaveText('Tap for English');
+  await sentences.locator('.sentence-set-reveal').click();
+  await expect(sentences.locator('.sentence-set-translation')).toHaveText("Waiter, we'd like to order.");
+  await expect(sentences.getByRole('button', { name: '+ Add as card' })).toBeVisible();
+  // Only the line was kept: the breakdown waits for "What's going on here?".
+  await expect(sentences.getByTestId('sentence-word-breakdown')).toHaveCount(0);
+  await expect(sentences.getByRole('button', { name: 'What’s going on here?' })).toBeVisible();
+  expect(explainCalls).toBe(1);
+});

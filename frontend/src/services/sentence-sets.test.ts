@@ -9,6 +9,9 @@ import {
   topUpSentenceSets,
   getSentenceExplanation,
   getTextExplanation,
+  getClueTranslation,
+  getCachedClueTranslation,
+  clueTranslationKey,
   ensureSentenceSetForNote,
   getLocalSentenceSetStats,
   awaitSentenceAudio,
@@ -438,6 +441,72 @@ describe('getTextExplanation', () => {
     mockExplainText();
 
     expect(await getTextExplanation(sentence)).toEqual(explanation);
+  });
+});
+
+describe('getClueTranslation', () => {
+  const clue = { hanzi: '服务员，我们要点菜。', pinyin: null };
+  const breakdown = {
+    words: [{ hanzi: '服务员', pinyin: 'fúwùyuán', gloss: 'waiter' }],
+    construction: '要 + verb: want to.',
+    translation: "Waiter, we'd like to order.",
+  };
+
+  beforeEach(async () => {
+    await db.sentenceTextExplanations.clear();
+  });
+
+  function mockExplainText(body: object = { explanation: breakdown }) {
+    return vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/api/sentences/explain-text')) {
+          return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        throw new Error(`Unexpected fetch: ${input}`);
+      })
+    );
+  }
+
+  function fetchCalls(): number {
+    return (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+  }
+
+  it('fetches the English once and keeps only the line, by text', async () => {
+    mockExplainText();
+    expect(await getClueTranslation(clue)).toBe("Waiter, we'd like to order.");
+    expect(await getClueTranslation(clue)).toBe("Waiter, we'd like to order.");
+    expect(fetchCalls()).toBe(1);
+    // Offline later: still there.
+    expect(await getCachedClueTranslation(clue.hanzi)).toBe("Waiter, we'd like to order.");
+    // Only the line is kept: opening the row later must not unfold a breakdown nobody asked for.
+    expect(await db.sentenceTextExplanations.get(clue.hanzi)).toBeUndefined();
+    expect(await db.sentenceTextExplanations.get(clueTranslationKey(clue.hanzi))).toBeDefined();
+  });
+
+  it('uses a breakdown this device already holds, without a request', async () => {
+    mockExplainText();
+    await db.sentenceTextExplanations.put({ key: clue.hanzi, explanation: JSON.stringify(breakdown), cached_at: Date.now() });
+    expect(await getClueTranslation(clue)).toBe("Waiter, we'd like to order.");
+    expect(fetchCalls()).toBe(0);
+  });
+
+  it('asks again when the cached breakdown is an old one without a translation', async () => {
+    mockExplainText();
+    await db.sentenceTextExplanations.put({
+      key: clue.hanzi,
+      explanation: JSON.stringify({ words: breakdown.words, construction: breakdown.construction }),
+      cached_at: Date.now(),
+    });
+    expect(await getCachedClueTranslation(clue.hanzi)).toBeNull();
+    expect(await getClueTranslation(clue)).toBe("Waiter, we'd like to order.");
+    expect(fetchCalls()).toBe(1);
+  });
+
+  it('fails, caching nothing, when the answer has no translation', async () => {
+    mockExplainText({ explanation: { words: breakdown.words, construction: '' } });
+    await expect(getClueTranslation(clue)).rejects.toThrow();
+    expect(await getCachedClueTranslation(clue.hanzi)).toBeNull();
   });
 });
 

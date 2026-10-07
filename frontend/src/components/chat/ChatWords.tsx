@@ -1,26 +1,10 @@
-import { autoPinyin } from '../../utils/autoPinyin';
+import { autoPinyin, devicePinyinLine } from '../../utils/autoPinyin';
 import { isTappableWord, sentenceAround, wordOffsets } from '@shared/reader/words';
 import { looksLikeChinese } from './messageTools';
 import type { ChatWord } from '../../types';
 import '../reader/ReaderWords.css';
 
-/** "shì “ qǐng … ”， bú" → "shì “qǐng …”，bú": no spaces inside quotes or before punctuation. */
-export function tidyPinyin(s: string): string {
-  return s
-    .replace(/\s+([，。！？、：；”’）」』,.!?;:)])/g, '$1')
-    .replace(/([“‘（「『(])\s+/g, '$1')
-    .replace(/([，。！？、：；])\s*/g, '$1 ')
-    .trim();
-}
-
-/** Pinyin of a whole text, made on the device (before the words arrive). */
-export function devicePinyinLine(text: string): string {
-  try {
-    return tidyPinyin(autoPinyin(text, { nonZh: 'consecutive' }));
-  } catch {
-    return '';
-  }
-}
+export { tidyPinyin, devicePinyinLine } from '../../utils/autoPinyin';
 
 function wordPinyin(w: ChatWord): string {
   if (w.pinyin) return w.pinyin;

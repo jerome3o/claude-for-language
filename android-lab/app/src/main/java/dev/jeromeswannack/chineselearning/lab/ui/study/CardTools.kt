@@ -187,6 +187,29 @@ class CardTools(private val app: LabApp) {
         return fresh
     }
 
+    /**
+     * The English this device holds for a card sentence the note has no translation for
+     * (web `getCachedClueTranslation`): the breakdown's translation line when it was explained
+     * here, else the line fetched earlier by [clueTranslation]. Null = needs a connection.
+     */
+    suspend fun cachedClueTranslation(hanzi: String): String? =
+        cachedTextExplanation(hanzi)?.translation?.trim()?.takeIf { it.isNotEmpty() }
+            ?: runCatching { cache.get<String>(clueTranslationKey(hanzi)) }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Web `getClueTranslation`: the one-line English of `/api/sentences/explain-text` for a card
+     * sentence with none on the note. Only the line is kept (opening the row later must not unfold
+     * a breakdown nobody asked for), by text, so it is instant and offline after the first time.
+     */
+    suspend fun clueTranslation(hanzi: String, pinyin: String?): String {
+        cachedClueTranslation(hanzi)?.let { return it }
+        val fresh = api.explainSentenceText(ExplainTextBody(hanzi, pinyin, null))
+        val line = fresh.translation?.trim().orEmpty()
+        if (line.isEmpty()) error("No translation came back")
+        cache.put(clueTranslationKey(hanzi), TutorNotes.KIND, line)
+        return line
+    }
+
     // ---------------- notes ----------------
 
     suspend fun editNote(noteId: String, update: NoteUpdate): NoteEntity? = mirror(api.updateNote(noteId, update))
@@ -303,5 +326,8 @@ class CardTools(private val app: LabApp) {
 
         /** A breakdown kept by its sentence text (the card's own clue, the Coach's Explain). */
         fun explainTextKey(hanzi: String) = "study/explain-text/$hanzi"
+
+        /** The English line fetched for a card sentence with none on the note, by its text. */
+        fun clueTranslationKey(hanzi: String) = "study/clue-translation/$hanzi"
     }
 }
