@@ -1,5 +1,5 @@
 /**
- * "New characters first across all decks" on the web device: the session queue
+ * "Order new cards by" on the web device (new characters first across all decks): the session queue
  * (getStudyQueue) takes a bottom-deck word with a never-seen character before the
  * top deck's words, and Home's per-deck rows (getRawQueueCounts → allocateQueueCounts)
  * say the same thing.
@@ -8,6 +8,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { db, getStudyQueue, getRawQueueCounts, allocateQueueCounts, sumQueueCounts, type LocalCard } from './database';
 import { CardQueue } from '../types';
 import { writeStudyBudget } from '../services/studyBudget';
+import { writeNewCardOrder } from '../services/newCardOrder';
+import { DEFAULT_NEW_CARD_ORDER } from '@shared/decks';
 
 const iso = () => new Date().toISOString();
 
@@ -44,10 +46,24 @@ describe('new characters first across all decks (web device)', () => {
 
   it('the session and the per-deck counts both take the bottom deck’s new character first', async () => {
     const q = await getStudyQueue();
-    expect(q.dueCards.map(c => c.id)).toEqual(['c-bear', 'c-hao']);
+    // 熊猫 brings new characters; then the words in deck order, the most common first (你 before 好).
+    expect(q.dueCards.map(c => c.id)).toEqual(['c-bear', 'c-ni']);
     const perDeck = allocateQueueCounts(await getRawQueueCounts(), 0);
     expect(perDeck.get('bottom')?.new).toBe(1);
     expect(perDeck.get('top')?.new).toBe(1);
     expect(sumQueueCounts(perDeck.values()).new).toBe(q.counts.new);
+  });
+
+  it('follows the cached "Order new cards by": every switch off = the plain deck order', async () => {
+    writeNewCardOrder({ new_characters_first: false, new_words_first: false, most_common_first: false, sentences_last: false });
+    try {
+      const q = await getStudyQueue();
+      expect(q.dueCards.map(c => c.id)).toEqual(['c-hao', 'c-ni']);
+      const perDeck = allocateQueueCounts(await getRawQueueCounts(), 0);
+      expect(perDeck.get('bottom')?.new).toBe(0);
+      expect(perDeck.get('top')?.new).toBe(2);
+    } finally {
+      writeNewCardOrder({ ...DEFAULT_NEW_CARD_ORDER });
+    }
   });
 });

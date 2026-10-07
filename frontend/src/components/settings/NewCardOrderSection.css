@@ -1,0 +1,146 @@
+/* Settings → "Order new cards by" (NewCardOrderSection.tsx). Mobile first. */
+.new-card-order .nco-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.nco-row + .nco-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.nco-label,
+.nco-row--then {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 56px;
+  padding: 0.625rem 0.875rem;
+}
+
+.nco-label {
+  cursor: pointer;
+}
+
+.nco-step {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--color-border);
+  color: var(--color-text-light);
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nco-row.is-on .nco-step {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.nco-row--then .nco-step {
+  background: transparent;
+  color: var(--color-text-light);
+}
+
+.nco-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.nco-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.nco-row:not(.is-on):not(.nco-row--then) .nco-title {
+  color: var(--color-text-light);
+}
+
+.nco-hint {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: var(--color-text-light);
+}
+
+.nco-row--then .nco-title {
+  font-weight: 500;
+  color: var(--color-text-light);
+}
+
+.nco-switch {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.nco-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.nco-track {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: #d1d5db;
+  pointer-events: none;
+  transition: background 0.15s ease;
+}
+
+.nco-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nco-switch input:checked + .nco-track {
+  background: #2563eb;
+}
+
+.nco-switch input:checked + .nco-track .nco-thumb {
+  transform: translateX(18px);
+}
+
+.nco-switch input:focus-visible + .nco-track {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.nco-switch input:disabled + .nco-track {
+  opacity: 0.6;
+}
+
+.nco-note {
+  margin: 0.625rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.nco-reset {
+  margin-top: 0.75rem;
+  min-height: 44px;
+}

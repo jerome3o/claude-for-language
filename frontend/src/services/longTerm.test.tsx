@@ -58,7 +58,8 @@ describe('setNoteLongTerm', () => {
     expect(await dueNotes()).toEqual(['n1', 'n2']);
     await setNoteLongTerm('o1', 1);
     await setNoteLongTerm('n2', 0);
-    expect(await dueNotes()).toEqual(['o1', 'n1']);
+    // Both bring new characters; "most common first": 太阳 before 刮风 (the deck order only breaks ties).
+    expect(await dueNotes()).toEqual(['n1', 'o1']);
     const counts = await getQueueCounts();
     expect(counts.new).toBe(2);
     expect(counts.hasMoreNew).toBe(false);

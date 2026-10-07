@@ -9,6 +9,7 @@ import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueCounts
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
+import dev.jeromeswannack.chineselearning.lab.core.WordFrequency
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -110,7 +111,9 @@ object DebugReportBuilder {
         val bonusAll = prefs.bonus("all", today)
         val longTerm = dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
-        val all: BuiltQueue = StudyQueue.build(queueDecks, cards, budget, bonusAll, introduced, cutoff, null, longTerm = longTerm, bumps = bumps)
+        // The queue a session would get: with the notes' hanzi and "Order new cards by" (HomeViewModel's `all`).
+        val order = prefs.newCardOrder
+        val all: BuiltQueue = StudyQueue.build(queueDecks, cards, budget, bonusAll, introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, order = order, frequency = WordFrequency.shipped)
         val homeCounts = StudyQueue.counts(all.dueCards, all.reviewedNoteIds)
         val perDeck = decks.associate { d ->
             val q = StudyQueue.build(queueDecks, cards, budget, prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps)
@@ -160,6 +163,12 @@ object DebugReportBuilder {
             putJsonObject("budget") {
                 put("new_cards_per_day", budget.newCardsPerDay)
                 put("secondary_cards_per_day", budget.secondaryCardsPerDay)
+            }
+            putJsonObject("new_card_order") {
+                put("new_characters_first", order.newCharactersFirst)
+                put("new_words_first", order.newWordsFirst)
+                put("most_common_first", order.mostCommonFirst)
+                put("sentences_last", order.sentencesLast)
             }
             putJsonObject("bonus") {
                 put("all", bonusAll)

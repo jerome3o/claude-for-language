@@ -2,7 +2,7 @@ import type { ConversationAudioPrefs } from '@shared/lesson';
 import type { TtsProviderId } from '@shared/tts';
 import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import type { CoachAction } from '@shared/coach';
-import type { StudyBudgetInfo } from '@shared/decks';
+import type { NewCardOrderInfo, StudyBudgetInfo } from '@shared/decks';
 // Card types
 export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
 
@@ -65,6 +65,8 @@ export interface AuthUser {
   secondary_cards_per_day?: number;
   /** The same with who set it — the learner or their tutor (shared/decks/tutor-budget.ts). */
   study_budget?: StudyBudgetInfo | null;
+  /** "Order new cards by" (Settings → New cards; shared/decks/new-card-order.ts). */
+  new_card_order?: NewCardOrderInfo | null;
   /** Voices this account's conversation exercises use (shared/lesson/voices.ts). */
   conversation_voices?: string[] | null;
   /** Speed / delivery / voices of conversation exercises + where clips come from now (docs/AUDIO.md "Conversation audio"). */

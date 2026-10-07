@@ -45,6 +45,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
 
         SettingsScreen(
             revisitSettings = { RevisitSettingsCard(app) },
+            newCardOrder = { NewCardOrderSettingsCard(app) },
             podcastFeed = { dev.jeromeswannack.chineselearning.lab.ui.audiolessons.PodcastFeedCard(app) },
             callAlerts = {
                 androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {

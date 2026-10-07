@@ -43,6 +43,8 @@ data class MeDto(
     val chat_auto_check: Boolean? = null,
     /** The budget with who set it (a tutor can change it: shared/decks/tutor-budget.ts); null from an older server. */
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
+    /** "Order new cards by" (shared/decks/new-card-order.ts → core NewCardOrder.parse); null from an older server. */
+    val new_card_order: kotlinx.serialization.json.JsonObject? = null,
     /** Usage analytics on (Settings → Advanced → "Share usage data"; data/analytics/). */
     val share_usage: Boolean = true,
     /** Word checks: "Check new words for mistakes" — the effective switch (on by default for tutors); null from an older server. */
@@ -108,6 +110,8 @@ data class ChangesDto(
     val live_deck_ids_at: String? = null,
     /** The account's daily new-card budget, so a tutor's change applies on the next sync (null from an older server). */
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
+    /** "Order new cards by": which new words come first (core NewCardOrder.parse); null from an older server. */
+    val new_card_order: kotlinx.serialization.json.JsonObject? = null,
     /** Every folder of the account (all kinds), sent whole: replaces the local copy (null from an older server). */
     val folders: List<dev.jeromeswannack.chineselearning.lab.data.api.FolderDto>? = null,
     /** "⚡ Study it today": the FULL active bump list, replaces the synced rows (null from an older server). */

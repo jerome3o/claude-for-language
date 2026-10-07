@@ -7,7 +7,7 @@ import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMess
 import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
-import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, daysToIntroduce } from '@shared/decks';
+import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, pickNewCardOrderUpdate, daysToIntroduce } from '@shared/decks';
 import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
 import { cachedConversationTTS } from './services/tts-cache';
 import { enqueueClip, enqueueNoteClips, handleTtsBatch, type TtsQueueMessage } from './services/tts/queue';
@@ -130,6 +130,7 @@ import foldersRoutes from './routes/folders';
 import studyBumpsRoutes from './routes/study-bumps';
 import revisitRoutes from './routes/revisit';
 import { getRevisitSettingsInfo, listRevisitEvents } from './services/revisit';
+import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order';
 import { listActiveBumps } from './services/study-bumps';
 import { FolderError, fileItem, listFolders, resolveFolderId } from './services/folders';
 import analyticsRoutes from './routes/analytics';
@@ -511,6 +512,8 @@ app.get('/api/auth/me', async (c) => {
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
     // The same with who set it (the learner or their tutor; shared/decks/tutor-budget.ts).
     study_budget: await db.getStudyBudgetInfo(c.env.DB, user.id).catch(() => null),
+    // "Order new cards by" (Settings → New cards; shared/decks/new-card-order.ts) — cached on the device.
+    new_card_order: await getNewCardOrderInfo(c.env.DB, user.id).catch(() => null),
     // When finished lessons come back + new lessons a day (shared/study/revisit.ts; Settings → "Lessons & readers"). Readers are read once.
     revisit_settings: await getRevisitSettingsInfo(c.env.DB, user.id).catch(() => null),
     // The voices this account's conversation exercises use (its own selection,
@@ -773,6 +776,19 @@ app.put('/api/profile/study-budget', async (c) => {
   // The learner's own change: last write wins over the tutor's, and "Set by <tutor>" goes away.
   const saved = await db.setStudyBudget(c.env.DB, userId, update, userId);
   return c.json(saved);
+});
+
+/**
+ * "Order new cards by" (Settings → New cards; shared/decks/new-card-order.ts):
+ * `{ new_characters_first?, new_words_first?, most_common_first?, sentences_last? }`
+ * (true / false, null = that default) or `{ reset: true }` → NewCardOrderInfo (400 + problems).
+ */
+app.put('/api/profile/new-card-order', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+  const { update, problems } = pickNewCardOrderUpdate(body);
+  if (problems.length) return c.json({ error: problems.join('; '), problems }, 400);
+  return c.json(await setNewCardOrder(c.env.DB, userId, update));
 });
 
 // ============ Decks ============
@@ -5702,6 +5718,8 @@ app.get('/api/sync/changes', async (c) => {
     server_time: serverTime,
     // The daily new-card budget, so a tutor's change reaches the device on the next sync.
     study_budget: await db.getStudyBudgetInfo(c.env.DB, userId).catch(() => null),
+    // "Order new cards by": which new words come first (shared/decks/new-card-order.ts).
+    new_card_order: await getNewCardOrderInfo(c.env.DB, userId).catch(() => null),
     // Every folder (decks / lessons / readers) — a short list, sent whole so the
     // device simply replaces its copy (deletions included). Decks carry folder_id.
     folders: await listFolders(c.env.DB, userId).catch(() => null),

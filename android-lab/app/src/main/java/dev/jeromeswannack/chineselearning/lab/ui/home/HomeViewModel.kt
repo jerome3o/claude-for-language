@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.home
 
 import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
+import dev.jeromeswannack.chineselearning.lab.data.noteHanzi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -72,7 +73,8 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
         val today = LocalDate.now(zone).toString()
         val longTerm = dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
-        val all = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus("all", today), introduced, cutoff, null, longTerm = longTerm, bumps = bumps)
+        // The queue a session would get: the notes' hanzi + "Order new cards by" pick WHICH new words.
+        val all = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus("all", today), introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped)
         val noteCounts = dao.noteCounts().associate { it.deckId to it.count }
         val summaries = decks.map { d ->
             val q = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps)

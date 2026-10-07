@@ -78,6 +78,8 @@ export interface DebugComparison {
     timezone: ValuePair<string>;
     cutoff: ValuePair<string>;
     budget: ValuePair<string>;
+    /** "Order new cards by" switches on (e.g. "chars,words,common,sentences-last"; "-" = none, "?" = not reported). */
+    new_card_order: ValuePair<string>;
     bonus_all: ValuePair<number>;
     introduced_basis: ValuePair<string>;
   };
@@ -202,6 +204,7 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
       a: `${a.budget.new_cards_per_day}+${a.budget.secondary_cards_per_day}`,
       b: `${b.budget.new_cards_per_day}+${b.budget.secondary_cards_per_day}`,
     },
+    new_card_order: { a: orderLabel(a.new_card_order), b: orderLabel(b.new_card_order) },
     bonus_all: { a: a.bonus.all, b: b.bonus.all },
     introduced_basis: { a: a.introduced_basis, b: b.introduced_basis },
   };
@@ -210,6 +213,9 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
   }
   if (!context.same_local_date) hints.push(`The reports are on different local dates (${a.day_start.local_date} vs ${b.day_start.local_date}); "today" means different things.`);
   if (context.budget.a !== context.budget.b) hints.push(`Daily budget differs: ${A} ${context.budget.a} vs ${B} ${context.budget.b}.`);
+  if (context.new_card_order.a !== context.new_card_order.b) {
+    hints.push(`"Order new cards by" differs: ${A} ${context.new_card_order.a} vs ${B} ${context.new_card_order.b} — different new words are picked.`);
+  }
   if (a.bonus.all !== b.bonus.all) hints.push(`"Study 10 more" bonus differs: ${A} ${a.bonus.all} vs ${B} ${b.bonus.all}.`);
 
   // ---------- headline ----------
@@ -441,4 +447,16 @@ export function serverTruthFromRows(
   const map = new Map<string, { id: string; card_id: string; reviewed_at: string }>();
   for (const e of events) map.set(eventIdHash(e.id), { id: e.id, card_id: e.card_id, reviewed_at: e.reviewed_at });
   return { events: map, ...(cardIds ? { card_ids: new Set(cardIds) } : {}) };
+}
+
+/** "chars,words,common,sentences-last" for the switches that are on; "-" none; "?" not in the report. */
+function orderLabel(o: DebugReport['new_card_order']): string {
+  if (!o) return '?';
+  const on = [
+    o.new_characters_first && 'chars',
+    o.new_words_first && 'words',
+    o.most_common_first && 'common',
+    o.sentences_last && 'sentences-last',
+  ].filter(Boolean);
+  return on.length ? on.join(',') : '-';
 }

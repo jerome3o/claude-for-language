@@ -96,6 +96,8 @@ export interface DebugReport {
   /** How this client decides what was introduced today (free text, e.g. "dailyStats counter"). */
   introduced_basis: string;
   budget: { new_cards_per_day: number; secondary_cards_per_day: number };
+  /** "Order new cards by" (shared/decks/new-card-order.ts) as this device applies it; absent in older reports. */
+  new_card_order?: { new_characters_first: boolean; new_words_first: boolean; most_common_first: boolean; sentences_last: boolean };
   /** "Study 10 more" bonuses in effect: all-decks bonus + per deck, and the day key they are stored under. */
   bonus: { all: number; by_deck: Record<string, number>; day_key: string };
   /** Client-specific sync cursors / state (free-form). */
