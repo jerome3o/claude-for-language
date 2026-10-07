@@ -3,7 +3,7 @@ import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
 import { bumpPocket, type QueueBump, type QueueBumps } from '@shared/decks';
-import { selectStudyQueue, isDueByCutoff, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
+import { selectStudyQueue, isDueByCutoff, pickNewCharactersFirst, respreadPrimary, seenFrom, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
 import { CardType, CardQueue, Rating } from '../types';
@@ -1513,6 +1513,13 @@ export interface DeckQueueRaw {
   bumpedReview?: number;
   /** Bumped notes with cards in the pocket ("⚡ 2 bumped for today"). */
   bumpedNotes?: number;
+  /**
+   * "New characters first across all decks": positions in the global pick
+   * sequence (shared/decks/study-queue.ts `pickNewCharactersFirst`) that this
+   * deck supplies. allocateQueueCounts gives the first N picks (N = the budget's
+   * primary cards) to their decks and the rest deck by deck, like the session.
+   */
+  noveltyPicks?: number[];
 }
 
 export interface DeckQueueCounts {
@@ -1564,7 +1571,15 @@ export function allocateQueueCounts(
   spentElsewhere: { primary: number; secondary: number } = { primary: 0, secondary: 0 }
 ): Map<string, DeckQueueCounts> {
   const pools = [...rawByDeck].map(([id, raw]) => poolOf(id, raw));
-  const alloc = allocateNewCards(pools, budget, bonus, spentElsewhere);
+  let alloc = allocateNewCards(pools, budget, bonus, spentElsewhere);
+  let total = 0;
+  for (const a of alloc.values()) total += a.primary;
+  const firstPicks = new Map<string, number>();
+  for (const [id, raw] of rawByDeck) {
+    const n = (raw.noveltyPicks ?? []).filter(i => i < total).length;
+    if (n > 0) firstPicks.set(id, n);
+  }
+  if (firstPicks.size > 0) alloc = respreadPrimary(pools, alloc, firstPicks);
   const out = new Map<string, DeckQueueCounts>();
   for (const [id, raw] of rawByDeck) {
     const a = alloc.get(id) ?? { primary: 0, secondary: 0 };
@@ -1599,9 +1614,10 @@ export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCoun
  * can serve multiple views with different bonuses.
  */
 function countRawQueues(
-  { decks, cards, studied, longTerm, bumps }: StudyInputs,
+  { decks, cards, studied, longTerm, bumps, budget }: StudyInputs,
   reviewedNoteIds: Set<string>,
-  cutoff: { iso: string; ts: number }
+  cutoff: { iso: string; ts: number },
+  noteText?: QueueNoteText | null
 ): Map<string, DeckQueueRaw> {
   // The pocket over the decks in scope (the same rule selectStudyQueue applies).
   const deckIds = new Set(decks.map(d => d.id));
@@ -1633,6 +1649,7 @@ function countRawQueues(
     });
     unseenByDeck.set(d.id, new Set());
   }
+  const newByDeck = new Map<string, QueueCardInput[]>();
   const bumpedNotesByDeck = new Map<string, Set<string>>();
   for (const c of pocket.cards) {
     const bucket = byDeck.get(c.deck_id);
@@ -1661,6 +1678,12 @@ function countRawQueues(
       else {
         bucket.totalNew++;
         unseenByDeck.get(card.deck_id)!.add(card.note_id);
+        if (card.card_type === 'hanzi_to_meaning') {
+          const row = queueInput(card);
+          const list = newByDeck.get(card.deck_id);
+          if (list) list.push(row);
+          else newByDeck.set(card.deck_id, [row]);
+        }
       }
     } else if (isDueByCutoff(queueInput(card), cutoff.ts)) {
       // Learning / relearning / review cards the session will show: due by the
@@ -1672,13 +1695,30 @@ function countRawQueues(
   }
 
   for (const [id, set] of unseenByDeck) byDeck.get(id)!.unseenNotes = set.size;
+
+  // "New characters first across all decks" — the same greedy picks the session
+  // makes (selectStudyQueue), run far enough for the budget plus a few "Study
+  // more" rounds; allocateQueueCounts takes the first N for the per-deck rows.
+  if (noteText) {
+    const seen = seenFrom([...(noteText.reviewedNoteIds ?? reviewedNoteIds)].map(id => noteText.hanzi.get(id) ?? ''));
+    const pools = [...byDeck].map(([id, raw]) => poolOf(id, raw));
+    const picks = pickNewCharactersFirst(pools, newByDeck, reviewedNoteIds, budget.new_cards_per_day + NOVELTY_PICKS_AHEAD,
+      c => noteText.hanzi.get(c.note_id) ?? '', seen);
+    picks.forEach((c, i) => {
+      const raw = byDeck.get(c.deck_id)!;
+      (raw.noveltyPicks ??= []).push(i);
+    });
+  }
   return byDeck;
 }
 
+/** Per-deck rows follow the global novelty picks for this many "Study more" cards past the budget. */
+const NOVELTY_PICKS_AHEAD = 100;
+
 /** Single scan of the cards table producing raw per-deck counts. */
 export async function getRawQueueCounts(deckId?: string): Promise<Map<string, DeckQueueRaw>> {
-  const inputs = await loadStudyInputs(deckId);
-  return countRawQueues(inputs, collectReviewedNoteIds(inputs.cards), getStudyCutoff());
+  const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
+  return countRawQueues(inputs, collectReviewedNoteIds(inputs.cards), getStudyCutoff(), noteText);
 }
 
 /**
@@ -1761,7 +1801,7 @@ export async function getStudyQueue(deckId?: string, bonusNewCards = 0): Promise
   const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
   const reviewedNoteIds = collectReviewedNoteIds(inputs.cards);
   const { cards: dueCards, bumpedCardIds } = selectDueCards(inputs, noteText, bonusNewCards, cutoff);
-  const raw = countRawQueues(inputs, reviewedNoteIds, cutoff);
+  const raw = countRawQueues(inputs, reviewedNoteIds, cutoff, noteText);
   const applied = allocateQueueCounts(raw, bonusNewCards, inputs.budget, inputs.spentElsewhere);
   const counts = deckId ? applied.get(deckId) ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied.values());
   return { dueCards, counts, reviewedNoteIds, bumpedCardIds: new Set(bumpedCardIds) };
@@ -1884,8 +1924,8 @@ export async function getQueueCounts(
   deckId?: string,
   bonusNewCards = 0
 ): Promise<DeckQueueCounts> {
-  const inputs = await loadStudyInputs(deckId);
-  const raw = countRawQueues(inputs, collectReviewedNoteIds(inputs.cards), getStudyCutoff());
+  const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
+  const raw = countRawQueues(inputs, collectReviewedNoteIds(inputs.cards), getStudyCutoff(), noteText);
   const applied = allocateQueueCounts(raw, bonusNewCards, inputs.budget, inputs.spentElsewhere);
   return deckId ? applied.get(deckId) ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied.values());
 }

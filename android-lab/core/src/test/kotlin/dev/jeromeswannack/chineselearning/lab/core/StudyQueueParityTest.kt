@@ -45,6 +45,16 @@ class StudyQueueParityTest {
         assertTrue(check(cases, "novelty") >= 400)
     }
 
+    /** "New characters first across all decks": a never-seen character in ANY deck first, within each deck's cap. */
+    @Test
+    fun newCharactersFirstAcrossDecksMatchesTypeScript() {
+        val cases = fixture["globalNovelty"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 200)
+        assertTrue(check(cases, "globalNovelty") >= 400)
+        // Exercised: some queue takes new cards from a deck below one that also had new cards on offer.
+        assertTrue(cases.any { c -> c["queues"]!!.jsonArray.any { q -> q.jsonObject["allocation"]!!.jsonArray.size > 1 } })
+    }
+
     /** "⚡ Study it today" (shared/decks/bumps.ts): the pocket heads the queue, NEW over the budget. */
     @Test
     fun bumpPocketMatchesTypeScript() {
@@ -63,6 +73,7 @@ class StudyQueueParityTest {
         for ((n, c) in cases.withIndex()) {
             val i = "$label $n"
             val noteHanzi = c["noteHanzi"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content }
+            val longTerm = c["longTerm"]?.jsonObject?.mapValues { it.value.jsonPrimitive.int }
             val seenNoteIds = c["seenNoteIds"]?.let { if (it is JsonNull) null else it.jsonArray.map { e -> e.jsonPrimitive.content } }
             val decks = c["decks"]!!.jsonArray.map { it.jsonObject }.map {
                 QueueDeck(
@@ -113,7 +124,7 @@ class StudyQueueParityTest {
             for (q in c["queues"]!!.jsonArray.map { it.jsonObject }) {
                 val deckId = q["deckId"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
                 val where = "$i deck=$deckId"
-                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, bumps = bumps)
+                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, longTerm = longTerm, bumps = bumps)
                 q["bumped"]?.let { assertEquals(strings(it), built.bumped.map { c -> c.id }, "$where bumped cards in order") }
                 q["bumpedNoteIds"]?.let { assertEquals(strings(it), built.bumpedNoteIds, "$where bumped note ids") }
                 if (q["bumped"] != null) assertEquals(built.bumped, built.dueCards.take(built.bumped.size), "$where pocket heads the queue")

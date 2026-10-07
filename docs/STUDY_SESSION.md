@@ -140,8 +140,9 @@ introduced, how many words are left in it and roughly how many days that takes a
 rate.
 
 - **New words per day** (blue, primary): cards of unseen notes, preferring the hanzi_to_meaning
-  card so a brand-new word is introduced by its characters first. The budget is walked deck by
-  deck in queue order: the first deck takes as many as it can, the next deck gets the rest.
+  card so a brand-new word is introduced by its characters first. After the cross-deck
+  "new characters" pass (below), the budget is walked deck by deck in queue order: the first
+  deck takes as many as it can, the next deck gets the rest.
   **New characters first**: which of a deck's unseen notes it gives is decided by
   `pickByNovelty` (`shared/decks/novelty.ts`, Lab `core/…/Novelty.kt`, parity-tested). "Seen"
   = the Han characters in the hanzi of every note with a card past NEW (any deck; the example
@@ -151,8 +152,22 @@ rate.
   hanzi (学生 counts as seen once 大学生 was studied); (3) fewer Han characters (words before
   sentences, short sentences first); (4) card id, the old order. Picks are greedy: each pick's
   characters count as seen for the next one, across decks too, so two notes sharing one new
-  character aren't both introduced the same day. Only the choice inside a deck changes — the
-  deck queue, the budget and the caps, and the secondary (purple) cards are as before.
+  character aren't both introduced the same day.
+  **Across all decks first** (Oct 2026): before the decks are walked, the budget's blue cards go
+  to unseen words in ANY deck in scope that bring at least one never-seen character
+  (`pickNewCharactersFirst` in `shared/decks/study-queue.ts` → `pickNewCharactersAcrossGroups`,
+  Lab `StudyQueue.pickNewCharactersFirst` / `NoveltyRank.pickAcrossGroups`, parity-tested by the
+  `globalNovelty` vectors). Same greedy pick; ranked by never-seen characters (up to 2), then the
+  deck's queue position, then shorter, then card id. Each deck still gives at most min(its unseen
+  cards, what is left of its cap) — a one-off deck (caps 0 + 0), opted-out words and bumped cards
+  stay out exactly as before. Once no word brings a new character (or the budget is used) the rest
+  is filled deck by deck as above (`respreadPrimary` in `budget.ts`): the TOTAL of blue cards is
+  unchanged, only which decks supply them. So a word with a new character at the bottom of the
+  queue beats a familiar-character word in the top deck. Home's per-deck rows follow the same picks
+  (`countRawQueues` → `noveltyPicks`, `allocateQueueCounts`); totals, the Next up line (deck queue
+  + words to go) and the purple cards are unaffected. No setting — on for everyone. Cost: one scan
+  per pick over the candidates still bringing a new character (~25–50 ms for a 10k-note account
+  in Node, most of it the queue without novelty).
 - **Extra cards per day** (purple, secondary): additive to the primary budget. NEW cards whose
   note already has at least one reviewed card (e.g. meaning_to_hanzi after hanzi_to_meaning is in
   circulation), so the other card types of started words keep flowing even when brand-new words

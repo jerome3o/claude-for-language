@@ -93,6 +93,7 @@ export function pickByNovelty<T>(
   hanziOf: (item: T) => string,
   seen: SeenText
 ): T[] {
+  if (take <= 0) return [];
   const rest = candidates.map(item => {
     const hanzi = hanziOf(item);
     const text = hanText(hanzi);
@@ -124,6 +125,75 @@ export function pickByNovelty<T>(
     out.push(picked.item);
     markSeen(seen, picked.hanzi);
     if (picked.text) for (const r of rest) if (r.unseenWord && picked.text.includes(r.text)) r.unseenWord = false;
+  }
+  return out;
+}
+
+/**
+ * "New characters first across all decks": before decks are walked in queue
+ * order, the budget's first primary picks go to the unseen notes, in ANY deck,
+ * that bring never-seen Han characters. Greedy like pickByNovelty (each pick's
+ * characters count as seen for the next); only a candidate that still brings
+ * ≥ 1 never-seen character qualifies, and a group (deck) gives at most
+ * `room.get(group)` picks. Ranking: never-seen characters (counted up to
+ * NEW_CHARACTER_RANK_CAP) desc, then `rank(group)` asc (deck queue position),
+ * then fewer Han characters, then `tieKey` (card id).
+ *
+ * Fast for ~10k notes: candidates are filtered once against the seen set
+ * (a note with no never-seen character can never gain one), and each pick is
+ * one scan over what is left. Mutates `seen`.
+ */
+export function pickNewCharactersAcrossGroups<T>(
+  candidates: readonly T[],
+  take: number,
+  hanziOf: (item: T) => string,
+  groupOf: (item: T) => string,
+  rank: (group: string) => number,
+  room: ReadonlyMap<string, number>,
+  tieKey: (item: T) => string,
+  seen: SeenText
+): T[] {
+  if (take <= 0) return [];
+  const left = new Map(room);
+  let rest: Array<{ item: T; hanzi: string; chars: string[]; length: number; rank: number; group: string; key: string }> = [];
+  for (const item of candidates) {
+    const group = groupOf(item);
+    if ((left.get(group) ?? 0) <= 0) continue;
+    const hanzi = hanziOf(item);
+    const chars = hanCharacters(hanzi);
+    if (!chars.some(c => !seen.chars.has(c))) continue;
+    rest.push({ item, hanzi, chars, length: [...hanText(hanzi)].length, rank: rank(group), group, key: tieKey(item) });
+  }
+  const out: T[] = [];
+  while (out.length < take && rest.length > 0) {
+    let best = -1;
+    let bestNew = 0;
+    const keep: typeof rest = [];
+    for (const r of rest) {
+      if ((left.get(r.group) ?? 0) <= 0) continue;
+      let newChars = 0;
+      for (const c of r.chars) if (!seen.chars.has(c)) newChars++;
+      if (newChars === 0) continue;
+      const n = Math.min(newChars, NEW_CHARACTER_RANK_CAP);
+      keep.push(r);
+      const i = keep.length - 1;
+      if (best < 0) { best = i; bestNew = n; continue; }
+      const b = keep[best];
+      const better = n !== bestNew ? n > bestNew
+        : r.rank !== b.rank ? r.rank < b.rank
+        : r.length !== b.length ? r.length < b.length
+        : r.key < b.key;
+      if (better) {
+        best = i;
+        bestNew = n;
+      }
+    }
+    if (best < 0) break;
+    const [picked] = keep.splice(best, 1);
+    rest = keep;
+    out.push(picked.item);
+    left.set(picked.group, (left.get(picked.group) ?? 0) - 1);
+    markSeen(seen, picked.hanzi);
   }
   return out;
 }

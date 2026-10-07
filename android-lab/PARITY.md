@@ -68,7 +68,7 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | FSRS scheduling (event replay, live review, interval previews) | ✅ parity-tested | `shared/scheduler/compute-state.ts` | `core/…/Fsrs.kt`, `CardState.kt` |
 | Global new-card budget, deck queue, per-deck caps | ✅ parity-tested | `shared/decks/budget.ts` | `core/…/Budget.kt` |
 | Queue building (cutoff, due cards, tiers), introduced today, Home counts | ✅ parity-tested (`parity/fixtures/study-queue.ts`) | `shared/decks/study-queue.ts` (`getStudyQueue`, Home) | `core/…/StudyQueue.kt` |
-| New characters first (which unseen notes a deck introduces: never-seen characters, unseen word, shorter; greedy) | ✅ parity-tested (`parity/fixtures/study-queue.ts` `novelty`, pick order compared) | `shared/decks/novelty.ts` | `core/…/Novelty.kt`, `StudyQueue.build(…, noteHanzi)` |
+| New characters first (across ALL decks first — never-seen characters in any deck, within caps — then which unseen notes a deck introduces: never-seen characters, unseen word, shorter; greedy) | ✅ parity-tested (`parity/fixtures/study-queue.ts` `novelty` + `globalNovelty`, pick order + allocation compared) | `shared/decks/novelty.ts` | `core/…/Novelty.kt`, `StudyQueue.build(…, noteHanzi)` |
 | Next-card pick | ✅ unit-tested | `useStudySession.ts` `selectNextItem` | `core/…/StudyQueue.kt` |
 | Events the server refuses (`orphan_event_ids` from `POST /api/reviews`) marked rejected, not synced | ✅ `synced = -1` (the web's `_synced = -1`), never re-uploaded; contract-tested against a real worker | `services/review-events.ts` | `data/Repository.kt` `uploadPending`, `LabDao.markRejected` |
 | Three card types (read / write / listen), flip, rating bar | ✅ | `StudyPage.tsx` | `ui/study/CardStage.kt` |

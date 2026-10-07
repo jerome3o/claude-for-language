@@ -60,6 +60,7 @@ object NoveltyRank {
 
     /** Port of pickByNovelty(): [take] items in pick order; mutates [seen]. Ties keep the input order. */
     fun <T> pick(candidates: List<T>, take: Int, hanziOf: (T) -> String, seen: SeenText): List<T> {
+        if (take <= 0) return emptyList()
         val rest = candidates.mapTo(ArrayList()) { item ->
             val hanzi = hanziOf(item)
             val text = hanText(hanzi)
@@ -77,6 +78,67 @@ object NoveltyRank {
             out += picked.item
             markSeen(seen, picked.hanzi)
             if (picked.text.isNotEmpty()) for (r in rest) if (r.unseenWord && picked.text.contains(r.text)) r.unseenWord = false
+        }
+        return out
+    }
+
+    private class GroupCandidate<T>(val item: T, val hanzi: String, val chars: List<String>, val length: Int, val rank: Int, val group: String, val key: String)
+
+    /**
+     * Port of pickNewCharactersAcrossGroups(): "new characters first across all decks". Greedy;
+     * only candidates still bringing ≥ 1 never-seen character qualify; a group gives at most
+     * [room] picks. Ranking: never-seen characters (capped) desc, [rank] asc, shorter, [tieKey]
+     * (JS string order = UTF-16, like Kotlin's compareTo). Mutates [seen].
+     */
+    fun <T> pickAcrossGroups(
+        candidates: List<T>,
+        take: Int,
+        hanziOf: (T) -> String,
+        groupOf: (T) -> String,
+        rank: (String) -> Int,
+        room: Map<String, Int>,
+        tieKey: (T) -> String,
+        seen: SeenText,
+    ): List<T> {
+        if (take <= 0) return emptyList()
+        val left = HashMap(room)
+        var rest = ArrayList<GroupCandidate<T>>()
+        for (item in candidates) {
+            val group = groupOf(item)
+            if ((left[group] ?: 0) <= 0) continue
+            val hanzi = hanziOf(item)
+            val chars = Known.hanCharacters(hanzi)
+            if (chars.none { it !in seen.chars }) continue
+            val text = hanText(hanzi)
+            rest += GroupCandidate(item, hanzi, chars, text.codePointCount(0, text.length), rank(group), group, tieKey(item))
+        }
+        val out = ArrayList<T>()
+        while (out.size < take && rest.isNotEmpty()) {
+            var best = -1
+            var bestNew = 0
+            val keep = ArrayList<GroupCandidate<T>>(rest.size)
+            for (r in rest) {
+                if ((left[r.group] ?: 0) <= 0) continue
+                val newChars = r.chars.count { it !in seen.chars }
+                if (newChars == 0) continue
+                val n = minOf(newChars, NEW_CHARACTER_RANK_CAP)
+                keep += r
+                if (best < 0) { best = keep.size - 1; bestNew = n; continue }
+                val b = keep[best]
+                val better = when {
+                    n != bestNew -> n > bestNew
+                    r.rank != b.rank -> r.rank < b.rank
+                    r.length != b.length -> r.length < b.length
+                    else -> r.key < b.key
+                }
+                if (better) { best = keep.size - 1; bestNew = n }
+            }
+            if (best < 0) break
+            val picked = keep.removeAt(best)
+            rest = keep
+            out += picked.item
+            left[picked.group] = (left[picked.group] ?: 0) - 1
+            markSeen(seen, picked.hanzi)
         }
         return out
     }
