@@ -16,6 +16,7 @@ import {
   pickVoiceGender,
 } from '../../../shared/chats/voice';
 import { DEFAULT_LESSON_VOICE } from '../../../shared/lesson/voices';
+import { DEVICE_SPEECH_RATE } from '../../../shared/tts/config';
 
 const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
@@ -77,6 +78,7 @@ writeFileSync(
     hint: VOICE_GENDER_HINT,
     options: VOICE_GENDER_OPTIONS,
     speed: CHAT_READ_ALOUD_SPEED,
+    device_speech_rate: DEVICE_SPEECH_RATE,
     default_voice: DEFAULT_LESSON_VOICE,
     voices,
     speeds,

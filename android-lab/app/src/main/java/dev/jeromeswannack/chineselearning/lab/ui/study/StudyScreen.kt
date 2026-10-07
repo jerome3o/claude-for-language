@@ -244,6 +244,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             sentences = SentenceActions(
                 generate = vm::generateSentences,
                 clear = vm::clearSentences,
+                ensureAudio = vm::ensureSentenceAudio,
                 cachedExplanation = { r -> tools.cachedExplanation(r.sentenceId, r.hanzi) },
                 explain = { r -> tools.explain(r.sentenceId, r.hanzi, r.pinyin, r.translation) },
                 cachedTranslation = { r -> tools.cachedClueTranslation(r.hanzi) },

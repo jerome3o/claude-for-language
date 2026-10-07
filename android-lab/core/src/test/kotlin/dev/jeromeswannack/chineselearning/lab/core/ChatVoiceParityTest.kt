@@ -30,6 +30,7 @@ class ChatVoiceParityTest {
         assertEquals(data["title"]!!.str, ChatVoice.TITLE)
         assertEquals(data["hint"]!!.str, ChatVoice.HINT)
         assertEquals(data["speed"]!!.jsonPrimitive.double, ChatVoice.SPEED)
+        assertEquals(data["device_speech_rate"]!!.jsonPrimitive.double, ChatVoice.DEVICE_SPEECH_RATE)
         assertEquals(data["default_voice"]!!.str, ChatVoice.DEFAULT_VOICE)
         val options = data["options"]!!.jsonArray.map { ChatVoice.Option(it.jsonObject["value"]?.str, it.jsonObject["label"]!!.str!!) }
         assertEquals(options, ChatVoice.OPTIONS)

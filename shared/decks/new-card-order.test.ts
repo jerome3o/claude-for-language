@@ -130,6 +130,59 @@ describe('pickNewCardsByOrder', () => {
     expect(pick(items, 3, only('sentences_last'), ['工作', '银行', '熊猫很可爱'], 99, { top: 0, low: 1 })).toEqual(['old', 'w']);
   });
 
+  describe('new characters, the most common first', () => {
+    // Character ranks: 人 1, 大 2, 天 3, 上 4, 下 5, 水 6, 火 7, 山 8; 龙 / 凤 aren't listed.
+    const common = parseFrequencyList('#words\n人\n大人\n天\n#chars\n人大天上下水火山\n');
+    const NEW_CHARS = only('new_characters_first', { most_common_first: true });
+    const pickC = (items: Item[], take: number, order: NewCardOrder, rank: Record<string, number> = {}, studiedText: string[] = []) =>
+      pickNewCardsByOrder(items, take, i => i.hanzi, i => i.deck, g => rank[g] ?? 0, new Map(items.map(i => [i.deck, 99])),
+        i => i.id, order, studiedFrom(studiedText), common).map(i => i.id);
+
+    it('a common new character in a lower deck beats a rare one in a higher deck', () => {
+      const items = [it_('rare', '山水', 'top'), it_('common', '上', 'low')];
+      expect(pickC(items, 2, NEW_CHARS, { top: 0, low: 1 })).toEqual(['common', 'rare']);
+      // Off: today's order — two new characters beat one.
+      expect(pickC(items, 2, only('new_characters_first'), { top: 0, low: 1 })).toEqual(['rare', 'common']);
+      // A character missing from the list ranks last.
+      expect(pickC([it_('dragon', '龙', 'top'), it_('fire', '火', 'low')], 2, NEW_CHARS, { top: 0, low: 1 })).toEqual(['fire', 'dragon']);
+    });
+
+    it('only the NEVER-SEEN characters count', () => {
+      // 人山: 人 is studied, so it brings 山 (8); 下 (5) is more common.
+      expect(pickC([it_('a', '人山'), it_('b', '下')], 2, NEW_CHARS, {}, ['人'])).toEqual(['b', 'a']);
+    });
+
+    it('ties: more new characters, then word frequency, then the deck queue, then id', () => {
+      // Same most common new character (上): the one bringing two new characters first; then 上 is seen
+      // and 上 alone brings nothing new.
+      expect(pickC([it_('a', '上'), it_('b', '上山')], 2, NEW_CHARS)).toEqual(['b']);
+      // Both bring 人 + one more: the listed word 大人 before 人天, even from a lower deck.
+      expect(pickC([it_('x', '人天', 'top'), it_('y', '大人', 'low')], 1, NEW_CHARS, { top: 0, low: 1 })).toEqual(['y']);
+      // Both unlisted: the deck queue, then the card id.
+      expect(pickC([it_('d', '龙', 'low'), it_('p', '凤', 'top')], 2, NEW_CHARS, { top: 0, low: 1 })).toEqual(['p', 'd']);
+      expect(pickC([it_('d2', '龙'), it_('d1', '凤')], 2, NEW_CHARS)).toEqual(['d1', 'd2']);
+    });
+
+    it('greedy: after each pick the rest are re-ranked by the characters still new', () => {
+      // 人水 and 人山 both bring 人 (1): 人水 first (more common as a whole). Then 人 is seen, so
+      // 人山 brings only 山 (8) and 下 (5) goes before it.
+      const items = [it_('p', '人山'), it_('q', '人水'), it_('r', '下')];
+      expect(pickC(items, 3, NEW_CHARS)).toEqual(['q', 'r', 'p']);
+    });
+
+    it('words before sentences still comes first when sentences are last', () => {
+      const items = [it_('s', '人在山上。'), it_('w', '火')];
+      expect(pickC(items, 2, { ...NEW_CHARS, sentences_last: true })).toEqual(['w', 's']);
+      expect(pickC(items, 2, NEW_CHARS)).toEqual(['s', 'w']);
+    });
+
+    it('without the frequency list: today\'s order', () => {
+      const items = [it_('rare', '山水', 'top'), it_('common', '上', 'low')];
+      expect(pickNewCardsByOrder(items, 2, i => i.hanzi, i => i.deck, g => (g === 'top' ? 0 : 1), new Map([['top', 9], ['low', 9]]),
+        i => i.id, NEW_CHARS, studiedFrom([]), null).map(i => i.id)).toEqual(['rare', 'common']);
+    });
+  });
+
   it('a deck gives at most its room', () => {
     const items = [it_('1', '熊', 'x'), it_('2', '猫', 'x'), it_('3', '狗', 'y')];
     expect(pick(items, 3, DEFAULT_NEW_CARD_ORDER, [], 1).sort()).toEqual(['1', '3']);

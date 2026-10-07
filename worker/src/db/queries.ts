@@ -3443,12 +3443,13 @@ export async function createCoachConversation(
   title: string,
   inputLanguage: 'zh' | 'en',
   action: 'check' | 'explain' | 'translate' | null = null,
+  sourceMessageId: string | null = null,
 ): Promise<CoachConversation> {
   const id = crypto.randomUUID();
   await db.prepare(`
-    INSERT INTO coach_conversations (id, user_id, title, input_language, action)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(id, userId, title, inputLanguage, action).run();
+    INSERT INTO coach_conversations (id, user_id, title, input_language, action, source_message_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(id, userId, title, inputLanguage, action, sourceMessageId).run();
   const conv = await db.prepare(`SELECT * FROM coach_conversations WHERE id = ?`)
     .bind(id).first<CoachConversation>();
   return conv!;
@@ -3458,14 +3459,17 @@ export async function getCoachConversations(
   db: D1Database,
   userId: string,
   limit = 50,
-): Promise<(CoachConversation & { message_count: number })[]> {
+): Promise<(CoachConversation & { message_count: number; pending_reply: number; failed_reply: number })[]> {
+  // pending_reply / failed_reply: Claude is still answering in the background / gave up (Retry).
   const r = await db.prepare(`
-    SELECT c.*, (SELECT COUNT(*) FROM coach_messages m WHERE m.conversation_id = c.id) as message_count
+    SELECT c.*, (SELECT COUNT(*) FROM coach_messages m WHERE m.conversation_id = c.id) as message_count,
+      EXISTS (SELECT 1 FROM coach_messages m WHERE m.conversation_id = c.id AND m.status = 'pending') as pending_reply,
+      EXISTS (SELECT 1 FROM coach_messages m WHERE m.conversation_id = c.id AND m.status = 'failed') as failed_reply
     FROM coach_conversations c
     WHERE c.user_id = ?
     ORDER BY c.updated_at DESC
     LIMIT ?
-  `).bind(userId, limit).all<CoachConversation & { message_count: number }>();
+  `).bind(userId, limit).all<CoachConversation & { message_count: number; pending_reply: number; failed_reply: number }>();
   return r.results;
 }
 
@@ -3477,6 +3481,18 @@ export async function getCoachConversation(
   const r = await db.prepare(`
     SELECT * FROM coach_conversations WHERE id = ? AND user_id = ?
   `).bind(id, userId).first<CoachConversation>();
+  return r ?? null;
+}
+
+/** The conversation "Open in Coach" already made from this chat message, if any. */
+export async function getCoachConversationBySource(
+  db: D1Database,
+  userId: string,
+  sourceMessageId: string,
+): Promise<CoachConversation | null> {
+  const r = await db.prepare(`
+    SELECT * FROM coach_conversations WHERE user_id = ? AND source_message_id = ? ORDER BY created_at DESC LIMIT 1
+  `).bind(userId, sourceMessageId).first<CoachConversation>();
   return r ?? null;
 }
 
@@ -3497,12 +3513,13 @@ export async function addCoachMessage(
   contentType: 'text' | 'analysis',
   content: string,
   toolResults: string | null = null,
+  status: 'pending' | null = null,
 ): Promise<CoachMessage> {
   const id = crypto.randomUUID();
   await db.prepare(`
-    INSERT INTO coach_messages (id, conversation_id, role, content_type, content, tool_results)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(id, conversationId, role, contentType, content, toolResults).run();
+    INSERT INTO coach_messages (id, conversation_id, role, content_type, content, tool_results, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, conversationId, role, contentType, content, toolResults, status).run();
   await db.prepare(`
     UPDATE coach_conversations SET updated_at = datetime('now') WHERE id = ?
   `).bind(conversationId).run();

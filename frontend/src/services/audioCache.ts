@@ -1,6 +1,6 @@
 import { db } from '../db/database';
 import { API_BASE } from '../api/client';
-import { DEFAULT_TTS_SPEED } from '../types';
+import { DEVICE_SPEECH_RATE } from '@shared/tts';
 import { whenAudioIdle } from '../utils/audioPlayback';
 
 // Size budget for the audio cache. Audio clips are small (~30-60KB), so this
@@ -259,7 +259,7 @@ export function speakWithBrowserTTS(text: string, gender?: 'male' | 'female' | n
     }
 
     utterance.lang = 'zh-CN';
-    utterance.rate = DEFAULT_TTS_SPEED;
+    utterance.rate = DEVICE_SPEECH_RATE;
 
     utterance.onend = () => resolve();
     utterance.onerror = (event) => reject(new Error(event.error));

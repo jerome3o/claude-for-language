@@ -400,13 +400,22 @@ data class BatchNotesBody(val notes: List<NewNoteBody>)
 data class BatchFailureDto(val index: Int = 0, val hanzi: String = "", val error: String = "")
 
 @Serializable
-data class BatchCreatedDto(val id: String = "")
+data class BatchCreatedDto(val id: String = "", val hanzi: String = "")
+
+/** With `skip_existing=1`: a row not added because the word is already in one of my decks. */
+@Serializable
+data class BatchExistingDto(val index: Int = 0, val hanzi: String = "", val note_id: String = "", val deck_name: String = "")
 
 @Serializable
-data class BatchNotesDto(val created: List<BatchCreatedDto> = emptyList(), val failed: List<BatchFailureDto> = emptyList())
+data class BatchNotesDto(
+    val created: List<BatchCreatedDto> = emptyList(),
+    val failed: List<BatchFailureDto> = emptyList(),
+    val existing: List<BatchExistingDto> = emptyList(),
+)
 
 /** `POST /api/decks/:id/notes/batch` — every row stands alone; failures come back by index. */
-suspend fun Api.addNotesBatch(deckId: String, notes: List<NewNoteBody>): BatchNotesDto = post("/api/decks/${enc(deckId)}/notes/batch", BatchNotesBody(notes))
+suspend fun Api.addNotesBatch(deckId: String, notes: List<NewNoteBody>, skipExisting: Boolean = false): BatchNotesDto =
+    post("/api/decks/${enc(deckId)}/notes/batch" + (if (skipExisting) "?skip_existing=1" else ""), BatchNotesBody(notes))
 
 @Serializable
 data class CoachSentenceBody(val sentence: String)

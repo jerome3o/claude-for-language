@@ -80,7 +80,8 @@ function makeWorld(db: SqliteD1) {
     idFromName: (name: string) => name,
     get: (id: string) => ({ broadcast: async (event: { type: string; message?: MessageWithSender }) => { events.push({ user: id, event }); return 1; } }),
   };
-  const env = { DB: db, SESSION_SECRET: 's', CHAT_HUB: ns, ANTHROPIC_API_KEY: 'test-key' } as unknown as Env;
+  const bucket = { put: async () => undefined, delete: async () => undefined, get: async () => null };
+  const env = { DB: db, SESSION_SECRET: 's', CHAT_HUB: ns, ANTHROPIC_API_KEY: 'test-key', AUDIO_BUCKET: bucket } as unknown as Env;
   const as = (userId: string) => {
     const app = new Hono<{ Bindings: Env }>();
     app.use('/api/*', async (c, next) => { c.set('user', { id: userId } as never); await next(); });
@@ -88,7 +89,15 @@ function makeWorld(db: SqliteD1) {
     app.route('/api', chatMessages);
     app.route('/api', emailPrefs);
     return (method: string, path: string, body?: unknown) =>
-      app.request(path, body === undefined ? { method } : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env);
+      app.request(
+        path,
+        body === undefined
+          ? { method }
+          : body instanceof Uint8Array
+            ? { method, headers: { 'Content-Type': 'image/png' }, body }
+            : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        env,
+      );
   };
   return { env, events, as };
 }
@@ -144,6 +153,38 @@ describe('auto-check on chat messages', () => {
     const since = mine.created_at;
     const later = await json<{ messages: MessageWithSender[] }>(await w.as(STUDENT)('GET', `/api/conversations/conv-1/messages?since=${encodeURIComponent(since)}`));
     expect(later.messages.find((m) => m.id === sent.id)?.auto_check?.status).toBe('improvable');
+  });
+
+  it('a photo with a Chinese caption is checked on the caption (it used to be skipped), shown with the photo', async () => {
+    // A minimal PNG header (sniffImage reads the magic bytes + IHDR size).
+    const png = new Uint8Array(64);
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 10, 0, 0, 0, 10]);
+    const res = await w.as(STUDENT)('POST', `/api/conversations/conv-1/media?kind=image&caption=${encodeURIComponent(SENTENCE)}`, png);
+    expect(res.status).toBe(201);
+    expect(checkCalls()).toHaveLength(1);
+    expect(checkCalls()[0].messages[0].content).toContain(SENTENCE);
+    const [mine] = await messagesOf(w, STUDENT);
+    expect(mine.attachment?.kind).toBe('image');
+    expect(mine.auto_check).toMatchObject({ text: SENTENCE, status: 'improvable' });
+    const [theirs] = await messagesOf(w, TUTOR);
+    expect(theirs.auto_check ?? null).toBeNull();
+  });
+
+  it('a photo without a caption is not checked; a voice message is checked on its transcript once it exists', async () => {
+    const png = new Uint8Array(64);
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 10, 0, 0, 0, 10]);
+    expect((await w.as(STUDENT)('POST', '/api/conversations/conv-1/media?kind=image', png)).status).toBe(201);
+    expect(checkCalls()).toHaveLength(0);
+
+    const voice = (status: string, transcript: string | null) =>
+      JSON.stringify({ kind: 'voice', duration_ms: 1500, bytes: 10, mime: 'audio/webm', transcript_status: status, transcript, translation: null, key: 'chat-media/conv-1/v1.webm' });
+    db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content, attachment, created_at) VALUES ('v1', 'conv-1', ?, '', ?, '2026-10-07 10:00:00')", [STUDENT, voice('pending', null)]);
+    expect(await autoCheckMessageInBackground(w.env, 'v1')).toBe('skipped');
+    db.raw.run('UPDATE messages SET attachment = ? WHERE id = ?', [voice('done', SENTENCE), 'v1']);
+    expect(await autoCheckMessageInBackground(w.env, 'v1')).toBe('checked');
+    expect(await autoCheckMessageInBackground(w.env, 'v1')).toBe('cached');
+    const v = (await messagesOf(w, STUDENT)).find((m) => m.id === 'v1')!;
+    expect(v.auto_check).toMatchObject({ text: SENTENCE, status: 'improvable' });
   });
 
   it("the tutor's messages are not checked; the outbox's repeat send is not checked twice", async () => {

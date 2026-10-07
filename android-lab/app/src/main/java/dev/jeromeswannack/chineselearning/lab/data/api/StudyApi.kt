@@ -243,6 +243,13 @@ private data class ExplanationAnswer(val explanation: SentenceExplanation)
 @Serializable
 data class ExplainTextBody(val hanzi: String, val pinyin: String? = null, val translation: String? = null)
 
+/** `POST /api/sentences/:id/ensure-audio`: ready (+ audio_url) · queued (ask again shortly) · failed. */
+@Serializable
+data class SentenceAudioAnswer(val status: String = "failed", val audio_url: String? = null)
+
+suspend fun Api.ensureSentenceAudio(sentenceId: String): SentenceAudioAnswer =
+    post<SentenceAudioAnswer>("/api/sentences/${enc(sentenceId)}/ensure-audio")
+
 suspend fun Api.explainSentence(sentenceId: String): SentenceExplanation =
     post<ExplanationAnswer>("/api/sentences/${enc(sentenceId)}/explain").explanation
 

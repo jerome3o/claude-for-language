@@ -89,7 +89,7 @@ class NewCardOrderParityTest {
     fun pickerMatchesTypeScript() {
         val shipped = WordFrequency.shipped!!
         val cases = fixture["picker"]!!.jsonArray.map { it.jsonObject }
-        assertTrue(cases.size >= 300)
+        assertTrue(cases.size >= 500) // 300 random + the new-character-tier cases (most common new character first)
         var nonEmpty = 0
         for ((n, c) in cases.withIndex()) {
             val items = c["items"]!!.jsonArray.map { it.jsonObject }.map {

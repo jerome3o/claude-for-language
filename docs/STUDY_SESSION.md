@@ -154,14 +154,23 @@ rate.
   what is left of its cap)), before the deck order decides:
   1. **New characters first** — unseen notes that bring at least one never-seen Han character.
      "Seen" = the Han characters in the hanzi of every note with a card past NEW (any deck; the
-     example sentence doesn't count). Ranked by never-seen characters, counted up to 2 — a long
-     sentence with five new characters doesn't beat a word with two.
+     example sentence doesn't count). With **Most common first** on (the default) the tier is
+     ordered by how common the note's most common NEVER-SEEN character is in everyday Chinese
+     (its character rank in the shipped list; a character missing from the list ranks last), so
+     the most useful new characters come first — a common new character in a lower deck beats a
+     rare one in the top deck. Ties: more never-seen characters first (counted up to 2), then the
+     word's frequency, then the deck queue position, fewer characters, card id. Greedy: after each
+     pick its characters count as seen, so the rest are re-ranked by the characters still new (two
+     picks never introduce only the same character). Off (or no list): ranked by never-seen
+     characters, counted up to 2 — a long sentence with five new characters doesn't beat a word
+     with two.
   2. **New words first** — WORD notes (1–4 Han characters, no sentence punctuation: the Progress
      page's `noteKind`) whose text appears in no studied note's hanzi, sentences included: 银行 is
      new even when 银 and 行 are both known; a word already met inside a studied sentence (工作 in
      我在银行工作。) is not. The index is every 2–4 character piece inside a run of Han characters
      of every studied note (`StudiedIndex`), so a check is one Set lookup.
-  3. **Most common first** — not a tier: inside each tier the most common word first, and in the
+  3. **Most common first** — not a tier: inside each tier the most common word first (in tier 1,
+     first the most common new character, above), and in the
      deck fallback inside each deck (deck order still first there). Frequency = rank in
      `shared/data/frequency/word-freq.txt` (wordfreq `large_zh`, data CC BY-SA 4.0 — the same
      source as the character sheet; 30,000 words + 8,000 characters, ~150 kB gzipped; rebuilt by
@@ -484,14 +493,19 @@ turns the card back to the question as the new take starts, so the word is said 
 alone, not read off the pinyin / English. The question shows a pulsing mic, the time so far, the
 level, "Tap anywhere to stop" and **Stop** / **Cancel**; the ratings stay up. A tap anywhere on
 the card (or Stop) saves the take and turns back to the answer, where it is transcribed as usual
-("You said …", live Soniox or the upload). Back (the Android back gesture / browser back), Esc or
+("You said …", live Soniox or the upload) and **the card's own clip plays again** — the reveal's
+auto-play (the note's recordings in turn, else its clip; a clip still being made is waited for), once,
+with his own take's playback stopped — so the right pronunciation follows straight after his.
+Cancelled, or a take that came out empty, plays nothing. Back (the Android back gesture / browser back), Esc or
 Cancel throws the new take away and the answer comes back with the previous take and its result —
 the previous take is replaced only when the new one is saved. Rating, FSRS and the upload are
 unchanged; the first Record on the question works as before. Web: `reRecording` /
 `renderReRecordPanel` in `StudyPage.tsx` (a history entry is pushed while recording so back
 cancels), `useAudioRecorder` `keepPrevious` / `cancelRecording`; e2e `study-record-again.spec.ts`.
 Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRecording` /
-`keepNewTake` in `StudyViewModel.kt` (`RecordAgainFlipTest`).
+`keepNewTake` in `StudyViewModel.kt` (`RecordAgainFlipTest`). The replay: web
+`replayAfterReRecordRef` in `StudyPage.tsx` (plays when the new take's blob lands); Lab
+`recordingAgain` / `playWordAfterRecordAgain` in `StudyViewModel.kt` (`RecordAgainAutoplayTest`).
 
 ## Character sheet
 

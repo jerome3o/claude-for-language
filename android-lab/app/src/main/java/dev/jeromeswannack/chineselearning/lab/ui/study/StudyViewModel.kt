@@ -39,11 +39,16 @@ import kotlin.random.Random
  * Queue rules live in core/StudyQueue (pure, unit-tested); this class owns the
  * in-memory queue, the local writes and the feedback effects.
  */
+/** After a Record again: the card's clip plays once the answer side has turned back (the flip). */
+internal const val RECORD_AGAIN_PLAY_DELAY_MS = 350L
+
 class StudyViewModel(
     private val app: LabApp,
     private val deckId: String?,
     /** The tutor-notes practice: just these cards, a rating counts only when the card is due. */
     private val practice: PracticeSpec? = null,
+    /** The microphone (tests pass a fake: Robolectric's MediaRecorder writes nothing). */
+    newRecorder: ((kotlinx.coroutines.CoroutineScope) -> VoiceRecorder)? = null,
 ) : ViewModel() {
     private val repo = app.repo
     private val zone = ZoneId.systemDefault()
@@ -499,6 +504,8 @@ class StudyViewModel(
         take?.delete()
         take = null
         dropLive()
+        recordingAgain = false
+        replayJob?.cancel()
         _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras(), practice = it.practice?.copy(counts = practiceCounts(card))) }
         playWhenMade = null
         revealedPresentation = null
@@ -753,10 +760,17 @@ class StudyViewModel(
 
     // ---------------- my recording ----------------
 
-    val recorder = VoiceRecorder(app, viewModelScope)
+    val recorder: VoiceRecorder = newRecorder?.invoke(viewModelScope) ?: VoiceRecorder(app, viewModelScope)
     /** The current card's finished take (deleted when the card goes without a rating). */
     private var take: java.io.File? = null
     private var takeJob: Job? = null
+    /**
+     * The take recording now is a "Record again" from the answer side (the card was already
+     * revealed when it started): once it is saved, the card's own clip plays (see [stopRecording]).
+     */
+    private var recordingAgain = false
+    /** The card's clip waiting to play after a Record again (cancelled by a new take / card). */
+    private var replayJob: Job? = null
     val level get() = recorder.level
 
     private fun updateTake(view: CardView, change: (TakeUi) -> TakeUi) = updateExtras(view) { it.copy(take = change(it.take)) }
@@ -790,6 +804,8 @@ class StudyViewModel(
         }
         dropLive()
         app.audio.stop()
+        recorder.stopPlayback()
+        replayJob?.cancel()
         val live = liveKeys.usable()?.takeIf { aiAvailable }?.let { runCatching { SonioxStream(repo.api.http, it) }.getOrNull() }
         val started = when {
             live != null && recorder.startLive { buf, n -> live.send(buf, n) } -> { liveStream = live; true }
@@ -800,15 +816,22 @@ class StudyViewModel(
             return
         }
         app.haptics.tick()
+        recordingAgain = isRevealed(v)
         updateTake(v) { if (again) it.copy(recording = true, starting = !skipDelay) else TakeUi(recording = true, starting = !skipDelay) }
         takeJob?.cancel()
         if (!skipDelay) takeJob = viewModelScope.launch { delay(500); updateTake(v) { it.copy(starting = false) } }
     }
 
-    /** Stop: keep the take and transcribe it straight away (it shows on the back). */
+    /**
+     * Stop: keep the take and transcribe it straight away (it shows on the back). After a Record
+     * again on the answer side, the card turns back to the answer and its own clip plays — the
+     * reveal's auto-play — so he hears the right pronunciation straight after saying it.
+     */
     fun stopRecording(@Suppress("UNUSED_PARAMETER") flipped: Boolean) {
         val v = currentView() ?: return
         takeJob?.cancel()
+        val again = recordingAgain
+        recordingAgain = false
         val fresh = keepNewTake()
         liveResult = liveStream?.takeIf { fresh }?.let { s -> viewModelScope.async { s.finish() } }
         if (!fresh) liveStream?.abort()
@@ -817,6 +840,24 @@ class StudyViewModel(
         if (!fresh) return updateTake(v) { it.copy(recording = false, starting = false) }
         updateTake(v) { TakeUi(hasTake = take != null) }
         transcribe(v)
+        if (again) playWordAfterRecordAgain(v)
+    }
+
+    /**
+     * The answer's auto-play once more, after a Record again was saved: his own take's playback
+     * stops, and the card's clip (the same [playWord] the reveal uses — recordings in turn, a clip
+     * still being made waits for it) plays once the card has turned back. Only if nothing changed
+     * meanwhile: the same card, not recording again, no newer take.
+     */
+    private fun playWordAfterRecordAgain(v: CardView) {
+        recorder.stopPlayback()
+        replayJob?.cancel()
+        val gen = takeGeneration
+        replayJob = viewModelScope.launch {
+            delay(RECORD_AGAIN_PLAY_DELAY_MS)
+            if (currentView()?.presentation != v.presentation || recorder.recording || gen != takeGeneration) return@launch
+            playWord(false)
+        }
     }
 
     /**
@@ -839,6 +880,7 @@ class StudyViewModel(
         val v = currentView() ?: return
         if (!recorder.recording) return
         takeJob?.cancel()
+        recordingAgain = false
         recorder.stop()?.delete()
         liveStream?.abort()
         liveStream = null
@@ -1044,6 +1086,18 @@ class StudyViewModel(
         val v = currentView() ?: return
         showSentences(v.note.id, tools.generateSet(v.note.id, count, customPrompt, keepExisting))
         app.haptics.correct()
+    }
+
+    /** ▶ on a set row with no clip: [CardTools.ensureSentenceAudio], and the card shows the clip once it is there. */
+    suspend fun ensureSentenceAudio(sentenceId: String): String? {
+        val v = currentView() ?: return null
+        val answer = tools.ensureSentenceAudio(v.note.id, sentenceId)
+        if (!answer.audio_url.isNullOrBlank()) showSentences(v.note.id, withContext(Dispatchers.IO) { repo.dao.sentencesFor(v.note.id) })
+        return when {
+            !answer.audio_url.isNullOrBlank() -> answer.audio_url
+            answer.status == "queued" -> SentenceAudioWait.COMING
+            else -> null
+        }
     }
 
     suspend fun clearSentences() {

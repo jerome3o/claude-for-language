@@ -9,14 +9,18 @@
  * any deck in scope, each deck within min(its unseen cards, what is left of its cap)):
  *
  *   1. new_characters_first — notes that bring a never-seen Han character (seen = the hanzi
- *      of every note with a reviewed card, novelty.ts). Ranked by never-seen characters
- *      counted up to NEW_CHARACTER_RANK_CAP (2).
+ *      of every note with a reviewed card, novelty.ts). With "Most common first" on, ranked
+ *      by how common their most common NEVER-SEEN character is (frequency.ts character rank,
+ *      unlisted characters last) — the most useful new character first; then by never-seen
+ *      characters counted up to NEW_CHARACTER_RANK_CAP (2), then by word frequency. Off:
+ *      never-seen characters (capped) only.
  *   2. new_words_first — WORD notes (1–4 Han characters, no sentence punctuation:
  *      progress/known.ts `noteKind`) whose text appears in no studied note's hanzi,
  *      sentences included: 银行 is new even when 银 and 行 are known; a word already met
  *      inside a studied sentence is not.
  *   3. most_common_first — not a tier: inside each tier the most common first (frequency.ts:
- *      wordfreq rank, then rarest character), and in the deck fallback below, inside a deck.
+ *      wordfreq rank, then rarest character; in the new-character tier first the most
+ *      common NEW character), and in the deck fallback below, inside a deck.
  *   4. sentences_last — inside tier 1 words before sentences; after the tiers, every WORD
  *      note (all decks, deck queue order) before any sentence.
  *   5. then deck priority (queue order), as before: the rest deck by deck.
@@ -29,7 +33,7 @@
  * (android-lab/core NewCardOrder.kt, parity-tested through android-lab/parity).
  */
 import { isHanCodePoint, MAX_WORD_CHARACTERS, noteKind } from '../progress/known';
-import { frequencyRank, frequencyRankOfText, type FrequencyIndex } from './frequency';
+import { characterRank, frequencyRank, frequencyRankOfText, type FrequencyIndex } from './frequency';
 import { hanText, NEW_CHARACTER_RANK_CAP } from './novelty';
 
 export interface NewCardOrder {
@@ -53,7 +57,7 @@ export const DEFAULT_NEW_CARD_ORDER: Readonly<NewCardOrder> = Object.freeze({
 export const NEW_CARD_ORDER_OPTIONS: ReadonlyArray<{ key: NewCardOrderKey; label: string; hint: string }> = [
   { key: 'new_characters_first', label: 'New characters first', hint: 'Words that bring a character you have never studied come first.' },
   { key: 'new_words_first', label: 'New words first', hint: "Then words you haven't met anywhere yet — not even inside a sentence." },
-  { key: 'most_common_first', label: 'Most common first', hint: 'Within each group, the words Chinese speakers use most come first.' },
+  { key: 'most_common_first', label: 'Most common first', hint: 'Within each group, the words Chinese speakers use most come first, and the most common new characters before rare ones.' },
   { key: 'sentences_last', label: 'Sentences last', hint: 'Sentence cards wait until the words are in.' },
 ];
 
@@ -212,6 +216,8 @@ interface Entry<T> {
   item: T;
   hanzi: string;
   chars: string[];
+  /** Each of `chars`' character frequency rank, looked up once (empty when not ranking by frequency). */
+  charRanks: number[];
   text: string;
   length: number;
   word: boolean;
@@ -233,17 +239,29 @@ function tierOf<T>(e: Entry<T>, order: NewCardOrder): number {
 
 /**
  * A candidate's place in the pick order as of when it was (re)queued: its tier and, in tier 0,
- * its never-seen characters (capped). Both only ever get worse as more is studied.
+ * the rank of its most common never-seen character and its never-seen characters (capped).
+ * All only ever get worse as more is studied (the never-seen set only shrinks).
  */
 interface Snapshot<T> {
   e: Entry<T>;
   tier: number;
+  /** Tier 0: the smallest character rank among the never-seen characters (0 = not ranking). */
+  newCharRank: number;
   newCapped: number;
 }
 
-function snapshotOf<T>(e: Entry<T>, order: NewCardOrder): Snapshot<T> {
+const NO_RANKS: number[] = [];
+
+function snapshotOf<T>(e: Entry<T>, order: NewCardOrder, studied: StudiedIndex): Snapshot<T> {
   const tier = tierOf(e, order);
-  return { e, tier, newCapped: tier === 0 ? Math.min(e.newChars, NEW_CHARACTER_RANK_CAP) : 0 };
+  if (tier !== 0) return { e, tier, newCharRank: 0, newCapped: 0 };
+  const newCapped = Math.min(e.newChars, NEW_CHARACTER_RANK_CAP);
+  if (e.charRanks.length === 0) return { e, tier, newCharRank: 0, newCapped }; // not ranking by frequency
+  let newCharRank = Infinity;
+  for (let i = 0; i < e.chars.length; i++) {
+    if (!studied.chars.has(e.chars[i]) && e.charRanks[i] < newCharRank) newCharRank = e.charRanks[i];
+  }
+  return { e, tier, newCharRank, newCapped };
 }
 
 /** < 0 when `x` comes before `y`. A total order (the card id breaks every tie). */
@@ -253,8 +271,10 @@ function compareSnapshots<T>(x: Snapshot<T>, y: Snapshot<T>, order: NewCardOrder
   const b = y.e;
   if (x.tier === 0) {
     if (order.sentences_last && a.sentence !== b.sentence) return a.sentence ? 1 : -1;
-    if (order.most_common_first && a.freq !== b.freq) return a.freq - b.freq;
+    // The most common new character first (all 0 when not ranking by frequency).
+    if (x.newCharRank !== y.newCharRank) return x.newCharRank - y.newCharRank;
     if (x.newCapped !== y.newCapped) return y.newCapped - x.newCapped;
+    if (order.most_common_first && a.freq !== b.freq) return a.freq - b.freq;
   } else if (x.tier === 1) {
     if (order.most_common_first && a.freq !== b.freq) return a.freq - b.freq;
   } else {
@@ -313,7 +333,8 @@ class Heap<V> {
  * Greedy: each pick's characters and pieces count as studied for the next. Mutates `studied`.
  *
  * Fast for ~10k notes: a candidate's place only ever gets worse as more is studied (its
- * tier goes up, its never-seen characters down), so the candidates sit in a heap under the
+ * tier goes up, its never-seen characters down, its most common never-seen character gets
+ * rarer), so the candidates sit in a heap under the
  * place they had when queued: the top is re-checked when popped and re-queued if it slipped
  * (it then comes out where it belongs), and a pick updates only the candidates sharing a new
  * character or whose text it makes "met" (indexed by character / text). Same picks as
@@ -338,6 +359,13 @@ export function pickNewCardsByOrder<T>(
   const heap = new Heap<Snapshot<T>>((a, b) => compareSnapshots(a, b, order) < 0);
   const byChar = new Map<string, Array<Entry<T>>>();
   const byText = new Map<string, Array<Entry<T>>>();
+  // Character ranks, looked up once per character per build.
+  const charRankCache = new Map<string, number>();
+  const charRankOf = (ch: string): number => {
+    let r = charRankCache.get(ch);
+    if (r === undefined) { r = characterRank(ch, frequency!); charRankCache.set(ch, r); }
+    return r;
+  };
   for (const item of candidates) {
     const group = groupOf(item);
     if ((left.get(group) ?? 0) <= 0) continue;
@@ -358,7 +386,9 @@ export function pickNewCardsByOrder<T>(
     for (const c of chars) if (!studied.chars.has(c)) newChars++;
     const word = kind === 'word';
     const e: Entry<T> = {
-      item, hanzi, chars, text, length, word,
+      item, hanzi, chars,
+      charRanks: useFreq && newChars > 0 ? chars.map(charRankOf) : NO_RANKS,
+      text, length, word,
       sentence: kind === 'sentence',
       freq: useFreq ? frequencyRankOfText(text, chars, frequency!) : 0,
       rank: rank(group),
@@ -367,7 +397,7 @@ export function pickNewCardsByOrder<T>(
       newChars,
       newWord: order.new_words_first && word && (length === 1 ? !studied.chars.has(text) : !(studied.pieces?.has(text) ?? false)),
     };
-    const snap = snapshotOf(e, order);
+    const snap = snapshotOf(e, order, studied);
     if (snap.tier === TIER_NONE) continue;
     heap.push(snap);
     if (newChars > 0) {
@@ -390,9 +420,9 @@ export function pickNewCardsByOrder<T>(
     const top = heap.pop()!;
     const picked = top.e;
     if ((left.get(picked.group) ?? 0) <= 0) continue; // its deck is full: never again
-    const now = snapshotOf(picked, order);
+    const now = snapshotOf(picked, order, studied);
     if (now.tier === TIER_NONE) continue; // left every tier: the deck fallback has it
-    if (now.tier !== top.tier || now.newCapped !== top.newCapped) {
+    if (now.tier !== top.tier || now.newCharRank !== top.newCharRank || now.newCapped !== top.newCapped) {
       heap.push(now); // slipped since it was queued
       continue;
     }

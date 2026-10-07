@@ -122,6 +122,14 @@ describe('token bucket', () => {
     expect(requeueDelaySeconds(1234, false)).toBe(2);
     expect(requeueDelaySeconds(10, false)).toBe(1);
   });
+
+  it('batch clips told to wait by the limiter come back 30–60 s later (jittered), never sooner', () => {
+    expect(requeueDelaySeconds(4000, false, 'batch', () => 0)).toBe(30);
+    expect(requeueDelaySeconds(4000, false, 'batch', () => 0.999)).toBe(59);
+    expect(requeueDelaySeconds(90_000, false, 'batch', () => 0)).toBe(90);
+    expect(requeueDelaySeconds(4000, false, 'interactive')).toBe(4);
+    expect(requeueDelaySeconds(4000, true, 'batch')).toBe(60);
+  });
 });
 
 function fakeDoState() {

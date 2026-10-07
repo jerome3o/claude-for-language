@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { getAudioWithCache, getCachedAudio, pickChineseVoice } from '../services/audioCache';
 import { isEffectivelyOffline } from '../services/offlineMode';
 import { createAudioPlayer } from '../utils/audioPlayback';
-import { DEFAULT_TTS_SPEED } from '../types';
+import { DEVICE_SPEECH_RATE } from '@shared/tts';
 
 /**
  * Hook for recording audio using MediaRecorder
@@ -210,7 +210,7 @@ export function useTTS() {
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = lang;
-    utterance.rate = DEFAULT_TTS_SPEED;
+    utterance.rate = DEVICE_SPEECH_RATE;
 
     // Try to find a Chinese voice (prefer on-device voices)
     const chineseVoice = pickChineseVoice();
@@ -373,7 +373,7 @@ function speakWithBrowserTTS(
 
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'zh-CN';
-  utterance.rate = DEFAULT_TTS_SPEED;
+  utterance.rate = DEVICE_SPEECH_RATE;
 
   const chineseVoice = pickChineseVoice();
   if (chineseVoice) {

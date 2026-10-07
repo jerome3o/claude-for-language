@@ -95,3 +95,16 @@ describe('conversationAction', () => {
     expect(conversationAction({ input_language: 'en' })).toBe('translate');
   });
 });
+
+describe('coachDeepLinkAction', () => {
+  it('an explicit valid action runs; Chinese without one waits; English translates; bad actions wait', async () => {
+    const { coachDeepLinkAction } = await import('./actions');
+    expect(coachDeepLinkAction('我去了商店了', 'check')).toBe('check');
+    expect(coachDeepLinkAction('你吃饭了吗？', 'explain')).toBe('explain');
+    expect(coachDeepLinkAction('我去了商店了', null)).toBeNull();
+    expect(coachDeepLinkAction('I am late', undefined)).toBe('translate');
+    expect(coachDeepLinkAction('I am late', 'check')).toBeNull();
+    expect(coachDeepLinkAction('我去了', 'grade')).toBeNull();
+    expect(coachDeepLinkAction('  ', 'check')).toBeNull();
+  });
+});

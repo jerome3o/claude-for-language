@@ -14,6 +14,8 @@ import {
   clueTranslationKey,
   ensureSentenceSetForNote,
   getLocalSentenceSetStats,
+  awaitSentenceAudio,
+  SENTENCE_AUDIO_POLLS,
 } from './sentence-sets';
 import { db, LocalNote, LocalCard } from '../db/database';
 import { NoteSentence } from '../types';
@@ -583,5 +585,43 @@ describe('ensureSentenceSetForNote', () => {
     mockGenerate();
     await ensureSentenceSetForNote('note-retry');
     expect((await getLocalNoteSentences('note-retry'))).toHaveLength(2);
+  });
+});
+
+describe('awaitSentenceAudio — ▶ on a row whose clip is still being made', () => {
+  const noSleep = () => Promise.resolve();
+  const asker = (answers: Array<string | 'coming' | null | Error>) => {
+    let i = 0;
+    return async () => {
+      const a = i < answers.length ? answers[i] : 'coming';
+      i++;
+      if (a instanceof Error) throw a;
+      return a;
+    };
+  };
+
+  it('plays the clip as soon as it is there', async () => {
+    const onComing = vi.fn();
+    expect(await awaitSentenceAudio(asker(['generated/s1.mp3']), { onComing, sleep: noSleep })).toEqual({ kind: 'ready', url: 'generated/s1.mp3' });
+    expect(onComing).not.toHaveBeenCalled();
+  });
+
+  it('says "Audio coming…" while queued, then plays it', async () => {
+    const onComing = vi.fn();
+    expect(await awaitSentenceAudio(asker(['coming', 'coming', 'generated/s1.mp3']), { onComing, sleep: noSleep })).toEqual({ kind: 'ready', url: 'generated/s1.mp3' });
+    expect(onComing).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to the device voice when it cannot be made or the ask fails', async () => {
+    expect(await awaitSentenceAudio(asker([null]), { sleep: noSleep })).toEqual({ kind: 'unavailable' });
+    expect(await awaitSentenceAudio(asker(['coming', new Error('offline')]), { sleep: noSleep })).toEqual({ kind: 'unavailable' });
+  });
+
+  it('gives up quietly after the last poll, and stops when the card changed', async () => {
+    const ask = vi.fn(asker([]));
+    expect(await awaitSentenceAudio(ask, { sleep: noSleep })).toEqual({ kind: 'still_coming' });
+    expect(ask).toHaveBeenCalledTimes(SENTENCE_AUDIO_POLLS);
+    let moved = false;
+    expect(await awaitSentenceAudio(asker(['coming', 'coming']), { sleep: async () => { moved = true; }, stopped: () => moved })).toEqual({ kind: 'stopped' });
   });
 });

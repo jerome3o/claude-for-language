@@ -130,6 +130,37 @@ fun devicePinyinLine(text: String): String = runCatching {
         .trim()
 }.getOrDefault("")
 
+/**
+ * A new set's rows get their clips a moment after the set (the provider makes them one by one):
+ * ▶ on such a row waits for the real clip — "Audio coming…" — instead of reading it in the
+ * phone's voice (the web's SentenceSet does the same). Asks every [POLL_MS], [POLLS] times.
+ */
+object SentenceAudioWait {
+    const val COMING = "coming"
+    const val LABEL = "Audio coming…"
+    const val POLL_MS = 4_000L
+    const val POLLS = 30
+
+    /** Asks until the clip is there: its key, or null when it can't be had (or still isn't after [POLLS]). */
+    suspend fun await(ask: suspend () -> String?, onComing: () -> Unit, sleep: suspend (Long) -> Unit = { delay(it) }): Result {
+        repeat(POLLS) { i ->
+            val got = runCatching { ask() }.getOrNull() ?: return Result.Unavailable
+            if (got != COMING) return Result.Ready(got)
+            onComing()
+            if (i < POLLS - 1) sleep(POLL_MS)
+        }
+        return Result.StillComing
+    }
+
+    sealed interface Result {
+        data class Ready(val key: String) : Result
+        /** The server can't make it (or we're offline after all): the device voice. */
+        data object Unavailable : Result
+        /** Gave up waiting: nothing plays (the clip arrives with a later sync). */
+        data object StillComing : Result
+    }
+}
+
 /** A word or sentence the learner is turning into a card (AddChunkModal's `Chunk`; fun_facts optional, sent as is). */
 data class Chunk(val hanzi: String, val pinyin: String, val english: String, val funFacts: String? = null)
 
@@ -138,6 +169,12 @@ class SentenceActions(
     /** `generateAndStoreSentenceSet` for the current note; the card shows the new set. */
     val generate: suspend (count: Int, keepExisting: Boolean, customPrompt: String?) -> Unit = { _, _, _ -> },
     val clear: suspend () -> Unit = {},
+    /**
+     * ▶ on a set row with no clip yet: the clip's key when it is there, [SentenceAudioWait.COMING]
+     * while it is being made, null = it can't be had (the device voice reads the row). Null
+     * function = no server side here (the device voice, as before).
+     */
+    val ensureAudio: (suspend (sentenceId: String) -> String?)? = null,
     val cachedExplanation: suspend (SentenceRow) -> SentenceExplanation? = { null },
     val explain: suspend (SentenceRow) -> SentenceExplanation = { error("offline") },
     /** The English this device holds for a card sentence without one (offline), or null. */
@@ -202,6 +239,32 @@ fun SentenceList(
     var adding by remember(presentation) { mutableStateOf<Chunk?>(null) }
     val scope = rememberCoroutineScope()
     val hasSet = sentences.isNotEmpty()
+    // ▶ on a set row whose clip isn't made yet: asking (spinner) / queued ("Audio coming…").
+    val asking = remember(presentation) { mutableStateMapOf<String, Boolean>() }
+    val coming = remember(presentation) { mutableStateMapOf<String, Boolean>() }
+    val shownPresentation by androidx.compose.runtime.rememberUpdatedState(presentation)
+    val playRow: (SentenceRow) -> Unit = play@{ row ->
+        val ensure = s.ensureAudio
+        val id = row.sentenceId
+        if (asking[row.key] == true) return@play
+        if (!row.audioUrl.isNullOrBlank() || id == null || ensure == null || !online) return@play onPlay(row.audioUrl, row.hanzi)
+        asking[row.key] = true
+        val askedOn = presentation
+        scope.launch {
+            try {
+                val r = SentenceAudioWait.await({ if (shownPresentation != askedOn) null else ensure(id) }, onComing = { coming[row.key] = true })
+                // Moved on to another card meanwhile: play nothing.
+                if (shownPresentation == askedOn) when (r) {
+                    is SentenceAudioWait.Result.Ready -> onPlay(r.key, row.hanzi)
+                    SentenceAudioWait.Result.Unavailable -> onPlay(null, row.hanzi)
+                    SentenceAudioWait.Result.StillComing -> Unit
+                }
+            } finally {
+                asking.remove(row.key)
+                coming.remove(row.key)
+            }
+        }
+    }
 
     fun generate(count: Int, keep: Boolean = false, customPrompt: String? = null) {
         menu = false
@@ -260,7 +323,11 @@ fun SentenceList(
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (row in rows) SentenceRowView(row, state, online, playingKey, s, onPlay, onAdd = { adding = it }, audioBusy = row.key in audioBusy)
+            for (row in rows) SentenceRowView(
+                row, state, online, playingKey, s, onPlay = { _, _ -> playRow(row) }, onAdd = { adding = it },
+                audioBusy = row.key in audioBusy || asking[row.key] == true,
+                audioNote = if (coming[row.key] == true) SentenceAudioWait.LABEL else null,
+            )
         }
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -296,6 +363,7 @@ fun rememberSentenceRowsState(key: Any?, startExplained: Map<String, SentenceExp
 
 /** Test tags on a sentence row (the tap-to-reveal body and the tools). */
 const val SENTENCE_AUDIO_BUSY_TAG = "sentence-audio-busy"
+const val SENTENCE_AUDIO_COMING_TAG = "sentence-audio-coming"
 const val SENTENCE_ROW_TAG = "sentence-row"
 const val SENTENCE_EXPLAIN_TAG = "sentence-explain"
 const val SENTENCE_ADD_TAG = "sentence-add"
@@ -325,6 +393,8 @@ fun SentenceRowView(
     startStep: Int = 0,
     englishToggle: Boolean = true,
     audioBusy: Boolean = false,
+    /** Under the row's text while its clip is on the way ("Audio coming…"). */
+    audioNote: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(row.key) { if (state.explanations[row.key] == null) s.cachedExplanation(row)?.let { state.explanations[row.key] = it } }
@@ -425,6 +495,7 @@ fun SentenceRowView(
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
+                if (audioNote != null) Text(audioNote, style = MaterialTheme.typography.labelSmall, color = Lab.colors.accent, modifier = Modifier.padding(top = 2.dp).testTag(SENTENCE_AUDIO_COMING_TAG))
                 val focusLine = listOfNotNull(row.badge?.takeIf { !row.fromCard }, row.focusNote)
                 if (open && focusLine.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
+import coachRoutes from './routes/coach';
 import messageTranslateRoutes from './routes/message-translate';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
@@ -21,14 +22,12 @@ import {
   parseLearningSteps,
 } from './services/anki-scheduler';
 import { generateDeck, suggestCards, askAboutNoteWithTools, coachChatWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
-import type { ToolAction, CoachChatTurn } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
 import { StructuredCallError } from './services/structured-call';
 import { LESSON_VOICE_IDS } from '@shared/lesson';
 import { isHanziOption } from '@shared/cards';
 import { explainSentence } from './services/sentence-explain';
-import { translateSentence } from './services/sentence-translate';
 import { generateSentenceSet } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
 import pictureHuntRoutes from './routes/picture-hunts';
@@ -37,8 +36,9 @@ import { podcastPublic, podcastMe } from './routes/podcast';
 import { runPictureHuntJob } from './services/picture-hunt';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
-import { explainSentenceBriefly, parseClientBriefExplanation, toCoachBreakdown } from './services/sentence-explain-brief';
-import { resolveCoachAction } from '@shared/coach';
+import { explainSentenceBriefly } from './services/sentence-explain-brief';
+import { runCoachReply, type CoachReplyMessage } from './services/coach-replies';
+import { normalizeHanzi } from '@shared/import/parse';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
@@ -553,6 +553,7 @@ app.use('/api/*', bindAnalyticsScope);
 // and the conversation get / create / rename routes (routes/one-chat.ts).
 mountMergedConversations(app);
 app.route('/api', oneChatRoutes);
+app.route('/api', coachRoutes);
 app.route('/api', messageTranslateRoutes);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
@@ -1141,8 +1142,30 @@ app.post('/api/decks/:deckId/notes/batch', async (c) => {
   }
   // ?check=sync: check up to 100 new words now and return check_warnings (the MCP tools); more are queued.
   const syncCheck = c.req.query('check') === 'sync' && body.notes.length <= 100;
+  // ?skip_existing=1 (the Coach's "Add new words"): a word already in any of my decks is not
+  // added again; it comes back in `existing` (note id + deck) so the client can offer ⚡ instead.
+  let notesIn = body.notes;
+  const existing: Array<{ index: number; hanzi: string; note_id: string; deck_name: string }> = [];
+  if (c.req.query('skip_existing') === '1') {
+    const rows = await c.env.DB
+      .prepare('SELECT n.id, n.hanzi, d.name FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.user_id = ?')
+      .bind(userId)
+      .all<{ id: string; hanzi: string; name: string }>();
+    const byKey = new Map<string, { id: string; name: string }>();
+    for (const r of rows.results ?? []) {
+      const k = normalizeHanzi(r.hanzi ?? '');
+      if (k && !byKey.has(k)) byKey.set(k, { id: r.id, name: r.name });
+    }
+    notesIn = body.notes.filter((n, index) => {
+      const hit = byKey.get(normalizeHanzi(n?.hanzi ?? ''));
+      if (hit) existing.push({ index, hanzi: n.hanzi, note_id: hit.id, deck_name: hit.name });
+      return !hit;
+    });
+    if (notesIn.length === 0) return c.json({ created: [], failed: [], existing }, 200);
+  }
   try {
-    const result = await content.createNotes(c.env, userId, deckId, body.notes, { audio: 'queue', sentences: true, check: !syncCheck });
+    const result = await content.createNotes(c.env, userId, deckId, notesIn, { audio: 'queue', sentences: true, check: !syncCheck });
+    if (existing.length) return c.json({ ...result, existing }, 201);
     if (syncCheck && result.created.length) {
       const issues = await runNotesCheck(c.env, userId, result.created.map(n => n.id)).catch(() => new Map());
       const check_warnings = result.created.flatMap(n => (issues.get(n.id) ?? []).map((i: { id: string; field: string; kind: string; current: string; proposed: string; reason: string }) => ({ note_id: n.id, hanzi: n.hanzi, issue_id: i.id, field: i.field, kind: i.kind, current: i.current, proposed: i.proposed, reason: i.reason })));
@@ -1627,7 +1650,9 @@ async function attachSentenceSetAudio(
           const row = await db.getNoteSentenceByIdUnscoped(env.DB, sentence.id);
           if (row?.audio_url) audioByIdMap.set(sentence.id, row.audio_url);
         } else if (result.status === 'rate_limited' || (result.status === 'failed' && !result.permanent)) {
-          await enqueueSentenceAudio(env, sentence.id, result.status === 'rate_limited' && result.minimax ? 60 : 5);
+          // Someone is looking at this set: interactive on the queue too, so these clips
+          // go ahead of the backfill instead of waiting behind it (docs/AUDIO.md).
+          await enqueueSentenceAudio(env, sentence.id, result.status === 'rate_limited' && result.minimax ? 60 : 5, 'interactive');
         }
       } catch (error) {
         console.error('[sentence-set] TTS failed for', sentence.id, error);
@@ -1640,9 +1665,37 @@ async function attachSentenceSetAudio(
 }
 
 /** Queue one sentence-set row's clip on tts-queue (idempotent: a current clip is left alone). */
-async function enqueueSentenceAudio(env: Env, sentenceId: string, delaySeconds?: number): Promise<boolean> {
-  return enqueueClip(env, { kind: 'sentence', id: sentenceId }, { priority: 'batch', delaySeconds });
+async function enqueueSentenceAudio(env: Env, sentenceId: string, delaySeconds?: number, priority: 'interactive' | 'batch' = 'batch'): Promise<boolean> {
+  return enqueueClip(env, { kind: 'sentence', id: sentenceId }, { priority, delaySeconds });
 }
+
+/**
+ * One sentence-set row's clip, for a ▶ on a row that has none yet (both apps'
+ * "Audio coming…"): made now when a provider has a slot, else queued at
+ * interactive priority. `ready` carries the audio_url; `queued` = ask again in
+ * a few seconds; `failed` = the device voice is the only option.
+ */
+app.post('/api/sentences/:id/ensure-audio', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const sentence = await db.getNoteSentenceById(c.env.DB, id, userId);
+  if (!sentence) return c.json({ error: 'Sentence not found' }, 404);
+  if (sentence.audio_url) return c.json({ status: 'ready', audio_url: sentence.audio_url });
+  if (!c.env.MINIMAX_API_KEY) return c.json({ status: 'failed', audio_url: null });
+  try {
+    const result = await ensureClip(c.env, { kind: 'sentence', id }, { priority: 'interactive', maxWaitMs: 4_000, onlyMissing: true });
+    if (result.status === 'rate_limited' || (result.status === 'failed' && !result.permanent)) {
+      const queued = await enqueueSentenceAudio(c.env, id, result.status === 'rate_limited' && result.minimax ? 60 : 5, 'interactive');
+      return c.json({ status: queued ? 'queued' : 'failed', audio_url: null });
+    }
+    const row = await db.getNoteSentenceById(c.env.DB, id, userId);
+    if (row?.audio_url) return c.json({ status: 'ready', audio_url: row.audio_url });
+    return c.json({ status: 'failed', audio_url: null });
+  } catch (error) {
+    console.error('[sentence-audio] ensure failed for', id, error);
+    return c.json({ status: 'failed', audio_url: null });
+  }
+});
 
 // List a note's sentence set
 app.get('/api/notes/:id/sentences', async (c) => {
@@ -3020,221 +3073,7 @@ app.post('/api/sentence/explain', async (c) => {
   }
 });
 
-// ============ Sentence Coach Conversations ============
-
-// Any Han character means the input is (at least partly) Chinese — treat it
-// as a sentence to coach/explain. Pure English gets translated instead.
-function containsChinese(text: string): boolean {
-  return /[㐀-䶿一-鿿豈-﫿]/.test(text);
-}
-
-// Start a conversation from a sentence with the button the learner pressed
-// (shared/coach): check → coachSentence (grade / correct what I wrote);
-// explain → the brief Haiku breakdown (translation + word rows + construction,
-// the same generator as "What's going on here?"); translate → translateSentence.
-// No `action` (older clients) auto-detects: Chinese → check, English → translate.
-// Explain may carry the breakdown the client already has cached, which is stored
-// as is (validated) instead of asking Claude again.
-app.post('/api/coach/conversations', async (c) => {
-  const userId = c.get('user').id;
-  const { text, action: requested, explanation: clientExplanation } =
-    await c.req.json<{ text: string; action?: unknown; explanation?: unknown }>();
-
-  if (!text || typeof text !== 'string' || !text.trim()) {
-    return c.json({ error: 'text is required' }, 400);
-  }
-  const input = text.trim();
-  const resolved = resolveCoachAction(input, requested);
-  // No action = an old client relying on auto-detect (the Coach page always sends one now).
-  if (requested === undefined || requested === null) void trackServer('server.coach_auto_detect');
-  if (!resolved.ok) {
-    return c.json({ error: resolved.error }, 400);
-  }
-  const action = resolved.action;
-  const cached = action === 'explain' ? parseClientBriefExplanation(clientExplanation) : null;
-  if (!c.env.ANTHROPIC_API_KEY && !cached) {
-    return c.json({ error: 'AI coaching is not configured' }, 500);
-  }
-
-  const isChinese = containsChinese(input);
-
-  try {
-    let analysis: import('./types').CoachAnalysis;
-    if (action === 'check') {
-      // Keep the initial analysis short and fast: just the correction, a brief
-      // critique, and a couple of example phrasings. The heavy word-by-word /
-      // grammar breakdown (explainSentence) is available on demand via
-      // /api/sentence/explain and by asking a follow-up, so we no longer block
-      // the first response on it.
-      const coach = await coachSentence(c.env.ANTHROPIC_API_KEY, input);
-      analysis = { kind: 'chinese', coach };
-    } else if (action === 'explain') {
-      const explanation = cached ?? await explainSentenceBriefly(c.env.ANTHROPIC_API_KEY, { hanzi: input });
-      analysis = { kind: 'explain', breakdown: toCoachBreakdown(input, explanation) };
-    } else {
-      const translation = await translateSentence(c.env.ANTHROPIC_API_KEY, input);
-      analysis = { kind: 'english', translation };
-    }
-
-    const conversation = await db.createCoachConversation(
-      c.env.DB, userId, input.slice(0, 120), isChinese ? 'zh' : 'en', action
-    );
-    const userMsg = await db.addCoachMessage(c.env.DB, conversation.id, 'user', 'text', input);
-    const assistantMsg = await db.addCoachMessage(
-      c.env.DB, conversation.id, 'assistant', 'analysis', JSON.stringify(analysis)
-    );
-
-    return c.json({ conversation, messages: [userMsg, assistantMsg] });
-  } catch (error) {
-    console.error('Coach conversation start error:', error);
-    // 503 = worth another try (the client retries once on its own); 502 = Claude refused / request rejected.
-    const retryable = !(error instanceof StructuredCallError) || error.retryable;
-    return c.json(
-      { error: retryable ? 'Claude is busy right now — try again in a moment.' : 'Claude couldn’t answer this one — try rephrasing it.', retryable },
-      retryable ? 503 : 502,
-    );
-  }
-});
-
-app.get('/api/coach/conversations', async (c) => {
-  const userId = c.get('user').id;
-  const conversations = await db.getCoachConversations(c.env.DB, userId);
-  return c.json(conversations);
-});
-
-app.get('/api/coach/conversations/:id', async (c) => {
-  const userId = c.get('user').id;
-  const id = c.req.param('id');
-  const conversation = await db.getCoachConversation(c.env.DB, id, userId);
-  if (!conversation) {
-    return c.json({ error: 'Conversation not found' }, 404);
-  }
-  const messages = await db.getCoachMessages(c.env.DB, id);
-  return c.json({ conversation, messages });
-});
-
-app.delete('/api/coach/conversations/:id', async (c) => {
-  const userId = c.get('user').id;
-  const id = c.req.param('id');
-  const deleted = await db.deleteCoachConversation(c.env.DB, id, userId);
-  if (!deleted) {
-    return c.json({ error: 'Conversation not found' }, 404);
-  }
-  return c.json({ success: true });
-});
-
-// Follow-up message in a coach conversation (agent loop with tools)
-app.post('/api/coach/conversations/:id/messages', async (c) => {
-  const userId = c.get('user').id;
-  const id = c.req.param('id');
-  const { message } = await c.req.json<{ message: string }>();
-
-  if (!message || typeof message !== 'string' || !message.trim()) {
-    return c.json({ error: 'message is required' }, 400);
-  }
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI coaching is not configured' }, 500);
-  }
-
-  const conversation = await db.getCoachConversation(c.env.DB, id, userId);
-  if (!conversation) {
-    return c.json({ error: 'Conversation not found' }, 404);
-  }
-
-  try {
-    const stored = await db.getCoachMessages(c.env.DB, id);
-    const decks = await db.getAllDecks(c.env.DB, userId);
-    const deckList = decks.length > 0
-      ? decks.map(d => `${d.name} (id: ${d.id})`).join(', ')
-      : 'none';
-
-    // Rebuild the model conversation: context header on the first user turn,
-    // the stored analysis JSON as the first assistant turn, then follow-ups.
-    const history: CoachChatTurn[] = [];
-    for (const m of stored) {
-      if (m.role === 'user' && history.length === 0) {
-        history.push({
-          role: 'user',
-          content: [
-            `The user's decks: ${deckList}`,
-            '',
-            `The user submitted this sentence to the Sentence Coach: "${m.content}"`,
-          ].join('\n'),
-        });
-      } else if (m.content_type === 'analysis') {
-        history.push({
-          role: 'assistant',
-          content: `Here is the structured analysis I gave the user (rendered as rich UI):\n${m.content}`,
-        });
-      } else {
-        history.push({ role: m.role, content: m.content });
-      }
-    }
-    history.push({ role: 'user', content: message.trim() });
-
-    const { answer, toolActions, readOnlyToolCalls } = await coachChatWithTools(
-      c.env.ANTHROPIC_API_KEY, history, { db: c.env.DB, userId }
-    );
-
-    // Execute mutating tool actions (create_flashcards, create_custom_lesson)
-    const toolResults: Array<{
-      tool: string;
-      success: boolean;
-      data?: Record<string, unknown>;
-      error?: string;
-    }> = [];
-    // bump_cards already ran inside the loop ("⚡ Study it today"): reported so the
-    // client pulls the pocket at once.
-    for (const call of readOnlyToolCalls) {
-      if (call.tool === 'bump_cards') toolResults.push({ tool: 'bump_cards', success: !call.result.error, data: call.result });
-    }
-
-    for (const action of toolActions) {
-      if (action.tool === 'create_custom_lesson') {
-        const result = await createCustomLessonFromSpec(c.env, userId, action.input, 'chat');
-        toolResults.push(
-          result.ok
-            ? { tool: 'create_custom_lesson', success: true, data: { lesson_id: result.lesson.id, title: result.lesson.title, image_jobs: result.imageJobs } }
-            : { tool: 'create_custom_lesson', success: false, error: `Invalid lesson spec: ${result.errors.join('; ')}` }
-        );
-        continue;
-      }
-      if (action.tool !== 'create_flashcards') {
-        toolResults.push({ tool: action.tool, success: false, error: 'Unsupported tool' });
-        continue;
-      }
-      try {
-        const input = action.input as { deck_id?: string; flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
-        const targetDeck = input.deck_id ? await db.getDeckById(c.env.DB, input.deck_id, userId) : null;
-        if (!targetDeck) {
-          toolResults.push({ tool: 'create_flashcards', success: false, error: 'Target deck not found' });
-          continue;
-        }
-        const made = await content.createNotes(c.env, userId, targetDeck.id, input.flashcards || [], { audio: 'background', bg: c.executionCtx });
-        const createdNotes = made.created;
-        toolResults.push({
-          tool: 'create_flashcards',
-          success: true,
-          data: { deck_name: targetDeck.name, notes: createdNotes.map(n => ({ hanzi: n.hanzi, pinyin: n.pinyin, english: n.english })) },
-        });
-      } catch (err) {
-        console.error('Coach create_flashcards error:', err);
-        toolResults.push({ tool: 'create_flashcards', success: false, error: 'Failed to create flashcards' });
-      }
-    }
-
-    const userMsg = await db.addCoachMessage(c.env.DB, id, 'user', 'text', message.trim());
-    const assistantMsg = await db.addCoachMessage(
-      c.env.DB, id, 'assistant', 'text', answer,
-      toolResults.length > 0 ? JSON.stringify(toolResults) : null
-    );
-
-    return c.json({ messages: [userMsg, assistantMsg], toolResults });
-  } catch (error) {
-    console.error('Coach conversation message error:', error);
-    return c.json({ error: 'Failed to get a response' }, 500);
-  }
-});
+// ============ Sentence Coach Conversations: routes/coach.ts ============
 
 // ============ Graded Readers ============
 
@@ -6633,12 +6472,12 @@ export default {
   },
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
     return runInScope({ env, userId: null, route: `queue:${batch.queue}`, waitUntil: (p) => ctx.waitUntil(p) }, () => handleQueueBatch(batch, env));
   },
 };
 
-async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage>, env: Env): Promise<void> {
+async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6974,6 +6813,21 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
         } catch (err) {
           console.error('[Queue] card check crashed:', body, err);
           message.retry();
+        }
+      }
+    } else if (queueName === 'coach-reply-queue') {
+      // Sentence Coach replies (services/coach-replies.ts): checkpointed in D1; 'retry' = a
+      // busy model, another delivery in a moment (the row stays pending).
+      for (const message of batch.messages) {
+        const { messageId } = message.body as CoachReplyMessage;
+        try {
+          const outcome = await runCoachReply(env, messageId);
+          console.log('[Queue] coach reply', messageId, outcome);
+          if (outcome === 'retry') message.retry({ delaySeconds: 10 });
+          else message.ack();
+        } catch (err) {
+          console.error('[Queue] coach reply crashed:', messageId, err);
+          message.retry({ delaySeconds: 10 });
         }
       }
     } else if (queueName === 'audio-lesson-queue') {

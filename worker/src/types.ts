@@ -26,6 +26,8 @@ export interface Env {
   PODCAST_RATE_LIMITER?: import('./services/podcast-feed').RateLimiterBinding;
   /** Word checks (services/card-check.ts): new / edited notes and per-deck "Check for errors" runs. */
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
+  /** Sentence Coach replies in the background (services/coach-replies.ts). */
+  COACH_REPLY_QUEUE?: Queue<import('./services/coach-replies').CoachReplyMessage>;
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
   TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
@@ -944,6 +946,8 @@ export interface CoachConversation {
   input_language: CoachInputLanguage;
   /** Which button started it: check | explain | translate (NULL on rows from before 0084) */
   action?: 'check' | 'explain' | 'translate' | null;
+  /** "Open in Coach" from this chat message (migration 0114). */
+  source_message_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -956,6 +960,9 @@ export interface CoachMessage {
   content: string;
   tool_results: string | null;
   created_at: string;
+  /** NULL = done; 'pending' = Claude is still answering (in the background); 'failed' (see error, Retry). */
+  status?: 'pending' | 'failed' | null;
+  error?: string | null;
 }
 
 // ============ Graded Readers ============
