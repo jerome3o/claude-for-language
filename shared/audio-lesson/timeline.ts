@@ -131,6 +131,11 @@ export function transcriptRows(lines: AudioLessonTranscriptLine[]): TranscriptRo
   lines.forEach((l, i) => {
     const prev = rows[rows.length - 1];
     const prevLine = lines[i - 1];
+    // The host reading the translation of the line just shown under it ("Line by line"): one row.
+    if (prev && l.voice === 'narrator' && prev.english && prev.english.trim() === l.text.trim()) {
+      prev.last = i;
+      return;
+    }
     const open = prev && prevLine && isNarration(prevLine) && isNarration(l) && prevLine.chapter === l.chapter && !/[.!?:]["”’)]?$/.test(prevLine.text.trim());
     if (open) {
       const glue = l.lang === 'zh' || prevLine.lang === 'zh' ? (/^[,.;:!?]/.test(l.text) ? '' : ' ') : ' ';

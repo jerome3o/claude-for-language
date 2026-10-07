@@ -30,6 +30,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.calls.callsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.materials.materialsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.profile.profileGraph
 import dev.jeromeswannack.chineselearning.lab.ui.picturehunt.pictureHuntGraph
+import dev.jeromeswannack.chineselearning.lab.ui.audiolessons.audioLessonsGraph
 
 /**
  * THE registry of screens — one line per feature, nothing else. Each feature registers its
@@ -66,6 +67,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     materialsGraph(nav)     // "/materials", "/materials/:id"  J (calls round 4 PR 5)
     chatsGraph(nav)         // "/chats"       the Chats tab inbox
     homeworkLibraryGraph(nav) // "/homework-library", "/connections/:relId/homework" F
+    audioLessonsGraph(nav)  // "/audio-lessons", "/audio-lessons/:id" (player: background playback, AudioLessonService)
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }

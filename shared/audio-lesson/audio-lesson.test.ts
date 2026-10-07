@@ -201,5 +201,9 @@ describe('transcriptRows', () => {
     expect(rows[0].text).toBe("You're at a busy Lanzhou beef noodle shop, a 兰州拉面 place. You order at the counter: the kind of noodle, how spicy, and whether you want an egg. Listen for how the staff ask about thickness.");
     expect(rows[1].text).toBe('First, just listen to the conversation.');
     expect(rows[2]).toMatchObject({ text: '你好，吃什么？', pinyin: 'nǐ hǎo, chī shénme?' });
+    // Line by line: the host's translation joins the Chinese line's row instead of repeating it.
+    expect(rows.filter((r) => r.text === "I'd like a bowl of beef noodles.")).toEqual([]);
+    const lineByLine = rows.filter((r) => r.text === '我要一碗牛肉面。' && r.last > r.first);
+    expect(lineByLine.length).toBe(1);
   });
 });

@@ -57,19 +57,19 @@ class NavRulesTest {
             "/" to TabId.STUDY, "/study/review/abc" to TabId.STUDY, "/decks" to TabId.MORE, "/decks/123" to TabId.MORE,
             "/generate" to TabId.MORE, "/search" to TabId.MORE, "/connections/1/insights" to TabId.TUTOR, "/progress/day/2026-01-01" to TabId.PROGRESS,
             "/more" to TabId.MORE, "/settings/sentences" to TabId.MORE, "/coach" to TabId.MORE, "/lesson-notes" to TabId.MORE,
-            "/decks?q=打算" to TabId.MORE, "/chats" to TabId.CHATS, "/chats?q=x" to TabId.CHATS,
+            "/decks?q=打算" to TabId.MORE, "/audio-lessons" to TabId.MORE, "/chats" to TabId.CHATS, "/chats?q=x" to TabId.CHATS,
         ).forEach { (path, id) -> assertEquals(path, id, NavRules.activeTab(tabs, path)) }
         assertNull(NavRules.activeTab(tabs, "/join/xyz"))
     }
 
     @Test fun immersiveRoutes() {
         listOf(
-            "/study", "/study/", "/quests/abc", "/picture-hunt/h1", "/readers/r1", "/readers/r1/edit", "/readers/r1/print", "/library/l1/edit", "/lessons/l1/print",
+            "/study", "/study/", "/quests/abc", "/picture-hunt/h1", "/audio-lessons/a1", "/readers/r1", "/readers/r1/edit", "/readers/r1/print", "/library/l1/edit", "/lessons/l1/print",
             "/library/catalogue/conversation", "/connections/1/chat/2", "/connections/1/chat", "/join/token", "/calls/c1", "/homework/a1", "/study?deck=d1", "/tutor-notes/practice?cards=c1",
         ).forEach { assertTrue(it, NavRules.isImmersiveRoute(it)) }
         listOf(
             "/", "/study/review/abc", "/quests", "/readers", "/readers/generate", "/library", "/library/l1", "/library/catalogue",
-            "/lessons", "/connections/1", "/decks", "/chats", "/more", "/settings", "/calls", "/calls/c1/review", "/homework",
+            "/lessons", "/connections/1", "/decks", "/chats", "/more", "/settings", "/calls", "/calls/c1/review", "/homework", "/audio-lessons",
         ).forEach { assertFalse(it, NavRules.isImmersiveRoute(it)) }
     }
 

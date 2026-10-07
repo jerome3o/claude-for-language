@@ -1,0 +1,124 @@
+package dev.jeromeswannack.chineselearning.lab.data.api
+
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonChapter
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTranscriptLine
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonWord
+import dev.jeromeswannack.chineselearning.lab.data.Api
+import dev.jeromeswannack.chineselearning.lab.data.HttpException
+import dev.jeromeswannack.chineselearning.lab.data.UnauthorizedException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import java.io.File
+import java.io.IOException
+import kotlin.coroutines.coroutineContext
+
+/* Audio lessons — the same endpoints as the web's api/audioLessons.ts (worker routes/audio-lessons.ts, docs/AUDIO_LESSONS.md). */
+
+/**
+ * AudioLessonSummary (`GET /api/audio-lessons`) and, from `GET /api/audio-lessons/:id`,
+ * AudioLessonDetail (chapters, transcript, words; empty in the list).
+ */
+@Serializable
+data class AudioLessonDto(
+    val id: String,
+    val format: String = "dialogue",
+    val title: String = "",
+    val status: String = "queued",
+    val progress: String? = null,
+    val progress_done: Int? = null,
+    val progress_total: Int? = null,
+    val error: String? = null,
+    val duration_ms: Long? = null,
+    val size_bytes: Long? = null,
+    val word_count: Int = 0,
+    /** Changes whenever the file changes: the phone's file name. */
+    val audio_version: String? = null,
+    val created_at: String = "",
+    val finished_at: String? = null,
+    val words: List<AudioLessonWord> = emptyList(),
+    val chapters: List<AudioLessonChapter> = emptyList(),
+    val transcript: List<AudioLessonTranscriptLine> = emptyList(),
+) {
+    val ready: Boolean get() = status == "ready"
+    val building: Boolean get() = AudioLessonTimeline.isBuilding(status)
+    val statusLine: String get() = AudioLessonTimeline.statusLine(status, progress, progress_done, progress_total, error, duration_ms, word_count, size_bytes)
+    val hasDetail: Boolean get() = chapters.isNotEmpty() || transcript.isNotEmpty()
+}
+
+@Serializable data class AudioLessonListDto(val lessons: List<AudioLessonDto> = emptyList())
+@Serializable data class AudioLessonEnvelopeDto(val lesson: AudioLessonDto)
+
+/** NewAudioLesson (POST /api/audio-lessons). */
+@Serializable
+data class NewAudioLessonBody(
+    val format: String,
+    val description: String? = null,
+    val dialogue: String? = null,
+    val text: String? = null,
+    val title: String? = null,
+    val target_minutes: Int? = null,
+)
+
+object AudioLessonPaths {
+    const val LIST = "/api/audio-lessons"
+    fun lesson(id: String) = "/api/audio-lessons/${enc(id)}"
+    fun audio(id: String) = "/api/audio-lessons/${enc(id)}/audio"
+    fun retry(id: String) = "/api/audio-lessons/${enc(id)}/retry"
+}
+
+suspend fun Api.audioLessons(): List<AudioLessonDto> = get<AudioLessonListDto>(AudioLessonPaths.LIST).lessons
+suspend fun Api.audioLesson(id: String): AudioLessonDto = get<AudioLessonEnvelopeDto>(AudioLessonPaths.lesson(id)).lesson
+suspend fun Api.createAudioLesson(body: NewAudioLessonBody): AudioLessonDto = post<NewAudioLessonBody, AudioLessonEnvelopeDto>(AudioLessonPaths.LIST, body).lesson
+suspend fun Api.retryAudioLesson(id: String): AudioLessonDto = post<AudioLessonEnvelopeDto>(AudioLessonPaths.retry(id)).lesson
+suspend fun Api.deleteAudioLesson(id: String) {
+    val res = send("DELETE", AudioLessonPaths.lesson(id))
+    if (!res.ok && res.code != 404) throw HttpException(res.code, res.body.take(200), res.body)
+}
+
+/**
+ * The lesson's MP3 (owner only, so authenticated) streamed into [dest] through a `.part` file;
+ * [onProgress] gets (fraction 0..1 when the size is known, bytes so far).
+ */
+suspend fun Api.downloadAudioLesson(id: String, dest: File, onProgress: (Double, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
+    http.newCall(request(AudioLessonPaths.audio(id)).build()).execute().use { res ->
+        if (res.code == 401) throw UnauthorizedException()
+        if (!res.isSuccessful) {
+            val body = res.body?.string().orEmpty()
+            throw HttpException(res.code, body.take(200), body)
+        }
+        val body = res.body ?: throw IOException("empty answer")
+        val total = body.contentLength()
+        dest.parentFile?.mkdirs()
+        val tmp = File(dest.parentFile, dest.name + ".part")
+        var got = 0L
+        var lastReport = 0L
+        body.byteStream().use { input ->
+            tmp.outputStream().use { out ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    coroutineContext.ensureActive()
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    got += n
+                    if (got - lastReport > 128 * 1024) {
+                        lastReport = got
+                        onProgress(if (total > 0) got.toDouble() / total else 0.0, got)
+                    }
+                }
+            }
+        }
+        if (total > 0 && got != total) {
+            tmp.delete()
+            throw IOException("download cut off ($got of $total bytes)")
+        }
+        if (!tmp.renameTo(dest)) {
+            tmp.copyTo(dest, overwrite = true)
+            tmp.delete()
+        }
+        onProgress(1.0, got)
+    }
+}
