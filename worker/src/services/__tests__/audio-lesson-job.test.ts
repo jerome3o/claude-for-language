@@ -221,7 +221,9 @@ describe('vocabulary for the agent', () => {
 
   it('acceptPlan refuses a lesson far longer than asked', () => {
     const big = JSON.parse(JSON.stringify(SAMPLE_SLEEP_PLAN));
-    for (let i = 0; i < 14; i++) big.words.push({ ...big.words[0], hanzi: `词${'一二三四五六七八九十甲乙丙丁'[i]}`, sentences: big.words[0].sentences.map((s: { hanzi: string }) => ({ ...s, hanzi: s.hanzi.replace('邮局', `词${'一二三四五六七八九十甲乙丙丁'[i]}`) })) });
+    const second: Array<[string, string, number]> = [['一', 'yī', 1], ['二', 'èr', 4], ['三', 'sān', 1], ['四', 'sì', 4], ['五', 'wǔ', 3], ['六', 'liù', 4], ['七', 'qī', 1], ['八', 'bā', 1], ['九', 'jiǔ', 3], ['十', 'shí', 2], ['甲', 'jiǎ', 3], ['乙', 'yǐ', 3], ['丙', 'bǐng', 3], ['丁', 'dīng', 1]];
+    const charTones = (i: number) => [{ char: '词', pinyin: 'cí', tone: 2 }, { char: second[i][0], pinyin: second[i][1], tone: second[i][2] }];
+    for (let i = 0; i < 14; i++) big.words.push({ ...big.words[0], hanzi: `词${'一二三四五六七八九十甲乙丙丁'[i]}`, pinyin: `cí ${second[i][1]}`, char_tones: charTones(i), sentences: big.words[0].sentences.map((s: { hanzi: string }) => ({ ...s, hanzi: s.hanzi.replace('邮局', `词${'一二三四五六七八九十甲乙丙丁'[i]}`) })) });
     const out = acceptPlan('sleep', { plan: big }, { text: '', target_minutes: 5 });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.problems[0]).toMatch(/minutes/);

@@ -12,6 +12,7 @@ import type {
   SpeechSegment,
   VoiceRole,
 } from './types';
+import { charToneLines } from './tones';
 
 /** Speeds on the app's scale (MiniMax: 1 = normal; cards are 0.6). */
 export const RATES = {
@@ -56,6 +57,8 @@ export const PAUSES = {
   sleepPhrase: 1200,
   /** Before and after a word's English recap line. */
   sleepRecap: 1500,
+  /** After each character's tone line ("导，第三声。") — a beat to hear it, shorter than a sentence. */
+  sleepCharTone: 1500,
 } as const;
 
 /** Han ideographs (the main blocks — enough for splitting narration). */
@@ -106,12 +109,13 @@ class ScriptBuilder {
     return Math.max(0, this.chapters.length - 1);
   }
 
-  say(lang: ScriptLang, voice: VoiceRole, text: string, rate: number, extra: Pick<SpeechSegment, 'pinyin' | 'english'> = {}): void {
+  say(lang: ScriptLang, voice: VoiceRole, text: string, rate: number, extra: Pick<SpeechSegment, 'pinyin' | 'english' | 'display'> = {}): void {
     const t = text.trim();
     if (!t) return;
     const seg: SpeechSegment = { kind: 'speech', lang, voice, text: t, rate, chapter: this.ch };
     if (extra.pinyin) seg.pinyin = extra.pinyin;
     if (extra.english) seg.english = extra.english;
+    if (extra.display && extra.display.trim() !== t) seg.display = extra.display.trim();
     this.segments.push(seg);
   }
 
@@ -276,7 +280,7 @@ export const SLEEP_SOURCE_MAX_CHARS = 600;
 
 /**
  * Format B: all Chinese, very slow, every word three times, long pauses. Per word: the
- * word ×3, what it means, its characters, three sentences ×3 — then ONE short English
+ * word ×3, what it means, each character's tone, its characters, three sentences ×3 — then ONE short English
  * recap line (the only English in the lesson).
  */
 export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string } = {}): AudioLessonScript {
@@ -304,8 +308,17 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
       b.pause(PAUSES.sleepWordRepeat);
     }
     b.pause(PAUSES.sleepPhrase);
-    // What it means first, then where its characters come from.
-    for (const s of [...(w.meaning_zh ?? []), ...(w.characters_zh ?? [])].flatMap(splitChineseSentences)) {
+    // What it means first, then its characters: each one's tone ("导，第三声。"), where the
+    // word says it differently ("在‘任务’里，‘务’读轻声。"), then where they come from.
+    for (const s of (w.meaning_zh ?? []).flatMap(splitChineseSentences)) {
+      sleepy(s);
+      b.pause(PAUSES.sleepSentence);
+    }
+    for (const line of charToneLines(w)) {
+      b.say('zh', 'sleep', line.spoken, RATES.sleep, { display: line.display });
+      b.pause(PAUSES.sleepCharTone);
+    }
+    for (const s of (w.characters_zh ?? []).flatMap(splitChineseSentences)) {
       sleepy(s);
       b.pause(PAUSES.sleepSentence);
     }

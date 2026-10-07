@@ -32,7 +32,7 @@ export function buildTimeline(script: AudioLessonScript, clipFrames: Map<string,
     }
     const n = clipFrames.get(speechKey(s));
     if (n === undefined) throw new Error(`no clip for "${s.text.slice(0, 30)}"`);
-    const line: AudioLessonTranscriptLine = { start_ms: Math.round(frames * frameMs), lang: s.lang, voice: s.voice, text: s.text, chapter: s.chapter };
+    const line: AudioLessonTranscriptLine = { start_ms: Math.round(frames * frameMs), lang: s.lang, voice: s.voice, text: s.display ?? s.text, chapter: s.chapter };
     if (s.pinyin) line.pinyin = s.pinyin;
     if (s.english) line.english = s.english;
     transcript.push(line);

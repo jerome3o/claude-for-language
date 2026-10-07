@@ -138,6 +138,20 @@ function syllablesOf(pinyin: string): Syl[] | null {
   return out;
 }
 
+/**
+ * The syllables of tone-marked pinyin ("dǎoháng" / "dǎo háng" → ["dǎo", "háng"]),
+ * or null when it is not plain tone-marked pinyin (tone numbers, unknown syllables).
+ */
+export function pinyinSyllables(pinyin: string): string[] | null {
+  const syls = syllablesOf(pinyin.normalize('NFC'));
+  return syls ? syls.map(s => s.text) : null;
+}
+
+/** A syllable without its tone mark, lower case ("Dǎo" → "dao", "lǜ" → "lü"). */
+export function toneless(syllable: string): string {
+  return plain(syllable);
+}
+
 function withTone(base: 'yi' | 'bu', tone: number, like: string): string {
   const vowels = base === 'yi' ? 'īíǐì' : 'ūúǔù';
   const word = base[0] + (tone >= 1 && tone <= 4 ? vowels[tone - 1] : base[1]);
