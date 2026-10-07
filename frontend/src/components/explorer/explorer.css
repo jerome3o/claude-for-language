@@ -395,3 +395,173 @@
   inset: 0;
   z-index: 1002;
 }
+
+/* ── Quick drill ── */
+.xp-drill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.xp-drill-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.xp-drill-progress {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.xp-drill-dots {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.xp-drill-dots span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+
+.xp-drill-dots span.done {
+  background: var(--color-primary);
+}
+
+.xp-drill-dots span.current {
+  background: var(--color-primary);
+  transform: scale(1.35);
+}
+
+.xp-drill-ask {
+  font-size: 1rem;
+  color: var(--color-text-light);
+  text-align: center;
+}
+
+.xp-drill-prompt {
+  font-size: 3rem;
+  line-height: 1.2;
+  text-align: center;
+  font-weight: 500;
+}
+
+.xp-drill-prompt--en {
+  font-size: 1.5rem;
+}
+
+.xp-drill-dim {
+  color: var(--color-text-light);
+}
+
+.xp-drill-pinyin {
+  text-align: center;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.xp-drill-listen {
+  align-self: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 2rem;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.25);
+}
+
+.xp-drill-listen:active {
+  transform: scale(0.95);
+}
+
+.xp-drill-options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+}
+
+.xp-drill-options--tones {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.xp-drill-option {
+  min-height: 52px;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-lg, 12px);
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 1.0625rem;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.xp-drill-option[lang='zh-CN'] {
+  font-size: 1.5rem;
+}
+
+.xp-drill-options--tones .xp-drill-option {
+  font-size: 0.875rem;
+  padding: 0.5rem 0.25rem;
+}
+
+.xp-drill-option:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.xp-drill-option.right {
+  background: rgba(22, 163, 74, 0.12);
+  border-color: #16a34a;
+  color: #15803d;
+  animation: xp-pop 0.25s ease-out;
+}
+
+.xp-drill-option.wrong {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: #dc2626;
+  color: #b91c1c;
+  animation: xp-shake 0.3s ease-out;
+}
+
+.xp-drill-option.dim {
+  opacity: 0.5;
+}
+
+@keyframes xp-pop {
+  50% { transform: scale(1.04); }
+}
+
+@keyframes xp-shake {
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.xp-drill-actions {
+  margin-top: 0.5rem;
+}
+
+.xp-drill-done {
+  align-items: center;
+  text-align: center;
+  padding-top: 1.5rem;
+}
+
+.xp-drill-done-icon {
+  font-size: 3rem;
+}
+
+.xp-drill-score {
+  font-size: 1.375rem;
+  font-weight: 700;
+}
+
+.xp-drill-btn {
+  margin-left: 0.5rem;
+}

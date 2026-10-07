@@ -80,6 +80,8 @@ export const ANALYTICS_EVENTS = {
   'explorer.more': e('study', '"More about this word" in the explorer\'s Word view.', ['kind']),
   'explorer.add_card': e('study', 'Added a word as a card from the explorer.', []),
   'explorer.bump': e('study', '"⚡ Study it today" from the explorer.', []),
+  'explorer.drill_start': e('study', 'Started a quick drill from the explorer (kind = char / word; practice only, no review events).', ['kind', 'items']),
+  'explorer.drill_finish': e('study', 'Finished a quick drill from the explorer.', ['kind', 'items', 'correct', 'duration_ms']),
   'explorer.write': e('study', '"✍️ Write it" from the explorer\'s Character view.', []),
   'study.study_more': e('study', 'Pressed Study More (bonus new cards).', ['count']),
   'study.celebration': e('study', "Emptied today's queue (the once-a-day celebration).", ['reviews', 'active_ms']),
