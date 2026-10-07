@@ -145,6 +145,11 @@ object AudioLessonTimeline {
         lines.forEachIndexed { i, l ->
             val prev = rows.lastOrNull()
             val prevLine = lines.getOrNull(i - 1)
+            // The host reading the translation of the line just shown under it ("Line by line"): one row.
+            if (prev != null && l.voice == "narrator" && !prev.english.isNullOrEmpty() && jsTrim(prev.english) == jsTrim(l.text)) {
+                rows[rows.size - 1] = prev.copy(last = i)
+                return@forEachIndexed
+            }
             val open = prev != null && prevLine != null && isNarration(prevLine) && isNarration(l) &&
                 prevLine.chapter == l.chapter && !SENTENCE_END.containsMatchIn(jsTrim(prevLine.text))
             if (open) {
