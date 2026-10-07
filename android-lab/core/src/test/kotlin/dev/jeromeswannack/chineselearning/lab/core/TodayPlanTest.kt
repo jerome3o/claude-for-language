@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 /**
  * The Lab-only "today split" model: counts come from the parity-tested selectors
- * (dueLessons, pickTodaysReader), in their order; done states; the new-lesson slots per day.
+ * (dueLessons, pickTodaysReader), in their order; done states; "New lessons a day".
  */
 class TodayPlanTest {
     private val zone = ZoneId.of("UTC")
@@ -37,12 +37,13 @@ class TodayPlanTest {
         val plan = TodayPlan.lessons(lessons, emptyList(), setOf("homework"), cutoff, now, zone)
         val selector = LessonSchedule.dueLessons(lessons, setOf("homework"), cutoff)
         assertEquals(selector.map { it.id }, plan.toDo.map { it.id }) // nothing started today: exactly the selector
-        assertEquals(listOf("learning", "review", "new1", "new2"), plan.toDo.map { it.id })
+        assertEquals(listOf("learning", "review", "new1"), plan.toDo.map { it.id }) // one new lesson a day
+        assertEquals(listOf("learning", "review", "new1", "new2"), TodayPlan.lessons(lessons, emptyList(), setOf("homework"), cutoff, now, zone, newPerDay = 2).toDo.map { it.id })
         assertEquals(emptyList(), plan.done)
         assertFalse(plan.isDone)
     }
 
-    @Test fun aNewLessonStartedTodayTakesOneOfTheDaysSlots() {
+    @Test fun aNewLessonStartedTodayTakesTheDaysSlot() {
         // new1 was done this morning and rated Easy → REVIEW in a few days: done, not due.
         val ev = listOf(ItemEvent("e1", "new1", Rating.EASY, "2026-09-27T08:00:00.000Z"))
         val lessons = listOf(
@@ -51,11 +52,12 @@ class TodayPlanTest {
             item("new3", CardQueue.NEW, created = "2026-09-03T00:00:00Z"),
         )
         val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone)
-        // The selector alone would offer new2 AND new3; the day has one slot left.
-        assertEquals(listOf("new2", "new3"), LessonSchedule.dueLessons(lessons, emptySet(), cutoff).map { it.id })
-        assertEquals(listOf("new2"), plan.toDo.map { it.id })
+        // One new lesson a day: new1 took today's — new2 waits for tomorrow.
+        assertEquals(emptyList(), plan.toDo.map { it.id })
         assertEquals(listOf("new1"), plan.done)
-        assertEquals(2, plan.total)
+        assertEquals(1, plan.total)
+        // With two a day, one slot is left.
+        assertEquals(listOf("new2"), TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone, newPerDay = 2).toDo.map { it.id })
     }
 
     @Test fun bothSlotsUsedMeansLessonsAreDoneForToday() {
@@ -64,7 +66,7 @@ class TodayPlanTest {
             ItemEvent("e2", "b", Rating.EASY, "2026-09-27T09:00:00.000Z"),
         )
         val lessons = listOf(replayed("a", ev.take(1)), replayed("b", ev.drop(1)), item("c", CardQueue.NEW))
-        val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone)
+        val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone, newPerDay = 2)
         assertEquals(emptyList(), plan.toDo)
         assertEquals(listOf("a", "b"), plan.done)
         assertTrue(plan.isDone)
@@ -74,7 +76,7 @@ class TodayPlanTest {
         // "Revisit later": even Again brings it back tomorrow at the soonest, never the same day.
         val ev = listOf(ItemEvent("e1", "a", Rating.AGAIN, "2026-09-27T11:55:00.000Z"))
         val lessons = listOf(replayed("a", ev), item("b", CardQueue.NEW))
-        val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone)
+        val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone, newPerDay = 2)
         assertEquals(listOf("b"), plan.toDo.map { it.id })
         assertEquals(listOf("a"), plan.done)
     }
@@ -100,7 +102,7 @@ class TodayPlanTest {
         )
         val lessons = listOf(replayed("r", ev), item("n1", CardQueue.NEW), item("n2", CardQueue.NEW, created = "2026-09-02T00:00:00Z"))
         val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone)
-        assertEquals(listOf("n1", "n2"), plan.toDo.map { it.id })
+        assertEquals(listOf("n1"), plan.toDo.map { it.id }) // today's one new lesson is still free
         assertEquals(listOf("r"), plan.done)
     }
 
@@ -108,17 +110,18 @@ class TodayPlanTest {
         val ev = listOf(ItemEvent("e1", "hw", Rating.EASY, "2026-09-27T08:00:00.000Z"))
         val lessons = listOf(replayed("hw", ev), item("n1", CardQueue.NEW), item("n2", CardQueue.NEW, created = "2026-09-02T00:00:00Z"))
         val plan = TodayPlan.lessons(lessons, ev, setOf("hw"), cutoff, now, zone)
-        assertEquals(listOf("n1", "n2"), plan.toDo.map { it.id }) // no slot taken
+        assertEquals(listOf("n1"), plan.toDo.map { it.id }) // no slot taken
         assertEquals(emptyList(), plan.done)
     }
 
     @Test fun readerStatesFollowThePick() {
         val story = item("s", CardQueue.NEW)
-        assertIs<TodayPlan.Reader.ToDo>(TodayPlan.reader(ReaderSchedule.pickTodays(listOf(story), emptySet(), cutoff), readToday = false))
+        assertIs<TodayPlan.Reader.ToDo>(TodayPlan.reader(ReaderSchedule.pickTodays(listOf(story), emptySet()), readToday = false))
         // Read today: pickTodays offers nothing more today → Done.
-        val read = replayed("s", listOf(ItemEvent("r1", "s", Rating.EASY, "2026-09-27T08:00:00.000Z")))
-        val readToday = ReaderSchedule.readToday(listOf(ItemEvent("r1", "s", Rating.EASY, "2026-09-27T08:00:00.000Z")), now, zone)
-        val picked = ReaderSchedule.pickTodays(listOf(read, item("other", CardQueue.NEW)), readToday, cutoff)
+        val readEvents = listOf(ItemEvent("r1", "s", Rating.GOOD, "2026-09-27T08:00:00.000Z"))
+        val read = ScheduledItem("s", "2026-09-01T00:00:00Z", ReaderSchedule.state(readEvents))
+        val readToday = ReaderSchedule.readToday(readEvents, now, zone)
+        val picked = ReaderSchedule.pickTodays(listOf(read, item("other", CardQueue.NEW)), readToday)
         assertEquals(TodayPlan.Reader.Done, TodayPlan.reader(picked, readToday.isNotEmpty()))
         assertEquals(TodayPlan.Reader.None, TodayPlan.reader(null, readToday = false))
     }

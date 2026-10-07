@@ -44,7 +44,7 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
                 onRetrySync = vm::retrySync,
                 onAllHomework = { nav.open(Routes.homework()) },
                 onLessonComplete = vm::completeLesson,
-                onReaderRated = vm::rateReader,
+                onReaderFinished = vm::finishReader,
                 sentences = sentences,
                 onPlaySentence = vm::playSentence,
                 onOpenLink = { url -> vm.linkOpened(); openExternal(context, url) },

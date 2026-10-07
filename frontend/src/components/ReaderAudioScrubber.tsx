@@ -47,7 +47,19 @@ import './ReaderAudioScrubber.css';
 /** Pointer travel (px) that turns a tap on the waveform into a drag. */
 const DRAG_SLOP = 6;
 
-export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id' | 'content_chinese'> }) {
+export interface ReaderAudioScrubberProps {
+  page: Pick<LocalReaderPage, 'id' | 'content_chinese'>;
+  /** "▶ Play whole story": start playing as soon as the clip is ready (from the start). */
+  autoPlay?: boolean;
+  /** The clip played to its end (not a stop). */
+  onPlaybackEnded?: () => void;
+  /** The listener pressed stop. */
+  onStopped?: () => void;
+  /** No clip (offline and not on the device, or TTS failed) — 'missing' — or it wouldn't play — 'failed'. */
+  onUnavailable?: (why: 'missing' | 'failed') => void;
+}
+
+export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, onStopped, onUnavailable }: ReaderAudioScrubberProps) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [analysis, setAnalysis] = useState<ClipAnalysis | null>(null);
@@ -67,6 +79,9 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
   const speed = useReaderSpeed();
   const speedRef = useRef(speed);
   speedRef.current = speed;
+  const callbacksRef = useRef({ onPlaybackEnded, onStopped, onUnavailable });
+  callbacksRef.current = { onPlaybackEnded, onStopped, onUnavailable };
+  const autoStartedRef = useRef(false);
 
   const durationMs = analysis?.durationMs || mediaDurationMs;
   // Until the clip is analysed (or when it can't be), the whole clip is one block
@@ -145,6 +160,7 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
     audio.onended = () => {
       stopRaf();
       dispatch({ type: 'ended' });
+      callbacksRef.current.onPlaybackEnded?.();
     };
     audio.onerror = () => {
       stopRaf();
@@ -279,15 +295,17 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
 
   const start = useCallback(async () => {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio) return false;
     const from = playRef.current.anchorMs;
     audio.currentTime = from / 1000;
     try {
       await audio.play();
       dispatch({ type: 'play' });
       startRaf();
+      return true;
     } catch {
       // Autoplay refused / decode error: stay stopped
+      return false;
     }
   }, [dispatch, startRaf]);
 
@@ -298,6 +316,27 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
     stopRaf();
     if (playRef.current.playing) dispatch({ type: 'pause', posMs: pos });
   }, [dispatch, stopRaf, positionMs]);
+
+  // The play button's stop: also tells "Play whole story" to stop turning pages
+  const userStop = useCallback(() => {
+    stop();
+    callbacksRef.current.onStopped?.();
+  }, [stop]);
+
+  // "▶ Play whole story": play this page as soon as its clip is ready (once per mount)
+  useEffect(() => {
+    if (!autoPlay) {
+      autoStartedRef.current = false;
+      return;
+    }
+    if (status === 'unavailable') {
+      callbacksRef.current.onUnavailable?.('missing');
+      return;
+    }
+    if (status !== 'ready' || autoStartedRef.current || playRef.current.playing) return;
+    autoStartedRef.current = true;
+    void start().then(ok => { if (!ok) callbacksRef.current.onUnavailable?.('failed'); });
+  }, [autoPlay, status, start]);
 
   const step = useCallback((dir: -1 | 1) => {
     if (status !== 'ready') return;
@@ -361,7 +400,7 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
         </div>
         <button
           className="reader-audio-btn"
-          onClick={play.playing ? stop : start}
+          onClick={play.playing ? userStop : start}
           disabled={!ready}
           aria-label={play.playing ? 'Stop audio' : 'Play audio from the selected point'}
         >

@@ -15,9 +15,8 @@ import kotlin.math.max
  * This file only PRESENTS the parity-tested selectors, it never re-implements them:
  * which lessons are due and their order come from [LessonSchedule.dueLessons], today's
  * reader from [ReaderSchedule.pickTodays] / [ReaderSchedule.readToday], the card counts from
- * StudyQueue. The one reading this adds: [LessonSchedule.MAX_NEW_PER_SESSION] is counted per
- * local day (today is the session since #454), so a new lesson started today takes one of
- * the day's slots and the Home count doesn't refill the moment two lessons are done.
+ * StudyQueue. New lessons are paced per local day ("New lessons a day", [LessonSchedule.dueLessons]
+ * with the lessons introduced today — the web does the same since Oct 2026).
  */
 object TodayPlan {
     /** Today's mini lessons: what's left ([toDo], session order) and what was finished today. */
@@ -56,22 +55,27 @@ object TodayPlan {
     private fun localDate(iso: String, zone: ZoneId): LocalDate = Instant.ofEpochMilli(Js.parseDate(iso)).atZone(zone).toLocalDate()
 
     /**
-     * Today's lessons: [LessonSchedule.dueLessons] (unchanged — due revisits most overdue first,
-     * at most two a day, then new oldest first; one-off homework and Done-for-good out), with the
-     * new ones limited to the day's slots
-     * ([LessonSchedule.MAX_NEW_PER_SESSION] minus the lessons first completed today).
+     * Today's lessons: [LessonSchedule.dueLessons] — due revisits most overdue first, at most two
+     * a day, then new oldest first, [newPerDay] a day minus the lessons first finished today;
+     * one-off homework and Done-for-good out.
      */
-    fun lessons(all: List<ScheduledItem>, events: List<ItemEvent>, oneOffOnly: Set<String>, cutoff: StudyCutoff, nowMs: Long, zone: ZoneId): Lessons {
+    fun lessons(
+        all: List<ScheduledItem>,
+        events: List<ItemEvent>,
+        oneOffOnly: Set<String>,
+        cutoff: StudyCutoff,
+        nowMs: Long,
+        zone: ZoneId,
+        newPerDay: Int = Revisit.DEFAULT.newLessonsPerDayInt,
+    ): Lessons {
         val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
         val regular = all.mapTo(HashSet()) { it.id }.apply { removeAll(oneOffOnly) }
         val byLesson = events.filter { it.itemId in regular }.groupBy { it.itemId }
         val completedToday = byLesson.filterValues { ev -> ev.any { localDate(it.at, zone) == today } }.keys
-        val startedToday = byLesson.filterValues { ev -> localDate(ev.minBy { Js.parseDate(it.at) }.at, zone) == today }.size
-        val slots = max(0, LessonSchedule.MAX_NEW_PER_SESSION - startedToday)
-        var taken = 0
+        val introduced = LessonSchedule.introducedToday(events, nowMs, zone, oneOffOnly)
         // Revisits are capped per day (`lessonRevisitsToday`, every lesson's completions).
         val revisited = LessonSchedule.revisitsToday(events, nowMs, zone)
-        val toDo = LessonSchedule.dueLessons(all, oneOffOnly, cutoff, revisited).filter { it.queue != CardQueue.NEW || taken++ < slots }
+        val toDo = LessonSchedule.dueLessons(all, oneOffOnly, cutoff, revisited, introduced, newPerDay)
         val toDoIds = toDo.mapTo(HashSet()) { it.id }
         val done = all.filter { it.id in completedToday && it.id !in toDoIds }.map { it.id }
         return Lessons(toDo, done)

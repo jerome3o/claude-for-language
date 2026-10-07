@@ -137,7 +137,8 @@ class StudyActions(
     val lessonEnv: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(),
     val onLessonComplete: (dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) -> Unit = {},
     val readerEnv: @Composable (readerId: String) -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv = { dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv() },
-    val onReaderRated: (rating: Int, timeSpentMs: Long, retire: Boolean) -> Unit = { _, _, _ -> },
+    /** Today's reader was finished (Finish, or listened to the end — `how` = finish | listened). */
+    val onReaderFinished: (timeSpentMs: Long, how: String) -> Unit = { _, _ -> },
     /** Lab "today split": Continue on the "Flashcards done" pause. (Later = [onClose].) */
     val onContinueExtras: () -> Unit = {},
 )
@@ -253,7 +254,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             lessonEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv(app), // Package B
             onLessonComplete = vm::completeLesson, // Package B
             readerEnv = { id -> dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv(app, id) }, // Package B
-            onReaderRated = vm::rateReader, // Package B
+            onReaderFinished = vm::finishReader, // Package B
             onContinueExtras = vm::continueToExtras, // Lab today split
         ),
     )
@@ -290,7 +291,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                         StudyPhase.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
                         is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay)
                         is StudyPhase.Lesson -> dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLessonView(phase.lesson, ui.counts, actions.lessonEnv, actions.onLessonComplete) // Package B
-                        is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderRated) // Package B
+                        is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderFinished) // Package B
                         is StudyPhase.Extras -> ExtrasBreakView(phase, ui, actions) // Lab today split
                         StudyPhase.Done -> DoneView(ui, actions)
                     }

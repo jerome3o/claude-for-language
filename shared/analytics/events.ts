@@ -151,7 +151,9 @@ export const ANALYTICS_EVENTS = {
 
   // ── readers ────────────────────────────────────────────────────────────
   'reader.open': e('readers', 'Opened a graded reader.', ['source', 'pages']),
-  'reader.finish': e('readers', 'Rated / finished a reader.', ['rating', 'pages']),
+  'reader.finish': e('readers', 'Finished a reader (Finish button, or listened to the end with Play whole story). Old events carry a rating.', ['how', 'rating', 'pages']),
+  'reader.story_play': e('readers', 'Started "▶ Play whole story" (pages play one after another, turning the pages).', ['from_page', 'pages', 'speed', 'offline']),
+  'reader.story_stop': e('readers', 'Stopped "Play whole story" before the end.', ['page', 'pages']),
   'reader.word_tap': e('readers', 'Tapped a word chip.', []),
   'reader.word_more': e('readers', '"More about this word".', []),
   'reader.word_add_card': e('readers', 'Added a reader word as a card.', []),
@@ -176,8 +178,8 @@ export const ANALYTICS_EVENTS = {
   // ── lessons ────────────────────────────────────────────────────────────
   'lesson.start': e('lessons', 'Started a mini lesson.', ['source', 'exercises']),
   'lesson.complete': e('lessons', 'Finished a mini lesson.', ['rating', 'source', 'duration_ms']),
-  'study.done_for_good': e('study', '"Done for good" on a finished lesson / reader: never scheduled again.', ['kind', 'source']),
-  'study.bring_back': e('study', '"Bring back" a lesson / reader that was done for good.', ['kind']),
+  'study.done_for_good': e('study', '"Done for good" on a finished lesson: never scheduled again (readers until Oct 2026; now read once).', ['kind', 'source']),
+  'study.bring_back': e('study', '"Bring back" a lesson that was done for good.', ['kind']),
   'lesson.grammar_start': e('lessons', 'Started the OLD fixed-phase grammar lesson.', [], { replacedBy: 'lesson.start' }),
   'lesson.editor_save': e('lessons', 'Saved a lesson in the editor.', []),
   'lesson.catalogue_try': e('lessons', 'Tried a catalogue sample lesson.', ['exercise_type']),
@@ -214,7 +216,7 @@ export const ANALYTICS_EVENTS = {
 
   // ── settings ───────────────────────────────────────────────────────────
   'settings.change': e('settings', 'Changed a setting (`setting` names it, `value` an enum).', ['setting', 'value']),
-  'settings.revisit_changed': e('settings', 'Changed the "Lessons & readers" revisit gaps (or reset them).', ['fields', 'reset']),
+  'settings.revisit_changed': e('settings', 'Changed the "Lessons & readers" settings — revisit gaps / new lessons a day (or reset them).', ['fields', 'reset', 'new_lessons_per_day']),
   'settings.analytics': e('settings', 'Turned usage data sharing on / off.', ['on']),
   'settings.full_sync': e('settings', 'Ran a full sync by hand.', []),
   'settings.debug_report': e('settings', 'Sent a debug report by hand.', []),

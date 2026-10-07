@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as client from '../api/client';
 import { db, LocalReader } from '../db/database';
-import { recordReaderReview } from './reader-study';
+import { recordReaderFinish } from './reader-study';
 import { CardQueue } from '../types';
 import {
   ensureDailyReader,
@@ -65,24 +65,25 @@ describe('ensureDailyReader — one reader a day', () => {
     expect(gen).not.toHaveBeenCalled();
   });
 
-  it('does not generate when a review reader is due today — that one is the day\'s reader', async () => {
-    const gen = vi.spyOn(client, 'generateDailyReader');
-    await db.readers.put(readyReader({ id: 'due', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() - 86_400_000).toISOString() }));
-    expect(await ensureDailyReader()).toBe(false);
-    expect(gen).not.toHaveBeenCalled();
+  it('a story read on an earlier day is never offered again — a new one is generated', async () => {
+    const gen = vi.spyOn(client, 'generateDailyReader').mockResolvedValue({ reader_id: 'r1', situation_id: 'due-cards', status: 'generating' });
+    await db.readers.put(readyReader({ id: 'old', queue: CardQueue.REVIEW }));
+    const yesterday = new Date(Date.now() - 86_400_000 * 2).toISOString();
+    await db.readerReviewEvents.put({ id: 'e1', reader_id: 'old', rating: 2, time_spent_ms: 1000, reviewed_at: yesterday, _synced: 1, _created_at: yesterday });
+    expect(await ensureDailyReader()).toBe(true);
+    expect(gen).toHaveBeenCalledTimes(1);
   });
 
   it('does not generate once a reader has been read today', async () => {
     const gen = vi.spyOn(client, 'generateDailyReader');
     await db.readers.put(readyReader({ id: 'done' }));
-    await recordReaderReview('done', 3, 1000);
+    await recordReaderFinish('done', 1000);
     expect(await ensureDailyReader()).toBe(false);
     expect(gen).not.toHaveBeenCalled();
   });
 
-  it('generates when nothing is due today', async () => {
+  it('generates when no reader exists', async () => {
     const gen = vi.spyOn(client, 'generateDailyReader').mockResolvedValue({ reader_id: 'r1', situation_id: 'due-cards', status: 'generating' });
-    await db.readers.put(readyReader({ id: 'future', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() + 3 * 86_400_000).toISOString() }));
     expect(await ensureDailyReader()).toBe(true);
     expect(gen).toHaveBeenCalledTimes(1);
   });

@@ -178,23 +178,21 @@ class StudyViewModel(
             busy = false
         }
     }
-    /** The last page of today's reader was rated: record it, count it, move on. */
-    fun rateReader(rating: Int, timeSpentMs: Long, retire: Boolean = false) {
+    /** Today's reader was finished (Finish, or listened to the end): record it, count it, move on. Read once — never again. */
+    fun finishReader(timeSpentMs: Long, how: String = "finish") {
         val reader = (_ui.value.phase as? StudyPhase.Reader)?.reader ?: return
         if (busy) return
         busy = true
         undo = null
         val before = _ui.value.stats
-        val correct = rating >= 2
         _ui.update {
-            it.copy(lastRating = rating, canUndo = false, stats = before.copy(
-                reviews = before.reviews + 1, correct = before.correct + if (correct) 1 else 0,
-                againCount = before.againCount + if (rating == 0) 1 else 0,
+            it.copy(lastRating = dev.jeromeswannack.chineselearning.lab.core.Rating.GOOD, canUndo = false, stats = before.copy(
+                reviews = before.reviews + 1, correct = before.correct + 1,
             ))
         }
-        app.haptics.rated(rating)
+        app.haptics.rated(dev.jeromeswannack.chineselearning.lab.core.Rating.GOOD)
         viewModelScope.launch {
-            extras.rateReader(reader.reader.id, rating, timeSpentMs, retire)
+            extras.finishReader(reader.reader.id, timeSpentMs, how)
             _ui.update { it.copy(todayLeft = todayLeft()) }
             var next = nextItem(null)
             if (next == null) next = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }

@@ -15,6 +15,8 @@ class LessonScheduleTest {
     private val day = 86_400_000L
 
     private fun fresh(id: String, created: String = "2026-09-01T00:00:00Z") = ScheduledItem(id, created, RevisitState.INITIAL)
+    private fun read(id: String, created: String = "2026-09-01T00:00:00Z") =
+        ScheduledItem(id, created, ReaderSchedule.state(listOf(ItemEvent("e-$id", id, Rating.GOOD, "2026-09-20T10:00:00.000Z"))))
     private fun due(id: String, dueMs: Long) = ScheduledItem(id, "2026-09-01T00:00:00Z", RevisitState(RevisitState.SCHEDULED, dueMs, 14.0, dueMs - 14 * day, 1))
     private fun retired(id: String) = ScheduledItem(id, "2026-09-01T00:00:00Z", RevisitState(RevisitState.RETIRED, null, 14.0, null, 1))
 
@@ -34,11 +36,27 @@ class LessonScheduleTest {
             fresh("homework", "2026-08-01T00:00:00Z"),
         )
         val due = LessonSchedule.dueLessons(lessons, oneOffOnly = setOf("homework"), cutoff = cutoff)
-        // Two revisits a day (most overdue first), then two new ones; retired and homework never.
-        assertEquals(listOf("overdue", "lessOverdue", "new1", "new2"), due.map { it.id })
+        // Two revisits a day (most overdue first), then ONE new lesson a day; retired and homework never.
+        assertEquals(listOf("overdue", "lessOverdue", "new1"), due.map { it.id })
         // One revisit already done today: one more.
-        assertEquals(listOf("overdue", "new1", "new2"), LessonSchedule.dueLessons(lessons, setOf("homework"), cutoff, revisitedToday = 1).map { it.id })
-        assertEquals(listOf("new1", "new2"), LessonSchedule.dueLessons(lessons, setOf("homework"), cutoff, revisitedToday = 5).map { it.id })
+        assertEquals(listOf("overdue", "new1"), LessonSchedule.dueLessons(lessons, setOf("homework"), cutoff, revisitedToday = 1).map { it.id })
+        assertEquals(listOf("new1"), LessonSchedule.dueLessons(lessons, setOf("homework"), cutoff, revisitedToday = 5).map { it.id })
+        // A new lesson already introduced today: no other new one (revisits are uncapped by it).
+        assertEquals(listOf("overdue", "lessOverdue"), LessonSchedule.dueLessons(lessons, setOf("homework"), cutoff, introducedToday = 1).map { it.id })
+        // "New lessons a day" = 3.
+        assertEquals(listOf("new1", "new2", "new3"), LessonSchedule.dueLessons(lessons, setOf("homework"), cutoff, revisitedToday = 5, newPerDay = 3).map { it.id })
+    }
+
+    @Test fun introducedTodayCountsFirstFinishesOnTheLocalDate() {
+        val zone = ZoneId.of("UTC")
+        val events = listOf(
+            ItemEvent("1", "a", 2, "2026-09-27T08:00:00.000Z"), // a: first finish today
+            ItemEvent("2", "b", 2, "2026-09-10T10:00:00.000Z"),
+            ItemEvent("3", "b", 2, "2026-09-27T09:00:00.000Z"), // b: a revisit, not new
+            ItemEvent("4", "hw", 2, "2026-09-27T09:00:00.000Z"), // one-off homework
+        )
+        assertEquals(2, LessonSchedule.introducedToday(events, now, zone))
+        assertEquals(1, LessonSchedule.introducedToday(events, now, zone, setOf("hw")))
     }
 
     @Test fun completionsReplayOnTheRevisitSchedule() {
@@ -104,14 +122,18 @@ class LessonScheduleTest {
         assertNull(SessionMix.next(emptyList(), emptyList(), emptyList(), true, emptySet(), emptyList(), null, null, now, cutoff, Random(1)))
     }
 
-    @Test fun readerPickIsOneADayNeverRetired() {
+    @Test fun readerPickIsOneUnreadADayNeverARepeat() {
         val newer = fresh("newer", "2026-09-20T00:00:00Z")
         val older = fresh("older", "2026-09-10T00:00:00Z")
-        assertEquals("newer", ReaderSchedule.pickTodays(listOf(older, newer), emptySet(), cutoff)?.id)
-        assertEquals("overdue", ReaderSchedule.pickTodays(listOf(newer, due("soon", now), due("overdue", now - 3 * day)), emptySet(), cutoff)?.id)
-        assertNull(ReaderSchedule.pickTodays(listOf(retired("r")), emptySet(), cutoff))
-        // Read today (even rated Again): nothing more today.
-        assertNull(ReaderSchedule.pickTodays(listOf(newer, due("overdue", now - day)), setOf("x"), cutoff))
+        assertEquals("newer", ReaderSchedule.pickTodays(listOf(older, newer), emptySet())?.id)
+        // A story that was read is never offered again.
+        assertNull(ReaderSchedule.pickTodays(listOf(read("a"), read("b", "2026-09-30T00:00:00Z")), emptySet()))
+        assertEquals("older", ReaderSchedule.pickTodays(listOf(read("newest", "2026-09-30T00:00:00Z"), older), emptySet())?.id)
+        // Read today: nothing more today.
+        assertNull(ReaderSchedule.pickTodays(listOf(newer), setOf("x")))
+        // A reader's state: unread = NEW; read = never due.
+        assertEquals(RevisitState.INITIAL, ReaderSchedule.state(emptyList()))
+        assertNull(read("r").state.dueMs)
     }
 
     @Test fun readTodayUsesTheLocalDate() {

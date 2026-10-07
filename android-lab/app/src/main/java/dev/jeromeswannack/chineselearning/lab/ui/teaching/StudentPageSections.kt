@@ -622,8 +622,7 @@ fun SharedReadersCard(readers: List<SharedReaderDto>?, removeLabel: String, onRe
                         MutedLine(
                             "sent ${TeachingFormat.shortDate(r.shared_at, now)} · " +
                                 if (r.target_deleted) "they deleted their copy"
-                                else "${TeachingFormat.plural(r.page_count, "page")} · ${if (r.read_count == 0) "not read yet" else "read ${r.read_count}×"}" +
-                                    (dev.jeromeswannack.chineselearning.lab.core.Revisit.tutorLabel(r.next_revisit_at, r.retired, now.toEpochMilli())?.let { " · $it" } ?: ""),
+                                else "${TeachingFormat.plural(r.page_count, "page")} · ${if (r.read_count == 0) "not read yet" else "read" + (r.last_read_at?.let { " " + TeachingFormat.shortDate(it, now) } ?: "")}",
                         )
                     }
                     OverflowButton("More for ${r.title}") { menuFor = r }

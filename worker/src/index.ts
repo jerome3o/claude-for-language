@@ -510,7 +510,7 @@ app.get('/api/auth/me', async (c) => {
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
     // The same with who set it (the learner or their tutor; shared/decks/tutor-budget.ts).
     study_budget: await db.getStudyBudgetInfo(c.env.DB, user.id).catch(() => null),
-    // When finished lessons / readers come back (shared/study/revisit.ts; Settings → "Lessons & readers").
+    // When finished lessons come back + new lessons a day (shared/study/revisit.ts; Settings → "Lessons & readers"). Readers are read once.
     revisit_settings: await getRevisitSettingsInfo(c.env.DB, user.id).catch(() => null),
     // The voices this account's conversation exercises use (its own selection,
     // else the admin's, else the shipped defaults) — cached on the device.
@@ -614,7 +614,7 @@ app.route('/api', homeworkDraftRoutes);
 app.route('/api', adminRoutes);
 // Folders for decks / library lessons / readers (organisation only; routes/folders.ts).
 app.route('/api', foldersRoutes);
-app.route('/api', revisitRoutes); // "Revisit later" for lessons / readers — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
+app.route('/api', revisitRoutes); // "Revisit later" for lessons — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
 app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
 app.route('/api', audioBackfillRoutes); // /api/admin/audio/* (docs/AUDIO.md)
 app.route('/api', audioSettingsRoutes); // /api/admin/audio/settings|sample (docs/AUDIO.md "Providers")
@@ -5769,7 +5769,7 @@ app.get('/api/sync/changes', async (c) => {
     // "⚡ Study it today": every active bump (a short list, sent whole like folders;
     // the device keeps its own not-yet-uploaded ones on top). shared/decks/bumps.ts.
     bumps: await listActiveBumps(c.env.DB, userId).catch(() => null),
-    // "Revisit later" for lessons / readers: the gaps, and every Done-for-good / Bring-back
+    // "Revisit later" for lessons: the gaps + new lessons a day, and every Done-for-good / Bring-back
     // event (a short list, sent whole; the device keeps its own not-yet-uploaded ones on top).
     revisit_settings: await getRevisitSettingsInfo(c.env.DB, userId).catch(() => null),
     revisit_events: await listRevisitEvents(c.env.DB, userId).catch(() => null),

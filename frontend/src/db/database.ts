@@ -192,12 +192,12 @@ export interface LocalReaderPage {
 }
 
 /**
- * A graded reader cached for offline study. Readers come back on the "revisit
- * later" schedule (shared/study/revisit.ts): the scheduling fields below are a
- * cache computed from readerReviewEvents + revisitEvents (events are the source
- * of truth). queue NEW = never read; REVIEW = next_review_at / due_timestamp say
- * when it comes back; `retired` = Done for good. The FSRS-only fields
- * (stability, difficulty, lapses) are kept at 0 for old readers of the row.
+ * A graded reader cached for offline study. A story is read ONCE, never
+ * repeated (shared/study/daily-reader.ts): the fields below are a cache computed
+ * from readerReviewEvents (the source of truth) — queue NEW = never read,
+ * REVIEW = read (`repetitions` = how many finishes, `last_reviewed_at` = the last).
+ * The old scheduling fields (stability, difficulty, lapses, interval,
+ * next_review_at, due_timestamp, retired) are kept at 0 / null / false.
  */
 export interface LocalReader {
   id: string;
@@ -207,7 +207,7 @@ export interface LocalReader {
   status: string; // 'generating' | 'ready' | 'failed'
   created_at: string;
   pages: LocalReaderPage[];
-  // Revisit schedule (computed from readerReviewEvents + revisitEvents)
+  // Read state (computed from readerReviewEvents)
   queue: CardQueue;
   stability: number;
   difficulty: number;
@@ -217,12 +217,12 @@ export interface LocalReader {
   next_review_at: string | null;
   due_timestamp: number | null;
   last_reviewed_at: string | null;
-  /** Done for good: never offered again (Mini Lessons / Readers page → Bring back). */
+  /** Legacy (readers were on the revisit schedule until Oct 2026): always false now. */
   retired?: boolean;
   _synced_at: number | null;
 }
 
-/** "Done for good" / "Bring back" on a lesson or reader (shared/study/revisit.ts). */
+/** "Done for good" / "Bring back" on a lesson (readers' old marks are ignored) (shared/study/revisit.ts). */
 export interface LocalRevisitEvent {
   id: string;
   item_kind: 'lesson' | 'reader';

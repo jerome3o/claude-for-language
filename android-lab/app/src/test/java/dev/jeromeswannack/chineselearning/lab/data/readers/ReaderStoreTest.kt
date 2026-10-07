@@ -87,42 +87,49 @@ class ReaderStoreTest {
         db.close()
     }
 
-    @Test fun oneReaderADayFromMergedEvents() = runBlocking {
+    @Test fun oneUnreadReaderADayFromMergedEvents() = runBlocking {
         store.sync(zone, prefetch = false)
-        // r1 was read on another device (Easy: back in 6 weeks); r2 is new → today's reader.
-        assertEquals(RevisitState.SCHEDULED, store.entry("r1")!!.state.status)
-        assertEquals(42.0, store.entry("r1")!!.state.gapDays, 0.0)
+        // r1 was read on another device: never offered again; r2 is unread → today's reader.
+        assertTrue(store.entry("r1")!!.read)
+        assertNull(store.entry("r1")!!.state.dueMs)
         val now = Js.parseDate("2026-09-27T12:00:00.000Z")
         val cutoff = StudyQueue.cutoff(now, zone)
         assertEquals("r2", store.todaysReader(now, cutoff, zone)?.id)
 
-        val state = store.rate("r2", Rating.GOOD, 90_000, now)
-        // "Revisit later": Good = back in two weeks.
-        assertEquals(now + 14 * 86_400_000L, state.dueMs)
+        store.finish("r2", 90_000, "listened", now)
+        assertTrue(store.entry("r2")!!.read)
         assertEquals(1, outbox.pendingCount())
-        // Read today: nothing more today (not even an Again repeat).
+        // Read today: nothing more today.
         assertNull(store.todaysReader(now + 11 * 60_000, cutoff, zone))
+        // …and never again: both stories were read.
+        val tomorrow = now + 86_400_000L
+        assertNull(store.todaysReader(tomorrow, StudyQueue.cutoff(tomorrow, zone), zone))
 
         outbox.drain()
         val upload = requests.first { it.first == "POST /api/reader-reviews" }.second
-        assertTrue(upload.contains("\"reader_id\":\"r2\"") && upload.contains("\"time_spent_ms\":90000"))
+        assertTrue(upload.contains("\"reader_id\":\"r2\"") && upload.contains("\"time_spent_ms\":90000") && upload.contains("\"rating\":2"))
         // The cursor moved: the next download asks from the last server event.
         store.downloadEvents()
         assertTrue(requests.last { it.first.startsWith("GET /api/reader-reviews?") }.first.contains("after_id=other"))
     }
 
-    @Test fun doneForGoodReadersAreNeverOffered() = runBlocking {
+    @Test fun anUnreadDailyReaderIsOfferedAgainAndNoNewOneIsAskedFor() = runBlocking {
         store.sync(zone, prefetch = false)
         val now = Js.parseDate("2026-09-27T12:00:00.000Z")
-        val cutoff = StudyQueue.cutoff(now, zone)
-        store.markRevisit("r2", "retire")
-        assertEquals(RevisitState.RETIRED, store.entry("r2")!!.state.status)
-        assertNull(store.todaysReader(now, cutoff, zone)) // r1 isn't due, r2 is done for good
-        store.markRevisit("r2", "restore")
-        // Bring back: in rotation again, due at once.
-        val later = System.currentTimeMillis()
-        assertEquals("r2", store.todaysReader(later, StudyQueue.cutoff(later, zone), zone)?.id)
-        assertEquals(listOf("revisit", "revisit"), outbox.all().map { it.kind })
+        // r2 is unread: offered today, tomorrow, the day after — and no new story is generated.
+        for (d in 0..2) {
+            val t = now + d * 86_400_000L
+            val cutoff = StudyQueue.cutoff(t, zone)
+            assertEquals("r2", store.todaysReader(t, cutoff, zone)?.id)
+            assertFalse(store.ensureDaily(listOf("n1"), t, cutoff, zone, online = true))
+        }
+        assertTrue(requests.none { it.first == "POST /api/daily/reader/generate" })
+        // Read it: still nothing generated today (one a day) …
+        store.finish("r2", 1_000, nowMs = now + 2 * 86_400_000L)
+        assertFalse(store.ensureDaily(emptyList(), now + 2 * 86_400_000L, StudyQueue.cutoff(now, zone), zone, online = true))
+        // … the next day a new one is asked for.
+        val next = now + 3 * 86_400_000L
+        assertTrue(store.ensureDaily(emptyList(), next, StudyQueue.cutoff(next, zone), zone, online = true))
     }
 
     @Test fun dailyReaderIsRequestedOncePerDayWhenNothingIsDue() = runBlocking {

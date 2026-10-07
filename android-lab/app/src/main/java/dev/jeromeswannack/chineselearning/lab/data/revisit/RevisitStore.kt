@@ -40,13 +40,14 @@ data class LocalRevisitEvent(
 
 /**
  * "Revisit later" on the device — the web's services/revisit.ts on the Lab platform:
- *  - the account's gaps (Settings → "Lessons & readers") mirrored in the JsonCache, so the
+ *  - the account's gaps + "New lessons a day" (Settings → "Lessons & readers") mirrored in the JsonCache, so the
  *    schedule works offline; refreshed on every sync (`GET /api/me/revisit`);
  *  - "Done for good" / "Bring back" written here at once and sent through the Outbox
  *    (`POST /api/me/revisit-events`, idempotent by id); every sync replaces the server's
  *    events whole, keeping this phone's pending ones.
- * The schedule itself is never stored: LessonStore / ReaderStore replay it from the
- * completions + these marks with [Revisit.computeState] whenever they're read.
+ * The schedule itself is never stored: LessonStore replays it from the completions + these
+ * marks with [Revisit.computeState] whenever they're read. (Readers are read once — their
+ * old marks are ignored.)
  */
 class RevisitStore(private val cache: JsonCache, private val outbox: Outbox, private val api: Api) {
     private val eventsSerializer = ListSerializer(LocalRevisitEvent.serializer())
@@ -84,8 +85,9 @@ class RevisitStore(private val cache: JsonCache, private val outbox: Outbox, pri
     suspend fun saveSettings(changes: Map<String, Double>, reset: Boolean): RevisitSettings {
         val saved = api.saveRevisitSettings(revisitSettingsBody(changes, reset))
         writeSettings(saved)
-        Analytics.track("settings.revisit_changed", mapOf("fields" to if (reset) Revisit.KEYS.size else changes.size, "reset" to reset))
-        return saved.toSettings()
+        val next = saved.toSettings()
+        Analytics.track("settings.revisit_changed", mapOf("fields" to if (reset) Revisit.KEYS.size else changes.size, "reset" to reset, "new_lessons_per_day" to next.newLessonsPerDayInt))
+        return next
     }
 
     /** `syncRevisit` (after the outbox drained): the gaps + the server's events, this phone's pending ones on top. */

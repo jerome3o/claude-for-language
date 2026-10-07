@@ -22,6 +22,8 @@ data class RevisitSettingsDto(
     val easy_days: Double = 42.0,
     val growth: Double = 2.0,
     val cap_days: Double = 180.0,
+    /** "New lessons a day" (absent from servers before Oct 2026 → the default, 1). */
+    val new_lessons_per_day: Double = 1.0,
     val is_default: Boolean = true,
 ) {
     /** Through `parseRevisitSettings`, so a broken value can never break the schedule. */
@@ -31,6 +33,7 @@ data class RevisitSettingsDto(
         put("easy_days", JsonPrimitive(easy_days))
         put("growth", JsonPrimitive(growth))
         put("cap_days", JsonPrimitive(cap_days))
+        put("new_lessons_per_day", JsonPrimitive(new_lessons_per_day))
     })
 }
 

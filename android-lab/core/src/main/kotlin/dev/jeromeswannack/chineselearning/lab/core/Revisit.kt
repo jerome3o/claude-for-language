@@ -9,7 +9,8 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 
 /**
- * "Revisit later" — the schedule of mini lessons and graded readers. Port of
+ * "Revisit later" — the schedule of mini lessons (graded readers were on it until Oct 2026;
+ * now a story is read once — [DailyReader]), plus how many NEW lessons a day join. Port of
  * shared/study/revisit.ts (parity-tested: parity/fixtures/revisit.ts → RevisitParityTest).
  *
  * The rating after finishing sets the gap until the next visit:
@@ -18,8 +19,8 @@ import kotlinx.serialization.json.doubleOrNull
  * (Hard grows ×1.2 at most), capped at 180 days. Again resets it to 1 day. "Done for good"
  * retires the item; "Bring back" puts it in rotation again, due at once.
  *
- * Event-sourced: the state is derived from the history (completions / reader reviews +
- * retire / restore events), never stored. The gaps are an account setting.
+ * Event-sourced: the state is derived from the history (completions + retire / restore
+ * events), never stored. The gaps and "New lessons a day" are an account setting.
  */
 data class RevisitSettings(
     /** First gap after Hard, in days. */
@@ -32,6 +33,8 @@ data class RevisitSettings(
     val growth: Double = 2.0,
     /** No gap is ever longer than this, in days. */
     val capDays: Double = 180.0,
+    /** At most this many NEW (never-finished) lessons are introduced per local day (0 = none). */
+    val newLessonsPerDay: Double = 1.0,
 ) {
     operator fun get(key: String): Double = when (key) {
         "hard_days" -> hardDays
@@ -39,6 +42,7 @@ data class RevisitSettings(
         "easy_days" -> easyDays
         "growth" -> growth
         "cap_days" -> capDays
+        "new_lessons_per_day" -> newLessonsPerDay
         else -> throw IllegalArgumentException(key)
     }
 
@@ -48,8 +52,12 @@ data class RevisitSettings(
         "easy_days" -> copy(easyDays = v)
         "growth" -> copy(growth = v)
         "cap_days" -> copy(capDays = v)
+        "new_lessons_per_day" -> copy(newLessonsPerDay = v)
         else -> throw IllegalArgumentException(key)
     }
+
+    /** "New lessons a day" as a count. */
+    val newLessonsPerDayInt: Int get() = newLessonsPerDay.toInt()
 }
 
 /** One event in an item's history. [kind] rating (a finish; [rating] null = legacy = Good), retire or restore. */
@@ -108,12 +116,14 @@ object Revisit {
     const val GROWTH_MAX = 5.0
     const val CAP_MIN = 1.0
     const val CAP_MAX = 3650.0
+    const val NEW_LESSONS_MIN = 0.0
+    const val NEW_LESSONS_MAX = 20.0
 
     /** `MAX_LESSON_REVISITS_PER_DAY`. */
     const val MAX_LESSON_REVISITS_PER_DAY = 2
 
     /** The settings fields in the web's order (`KEYS`). */
-    val KEYS = listOf("hard_days", "good_days", "easy_days", "growth", "cap_days")
+    val KEYS = listOf("hard_days", "good_days", "easy_days", "growth", "cap_days", "new_lessons_per_day")
 
     private const val DAY_MS = 24.0 * 60 * 60 * 1000
 
@@ -200,6 +210,7 @@ object Revisit {
     private fun limitFor(key: String): Pair<Double, Double> = when (key) {
         "growth" -> GROWTH_MIN to GROWTH_MAX
         "cap_days" -> CAP_MIN to CAP_MAX
+        "new_lessons_per_day" -> NEW_LESSONS_MIN to NEW_LESSONS_MAX
         else -> DAYS_MIN to DAYS_MAX
     }
 
@@ -236,7 +247,7 @@ object Revisit {
 
     /**
      * `pickRevisitSettingsUpdate`: validate an update from an untrusted body — day fields whole
-     * numbers 1–365, growth 1–5, cap 1–3650; null = back to that default. Checks the merged
+     * numbers 1–365, growth 1–5, cap 1–3650, new lessons a day 0–20; null = back to that default. Checks the merged
      * result keeps Hard ≤ Good ≤ Easy.
      */
     fun pickUpdate(input: JsonObject?, current: RevisitSettings = DEFAULT): RevisitSettingsPick {
@@ -253,6 +264,9 @@ object Revisit {
             if (key == "growth") {
                 if (!n.isFinite() || n < min || n > max) problems += "growth must be a number between $minS and $maxS"
                 else update[key] = round2(n)
+            } else if (key == "new_lessons_per_day") {
+                if (!isInteger(n) || n < min || n > max) problems += "new_lessons_per_day must be a whole number between $minS and $maxS"
+                else update[key] = n
             } else if (!isInteger(n) || n < min || n > max) {
                 problems += "$key must be a whole number of days between $minS and $maxS"
             } else {
@@ -296,7 +310,7 @@ object Revisit {
             if (n.isFinite() && n >= min && n <= max) out = out.with(key, if (key == "growth") round2(n) else Js.round(n))
         }
         if (!(out.hardDays <= out.goodDays && out.goodDays <= out.easyDays)) {
-            return DEFAULT.copy(growth = out.growth, capDays = out.capDays)
+            return DEFAULT.copy(growth = out.growth, capDays = out.capDays, newLessonsPerDay = out.newLessonsPerDay)
         }
         return out
     }
@@ -317,6 +331,28 @@ object Revisit {
             .sortedBy { it.second.dueMs ?: 0L }
             .take(room)
             .map { it.first }
+    }
+
+    /**
+     * `newLessonsIntroducedToday`: lessons whose very FIRST finish is at or after [dayStartMs]
+     * (local midnight) — from the completion events, never a counter. [exclude] (one-off
+     * homework) doesn't count.
+     */
+    fun newLessonsIntroducedToday(events: List<Pair<String, String>>, dayStartMs: Long, exclude: Set<String> = emptySet()): Int {
+        val first = HashMap<String, Long>()
+        for ((lessonId, completedAt) in events) {
+            if (lessonId in exclude) continue
+            val t = ms(completedAt)
+            val f = first[lessonId]
+            if (f == null || t < f) first[lessonId] = t
+        }
+        return first.values.count { it >= dayStartMs }
+    }
+
+    /** `pickNewLessonsForToday`: the NEW lessons today still has room for, oldest first (ties by id). */
+    fun <T> pickNewForToday(fresh: List<T>, id: (T) -> String, createdAt: (T) -> String, introducedToday: Int, perDay: Int = DEFAULT.newLessonsPerDayInt): List<T> {
+        val room = maxOf(0, perDay - introducedToday)
+        return fresh.sortedWith(compareBy<T>({ createdAt(it) }, { id(it) })).take(room)
     }
 
     // ============ Device rows & labels ============

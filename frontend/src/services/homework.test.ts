@@ -3,6 +3,7 @@ import { db, type LocalHomeworkAssignment, type LocalCustomLesson } from '../db/
 import { oneOffOnlyTargetIds, recordTargetDone, sortHomeworkItems, syncHomework, toHomeworkItems, recordPassEvent } from './homework';
 import { getDueCustomLessons, completeCustomLesson } from './custom-lesson-study';
 import { CardQueue } from '../types';
+import { writeRevisitSettings } from './revisit';
 
 function assignment(over: Partial<LocalHomeworkAssignment> = {}): LocalHomeworkAssignment {
   return {
@@ -98,6 +99,8 @@ describe('one-off lessons and readers stay out of FSRS', () => {
       assignment({ id: 'a2', kind: 'lesson', target_id: 'both', mode: 'both', item_ids: null, item_count: 1 }),
     ]);
     expect(await oneOffOnlyTargetIds()).toEqual(new Set(['once']));
+    // Room for every new lesson today (the default is one a day).
+    writeRevisitSettings({ new_lessons_per_day: 5 } as never);
     const due = await getDueCustomLessons();
     expect(due.map((l) => l.id).sort()).toEqual(['both', 'mine']);
   });

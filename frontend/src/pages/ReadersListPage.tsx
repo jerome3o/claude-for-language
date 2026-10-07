@@ -11,29 +11,22 @@ import { FolderGroups, FolderToolbar, SelectionBar, useFolderUi } from '../compo
 import { GradedReader, DifficultyLevel } from '../types';
 import { partitionReaders, friendlyReaderError, failedReadersLabel } from '../services/readerFailures';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getStudyCutoff } from '../db/database';
-import { markRevisit, revisitChip, rowRevisitState } from '../services/revisit';
+import { db } from '../db/database';
+import { isReaderRead } from '../services/reader-study';
 import './ReadersListPage.css';
 
-/** When the story comes back ("revisit later"), and Bring back for one done for good. */
-function ReaderRevisitLine({ readerId }: { readerId: string }) {
+/**
+ * "✓ Read 3 Oct" on a story that was read. Stories are read once and never
+ * scheduled again (shared/study/daily-reader.ts) — open it here to read or
+ * listen to it again by hand.
+ */
+function ReaderReadLine({ readerId }: { readerId: string }) {
   const local = useLiveQuery(() => db.readers.get(readerId), [readerId]);
-  if (!local || local.status !== 'ready') return null;
-  const state = rowRevisitState(local);
-  if (state.status === 'new') return null;
-  const chip = revisitChip(state, getStudyCutoff().ts);
+  if (!local || local.status !== 'ready' || !isReaderRead(local)) return null;
+  const when = local.last_reviewed_at ? new Date(local.last_reviewed_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : null;
   return (
-    <div className="reader-revisit-line" data-testid="reader-revisit" onClick={e => e.stopPropagation()}>
-      <span className={`reader-revisit-chip reader-revisit-chip--${chip.cls}`}>{chip.label}</span>
-      {state.status === 'retired' ? (
-        <button className="btn btn-secondary btn-sm" onClick={() => void markRevisit('reader', readerId, 'restore')} data-testid="reader-bring-back">
-          ↩ Bring back
-        </button>
-      ) : (
-        <button className="btn btn-secondary btn-sm" onClick={() => void markRevisit('reader', readerId, 'retire', 'list')}>
-          ✓ Done for good
-        </button>
-      )}
+    <div className="reader-revisit-line" data-testid="reader-read">
+      <span className="reader-revisit-chip reader-revisit-chip--done">✓ Read{when ? ` ${when}` : ''}</span>
     </div>
   );
 }
@@ -172,7 +165,7 @@ function ReaderCard({ reader, onDelete, onMoveToFolder, selecting = false, selec
             {reader.vocabulary_used.length} vocabulary items &middot; {formatDate(reader.created_at)}
           </p>
         )}
-        {!isGenerating && <ReaderRevisitLine readerId={reader.id} />}
+        {!isGenerating && <ReaderReadLine readerId={reader.id} />}
       </div>
       <div style={{
         display: 'flex',

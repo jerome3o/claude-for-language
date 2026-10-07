@@ -67,11 +67,8 @@ data class SharedReaderDto(
     val target_deleted: Boolean = false,
     val page_count: Int = 0,
     val read_count: Int = 0,
+    /** The last time the student finished their copy (a story is read once — never scheduled again). */
     val last_read_at: String? = null,
-    /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
-    val next_revisit_at: String? = null,
-    /** The student marked it "Done for good". */
-    val retired: Boolean = false,
 ) {
     /** The web's `source_title_chinese || target_title_chinese || source_title_english || 'Reader'`. */
     val title: String

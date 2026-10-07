@@ -7,16 +7,17 @@
  * - Page images are R2 objects served from /api/audio/<key> — the same proxy
  *   as audio — so they reuse the existing media blob cache.
  * - Page TTS has no stored URL (it's generated on demand), so we generate and
- *   cache it ahead of time for readers that are due soon.
+ *   cache it ahead of time — every page of the next unread story, as soon as
+ *   it exists (listen-first: it must play offline, on the train).
  */
 
-import { db, getDueNoteIds, getStudyCutoff, LocalReader, LocalReaderPage } from '../db/database';
-import { recomputeAllRevisitStates } from './revisit';
+import { db, getDueNoteIds, LocalReader, LocalReaderPage } from '../db/database';
+import { shouldGenerateDailyReader } from '@shared/study/daily-reader';
 import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage, generateDailyReader, getLocalDateString } from '../api/client';
 import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
 import { base64ToBlob } from './ttsCache';
-import { readerSchedulingFields, getDueReaders, pickTodaysReader, readersReadToday } from './reader-study';
+import { readerReadFields, recomputeAllReaderRows, readerRotationState } from './reader-study';
 
 function pageToLocal(page: GradedReaderWithPages['pages'][number]): LocalReaderPage {
   return {
@@ -94,7 +95,6 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
       await db.readerReviewEvents.where('reader_id').anyOf(removedIds).delete();
     }
 
-    const initialState = { status: 'new' as const, due_ms: null, gap_days: 0, last_ms: null, finishes: 0 };
     const rows: LocalReader[] = serverReaders.map(server => {
       const existing = localById.get(server.id);
       const scheduling = existing
@@ -110,7 +110,7 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
             last_reviewed_at: existing.last_reviewed_at,
             retired: existing.retired,
           }
-        : readerSchedulingFields(initialState);
+        : readerReadFields([]);
       return {
         id: server.id,
         title_chinese: server.title_chinese,
@@ -125,8 +125,8 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
     });
     await db.readers.bulkPut(rows);
   });
-  // New readers arrive NEW; any whose events are already here get their schedule.
-  await recomputeAllRevisitStates();
+  // New readers arrive NEW; any whose events are already here are marked read.
+  await recomputeAllReaderRows();
 
   return { synced: serverReaders.length };
 }
@@ -137,9 +137,10 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
  * Reader button) AND from the background sync (throttled), so generation
  * usually starts well before the session reaches the reader slot.
  *
- * One reader a day: nothing is generated while today already has a reader —
- * one was read today, or a learning repeat / review / unread story is due
- * (pickTodaysReader). A new story is asked for only when nothing is due.
+ * One reader a day, read once (shared/study/daily-reader.ts): nothing is
+ * generated while an unread story is waiting (the session keeps offering it)
+ * or a story was read today; a new one is asked for only when the previous
+ * daily reader has been read (or none exists), at most once per local day.
  *
  * Returns true when a fresh reader is being generated and will arrive shortly
  * (the caller should poll sync until it lands), false when there's nothing to
@@ -148,16 +149,19 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
 export async function ensureDailyReader(): Promise<boolean> {
   if (!navigator.onLine) return false;
 
-  const [readers, readToday] = await Promise.all([db.readers.toArray(), readersReadToday()]);
-  if (readToday.size > 0 || pickTodaysReader(readers, readToday, getStudyCutoff())) return false;
-
-  // One generation attempt per local day. Without this, every session end
-  // and every hourly sync re-asked the server while today's reader sat in
+  const rotation = await readerRotationState();
+  // One generation attempt per local day. Without it, every session end and
+  // every hourly sync re-asked the server while today's reader sat in
   // 'failed' (e.g. AI keys missing, offline API), and each ask produced a
   // fresh dead card. A failed story can still be retried by hand from the
   // Readers list.
   const today = getLocalDateString();
-  if (!shouldAttemptDailyReader(getDailyReaderAttemptDate(), today)) return false;
+  if (!shouldGenerateDailyReader({
+    readToday: rotation.readToday,
+    hasUnread: rotation.next !== null,
+    lastAttemptDate: getDailyReaderAttemptDate(),
+    today,
+  })) return false;
 
   try {
     // The story anchors on the tutor's recent lesson notes (server-side);
@@ -264,11 +268,26 @@ export async function getReaderPageTTS(
 }
 
 /**
+ * Every page's narration of a reader, generated and cached on the device
+ * (MiniMax → Azure through /api/practice/tts's stored order), so the whole
+ * story plays offline. Returns how many pages have audio on the device.
+ */
+export async function cacheReaderNarration(reader: Pick<LocalReader, 'pages'>): Promise<number> {
+  let cached = 0;
+  for (const page of reader.pages) {
+    if (await isAudioCached(readerTtsKey(page))) { cached++; continue; }
+    if (!navigator.onLine) continue;
+    if (await getReaderPageTTS(page)) cached++;
+  }
+  return cached;
+}
+
+/**
  * Proactively cache reader media for offline study:
  * - Existing page images for ALL readers (cheap R2 fetches, deduped by cache)
- * - Missing illustrations for readers currently due (one image-generation
- *   API call per page, so limited to readers that will appear in a session)
- * - Page TTS for readers currently due (one TTS API call per uncached page)
+ * - The next unread story (today's, or tomorrow's once today's was read):
+ *   missing illustrations and EVERY page's narration — listen-first, so the
+ *   whole story plays offline as soon as it exists
  */
 export async function prefetchReaderMedia(): Promise<void> {
   if (!navigator.onLine) return;
@@ -295,19 +314,16 @@ export async function prefetchReaderMedia(): Promise<void> {
     })
   );
 
-  // Due readers: generate missing illustrations and TTS ahead of the session
-  const dueReaders = await getDueReaders();
-  for (const reader of dueReaders) {
-    for (const page of reader.pages) {
-      if (!navigator.onLine) return;
-      if (!page.image_url && page.image_prompt) {
-        await generateAndCachePageImage(reader.id, page);
-      } else if (page.image_url && !(await isAudioCached(page.image_url))) {
-        await getAudioWithCache(page.image_url);
-      }
-      if (!(await isAudioCached(readerTtsKey(page)))) {
-        await getReaderPageTTS(page);
-      }
+  // The next unread story: narration first (it is what he listens to), then pictures
+  const { next } = await readerRotationState();
+  if (!next) return;
+  await cacheReaderNarration(next);
+  for (const page of next.pages) {
+    if (!navigator.onLine) return;
+    if (!page.image_url && page.image_prompt) {
+      await generateAndCachePageImage(next.id, page);
+    } else if (page.image_url && !(await isAudioCached(page.image_url))) {
+      await getAudioWithCache(page.image_url);
     }
   }
 }

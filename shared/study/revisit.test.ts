@@ -9,6 +9,8 @@ import {
   parseRevisitSettings,
   pickRevisitSettingsUpdate,
   pickRevisitsForToday,
+  newLessonsIntroducedToday,
+  pickNewLessonsForToday,
   revisitGapLabel,
   revisitPreviews,
   type RevisitEvent,
@@ -103,7 +105,7 @@ describe('computeRevisitState', () => {
   });
 
   it('custom settings', () => {
-    const s = { hard_days: 3, good_days: 7, easy_days: 30, growth: 3, cap_days: 60 };
+    const s = { hard_days: 3, good_days: 7, easy_days: 30, growth: 3, cap_days: 60, new_lessons_per_day: 1 };
     expect(computeRevisitState([rate(0, 2)], s).gap_days).toBe(7);
     expect(computeRevisitState([rate(0, 2), rate(7, 2)], s).gap_days).toBe(21);
     expect(computeRevisitState([rate(0, 2), rate(7, 2), rate(28, 2)], s).gap_days).toBe(60);
@@ -162,5 +164,39 @@ describe('settings', () => {
     expect(parseRevisitSettings('not json')).toEqual(DEFAULT_REVISIT_SETTINGS);
     expect(parseRevisitSettings('{"good_days":7,"growth":1.5}')).toEqual({ ...DEFAULT_REVISIT_SETTINGS, good_days: 7, growth: 1.5 });
     expect(parseRevisitSettings({ good_days: 9999 })).toEqual(DEFAULT_REVISIT_SETTINGS);
+  });
+});
+
+describe('new lessons per local day', () => {
+  const dayStart = Date.parse('2026-10-07T00:00:00.000Z');
+  it('counts lessons whose FIRST finish is today', () => {
+    const events = [
+      { lesson_id: 'a', completed_at: '2026-10-07T08:00:00.000Z' }, // new today
+      { lesson_id: 'b', completed_at: '2026-10-01T08:00:00.000Z' }, // a revisit today, not new
+      { lesson_id: 'b', completed_at: '2026-10-07T09:00:00.000Z' },
+      { lesson_id: 'c', completed_at: '2026-10-07T10:00:00.000Z' }, // one-off homework: excluded
+    ];
+    expect(newLessonsIntroducedToday(events, dayStart)).toBe(2);
+    expect(newLessonsIntroducedToday(events, dayStart, new Set(['c']))).toBe(1);
+  });
+  it('picks the oldest new lessons that still fit today', () => {
+    const fresh = [
+      { id: 'x', created_at: '2026-10-03' },
+      { id: 'y', created_at: '2026-10-01' },
+      { id: 'z', created_at: '2026-10-02' },
+    ];
+    expect(pickNewLessonsForToday(fresh, 0).map(l => l.id)).toEqual(['y']);
+    expect(pickNewLessonsForToday(fresh, 1)).toEqual([]);
+    expect(pickNewLessonsForToday(fresh, 1, 3).map(l => l.id)).toEqual(['y', 'z']);
+    expect(pickNewLessonsForToday(fresh, 0, 0)).toEqual([]);
+  });
+  it('is a setting: default 1, whole numbers 0–20', () => {
+    expect(DEFAULT_REVISIT_SETTINGS.new_lessons_per_day).toBe(1);
+    expect(pickRevisitSettingsUpdate({ new_lessons_per_day: 3 })).toEqual({ update: { new_lessons_per_day: 3 }, problems: [] });
+    expect(pickRevisitSettingsUpdate({ new_lessons_per_day: 0 }).problems).toEqual([]);
+    expect(pickRevisitSettingsUpdate({ new_lessons_per_day: 1.5 }).problems).toHaveLength(1);
+    expect(pickRevisitSettingsUpdate({ new_lessons_per_day: 21 }).problems).toHaveLength(1);
+    expect(parseRevisitSettings('{"new_lessons_per_day":2}').new_lessons_per_day).toBe(2);
+    expect(parseRevisitSettings('{"new_lessons_per_day":99}').new_lessons_per_day).toBe(1);
   });
 });

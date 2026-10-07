@@ -52,7 +52,6 @@ import java.io.File
 class ReaderScreenshots : LabScreenshotTest() {
     private val now = Js.parseDate("2026-09-27T09:30:00.000Z")
     /** "Revisit later" labels for a story never read: 1 day · 2 days · 2 wk · 6 wk. */
-    private val previews = dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(dev.jeromeswannack.chineselearning.lab.core.RevisitState.INITIAL)
 
     /** A soft "illustration" (sky, sun, hills) so the image slot renders like the real thing. */
     private val picture: File by lazy {
@@ -112,7 +111,7 @@ class ReaderScreenshots : LabScreenshotTest() {
     }) { tap("Tap to reveal Chinese") }
     @Test fun speedChipSession() = shoot("readers-30-session-speed", content = {
         StudyScreen(
-            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, previews, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
+            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
             playingKey = null,
             actions = StudyActions(readerEnv = { env(speed = 0.75) }),
             autoplay = false,
@@ -135,7 +134,7 @@ class ReaderScreenshots : LabScreenshotTest() {
 
     private fun session(content: @Composable () -> Unit = {}): @Composable () -> Unit = {
         StudyScreen(
-            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, previews, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
+            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
             playingKey = null,
             actions = StudyActions(readerEnv = { env() }),
             autoplay = false,
@@ -162,9 +161,13 @@ class ReaderScreenshots : LabScreenshotTest() {
     @Test fun revealed() = shootAfter("readers-02-session-revealed", session()) {
         tap("Tap to reveal Chinese"); tap("Tap to reveal pinyin"); tap("Tap to reveal translation")
     }
-    @Test fun lastPage() = shootAfter("readers-03-session-rate", session()) { tap("Next"); tap("Next") }
-    /** The last page's rating row: the revisit gaps + "✓ Done for good · don't bring it back". */
-    @Test fun doneForGood() = shootAfter("revisit-02-reader-rating", session()) { tap("Next"); tap("Next") }
+    @Test fun lastPage() = shootAfter("readers-03-session-finish", session()) { tap("Next"); tap("Next") }
+    /** Listen-first: the story button on the first page. */
+    @Test fun playWholeStory() = shoot("listen-01-play-whole-story", content = session())
+    /** The story playing: the button turns into "⏹ Stop the story". */
+    @Test fun playWholeStoryPlaying() = shootAfter("listen-02-story-playing", session()) { tap("▶ Play whole story") }
+    /** A story is read once: the last page ends with Finish (no rating, no Done for good). */
+    @Test fun finishRow() = shootAfter("listen-03-finish", session()) { tap("Next"); tap("Next") }
 
     /** Everything revealed, then scrolled to the bottom of the page: the blue progress bar stays pinned at the top. */
     private fun revealAndScroll() {
@@ -210,17 +213,12 @@ class ReaderScreenshots : LabScreenshotTest() {
         tap("2 failed generations")
         tap("Show details")
     }
-    /** "Next revisit 11 Oct" with ✓ Done for good, and a story done for good with ↩ Bring back. */
-    @Test fun listRevisit() = shoot("revisit-04-readers-list") {
-        val day = 86_400_000L
+    /** Read stories say "✓ Read Sep 27" (read once — never scheduled again; open one to read it again by hand). */
+    @Test fun listRead() = shoot("listen-04-readers-list-read") {
         ReadersListScreen(
             listUi.copy(
                 readers = listUi.readers!!.filter { it.status != "generating" },
-                revisit = mapOf(
-                    reader.id to dev.jeromeswannack.chineselearning.lab.core.RevisitState("scheduled", Js.parseDate("2026-10-11T09:00:00.000Z"), 14.0, null, 1),
-                    "r2" to dev.jeromeswannack.chineselearning.lab.core.RevisitState("retired", null, 42.0, null, 1),
-                ),
-                cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyCutoff(Js.parseDate("2026-09-27T23:59:59.999Z") + 0 * day),
+                readAt = mapOf(reader.id to "2026-09-27T08:30:00.000Z"),
             ),
             ReadersActions(onBack = {}),
         )
@@ -287,7 +285,7 @@ class ReaderScreenshots : LabScreenshotTest() {
     /** The in-session reader has the chips too (it used to be plain text). */
     @Test fun sessionWords() = shootAfter("readers-26-session-words", {
         StudyScreen(
-            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, previews, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
+            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
             playingKey = null,
             actions = StudyActions(readerEnv = { wordsEnv }),
             autoplay = false,

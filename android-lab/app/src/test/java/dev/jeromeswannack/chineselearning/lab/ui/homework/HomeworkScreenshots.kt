@@ -178,7 +178,7 @@ class HomeworkScreenshots : LabScreenshotTest() {
     }
 
     @Test fun passReader() = shoot("homework-14-pass-reader") {
-        HomeworkPassScreen(PassUi.Player("reader", "小明在巴黎", complete = false, reader = SessionReader(reader, previews, 1)), PassActions(), env, ReaderEnv())
+        HomeworkPassScreen(PassUi.Player("reader", "小明在巴黎", complete = false, reader = SessionReader(reader, 1)), PassActions(), env, ReaderEnv())
     }
 
     @Test fun passLessonDone() = shoot("homework-15-pass-lesson-done") {

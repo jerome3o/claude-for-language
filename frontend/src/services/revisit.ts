@@ -1,6 +1,8 @@
 /**
  * "Revisit later" on the device (shared/study/revisit.ts): when finished mini
- * lessons and graded readers come back.
+ * lessons come back, and how many new ones a day join the session. (Graded
+ * readers are read once, never repeated — services/reader-study.ts; their old
+ * retire / restore marks are ignored.)
  *
  * - The account's gaps (Settings → "Lessons & readers") are mirrored in
  *   localStorage like the study budget, so the schedule works offline; the
@@ -9,9 +11,9 @@
  *   written at once, uploaded straight away when online (POST
  *   /api/me/revisit-events, idempotent by id), else in the next sync; every
  *   sync replaces the server's rows whole, keeping this device's pending ones.
- * - Each lesson / reader row caches the state derived from its history
- *   (completion / reader review events + these), recomputed whenever any of
- *   them changes — never stored on its own.
+ * - Each lesson row caches the state derived from its history (completion
+ *   events + these), recomputed whenever any of them changes — never stored
+ *   on its own.
  */
 import {
   computeRevisitState,
@@ -25,12 +27,13 @@ import {
   type RevisitSettingsInfo,
   type RevisitState,
 } from '@shared/study/revisit';
-import { db, type LocalCustomLesson, type LocalReader, type LocalRevisitEvent } from '../db/database';
+import { db, type LocalCustomLesson, type LocalRevisitEvent } from '../db/database';
 import { CardQueue, type IntervalPreview, type Rating } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { track } from './analytics';
 
-export type RevisitKind = 'lesson' | 'reader';
+/** What the schedule covers. ('reader' marks from before Oct 2026 stay in the table but are ignored.) */
+export type RevisitKind = 'lesson';
 
 // ============ Settings mirror ============
 
@@ -96,11 +99,8 @@ async function revisitEventsFor(kind: RevisitKind, itemId: string): Promise<Loca
 
 /** An item's whole history in the shared shape. */
 export async function revisitHistory(kind: RevisitKind, itemId: string): Promise<RevisitEvent[]> {
-  const finishes: RevisitEvent[] = kind === 'lesson'
-    ? (await db.customLessonCompletionEvents.where('lesson_id').equals(itemId).toArray())
-        .map(e => ({ id: e.id, at: e.completed_at, kind: 'rating' as const, rating: e.rating ?? null }))
-    : (await db.readerReviewEvents.where('reader_id').equals(itemId).toArray())
-        .map(e => ({ id: e.id, at: e.reviewed_at, kind: 'rating' as const, rating: e.rating }));
+  const finishes: RevisitEvent[] = (await db.customLessonCompletionEvents.where('lesson_id').equals(itemId).toArray())
+    .map(e => ({ id: e.id, at: e.completed_at, kind: 'rating' as const, rating: e.rating ?? null }));
   const marks: RevisitEvent[] = (await revisitEventsFor(kind, itemId)).map(e => ({ id: e.id, at: e.created_at, kind: e.action }));
   return [...finishes, ...marks];
 }
@@ -110,7 +110,7 @@ export async function computeItemRevisitState(kind: RevisitKind, itemId: string,
 }
 
 type SchedulingFields = Pick<
-  LocalReader & LocalCustomLesson,
+  LocalCustomLesson,
   'queue' | 'stability' | 'difficulty' | 'lapses' | 'interval' | 'repetitions' |
   'next_review_at' | 'due_timestamp' | 'last_reviewed_at' | 'retired'
 >;
@@ -144,7 +144,7 @@ export function rowDueMs(row: { due_timestamp?: number | null; next_review_at?: 
 }
 
 /** The row's own state back (no event read): for previews on a cached row. */
-export function rowRevisitState(row: Pick<LocalReader, 'queue' | 'interval' | 'repetitions' | 'due_timestamp' | 'next_review_at' | 'last_reviewed_at'> & { retired?: boolean }): RevisitState {
+export function rowRevisitState(row: Pick<LocalCustomLesson, 'queue' | 'interval' | 'repetitions' | 'due_timestamp' | 'next_review_at' | 'last_reviewed_at'> & { retired?: boolean }): RevisitState {
   if (row.retired) return { status: 'retired', due_ms: null, gap_days: row.interval ?? 0, last_ms: null, finishes: row.repetitions ?? 0 };
   if (row.queue === CardQueue.NEW) return { status: 'new', due_ms: null, gap_days: 0, last_ms: null, finishes: 0 };
   return {
@@ -159,19 +159,16 @@ export function rowRevisitState(row: Pick<LocalReader, 'queue' | 'interval' | 'r
 /** Recompute one item's cached fields from its history. */
 export async function refreshRevisitRow(kind: RevisitKind, itemId: string): Promise<RevisitState> {
   const state = await computeItemRevisitState(kind, itemId);
-  if (kind === 'lesson') await db.customLessons.update(itemId, revisitRowFields(state));
-  else await db.readers.update(itemId, revisitRowFields(state));
+  await db.customLessons.update(itemId, revisitRowFields(state));
   return state;
 }
 
-/** Recompute every lesson and reader (after a sync, or when the gaps changed). */
+/** Recompute every lesson (after a sync, or when the gaps changed). */
 export async function recomputeAllRevisitStates(): Promise<void> {
   const settings = readRevisitSettings();
-  const [lessons, readers, lessonEvents, readerEvents, marks] = await Promise.all([
+  const [lessons, lessonEvents, marks] = await Promise.all([
     db.customLessons.toArray(),
-    db.readers.toArray(),
     db.customLessonCompletionEvents.toArray(),
-    db.readerReviewEvents.toArray(),
     db.revisitEvents.toArray(),
   ]);
   const byItem = new Map<string, RevisitEvent[]>();
@@ -180,13 +177,10 @@ export async function recomputeAllRevisitStates(): Promise<void> {
     if (list) list.push(e); else byItem.set(key, [e]);
   };
   for (const e of lessonEvents) push(`lesson:${e.lesson_id}`, { id: e.id, at: e.completed_at, kind: 'rating', rating: e.rating ?? null });
-  for (const e of readerEvents) push(`reader:${e.reader_id}`, { id: e.id, at: e.reviewed_at, kind: 'rating', rating: e.rating });
-  for (const m of marks) push(`${m.item_kind}:${m.item_id}`, { id: m.id, at: m.created_at, kind: m.action });
+  for (const m of marks) if (m.item_kind === 'lesson') push(`${m.item_kind}:${m.item_id}`, { id: m.id, at: m.created_at, kind: m.action });
 
   const lessonRows = lessons.map(l => ({ ...l, ...revisitRowFields(computeRevisitState(byItem.get(`lesson:${l.id}`) ?? [], settings)) }));
-  const readerRows = readers.map(r => ({ ...r, ...revisitRowFields(computeRevisitState(byItem.get(`reader:${r.id}`) ?? [], settings)) }));
   if (lessonRows.length) await db.customLessons.bulkPut(lessonRows);
-  if (readerRows.length) await db.readers.bulkPut(readerRows);
 }
 
 /** Rating-button labels ("1 day", "2 wk", "6 wk") for a row as it stands. */
@@ -197,7 +191,7 @@ export function revisitButtonPreviews(row: Parameters<typeof rowRevisitState>[0]
   return out;
 }
 
-/** "Back 20 Oct" / "Due today" / "Done for good" / "New" — the Mini Lessons / Readers chip. */
+/** "Back 20 Oct" / "Due today" / "Done for good" / "New" — the Mini Lessons chip. */
 export function revisitChip(state: RevisitState, cutoffMs: number): { label: string; cls: 'active' | 'learning' | 'done' | 'retired' } {
   if (state.status === 'retired') return { label: 'Done for good', cls: 'retired' };
   if (state.status === 'new') return { label: 'New', cls: 'active' };
@@ -221,7 +215,7 @@ export async function markRevisit(kind: RevisitKind, itemId: string, action: 're
     _synced: 0,
   };
   await db.revisitEvents.put(event);
-  if ((kind === 'lesson' ? await db.customLessons.get(itemId) : await db.readers.get(itemId))) {
+  if (await db.customLessons.get(itemId)) {
     await refreshRevisitRow(kind, itemId);
   }
   if (action === 'retire') track('study.done_for_good', { kind, source });
@@ -248,7 +242,7 @@ export async function uploadRevisitEvents(): Promise<{ uploaded: number }> {
   return { uploaded: result.accepted?.length ?? 0 };
 }
 
-interface ServerRevisitEvent { id: string; item_kind: RevisitKind; item_id: string; action: 'retire' | 'restore'; created_at: string }
+interface ServerRevisitEvent { id: string; item_kind: 'lesson' | 'reader'; item_id: string; action: 'retire' | 'restore'; created_at: string }
 
 /** The server's list replaces the synced rows; this device's pending ones stay on top. */
 export async function replaceLocalRevisitEvents(server: ServerRevisitEvent[]): Promise<void> {

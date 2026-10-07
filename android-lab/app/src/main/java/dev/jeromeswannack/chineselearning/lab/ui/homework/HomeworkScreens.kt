@@ -206,7 +206,7 @@ class PassActions(
     /** Lesson: the rated run (completion + attempt + recordings, then the homework `done`). */
     val onLessonComplete: (LessonResult) -> Unit = {},
     /** Reader: rated on its last page. */
-    val onReaderRated: (rating: Int, timeSpentMs: Long, retire: Boolean) -> Unit = { _, _, _ -> },
+    val onReaderFinished: (timeSpentMs: Long, how: String) -> Unit = { _, _ -> },
     /** The example sentences' breakdown / add-as-card (the study card's); never a review. */
     val sentences: SentenceActions = SentenceActions(),
     /** ▶ on a sentence row: its clip, else the device voice. */
@@ -522,7 +522,7 @@ private fun PlayerPass(ui: PassUi.Player, actions: PassActions, lessonEnv: Exerc
         ui.kind == "reader" && reader != null && reader.reader.pages.isNotEmpty() ->
             Column(Modifier.fillMaxSize()) {
                 PassTopBar(reader.reader.titleChinese.ifBlank { ui.title }, actions.onClose)
-                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(reader, readerEnv, actions.onReaderRated) }
+                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(reader, readerEnv, actions.onReaderFinished) }
             }
         ui.kind == "lesson" && lesson != null ->
             LessonPlayer(

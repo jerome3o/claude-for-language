@@ -7,7 +7,7 @@
  *     with isRevisitDue and revisitPreviews on each result;
  *   - revisitGapLabel, pickRevisitSettingsUpdate / applyRevisitSettingsUpdate /
  *     parseRevisitSettings (problems verbatim), isDefaultRevisitSettings;
- *   - pickRevisitsForToday.
+ *   - pickRevisitsForToday; newLessonsIntroducedToday + pickNewLessonsForToday ("New lessons a day").
  * Writes revisit.json; core RevisitParityTest asserts Revisit.kt matches exactly.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -23,6 +23,8 @@ import {
   parseRevisitSettings,
   isDefaultRevisitSettings,
   pickRevisitsForToday,
+  newLessonsIntroducedToday,
+  pickNewLessonsForToday,
   DEFAULT_REVISIT_SETTINGS,
   type RevisitEvent,
   type RevisitSettings,
@@ -49,11 +51,11 @@ const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)];
 
 const SETTINGS: RevisitSettings[] = [
   { ...DEFAULT_REVISIT_SETTINGS },
-  { hard_days: 1, good_days: 7, easy_days: 21, growth: 1.5, cap_days: 90 },
-  { hard_days: 3, good_days: 3, easy_days: 3, growth: 1, cap_days: 3 },
-  { hard_days: 5, good_days: 30, easy_days: 120, growth: 3.33, cap_days: 365 },
-  { hard_days: 2, good_days: 10, easy_days: 50, growth: 1.1, cap_days: 3650 },
-  { hard_days: 365, good_days: 365, easy_days: 365, growth: 5, cap_days: 1 },
+  { hard_days: 1, good_days: 7, easy_days: 21, growth: 1.5, cap_days: 90, new_lessons_per_day: 2 },
+  { hard_days: 3, good_days: 3, easy_days: 3, growth: 1, cap_days: 3, new_lessons_per_day: 0 },
+  { hard_days: 5, good_days: 30, easy_days: 120, growth: 3.33, cap_days: 365, new_lessons_per_day: 1 },
+  { hard_days: 2, good_days: 10, easy_days: 50, growth: 1.1, cap_days: 3650, new_lessons_per_day: 20 },
+  { hard_days: 365, good_days: 365, easy_days: 365, growth: 5, cap_days: 1, new_lessons_per_day: 3 },
 ];
 const RATINGS: Array<number | null> = [null, 0, 1, 2, 3];
 
@@ -123,10 +125,10 @@ for (let i = 0; i < 200; i++) {
 }
 
 const VALUES: unknown[] = [
-  null, 0, 1, 2, 7, 14, 42, 180, 365, 366, 3650, 3651, -1, 1.5, 2.25, 4.999, 5, 5.01, 1.234, 0.99,
+  null, 0, 1, 2, 7, 14, 20, 21, 42, 180, 365, 366, 3650, 3651, -1, 1.5, 2.25, 4.999, 5, 5.01, 1.234, 0.99,
   '14', ' 30 ', '', '  ', 'abc', '1e2', '0x10', '2.5', 'Infinity', '7days', true, false, [], {},
 ];
-const KEYS = ['hard_days', 'good_days', 'easy_days', 'growth', 'cap_days'] as const;
+const KEYS = ['hard_days', 'good_days', 'easy_days', 'growth', 'cap_days', 'new_lessons_per_day'] as const;
 const updates: unknown[] = [];
 for (let i = 0; i < 400; i++) {
   const input: Record<string, unknown> = {};
@@ -147,6 +149,11 @@ for (const [input, current] of [
   [{ growth: 1.15, cap_days: 365 }, DEFAULT_REVISIT_SETTINGS],
   [{ hard_days: '3', good_days: '21', easy_days: '60', growth: '1.5', cap_days: '200' }, DEFAULT_REVISIT_SETTINGS],
   [{ hard_days: 0, growth: 9 }, DEFAULT_REVISIT_SETTINGS],
+  [{ new_lessons_per_day: 0 }, DEFAULT_REVISIT_SETTINGS],
+  [{ new_lessons_per_day: '3' }, DEFAULT_REVISIT_SETTINGS],
+  [{ new_lessons_per_day: 1.5 }, DEFAULT_REVISIT_SETTINGS],
+  [{ new_lessons_per_day: null }, SETTINGS[3]],
+  [{ new_lessons_per_day: 21, hard_days: 20 }, DEFAULT_REVISIT_SETTINGS],
 ] as Array<[Record<string, unknown> | null, RevisitSettings]>) {
   const { update, problems } = pickRevisitSettingsUpdate(input, current);
   updates.push({ input, current, update, problems, applied: applyRevisitSettingsUpdate(current, update) });
@@ -159,6 +166,8 @@ const RAWS: unknown[] = [
   { hard_days: 20, good_days: 10, easy_days: 5, growth: 3, cap_days: 99 },
   { hard_days: 1.4, good_days: 13.6, easy_days: 365.4, growth: 1.234, cap_days: 0.5 },
   { growth: '2.555', cap_days: '400' }, { hard_days: true }, [1, 2],
+  { new_lessons_per_day: 0 }, { new_lessons_per_day: '4' }, { new_lessons_per_day: 2.6 }, { new_lessons_per_day: 99 },
+  { hard_days: 20, good_days: 10, new_lessons_per_day: 5 },
 ];
 for (const raw of RAWS) parses.push({ raw, settings: parseRevisitSettings(raw) });
 for (let i = 0; i < 100; i++) {
@@ -182,5 +191,29 @@ for (let i = 0; i < 200; i++) {
   picks.push({ items, cutoff, doneToday, perDay: perDay ?? null, picked: pickRevisitsForToday(items, cutoff, doneToday, perDay) });
 }
 
-writeFileSync(join(OUT, 'revisit.json'), JSON.stringify({ gaps, histories, labels, updates, parses, defaults, picks }));
+// "New lessons a day": lessons introduced today (first-ever finish at / after local midnight)
+// and the new lessons that still fit, oldest first.
+const newLessons: unknown[] = [];
+for (let i = 0; i < 200; i++) {
+  const dayStart = T0 + int(0, 30) * DAY;
+  const lessonIds = Array.from({ length: int(0, 6) }, (_, k) => `L${k}`);
+  const events = Array.from({ length: int(0, 10) }, (_, k) => ({
+    lesson_id: lessonIds.length ? pick(lessonIds) : 'L0',
+    completed_at: rand() < 0.03 ? 'garbage' : new Date(dayStart + int(-3, 1) * DAY + int(0, DAY - 1) + (k % 2)).toISOString(),
+  }));
+  const exclude = lessonIds.filter(() => rand() < 0.2);
+  const introduced = newLessonsIntroducedToday(events, dayStart, new Set(exclude));
+  const fresh = Array.from({ length: int(0, 14) }, (_, k) => ({
+    id: `F${int(0, 99)}-${k}`,
+    created_at: rand() < 0.15 ? '2026-10-01T00:00:00.000Z' : new Date(T0 - int(0, 60) * DAY - int(0, 1000) * 1000).toISOString(),
+  }));
+  const perDay = rand() < 0.5 ? undefined : int(0, 4);
+  newLessons.push({
+    events, day_start: dayStart, exclude, introduced,
+    fresh, per_day: perDay ?? null,
+    picked: pickNewLessonsForToday(fresh, introduced, perDay).map(f => f.id),
+  });
+}
+
+writeFileSync(join(OUT, 'revisit.json'), JSON.stringify({ gaps, histories, labels, updates, parses, defaults, picks, newLessons }));
 console.log(`revisit: ${gaps.length} gaps, ${histories.length} histories, ${labels.length} labels, ${updates.length} updates, ${parses.length} parses, ${picks.length} picks`);

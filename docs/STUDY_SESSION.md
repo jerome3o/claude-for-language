@@ -235,11 +235,12 @@ today's session. One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-teste
   every word of a sentence; the MCP server has `bump_cards`, `list_bumped_cards`,
   `clear_bumped_card` and the tutor's `bump_student_cards`.
 
-## Lessons and readers: "revisit later", not FSRS
+## Mini lessons: "revisit later", not FSRS
 
-Mini lessons and graded readers are big chunks, not flashcards: FSRS's short learning steps
-brought a Hard / Good one back within minutes or a day. They now follow one simple schedule
-(`shared/study/revisit.ts`; Lab `core/…/Revisit.kt`, parity-tested):
+Mini lessons are big chunks, not flashcards: FSRS's short learning steps brought a Hard / Good
+one back within minutes or a day. They follow one simple schedule (`shared/study/revisit.ts`;
+Lab `core/…/Revisit.kt`, parity-tested). (Graded readers were on it too until Oct 2026 — now a
+story is read once, see "Graded readers" below.)
 
 | After finishing | Next visit |
 |---|---|
@@ -250,43 +251,74 @@ brought a Hard / Good one back within minutes or a day. They now follow one simp
 
 Next gap = max(the rating's base gap, previous gap × growth), capped at 180 days. Nothing comes
 back the same day — even Again is tomorrow. **✓ Done for good** under the rating buttons records
-the finish (as Good) and retires the item: never scheduled again, still listed on the Mini
-Lessons / Readers pages under "Done for good", where **↩ Bring back** puts it back in rotation
+the finish (as Good) and retires the lesson: never scheduled again, still listed on the Mini
+Lessons page under "Done for good", where **↩ Bring back** puts it back in rotation
 (due at once, the gap it had is kept).
 
-- **Event-sourced**: the schedule is replayed from the history — the completion /
-  reader-review events (their ratings; a legacy lesson completion with no rating = Good) plus
-  `revisitEvents` (retire / restore; D1 `revisit_events`, migration 0110, `POST /api/me/revisit-events`
-  idempotent by id, the whole list on `/api/sync/changes` as `revisit_events`). The lesson / reader
-  row caches the result (`queue` NEW / REVIEW, `next_review_at`, `due_timestamp`, `interval` = gap,
-  `retired`), recomputed after every finish, sync and settings change (`services/revisit.ts`).
-- **Settings → "Lessons & readers"**: the Hard / Good / Easy gaps (days), growth and longest gap,
-  Reset to defaults — `users.revisit_settings` (JSON, NULL = defaults), `PUT /api/profile/revisit-settings`
-  (validated by `pickRevisitSettingsUpdate`: days 1–365 whole, growth 1–5, cap 1–3650, Hard ≤ Good ≤ Easy;
-  400 + `problems`), on `/api/auth/me` and `/api/sync/changes` as `revisit_settings`, mirrored in
-  localStorage for offline study.
-- **No flood**: lessons were rescheduled in place when this landed (state is derived), so an old
-  overdue backlog could all be due at once — revisits are capped at `MAX_LESSON_REVISITS_PER_DAY`
-  (2, most overdue first; finished revisits today count); new lessons keep their own cap of 2 per
-  session; readers stay one a day.
-- **The tutor** sees "next revisit 20 Oct" / "done for good" on the student's lessons, the library
-  item's assignments and shared readers (`next_revisit_at`, `retired` from the student's own gaps).
-- One-off homework passes are unchanged (not scheduled); a lesson / reader finished in a pass
-  records the same rated event, and "Done for good" is offered there too.
+- **Event-sourced**: the schedule is replayed from the history — the completion events (their
+  ratings; a legacy completion with no rating = Good) plus `revisitEvents` (retire / restore; D1
+  `revisit_events`, migration 0110, `POST /api/me/revisit-events` idempotent by id, the whole list on
+  `/api/sync/changes` as `revisit_events`; old `reader` rows are ignored). The lesson row caches the
+  result (`queue` NEW / REVIEW, `next_review_at`, `due_timestamp`, `interval` = gap, `retired`),
+  recomputed after every finish, sync and settings change (`services/revisit.ts`).
+- **New lessons are paced per local DAY**: at most **"New lessons a day"** (default **1**) NEW
+  lessons join the study session per day, oldest first (`pickNewLessonsForToday`), counted from the
+  completion events like cards' introduced-today — a lesson whose FIRST finish is at/after local
+  midnight (`newLessonsIntroducedToday`; one-off homework lessons don't count). So a batch of 12
+  "China trip" lessons arrives one a day, whether in one session or across several. Revisits never
+  count against it (they have their own pacing below). Lab: `LessonSchedule.dueLessons(…,
+  introducedToday, newPerDay)`, `TodayPlan.lessons(…, newPerDay)`.
+- **Settings → "Lessons & readers"**: New lessons a day (0–20), the Hard / Good / Easy gaps (days),
+  growth and longest gap, Reset to defaults — `users.revisit_settings` (JSON, NULL = defaults),
+  `PUT /api/profile/revisit-settings` (validated by `pickRevisitSettingsUpdate`: days 1–365 whole,
+  growth 1–5, cap 1–3650, `new_lessons_per_day` 0–20 whole, Hard ≤ Good ≤ Easy; 400 + `problems`),
+  on `/api/auth/me` and `/api/sync/changes` as `revisit_settings`, mirrored in localStorage (Lab:
+  JsonCache) for offline study. `settings.revisit_changed { fields, reset, new_lessons_per_day }`.
+- **No flood**: an overdue backlog trickles back — revisits are capped at
+  `MAX_LESSON_REVISITS_PER_DAY` (2, most overdue first; finished revisits today count).
+- **The tutor** sees "next revisit 20 Oct" / "done for good" on the student's lessons and the
+  library item's assignments (`next_revisit_at`, `retired` from the student's own gaps); a shared
+  reader shows "not read yet" / "read 3 Oct".
+- One-off homework passes are unchanged (not scheduled); a lesson finished in a pass records the
+  same rated event, and "Done for good" is offered there too.
 
-## Graded readers: one a day
+## Graded readers: read once, one a day, listen-first
 
-Graded readers close out an all-decks session (after the cards and any mini lessons), and
-there is **one reader a day** (`READERS_PER_DAY` in `frontend/src/services/reader-study.ts`):
+Graded readers close out an all-decks session (after the cards and any mini lessons). A story is
+**read ONCE and never repeated** (`shared/study/daily-reader.ts`; Lab `core/…/DailyReader.kt`,
+parity-tested by `parity/fixtures/daily-reader.ts`):
 
-- `pickTodaysReader` chooses the day's story: the most overdue revisit due by the study cutoff,
-  then the newest unread story (never one done for good). Only that one enters the session;
-  other due readers wait for later days, so a missed week never piles stories up.
-- Once a reader has been read today (a `readerReviewEvents` row on today's local date) nothing
-  else is offered until tomorrow — Again brings it back tomorrow, not later the same day.
-- `ensureDailyReader` (study start + background sync) generates a new story **only when
-  nothing is due today** — no unread story, no revisit due, none read yet.
-  A due revisit *is* the day's reader, so no new story is written that day.
+- **Read** = the reader has a reader-review event. After the last page the rating row is gone:
+  **Finish ✓** (or listening to the end, below) writes the event (stored with rating Good —
+  `reader_review_events` keeps its column) and the story never comes back. Old reads stay on the
+  Readers list ("✓ Read 3 Oct") and open by hand there. No reader scheduling, no Done for good /
+  Bring back for readers, nothing about readers in Settings.
+- **One a day** (`READERS_PER_DAY`): `pickTodaysReader` offers nothing once a story was read today
+  (one-off homework readers don't count and are never offered — they're read in the homework pass),
+  else the **newest unread** story (ties by id). So an unread daily reader is offered again, day
+  after day, until it is read.
+- **Generation** (`ensureDailyReader`, study start + background sync; `shouldGenerateDailyReader`):
+  a new story is asked for only when **no unread story is waiting** (the previous daily reader was
+  read, or none exists), nothing was read today, and at most once per local day (the
+  `daily-reader-attempt` date in localStorage / Lab `readers/daily-attempt`). The server keeps one
+  `daily_readers` row per local date as before.
+- **Listen-first**: every page's narration of the next unread story is generated and cached on the
+  device as soon as the story exists — `prefetchReaderMedia` → `cacheReaderNarration` after each
+  sync (and when the daily reader lands), the reader view fetches any page still missing when it
+  opens; TTS goes through `/api/practice/tts`'s stored provider order (MiniMax → Azure), cached by
+  `readerTtsKey`, so the whole story plays offline. Lab: `ReaderStore.prefetchMedia` /
+  `cacheNarration`.
+- **▶ Play whole story** (under the title; "▶ Play the rest" after page 1): plays each page's
+  narration, waits a beat (`storyPageGapMs` — 600 ms, longer at slower speeds), turns to the next
+  page and plays it, at the speed chip's speed (1× / 0.75× / 0.5×, pitch kept). A manual page turn
+  carries on from the new page; **■ Stop the story** (or the page's own stop) stops it; a page with no
+  audio on the device stops it with a note. Reaching the end of the last page counts as finishing
+  (`reader.finish { how: 'listened' }`). The phrase-block scrubber works as before on every page.
+  Web: `StudyReader.tsx` + `ReaderAudioScrubber` (`autoPlay`, `onPlaybackEnded`, `onStopped`,
+  `onUnavailable`); Lab: `StudyReaderView` + `ReaderScrubber(story = StoryPlayback(…))`. Analytics:
+  `reader.story_play { from_page, pages, speed, offline }`, `reader.story_stop { page, pages }`.
+- Readers a tutor sends as **one-off homework** are unchanged: read once in the homework pass, with
+  the same Finish.
 
 The reader's blue **page-progress bar** is held at the top, right under the study top bar
 (web `.study-reader-progress` in `StudyReader.tsx`, Lab `PinnedReaderProgress` in

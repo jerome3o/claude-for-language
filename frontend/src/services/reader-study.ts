@@ -1,12 +1,14 @@
 /**
  * Reader Study Service
  *
- * Graded readers join the study rotation on the "revisit later" schedule
- * (shared/study/revisit.ts, same as mini lessons): a story is a big chunk,
- * not a flashcard, so Good means "in two weeks".
+ * Graded readers are read ONCE, never repeated (shared/study/daily-reader.ts):
+ * - the study session offers ONE unread story a day (the daily reader keeps
+ *   being offered until it is read), never one that was already read;
+ * - after reading, Finish (or listening to the end with ▶ Play whole story)
+ *   writes a reader review event — that event is what "read" means;
+ * - old reads can still be opened by hand from the Readers list.
  * - Reader review events are the source of truth (append-only, deduped by id);
- *   "Done for good" / "Bring back" are revisit events (services/revisit.ts)
- * - Reader scheduling state is computed from those events
+ *   the row's read state is computed from them.
  * - Events sync to /api/reader-reviews (upload + cursor-paged download)
  *
  * Readers aren't deck-scoped, so they only appear in "All Decks" sessions.
@@ -16,69 +18,94 @@ import {
   db,
   LocalReader,
   LocalReaderReviewEvent,
-  getStudyCutoff,
   getEventSyncMeta,
   updateEventSyncMeta,
   READER_EVENT_SYNC_ID,
 } from '../db/database';
-import type { RevisitState } from '@shared/study/revisit';
-import { Rating, IntervalPreview, CardQueue } from '../types';
+import {
+  READERS_PER_DAY as SHARED_READERS_PER_DAY,
+  nextUnreadReader as sharedNextUnreadReader,
+  pickTodaysReader as sharedPickTodaysReader,
+} from '@shared/study/daily-reader';
+import { Rating, CardQueue } from '../types';
 import { API_BASE } from '../api/client';
 import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
-import {
-  computeItemRevisitState,
-  markRevisit,
-  refreshRevisitRow,
-  revisitButtonPreviews,
-  revisitRowFields,
-  rowDueMs,
-} from './revisit';
 
-/**
- * ONE graded reader a day (Jerome's rule). The day's reader is whichever
- * story is due — a learning repeat, a review that has come round, or an
- * unread new story — and once it has been read nothing else is offered until
- * tomorrow; when nothing is due at all, a new story is generated
- * (ensureDailyReader). Extra due readers wait their turn on later days, so a
- * missed week never turns into a pile of stories at the end of a session.
- */
-export const READERS_PER_DAY = 1;
+/** ONE graded reader a day (Jerome's rule) — see pickTodaysReader. */
+export const READERS_PER_DAY = SHARED_READERS_PER_DAY;
 
 /** A reader is studyable once generation finished and it actually has pages. */
 export function isStudyableReader(reader: LocalReader): boolean {
   return reader.status === 'ready' && reader.pages.length > 0;
 }
 
-/** Scheduling fields of LocalReader derived from a revisit state. */
-export const readerSchedulingFields = revisitRowFields;
-
-/** A reader's schedule from its full history (reviews + Done for good / Bring back). */
-export function computeReaderState(readerId: string): Promise<RevisitState> {
-  return computeItemRevisitState('reader', readerId);
+/** Whether a cached reader was read (it has at least one finish). */
+export function isReaderRead(reader: Pick<LocalReader, 'queue'>): boolean {
+  return reader.queue !== CardQueue.NEW;
 }
 
-/** Recompute from events and persist onto the reader row (state repair). */
-export function fixReaderState(readerId: string): Promise<RevisitState> {
-  return refreshRevisitRow('reader', readerId);
+type ReadFields = Pick<
+  LocalReader,
+  'queue' | 'stability' | 'difficulty' | 'lapses' | 'interval' | 'repetitions' |
+  'next_review_at' | 'due_timestamp' | 'last_reviewed_at' | 'retired'
+>;
+
+/** The row fields for a reader's history: NEW until the first finish, then REVIEW = read. Never due again. */
+export function readerReadFields(events: Array<Pick<LocalReaderReviewEvent, 'reviewed_at'>>): ReadFields {
+  let last: string | null = null;
+  for (const e of events) if (!last || e.reviewed_at > last) last = e.reviewed_at;
+  return {
+    queue: events.length > 0 ? CardQueue.REVIEW : CardQueue.NEW,
+    stability: 0,
+    difficulty: 0,
+    lapses: 0,
+    interval: 0,
+    repetitions: events.length,
+    next_review_at: null,
+    due_timestamp: null,
+    last_reviewed_at: last,
+    retired: false,
+  };
 }
+
+/** Recompute one reader's read state from its events and persist it (state repair). */
+export async function fixReaderState(readerId: string): Promise<ReadFields> {
+  const events = await db.readerReviewEvents.where('reader_id').equals(readerId).toArray();
+  const fields = readerReadFields(events);
+  await db.readers.update(readerId, fields);
+  return fields;
+}
+
+/** Recompute every cached reader's read state (after a sync). */
+export async function recomputeAllReaderRows(): Promise<void> {
+  const [readers, events] = await Promise.all([db.readers.toArray(), db.readerReviewEvents.toArray()]);
+  if (readers.length === 0) return;
+  const byReader = new Map<string, LocalReaderReviewEvent[]>();
+  for (const e of events) {
+    const list = byReader.get(e.reader_id);
+    if (list) list.push(e); else byReader.set(e.reader_id, [e]);
+  }
+  await db.readers.bulkPut(readers.map(r => ({ ...r, ...readerReadFields(byReader.get(r.id) ?? []) })));
+}
+
+/** How a reader was finished — the analytics `how` of reader.finish. */
+export type ReaderFinishHow = 'finish' | 'listened';
 
 /**
- * Record a review of a reader: append the event and update the cached state.
- * Mirrors the card flow (event first, state derived from events).
+ * Record that a reader was read: append the event and update the row. Mirrors
+ * the card flow (event first, state derived from events). The server's
+ * reader_review_events still carry a rating; a finish is stored as Good (2).
  */
-export async function recordReaderReview(
+export async function recordReaderFinish(
   readerId: string,
-  rating: Rating,
   timeSpentMs: number,
-  /** "Done for good": read, and never scheduled again. */
-  opts: { retire?: boolean; source?: string } = {},
-): Promise<{ event: LocalReaderReviewEvent; newState: RevisitState }> {
+): Promise<{ event: LocalReaderReviewEvent }> {
   const now = new Date().toISOString();
 
   const event: LocalReaderReviewEvent = {
     id: crypto.randomUUID(),
     reader_id: readerId,
-    rating,
+    rating: 2 as Rating,
     time_spent_ms: timeSpentMs,
     reviewed_at: now,
     _synced: 0,
@@ -86,17 +113,11 @@ export async function recordReaderReview(
   };
 
   await db.readerReviewEvents.put(event);
-  if (opts.retire) await markRevisit('reader', readerId, 'retire', opts.source);
-  const newState = await refreshRevisitRow('reader', readerId);
+  await fixReaderState(readerId);
   // Reading it anywhere completes its homework (docs/HOMEWORK.md).
   await recordTargetDone('reader', readerId);
 
-  return { event, newState };
-}
-
-/** "2 wk"-style labels for the reader rating buttons (shared/study/revisit.ts). */
-export function getReaderIntervalPreviews(reader: LocalReader): Record<Rating, IntervalPreview> {
-  return revisitButtonPreviews(reader);
+  return { event };
 }
 
 /** Whether a stored UTC ISO timestamp falls on today's LOCAL date. A string
@@ -123,47 +144,46 @@ export async function readersReadToday(): Promise<Set<string>> {
   return ids;
 }
 
+const offerRow = (r: LocalReader) => ({ id: r.id, created_at: r.created_at, studyable: isStudyableReader(r), read: isReaderRead(r), reader: r });
+
 /**
- * Pure: the ONE reader for today, or null.
- *
- * - A reader already read today owns the day: nothing more is offered (Again
- *   brings it back tomorrow, never later the same day).
- * - Otherwise the first of: a revisit due by the cutoff (most overdue first),
- *   an unread NEW story (newest first — today's generated story before older
- *   leftovers). Done-for-good readers are never offered.
- *
- * Exported for tests.
+ * Today's ONE reader, or null (shared/study/daily-reader.ts): nothing once a
+ * story was read today, else the newest UNREAD story. A read story is never
+ * offered again.
  */
-export function pickTodaysReader(
-  readers: LocalReader[],
-  readToday: Set<string>,
-  cutoff: { iso: string; ts: number },
-): LocalReader | null {
-  if (readToday.size > 0) return null;
-  const studyable = readers.filter(r => isStudyableReader(r) && !r.retired);
+export function pickTodaysReader(readers: LocalReader[], readToday: Set<string>): LocalReader | null {
+  return sharedPickTodaysReader(readers.map(offerRow), readToday.size > 0)?.reader ?? null;
+}
 
-  const revisit = studyable
-    .filter(r => r.queue !== CardQueue.NEW && rowDueMs(r) <= cutoff.ts)
-    .sort((a, b) => rowDueMs(a) - rowDueMs(b));
-  if (revisit[0]) return revisit[0];
+/** The unread story the session offers next, today or (once today's was read) tomorrow. */
+export function nextUnreadReader(readers: LocalReader[]): LocalReader | null {
+  return sharedNextUnreadReader(readers.map(offerRow))?.reader ?? null;
+}
 
-  const fresh = studyable
-    .filter(r => r.queue === CardQueue.NEW)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
-  return fresh[0] ?? null;
+/** The readers the session rotates: everything but one-off homework readers (read in the homework pass). */
+async function rotationReaders(): Promise<{ readers: LocalReader[]; readToday: Set<string> }> {
+  const [allReaders, readToday, oneOffOnly] = await Promise.all([db.readers.toArray(), readersReadToday(), oneOffOnlyTargetIds()]);
+  return {
+    readers: allReaders.filter(r => !oneOffOnly.has(r.id)),
+    readToday: new Set([...readToday].filter(id => !oneOffOnly.has(id))),
+  };
 }
 
 /**
  * Readers for this study session: at most ONE (READERS_PER_DAY) — see
  * pickTodaysReader. An empty array means today's story has been read (or
- * there is none yet; ensureDailyReader generates one when nothing is due).
+ * there is no unread one yet; ensureDailyReader generates one).
  */
 export async function getDueReaders(): Promise<LocalReader[]> {
-  const [allReaders, readToday, oneOffOnly] = await Promise.all([db.readers.toArray(), readersReadToday(), oneOffOnlyTargetIds()]);
-  // One-off homework readers are read in the homework pass, not rotated by FSRS.
-  const readers = allReaders.filter(r => !oneOffOnly.has(r.id));
-  const reader = pickTodaysReader(readers, readToday, getStudyCutoff());
+  const { readers, readToday } = await rotationReaders();
+  const reader = pickTodaysReader(readers, readToday);
   return reader ? [reader] : [];
+}
+
+/** Rotation state for ensureDailyReader / prefetch: read today? the next unread story? */
+export async function readerRotationState(): Promise<{ readToday: boolean; next: LocalReader | null }> {
+  const { readers, readToday } = await rotationReaders();
+  return { readToday: readToday.size > 0, next: nextUnreadReader(readers) };
 }
 
 // ============ Event Sync ============

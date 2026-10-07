@@ -2916,7 +2916,6 @@ export function StudyPage() {
     dailyReaderPending,
     grammarPending,
     intervalPreviews,
-    readerIntervalPreviews,
     customLessonIntervalPreviews,
     hasMoreNewCards,
     isRating,
@@ -2924,7 +2923,7 @@ export function StudyPage() {
     flushWrites,
     canUndo,
     rateCard,
-    rateReader,
+    finishReader,
     completeGrammar,
     completeCustomLesson,
     undoLastReview,
@@ -3135,14 +3134,13 @@ export function StudyPage() {
           onComplete={completeGrammar}
           onEnd={leaveStudy}
         />
-      ) : currentReader && readerIntervalPreviews ? (
+      ) : currentReader ? (
         <StudyReader
           key={`${currentReader.id}-${cardVersion}`}
           reader={currentReader}
-          intervalPreviews={readerIntervalPreviews}
           counts={counts}
-          isRating={false}
-          onRate={rateReader}
+          isFinishing={false}
+          onFinish={finishReader}
           onEnd={leaveStudy}
         />
       ) : currentCard && intervalPreviews ? (

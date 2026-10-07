@@ -3,7 +3,7 @@
  *
  * Custom lessons are agent-authored (MCP tools, the in-app chats), cached
  * whole in IndexedDB for fully offline study, and come back on the "revisit
- * later" schedule (shared/study/revisit.ts, same as readers) — a lesson is a
+ * later" schedule (shared/study/revisit.ts) — a lesson is a
  * big chunk, not a flashcard, so Good means "in two weeks", not "in 10 min":
  * - Completion events are the source of truth (append-only, deduped by id),
  *   each carrying the learner's Again/Hard/Good/Easy rating; "Done for good"
@@ -15,7 +15,13 @@
  */
 
 import { CustomLessonSpec, LessonAttemptData, lessonTtsTexts, lessonConversationClips } from '@shared/lesson';
-import { pickRevisitsForToday, MAX_LESSON_REVISITS_PER_DAY, type RevisitState } from '@shared/study/revisit';
+import {
+  pickRevisitsForToday,
+  pickNewLessonsForToday,
+  newLessonsIntroducedToday,
+  MAX_LESSON_REVISITS_PER_DAY,
+  type RevisitState,
+} from '@shared/study/revisit';
 import { audioForConversation } from './conversationAudio';
 import {
   db,
@@ -37,13 +43,10 @@ import {
   recomputeAllRevisitStates,
   refreshRevisitRow,
   revisitButtonPreviews,
+  readRevisitSettings,
   revisitRowFields,
   rowRevisitState,
 } from './revisit';
-
-/** At most this many NEW (never-studied) lessons join a single study session,
- * so a big batch of agent-created lessons can't swamp the cards. */
-export const MAX_NEW_LESSONS_PER_SESSION = 2;
 
 interface ServerCompletion {
   id: string;
@@ -159,12 +162,28 @@ export async function lessonRevisitsToday(): Promise<number> {
   return revisited.size;
 }
 
+/** Local midnight today (ms) — the start of "today" for the new-lesson count. */
+function localDayStartMs(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** How many NEW lessons were introduced today (first-ever finish today), one-off homework left out. */
+export async function newLessonsToday(exclude?: ReadonlySet<string>): Promise<number> {
+  const events = await db.customLessonCompletionEvents.toArray();
+  return newLessonsIntroducedToday(events, localDayStartMs(), exclude ?? await oneOffOnlyTargetIds());
+}
+
 /**
  * Lessons for study right now, mixed into the session's card flow:
  * - revisits due by the study cutoff (end of today), most overdue first, at
  *   most MAX_LESSON_REVISITS_PER_DAY a day (so a backlog — e.g. lessons that
  *   were overdue when the schedule changed — trickles back, never floods in);
- * - NEW lessons, oldest first, capped at MAX_NEW_LESSONS_PER_SESSION.
+ *   they never count against the new-lesson budget;
+ * - NEW lessons, oldest first, paced per local DAY: at most "New lessons a
+ *   day" (Settings → Lessons & readers, default 1) minus the lessons already
+ *   introduced today (counted from completion events, like cards' introducedToday).
  * Done-for-good lessons and one-off homework lessons are never offered.
  */
 export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
@@ -175,18 +194,21 @@ export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
     oneOffOnlyTargetIds(),
     lessonRevisitsToday(),
   ]);
+  const introducedToday = await newLessonsToday(oneOffOnly);
   const lessons = allLessons.filter(l => !oneOffOnly.has(l.id) && !l.retired);
 
-  const fresh = lessons
-    .filter(l => (l.queue ?? CardQueue.NEW) === CardQueue.NEW)
-    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const fresh = pickNewLessonsForToday(
+    lessons.filter(l => (l.queue ?? CardQueue.NEW) === CardQueue.NEW),
+    introducedToday,
+    readRevisitSettings().new_lessons_per_day,
+  );
   const due = pickRevisitsForToday(
     lessons.filter(l => (l.queue ?? CardQueue.NEW) !== CardQueue.NEW).map(l => ({ item: l, state: rowRevisitState(l) })),
     cutoff.ts,
     revisitedToday,
     MAX_LESSON_REVISITS_PER_DAY,
   );
-  return [...due, ...fresh.slice(0, MAX_NEW_LESSONS_PER_SESSION)];
+  return [...due, ...fresh];
 }
 
 /**

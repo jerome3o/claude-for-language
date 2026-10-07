@@ -32,8 +32,7 @@ import { computeCardState, type ComputedCardState, type ReviewEvent } from '@sha
 import { recomputeCardFromEvents } from '../services/review-events';
 import {
   getDueReaders,
-  recordReaderReview,
-  getReaderIntervalPreviews,
+  recordReaderFinish,
 } from '../services/reader-study';
 import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from '../services/grammar-study';
 import {
@@ -985,11 +984,10 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     trackWrite(persistReviewEvent(reviewId, cardId, rating, reviewedAt, timeSpentMs, userAnswer, recordingBlob));
   }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, sessionStats, reviewMutation, presentCard, presentSelection, presentNothing, trackWrite, persistReviewEvent, findDelayedLearningCard]);
 
-  // Rate the current reader and transition to the next item. The rating sets
-  // when it comes back ("revisit later", shared/study/revisit.ts; `retire` =
-  // Done for good); reader reviews aren't undoable yet, so rating one drops
-  // any pending card undo snapshot.
-  const rateReader = useCallback(async (rating: Rating, timeSpentMs: number, retire = false) => {
+  // Finish the current reader (Finish, or listened to the end) and move on. A
+  // story is read once and never comes back (shared/study/daily-reader.ts);
+  // finishes aren't undoable, so one drops any pending card undo snapshot.
+  const finishReader = useCallback(async (timeSpentMs: number) => {
     const reader = currentCardState.reader;
     if (!reader) return;
     // Guard against double-taps while the async review write is in flight
@@ -999,18 +997,15 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     undoSnapshotRef.current = null;
     setCanUndo(false);
 
-    setSessionStats(prev => {
-      const isCorrect = rating === 2 || rating === 3; // Good or Easy
-      return {
-        ...prev,
-        totalReviews: prev.totalReviews + 1,
-        correctCount: prev.correctCount + (isCorrect ? 1 : 0),
-        againCount: prev.againCount + (rating === 0 ? 1 : 0),
-      };
-    });
+    setSessionStats(prev => ({
+      ...prev,
+      totalReviews: prev.totalReviews + 1,
+      correctCount: prev.correctCount + 1,
+    }));
 
     try {
-      await recordReaderReview(reader.id, rating, timeSpentMs, { retire, source: 'session' });
+      // Read once: the story never comes back (shared/study/daily-reader.ts).
+      await recordReaderFinish(reader.id, timeSpentMs);
 
       // Reading a story in-session counts as the day's reader activity
       // (streaks) — best effort, offline reviews just skip it.
@@ -1018,7 +1013,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         markDailyActivity('reader', reader.id).catch(() => {});
       }
 
-      // Even Again brings a story back tomorrow at the earliest: it leaves the session.
       const newReaderQueue = readerQueue.filter(r => r.id !== reader.id);
 
       if (navigator.onLine) {
@@ -1244,9 +1238,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const customLessonIntervalPreviews: Record<Rating, IntervalPreview> | null =
     currentCustomLesson ? getCustomLessonIntervalPreviews(currentCustomLesson) : null;
 
-  const readerIntervalPreviews: Record<Rating, IntervalPreview> | null =
-    currentReader ? getReaderIntervalPreviews(currentReader) : null;
-
   // Remove a deleted note's cards from the session and advance to the next card.
   // Call this after deleting a note from IndexedDB so the in-memory queue stays
   // consistent and we don't try to display a card whose note no longer exists.
@@ -1308,7 +1299,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     dailyReaderPending,
     grammarPending,
     intervalPreviews,
-    readerIntervalPreviews,
     customLessonIntervalPreviews,
     hasMoreNewCards,
     isRating: reviewMutation.isPending,
@@ -1323,7 +1313,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     /** Resolves once every review written so far is in IndexedDB (today's counts read them). */
     flushWrites,
     rateCard,
-    rateReader,
+    finishReader,
     completeGrammar,
     completeCustomLesson: completeCustomLessonAction,
     undoLastReview,

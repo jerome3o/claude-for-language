@@ -122,7 +122,7 @@ class TodaySplitStudyTest {
         assertEquals(TodayLeft(1, true), second.todayLeft)
         vm.completeLesson(result(Rating.EASY))
         awaitUi(vm, "the story") { it.phase is StudyPhase.Reader }
-        vm.rateReader(Rating.EASY, 30_000)
+        vm.finishReader(30_000)
         val done = awaitUi(vm, "done with today's numbers") { it.phase is StudyPhase.Done && it.today != null }
         assertEquals(2, done.today!!.lessonsDone)
         assertTrue(done.today!!.readerDone)
@@ -141,7 +141,7 @@ class TodaySplitStudyTest {
             val today = TodayData(app)
             today.completeLesson("L1", result(Rating.EASY))
             today.completeLesson("L2", result(Rating.EASY))
-            today.rateReader("R1", Rating.EASY, 20_000)
+            today.finishReader("R1", 20_000)
             val home = TodayHomeLoader.load(app)
             assertEquals(0, home.lessonsToDo.size)
             assertEquals(2, home.lessonsDone.size)
@@ -184,14 +184,27 @@ class TodaySplitStudyTest {
     }
 
     @Test
-    fun aNewLessonStartedTodayTakesOneOfTheDaysTwoSlots() {
+    fun aNewLessonStartedTodayTakesOneOfTheDaysSlots() {
         runBlocking {
             seedExtras(app, lessons = 3)
             assertEquals(listOf("L1", "L2"), TodayHomeLoader.load(app).lessonsToDo.map { it.id })
             TodayData(app).completeLesson("L1", result(Rating.EASY))
             val after = TodayHomeLoader.load(app)
-            // L3 isn't pulled in: two new lessons a day.
+            // L3 isn't pulled in: "New lessons a day" = 2 here.
             assertEquals(listOf("L2"), after.lessonsToDo.map { it.id })
+            assertEquals(listOf("L1"), after.lessonsDone.map { it.id })
+        }
+    }
+
+    @Test
+    fun oneNewLessonADayByDefault() {
+        runBlocking {
+            seedExtras(app, lessons = 3, newLessonsPerDay = null)
+            assertEquals(listOf("L1"), TodayHomeLoader.load(app).lessonsToDo.map { it.id })
+            TodayData(app).completeLesson("L1", result(Rating.GOOD))
+            val after = TodayHomeLoader.load(app)
+            // The day's one new lesson is done: L2 waits for tomorrow.
+            assertEquals(emptyList<String>(), after.lessonsToDo.map { it.id })
             assertEquals(listOf("L1"), after.lessonsDone.map { it.id })
         }
     }
@@ -211,8 +224,18 @@ class TodaySplitStudyTest {
     }
 
     companion object {
-        /** Two new lessons (+ a third when asked) and today's story on the phone, as a sync leaves them. */
-        suspend fun seedExtras(app: LabApp, lessons: Int = 2) {
+        /**
+         * Two new lessons (+ a third when asked) and today's story on the phone, as a sync leaves
+         * them; "New lessons a day" = [newLessonsPerDay] (null = the default, one a day).
+         */
+        suspend fun seedExtras(app: LabApp, lessons: Int = 2, newLessonsPerDay: Int? = 2) {
+            app.cache.put(
+                dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.SETTINGS,
+                dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.KIND,
+                newLessonsPerDay?.let { dev.jeromeswannack.chineselearning.lab.data.api.RevisitSettingsDto(new_lessons_per_day = it.toDouble(), is_default = false) }
+                    ?: dev.jeromeswannack.chineselearning.lab.data.api.RevisitSettingsDto(),
+                dev.jeromeswannack.chineselearning.lab.data.api.RevisitSettingsDto.serializer(),
+            )
             val spec = CustomLessonSpec("把 sentences", sections = listOf(LessonSection(exercises = listOf(LessonSamples.choice))))
             val all = listOf(
                 CustomLessonDto("L1", "把 sentences", icon = "🧱", createdAt = "2026-09-01T00:00:00Z", spec = spec),

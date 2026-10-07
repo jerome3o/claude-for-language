@@ -115,7 +115,8 @@ class LessonStoreTest {
 
     @Test fun completionIsScheduledLocallyThenUploadedWithItsAttemptAndRecording() = runBlocking {
         store.sync(prefetch = false)
-        assertEquals(listOf("L1", "L2"), store.dueLessons(cutoff).map { it.id })
+        // One new lesson a day (the default): the oldest.
+        assertEquals(listOf("L1"), store.dueLessons(cutoff).map { it.id })
         assertEquals("unknown exercise types still decode", 2, store.entry("L1")!!.lesson.spec.sections[0].exercises.size)
 
         val rec = store.recordingFile().apply { writeBytes(ByteArray(64) { 1 }) }
@@ -156,7 +157,8 @@ class LessonStoreTest {
         val state = store.complete("L1", 1, 1, Rating.GOOD, null, emptyList(), retire = true)
         assertEquals(RevisitState.RETIRED, state.status)
         assertTrue(store.entry("L1")!!.retired)
-        assertEquals(listOf("L2"), store.dueLessons(cutoff).map { it.id })
+        // L1 was today's new lesson: L2 waits for tomorrow.
+        assertEquals(emptyList<String>(), store.dueLessons(cutoff).map { it.id })
         // The completion and the retire event both wait in the outbox, in that order.
         assertEquals(listOf("lessons", "revisit"), outbox.all().map { it.kind })
 

@@ -125,7 +125,7 @@ private fun decode(file: File): ImageBitmap? = runCatching { BitmapFactory.decod
  * resets on a page turn.
  */
 @Composable
-fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, scrubber: Boolean = false) {
+fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, scrubber: Boolean = false, story: StoryPlayback? = null) {
     var showChinese by rememberSaveable(page.id) { mutableStateOf(false) }
     var showPinyin by rememberSaveable(page.id) { mutableStateOf(false) }
     var showTranslation by rememberSaveable(page.id) { mutableStateOf(false) }
@@ -172,7 +172,7 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, scrubber: Boolean = fals
                     }
                 }
                 // In the session (StudyReader): the scrubbable waveform under the Chinese.
-                if (scrubber) ReaderScrubber(page, env)
+                if (scrubber) ReaderScrubber(page, env, story = story)
                 ToggleBox(showPinyin, page.contentPinyin, "Tap to reveal pinyin", Lab.colors.accent) { showPinyin = !showPinyin; env.onTap() }
                 ToggleBox(showTranslation, page.contentEnglish, "Tap to reveal translation", Lab.colors.ink) { showTranslation = !showTranslation; env.onTap() }
             }

@@ -69,8 +69,6 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
                 onMoveToFolder = { id -> vm.folders.openMove(listOf(id)) },
                 onLift = { nav.app.haptics.flip() },
                 onSlot = { nav.app.haptics.tick() },
-                onDoneForGood = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RETIRE) },
-                onBringBack = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RESTORE) },
             ),
             folders = folderUi,
             folderActions = remember(vm) { dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions.of(vm.folders) },
@@ -209,8 +207,7 @@ class ReadersViewModel(private val app: LabApp) : ViewModel() {
                         it.copy(
                             readers = list.map { e -> e.reader }.sortedByDescending { r -> r.createdAt },
                             updatedAt = app.cache.updatedAt(ReaderStore.LIST),
-                            revisit = list.associate { e -> e.id to e.state },
-                            cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault()),
+                            readAt = list.mapNotNull { e -> e.lastReadAt?.let { at -> e.id to at } }.toMap(),
                         )
                     }
                     // Poll every 3 s while a story is being written.
@@ -219,15 +216,6 @@ class ReadersViewModel(private val app: LabApp) : ViewModel() {
             }
         }
         refresh()
-    }
-
-    /** ✓ Done for good / ↩ Bring back: written here at once, uploaded through the outbox. */
-    fun revisit(id: String, action: String) {
-        viewModelScope.launch {
-            store.markRevisit(id, action)
-            app.haptics.tick()
-            LessonRuntime.of(app).uploadSoon()
-        }
     }
 
     private fun startPolling() {
