@@ -11,7 +11,8 @@ import java.util.PriorityQueue
  * budget introduces first. Port of shared/decks/new-card-order.ts + shared/decks/frequency.ts,
  * parity-tested through android-lab/parity/fixtures/new-card-order.ts (and the study-queue
  * vectors). See new-card-order.ts for the rules: tiers new characters → new words → (sentences
- * last) words before sentences, the most common first inside each tier, then the deck order.
+ * last) words before sentences, the most common first inside each tier (in the new-character
+ * tier: the most common never-seen character first), then the deck order.
  */
 
 /** Port of NewCardOrder (shared/decks/new-card-order.ts). Default: every switch on. */
@@ -53,7 +54,7 @@ data class NewCardOrder(
         val OPTIONS = listOf(
             Option("new_characters_first", "New characters first", "Words that bring a character you have never studied come first."),
             Option("new_words_first", "New words first", "Then words you haven't met anywhere yet — not even inside a sentence."),
-            Option("most_common_first", "Most common first", "Within each group, the words Chinese speakers use most come first."),
+            Option("most_common_first", "Most common first", "Within each group, the words Chinese speakers use most come first, and the most common new characters before rare ones."),
             Option("sentences_last", "Sentences last", "Sentence cards wait until the words are in."),
         )
 
@@ -101,6 +102,9 @@ object WordFrequency {
         }
         return FrequencyIndex(words, chars)
     }
+
+    /** Port of characterRank(): 1 = most frequent, [UNRANKED_CHAR] when not listed. */
+    fun charRank(ch: String, index: FrequencyIndex): Int = index.chars[ch] ?: UNRANKED_CHAR
 
     /** Port of frequencyRank(). */
     fun rank(hanzi: String, index: FrequencyIndex): Int {
@@ -189,6 +193,7 @@ object NewCardOrdering {
         val item: T,
         val hanzi: String,
         val chars: List<String>,
+        val charRanks: IntArray,
         val text: String,
         val length: Int,
         val word: Boolean,
@@ -201,7 +206,7 @@ object NewCardOrdering {
         var newWord: Boolean,
     )
 
-    private class Snapshot<T>(val e: Entry<T>, val tier: Int, val newCapped: Int)
+    private class Snapshot<T>(val e: Entry<T>, val tier: Int, val newCharRank: Int, val newCapped: Int)
 
     private class Keyed<T>(val item: T, val sentence: Int, val freq: Int)
 
@@ -212,9 +217,15 @@ object NewCardOrdering {
         else -> TIER_NONE
     }
 
-    private fun <T> snapshotOf(e: Entry<T>, order: NewCardOrder): Snapshot<T> {
+    /** Port of snapshotOf(): in tier 0, the rank of the most common never-seen character too. */
+    private fun <T> snapshotOf(e: Entry<T>, order: NewCardOrder, studied: StudiedIndex): Snapshot<T> {
         val tier = tierOf(e, order)
-        return Snapshot(e, tier, if (tier == 0) minOf(e.newChars, NoveltyRank.NEW_CHARACTER_RANK_CAP) else 0)
+        if (tier != 0) return Snapshot(e, tier, 0, 0)
+        var newCharRank = Int.MAX_VALUE
+        for (i in e.chars.indices) {
+            if (e.chars[i] !in studied.chars && e.charRanks[i] < newCharRank) newCharRank = e.charRanks[i]
+        }
+        return Snapshot(e, tier, newCharRank, minOf(e.newChars, NoveltyRank.NEW_CHARACTER_RANK_CAP))
     }
 
     /** Port of compareSnapshots(): a total order (the card id breaks every tie). */
@@ -225,8 +236,9 @@ object NewCardOrdering {
         when (x.tier) {
             0 -> {
                 if (order.sentencesLast && a.sentence != b.sentence) return if (a.sentence) 1 else -1
-                if (order.mostCommonFirst && a.freq != b.freq) return a.freq.compareTo(b.freq)
+                if (x.newCharRank != y.newCharRank) return x.newCharRank.compareTo(y.newCharRank)
                 if (x.newCapped != y.newCapped) return y.newCapped.compareTo(x.newCapped)
+                if (order.mostCommonFirst && a.freq != b.freq) return a.freq.compareTo(b.freq)
             }
             1 -> if (order.mostCommonFirst && a.freq != b.freq) return a.freq.compareTo(b.freq)
             else -> {
@@ -262,6 +274,7 @@ object NewCardOrdering {
         val heap = PriorityQueue<Snapshot<T>> { a, b -> compareSnapshots(a, b, order) }
         val byChar = HashMap<String, MutableList<Entry<T>>>()
         val byText = HashMap<String, MutableList<Entry<T>>>()
+        val charRankCache = HashMap<String, Int>()
         for (item in candidates) {
             val group = groupOf(item)
             if ((left[group] ?: 0) <= 0) continue
@@ -282,8 +295,12 @@ object NewCardOrdering {
             val kind = Known.noteKind(hanzi)
             val word = kind == NoteKind.Word
             val newChars = chars.count { it !in studied.chars }
+            val charRanks = IntArray(chars.size)
+            if (useFreq && newChars > 0) {
+                for (i in chars.indices) charRanks[i] = charRankCache.getOrPut(chars[i]) { WordFrequency.charRank(chars[i], frequency!!) }
+            }
             val e = Entry(
-                item, hanzi, chars, text, length, word,
+                item, hanzi, chars, charRanks, text, length, word,
                 sentence = kind == NoteKind.Sentence,
                 freq = if (useFreq) WordFrequency.rankOfText(text, chars, frequency!!) else 0,
                 rank = rank(group),
@@ -292,7 +309,7 @@ object NewCardOrdering {
                 newChars = newChars,
                 newWord = order.newWordsFirst && word && (if (length == 1) text !in studied.chars else studied.pieces?.contains(text) != true),
             )
-            val snap = snapshotOf(e, order)
+            val snap = snapshotOf(e, order, studied)
             if (snap.tier == TIER_NONE) continue
             heap += snap
             if (newChars > 0) for (c in chars) if (c !in studied.chars) byChar.getOrPut(c) { ArrayList() } += e
@@ -304,9 +321,9 @@ object NewCardOrdering {
             val top = heap.poll()
             val picked = top.e
             if ((left[picked.group] ?: 0) <= 0) continue
-            val now = snapshotOf(picked, order)
+            val now = snapshotOf(picked, order, studied)
             if (now.tier == TIER_NONE) continue
-            if (now.tier != top.tier || now.newCapped != top.newCapped) { heap += now; continue }
+            if (now.tier != top.tier || now.newCharRank != top.newCharRank || now.newCapped != top.newCapped) { heap += now; continue }
             out += picked.item
             left[picked.group] = (left[picked.group] ?: 0) - 1
             for (c in picked.chars) {
