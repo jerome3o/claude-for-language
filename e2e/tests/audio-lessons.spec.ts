@@ -1,3 +1,4 @@
+import { request as playwrightRequest } from '@playwright/test';
 import { test, expect } from './fixtures/auth';
 
 /**
@@ -41,6 +42,8 @@ test('make a sleep lesson, then play it from the device', async ({ authenticated
   await expect(page.locator('.al-now-chapter')).toHaveText('寄 jì');
   await page.getByRole('button', { name: '📝 Transcript' }).click();
   await expect(page.getByLabel('Transcript').getByText('我想寄一封信。').first()).toBeVisible();
+  // After the word's three sentences: ONE English recap line, the word inside it.
+  await expect(page.getByLabel('Transcript').getByText('The word was 寄: to send by post, as in posting a letter, not sending a text message.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
@@ -74,4 +77,52 @@ test('a dialogue lesson lists its chapters and shows the transcript', async ({ a
   for (const title of ['Introduction', 'First listen', 'Second listen', 'Third listen, a little slower', 'Line by line', 'Final listen']) {
     await expect(page.locator('.al-chapters').getByText(title, { exact: true })).toBeVisible();
   }
+});
+
+test('the private podcast feed: copy, fetch like a podcast app, Range, reset', async ({ authenticatedPage: page }) => {
+  test.setTimeout(120_000);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.gotoAuthenticated('/audio-lessons');
+  await page.getByRole('radio', { name: /Sleep/ }).click();
+  await page.getByLabel(/Paste some Chinese/).fill('我家旁边有一个邮局，邮局在银行旁边。我常常去邮局给妈妈寄信。');
+  await page.getByRole('button', { name: '🎧 Make the lesson' }).click();
+  await expect(page.getByRole('button', { name: 'Play 银行和邮局' })).toBeVisible({ timeout: 60000 });
+
+  await page.getByTestId('al-podcast-link').click();
+  await expect(page).toHaveURL(/\/settings#podcast-feed$/);
+  const section = page.getByTestId('podcast-feed');
+  // Shown masked; Copy copies the whole link.
+  await expect(section.getByTestId('podcast-feed-url')).toContainText(/\/api\/podcast\/[A-Za-z0-9_-]{4}…[A-Za-z0-9_-]{4}\/feed\.xml/, { timeout: 30000 });
+  await section.getByTestId('podcast-feed-copy').click();
+  await expect(section.getByTestId('podcast-feed-copy')).toHaveText('✓ Copied');
+  const url = await page.evaluate(() => navigator.clipboard.readText());
+  expect(url).toMatch(/\/api\/podcast\/[A-Za-z0-9_-]{43}\/feed\.xml$/);
+  await expect(section.getByRole('link', { name: 'Open in podcast app' })).toHaveAttribute('href', url.replace(/^https?:/, 'podcast:'));
+
+  // What a podcast app does: no cookies, no login.
+  const app = await playwrightRequest.newContext();
+  const feed = await app.get(url);
+  expect(feed.status()).toBe(200);
+  expect(feed.headers()['content-type']).toContain('application/rss+xml');
+  const xml = await feed.text();
+  expect(xml).toContain('<title>银行和邮局</title>');
+  const enclosure = /<enclosure url="([^"]+)" length="(\d+)" type="audio\/mpeg"\/>/.exec(xml);
+  expect(enclosure).not.toBeNull();
+  const part = await app.get(enclosure![1], { headers: { Range: 'bytes=0-1023' } });
+  expect(part.status()).toBe(206);
+  expect(part.headers()['content-range']).toBe(`bytes 0-1023/${enclosure![2]}`);
+  expect((await part.body()).length).toBe(1024);
+
+  // Reset: the old link (feed and file) stops working at once.
+  page.once('dialog', (d) => d.accept());
+  await section.getByTestId('podcast-feed-reset').click();
+  await expect(async () => {
+    await section.getByTestId('podcast-feed-copy').click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).not.toBe(url);
+  }).toPass({ timeout: 15000 });
+  expect((await app.get(url)).status()).toBe(404);
+  expect((await app.get(enclosure![1])).status()).toBe(404);
+  const fresh = await page.evaluate(() => navigator.clipboard.readText());
+  expect((await app.get(fresh)).status()).toBe(200);
+  await app.dispose();
 });

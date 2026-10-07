@@ -131,7 +131,18 @@ object AudioLessonTimeline {
     private val SENTENCE_END = Regex("[.!?:][\"”’)]?$")
     private val LEADING_PUNCT = Regex("^[,.;:!?]")
 
-    private fun isNarration(l: AudioLessonTranscriptLine) = l.voice == "narrator" || (l.voice == "teacher" && l.pinyin.isNullOrEmpty())
+    /**
+     * English narration and the Chinese spoken inside it: format A's host + teacher, and a
+     * sleep lesson's recap ("The word was 银行: bank…": the recap voice + the sleep voice right after it).
+     */
+    private fun isNarration(lines: List<AudioLessonTranscriptLine>, j: Int): Boolean {
+        val l = lines.getOrNull(j) ?: return false
+        if (l.voice == "narrator" || l.voice == "recap") return true
+        if (!l.pinyin.isNullOrEmpty()) return false
+        if (l.voice == "teacher") return true
+        val before = lines.getOrNull(j - 1)
+        return l.voice == "sleep" && before != null && before.voice == "recap" && before.chapter == l.chapter
+    }
 
     /** JS String.prototype.trim (ECMAScript WhiteSpace + LineTerminator). */
     private fun jsTrim(s: String): String = s.trim { it.isWhitespace() || it == '﻿' || it == ' ' }
@@ -150,7 +161,7 @@ object AudioLessonTimeline {
                 rows[rows.size - 1] = prev.copy(last = i)
                 return@forEachIndexed
             }
-            val open = prev != null && prevLine != null && isNarration(prevLine) && isNarration(l) &&
+            val open = prev != null && prevLine != null && isNarration(lines, i - 1) && isNarration(lines, i) &&
                 prevLine.chapter == l.chapter && !SENTENCE_END.containsMatchIn(jsTrim(prevLine.text))
             if (open) {
                 val glue = if (l.lang == "zh" || prevLine!!.lang == "zh") (if (LEADING_PUNCT.containsMatchIn(l.text)) "" else " ") else " "

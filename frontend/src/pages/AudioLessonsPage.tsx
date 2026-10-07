@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useNetwork } from '../contexts/NetworkContext';
 import { AUDIO_LESSON_INPUT_LIMITS, durationLabel, type AudioLessonFormat, type AudioLessonSummary } from '@shared/audio-lesson';
 import { createAudioLesson, retryAudioLesson } from '../api/audioLessons';
@@ -21,7 +21,7 @@ const SITUATIONS: Array<{ zh: string; en: string }> = [
 
 const FORMATS: Array<{ id: AudioLessonFormat; icon: string; label: string; blurb: string }> = [
   { id: 'dialogue', icon: '🎙️', label: 'Dialogue', blurb: 'An English host, a short Chinese dialogue played three times, then the new words explained.' },
-  { id: 'sleep', icon: '🌙', label: 'Sleep', blurb: 'All Chinese, very slow and calm: the new words from a text, each said three times with simple sentences.' },
+  { id: 'sleep', icon: '🌙', label: 'Sleep', blurb: 'Very slow and calm Chinese: the new words from a text, each said three times, explained in simple Chinese, with simple sentences — then one English line to check.' },
 ];
 
 export function statusLine(l: AudioLessonSummary): string {
@@ -135,7 +135,8 @@ export function AudioLessonsPage() {
       <h1 className="al-title">🎧 Audio lessons</h1>
       <p className="al-blurb">
         Lessons to listen to — on the train, or to fall asleep to. Claude writes each one for you, checking it against
-        your cards, and the app records it as one audio file you can keep offline.
+        your cards, and the app records it as one audio file you can keep offline.{' '}
+        <Link to="/settings#podcast-feed" className="al-podcast-link" data-testid="al-podcast-link">Listen in a podcast app →</Link>
       </p>
 
       <div className="al-new-card">
@@ -197,7 +198,7 @@ export function AudioLessonsPage() {
               rows={7}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Claude finds the words you don't know yet and teaches them slowly, all in Chinese."
+              placeholder="Claude finds the words you don't know yet and teaches them slowly in Chinese, with one English line per word."
               maxLength={L.text}
               lang="zh-CN"
             />

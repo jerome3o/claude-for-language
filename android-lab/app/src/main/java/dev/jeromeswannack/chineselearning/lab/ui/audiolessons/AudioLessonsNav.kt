@@ -2,7 +2,14 @@ package dev.jeromeswannack.chineselearning.lab.ui.audiolessons
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -46,6 +53,12 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
     composable(Routes.route("/audio-lessons")) {
         val vm: AudioLessonsViewModel = viewModel(factory = AudioLessonsViewModel.Factory(nav.app))
         val ui by vm.ui.collectAsStateWithLifecycle()
+        var feedSheet by rememberSaveable { mutableStateOf(false) }
+        if (feedSheet) {
+            LabBottomSheet(onDismiss = { feedSheet = false }) {
+                PodcastFeedCard(nav.app, Modifier.padding(horizontal = 16.dp))
+            }
+        }
         AudioLessonsScreen(
             ui,
             AudioLessonsActions(
@@ -61,6 +74,7 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
                 onRetry = vm::retry,
                 onDelete = vm::delete,
                 onRefresh = vm::refresh,
+                onPodcastFeed = { feedSheet = true },
             ),
         )
     }

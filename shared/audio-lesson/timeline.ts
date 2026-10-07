@@ -127,7 +127,17 @@ export interface TranscriptRow {
  */
 export function transcriptRows(lines: AudioLessonTranscriptLine[]): TranscriptRow[] {
   const rows: TranscriptRow[] = [];
-  const isNarration = (l: AudioLessonTranscriptLine) => l.voice === 'narrator' || (l.voice === 'teacher' && !l.pinyin);
+  // English narration and the Chinese spoken inside it: format A's host + teacher, and a sleep
+  // lesson's recap ("The word was 银行: bank…": the recap voice + the sleep voice right after it).
+  const isNarration = (j: number): boolean => {
+    const l = lines[j];
+    if (!l) return false;
+    if (l.voice === 'narrator' || l.voice === 'recap') return true;
+    if (l.pinyin) return false;
+    if (l.voice === 'teacher') return true;
+    const before = lines[j - 1];
+    return l.voice === 'sleep' && !!before && before.voice === 'recap' && before.chapter === l.chapter;
+  };
   lines.forEach((l, i) => {
     const prev = rows[rows.length - 1];
     const prevLine = lines[i - 1];
@@ -136,7 +146,7 @@ export function transcriptRows(lines: AudioLessonTranscriptLine[]): TranscriptRo
       prev.last = i;
       return;
     }
-    const open = prev && prevLine && isNarration(prevLine) && isNarration(l) && prevLine.chapter === l.chapter && !/[.!?:]["”’)]?$/.test(prevLine.text.trim());
+    const open = prev && prevLine && isNarration(i - 1) && isNarration(i) && prevLine.chapter === l.chapter && !/[.!?:]["”’)]?$/.test(prevLine.text.trim());
     if (open) {
       const glue = l.lang === 'zh' || prevLine.lang === 'zh' ? (/^[,.;:!?]/.test(l.text) ? '' : ' ') : ' ';
       prev.text = `${prev.text}${glue}${l.text}`;

@@ -94,6 +94,11 @@ const rowCases = [
   [L(0, 'zh', 'teacher', '粗', 0, 'cū'), L(400, 'zh', 'teacher', '粗', 0, 'cū'), L(800, 'en', 'narrator', 'thick')],
   [L(0, 'zh', 'speaker_a', '你好，吃什么？', 0, 'nǐ hǎo', 'Hi'), L(900, 'zh', 'speaker_b', '我要一碗牛肉面。', 0, 'wǒ yào', 'A bowl')],
   [L(0, 'en', 'narrator', 'Ask for'), L(500, 'zh', 'teacher', '细的'), L(900, 'en', 'narrator', '!'), L(1200, 'en', 'narrator', 'Done')],
+  // Sleep recap: the sleep voice's word right after the recap voice joins its row; one before it does not.
+  [L(0, 'zh', 'sleep', '邮局几点开门？', 0, 'yóujú', 'When?'), L(900, 'zh', 'sleep', '邮局几点开门？'), L(1800, 'en', 'recap', 'The word was'), L(2400, 'zh', 'sleep', '邮局'), L(2900, 'en', 'recap', ': post office.'), L(4000, 'zh', 'sleep', '这是一个新词。', 1)],
+  [L(0, 'zh', 'sleep', '这是一个新词。'), L(900, 'zh', 'sleep', '我说三遍。'), L(1800, 'zh', 'sleep', '寄')],
+  [L(0, 'en', 'recap', 'The word was'), L(600, 'zh', 'sleep', '寄', 1), L(900, 'en', 'recap', ': to post.', 1)],
+  [L(0, 'en', 'recap', 'The word was'), L(600, 'zh', 'sleep', '寄', 0, 'jì'), L(900, 'en', 'recap', ': to post.')],
   [],
 ].map((lines) => ({ lines, rows: transcriptRows(lines as never) }));
 

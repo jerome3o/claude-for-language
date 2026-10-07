@@ -31,6 +31,8 @@ export const RATES = {
   sleep: 0.6,
   /** Sleep lessons: the new word itself. MiniMax's floor is 0.5. */
   sleepWord: 0.55,
+  /** Sleep lessons: the English recap after each word — calm, a little slow. */
+  recap: 0.9,
 } as const;
 
 /** Pauses in ms. */
@@ -52,6 +54,8 @@ export const PAUSES = {
   sleepAfterSentences: 3000,
   sleepBetweenWords: 5000,
   sleepPhrase: 1200,
+  /** Before and after a word's English recap line. */
+  sleepRecap: 1500,
 } as const;
 
 /** Han ideographs (the main blocks — enough for splitting narration). */
@@ -120,14 +124,21 @@ class ScriptBuilder {
     this.say('en', 'narrator', text, RATES.en);
   }
 
-  /** English with Chinese inside: each piece in its own voice, a beat around the Chinese. */
-  mixed(text: string, teacherRate: number = RATES.teacher): void {
+  /**
+   * English with Chinese inside: each piece in its own voice, a beat around the Chinese.
+   * Format A: the host + the teacher; a sleep lesson's recap: the recap voice + the sleep voice.
+   */
+  mixed(
+    text: string,
+    teacherRate: number = RATES.teacher,
+    voices: { en: VoiceRole; zh: VoiceRole; enRate: number } = { en: 'narrator', zh: 'teacher', enRate: RATES.en },
+  ): void {
     const parts = splitMixedText(text);
     parts.forEach((p, i) => {
-      if (p.lang === 'en') this.en(p.text);
+      if (p.lang === 'en') this.say('en', voices.en, p.text, voices.enRate);
       else {
         if (i > 0) this.pause(250);
-        this.say('zh', 'teacher', p.text, teacherRate);
+        this.say('zh', voices.zh, p.text, teacherRate);
         if (i < parts.length - 1) this.pause(250);
       }
     });
@@ -249,10 +260,25 @@ export const SLEEP_PHRASES = {
   sourceIntro: '最后，我们慢慢地听一遍原文。',
 } as const;
 
+/**
+ * The English recap line after a sleep-lesson word: "The word was 银行: bank, as in the
+ * place where you keep your money, not the bank of a river." The word itself is said by
+ * the sleep voice (the same clip as its three repeats), the English by the recap voice.
+ */
+export function sleepRecapText(hanzi: string, recapEn: string): string {
+  const body = recapEn.trim().replace(/^the word (was|is)\s+[^\s:：]*\s*[:：,，]?\s*/i, '').trim();
+  const sentence = /[.!?]["”’)]?$/.test(body) ? body : `${body}.`;
+  return `The word was ${hanzi}: ${sentence}`;
+}
+
 /** Read the source text at the end of a sleep lesson only when it is this short. */
 export const SLEEP_SOURCE_MAX_CHARS = 600;
 
-/** Format B: all Chinese, very slow, every word three times, long pauses. */
+/**
+ * Format B: all Chinese, very slow, every word three times, long pauses. Per word: the
+ * word ×3, what it means, its characters, three sentences ×3 — then ONE short English
+ * recap line (the only English in the lesson).
+ */
 export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string } = {}): AudioLessonScript {
   const b = new ScriptBuilder();
   const sleepy = (text: string, rate: number = RATES.sleep, extra: PlanLine | null = null) =>
@@ -278,7 +304,8 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
       b.pause(PAUSES.sleepWordRepeat);
     }
     b.pause(PAUSES.sleepPhrase);
-    for (const s of w.explanation_zh.flatMap(splitChineseSentences)) {
+    // What it means first, then where its characters come from.
+    for (const s of [...(w.meaning_zh ?? []), ...(w.characters_zh ?? [])].flatMap(splitChineseSentences)) {
       sleepy(s);
       b.pause(PAUSES.sleepSentence);
     }
@@ -291,6 +318,11 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
         else sleepy(s.hanzi);
         b.pause(i < 2 ? PAUSES.sleepSentenceRepeat : PAUSES.sleepAfterSentences);
       }
+    }
+    if (w.recap_en?.trim()) {
+      b.pause(PAUSES.sleepRecap);
+      b.mixed(sleepRecapText(w.hanzi, w.recap_en), RATES.sleepWord, { en: 'recap', zh: 'sleep', enRate: RATES.recap });
+      b.pause(PAUSES.sleepRecap);
     }
     b.pause(PAUSES.sleepBetweenWords);
   });
