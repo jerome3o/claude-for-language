@@ -10,6 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.AskBody
 import dev.jeromeswannack.chineselearning.lab.data.api.CARD_FLAGS_PATH
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagBody
 import dev.jeromeswannack.chineselearning.lab.data.api.ExplainTextBody
+import dev.jeromeswannack.chineselearning.lab.data.api.ensureSentenceAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.FlashcardDraft
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateAudioOptions
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateRecordingBody
