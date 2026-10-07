@@ -9,17 +9,22 @@
  *   POST /chars/:char/explain  → { char, explanation, cached } — "More about 字": Haiku's
  *                                short card-independent explanation, cached for everyone
  *                                (503 without an API key and no cached answer, 502 failed)
+ *   GET  /words?w=银行,学生     → { version, records: { hanzi: WordRecord }, missing: [hanzi] }
+ *                                — the word dictionary of the language explorer
+ *                                (docs/LANGUAGE_EXPLORER.md; 2–6 Han characters each, ≤ 50)
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { CHAR_DICT_VERSION } from '@shared/chars/types';
+import { CHAR_DICT_VERSION, WORD_DICT_VERSION } from '@shared/chars/types';
 import {
   assetsShardLoader,
   charsOf,
   explainCharacter,
   getCharRecord,
   getCharRecords,
+  getWordRecords,
   isDictChar,
+  wordsOf,
   type ShardLoader,
 } from '../services/char-dict';
 
@@ -53,6 +58,21 @@ chars.get('/chars', async (c) => {
     return c.json({ version: CHAR_DICT_VERSION, records, missing });
   } catch (error) {
     console.error('[chars] batch lookup failed:', error);
+    return c.json({ error: 'The dictionary is unavailable just now' }, 502);
+  }
+});
+
+chars.get('/words', async (c) => {
+  if (!c.get('user')) return c.json({ error: 'Not signed in' }, 401);
+  const list = wordsOf(c.req.query('w') ?? '');
+  if (list.length === 0) return c.json({ error: 'w must list Chinese words (2–6 characters)' }, 400);
+  const { loader, key } = loaderFor(c);
+  try {
+    const { records, missing } = await getWordRecords(loader, list, key);
+    c.header('Cache-Control', 'private, max-age=86400');
+    return c.json({ version: WORD_DICT_VERSION, records, missing });
+  } catch (error) {
+    console.error('[words] lookup failed:', error);
     return c.json({ error: 'The dictionary is unavailable just now' }, 502);
   }
 });

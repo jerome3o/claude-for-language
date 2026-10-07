@@ -3,8 +3,8 @@ import { Hono } from 'hono';
 import { gzipSync } from 'node:zlib';
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
 import chars from '../chars';
-import { clearCharDictCache, explainCharacter, explainPrompt, type ShardLoader } from '../../services/char-dict';
-import { charShard, charShardFile, type CharRecord } from '@shared/chars/types';
+import { clearCharDictCache, clearWordDictCache, explainCharacter, explainPrompt, wordsOf, type ShardLoader } from '../../services/char-dict';
+import { charShard, charShardFile, wordShard, wordShardFile, type CharRecord, type WordRecord } from '@shared/chars/types';
 import type { Env } from '../../types';
 
 const XING: CharRecord = {
@@ -116,5 +116,46 @@ describe('character dictionary routes', () => {
     expect(cached.status).toBe(200);
     expect(await cached.json()).toMatchObject({ cached: true });
     expect((await req(`/chars/${encodeURIComponent('银')}/explain`, { method: 'POST' })).status).toBe(503);
+  });
+});
+
+describe('word dictionary route', () => {
+  const YINHANG: WordRecord = { hanzi: '银行', pinyin: 'yínháng', syllables: ['yín', 'háng'], english: 'bank', senses: ['bank'], rank: 570 };
+
+  function wordLoader(records: WordRecord[], calls: string[] = []): ShardLoader {
+    const files = new Map<string, Record<string, WordRecord>>();
+    for (const r of records) {
+      const f = wordShardFile(wordShard(r.hanzi));
+      files.set(f, { ...(files.get(f) ?? {}), [r.hanzi]: r });
+    }
+    return async (file) => {
+      calls.push(file);
+      const shard = files.get(file);
+      return shard ? new Uint8Array(gzipSync(Buffer.from(JSON.stringify(shard)))) : null;
+    };
+  }
+
+  beforeEach(() => clearWordDictCache());
+
+  it('serves the listed words and names the missing ones', async () => {
+    const db = await createSqliteD1();
+    const calls: string[] = [];
+    const req = makeApp(db, { id: 'u' }, wordLoader([YINHANG], calls));
+    const res = await req(`/words?w=${encodeURIComponent('银行,龘龘,银行')}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ version: 1, records: { 银行: YINHANG }, missing: ['龘龘'] });
+    await req(`/words?w=${encodeURIComponent('银行')}`);
+    expect(calls.filter((f) => f === wordShardFile(wordShard('银行')))).toHaveLength(1);
+  });
+
+  it('400 without words, 401 signed out', async () => {
+    const db = await createSqliteD1();
+    expect((await makeApp(db, { id: 'u' }, wordLoader([]))(`/words?w=${encodeURIComponent('银,abc')}`)).status).toBe(400);
+    expect((await makeApp(db, null, wordLoader([]))(`/words?w=${encodeURIComponent('银行')}`)).status).toBe(401);
+  });
+
+  it('wordsOf keeps distinct all-Han words of 2–6 characters, at most 50', () => {
+    expect(wordsOf('银行，学生 银 abc 银行 马马虎虎')).toEqual(['银行', '学生', '马马虎虎']);
+    expect(wordsOf(Array.from({ length: 60 }, (_, i) => `银${String.fromCodePoint(0x4e00 + i)}`).join(','))).toHaveLength(50);
   });
 });

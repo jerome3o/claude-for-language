@@ -18,6 +18,7 @@ import {
   type CharReading,
   type CharRecord,
   type CharWord,
+  type WordRecord,
 } from './types';
 
 export interface CedictEntry {
@@ -345,4 +346,74 @@ export function buildCharDict(inputs: BuildInputs, options: BuildOptions = {}): 
     });
   }
   return records;
+}
+
+// ── The word dictionary (docs/LANGUAGE_EXPLORER.md) ─────────────────────────
+
+export interface WordBuildOptions {
+  /** Keep the most frequent this many words (by wordfreq). */
+  maxWords?: number;
+  /** Longest word kept, in characters. */
+  maxLength?: number;
+}
+
+/** "yin2 hang2" → ["yín", "háng"] for 银行, 一 / 不 tone changes applied. */
+export function cedictSyllables(hanzi: string, pinyin: string): string[] {
+  const raw = pinyin.trim().toLowerCase().replace(/u:/g, 'ü').split(/\s+/).filter(Boolean);
+  const marked = raw.map((s) => (s === 'r5' ? 'r' : toneNumbersToMarks(s).replace(/5$/, '')));
+  return applyYiBuToneChanges(hanzi, marked.join(' ')).split(' ');
+}
+
+/** Cleaned senses of an entry (skippable ones dropped), at most `max`. */
+export function cleanSenses(glosses: readonly string[], max = 4): string[] {
+  const out: string[] = [];
+  for (const g of glosses) {
+    if (SKIP_GLOSS.test(g.replace(/^\(bound form\)\s*/i, '').trim())) continue;
+    const s = cleanGloss([g], 90);
+    if (!s || out.includes(s) || SKIP_GLOSS.test(s)) continue;
+    out.push(s);
+    if (out.length === max) break;
+  }
+  return out;
+}
+
+/**
+ * The word records: every all-Han CC-CEDICT word of 2..maxLength characters that wordfreq
+ * has seen, the `maxWords` most frequent. Per word the first entry that isn't a proper noun
+ * or only variants / surnames wins (a proper noun — 中国, 北京 — when it is all there is).
+ * `rank` follows the shipped word-freq list's ranking (all-Han tokens, frequency then text).
+ */
+export function buildWordDict(inputs: Pick<BuildInputs, 'cedict' | 'freq'>, options: WordBuildOptions = {}): WordRecord[] {
+  const maxWords = options.maxWords ?? 60_000;
+  const maxLength = options.maxLength ?? 6;
+  const { cedict, freq } = inputs;
+
+  const ranked = [...freq.entries()].filter(([w]) => isAllHan(w)).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const rank = new Map<string, number>();
+  ranked.forEach(([w], i) => rank.set(w, i + 1));
+
+  const best = new Map<string, { entry: CedictEntry; score: number }>();
+  for (const e of cedict) {
+    const n = [...e.simp].length;
+    if (n < 2 || n > maxLength || !isAllHan(e.simp) || !freq.has(e.simp)) continue;
+    if (e.pinyin.trim().split(/\s+/).length !== n) continue;
+    // 0 = a plain entry, 1 = proper noun, 2 = only variants / surnames.
+    const score = onlySkippableSenses(e.glosses) ? 2 : isProperNoun(e.pinyin) ? 1 : 0;
+    const prev = best.get(e.simp);
+    if (!prev || score < prev.score) best.set(e.simp, { entry: e, score });
+  }
+
+  const words = [...best.keys()].sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity) || (a < b ? -1 : 1)).slice(0, maxWords);
+  return words.map((hanzi) => {
+    const { entry } = best.get(hanzi)!;
+    const syllables = cedictSyllables(hanzi, entry.pinyin);
+    return {
+      hanzi,
+      pinyin: cedictWordPinyin(hanzi, entry.pinyin),
+      syllables,
+      english: cleanGloss(entry.glosses),
+      senses: cleanSenses(entry.glosses),
+      rank: rank.get(hanzi) ?? null,
+    };
+  });
 }

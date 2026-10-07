@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "shards": 128,
+  "words": 60000,
+  "ranked": 60000,
+  "gzipped_bytes": 3470203,
+  "sources": [
+    {
+      "name": "CC-CEDICT",
+      "url": "https://www.mdbg.net/chinese/dictionary?page=cedict",
+      "licence": "CC BY-SA 4.0",
+      "entries": 125215
+    },
+    {
+      "name": "wordfreq (large_zh)",
+      "url": "https://github.com/rspeer/wordfreq",
+      "licence": "CC BY-SA 4.0 (data)",
+      "entries": 334609
+    }
+  ]
+}

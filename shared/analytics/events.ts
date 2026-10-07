@@ -74,6 +74,13 @@ export const ANALYTICS_EVENTS = {
   'study.char_word_tap': e('study', 'Tapped a word in the character sheet\'s "Words with 字" list.', ['status', 'current']),
   'study.char_word_added': e('study', 'Added a word from the character sheet as a card.', []),
   'study.char_explain': e('study', '"More about 字" on the character sheet (short Claude explanation, cached for everyone).', []),
+  // The language explorer (docs/LANGUAGE_EXPLORER.md): Character / Word views on a stack.
+  'explorer.open': e('study', 'Opened the language explorer by tapping Chinese (source = where, kind = char / word).', ['source', 'kind']),
+  'explorer.push': e('study', 'Tapped Chinese inside the explorer: another view pushed (kind = char / word, from = the view it was in).', ['kind', 'from', 'depth']),
+  'explorer.more': e('study', '"More about this word" in the explorer\'s Word view.', ['kind']),
+  'explorer.add_card': e('study', 'Added a word as a card from the explorer.', []),
+  'explorer.bump': e('study', '"⚡ Study it today" from the explorer.', []),
+  'explorer.write': e('study', '"✍️ Write it" from the explorer\'s Character view.', []),
   'study.study_more': e('study', 'Pressed Study More (bonus new cards).', ['count']),
   'study.celebration': e('study', "Emptied today's queue (the once-a-day celebration).", ['reviews', 'active_ms']),
   'study.long_term_toggle': e('study', '"Add to my long-term review" switched for a word.', ['value']),
@@ -278,6 +285,7 @@ export const VERBOSE_ONLY_EVENTS: readonly AnalyticsEventName[] = [
   'study.sentence_reveal',
   'homework.pass_item',
   'reader.word_tap',
+  'explorer.push',
   'reader.audio_block',
   'chat.listening_play',
 ];

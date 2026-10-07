@@ -16,7 +16,11 @@ import {
   CHAR_DICT_VERSION,
   charShard,
   charShardFile,
+  WORD_BATCH_MAX,
+  wordShard,
+  wordShardFile,
   type CharRecord,
+  type WordRecord,
 } from '@shared/chars/types';
 
 export const CHAR_EXPLAIN_MODEL = 'claude-haiku-4-5';
@@ -104,6 +108,58 @@ export async function getCharRecords(
 export async function getCharRecord(loader: ShardLoader, char: string, cacheKey = 'assets'): Promise<CharRecord | null> {
   const { records } = await getCharRecords(loader, [char], cacheKey);
   return records[char] ?? null;
+}
+
+// ── The word dictionary (docs/LANGUAGE_EXPLORER.md) ───────────────────────
+
+const wordShardCache = new Map<string, Promise<Record<string, WordRecord>>>();
+
+function loadWordShard(loader: ShardLoader, shard: number, cacheKey: string): Promise<Record<string, WordRecord>> {
+  const key = `${cacheKey}:${shard}`;
+  let p = wordShardCache.get(key);
+  if (!p) {
+    p = (readShard(loader, wordShardFile(shard)) as unknown as Promise<Record<string, WordRecord>>).catch((err) => {
+      wordShardCache.delete(key);
+      throw err;
+    });
+    wordShardCache.set(key, p);
+  }
+  return p;
+}
+
+/** Test hook: forget the word shards kept in memory. */
+export function clearWordDictCache(): void {
+  wordShardCache.clear();
+}
+
+/** The distinct all-Han words (2–6 characters) of a comma / space separated list, at most WORD_BATCH_MAX. */
+export function wordsOf(list: string): string[] {
+  const out: string[] = [];
+  for (const raw of list.split(/[,，、\s]+/)) {
+    const w = raw.trim();
+    const chars = [...w];
+    if (chars.length < 2 || chars.length > 6 || !chars.every((ch) => isHanCodePoint(ch.codePointAt(0)!))) continue;
+    if (out.includes(w)) continue;
+    out.push(w);
+    if (out.length === WORD_BATCH_MAX) break;
+  }
+  return out;
+}
+
+export async function getWordRecords(
+  loader: ShardLoader,
+  words: readonly string[],
+  cacheKey = 'assets',
+): Promise<{ records: Record<string, WordRecord>; missing: string[] }> {
+  const records: Record<string, WordRecord> = {};
+  const missing: string[] = [];
+  for (const w of words) {
+    const shard = await loadWordShard(loader, wordShard(w), cacheKey);
+    const r = shard[w];
+    if (r) records[w] = r;
+    else missing.push(w);
+  }
+  return { records, missing };
 }
 
 // ── "More about 字" ───────────────────────────────────────────────────────
