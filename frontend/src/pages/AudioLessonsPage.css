@@ -384,6 +384,39 @@
   justify-content: center;
 }
 
+/* The music bed: its volume, under the chips while it is on. */
+.al-music {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.6rem auto 0;
+  max-width: 420px;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+}
+
+.al-music input {
+  flex: 1;
+  min-width: 0;
+  accent-color: #a5b4fc;
+}
+
+.al-music-value {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.al-line-repeat {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
 .al-timer-sheet {
   display: flex;
   flex-wrap: wrap;

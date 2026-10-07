@@ -29,6 +29,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dev.jeromeswannack.chineselearning.lab.MainActivity
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonChapter
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonMusic
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.data.api.AudioLessonDto
@@ -66,6 +67,9 @@ data class AudioLessonPlaybackState(
     val ended: Boolean = false,
     /** True once the player knows the file (seekable). */
     val loaded: Boolean = false,
+    /** The music bed under the lesson (docs/AUDIO_LESSONS.md "Music"): on / off for this lesson's format, and its volume. */
+    val musicOn: Boolean = false,
+    val musicVolume: Double = AudioLessonMusic.DEFAULT_VOLUME,
 ) {
     fun timerLeftMs(now: Long = SystemClock.elapsedRealtime()): Long = timerEndsAt?.let { (it - now).coerceAtLeast(0) } ?: 0
 }
@@ -114,9 +118,9 @@ class ChapterPlayer(private val exo: Player, private val chapters: () -> List<Au
     }
 }
 
-/** The lesson player: ExoPlayer + the sleep timer + the remembered position + analytics. Main thread only. */
+/** The lesson player: ExoPlayer + the music bed + the sleep timer + the remembered position + analytics. Main thread only. */
 @OptIn(UnstableApi::class)
-class AudioLessonEngine(private val context: Context) {
+class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = ExoMusicTrack(context)) {
     private val prefs = AudioLessonPrefs(context)
     private val handler = Handler(Looper.getMainLooper())
 
@@ -141,6 +145,9 @@ class AudioLessonEngine(private val context: Context) {
 
     val sessionPlayer = ChapterPlayer(exo) { lesson?.chapters.orEmpty() }
 
+    /** The soft music under the lesson: plays while the lesson plays, fades with the sleep timer. */
+    val music = LessonMusic(musicTrack).also { it.setVolume(prefs.musicVolume) }
+
     private val _state = MutableStateFlow(AudioLessonPlaybackState(speed = prefs.speed))
     val state: StateFlow<AudioLessonPlaybackState> = _state.asStateFlow()
 
@@ -150,6 +157,7 @@ class AudioLessonEngine(private val context: Context) {
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(playing = isPlaying, positionMs = exo.currentPosition) }
+            music.update(isPlaying, musicFade())
             val l = lesson ?: return
             if (isPlaying) {
                 if (!startedTracked) {
@@ -172,6 +180,7 @@ class AudioLessonEngine(private val context: Context) {
                     prefs.savePosition(l.id, 0)
                     _state.update { it.copy(playing = false, ended = true, timerMinutes = 0, timerEndsAt = null, positionMs = durationMs()) }
                     exo.volume = 1f
+                    music.update(lessonPlaying = false)
                     Analytics.track("audio_lesson.complete", mapOf("format" to l.format, "duration_ms" to durationMs()))
                 }
                 else -> {}
@@ -212,7 +221,15 @@ class AudioLessonEngine(private val context: Context) {
         val duration = l.duration_ms ?: 0L
         val pos = prefs.position(l.id)
         if (pos > 0 && (duration == 0L || pos < duration - 5000)) exo.seekTo(pos)
-        _state.value = AudioLessonPlaybackState(lessonId = l.id, positionMs = exo.currentPosition, durationMs = duration, speed = prefs.speed)
+        music.setOn(prefs.musicOn(l.format))
+        _state.value = AudioLessonPlaybackState(
+            lessonId = l.id,
+            positionMs = exo.currentPosition,
+            durationMs = duration,
+            speed = prefs.speed,
+            musicOn = music.on,
+            musicVolume = music.volume,
+        )
         onLessonChanged(l)
     }
 
@@ -267,10 +284,36 @@ class AudioLessonEngine(private val context: Context) {
         _state.update { it.copy(speed = speed) }
     }
 
+    /** 🎵 on / off — remembered per format (on for sleep, off for dialogue until changed). */
+    fun setMusicOn(on: Boolean) {
+        val l = lesson ?: return
+        prefs.setMusicOn(l.format, on)
+        music.setOn(on)
+        _state.update { it.copy(musicOn = on) }
+        Analytics.track("audio_lesson.music", mapOf("on" to on, "format" to l.format, "volume_pct" to Math.round(music.volume * 100)))
+    }
+
+    /** The music's volume while the slider moves; [commit] (the finger lifted) remembers it. */
+    fun setMusicVolume(volume: Double, commit: Boolean) {
+        music.setVolume(volume)
+        _state.update { it.copy(musicVolume = music.volume) }
+        if (commit) {
+            prefs.musicVolume = music.volume
+            Analytics.track("audio_lesson.music", mapOf("on" to music.on, "format" to lesson?.format, "volume_pct" to Math.round(music.volume * 100)))
+        }
+    }
+
+    /** The sleep timer's fade (1 when no minutes timer runs). */
+    private fun musicFade(): Double {
+        val ends = _state.value.timerEndsAt ?: return 1.0
+        return AudioLessonTimeline.sleepFadeVolume((ends - SystemClock.elapsedRealtime()).toDouble())
+    }
+
     /** 🌙: 0 = off, -1 = the end of this chapter, else minutes (the last 30 s fade out). */
     fun setSleepTimer(minutes: Int) {
         exo.volume = 1f
         _state.update { it.copy(timerMinutes = minutes, timerEndsAt = if (minutes > 0) SystemClock.elapsedRealtime() + minutes * 60_000L else null) }
+        music.update(exo.isPlaying, musicFade())
         Analytics.track("audio_lesson.sleep_timer", mapOf("minutes" to minutes, "format" to lesson?.format))
     }
 
@@ -304,12 +347,15 @@ class AudioLessonEngine(private val context: Context) {
             }
         } else if (s.timerEndsAt != null) {
             val left = s.timerEndsAt - SystemClock.elapsedRealtime()
-            exo.volume = AudioLessonTimeline.sleepFadeVolume(left.toDouble()).toFloat()
+            val fade = AudioLessonTimeline.sleepFadeVolume(left.toDouble())
+            exo.volume = fade.toFloat()
+            music.update(exo.isPlaying, fade)
             if (left <= 0) {
                 exo.pause()
                 exo.volume = 1f
                 savePosition()
                 _state.update { it.copy(timerMinutes = 0, timerEndsAt = null) }
+                music.update(lessonPlaying = false)
             }
         }
     }
@@ -327,6 +373,7 @@ class AudioLessonEngine(private val context: Context) {
         handler.removeCallbacks(tick)
         exo.removeListener(listener)
         exo.release()
+        music.release()
     }
 
     companion object {

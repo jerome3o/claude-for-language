@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.data.audiolessons
 
 import android.content.Context
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonMusic
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
@@ -180,4 +181,16 @@ class AudioLessonPrefs(context: Context) {
     var speed: Double
         get() = AudioLessonTimeline.parseSpeed(sp.getFloat("speed", 1f).toDouble().let { f -> AudioLessonTimeline.SPEEDS.firstOrNull { kotlin.math.abs(it - f) < 0.001 } })
         set(v) { sp.edit().putFloat("speed", v.toFloat()).apply() }
+
+    /** The music bed on / off for lessons of this format: the learner's last choice, else on for sleep, off for dialogue. */
+    fun musicOn(format: String?): Boolean = AudioLessonMusic.parseOn(sp.getString("music-on:${format.orEmpty()}", null), format)
+
+    fun setMusicOn(format: String?, on: Boolean) {
+        sp.edit().putString("music-on:${format.orEmpty()}", if (on) "1" else "0").apply()
+    }
+
+    /** The music's volume (0.05–1). */
+    var musicVolume: Double
+        get() = AudioLessonMusic.parseVolume(if (sp.contains("music-volume")) sp.getFloat("music-volume", 0f).toDouble() else null)
+        set(v) { sp.edit().putFloat("music-volume", AudioLessonMusic.parseVolume(v).toFloat()).apply() }
 }

@@ -2,7 +2,10 @@ package dev.jeromeswannack.chineselearning.lab.core
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.double
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -38,6 +41,7 @@ class AudioLessonParityTest {
             text = x["text"]!!.jsonPrimitive.content,
             pinyin = x["pinyin"]?.jsonPrimitive?.content,
             english = x["english"]?.jsonPrimitive?.content,
+            repeat = x["repeat"]?.jsonPrimitive?.int,
         )
     }
 
@@ -90,6 +94,38 @@ class AudioLessonParityTest {
             assertEquals(f["volume"]!!.jsonPrimitive.double, AudioLessonTimeline.sleepFadeVolume(ms), "sleepFadeVolume $ms")
         }
         assertEquals(fixture["fadeMs"]!!.jsonPrimitive.long, AudioLessonTimeline.SLEEP_FADE_MS)
+    }
+
+    @Test
+    fun musicBedMatchesTypeScript() {
+        val m = fixture["music"]!!.jsonObject
+        assertEquals(m["defaultVolume"]!!.jsonPrimitive.double, AudioLessonMusic.DEFAULT_VOLUME)
+        assertEquals(m["minVolume"]!!.jsonPrimitive.double, AudioLessonMusic.MIN_VOLUME)
+        assertEquals(m["maxVolume"]!!.jsonPrimitive.double, AudioLessonMusic.MAX_VOLUME)
+        for (d in m["defaults"]!!.jsonArray.map { it.jsonObject }) {
+            val format = d["format"]?.jsonPrimitive?.contentOrNull
+            assertEquals(d["on"]!!.jsonPrimitive.boolean, AudioLessonMusic.defaultOn(format), "defaultOn $format")
+        }
+        for (o in m["on"]!!.jsonArray.map { it.jsonObject }) {
+            val raw = o["raw"]?.jsonPrimitive?.contentOrNull
+            val format = o["format"]?.jsonPrimitive?.contentOrNull
+            assertEquals(o["on"]!!.jsonPrimitive.boolean, AudioLessonMusic.parseOn(raw, format), "parseOn $raw $format")
+        }
+        for (v in m["volumes"]!!.jsonArray.map { it.jsonObject }) {
+            val raw = v["raw"]?.jsonPrimitive?.doubleOrNull
+            assertEquals(v["volume"]!!.jsonPrimitive.double, AudioLessonMusic.parseVolume(raw), "parseVolume $raw")
+            assertEquals(v["label"]!!.jsonPrimitive.content, AudioLessonMusic.volumeLabel(raw ?: Double.NaN), "volumeLabel $raw")
+        }
+        for (o in m["outputs"]!!.jsonArray.map { it.jsonObject }) {
+            val volume = o["volume"]!!.jsonPrimitive.double
+            val fade = o["fade"]!!.jsonPrimitive.double
+            assertEquals(o["out"]!!.jsonPrimitive.double, AudioLessonMusic.outputVolume(volume, fade), "outputVolume $volume × $fade")
+        }
+        for (p in m["plays"]!!.jsonArray.map { it.jsonObject }) {
+            val on = p["on"]!!.jsonPrimitive.boolean
+            val playing = p["lessonPlaying"]!!.jsonPrimitive.boolean
+            assertEquals(p["play"]!!.jsonPrimitive.boolean, AudioLessonMusic.shouldPlay(on, playing))
+        }
     }
 
     @Test

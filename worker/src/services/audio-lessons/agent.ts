@@ -78,23 +78,29 @@ Length: aim for the target minutes in the briefing. A typical 12-minute lesson =
 
 const SLEEP_PROMPT = `${COMMON}
 
-FORMAT: "sleep" — slow, calm, ALL-CHINESE immersion to fall asleep to. No pinyin is ever spoken, and the ONLY English is one short recap line per word (recap_en, below); everything else is Chinese (the english / pinyin fields are only shown on screen).
+FORMAT: "sleep" — slow, calm, ALL-CHINESE immersion to fall asleep to, comprehensible-input style. No pinyin is ever spoken; the ONLY English is one short recap line per word (recap_en) and the translation of each example sentence (its english), each said once by a calm English voice. Everything else is Chinese, spoken very slowly by one gentle voice.
 The learner pastes a Chinese text. You find the words in it they do not know yet and teach them, one by one. The app builds the audio from your plan like this — you write only the content:
 - Your intro_zh, slowly.
-- For each word, in its own chapter: "这是一个新词。我说三遍。", the word three times with long pauses, your meaning_zh (what it MEANS), then each character with its tone, built from your char_tones ("导，第三声。航，第二声。" — plus "在‘任务’里，‘务’读轻声。" where the word is said with another tone), then your characters_zh (its characters), sentence by sentence with pauses, "我们听三个句子。", then each of your three example sentences three times with pauses; then ONE English line in a calm English voice, "The word was <the word>: <your recap_en>"; then a long pause.
+- For each word, in its own chapter, in this order:
+  a) "这是一个新词。我说三遍。" and the word three times.
+  b) Each character with its tone, built from your char_tones ("导，第三声。航，第二声。" — plus "在‘任务’里，‘务’读轻声。" where the word is said with another tone), then your characters_zh.
+  c) Your meaning_zh, sentence by sentence, slowly, with a pause after each — the heart of the lesson.
+  d) ONE English line, "The word was <the word>: <your recap_en>".
+  e) "我们听三个句子。", then each example sentence three times with pauses, then its english translation once; then the next sentence.
 - Your outro_zh; a short text is read once more at the end.
 
 Choosing the words
 - Words from the text the learner does not know: status new or in_deck first, then learning. Use the text analysis in the briefing (stretches not covered by their known words) and check_known_words. Real words or set phrases as they appear in the text (1–4 characters), not single characters out of a known word, not names.
 - Order them sensibly: most useful and frequent in the text first, or so that a word helps explain a later one.
-- How many: the briefing gives a number for the target length. If the text has fewer new words, teach fewer — never pad with words they know.
+- How many: the briefing gives a number for the target length — each word takes about 2½–3 minutes, so stay near that number (fewer is fine, never more: a lesson far over its length is refused). If the text has fewer new words, teach fewer — never pad with words they know.
 
-Explaining — two separate parts, both in VERY short, VERY simple Chinese built only from words the learner knows (check_known_words tells you which words, and which words containing these characters, they know). Never use a word harder than the one you explain. Quote words with ‘’ or “” if you like; no brackets.
-- meaning_zh (REQUIRED, 1–3 sentences): what the word MEANS — what it is, what it does, what it is like, when you use it, or its opposite. "邮局是一个地方。在邮局，你可以寄信。" A sentence about where a character comes from is NOT a meaning: the learner must understand the word itself from meaning_zh alone.
+Explaining — in VERY short, VERY simple Chinese built only from words the learner knows (check_known_words tells you which words, and which words containing these characters, they know). Never use a word harder than the one you explain. Quote words with ‘’ or “” if you like; no brackets.
+- meaning_zh (REQUIRED, 5–8 sentences): comprehensible input, like a patient teacher talking to someone half asleep. Say what the word MEANS, then say it AGAIN in a slightly different simple way, and again: what it is, what you do with it, where or when you meet it, a tiny everyday situation ("你想给妈妈寄一封信，你去邮局。"), a contrast with a word they know ("邮局不是银行。银行里有钱，邮局里有信。"), and end by restating it plainly ("邮局，就是寄信的地方。"). Each sentence short (≤ 15 characters is ideal, never more than 30), each a little different — repetition with variation is the point, an identical sentence twice is not. Never where a character comes from (that is characters_zh). The learner must understand the word from meaning_zh alone.
+  Example for 邮局: ["邮局是一个地方。", "在邮局，你可以寄信。", "你想给妈妈寄一封信，你去邮局。", "你想给朋友寄一本书，你也去邮局。", "邮局里有很多信，也有很多东西。", "邮局不是银行。银行里有钱，邮局里有信。", "邮局，就是寄信的地方。"]
 - char_tones (REQUIRED): one entry per character of the word, in order: { char, pinyin, tone } with the character's CITATION (dictionary) tone — tone 1–4, or 5 for an inherently neutral character (了 le, 的 de, 吗 ma); pinyin = that one syllable with its tone mark, agreeing with the tone. 导航 → [{"char":"导","pinyin":"dǎo","tone":3},{"char":"航","pinyin":"háng","tone":2}]; 任务 → 务 wù 4; 你好 → 你 nǐ 3; 一样 → 一 yī 1; 不是 → 不 bù 4. Use the reading the word uses (银行 → 行 háng, not xíng). Don't write the tone lines yourself: the app says "导，第三声。" for each, and from the word's pinyin adds one short line where the word is said differently — a neutral syllable you write unmarked in the word's pinyin (任务 rènwu), third-tone sandhi (你好), 一 / 不 changes. So write the word's pinyin as it is really said (neutral syllables unmarked).
 - characters_zh (0–2 sentences, may be empty): relate its characters to words they know: "'银'就是'银行'的'银'。" Skip it when the characters don't help.
 - recap_en (REQUIRED): the meaning in plain English, spoken after "The word was <the word>: " — so write only what follows the colon, e.g. for 银行 "bank, as in the place where you keep your money, not the bank of a river." When the English word has several meanings, pin down the sense used here ("not the bank of a river", "to post a letter, not to send a text"). One short line, no pinyin, no Chinese needed.
-Example sentences: exactly three per word, each SHORT (≤ 16 characters is ideal, never more than 24) and simple, each containing the word exactly as written, everyday situations, mostly known words, calm content (this is for falling asleep — nothing alarming).
+Example sentences: exactly three per word, each SHORT (≤ 16 characters is ideal, never more than 24) and simple, each containing the word exactly as written, everyday situations, mostly known words, calm content (this is for falling asleep — nothing alarming). Each one's english is SPOKEN after it: a natural, plain English translation, one sentence, no pinyin.
 intro_zh / outro_zh: one or two very simple sentences each (a calm hello; a calm goodnight).
 title: a short Chinese title.`;
 
@@ -154,9 +160,10 @@ const SLEEP_PLAN_SCHEMA = {
           meaning_zh: {
             type: 'array',
             items: { type: 'string' },
-            minItems: 1,
-            maxItems: 3,
-            description: 'What the word MEANS, in 1–3 very short, very simple Chinese sentences from words the learner knows. Required; not where its characters come from.',
+            minItems: 5,
+            maxItems: 8,
+            description:
+              'What the word MEANS, comprehensible-input style: 5–8 very short, very simple Chinese sentences from words the learner knows that circle the meaning — say it, say it again another way, a tiny situation, a contrast with a known word, restate it. Required; not where its characters come from.',
           },
           char_tones: {
             type: 'array',
@@ -173,7 +180,13 @@ const SLEEP_PLAN_SCHEMA = {
           },
           characters_zh: { type: 'array', items: { type: 'string' }, maxItems: 3, description: "Its characters related to known words (\"'银'就是'银行'的'银'。\"); may be empty." },
           related_known: { type: 'array', items: { type: 'string' } },
-          sentences: { type: 'array', items: LINE, minItems: 3, maxItems: 3 },
+          sentences: {
+            type: 'array',
+            items: LINE,
+            minItems: 3,
+            maxItems: 3,
+            description: 'Three short example sentences containing the word. Each is said three times, then its english translation is SPOKEN once.',
+          },
           recap_en: {
             type: 'string',
             description: 'English, spoken after "The word was <hanzi>: " — the meaning with the sense pinned down, e.g. "bank, as in the place where you keep your money, not the bank of a river."',
@@ -213,9 +226,14 @@ export function authorTools(format: AudioLessonFormat): Anthropic.Tool[] {
 
 // ---------------- Briefing ----------------
 
-/** Format B: how many words for a target length (~1.8 min per word with the pauses). */
+/**
+ * Format B: how many words for a target length. A word takes ~2.7 minutes (the intro and the
+ * word ×3, its tones, 5–8 meaning sentences, the recap, three sentences ×3 with their English,
+ * at the sleep voice's slowest rate), plus ~half a minute of hello / goodnight.
+ */
+export const SLEEP_MINUTES_PER_WORD = 2.7;
 export function sleepWordTarget(minutes: number): number {
-  return Math.max(3, Math.min(16, Math.round(minutes / 1.8)));
+  return Math.max(2, Math.min(12, Math.round((minutes - 0.5) / SLEEP_MINUTES_PER_WORD)));
 }
 
 export function clipText(text: string, max: number): string {
@@ -248,6 +266,11 @@ export function buildBriefing(format: AudioLessonFormat, input: AudioLessonInput
 
 // ---------------- Submit ----------------
 
+/** The longest a lesson may run for its target before it is sent back ("teach fewer words"). */
+export function maxLessonMinutes(format: AudioLessonFormat, minutes: number): number {
+  return format === 'sleep' ? minutes * 1.3 + 2 : minutes * 1.8 + 3;
+}
+
 export type SubmitResult =
   | { ok: true; plan: DialoguePlan | SleepPlan; script: AudioLessonScript }
   | { ok: false; problems: string[] };
@@ -262,7 +285,10 @@ export function acceptPlan(format: AudioLessonFormat, raw: unknown, input: Audio
   if (scriptProblems.length) return { ok: false, problems: scriptProblems };
   const minutes = input.target_minutes ?? AUDIO_LESSON_INPUT_LIMITS.defaultMinutes[format];
   const estimate = estimateScriptMs(script) / 60000;
-  if (estimate > minutes * 1.8 + 3) return { ok: false, problems: [`This would run about ${Math.round(estimate)} minutes; the target is ${minutes}. Teach fewer ${format === 'dialogue' ? 'points or shorten the dialogue' : 'words'}.`] };
+  if (estimate > maxLessonMinutes(format, minutes)) {
+    const fewer = format === 'dialogue' ? 'points or shorten the dialogue' : `words (about ${sleepWordTarget(minutes)}; each takes ~${SLEEP_MINUTES_PER_WORD} minutes)`;
+    return { ok: false, problems: [`This would run about ${Math.round(estimate)} minutes; the target is ${minutes}. Teach fewer ${fewer}.`] };
+  }
   return { ok: true, plan: plan as DialoguePlan | SleepPlan, script };
 }
 

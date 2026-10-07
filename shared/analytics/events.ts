@@ -174,6 +174,7 @@ export const ANALYTICS_EVENTS = {
   'audio_lesson.sleep_timer': e('lessons', 'Set the sleep timer in the audio-lesson player (0 = off, -1 = end of chapter).', ['minutes', 'format']),
   'audio_lesson.download': e('lessons', 'Saved an audio lesson on the device for offline listening.', ['format']),
   'audio_lesson.podcast_feed': e('lessons', 'Settings → Audio lessons → Podcast feed (action: copy, open, open_apple, reset, off).', ['action']),
+  'audio_lesson.music': e('lessons', 'Turned the soft music under an audio lesson on / off or changed its volume (docs/AUDIO_LESSONS.md "Music").', ['on', 'format', 'volume_pct']),
 
   // ── lessons ────────────────────────────────────────────────────────────
   'lesson.start': e('lessons', 'Started a mini lesson.', ['source', 'exercises']),

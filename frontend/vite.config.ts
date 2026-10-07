@@ -87,7 +87,8 @@ export default defineConfig({
     strokeDataPlugin(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.svg', 'icon-192.svg', 'icon-512.svg'],
+      // + the audio lessons' music bed (docs/AUDIO_LESSONS.md "Music"), so it plays offline.
+      includeAssets: ['favicon.svg', 'apple-touch-icon.svg', 'icon-192.svg', 'icon-512.svg', 'audio/lesson-music-v1.mp3'],
       manifest: false, // Use manifest.json in public folder
       workbox: {
         // .wasm is sql.js (SQLite) for the Anki export — precached so it works offline

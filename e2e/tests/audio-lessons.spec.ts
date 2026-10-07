@@ -29,7 +29,7 @@ test('make a sleep lesson, then play it from the device', async ({ authenticated
   await expect(page.getByText('✓ Saved on this phone · plays offline')).toBeVisible({ timeout: 30000 });
 
   // The file is real MP3 with a duration the player can read.
-  const duration = await page.locator('audio').evaluate(async (a: HTMLAudioElement) => {
+  const duration = await page.getByTestId('lesson-audio').evaluate(async (a: HTMLAudioElement) => {
     if (a.readyState < 1) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true }));
     return a.duration;
   });
@@ -41,18 +41,47 @@ test('make a sleep lesson, then play it from the device', async ({ authenticated
   await page.getByRole('button', { name: /寄 jì/ }).click();
   await expect(page.locator('.al-now-chapter')).toHaveText('寄 jì');
   await page.getByRole('button', { name: '📝 Transcript' }).click();
-  await expect(page.getByLabel('Transcript').getByText('我想寄一封信。').first()).toBeVisible();
+  // Each example sentence ×3 and its spoken English translation: ONE row, "×3".
+  const sentenceRow = page.getByLabel('Transcript').locator('li', { hasText: '我想寄一封信。' });
+  await expect(sentenceRow).toHaveCount(1);
+  await expect(sentenceRow).toContainText('×3');
+  await expect(sentenceRow).toContainText('I want to send a letter.');
   // Each character with its tone: spoken "寄，第四声。", shown with the pinyin.
   await expect(page.getByLabel('Transcript').getByText('寄，jì，第四声。')).toBeVisible();
-  // After the word's three sentences: ONE English recap line, the word inside it.
+  // After the meaning, before the sentences: ONE English recap line, the word inside it.
   await expect(page.getByLabel('Transcript').getByText('The word was 寄: to send by post, as in posting a letter, not sending a text message.')).toBeVisible();
 
+  // The music bed: on by default for a sleep lesson, a second looping track that plays with the lesson.
+  const music = page.getByRole('button', { name: 'Music' });
+  await expect(music).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('Music volume')).toHaveValue('0.35');
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+  const musicTrack = page.getByTestId('lesson-music');
+  await expect.poll(() => musicTrack.evaluate((m: HTMLAudioElement) => ({ playing: !m.paused, loop: m.loop, volume: m.volume })), { timeout: 15000 }).toEqual({ playing: true, loop: true, volume: 0.35 });
+  expect(await musicTrack.evaluate((m: HTMLAudioElement) => m.duration)).toBeCloseTo(96, 0);
+  await page.getByLabel('Music volume').fill('0.6');
+  await expect.poll(() => musicTrack.evaluate((m: HTMLAudioElement) => m.volume)).toBe(0.6);
+  await expect(page.getByText('60 %')).toBeVisible();
+  // Pausing the lesson pauses the music; playing again brings it back.
+  await page.getByRole('button', { name: 'Pause' }).click();
+  await expect.poll(() => musicTrack.evaluate((m: HTMLAudioElement) => m.paused)).toBe(true);
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(() => musicTrack.evaluate((m: HTMLAudioElement) => m.paused)).toBe(false);
+  // Off: it stops, and stays off for the next sleep lesson (remembered on this device).
+  await music.click();
+  await expect(music).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByLabel('Music volume')).toHaveCount(0);
+  await expect.poll(() => musicTrack.evaluate((m: HTMLAudioElement) => m.paused)).toBe(true);
+  expect(await page.evaluate(() => localStorage.getItem('audio-lesson-music-on-v1:sleep'))).toBe('0');
+  await music.click();
+  await expect(music).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => musicTrack.evaluate((m: HTMLAudioElement) => !m.paused)).toBe(true);
   await page.getByRole('button', { name: 'Sleep timer' }).click();
   await page.getByRole('menuitem', { name: '15 min' }).click();
   await expect(page.getByRole('button', { name: 'Sleep timer' })).toContainText(/1[45]:\d\d/);
   await page.getByRole('button', { name: 'Pause' }).click();
+  await expect.poll(() => musicTrack.evaluate((m: HTMLAudioElement) => m.paused)).toBe(true);
 
   // Offline (in the app — the dev server has no service worker for a full reload): the list
   // and the saved lesson still open and play.
@@ -61,6 +90,10 @@ test('make a sleep lesson, then play it from the device', async ({ authenticated
   await page.getByRole('button', { name: 'Play 银行和邮局' }).click();
   await expect(page.getByText('✓ Saved on this phone · plays offline')).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeEnabled();
+  // The music is on this device too: it plays offline.
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(() => page.getByTestId('lesson-music').evaluate((m: HTMLAudioElement) => !m.paused), { timeout: 15000 }).toBe(true);
+  await page.getByRole('button', { name: 'Pause' }).click();
   await page.context().setOffline(false);
 });
 
@@ -75,6 +108,9 @@ test('a dialogue lesson lists its chapters and shows the transcript', async ({ a
   await expect(page.getByText('🎙️ Dialogue lesson')).toBeVisible();
   // Transcript on by default, with the English under the Chinese.
   await expect(page.getByLabel('Transcript').getByText('我要一碗牛肉面。').first()).toBeVisible({ timeout: 30000 });
+  // No music under a dialogue lesson unless asked for.
+  await expect(page.getByRole('button', { name: 'Music' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('lesson-music')).toHaveCount(0);
   await page.getByRole('button', { name: '☰ Chapters' }).click();
   for (const title of ['Introduction', 'First listen', 'Second listen', 'Third listen, a little slower', 'Line by line', 'Final listen']) {
     await expect(page.locator('.al-chapters').getByText(title, { exact: true })).toBeVisible();

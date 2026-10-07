@@ -2,9 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AUDIO_LESSON_SPEEDS,
+  MUSIC_MAX_VOLUME,
+  MUSIC_MIN_VOLUME,
   SLEEP_TIMER_CHOICES,
   chapterIndexAt,
   formatClock,
+  musicOutputVolume,
+  musicShouldPlay,
+  musicVolumeLabel,
   previousChapterTarget,
   sleepFadeVolume,
   sleepTimerLabel,
@@ -14,7 +19,8 @@ import {
 } from '@shared/audio-lesson';
 import { useNetwork } from '../contexts/NetworkContext';
 import {
-  cachedLessonDetail, downloadLessonFile, fetchLessonDetail, formatMb, savePosition, savedFile, savedPosition,
+  cachedLessonDetail, downloadLessonFile, fetchLessonDetail, formatMb, lessonMusicBlob, readMusicOn, readMusicVolume,
+  savePosition, savedFile, savedPosition, writeMusicOn, writeMusicVolume,
 } from '../services/audioLessons';
 import { track } from '../services/analytics';
 import './AudioLessonsPage.css';
@@ -49,6 +55,12 @@ export function AudioLessonPlayerPage() {
   const [showTranscript, setShowTranscript] = useState<boolean | null>(null);
   const [showChapters, setShowChapters] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  // The music bed (docs/AUDIO_LESSONS.md "Music"): a second, looping track mixed under the lesson.
+  const [musicChoice, setMusicChoice] = useState<boolean | null>(null);
+  const [musicVolume, setMusicVolume] = useState(readMusicVolume);
+  const [musicSrc, setMusicSrc] = useState<string | null>(null);
+  const [musicMissing, setMusicMissing] = useState(false);
+  const musicRef = useRef<HTMLAudioElement>(null);
   const startedRef = useRef(false);
   const lineRef = useRef<HTMLLIElement | null>(null);
 
@@ -101,6 +113,38 @@ export function AudioLessonPlayerPage() {
       if (url) URL.revokeObjectURL(url);
     };
   }, [id, version, lesson?.format]);
+
+  const musicOn = musicChoice ?? (lesson ? readMusicOn(lesson.format) : false);
+
+  // The music file: from this device's cache, else fetched once (the PWA precaches it too).
+  useEffect(() => {
+    if (!musicOn || !src || musicSrc) return;
+    let cancelled = false;
+    void lessonMusicBlob().then((blob) => {
+      if (cancelled) return;
+      if (!blob) {
+        setMusicMissing(true);
+        return;
+      }
+      setMusicMissing(false);
+      setMusicSrc(URL.createObjectURL(blob));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [musicOn, src, musicSrc]);
+  useEffect(() => () => {
+    if (musicSrc) URL.revokeObjectURL(musicSrc);
+  }, [musicSrc]);
+
+  // It plays only while the lesson plays (pause, the end and the sleep timer stop it) and only when on.
+  useEffect(() => {
+    const m = musicRef.current;
+    if (!m || !musicSrc) return;
+    if (musicShouldPlay({ on: musicOn, lessonPlaying: playing })) {
+      if (m.paused) void m.play().catch(() => {});
+    } else if (!m.paused) m.pause();
+  }, [musicOn, playing, musicSrc]);
 
   const chapters = lesson?.chapters ?? [];
   const transcript = lesson?.transcript ?? [];
@@ -176,6 +220,8 @@ export function AudioLessonPlayerPage() {
       const ms = a.currentTime * 1000;
       setNow(ms);
       if (!a.paused && ++saveTick % 10 === 0) savePosition(id, ms);
+      const m = musicRef.current;
+      if (m) m.volume = musicOutputVolume(musicVolume, timer.endsAt ? sleepFadeVolume(timer.endsAt - Date.now()) : 1);
       if (timer.minutes === -1 && !a.paused) {
         const next = chapters[chapterIndexAt(chapters, ms) + 1];
         if (next && ms >= next.start_ms - 250) {
@@ -193,7 +239,11 @@ export function AudioLessonPlayerPage() {
       }
     }, 500);
     return () => window.clearInterval(t);
-  }, [src, id, timer, chapters]);
+  }, [src, id, timer, chapters, musicVolume]);
+
+  useEffect(() => {
+    if (musicRef.current) musicRef.current.volume = musicOutputVolume(musicVolume);
+  }, [musicVolume, musicSrc]);
 
   useEffect(() => () => {
     if (audioRef.current) savePosition(id, audioRef.current.currentTime * 1000);
@@ -242,6 +292,19 @@ export function AudioLessonPlayerPage() {
     track('audio_lesson.sleep_timer', { minutes, format: lesson?.format });
   }
 
+  function toggleMusic() {
+    if (!lesson) return;
+    const on = !musicOn;
+    setMusicChoice(on);
+    writeMusicOn(lesson.format, on);
+    track('audio_lesson.music', { on, format: lesson.format, volume_pct: Math.round(musicVolume * 100) });
+  }
+
+  function commitMusicVolume() {
+    writeMusicVolume(musicVolume);
+    track('audio_lesson.music', { on: musicOn, format: lesson?.format, volume_pct: Math.round(musicVolume * 100) });
+  }
+
   function changeSpeed() {
     const next = AUDIO_LESSON_SPEEDS[(AUDIO_LESSON_SPEEDS.indexOf(speed) + 1) % AUDIO_LESSON_SPEEDS.length];
     setSpeed(next);
@@ -284,12 +347,25 @@ export function AudioLessonPlayerPage() {
           <audio
             ref={audioRef}
             src={src ?? undefined}
+            data-testid="lesson-audio"
             preload="auto"
             onLoadedMetadata={onLoaded}
             onPlay={onPlay}
             onPause={onPause}
             onEnded={onEnded}
           />
+          {musicSrc && (
+            <audio
+              ref={musicRef}
+              src={musicSrc}
+              loop
+              preload="auto"
+              data-testid="lesson-music"
+              onLoadedMetadata={(e) => {
+                e.currentTarget.volume = musicOutputVolume(musicVolume);
+              }}
+            />
+          )}
 
           <div className="al-now">
             <div className="al-now-chapter">{chapters[chapterIdx]?.title}</div>
@@ -336,7 +412,29 @@ export function AudioLessonPlayerPage() {
             </button>
             <button className={`al-chip ${showChapters ? 'on' : ''}`} onClick={() => setShowChapters((v) => !v)}>☰ Chapters</button>
             <button className={`al-chip ${transcriptOn ? 'on' : ''}`} onClick={() => setShowTranscript(!transcriptOn)}>📝 Transcript</button>
+            <button className={`al-chip ${musicOn ? 'on' : ''}`} onClick={toggleMusic} aria-pressed={musicOn} aria-label="Music">
+              🎵 Music{musicOn ? '' : ' off'}
+            </button>
           </div>
+
+          {musicOn && (
+            <div className="al-music">
+              <span className="al-music-label" aria-hidden>🎵</span>
+              <input
+                type="range"
+                min={MUSIC_MIN_VOLUME}
+                max={MUSIC_MAX_VOLUME}
+                step={0.05}
+                value={musicVolume}
+                onChange={(e) => setMusicVolume(Number(e.target.value))}
+                onPointerUp={commitMusicVolume}
+                onKeyUp={commitMusicVolume}
+                onBlur={commitMusicVolume}
+                aria-label="Music volume"
+              />
+              <span className="al-music-value">{musicMissing ? 'Not on this phone yet' : musicVolumeLabel(musicVolume)}</span>
+            </div>
+          )}
 
           {showTimer && (
             <div className="al-timer-sheet" role="menu" aria-label="Sleep timer">
@@ -373,7 +471,10 @@ export function AudioLessonPlayerPage() {
                     className={`al-line al-line-${row.lang} ${current ? 'current' : ''}`}
                     onClick={() => seekTo(row.start_ms)}
                   >
-                    <span className="al-line-text" lang={row.lang === 'zh' ? 'zh-CN' : 'en'}>{row.text}</span>
+                    <span className="al-line-text" lang={row.lang === 'zh' ? 'zh-CN' : 'en'}>
+                      {row.text}
+                      {row.repeat && <span className="al-line-repeat" aria-label={`said ${row.repeat} times`}>×{row.repeat}</span>}
+                    </span>
                     {row.pinyin && <span className="al-line-pinyin">{row.pinyin}</span>}
                     {row.english && <span className="al-line-en">{row.english}</span>}
                   </li>

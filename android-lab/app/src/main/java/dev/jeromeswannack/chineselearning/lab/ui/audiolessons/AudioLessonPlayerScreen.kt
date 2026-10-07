@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonMusic
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTranscriptRow
 import dev.jeromeswannack.chineselearning.lab.data.api.AudioLessonDto
@@ -79,6 +80,9 @@ data class AudioLessonPlayerUi(
     /** null = the format's default (on for dialogue, off for sleep). */
     val showTranscript: Boolean? = null,
     val showWords: Boolean = false,
+    /** The soft music bed (docs/AUDIO_LESSONS.md "Music"): on by default for sleep, off for dialogue. */
+    val musicOn: Boolean = false,
+    val musicVolume: Double = AudioLessonMusic.DEFAULT_VOLUME,
 ) {
     val transcriptOn: Boolean get() = showTranscript ?: (lesson?.format != "sleep")
 }
@@ -96,6 +100,9 @@ data class AudioLessonPlayerActions(
     val onChapters: () -> Unit = {},
     val onTranscript: () -> Unit = {},
     val onWords: () -> Unit = {},
+    val onMusic: () -> Unit = {},
+    /** The music volume slider: (volume, the finger lifted). */
+    val onMusicVolume: (Double, Boolean) -> Unit = { _, _ -> },
 )
 
 /**
@@ -246,7 +253,41 @@ private fun PlayerTop(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions
             )
             NightChip("☰ Chapters", selected = ui.showChapters, compact = true, onClick = actions.onChapters)
             NightChip("📝 Transcript", selected = ui.transcriptOn, compact = true, onClick = actions.onTranscript)
+            Box(Modifier.semantics { contentDescription = if (ui.musicOn) "Music on" else "Music off" }) {
+                NightChip(if (ui.musicOn) "🎵 Music" else "🎵 Music off", selected = ui.musicOn, compact = true, onClick = actions.onMusic)
+            }
         }
+    }
+    AnimatedVisibility(ui.musicOn, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        MusicVolume(ui.musicVolume, actions.onMusicVolume)
+    }
+}
+
+/** The music's volume, under the chips while it is on (the web's `.al-music` row). */
+@Composable
+private fun MusicVolume(volume: Double, onVolume: (Double, Boolean) -> Unit) {
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val shown = dragging?.toDouble() ?: volume
+    Row(
+        Modifier.fillMaxWidth().widthIn(max = 420.dp).heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp))
+            .background(Color.White.copy(alpha = 0.05f)).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("🎵", fontSize = 15.sp)
+        Slider(
+            value = shown.toFloat(),
+            onValueChange = { dragging = it; onVolume(it.toDouble(), false) },
+            onValueChangeFinished = { dragging?.let { onVolume(it.toDouble(), true) }; dragging = null },
+            valueRange = AudioLessonMusic.MIN_VOLUME.toFloat()..AudioLessonMusic.MAX_VOLUME.toFloat(),
+            modifier = Modifier.weight(1f).semantics { contentDescription = "Music volume" },
+            colors = SliderDefaults.colors(
+                thumbColor = AlColors.periwinkle,
+                activeTrackColor = AlColors.periwinkle,
+                inactiveTrackColor = Color.White.copy(alpha = 0.15f),
+            ),
+        )
+        Text(AudioLessonMusic.volumeLabel(shown), color = AlColors.muted, fontSize = 13.sp)
     }
 }
 
@@ -354,12 +395,19 @@ private fun TranscriptRowView(row: AudioLessonTranscriptRow, current: Boolean, o
         Box(Modifier.width(3.dp).heightIn(min = 44.dp).background(if (current) AlColors.periwinkle else Color.Transparent))
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             val zh = row.lang == "zh"
-            Text(
-                row.text,
-                color = if (current) AlColors.bright else if (zh) AlColors.text else AlColors.muted,
-                fontSize = if (zh) 19.sp else 15.sp,
-                lineHeight = if (zh) 26.sp else 21.sp,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    row.text,
+                    color = if (current) AlColors.bright else if (zh) AlColors.text else AlColors.muted,
+                    fontSize = if (zh) 19.sp else 15.sp,
+                    lineHeight = if (zh) 26.sp else 21.sp,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                // Said several times in a row: "×3" (the web's .al-line-repeat).
+                row.repeat?.let {
+                    Text("×$it", color = AlColors.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp).semantics { contentDescription = "said $it times" })
+                }
+            }
             row.pinyin?.let { Text(it, color = AlColors.periwinkle.copy(alpha = 0.85f), fontSize = 13.sp) }
             row.english?.let { Text(it, color = AlColors.muted, fontSize = 13.sp) }
         }

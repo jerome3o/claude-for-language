@@ -86,20 +86,33 @@ object SampleAudioLessons {
         ),
         transcript = listOf(
             l(1000, "sleep", "你好。今天我们慢慢地学三个新词。", 0, "nǐ hǎo. jīntiān wǒmen mànmàn de xué sān gè xīn cí."),
-            l(9_200, "sleep", "这是一个新词。我说三遍。", 1),
-            l(14_000, "sleep", "银行", 1, "yínháng", "bank"),
-            l(20_000, "sleep", "银行", 1, "yínháng", "bank"),
-            l(26_000, "sleep", "银行", 1, "yínháng", "bank"),
-            l(33_000, "sleep", "银行是放钱的地方。", 1),
-            l(38_000, "sleep", "‘银’是‘银色’的‘银’。", 1),
-            l(43_000, "sleep", "我们听三个句子。", 1),
-            l(47_000, "sleep", "我去银行取钱。", 1, "wǒ qù yínháng qǔ qián.", "I'm going to the bank to take out money."),
-            l(52_000, "sleep", "我去银行取钱。", 1),
-            l(57_000, "sleep", "我去银行取钱。", 1),
-            l(63_000, "recap", "The word was", 1),
-            l(64_200, "sleep", "银行", 1),
-            l(65_600, "recap", ": bank, as in the place where you keep your money, not the bank of a river.", 1),
-            l(80_000, "sleep", "这是一个新词。我说三遍。", 2),
+            l(9_200, "sleep", "这是一个新词。", 1),
+            l(11_000, "sleep", "我说三遍。", 1),
+            l(13_000, "sleep", "银行", 1, "yínháng", "bank"),
+            l(15_600, "sleep", "银行", 1),
+            l(18_200, "sleep", "银行", 1),
+            l(22_000, "sleep", "银，yín，第二声。", 1),
+            l(25_000, "sleep", "银行的行，háng，第二声。", 1),
+            l(29_500, "sleep", "‘银’是‘银色’的‘银’。", 1),
+            l(34_000, "sleep", "银行是一个地方。", 1),
+            l(39_000, "sleep", "你有钱，你可以把钱放在银行。", 1),
+            l(45_000, "sleep", "你想要钱，你也去银行。", 1),
+            l(50_000, "sleep", "银行里有很多钱。", 1),
+            l(55_000, "sleep", "银行不是邮局。邮局里有信，银行里有钱。", 1),
+            l(62_000, "sleep", "银行，就是放钱的地方。", 1),
+            l(68_000, "recap", "The word was", 1),
+            l(69_200, "sleep", "银行", 1),
+            l(70_600, "recap", ": bank, as in the place where you keep your money, not the bank of a river.", 1),
+            l(78_000, "sleep", "我们听三个句子。", 1),
+            l(82_000, "sleep", "我去银行取钱。", 1, "wǒ qù yínháng qǔ qián.", "I'm going to the bank to take out money."),
+            l(87_000, "sleep", "我去银行取钱。", 1),
+            l(92_000, "sleep", "我去银行取钱。", 1),
+            l(96_500, "recap", "I'm going to the bank to take out money.", 1),
+            l(101_000, "sleep", "银行在邮局旁边。", 1, "yínháng zài yóujú pángbiān.", "The bank is next to the post office."),
+            l(106_000, "sleep", "银行在邮局旁边。", 1),
+            l(111_000, "sleep", "银行在邮局旁边。", 1),
+            l(115_500, "recap", "The bank is next to the post office.", 1),
+            l(130_000, "sleep", "这是一个新词。", 2),
         ),
         words = listOf(
             AudioLessonWord("银行", "yínháng", "bank", "new"),
@@ -189,7 +202,23 @@ class AudioLessonScreenshots : LabScreenshotTest() {
 
     @Test fun playerSleepRecap() = shoot("audio-lessons-13-player-sleep-recap") {
         AudioLessonPlayerScreen(
-            AudioLessonPlayerUi(lesson = s.sleep, savedOnPhone = true, canPlay = true, playing = true, positionMs = 64_500, showTranscript = true),
+            AudioLessonPlayerUi(lesson = s.sleep, savedOnPhone = true, canPlay = true, playing = true, positionMs = 69_500, showTranscript = true, musicOn = true),
+            AudioLessonPlayerActions(),
+        )
+    }
+
+    /** The music bed: on by default under a sleep lesson, with its volume under the chips. */
+    @Test fun playerSleepMusic() = shoot("audio-lessons-17-player-sleep-music") {
+        AudioLessonPlayerScreen(
+            AudioLessonPlayerUi(lesson = s.sleep, savedOnPhone = true, canPlay = true, playing = true, positionMs = 88_000, showTranscript = true, musicOn = true, musicVolume = 0.35),
+            AudioLessonPlayerActions(),
+        )
+    }
+
+    /** A dialogue lesson: music off unless asked for. */
+    @Test fun playerDialogueMusicOff() = shoot("audio-lessons-18-player-dialogue-music-off") {
+        AudioLessonPlayerScreen(
+            AudioLessonPlayerUi(lesson = s.dialogue, savedOnPhone = true, canPlay = true, positionMs = 34_000, showTranscript = false, musicOn = false),
             AudioLessonPlayerActions(),
         )
     }

@@ -13,8 +13,9 @@ import { runAudioLessonJob } from '../audio-lessons/job';
 import { fakeClip } from '../audio-lessons/fake';
 import { parseMp3Frames } from '../audio-lessons/mp3';
 import { analyseText, buildVocabIndex, checkWords } from '../audio-lessons/vocab';
-import { acceptPlan, buildBriefing, type ModelCall } from '../audio-lessons/agent';
-import type { ClipOutcome, ClipRequest } from '../audio-lessons/synth';
+import { acceptPlan, buildBriefing, maxLessonMinutes, sleepWordTarget, systemPrompt, type ModelCall } from '../audio-lessons/agent';
+import { lessonClipRate, type ClipOutcome, type ClipRequest } from '../audio-lessons/synth';
+import { DEFAULT_TTS_CONFIG } from '@shared/tts';
 
 function fakeBucket() {
   const store = new Map<string, { bytes: Uint8Array; meta?: Record<string, string> }>();
@@ -227,5 +228,30 @@ describe('vocabulary for the agent', () => {
     const out = acceptPlan('sleep', { plan: big }, { text: '', target_minutes: 5 });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.problems[0]).toMatch(/minutes/);
+  });
+
+  it('sleep lessons: the voice at each provider’s slowest natural rate; English at its calm app rate', () => {
+    const sleepZh = { lang: 'zh' as const, voice: 'sleep' as const, rate: 0.5 };
+    expect(lessonClipRate('minimax', sleepZh, DEFAULT_TTS_CONFIG)).toBe(0.5);
+    expect(lessonClipRate('azure', sleepZh, DEFAULT_TTS_CONFIG)).toBe(0.6);
+    expect(lessonClipRate('google', sleepZh, DEFAULT_TTS_CONFIG)).toBe(0.6);
+    const recap = { lang: 'en' as const, voice: 'recap' as const, rate: 0.9 };
+    expect(lessonClipRate('azure', recap, DEFAULT_TTS_CONFIG)).toBe(0.93);
+    const teacher = { lang: 'zh' as const, voice: 'teacher' as const, rate: 0.7 };
+    expect(lessonClipRate('minimax', teacher, DEFAULT_TTS_CONFIG)).toBe(0.7);
+    expect(lessonClipRate('azure', teacher, DEFAULT_TTS_CONFIG)).toBe(0.77);
+  });
+
+  it('sleep lessons: fewer, longer words — the briefing number fits the target', () => {
+    expect(sleepWordTarget(20)).toBe(7);
+    expect(sleepWordTarget(5)).toBe(2);
+    expect(sleepWordTarget(40)).toBe(12);
+    expect(maxLessonMinutes('sleep', 20)).toBe(28);
+    // The sample (2 words) fits a 5-minute target.
+    expect(acceptPlan('sleep', { plan: SAMPLE_SLEEP_PLAN }, { text: '', target_minutes: 5 }).ok).toBe(true);
+    const prompt = systemPrompt('sleep');
+    expect(prompt).toContain('5–8 sentences');
+    expect(prompt).toContain('邮局不是银行');
+    expect(prompt.indexOf('d) ONE English line')).toBeLessThan(prompt.indexOf('e) "我们听三个句子。"'));
   });
 });
