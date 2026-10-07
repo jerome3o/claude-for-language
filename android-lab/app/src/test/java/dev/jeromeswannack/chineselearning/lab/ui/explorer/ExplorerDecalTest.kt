@@ -30,7 +30,7 @@ class ExplorerDecalTest {
 
     @Test fun shippedListGivesTheDecals() {
         val decal = shippedDecals()
-        assertNotNull("the shipped word-freq list loads", decal)
+        assertNotNull("the shipped word-freq list (shared/data, a core resource) is on the classpath — CI must check out shared/data", decal)
         decal!!
         assertEquals(FrequencyDecal.TOP100, decal("行", DecalKind.CHAR))
         assertEquals(FrequencyDecal.TOP1000, decal("银行", DecalKind.WORD))
