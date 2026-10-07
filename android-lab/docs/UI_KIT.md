@@ -46,6 +46,7 @@ touching, and add a line to the table below.
 | `WritingSheet(text, onClose, pinyin?, english?, onComplete)` | `ui/strokes/WritingExercise.kt` | Full-screen "✍️ Write it" over the study card (package A's ⋯ menu). |
 | `WritingPad(data, showOutline, completed, justCompleted, hint, demoKey, celebrate, onStroke → InkOutcome)` | `ui/strokes/WritingPad.kt` | The bare 米字格 pad (Canvas: outlines, painted strokes, hints, demo, ink) if you need your own flow; `WritingController` + `WritingRunView` are the run without the loading. |
 | `SentenceBreakdownView(breakdown, current, playing, playingAll, actions)` | `ui/analyze/AnalyzeScreen.kt` | A sentence stepped through chunk by chunk (hanzi ↔ pinyin ↔ English), from `POST /api/sentence/analyze`. |
+| `ExplorableText(text, source, segments?, …)` · `rememberExplorerTap(source)` · `LocalExplorer.current?.open(item, source)` | `ui/explorer/` | Chinese a learner reads: every word (with matching word segments) or character opens the language explorer (Character / Word views on one stack, hosted by the shell; inside the explorer a tap pushes). docs/LANGUAGE_EXPLORER.md. |
 | `QuestSpeech(app).speak(text, onEnd?)` | `ui/quests/QuestSpeech.kt` | Any Chinese line through `/api/practice/tts`, clip cached for offline, device voice as the fallback. |
 
 ## Rules of thumb

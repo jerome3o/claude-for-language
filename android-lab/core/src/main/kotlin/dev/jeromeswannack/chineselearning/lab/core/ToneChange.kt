@@ -155,6 +155,12 @@ object ToneChange {
         return out
     }
 
+    /**
+     * Port of `pinyinSyllables`: the syllables of tone-marked pinyin ("dǎoháng" → ["dǎo", "háng"]),
+     * or null when it is not plain tone-marked pinyin (tone numbers, unknown syllables).
+     */
+    fun pinyinSyllables(pinyin: String): List<String>? = syllablesOf(nfc(pinyin))?.map { it.text }
+
     private fun jsSlice(s: String, from: Int, to: Int): String {
         val a = from.coerceIn(0, s.length)
         val b = to.coerceIn(0, s.length)

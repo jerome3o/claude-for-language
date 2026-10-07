@@ -135,6 +135,7 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
         value = withContext(Dispatchers.IO) { app.repo.dao.allNotes().mapTo(HashSet()) { it.hanzi.trim() } }
     }
     var tapped by remember { mutableStateOf<Pair<dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto, String>?>(null) }
+    val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("reader")
     tapped?.let { (w, sentence) ->
         val tools = remember(app) { dev.jeromeswannack.chineselearning.lab.ui.study.CardTools(app) }
         ReaderWordSheet(
@@ -157,7 +158,12 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
     return ReaderEnv(
         words = { page -> runtime.readers.words(readerId, page, app.online.value) },
         known = known,
-        onWord = { w, sentence -> tapped = w to sentence; app.haptics.tick(); app.analytics.track("reader.word_tap") },
+        onWord = { w, sentence ->
+            app.analytics.track("reader.word_tap")
+            // The language explorer's Word view (with the chip's pinyin / gloss and its sentence); the old word sheet without one.
+            val item = dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack.itemForText(w.text, w.pinyin, w.gloss, sentence)
+            if (explore != null && item != null) explore(item) else { tapped = w to sentence; app.haptics.tick() }
+        },
         pageAudio = { page, regenerate -> runtime.audio.stop(); runtime.readers.pageAudio(page, app.online.value, regenerate) },
         analyze = { page, file -> clips.analyze(runtime.readers.pageTtsKey(page).removePrefix("reader-tts/"), file) },
         image = { page -> runtime.readers.pageImage(readerId, page, app.online.value) },

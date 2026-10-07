@@ -212,6 +212,10 @@ fun CharacterSheetContent(
     onMore: () -> Unit = {},
     onRow: (CharWordRow<CharWordDto>) -> Unit = {},
     modifier: Modifier = Modifier,
+    /** Inside the language explorer: the radical and components are tappable (→ another Character view). */
+    onChar: ((String) -> Unit)? = null,
+    /** The × in the glyph row (the explorer has its own header with ✕). */
+    showClose: Boolean = true,
 ) {
     val record = ui.record
     val char = ui.char
@@ -234,7 +238,7 @@ fun CharacterSheetContent(
                     Text(it, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
                 }
             }
-            Box(
+            if (showClose) Box(
                 Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onClose).testTag("char-sheet-close"),
                 contentAlignment = Alignment.Center,
             ) { Text("×", fontSize = 26.sp, color = Lab.colors.muted) }
@@ -268,15 +272,40 @@ fun CharacterSheetContent(
             if (facts.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (f in facts) {
+                    for ((i, f) in facts.withIndex()) {
+                        // The radical (the first fact when there is one) opens its own Character view in the explorer.
+                        val radical = record.radical?.takeIf { i == 0 && onChar != null && it != char && CharDict.isLookupChar(it) }
                         Text(
-                            f, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink,
-                            modifier = Modifier.clip(CircleShape).background(Lab.colors.faint).padding(horizontal = 10.dp, vertical = 5.dp),
+                            if (radical != null) "$f ›" else f, style = MaterialTheme.typography.bodySmall,
+                            color = if (radical != null) Lab.colors.accent else Lab.colors.ink,
+                            modifier = Modifier.clip(CircleShape).background(Lab.colors.faint)
+                                .then(if (radical != null) Modifier.clickable { onChar?.invoke(radical) }.testTag(CHAR_RADICAL_TAG) else Modifier)
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
                         )
                     }
                 }
             }
-            if (record.components.isNotEmpty()) {
+            if (record.components.isNotEmpty() && onChar != null) {
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Built from", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
+                    for (c in record.components) {
+                        val tappable = CharDict.isLookupChar(c.char) && c.char != char
+                        Row(
+                            Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint)
+                                .then(if (tappable) Modifier.clickable { onChar(c.char) }.testTag(CHAR_COMPONENT_TAG) else Modifier)
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(c.char, fontSize = 20.sp, fontWeight = FontWeight.Medium, color = if (tappable) Lab.colors.accent else Lab.colors.ink)
+                            c.meaning?.takeIf { it.isNotBlank() }?.let {
+                                Spacer(Modifier.width(6.dp))
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+                            }
+                        }
+                    }
+                }
+            } else if (record.components.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     buildAnnotatedString {
@@ -346,6 +375,8 @@ fun CharacterSheetContent(
 
 const val CHAR_SHEET_TAG = "char-sheet"
 const val CHAR_WORD_ROW_TAG = "char-word-row"
+const val CHAR_COMPONENT_TAG = "char-component"
+const val CHAR_RADICAL_TAG = "char-radical"
 
 /** The yellow of the card's own word (web #fef9c3 + the secondary bar). */
 private val CurrentLight = Color(0xFFFEF9C3)

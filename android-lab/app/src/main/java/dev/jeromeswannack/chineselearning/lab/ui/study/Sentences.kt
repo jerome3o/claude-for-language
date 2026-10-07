@@ -380,6 +380,7 @@ fun SentenceRowView(
                     enabled = online,
                     onWord = { w -> onAdd(Chunk(w.hanzi, w.pinyin, w.gloss)) },
                     modifier = Modifier.padding(start = toolsStart, end = 10.dp, bottom = 10.dp),
+                    sentence = row.hanzi,
                 )
             }
         }
@@ -403,6 +404,8 @@ fun SentenceBreakdown(
     enabled: Boolean,
     onWord: (ExplainedWord) -> Unit,
     modifier: Modifier = Modifier,
+    /** The sentence the words are from (the explorer's "In context"); default = the words joined. */
+    sentence: String? = null,
 ) = Column(
     modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.card).padding(horizontal = 4.dp, vertical = 6.dp),
 ) {
@@ -414,6 +417,13 @@ fun SentenceBreakdown(
     val widest = remember(ex.words, hanziStyle, density) {
         with(density) { (ex.words.maxOfOrNull { measurer.measure(it.hanzi, hanziStyle, maxLines = 1).size.width } ?: 0).toDp() }
     }
+    // A row opens the language explorer's Word view (Add is inside it); without one, the add sheet as before.
+    val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("breakdown")
+    val whole = sentence ?: ex.words.joinToString("") { it.hanzi }
+    val onRow: (ExplainedWord) -> Unit = { w ->
+        val item = dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack.itemForText(w.hanzi, w.pinyin, w.gloss, whole)
+        if (explore != null && item != null) explore(item) else onWord(w)
+    }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val column = widest.coerceIn(52.dp, maxOf(52.dp, maxWidth * 0.4f))
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -423,7 +433,7 @@ fun SentenceBreakdown(
                         .fillMaxWidth()
                         .heightIn(min = 44.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable(enabled = enabled, onClickLabel = "Add ${w.hanzi} as a card") { onWord(w) }
+                        .clickable(enabled = enabled || explore != null, onClickLabel = if (explore != null) "Explore ${w.hanzi}" else "Add ${w.hanzi} as a card") { onRow(w) }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
