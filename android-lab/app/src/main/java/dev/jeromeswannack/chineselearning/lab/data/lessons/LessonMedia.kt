@@ -3,6 +3,9 @@ package dev.jeromeswannack.chineselearning.lab.data.lessons
 import android.util.Base64
 import dev.jeromeswannack.chineselearning.lab.Config
 import dev.jeromeswannack.chineselearning.lab.data.Api
+import dev.jeromeswannack.chineselearning.lab.core.ConversationClip
+import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.data.api.conversationLineTts
 import dev.jeromeswannack.chineselearning.lab.data.api.practiceTts
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +57,44 @@ class LessonMedia(filesDir: File, private val api: Api) {
             throw e
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /**
+     * `conversationClipKey`: a conversation line's key — djb2 over "text|voice|conv:delivery", with
+     * the provider rate — apart from every other clip. Same key shape as the web.
+     */
+    fun conversationKey(clip: ConversationClip): String {
+        var hash = 5381L
+        for (c in "${clip.text}|${clip.voice ?: "undefined"}|conv:${clip.delivery}") hash = ((hash shl 5) + hash + c.code) and 0xFFFFFFFFL
+        return "tts/c-${java.lang.Long.toString(hash, 36)}-x${Js.numberToString(clip.speed)}"
+    }
+
+    /**
+     * `getConversationClip`: cache-first conversation line. [regenerate] asks the server to make
+     * it again (replacing the stored clip) and overwrites the phone's copy; offline the cached copy
+     * plays as it is. A failed fetch falls back to the cached copy.
+     */
+    suspend fun conversationLine(clip: ConversationClip, online: Boolean, regenerate: Boolean = false): File? {
+        if (clip.text.isBlank() || clip.voice == null) return null
+        val key = conversationKey(clip)
+        val cached = cachedTts(key)
+        if (cached != null && (!regenerate || !online)) return cached
+        if (!online) return null
+        return try {
+            val res = api.conversationLineTts(clip.text, clip.voice!!, clip.speed, clip.delivery, regenerate)
+            withContext(Dispatchers.IO) {
+                val bytes = Base64.decode(res.audioBase64, Base64.DEFAULT)
+                val dest = fileFor(ttsDir, key)
+                val tmp = File(dest.parentFile, dest.name + ".part")
+                tmp.writeBytes(bytes)
+                tmp.renameTo(dest)
+                dest
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            cached
         }
     }
 

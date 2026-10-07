@@ -128,6 +128,8 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 setOnlyOn = vm::setOnlyOn,
                 reset = vm::reset,
                 dismissNotice = vm::dismissNotice,
+                setAudioSpeed = vm::setAudioSpeed,
+                setAudioDelivery = vm::setAudioDelivery,
             ),
         )
     }

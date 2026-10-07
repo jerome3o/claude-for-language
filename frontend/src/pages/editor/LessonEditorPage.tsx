@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CustomLessonSpec,
   validateLessonSpec,
+  conversationIntroWarnings,
   canonicalJson,
   lessonToMarkdown,
   lessonToJson,
@@ -109,6 +110,8 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
   }, [query.data, spec]);
 
   const errors = useMemo(() => (spec ? validateLessonSpec(spec) : []), [spec]);
+  // Soft: an intro note that quotes a conversation gives the listening away.
+  const introWarnings = useMemo(() => (spec && errors.length === 0 ? conversationIntroWarnings(spec) : []), [spec, errors.length]);
   const dirty = spec !== null && canonicalJson(spec) !== saved;
   const isOwner = query.data?.is_owner ?? true;
   const backTo = target === 'library' ? `/library/${id}` : '/lessons';
@@ -255,7 +258,16 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
         saveBlockedHint={`${errors.length} problem${errors.length === 1 ? '' : 's'} to fix`}
         onSave={save}
         menu={menu}
-        edit={<LessonForm spec={spec} onChange={setSpec} errors={errors} speak={speak} />}
+        edit={(
+          <>
+            {introWarnings.length > 0 && (
+              <div className="editor-soft-warnings" role="note" data-testid="lesson-intro-warnings">
+                {introWarnings.map((w, i) => <p key={i}>⚠ {w}</p>)}
+              </div>
+            )}
+            <LessonForm spec={spec} onChange={setSpec} errors={errors} speak={speak} />
+          </>
+        )}
         preview={<LessonPreview spec={spec} speak={speak} />}
         chat={
           <EditorChat

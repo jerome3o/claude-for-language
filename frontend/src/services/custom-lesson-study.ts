@@ -14,9 +14,9 @@
  *   (a lesson has only a handful, so they ride along with the content).
  */
 
-import { CustomLessonSpec, LessonAttemptData, lessonTtsClips, CONVERSATION_TTS_SPEED } from '@shared/lesson';
+import { CustomLessonSpec, LessonAttemptData, lessonTtsTexts, lessonConversationClips } from '@shared/lesson';
 import { pickRevisitsForToday, MAX_LESSON_REVISITS_PER_DAY, type RevisitState } from '@shared/study/revisit';
-import { voicesForConversation } from './conversationVoices';
+import { audioForConversation } from './conversationAudio';
 import {
   db,
   getStudyCutoff,
@@ -26,7 +26,7 @@ import {
 import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
-import { prefetchTTSClips } from './ttsCache';
+import { prefetchConversationClips, prefetchTTSClips } from './ttsCache';
 import { describeImageKeys } from '@shared/lesson/images';
 import { prefetchStrokeData } from './strokeData';
 import { writableCharacters } from '@shared/strokes';
@@ -345,7 +345,9 @@ export async function prefetchCustomLessonMedia(): Promise<void> {
 
   const lessons = await getDueCustomLessons();
   for (const lesson of lessons) {
-    await prefetchTTSClips(lessonTtsClips(lesson.spec, voicesForConversation, CONVERSATION_TTS_SPEED));
+    await prefetchTTSClips(lessonTtsTexts(lesson.spec).map(text => ({ text })));
+    // Conversation lines in this account's voices / speed / delivery (the ⚙︎ Audio menu).
+    await prefetchConversationClips(lessonConversationClips(lesson.spec, audioForConversation));
     // Stroke-order data for handwriting, so the writing pad checks strokes offline.
     const handwritten = lessonHandwritingText(lesson.spec);
     if (handwritten) await prefetchStrokeData(writableCharacters(handwritten)).catch(() => {});

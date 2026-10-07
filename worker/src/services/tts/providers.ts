@@ -30,6 +30,8 @@ export interface SynthRequest {
    * answer at 24 kHz; MiniMax is asked for it.
    */
   lessonFormat?: boolean;
+  /** MiniMax only: `voice_setting.emotion` (conversation delivery). */
+  emotion?: string;
 }
 
 /** MiniMax's encode for audio lessons: MPEG-2 Layer III at 24 kHz, like Azure's and Google's. */
@@ -86,7 +88,7 @@ export const minimaxProvider: TtsProvider = {
           model: req.model ?? TTS_MODEL,
           text: req.text,
           stream: false,
-          voice_setting: { voice_id: req.voice, speed: req.rate },
+          voice_setting: { voice_id: req.voice, speed: req.rate, ...(req.emotion ? { emotion: req.emotion } : {}) },
           // Pin the encode: a service-side default change is inaudible in logs but very audible on the phone.
           audio_setting: req.lessonFormat ? { ...LESSON_MINIMAX_AUDIO_SETTING } : { ...TTS_AUDIO_SETTING },
         }),

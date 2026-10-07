@@ -107,6 +107,8 @@ import debugReportsRoutes from './routes/debug-reports';
 import lessonImagesRoutes from './routes/lesson-images';
 import conversationVoicesRoutes from './routes/conversation-voices';
 import { getConversationVoiceSettings } from './services/conversation-voices';
+import { conversationAudioSource, getConversationAudioPrefs } from './services/conversation-audio';
+import { conversationVoiceProvider, isConversationDelivery } from '@shared/tts';
 import studentProfileRoutes from './routes/student-profile';
 import studentStudyBudgetRoutes from './routes/student-study-budget';
 import cardCheckRoutes from './routes/card-checks';
@@ -512,6 +514,16 @@ app.get('/api/auth/me', async (c) => {
     // The voices this account's conversation exercises use (its own selection,
     // else the admin's, else the shipped defaults) — cached on the device.
     conversation_voices: (await getConversationVoiceSettings(c.env.DB, user.id).catch(() => null))?.enabled ?? null,
+    // Speed / delivery / voices of conversation exercises + where clips come from now
+    // (docs/AUDIO.md "Conversation audio") — cached on the device for offline playback.
+    conversation_audio: await (async () => {
+      try {
+        const [prefs, source] = await Promise.all([getConversationAudioPrefs(c.env.DB, user.id), conversationAudioSource(c.env)]);
+        return { prefs, ...source };
+      } catch {
+        return null;
+      }
+    })(),
   });
 });
 
@@ -6129,14 +6141,35 @@ app.post('/api/daily/reader/generate', async (c) => {
 // ============ Grammar Practice ============
 
 app.post('/api/practice/tts', async (c) => {
-  const { text, speed, voice_id } = await c.req.json<{ text: string; speed?: number; voice_id?: string }>();
+  const { text, speed, voice_id, kind, delivery, regenerate } = await c.req.json<{
+    text: string;
+    speed?: number;
+    voice_id?: string;
+    /** 'conversation' = a conversation line: `speed` is the provider's own rate, `delivery` applies. */
+    kind?: string;
+    delivery?: string;
+    /** Make the clip again even when it is stored (the Audio menu's "Regenerate"). */
+    regenerate?: boolean;
+  }>();
   if (!text) return c.json({ error: 'text required' }, 400);
   // MiniMax accepts speeds in [0.5, 2.0]
   const clampedSpeed = typeof speed === 'number' ? Math.min(2, Math.max(0.5, speed)) : undefined;
+  const conversation = kind === 'conversation';
   // Conversation exercises speak each speaker in its own voice — only the
-  // lesson voices are allowed (shared/lesson/voices.ts).
-  if (voice_id !== undefined && !LESSON_VOICE_IDS.has(voice_id)) {
+  // lesson voices (and, for a conversation line, the providers' conversation
+  // voices) are allowed: a request can never name an arbitrary voice.
+  if (voice_id !== undefined && !LESSON_VOICE_IDS.has(voice_id) && !(conversation && conversationVoiceProvider(voice_id))) {
     return c.json({ error: 'Unknown voice' }, 400);
+  }
+  if (delivery !== undefined && !isConversationDelivery(delivery)) return c.json({ error: 'Unknown delivery' }, 400);
+  if (conversation) {
+    const result = await cachedConversationTTS(c.env, text, {
+      voiceId: voice_id,
+      conversation: { speed: typeof speed === 'number' ? speed : undefined, delivery: isConversationDelivery(delivery) ? delivery : 'natural' },
+      regenerate: regenerate === true,
+    });
+    if (!result) return c.json({ error: 'Audio is not available right now — try again later', retryable: true }, 503);
+    return c.json({ audio_base64: result.audioBase64, content_type: result.contentType, provider: result.providerId ?? null });
   }
   // The STORED order (MiniMax by default; Azure when an admin added it): both
   // apps keep this clip on the device for good (lessons, readers, chat clips),

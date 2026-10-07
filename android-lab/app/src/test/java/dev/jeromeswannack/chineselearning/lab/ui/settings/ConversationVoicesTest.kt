@@ -48,7 +48,7 @@ class ConversationVoicesTest {
     @Test fun scopeLineSaysWhoseChoiceItIs() {
         assertTrue(VoiceSettingsLogic.scopeLine(ConversationVoicesUi(isAdmin = true)).startsWith("You’re the admin"))
         assertTrue(VoiceSettingsLogic.scopeLine(ConversationVoicesUi(defaultSource = "admin")).startsWith("Using the default chosen by the admin."))
-        assertTrue(VoiceSettingsLogic.scopeLine(ConversationVoicesUi()).contains("0.9× speed"))
+        assertTrue(VoiceSettingsLogic.scopeLine(ConversationVoicesUi()) == "Using the app’s default voices.")
     }
 
     @Test fun apiSendsTheSelectionOrAReset() = runBlocking {

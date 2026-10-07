@@ -23,6 +23,7 @@ import {
 } from '../api/client';
 import { InlineNotice, type Notice } from '../components/chat/InlineNotice';
 import { writeConversationVoices } from '../services/conversationVoices';
+import { ConversationAudioDefaults } from '../components/lesson/ConversationAudioDefaults';
 import { base64ToBlob } from '../services/ttsCache';
 import { cacheAudio, getCachedAudio } from '../services/audioCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
@@ -170,9 +171,9 @@ export function ConversationVoicesPage() {
                   : data.default_source === 'admin'
                     ? 'Using the default chosen by the admin.'
                     : 'Using the app’s default voices.'}
-              {' '}Conversations play at {data.speed}× speed with a short pause between speakers.
             </p>
           )}
+          <ConversationAudioDefaults />
         </div>
 
         <InlineNotice notice={notice} onDismiss={dismiss} />

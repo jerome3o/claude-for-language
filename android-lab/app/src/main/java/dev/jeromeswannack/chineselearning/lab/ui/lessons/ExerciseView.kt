@@ -41,6 +41,10 @@ class ExerciseEnv(
     val playClip: suspend (text: String, voice: String?, speed: Double?) -> Boolean = { _, _, _ -> false },
     /** The account's conversation voices cached on the phone (null = the shipped defaults). */
     val conversationVoices: suspend () -> List<String>? = { null },
+    /** A conversation's speed / voices / delivery and the ⚙︎ Audio menu (ConversationAudioSheet.kt). */
+    val conversationAudio: ConversationAudioControls = ConversationAudioControls.Preview,
+    /** One conversation line in its voice / provider rate / delivery, awaited; regenerate = make it again first. */
+    val playLine: suspend (clip: dev.jeromeswannack.chineselearning.lab.core.ConversationClip, regenerate: Boolean) -> Boolean = { _, _ -> false },
     val stopAudio: () -> Unit = {},
     /** What is playing now (for lit-up buttons). */
     val playing: String? = null,

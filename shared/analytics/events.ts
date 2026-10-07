@@ -180,6 +180,11 @@ export const ANALYTICS_EVENTS = {
   'lesson.grammar_start': e('lessons', 'Started the OLD fixed-phase grammar lesson.', [], { replacedBy: 'lesson.start' }),
   'lesson.editor_save': e('lessons', 'Saved a lesson in the editor.', []),
   'lesson.catalogue_try': e('lessons', 'Tried a catalogue sample lesson.', ['exercise_type']),
+  'lesson.conversation_audio_open': e('lessons', 'Opened the ⚙︎ Audio menu on a conversation exercise.', ['provider']),
+  'lesson.conversation_audio_speed': e('lessons', 'Changed the conversation speed (Audio menu or Settings).', ['speed', 'provider', 'source']),
+  'lesson.conversation_audio_voice': e('lessons', "Picked a speaker's voice in a conversation (automatic = back to the rotation).", ['provider', 'gender', 'automatic']),
+  'lesson.conversation_audio_delivery': e('lessons', 'Changed the conversation delivery (natural / conversational / calm / cheerful).', ['delivery', 'provider', 'source']),
+  'lesson.conversation_audio_regenerate': e('lessons', "Regenerated a conversation's audio.", ['lines', 'provider']),
 
   // ── coach ──────────────────────────────────────────────────────────────
   'coach.start': e('coach', 'Started a Sentence Coach conversation.', ['action']),

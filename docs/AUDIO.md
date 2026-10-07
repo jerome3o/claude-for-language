@@ -57,9 +57,10 @@ voice's **gender** to its `female` / `male` voice (`voiceRole`, `providerVoice` 
 dialogue therefore share Azure's voice of that gender.) MiniMax voice samples
 (`/api/conversation-voices/sample`) stay MiniMax only.
 
-**Speed.** The app's speeds are MiniMax's scale (0.6 cards, 0.9 conversations). Another provider's
+**Speed.** Card clips use MiniMax's scale (0.6). Another provider's
 rate = `1 + (speed − 1) × speed_factor` (clamped 0.5–2): Azure's default factor **0.75** → cards
-**0.7** (`<prosody rate="-30%">`), conversations **0.93**. Google 1.0 (its `speakingRate` = the
+**0.7** (`<prosody rate="-30%">`). Conversations do NOT go through the factor — see "Conversation
+audio" below. Google 1.0 (its `speakingRate` = the
 speed, as before). Azure **HD voices** (`…:DragonHDLatestNeural`, `…:DragonHDFlashLatestNeural`)
 take no `<prosody>` — they speak at their own pace (the hash records `own`) and exist only in some
 regions (eastus, westeurope, southeastasia).
@@ -81,6 +82,58 @@ learned RPM, last success / error, enable, max RPM, voices per role with ▶ sam
 limiter, nothing kept), ↑↓ ordering for stored and live, the upgrade toggle, the backlog with
 **Retry failed now** / **Run backfill**, sticky Save. `audio_backfill_status` also returns
 `providers` (the same per-provider state) and `stored_clips` (effective order, current providers).
+
+## Conversation audio (speed, voices, delivery)
+
+Conversation exercises are a listening exercise, so their lines are clearly slower than native but
+still natural, and the learner can tune them (Jerome, Oct 2026: with MiniMax out of credit Azure
+spoke them at 0.925 — "way too fast").
+
+**Speed = the provider's own rate** (1 = its natural pace), clamped to the part of its range that
+still sounds natural (`PROVIDER_RATE_RANGE`, `shared/tts/config.ts`):
+
+| Provider | API range | Sounds natural | Conversation default (`conversation_rate`) |
+|---|---|---|---|
+| MiniMax `voice_setting.speed` | 0.5–2 | 0.5–1.2 (the model re-synthesises at the pace; cards are 0.6) | **0.85** |
+| Azure `<prosody rate>` | 0.5–2 (x-slow 0.5, slow 0.64) | 0.6–1.2 (neural zh-CN voices drag and smear syllables below ~0.6) | **0.75** |
+| Google `speakingRate` | 0.25–4 | 0.6–1.2 (WaveNet turns robotic below ~0.6) | **0.8** |
+
+The default is an admin setting per provider (`/admin/audio` → "Conversation speed", MCP
+`audio_settings_update` `providers.<id>.conversation_rate`); a learner's own speed replaces it.
+
+**Preferences per account** (`users.conversation_audio`, migration 0110, JSON per
+`shared/lesson/conversationAudio.ts`; `GET|PUT /api/conversation-audio`, on `/api/auth/me` as
+`conversation_audio: { prefs, provider, provider_name, default_speed }`, cached on the device):
+`speed` (null = default), `delivery`, a preferred voice per gender per provider (the first speaker of
+that gender in every conversation) and per-conversation voice choices (`exercise_voices`,
+`"<provider>:<conversation key>"`, newest 200 kept). PUT merges key by key, so two devices editing
+different conversations never clobber each other.
+
+**Which voices**: `provider` = the first stored provider, the next while it is account-paused
+(`activeConversationProvider`). The device resolves each conversation in THAT provider's own
+voices (`resolveConversationAudio`: MiniMax = the account's enabled lesson voices, rotated per
+dialogue as before; Azure / Google = their catalogues minus HD voices, which ignore the speed); a
+voice of another provider (a fallback) is mapped by gender on the server (`conversationProviderVoice`).
+
+**Delivery** (natural / conversational / calm / cheerful, `deliveryParams`): Azure
+`<mstts:express-as style>` only where the voice has the style (Xiaoxiao: chat / calm / cheerful;
+Yunxi: chat / narration-relaxed / cheerful; Yunjian: narration-relaxed / cheerful; Xiaoyi: gentle /
+cheerful; Xiaochen, Yunyang: none), MiniMax `voice_setting.emotion` (calm, happy); Google none.
+Unsupported = spoken naturally, never an error. Pitch is not offered: shifting a neural voice's
+pitch sounds artificial quickly.
+
+**Clips**: `POST /api/practice/tts { text, voice_id, speed, kind: 'conversation', delivery,
+regenerate? }` → `cachedConversationTTS(…, { conversation })`: R2 `tts-cache/v2/c-<sha256 of
+conv|model|voice|rate|style|text>.mp3`; `regenerate` skips the lookup and overwrites. Devices key
+conversation lines by text + voice + delivery + speed (web `conversationClipKey`), so a change makes
+new clips on the next play / prefetch and old ones age out of the LRU cache.
+
+**The ⚙︎ Audio menu** on every conversation exercise (study session, homework pass, catalogue
+trial; `components/lesson/ConversationAudioSheet.tsx`, Lab: the same sheet): speed chips, a voice
+per speaker (Automatic + the provider's voices), delivery, **Regenerate audio** (every line made
+again, then played). Applies on the device at once and PUTs the change; offline the controls are
+off with "needs internet" and playback uses what is cached. Settings → Conversation voices has the
+speed + delivery too. Analytics: `lesson.conversation_audio_*`.
 
 ## Why this exists
 

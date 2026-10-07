@@ -191,6 +191,9 @@ export interface ResolveVoicesOptions {
   enabled?: readonly string[] | null;
   /** Rotation seed (conversationSeed); 0 = start of each pool. */
   seed?: number;
+  /** Rotate over these pools instead of the enabled MiniMax voices (another TTS
+   * provider's voices, shared/tts/conversation.ts `providerVoicePools`). */
+  pools?: Record<LessonVoice, string[]>;
 }
 
 /**
@@ -201,7 +204,9 @@ export interface ResolveVoicesOptions {
  * reused only when there are more speakers than enabled voices.
  */
 export function resolveConversationVoices(speakers: ConversationSpeaker[], options: ResolveVoicesOptions = {}): string[] {
-  const pools = conversationVoicePools(options.enabled);
+  const pools = options.pools && options.pools.female.length + options.pools.male.length >= 2
+    ? options.pools
+    : conversationVoicePools(options.enabled);
   const seed = Math.max(0, Math.floor(options.seed ?? 0));
   const all = [...pools.female, ...pools.male];
   const used = new Set<string>();

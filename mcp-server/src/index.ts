@@ -3,6 +3,18 @@ import { McpAgent } from "agents/mcp";
 import { z } from "zod";
 import { CARD_STANDARD, CARD_STANDARD_SHORT } from '../../shared/cards/standard';
 import { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '../../shared/lesson/doc';
+import { conversationIntroWarnings } from '../../shared/lesson/introWarnings';
+import type { CustomLessonSpec } from '../../shared/lesson/types';
+
+/** Soft spoiler-intro warnings appended to a lesson tool's reply (the lesson is saved anyway). */
+function introWarningText(spec: unknown): string {
+  try {
+    const w = conversationIntroWarnings(spec as CustomLessonSpec);
+    return w.length ? `\n\nWarning — fix with update_custom_lesson:\n- ${w.join('\n- ')}` : '';
+  } catch {
+    return '';
+  }
+}
 import OAuthProvider, {
   type AuthRequest,
   type OAuthHelpers,
@@ -490,7 +502,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
           if (err instanceof ApiError) return errorResult(`Lesson rejected: ${err.message}${problemLines(err)}`);
           throw err;
         }
-        return textResult(`Created custom lesson "${title}" (id=${data.id}). It will appear in the user's next study session.${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}`);
+        return textResult(`Created custom lesson "${title}" (id=${data.id}). It will appear in the user's next study session.${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}${introWarningText({ title, sections })}`);
       })
     );
 
@@ -581,7 +593,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
           if (err instanceof ApiError) return errorResult(`Update rejected: ${err.message}${problemLines(err)}`);
           throw err;
         }
-        return textResult(`Updated custom lesson "${title}" (id=${lesson_id}). The user's device picks up the new content on its next sync; completion history and scheduling are unchanged.${data.image_jobs ? ` ${data.image_jobs} new illustration(s) generating in the background.` : ''}`);
+        return textResult(`Updated custom lesson "${title}" (id=${lesson_id}). The user's device picks up the new content on its next sync; completion history and scheduling are unchanged.${data.image_jobs ? ` ${data.image_jobs} new illustration(s) generating in the background.` : ''}${introWarningText({ title, sections })}`);
       })
     );
 

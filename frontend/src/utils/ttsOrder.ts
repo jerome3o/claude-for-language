@@ -44,7 +44,7 @@ function normalise(c: TtsConfig) {
     providers: Object.fromEntries(
       TTS_PROVIDERS.map((id) => {
         const p = c.providers[id];
-        return [id, { enabled: p.enabled, max_rpm: p.max_rpm, speed_factor: p.speed_factor, voices: { default: p.voices.default, female: p.voices.female, male: p.voices.male } }];
+        return [id, { enabled: p.enabled, max_rpm: p.max_rpm, speed_factor: p.speed_factor, conversation_rate: p.conversation_rate, voices: { default: p.voices.default, female: p.voices.female, male: p.voices.male } }];
       }),
     ),
   };

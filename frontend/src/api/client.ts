@@ -55,7 +55,8 @@ import {
   SentenceBriefExplanation,
 } from '../types';
 import type { Quest, QuestSummary } from '@shared/quest';
-import type { ConversationVoice } from '@shared/lesson';
+import type { ConversationVoice, ConversationAudioPrefs } from '@shared/lesson';
+import type { ConversationDelivery, TtsProviderId } from '@shared/tts';
 
 export const API_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL
@@ -1962,6 +1963,47 @@ export async function saveLessonConversationVoices(enabled: string[] | null): Pr
 /** The sample line in one voice (made once server-side, kept in R2). */
 export async function getConversationVoiceSample(voiceId: string): Promise<{ audio_base64: string; content_type: string }> {
   return fetchJSON(`/conversation-voices/sample?voice=${encodeURIComponent(voiceId)}`);
+}
+
+// ============ Conversation audio (the ⚙︎ Audio menu; docs/AUDIO.md "Conversation audio") ============
+
+export interface ConversationAudioView {
+  prefs: ConversationAudioPrefs;
+  provider: TtsProviderId;
+  provider_name: string;
+  default_speed: number;
+  enabled: string[] | null;
+  speed_steps: number[];
+  speed_range: { min: number; max: number };
+  voices: Array<{ id: string; name: string; gender: 'female' | 'male'; note: string; deliveries: ConversationDelivery[] }>;
+  deliveries: Array<{ id: ConversationDelivery; label: string }>;
+}
+
+export async function getConversationAudio(): Promise<ConversationAudioView> {
+  return fetchJSON('/conversation-audio');
+}
+
+/** A partial update (shared/lesson/conversationAudio.ts mergeConversationAudioPrefs); 400 with `problems`. */
+export async function updateConversationAudio(update: Record<string, unknown>): Promise<ConversationAudioView> {
+  return fetchJSON('/conversation-audio', { method: 'PUT', body: JSON.stringify(update) });
+}
+
+/** One conversation line: the provider's own rate, the delivery, optionally made again. */
+export async function generateConversationLineTTS(
+  text: string,
+  opts: { voice: string; speed: number; delivery: ConversationDelivery; regenerate?: boolean },
+): Promise<{ audio_base64: string; content_type: string }> {
+  return fetchJSON('/practice/tts', {
+    method: 'POST',
+    body: JSON.stringify({
+      text,
+      voice_id: opts.voice,
+      speed: opts.speed,
+      kind: 'conversation',
+      delivery: opts.delivery,
+      ...(opts.regenerate ? { regenerate: true } : {}),
+    }),
+  });
 }
 
 // ============ Custom Mini Lessons ============

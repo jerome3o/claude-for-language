@@ -61,9 +61,16 @@ class LessonAudio(
      * One clip, awaited: true when it finished, false when it couldn't play (≤ 30 s, then moves on).
      * [speed] is the TTS rate baked into the clip (a conversation line's ConversationVoices.SPEED).
      */
-    suspend fun playClip(text: String, voice: String? = null, speed: Double = LessonMedia.DEFAULT_SPEED): Boolean {
+    suspend fun playClip(text: String, voice: String? = null, speed: Double = LessonMedia.DEFAULT_SPEED): Boolean =
+        playAwaited(text) { media.tts(text, voice, speed = speed, online = online()) }
+
+    /** One conversation line (its own voice / provider rate / delivery), awaited; [regenerate] makes it again first. */
+    suspend fun playLine(clip: dev.jeromeswannack.chineselearning.lab.core.ConversationClip, regenerate: Boolean = false): Boolean =
+        playAwaited(clip.text) { media.conversationLine(clip, online(), regenerate) }
+
+    private suspend fun playAwaited(text: String, load: suspend () -> File?): Boolean {
         val id = stopInternal()
-        val file = media.tts(text, voice, speed = speed, online = online()) ?: return false
+        val file = load() ?: return false
         if (id != claim) return false
         return withTimeoutOrNull(CLIP_TIMEOUT_MS) {
             suspendCancellableCoroutine { cont ->

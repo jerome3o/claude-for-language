@@ -5,7 +5,7 @@ export type { LessonDiff, ExerciseDiffEntry, SectionDiffEntry, FieldChange } fro
 export { lessonToMarkdown, lessonToJson, lessonToCsv, lessonToExportSpec, lessonVocabRows, lessonExportFilename } from './export';
 export { EXERCISE_TYPE_INFO, EXERCISE_TYPE_LIST, SKILL_LABELS, exerciseTypeInfo } from './registry';
 export type { ExerciseTypeInfo, ExerciseSkill } from './registry';
-export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC } from './doc';
+export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC, CONVERSATION_INTRO_RULE } from './doc';
 export {
   resolveConversationVoices, conversationVoicesFor, conversationSeed, conversationVoicePools, conversationVoice,
   validateConversationVoiceSelection, speakerGender,
@@ -17,3 +17,10 @@ export * from './answer-check';
 export * from './attempt';
 export { defaultExercise } from './defaults';
 export { normalizeImagePrompt, describeImagePrompts, describeImageKeys, applyImageToSpec } from './images';
+export {
+  DEFAULT_CONVERSATION_AUDIO_PREFS, MAX_EXERCISE_VOICE_ENTRIES,
+  conversationAudioKey, exerciseVoicesKey, mergeConversationAudioPrefs, parseConversationAudioPrefs,
+  resolveConversationAudio, speakerVoiceUpdate, lessonConversationClips,
+} from './conversationAudio';
+export type { ConversationAudioPrefs, ConversationAudioContext, ResolvedConversationAudio } from './conversationAudio';
+export { conversationIntroWarnings, QUOTE_MIN_CHARS } from './introWarnings';

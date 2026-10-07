@@ -3,8 +3,8 @@ import { TTS_SPEED, TTS_VOICE, houseSpeed } from './tts/settings';
 import type { TtsPriority } from './tts/bucket';
 import { acquireTtsSlot, reportTts } from './tts/limiter';
 import { TTS_PROVIDER_IMPLS, configuredProviders, type SynthRequest } from './tts/providers';
-import { loadTtsConfig, providerVoice, storedClipHash } from './tts/config';
-import { usableOrder, type TtsConfig, type TtsProviderId } from '@shared/tts';
+import { conversationProviderVoice, loadTtsConfig, providerVoice, storedClipHash } from './tts/config';
+import { usableOrder, type ConversationDelivery, type TtsConfig, type TtsProviderId } from '@shared/tts';
 
 /**
  * Audio service: TTS generation (MiniMax, Azure Speech, Google — in the admin's
@@ -254,15 +254,24 @@ export async function synthesizeOrdered(
   env: Env,
   order: readonly TtsProviderId[],
   text: string,
-  req: { voiceId?: string; speed: number; priority: TtsPriority; maxWaitMs?: number },
+  req: {
+    voiceId?: string;
+    speed: number;
+    priority: TtsPriority;
+    maxWaitMs?: number;
+    /** A conversation line: provider voice / own rate / delivery (conversationProviderVoice). */
+    conversation?: { speed?: number; delivery?: ConversationDelivery };
+  },
   config?: TtsConfig,
 ): Promise<OrderedOutcome> {
   const cfg = config ?? (await loadTtsConfig(env));
   const usable = usableOrder(order, cfg, configuredProviders(env));
   const attempts: Array<{ provider: TtsProviderId; outcome: Exclude<ProviderCallOutcome, { ok: true }> }> = [];
   for (const providerId of usable) {
-    const { voice, rate } = providerVoice(providerId, cfg, { voiceId: req.voiceId, speed: req.speed });
-    const out = await callProviderTTS(env, providerId, { text, voice, rate }, {
+    const { voice, rate, style, emotion } = req.conversation
+      ? conversationProviderVoice(providerId, cfg, { voiceId: req.voiceId, speed: req.conversation.speed, delivery: req.conversation.delivery })
+      : { ...providerVoice(providerId, cfg, { voiceId: req.voiceId, speed: req.speed }), style: undefined, emotion: undefined };
+    const out = await callProviderTTS(env, providerId, { text, voice, rate, style, emotion }, {
       priority: req.priority,
       maxWaitMs: req.maxWaitMs,
       maxRpm: cfg.providers[providerId].max_rpm,
@@ -343,6 +352,8 @@ export interface ConversationTTSOptions {
    * device keeps.
    */
   allowGoogleFallback?: boolean;
+  /** A conversation line (docs/AUDIO.md "Conversation audio"): `speed` is the provider's own rate. */
+  conversation?: { speed?: number; delivery?: ConversationDelivery };
 }
 
 export interface ConversationTTSResult {
@@ -396,6 +407,7 @@ export async function generateConversationTTS(
     voiceId: options.voiceId ?? DEFAULT_MINIMAX_VOICE,
     speed: options.speed ?? DEFAULT_TTS_SPEED,
     priority: options.priority ?? 'interactive',
+    conversation: options.conversation,
   }, config);
   if (!out.ok) return null;
   return {

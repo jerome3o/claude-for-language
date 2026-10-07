@@ -1,3 +1,5 @@
+import type { ConversationAudioPrefs } from '@shared/lesson';
+import type { TtsProviderId } from '@shared/tts';
 import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import type { CoachAction } from '@shared/coach';
 import type { StudyBudgetInfo } from '@shared/decks';
@@ -65,6 +67,8 @@ export interface AuthUser {
   study_budget?: StudyBudgetInfo | null;
   /** Voices this account's conversation exercises use (shared/lesson/voices.ts). */
   conversation_voices?: string[] | null;
+  /** Speed / delivery / voices of conversation exercises + where clips come from now (docs/AUDIO.md "Conversation audio"). */
+  conversation_audio?: ConversationAudioState | null;
   /** Profile screen (/profile): public About me, time zone, where the picture comes from. */
   about?: string | null;
   time_zone?: string | null;
@@ -1064,4 +1068,12 @@ export interface AppNotification {
   relationship_id: string | null;
   is_read: boolean;
   created_at: string;
+}
+
+/** `/api/auth/me` → `conversation_audio`, cached on the device (services/conversationAudio.ts). */
+export interface ConversationAudioState {
+  prefs: ConversationAudioPrefs;
+  provider: TtsProviderId;
+  provider_name?: string;
+  default_speed: number;
 }
