@@ -148,6 +148,21 @@ export async function listAudioLessons(db: D1Database, userId: string, limit = 1
   return rows.results ?? [];
 }
 
+/** Ready lessons with their file, newest first — the podcast feed's episodes (routes/podcast.ts). */
+export async function listReadyAudioLessons(db: D1Database, userId: string, limit = 200): Promise<AudioLessonRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, user_id, title, format, status, NULL AS input_json, NULL AS progress, NULL AS progress_done, NULL AS progress_total, NULL AS error,
+         NULL AS agent_transcript, rounds, NULL AS plan_json, NULL AS script_json, timeline_json, words_json, audio_key, duration_ms, size_bytes,
+         NULL AS usage_json, zh_provider, for_relationship_id, created_at, started_at, finished_at, updated_at
+       FROM audio_lessons WHERE user_id = ? AND format IS NOT NULL AND status = 'ready' AND audio_key IS NOT NULL
+       ORDER BY COALESCE(finished_at, created_at) DESC LIMIT ?`,
+    )
+    .bind(userId, limit)
+    .all<AudioLessonRow>();
+  return results ?? [];
+}
+
 export async function countActiveAudioLessons(db: D1Database, userId: string): Promise<number> {
   const row = await db
     .prepare(`SELECT COUNT(*) AS n FROM audio_lessons WHERE user_id = ? AND format IS NOT NULL AND status NOT IN ('ready', 'failed')`)

@@ -7,7 +7,7 @@
  * `for_relationship_id` is only a label on the tutor's own lesson.
  */
 import { z } from 'zod';
-import type { AudioLessonDetail, AudioLessonSummary } from '../../../shared/audio-lesson/types';
+import type { AudioLessonDetail, AudioLessonSummary, PodcastFeedInfo } from '../../../shared/audio-lesson/types';
 import type { ToolContext } from './context.js';
 import { guard, jsonResult } from './context.js';
 
@@ -47,12 +47,24 @@ export function lessonForChat(l: AudioLessonDetail, transcript: 'none' | 'chines
   };
 }
 
+export function feedForChat(feed: PodcastFeedInfo) {
+  return {
+    feed_url: feed.url,
+    open_in_podcast_app: feed.podcast_url,
+    open_in_apple_podcasts: feed.apple_url,
+    last_fetched_by_a_podcast_app: feed.last_fetched_at,
+    ...(feed.url
+      ? { how_to: 'Copy feed_url into the podcast app ("Add podcast by URL"), or open open_in_podcast_app on the phone. Private: anyone with the link can listen. Settings → Audio lessons → Podcast feed shows it again, and Reset link replaces it.' }
+      : { how_to: 'The link can no longer be shown: press Reset link in Settings → Audio lessons → Podcast feed to make a new one.' }),
+  };
+}
+
 export function registerAudioLessonTools(ctx: ToolContext): void {
   const { server, api } = ctx;
 
   server.tool(
     'create_audio_lesson',
-    'Make an AUDIO LESSON for the signed-in user: an agent (Claude Opus) writes it against their flashcards (what they know / are learning), every line is spoken by the TTS voices and the whole lesson becomes ONE audio file with chapters, played in the app (offline, sleep timer) at listen_path. Two formats: "dialogue" = ChinesePod-style — English host, a short Chinese dialogue for the `description` situation (optionally built on a pasted `dialogue`) played three times, then line-by-line translation, then the new words and structures related to words they know, then a final replay. "sleep" = all-Chinese slow immersion to fall asleep to — finds the words in the pasted Chinese `text` they don\'t know and, for each, says it three times, explains it in very simple Chinese with words they know, and three simple sentences each said three times, with long pauses. Takes a few minutes to tens of minutes in the background (voices are rate-limited): poll get_audio_lesson. A tutor may pass for_relationship_id as a LABEL only — the lesson stays in the tutor\'s own account; nothing is sent to a student.',
+    'Make an AUDIO LESSON for the signed-in user: an agent (Claude Opus) writes it against their flashcards (what they know / are learning), every line is spoken by the TTS voices and the whole lesson becomes ONE audio file with chapters, played in the app (offline, sleep timer) at listen_path. Two formats: "dialogue" = ChinesePod-style — English host, a short Chinese dialogue for the `description` situation (optionally built on a pasted `dialogue`) played three times, then line-by-line translation, then the new words and structures related to words they know, then a final replay. "sleep" = slow Chinese immersion to fall asleep to — finds the words in the pasted Chinese `text` they don\'t know and, for each, says it three times, explains what it MEANS in very simple Chinese with words they know (then its characters), three simple sentences each said three times, with long pauses, then ONE short English recap line ("The word was 银行: bank, as in the place where you keep your money…") — the only English in it. Takes a few minutes to tens of minutes in the background (voices are rate-limited): poll get_audio_lesson. A tutor may pass for_relationship_id as a LABEL only — the lesson stays in the tutor\'s own account; nothing is sent to a student.',
     {
       format: z.enum(['dialogue', 'sleep']),
       description: z.string().max(1000).optional().describe('dialogue: the situation to practise, e.g. "ordering at a Lanzhou noodle shop".'),
@@ -84,6 +96,17 @@ export function registerAudioLessonTools(ctx: ToolContext): void {
       guard(async () => {
         const { lesson } = await api.get<{ lesson: AudioLessonDetail }>(`/api/audio-lessons/${encodeURIComponent(id)}`);
         return jsonResult({ lesson: lessonForChat(lesson, transcript ?? 'chinese') });
+      }),
+  );
+
+  server.tool(
+    'get_audio_lesson_feed',
+    "The signed-in user's PRIVATE podcast feed of their audio lessons: an RSS link to paste into any podcast app (AntennaPod, Pocket Casts: \"Add podcast by URL\"; Apple Podcasts: \"Follow a show by URL\") — every ready lesson arrives as an episode with chapters. Made on first use. The link is the only credential: give it to the user only, never post it anywhere else. To make a new one (the old one stops working), the user presses Reset link in Settings → Audio lessons → Podcast feed.",
+    {},
+    async () =>
+      guard(async () => {
+        const { feed } = await api.get<{ feed: PodcastFeedInfo }>('/api/me/podcast-feed');
+        return jsonResult(feedForChat(feed));
       }),
   );
 

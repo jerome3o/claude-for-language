@@ -113,6 +113,51 @@
   cursor: not-allowed;
 }
 
+/* Settings → Audio lessons → Podcast feed (components/settings/PodcastFeedSection.tsx) */
+.podcast-feed-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg, #f8fafc);
+  overflow-wrap: anywhere;
+  margin-bottom: 0.75rem;
+}
+
+.podcast-feed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.podcast-feed-actions .btn {
+  min-height: 44px;
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.podcast-feed-quiet {
+  gap: 1.25rem;
+}
+
+.podcast-feed-note {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin: 0.75rem 0 0.25rem;
+  flex-basis: 100%;
+}
+
+.podcast-feed-error {
+  font-size: 0.85rem;
+  color: #b91c1c;
+  margin-top: 0.5rem;
+}
+
 .settings-audio-warn {
   flex-basis: 100%;
   font-size: 0.8rem;

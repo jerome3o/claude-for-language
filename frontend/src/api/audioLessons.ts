@@ -1,7 +1,7 @@
 /** API client for audio lessons (worker routes/audio-lessons.ts, docs/AUDIO_LESSONS.md). */
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
-import type { AudioLessonDetail, AudioLessonFormat, AudioLessonSummary } from '@shared/audio-lesson';
+import type { AudioLessonDetail, AudioLessonFormat, AudioLessonSummary, PodcastFeedInfo } from '@shared/audio-lesson';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -54,6 +54,21 @@ export function retryAudioLesson(id: string): Promise<{ lesson: AudioLessonSumma
 
 export function deleteAudioLesson(id: string): Promise<{ ok: true }> {
   return json(`/audio-lessons/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** The private podcast feed of my audio lessons (made on first use; worker routes/podcast.ts). */
+export function getPodcastFeed(): Promise<{ feed: PodcastFeedInfo }> {
+  return json('/me/podcast-feed');
+}
+
+/** A new feed link: the old one stops working at once. */
+export function resetPodcastFeed(): Promise<{ feed: PodcastFeedInfo }> {
+  return json('/me/podcast-feed/reset', { method: 'POST' });
+}
+
+/** Turn the feed off (opening the section again makes a new link). */
+export function deletePodcastFeed(): Promise<{ ok: true }> {
+  return json('/me/podcast-feed', { method: 'DELETE' });
 }
 
 /** The lesson's MP3 as a stream (the caller reads it for progress). */

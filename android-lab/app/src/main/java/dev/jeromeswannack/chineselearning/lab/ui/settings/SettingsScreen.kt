@@ -108,6 +108,8 @@ fun SettingsScreen(
     shareUsage: @Composable () -> Unit = {},
     /** "Lessons & readers": when finished lessons / stories come back (RevisitSettings.kt). */
     revisitSettings: @Composable () -> Unit = {},
+    /** "Audio lessons · Podcast feed" (ui/audiolessons/PodcastFeed.kt). */
+    podcastFeed: @Composable () -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
 ) {
     var advanced by rememberSaveable { mutableStateOf(startAdvanced) }
@@ -129,6 +131,7 @@ fun SettingsScreen(
         item { BackupSection(ui, actions, env) }
         if (!role.isTutorOnly) item { BudgetSection(ui, env, actions) }
         if (!role.isTutorOnly) item { revisitSettings() }
+        item { podcastFeed() }
         item { StartOnSection(ui, role, actions) }
         item { callAlerts() }
         item {

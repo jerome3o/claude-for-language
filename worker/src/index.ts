@@ -32,6 +32,7 @@ import { generateSentenceSet } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
 import pictureHuntRoutes from './routes/picture-hunts';
 import audioLessonRoutes from './routes/audio-lessons';
+import { podcastPublic, podcastMe } from './routes/podcast';
 import { runPictureHuntJob } from './services/picture-hunt';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
@@ -537,6 +538,8 @@ mountCallSocket(app);
 mountLiveSocket(app);
 // "Turn off chat emails" links: the signed token in the URL is the credential (routes/email-prefs.ts).
 app.route('/api/email', emailPublic);
+// The private podcast feed of audio lessons: the token in the path is the credential (routes/podcast.ts).
+app.route('/api/podcast', podcastPublic);
 
 app.use('/api/*', authMiddleware);
 // Hand the signed-in user + route pattern to analytics (server events, AI calls).
@@ -632,6 +635,8 @@ app.route('/api', conversationVoicesRoutes);
 app.route('/api', pictureHuntRoutes);
 // Audio lessons: an agent-written listening lesson rendered to one MP3 (routes/audio-lessons.ts, built on audio-lesson-queue)
 app.route('/api', audioLessonRoutes);
+// Settings → Audio lessons → Podcast feed: the feed link (made on first use), Reset, Turn off.
+app.route('/api', podcastMe);
 // Active study time per local day and device: PUT|GET /api/me/study-time (routes/study-time.ts)
 app.route('/api', studyTimeRoutes);
 // Usage analytics: event upload, the opt-out, admin usage questions (routes/analytics.ts)

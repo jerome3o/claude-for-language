@@ -79,6 +79,38 @@ suspend fun Api.deleteAudioLesson(id: String) {
 }
 
 /**
+ * PodcastFeedInfo (`GET /api/me/podcast-feed`, worker routes/podcast.ts): the private RSS link of
+ * every ready lesson for a podcast app. [url] is the only credential — never logged or cached.
+ */
+@Serializable
+data class PodcastFeedDto(
+    val url: String? = null,
+    val podcast_url: String? = null,
+    val apple_url: String? = null,
+    val created_at: String = "",
+    val rotated_at: String? = null,
+    val last_fetched_at: String? = null,
+    val fetch_count: Int = 0,
+)
+
+@Serializable data class PodcastFeedEnvelopeDto(val feed: PodcastFeedDto)
+
+object PodcastFeedPaths {
+    const val FEED = "/api/me/podcast-feed"
+    const val RESET = "/api/me/podcast-feed/reset"
+}
+
+/** The feed, made on first use. */
+suspend fun Api.podcastFeed(): PodcastFeedDto = get<PodcastFeedEnvelopeDto>(PodcastFeedPaths.FEED).feed
+/** A new link: the old one stops working at once. */
+suspend fun Api.resetPodcastFeed(): PodcastFeedDto = post<PodcastFeedEnvelopeDto>(PodcastFeedPaths.RESET).feed
+/** Turn the feed off. */
+suspend fun Api.deletePodcastFeed() {
+    val res = send("DELETE", PodcastFeedPaths.FEED)
+    if (!res.ok && res.code != 404) throw HttpException(res.code, res.body.take(200), res.body)
+}
+
+/**
  * The lesson's MP3 (owner only, so authenticated) streamed into [dest] through a `.part` file;
  * [onProgress] gets (fraction 0..1 when the size is known, bytes so far).
  */

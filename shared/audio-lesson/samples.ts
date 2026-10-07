@@ -61,7 +61,9 @@ export const SAMPLE_SLEEP_PLAN: SleepPlan = {
       hanzi: '邮局',
       pinyin: 'yóujú',
       english: 'post office',
-      explanation_zh: ['邮局是一个地方。', '在邮局，你可以寄信。'],
+      meaning_zh: ['邮局是一个地方。', '在邮局，你可以寄信。'],
+      characters_zh: ['‘邮’是‘邮件’的‘邮’。'],
+      recap_en: 'post office, the place where you send letters and parcels.',
       related_known: ['地方', '信'],
       sentences: [
         { hanzi: '邮局在银行旁边。', pinyin: 'yóujú zài yínháng pángbiān.', english: 'The post office is next to the bank.' },
@@ -73,7 +75,9 @@ export const SAMPLE_SLEEP_PLAN: SleepPlan = {
       hanzi: '寄',
       pinyin: 'jì',
       english: 'to send by post',
-      explanation_zh: ['寄就是送东西给别人。', '可是不是你自己去送。'],
+      meaning_zh: ['寄就是送东西给别人。', '可是不是你自己去送。'],
+      characters_zh: [],
+      recap_en: 'to send by post, as in posting a letter, not sending a text message.',
       related_known: ['送', '东西'],
       sentences: [
         { hanzi: '我想寄一封信。', pinyin: 'wǒ xiǎng jì yì fēng xìn.', english: 'I want to send a letter.' },
