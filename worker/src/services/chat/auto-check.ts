@@ -10,12 +10,15 @@
  * person in a Claude practice chat, or anyone who switched it on); what is
  * skipped: `autoCheckSkipReason` (no / little Chinese, ≤ 2 characters, emoji,
  * very long). Idempotent per message + text; an edit clears it and re-checks.
+ * A photo / file / video is checked on its caption and a voice message on its
+ * transcript once it exists (`autoCheckText`) — docs/CHAT.md "Chat ↔ Coach".
  */
 
 import type { Env, TutorRelationship } from '../../types';
 import { CLAUDE_AI_USER_ID } from '../../types';
 import {
   autoCheckApplies,
+  autoCheckText,
   autoCheckSkipReason,
   parseAutoCheck,
   type AutoCheckCard,
@@ -220,7 +223,10 @@ export async function autoCheckMessageInBackground(
       )
       .bind(messageId)
       .first<{ conversation_id: string; sender_id: string; content: string; created_at: string; attachment: string | null; deleted_at: string | null; auto_check: string | null; chat_auto_check: number | null }>();
-    if (!row || row.deleted_at || parseStoredAttachment(row.attachment) || row.sender_id === CLAUDE_AI_USER_ID) return 'skipped';
+    if (!row || row.deleted_at || row.sender_id === CLAUDE_AI_USER_ID) return 'skipped';
+    // The caption of a photo / file / video, a voice message's transcript (once done), else the text.
+    const text = autoCheckText({ content: row.content, attachment: parseStoredAttachment(row.attachment) });
+    if (!text.trim()) return 'skipped';
 
     const participants = await getConversationParticipants(env.DB, row.conversation_id);
     if (!participants) return 'skipped';
@@ -234,19 +240,21 @@ export async function autoCheckMessageInBackground(
     }
     const setting = row.chat_auto_check === null || row.chat_auto_check === undefined ? null : row.chat_auto_check !== 0;
     if (!autoCheckApplies(setting, senderRole, participants.is_ai)) return 'off';
-    if (autoCheckSkipReason(row.content)) return 'skipped';
-    if (parseAutoCheck(row.auto_check, row.content)) return 'cached';
+    if (autoCheckSkipReason(text)) return 'skipped';
+    if (parseAutoCheck(row.auto_check, text)) return 'cached';
 
     const check = deps.check === undefined ? defaultAutoChecker(env) : deps.check;
     if (!check) return 'skipped';
     const context = await recentContext(env.DB, row.conversation_id, row.created_at, row.sender_id);
     const now = deps.now?.() ?? new Date().toISOString();
-    const result = normalizeAutoCheck(await check(row.content, context), row.content, now);
+    const result = normalizeAutoCheck(await check(text, context), text, now);
 
     const at = laterThan(await currentUpdatedAt(env.DB, messageId));
+    // Only while the message still says what was checked (caption / transcript unchanged).
     const res = await env.DB
-      .prepare('UPDATE messages SET auto_check = ?, updated_at = ? WHERE id = ? AND content = ? AND deleted_at IS NULL')
-      .bind(JSON.stringify(result), at, messageId, row.content)
+      .prepare(`UPDATE messages SET auto_check = ?, updated_at = ?
+                 WHERE id = ? AND content = ? AND COALESCE(attachment, '') = ? AND deleted_at IS NULL`)
+      .bind(JSON.stringify(result), at, messageId, row.content, row.attachment ?? '')
       .run();
     if ((res.meta?.changes ?? 0) === 0) return 'skipped';
     await broadcastMessageUpdated(env, messageId);

@@ -869,12 +869,18 @@ export interface CoachConversation {
   input_language: CoachInputLanguage;
   /** Which button started it (null on conversations from before it was recorded) */
   action?: CoachAction | null;
+  /** "Open in Coach" from this chat message. */
+  source_message_id?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface CoachConversationListItem extends CoachConversation {
   message_count: number;
+  /** Claude is still answering in the background (docs/CHAT.md "Chat ↔ Coach"). */
+  pending_reply?: boolean;
+  /** The last reply failed (open it to Retry). */
+  failed_reply?: boolean;
 }
 
 export interface CoachMessage {
@@ -885,6 +891,9 @@ export interface CoachMessage {
   content: string;
   tool_results: string | null;
   created_at: string;
+  /** null = done; pending = being written in the background; failed = see error (Retry). */
+  status?: 'pending' | 'failed' | null;
+  error?: string | null;
 }
 
 export interface CoachToolResult {

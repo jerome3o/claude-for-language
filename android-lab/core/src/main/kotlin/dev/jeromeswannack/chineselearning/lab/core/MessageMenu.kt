@@ -5,7 +5,8 @@ package dev.jeromeswannack.chineselearning.lab.core
  * `messageMenu` / `menuText` in shared/chats/messageMenu.ts, parity-tested
  * (parity/fixtures/chat-round2.ts → ChatRound2ParityTest). Bubbles carry no buttons: every tool
  * lives here, in this order: How to say it better (first, on my own message the auto-check flagged
- * or the tutor corrected — [SayBetter]), Reply, Copy, Forward, Translate, Pinyin, Explain, Save as flashcard, Make
+ * or the tutor corrected — [SayBetter]) and Open in Coach right after it, Reply, Copy, Forward, Translate, Pinyin, Explain, Save as flashcard, Open in Coach (any
+ * message with Chinese: mine is checked, theirs explained — when not already second), Make
  * flashcards from selection, Check my Chinese, Correct, Read aloud, Word by word (Claude practice
  * chat), Discuss with Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top ([Menu.reactions]).
  */
@@ -20,6 +21,8 @@ object MessageMenu {
         /** image | voice | file | video | null. */
         val attachmentKind: String? = null,
         val transcript: String? = null,
+        /** The voice transcript's state ('pending' | 'done' | 'failed' | null). */
+        val transcriptStatus: String? = null,
         val attachmentTranslation: String? = null,
         /** Machine translation already on the message (text messages). */
         val translation: String? = null,
@@ -50,6 +53,7 @@ object MessageMenu {
 
     // Action ids (`MenuActionId`).
     const val SAY_BETTER = "say_better"
+    const val OPEN_COACH = "open_coach"
     const val REPLY = "reply"
     const val COPY = "copy"
     const val FORWARD = "forward"
@@ -104,13 +108,20 @@ object MessageMenu {
         val translated = if (kind == "voice") truthy(msg.attachmentTranslation) else truthy(msg.translation)
         val items = mutableListOf<Item>()
         // Auto-check found something, or the tutor corrected it: the first thing to reach for.
-        val better = SayBetter.state(
-            msg.senderId, msg.content, msg.deletedAt, kind, msg.hasCorrection, msg.correctionText,
-            msg.autoCheckStatus, msg.autoCheckText, viewerId,
-        )
-        if (better != null) items += Item(SAY_BETTER, "How to say it better", "✨", false)
+        val k = kind?.takeIf { it.isNotEmpty() }
+        val sayBetter = SayBetter.state(
+            msg.senderId, msg.content, msg.deletedAt, k, msg.hasCorrection, msg.correctionText,
+            msg.autoCheckStatus, msg.autoCheckText, viewerId, msg.transcript, msg.transcriptStatus,
+        ) != null
+        if (sayBetter) items += Item(SAY_BETTER, "How to say it better", "✨", false)
+        // "Open in Coach": my own message (as the learner) is checked there, anyone else's explained.
+        val coach = SayBetter.openInCoachRequest(msg.senderId, msg.content, msg.deletedAt, k, msg.transcript, msg.transcriptStatus, viewerId)
+        val openCoach = coach != null && (!isMine || isLearner)
+        val coachItem = Item(OPEN_COACH, "Open in Coach", "🎓", true)
+        if (openCoach && sayBetter) items += coachItem
         // A current auto-check answers "Check my Chinese" already.
-        val autoChecked = msg.autoCheckStatus != null && msg.autoCheckText == msg.content
+        val autoChecked = msg.autoCheckStatus != null &&
+            msg.autoCheckText == SayBetter.autoCheckText(msg.content, k, msg.transcript, msg.transcriptStatus)
         items += Item(REPLY, "Reply", "↩️", false)
         if (text.isNotEmpty()) items += Item(COPY, "Copy", "📋", false)
         if (!isAiConversation) items += Item(FORWARD, "Forward", "↪️", true)
@@ -122,6 +133,7 @@ object MessageMenu {
             items += Item(EXPLAIN, "Explain", "🔍", true)
             items += Item(SAVE_CARD, "Save as flashcard", "🃏", true)
         }
+        if (openCoach && !sayBetter) items += coachItem
         if (text.isNotEmpty()) items += Item(SELECT_CARDS, "Make flashcards from selection", "🗂️", true)
         if (isMine && zh && isLearner && noKind && !autoChecked) {
             if (msg.checkStatus == "needs_improvement") items += Item(VIEW_CORRECTIONS, "View corrections", "📝", false)

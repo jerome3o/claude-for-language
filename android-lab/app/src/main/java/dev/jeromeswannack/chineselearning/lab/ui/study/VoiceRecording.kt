@@ -110,7 +110,7 @@ object TakeTranscription {
  * [startLive] records raw 16 kHz mono PCM instead (AudioRecord), hands every 100 ms to the
  * live transcriber (Soniox) and keeps the take as a WAV — so "You said" is ready at Stop.
  */
-class VoiceRecorder(private val context: Context, private val scope: CoroutineScope) {
+open class VoiceRecorder(private val context: Context, private val scope: CoroutineScope) {
     private var recorder: MediaRecorder? = null
     private var file: File? = null
     private var meter: Job? = null
@@ -125,11 +125,11 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
     private val ext: String get() = if (Build.VERSION.SDK_INT >= 29) "webm" else "m4a"
 
     private var pcm: PcmTake? = null
-    val recording: Boolean get() = recorder != null || pcm != null
+    open val recording: Boolean get() = recorder != null || pcm != null
 
     /** A take streamed as it is spoken: [onAudio] gets 16-bit mono PCM at 16 kHz. */
     @android.annotation.SuppressLint("MissingPermission") // the card asks for RECORD_AUDIO first
-    fun startLive(onAudio: (ByteArray, Int) -> Unit): Boolean {
+    open fun startLive(onAudio: (ByteArray, Int) -> Unit): Boolean {
         stopQuietly()
         val out = File(File(context.cacheDir, "takes").apply { mkdirs() }, "take-${System.currentTimeMillis()}.wav")
         val take = PcmTake.start(out, SonioxProtocol.SAMPLE_RATE, onAudio) { _level.value = it } ?: return false
@@ -140,7 +140,7 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
     }
 
     /** Starts a new take; false when the microphone can't be opened. */
-    fun start(): Boolean {
+    open fun start(): Boolean {
         stopQuietly()
         val out = File(File(context.cacheDir, "takes").apply { mkdirs() }, "take-${System.currentTimeMillis()}.$ext")
         val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()
@@ -176,7 +176,7 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
     }
 
     /** Stops and returns the take (null when it failed or was too short to hold anything). */
-    fun stop(): File? {
+    open fun stop(): File? {
         pcm?.let { take ->
             pcm = null
             _level.value = 0f
@@ -200,7 +200,7 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
         stop()?.delete()
     }
 
-    fun play(take: File, onDone: () -> Unit = {}) {
+    open fun play(take: File, onDone: () -> Unit = {}) {
         player?.release()
         player = MediaPlayer().apply {
             runCatching {
@@ -210,6 +210,11 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
                 start()
             }
         }
+    }
+
+    /** Stops "Play my recording" (the card's own clip is about to play). */
+    open fun stopPlayback() {
+        player?.let { p -> runCatching { if (p.isPlaying) p.stop() } }
     }
 
     fun release() {
