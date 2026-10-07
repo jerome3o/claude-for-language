@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LocalNoteSentence } from '../db/database';
 import {
   getLocalNoteSentences,
@@ -10,7 +10,10 @@ import {
   getSentenceExplanation,
   getTextExplanation,
   getCachedTextExplanation,
+  getClueTranslation,
+  getCachedClueTranslation,
 } from '../services/sentence-sets';
+import { devicePinyinLine } from '../utils/autoPinyin';
 import { SentenceBriefExplanation } from '../types';
 import { fetchNoteSentences, deleteNoteSentenceSet, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
@@ -60,10 +63,15 @@ type RevealStep = 'hanzi' | 'pinyin' | 'translation';
  * is already on screen as the prompt, so it drops out of the chain rather than
  * being shown twice.
  */
-function revealSteps(row: { pinyin: string | null; translation: string | null }, englishFirst = false): RevealStep[] {
+function revealSteps(
+  row: { pinyin: string | null; translation: string | null; fetchTranslation?: boolean },
+  englishFirst = false
+): RevealStep[] {
   const steps: RevealStep[] = ['hanzi'];
   if (row.pinyin) steps.push('pinyin');
-  if (row.translation && !englishFirst) steps.push('translation');
+  // The card's own sentence always has an English step: when the note carries
+  // no translation it is fetched as the row opens (see getClueTranslation).
+  if ((row.translation || row.fetchTranslation) && !englishFirst) steps.push('translation');
   return steps;
 }
 
@@ -99,6 +107,8 @@ interface DisplayRow {
   focus_note: string | null;
   explanation: string | null;
   fromCard: boolean;
+  /** The card's sentence with no translation on the note: the English is fetched on demand. */
+  fetchTranslation: boolean;
 }
 
 interface SentenceSetProps {
@@ -165,6 +175,11 @@ export function SentenceSet({
   // The card's own sentence has no row to cache its breakdown on: the one this
   // device already holds (study card, Coach) shows at once, offline too.
   const [cachedClue, setCachedClue] = useState<SentenceBriefExplanation | null>(null);
+  // Many card sentences were written without an English line: the one fetched
+  // (or cached on this device) for it, and how that is going.
+  const [clueTranslation, setClueTranslation] = useState<string | null>(null);
+  const [clueTranslating, setClueTranslating] = useState(false);
+  const [clueTranslateFailed, setClueTranslateFailed] = useState(false);
 
   // Guard against a slow fetch landing after the user moved to another card
   const noteIdRef = useRef(noteId);
@@ -209,15 +224,29 @@ export function SentenceSet({
   const clueHanzi = cardSentence?.hanzi ?? null;
   useEffect(() => {
     setCachedClue(null);
+    setClueTranslation(null);
+    setClueTranslating(false);
+    setClueTranslateFailed(false);
     if (!clueHanzi) return;
     let live = true;
     void getCachedTextExplanation(clueHanzi).then((cached) => {
       if (live) setCachedClue(cached);
     });
+    void getCachedClueTranslation(clueHanzi).then((cached) => {
+      if (live && cached) setClueTranslation(cached);
+    });
     return () => {
       live = false;
     };
   }, [clueHanzi]);
+
+  // A card sentence written without pinyin gets the device's own (like every
+  // automatic pinyin), so it reveals hanzi → pinyin → English like the set rows.
+  const cluePinyin = useMemo(() => {
+    if (!clueHanzi) return null;
+    if (cardSentence?.pinyin?.trim()) return cardSentence.pinyin;
+    return devicePinyinLine(clueHanzi) || null;
+  }, [clueHanzi, cardSentence?.pinyin]);
 
   const handleGenerate = useCallback(
     async (options: { count?: number; keepExisting?: boolean; customPrompt?: string } = {}) => {
@@ -327,8 +356,14 @@ export function SentenceSet({
   const renderTools = (row: DisplayRow) => {
     const state = explanations[row.key] ?? parseCachedExplanation(row.explanation) ?? (row.fromCard ? cachedClue : null);
     const isLoading = explaining.has(row.key);
+    const retryEnglish = row.fetchTranslation && !row.translation && clueTranslateFailed && isOnline;
     return (
       <div className="sentence-set-tools">
+        {retryEnglish && (
+          <button className="sentence-set-tool" onClick={() => setClueTranslateFailed(false)}>
+            Retry English
+          </button>
+        )}
         {!state || state === 'error' ? (
           <button
             className="sentence-set-tool"
@@ -369,18 +404,20 @@ export function SentenceSet({
    * ever one copy of it.
    */
   const rows: DisplayRow[] = [];
+  const ownTranslation = cardSentence?.translation?.trim() || null;
   if (cardSentence?.hanzi && !sentences.some((s) => s.hanzi === cardSentence.hanzi)) {
     rows.push({
       key: `clue:${noteId}`,
       sentenceId: null,
       hanzi: cardSentence.hanzi,
-      pinyin: cardSentence.pinyin,
-      translation: cardSentence.translation,
+      pinyin: cluePinyin,
+      translation: ownTranslation || cachedClue?.translation?.trim() || clueTranslation,
       audio_url: cardSentence.audio_url,
       focus: 'from_card',
       focus_note: null,
       explanation: null,
       fromCard: true,
+      fetchTranslation: !ownTranslation,
     });
   }
   for (const sentence of sentences) {
@@ -395,8 +432,36 @@ export function SentenceSet({
       focus_note: sentence.focus_note,
       explanation: sentence.explanation,
       fromCard: false,
+      fetchTranslation: false,
     });
   }
+
+  // The card's sentence has no English yet: fetch it as soon as the row starts
+  // opening, so it is there by the time the learner taps through to it.
+  const clueRow = rows[0]?.fromCard ? rows[0] : null;
+  const clueStage = clueRow ? (showAll ? Infinity : revealed[clueRow.key] ?? startStage) : 0;
+  const clueNeedsFetch = !!clueRow && clueRow.fetchTranslation && !clueRow.translation;
+  useEffect(() => {
+    if (!clueNeedsFetch || !clueHanzi || clueStage < 1 || !isOnline || clueTranslating || clueTranslateFailed) return;
+    let live = true;
+    setClueTranslating(true);
+    getClueTranslation({ hanzi: clueHanzi, pinyin: cluePinyin })
+      .then((translation) => {
+        if (live) setClueTranslation(translation);
+      })
+      .catch((err) => {
+        console.warn('[SentenceSet] Could not get the English for the card sentence:', err);
+        if (live) setClueTranslateFailed(true);
+      })
+      .finally(() => {
+        if (live) setClueTranslating(false);
+      });
+    return () => {
+      live = false;
+      setClueTranslating(false);
+    };
+    // clueTranslating is set here; re-running on it would cancel the request it started.
+  }, [clueNeedsFetch, clueHanzi, clueStage >= 1, isOnline, clueTranslateFailed, cluePinyin]);
 
   const hasSet = sentences.length > 0;
   const rootClass = `sentence-set${compact ? ' sentence-set--compact' : ''}`;
@@ -600,6 +665,9 @@ export function SentenceSet({
                 </button>
                 )}
                 <div className="sentence-set-body">
+                  {/* The card's own sentence: a small badge on its own line at the
+                      top right, never where the lines it uncovers go. */}
+                  {row.fromCard && <span className="sentence-set-badge sentence-set-corner">From the card</span>}
                   {/* A row starts blank on purpose: listen first, then uncover
                       one line per tap so each is read before the next lands. */}
                   <button
@@ -624,9 +692,18 @@ export function SentenceSet({
                     {shown('pinyin') && row.pinyin && (
                       <span className="sentence-set-pinyin">{row.pinyin}</span>
                     )}
-                    {shown('translation') && row.translation && (
-                      <span className="sentence-set-translation">{row.translation}</span>
-                    )}
+                    {shown('translation') &&
+                      (row.translation ? (
+                        <span className="sentence-set-translation">{row.translation}</span>
+                      ) : (
+                        <span className="sentence-set-translation is-pending" data-testid="sentence-set-translation-pending">
+                          {!isOnline
+                            ? 'Translation needs a connection'
+                            : clueTranslateFailed
+                              ? 'Couldn’t get the English'
+                              : 'Translating…'}
+                        </span>
+                      ))}
                     {isBlank && <span className="sentence-set-blank" aria-hidden="true" />}
                     {pass && stage > 0 && !isFullyShown && (
                       <span className="sentence-set-next">
@@ -634,9 +711,8 @@ export function SentenceSet({
                       </span>
                     )}
                   </button>
-                  {isFullyShown && (showFocus || row.fromCard || row.focus_note) && (
+                  {isFullyShown && ((showFocus && !row.fromCard) || row.focus_note) && (
                     <div className="sentence-set-focus">
-                      {row.fromCard && <span className="sentence-set-badge">From the card</span>}
                       {showFocus && !row.fromCard && (
                         <span className="sentence-set-badge">{focusLabel}</span>
                       )}

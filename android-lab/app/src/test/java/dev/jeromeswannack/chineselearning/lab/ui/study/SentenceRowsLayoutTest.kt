@@ -117,11 +117,13 @@ class SentenceRowsLayoutTest : LabScreenshotTest() {
         compose.onRoot().captureRoboImage("screenshots/study-e02-sentences-expanded-dark-1.3.png")
         scrollToEnd()
         compose.onRoot().captureRoboImage("screenshots/study-e03-sentences-expanded-end-dark-1.3.png")
-        // Row 1 is the note's own sentence, badged as such once it is open.
+        // Row 1 is the note's own sentence, badged as such on its own small line above the text —
+        // never where the English goes (it used to sit under the hanzi where the English belonged).
         val clue = node(note.sentenceClue!!)
         val badge = node("From the card")
+        val english = node(note.sentenceClueTranslation!!)
         val firstSet = node(set[0].hanzi)
-        assertTrue(clue.top() < badge.top() && badge.bottom() <= firstSet.top())
+        assertTrue(badge.bottom() <= clue.top() && clue.bottom() <= english.top() && english.bottom() <= firstSet.top())
         assertStacked(1, note.sentenceClue!!)
         assertTrue(node(set.last().hanzi).bottom() < node("+ 5 more sentences").top())
     }

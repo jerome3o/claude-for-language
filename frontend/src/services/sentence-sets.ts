@@ -322,6 +322,67 @@ export async function cacheTextExplanation(hanzi: string, explanation: SentenceB
   }
 }
 
+/** Where a card sentence's fetched English is kept (beside the breakdowns, keyed by the text). */
+export function clueTranslationKey(hanzi: string): string {
+  return `translation:${hanzi}`;
+}
+
+/**
+ * The English this device already holds for a card sentence that has none on
+ * the note (many clues were written without one): the breakdown's one-line
+ * translation when it was explained here, else one fetched earlier by
+ * {@link getClueTranslation}. Null when neither — offline that means "needs a
+ * connection".
+ */
+export async function getCachedClueTranslation(hanzi: string): Promise<string | null> {
+  const fromBreakdown = (await getCachedTextExplanation(hanzi))?.translation?.trim();
+  if (fromBreakdown) return fromBreakdown;
+  try {
+    const row = await db.sentenceTextExplanations.get(clueTranslationKey(hanzi));
+    if (!row) return null;
+    const parsed = JSON.parse(row.explanation) as { translation?: string };
+    return parsed.translation?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The English line for a card sentence with no translation on the note: the
+ * same `/api/sentences/explain-text` breakdown "What's going on here?" uses
+ * carries a one-line translation. Only the translation is kept (so opening the
+ * row later doesn't unfold a breakdown nobody asked for); cached by text, so
+ * it is instant and offline after the first time.
+ */
+export function getClueTranslation(sentence: { hanzi: string; pinyin?: string | null }): Promise<string> {
+  // One request per sentence at a time (a re-render or a second list asking again shares it).
+  const pending = clueTranslationsInFlight.get(sentence.hanzi);
+  if (pending) return pending;
+  const request = fetchClueTranslation(sentence).finally(() => clueTranslationsInFlight.delete(sentence.hanzi));
+  clueTranslationsInFlight.set(sentence.hanzi, request);
+  return request;
+}
+
+const clueTranslationsInFlight = new Map<string, Promise<string>>();
+
+async function fetchClueTranslation(sentence: { hanzi: string; pinyin?: string | null }): Promise<string> {
+  const cached = await getCachedClueTranslation(sentence.hanzi);
+  if (cached) return cached;
+  const explanation = await explainSentenceText({ hanzi: sentence.hanzi, pinyin: sentence.pinyin ?? null });
+  const translation = explanation.translation?.trim();
+  if (!translation) throw new Error('No translation came back');
+  try {
+    await db.sentenceTextExplanations.put({
+      key: clueTranslationKey(sentence.hanzi),
+      explanation: JSON.stringify({ translation }),
+      cached_at: Date.now(),
+    });
+  } catch (err) {
+    console.warn('[sentence-sets] Could not cache the translation:', err);
+  }
+  return translation;
+}
+
 /**
  * What this device actually holds, for the coverage overview: sets are only
  * usable offline once they've synced down, so "the server has 800 sets" and

@@ -1747,6 +1747,21 @@ button.queue-counts:active {
   white-space: nowrap;
 }
 
+/* "From the card": its own small line at the row's top right, beside ▶ */
+.sentence-set-corner {
+  display: block;
+  width: fit-content;
+  margin: 0 0 0.125rem auto;
+  font-size: 0.625rem;
+  line-height: 1.4;
+}
+
+/* The card sentence's English while it is fetched / can't be */
+.sentence-set-translation.is-pending {
+  font-style: italic;
+  color: var(--color-text-light);
+}
+
 /* Per-row tools: breakdown · reverse practice · add as card */
 .sentence-set-tools {
   display: flex;

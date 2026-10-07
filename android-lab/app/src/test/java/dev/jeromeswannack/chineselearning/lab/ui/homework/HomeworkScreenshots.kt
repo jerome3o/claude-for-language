@@ -56,7 +56,7 @@ class HomeworkScreenshots : LabScreenshotTest() {
         val sorted = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, TODAY))
         val listUi = HomeworkListUi(true, sorted.todo, sorted.done, TODAY)
 
-        val clueRow = SentenceRow("clue:n1", null, "服务员，我们要点菜。", "fúwùyuán, wǒmen yào diǎn cài.", "Waiter, we'd like to order.", null, "From the card")
+        val clueRow = SentenceRow("clue:n1", null, "服务员，我们要点菜。", "fúwùyuán, wǒmen yào diǎn cài.", "Waiter, we'd like to order.", null, "From the card", fromCard = true)
         val setRows = listOf(
             SentenceRow("s1", "s1", "那个服务员很热情。", "nàge fúwùyuán hěn rèqíng.", "That waiter is very friendly.", null, null),
             SentenceRow("s2", "s2", "我姐姐在饭店当服务员。", "wǒ jiějie zài fàndiàn dāng fúwùyuán.", "My older sister works as a waitress in a restaurant.", null, "Collocation"),

@@ -941,6 +941,14 @@ breakdown — word glosses + the construction — generated with Haiku; each wor
 to add as a card) and **+ Add as card** for the whole sentence.
 Set rows cache their breakdown server-side; the clue row has no row to cache on, so it uses
 `/api/sentences/explain-text` and caches in the `sentenceTextExplanations` IndexedDB table.
+**The clue row reveals like every row even when the note has no clue pinyin / translation** (~⅓ of
+notes — MCP-added / older ones): missing pinyin is made on the device (`devicePinyinLine`, Lab
+`devicePinyinLine` in `ui/study/Sentences.kt`), and the English step is always there — the line is
+fetched once as the row starts opening (`getClueTranslation` → explain-text's `translation`, only the
+line cached, key `translation:<hanzi>`; Lab `CardTools.clueTranslation`, `study/clue-translation/<hanzi>`);
+offline and never fetched → "Translation needs a connection". Not written back to the note (that
+would bump `updated_at` and break the tutor→student copy rules). "From the card" is a small badge on
+its own line at the row's top right.
 
 Sets are pre-generated in the background so study never waits on an AI call: notes are
 enqueued on `sentence-set-queue` when created, and the client's sync tops up the backlog

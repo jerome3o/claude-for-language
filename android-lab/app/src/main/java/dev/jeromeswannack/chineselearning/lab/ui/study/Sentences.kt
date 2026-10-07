@@ -75,6 +75,14 @@ data class SentenceRow(
     val audioUrl: String?,
     val badge: String?,
     val focusNote: String? = null,
+    /** The card's own sentence: its badge sits on its own small line at the top right. */
+    val fromCard: Boolean = false,
+    /**
+     * The card's own sentence with no translation on the note (MCP-added / older notes): the
+     * English step is still there and the line is fetched when the row starts opening
+     * ([SentenceActions.translate], cached on the device by text).
+     */
+    val fetchTranslation: Boolean = false,
 )
 
 /** SentenceSet.tsx `FOCUS_LABELS`. */
@@ -91,13 +99,36 @@ fun sentenceRows(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity, s
     val rows = ArrayList<SentenceRow>()
     val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
     if (clue != null && sentences.none { it.hanzi == clue }) {
-        rows += SentenceRow(clueRowKey(note.id), null, clue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl, "From the card")
+        // A clue written without pinyin gets the device's own (the app's one automatic pinyin), so
+        // it reveals hanzi → pinyin → English like every other row.
+        val pinyin = note.sentenceCluePinyin?.takeIf { it.isNotBlank() } ?: devicePinyinLine(clue).takeIf { it.isNotEmpty() }
+        val translation = note.sentenceClueTranslation?.takeIf { it.isNotBlank() }
+        rows += SentenceRow(
+            clueRowKey(note.id), null, clue, pinyin, translation, note.sentenceClueAudioUrl, "From the card",
+            fromCard = true, fetchTranslation = translation == null,
+        )
     }
     sentences.sortedBy { it.position }.forEach { s ->
         rows += SentenceRow(s.id, s.id, s.hanzi, s.pinyin, s.translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote)
     }
     return rows
 }
+
+private val HAN_RUN = Regex("\\p{IsHan}+")
+
+/**
+ * Pinyin of a whole sentence made on the phone (web `devicePinyinLine`): pinyin-pro's
+ * `nonZh: 'consecutive'` — only the Han runs become pinyin — then `tidyPinyin`: no space before
+ * punctuation or inside quotes, one after a Chinese comma / full stop. "" when it can't.
+ */
+fun devicePinyinLine(text: String): String = runCatching {
+    HAN_RUN.replace(text) { m -> " " + dev.jeromeswannack.chineselearning.lab.core.ToneChange.autoPinyin(m.value).trim() + " " }
+        .replace(Regex("\\s+([，。！？、：；”’）」』,.!?;:)])"), "$1")
+        .replace(Regex("([“‘（「『(])\\s+"), "$1")
+        .replace(Regex("([，。！？、：；])\\s*"), "$1 ")
+        .replace(Regex(" {2,}"), " ")
+        .trim()
+}.getOrDefault("")
 
 /** A word or sentence the learner is turning into a card (AddChunkModal's `Chunk`; fun_facts optional, sent as is). */
 data class Chunk(val hanzi: String, val pinyin: String, val english: String, val funFacts: String? = null)
@@ -109,6 +140,10 @@ class SentenceActions(
     val clear: suspend () -> Unit = {},
     val cachedExplanation: suspend (SentenceRow) -> SentenceExplanation? = { null },
     val explain: suspend (SentenceRow) -> SentenceExplanation = { error("offline") },
+    /** The English this device holds for a card sentence without one (offline), or null. */
+    val cachedTranslation: suspend (SentenceRow) -> String? = { null },
+    /** The English for a card sentence without one (`/api/sentences/explain-text`'s translation line). */
+    val translate: suspend (SentenceRow) -> String = { error("offline") },
     /** Decks (current note's deck first) and whether one already has this hanzi. */
     val decks: suspend () -> List<Pair<String, String>> = { emptyList() },
     val deckHas: suspend (deckId: String, hanzi: String) -> Boolean = { _, _ -> false },
@@ -249,6 +284,9 @@ class SentenceRowsState(startExplained: Map<String, SentenceExplanation> = empty
     val explanations = mutableStateMapOf<String, SentenceExplanation?>().apply { putAll(startExplained) }
     val explaining = mutableStateMapOf<String, Boolean>()
     val failed = mutableStateMapOf<String, Boolean>()
+    /** English fetched for card sentences that have none on the note, and how that is going. */
+    val translations = mutableStateMapOf<String, String>()
+    val translateFailed = mutableStateMapOf<String, Boolean>()
     var showAll by mutableStateOf(startShowAll)
 }
 
@@ -261,6 +299,8 @@ const val SENTENCE_AUDIO_BUSY_TAG = "sentence-audio-busy"
 const val SENTENCE_ROW_TAG = "sentence-row"
 const val SENTENCE_EXPLAIN_TAG = "sentence-explain"
 const val SENTENCE_ADD_TAG = "sentence-add"
+const val SENTENCE_TRANSLATION_PENDING_TAG = "sentence-translation-pending"
+const val SENTENCE_CARD_BADGE_TAG = "sentence-card-badge"
 
 /**
  * One sentence row, as on the study card (SentenceSet.tsx's `<li class="sentence-set-row">`):
@@ -288,15 +328,36 @@ fun SentenceRowView(
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(row.key) { if (state.explanations[row.key] == null) s.cachedExplanation(row)?.let { state.explanations[row.key] = it } }
-    val en = englishToggle && state.english[row.key] == true && row.translation != null
+    // The card's sentence without an English line: the one cached here, else fetched as it opens.
+    LaunchedEffect(row.key) {
+        if (row.fetchTranslation && row.translation == null && state.translations[row.key] == null) {
+            runCatching { s.cachedTranslation(row) }.getOrNull()?.let { state.translations[row.key] = it }
+        }
+    }
+    val translation = row.translation?.takeIf { it.isNotBlank() } ?: state.translations[row.key]
+    val resolved = if (translation == row.translation) row else row.copy(translation = translation)
+    val en = englishToggle && state.english[row.key] == true && translation != null
     val chain = buildList {
         add("hanzi")
         if (!row.pinyin.isNullOrBlank()) add("pinyin")
-        if (!en && !row.translation.isNullOrBlank()) add("translation")
+        if (!en && (translation != null || row.fetchTranslation)) add("translation")
     }
     val first = if (en) 0 else startStep.coerceIn(0, chain.size)
     val step = if (state.showAll) chain.size else (state.steps[row.key] ?: first)
     val open = step >= chain.size
+    // Fetched as soon as the row starts opening, so it is there by the time he taps through to it.
+    val wantsTranslation = row.fetchTranslation && translation == null && step >= 1
+    val translateFailed = state.translateFailed[row.key] == true
+    LaunchedEffect(row.key, wantsTranslation, online, translateFailed) {
+        if (!wantsTranslation || !online || translateFailed) return@LaunchedEffect
+        try {
+            state.translations[row.key] = s.translate(row)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            state.translateFailed[row.key] = true
+        }
+    }
     val playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}")
     val toolsStart = if (englishToggle) 50.dp else 10.dp
     Column(
@@ -317,7 +378,7 @@ fun SentenceRowView(
                 Box(
                     Modifier.size(34.dp).clip(CircleShape)
                         .background(if (en) Lab.colors.accentSoft else Lab.colors.card)
-                        .clickable(enabled = row.translation != null) { state.english[row.key] = !en; state.steps[row.key] = 0; if (!en) state.showAll = false },
+                        .clickable(enabled = translation != null) { state.english[row.key] = !en; state.steps[row.key] = 0; if (!en) state.showAll = false },
                     contentAlignment = Alignment.Center,
                 ) { Text("EN", style = MaterialTheme.typography.labelSmall, color = if (en) Lab.colors.accent else Lab.colors.muted) }
                 Spacer(Modifier.width(10.dp))
@@ -325,12 +386,36 @@ fun SentenceRowView(
                 Spacer(Modifier.width(6.dp))
             }
             Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
-                if (en) Text(row.translation!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
+                // The card's own sentence: a small badge on its own line at the top right (beside ▶),
+                // never in the line where the English appears.
+                if (row.fromCard && row.badge != null) {
+                    Text(
+                        row.badge,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Lab.colors.muted,
+                        modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(50)).background(Lab.colors.card)
+                            .padding(horizontal = 6.dp, vertical = 1.dp).testTag(SENTENCE_CARD_BADGE_TAG),
+                    )
+                }
+                if (en) Text(translation!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
                 if (step == 0 && !en) Text("Tap to reveal", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted.copy(alpha = 0.6f))
                 if (step >= 1) Text(row.hanzi, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
                 if (step >= 2 && chain.getOrNull(1) == "pinyin") Text(row.pinyin!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.accent)
                 val translationStep = chain.indexOf("translation") + 1
-                if (translationStep > 0 && step >= translationStep) Text(row.translation!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
+                if (translationStep > 0 && step >= translationStep) {
+                    if (translation != null) Text(translation, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
+                    else Text(
+                        when {
+                            !online -> "Translation needs a connection"
+                            translateFailed -> "Couldn’t get the English"
+                            else -> "Translating…"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        color = Lab.colors.muted.copy(alpha = 0.7f),
+                        modifier = Modifier.testTag(SENTENCE_TRANSLATION_PENDING_TAG),
+                    )
+                }
                 // A row that starts with the Chinese up (the pass) says what the next tap adds.
                 if (startStep > 0 && step >= 1 && !open) {
                     Text(
@@ -340,9 +425,10 @@ fun SentenceRowView(
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
-                if (open && (row.badge != null || row.focusNote != null)) {
+                val focusLine = listOfNotNull(row.badge?.takeIf { !row.fromCard }, row.focusNote)
+                if (open && focusLine.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
-                    Text(listOfNotNull(row.badge, row.focusNote).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
+                    Text(focusLine.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
                 }
             }
             Box(
@@ -356,6 +442,9 @@ fun SentenceRowView(
         if (open) {
             val ex = state.explanations[row.key]
             Row(Modifier.padding(start = toolsStart, end = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (row.fetchTranslation && translation == null && translateFailed && online) {
+                    ToolLink("Retry English", enabled = true) { state.translateFailed[row.key] = false }
+                }
                 if (ex == null) {
                     val busy = state.explaining[row.key] == true
                     ToolLink(
@@ -366,12 +455,12 @@ fun SentenceRowView(
                         state.explaining[row.key] = true
                         state.failed[row.key] = false
                         scope.launch {
-                            try { state.explanations[row.key] = s.explain(row) } catch (e: Exception) { state.failed[row.key] = true } finally { state.explaining[row.key] = false }
+                            try { state.explanations[row.key] = s.explain(resolved) } catch (e: Exception) { state.failed[row.key] = true } finally { state.explaining[row.key] = false }
                         }
                     }
                 }
-                if (!row.pinyin.isNullOrBlank() && !row.translation.isNullOrBlank()) {
-                    ToolLink("+ Add as card", enabled = online, modifier = Modifier.testTag(SENTENCE_ADD_TAG)) { onAdd(Chunk(row.hanzi, row.pinyin, row.translation)) }
+                if (!row.pinyin.isNullOrBlank() && !translation.isNullOrBlank()) {
+                    ToolLink("+ Add as card", enabled = online, modifier = Modifier.testTag(SENTENCE_ADD_TAG)) { onAdd(Chunk(row.hanzi, row.pinyin, translation)) }
                 }
             }
             state.explanations[row.key]?.let { ex ->
