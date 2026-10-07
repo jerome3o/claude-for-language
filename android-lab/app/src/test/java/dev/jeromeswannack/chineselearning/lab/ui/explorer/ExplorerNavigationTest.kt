@@ -13,6 +13,9 @@ import dev.jeromeswannack.chineselearning.lab.ui.chars.CHAR_SHEET_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.chars.CHAR_WORD_ROW_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -40,6 +43,22 @@ class ExplorerNavigationTest {
             val dialog = ShadowDialog.getLatestDialog() as androidx.activity.ComponentDialog
             dialog.onBackPressedDispatcher.onBackPressed()
         }
+    }
+
+    /**
+     * Material3's own back callback on the sheet's window (API 33+): when it is registered it wins
+     * over every BackHandler under predictive back (Android 16, targetSdk 36) and closes the
+     * whole explorer — the bug. The explorer's sheet must not register it.
+     */
+    private fun sheetDismissesOnBackItself(): Boolean = compose.runOnIdle {
+        val dialog = ShadowDialog.getLatestDialog() as androidx.activity.ComponentDialog
+        fun find(v: android.view.View): android.view.View? {
+            if (v.javaClass.name == "androidx.compose.material3.ModalBottomSheetDialogLayout") return v
+            if (v is android.view.ViewGroup) for (i in 0 until v.childCount) find(v.getChildAt(i))?.let { return it }
+            return null
+        }
+        val layout = find(dialog.window!!.decorView) ?: error("no ModalBottomSheetDialogLayout")
+        layout.javaClass.getDeclaredMethod("getShouldDismissOnBackPress").apply { isAccessible = true }.invoke(layout) as Boolean
     }
 
     private fun labels(c: ExplorerController) = c.stack.map { if (it is ExplorerItem.Char) it.char else (it as ExplorerItem.Word).hanzi }
@@ -118,5 +137,75 @@ class ExplorerNavigationTest {
         compose.onNodeWithTag(EXPLORER_CLOSE_TAG).performClick()
         compose.waitForIdle()
         assertTrue(controller.stack.isEmpty())
+    }
+
+    @Test
+    fun backPopsOneLevelAtATimeTheDrillFirst() {
+        val controller = ExplorerController(track = { e, p -> events += e to p })
+        compose.setContent {
+            LabTheme {
+                CompositionLocalProvider(LocalExplorer provides controller) { ExplorerHost(controller, ExplorerSamples.env()) }
+            }
+        }
+        // 银 › 银行 › 行 — three views deep.
+        compose.runOnIdle {
+            controller.open(ExplorerItem.Char("银"), "study")
+            controller.push(ExplorerSamples.item())
+            controller.push(ExplorerItem.Char("行"))
+        }
+        compose.waitForIdle()
+        assertEquals(listOf("银", "银行", "行"), labels(controller))
+        assertFalse("the sheet's own back handling is off", sheetDismissesOnBackItself())
+
+        // Back → 银行; there a quick drill.
+        back()
+        compose.waitForIdle()
+        assertEquals(listOf("银", "银行"), labels(controller))
+        compose.onNodeWithTag(EXPLORER_DRILL_START_TAG).performScrollTo().performClick()
+        compose.waitForIdle()
+        assertNotNull(controller.drill)
+        compose.onNodeWithTag(EXPLORER_DRILL_TAG).assertIsDisplayed()
+
+        // Back leaves the drill first, the view stays.
+        back()
+        compose.waitForIdle()
+        assertNull(controller.drill)
+        assertEquals(listOf("银", "银行"), labels(controller))
+        compose.onNodeWithTag(EXPLORER_WORD_TAG).assertIsDisplayed()
+
+        // Back → 银, back → closed.
+        back()
+        compose.waitForIdle()
+        assertEquals(listOf("银"), labels(controller))
+        compose.onNodeWithTag(CHAR_SHEET_TAG).assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithTag(EXPLORER_BACK_TAG).fetchSemanticsNodes().size)
+        back()
+        compose.waitForIdle()
+        assertTrue(controller.stack.isEmpty())
+        assertEquals(0, compose.onAllNodesWithTag(EXPLORER_SHEET_TAG).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun backOnTheControllerIsOneLevel() {
+        val controller = ExplorerController()
+        controller.open(ExplorerItem.Char("银"), "study")
+        controller.push(ExplorerSamples.item())
+        val pool = listOf(
+            dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord("银子", "yínzi", "silver"),
+            dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord("银色", "yínsè", "silver colour"),
+            dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord("收银", "shōuyín", "to take money"),
+        )
+        val target = dev.jeromeswannack.chineselearning.lab.core.explorer.DrillTarget.Word(
+            dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord("银行", "yínháng", "bank"),
+        )
+        assertTrue(controller.startDrill(target, pool, seed = 7))
+        assertNotNull(controller.drill)
+        controller.back()
+        assertNull(controller.drill)
+        assertEquals(2, controller.stack.size)
+        controller.back()
+        assertEquals(listOf("银"), labels(controller))
+        controller.back()
+        assertTrue(!controller.isOpen)
     }
 }

@@ -15,6 +15,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -58,14 +59,26 @@ fun LabBottomSheet(onDismiss: () -> Unit, title: String? = null, skipPartiallyEx
  * clock and battery (Pixel Fold, folded). [sheetBelowStatusBar] caps the body so the whole
  * sheet (drag handle included) ends [SHEET_TOP_GAP] below the top inset; content taller than
  * that scrolls inside the sheet, as each caller already arranges.
+ *
+ * [dismissOnBack] = false hands Android back to the content (a `BackHandler` inside it): on
+ * API 33+ Material3 registers its OWN back callback on the sheet's window, after the dialog's
+ * dispatcher, so with predictive back (on by default on Android 16 at targetSdk 36) it wins over
+ * any BackHandler and dismisses the whole sheet. A sheet with levels (the language explorer)
+ * turns it off and decides itself; the scrim and a swipe down still dismiss.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LabModalSheet(onDismiss: () -> Unit, skipPartiallyExpanded: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+fun LabModalSheet(
+    onDismiss: () -> Unit,
+    skipPartiallyExpanded: Boolean = true,
+    dismissOnBack: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded),
         containerColor = Lab.colors.card,
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = dismissOnBack),
     ) {
         Column(Modifier.fillMaxWidth().sheetBelowStatusBar(), content = content)
     }

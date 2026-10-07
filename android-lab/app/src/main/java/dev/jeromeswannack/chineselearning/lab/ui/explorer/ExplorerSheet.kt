@@ -69,8 +69,9 @@ import kotlinx.coroutines.launch
  * The explorer sheet (docs/LANGUAGE_EXPLORER.md): ONE bottom sheet over the app showing the top
  * view of [ExplorerController.stack] — header ← · breadcrumb · ✕, the view's body scrolling, its
  * actions pinned in the footer (SheetScaffold: never under the status bar, the footer always
- * visible; the footer row has room for more actions, e.g. mini drills later). Android back pops
- * (closes on the first view); ✕, the scrim and a swipe down close.
+ * visible; the footer row has room for more actions, e.g. mini drills later). Android back
+ * takes ONE level off — a drill, then a view — and closes on the first view; ✕, the scrim and a
+ * swipe down close.
  */
 
 const val EXPLORER_SHEET_TAG = "explorer-sheet"
@@ -85,10 +86,10 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
     var writing by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     if (controller.isOpen) {
-        LabModalSheet(onDismiss = controller::close) {
-            BackHandler(enabled = controller.stack.size > 1) { controller.pop() }
-            // While drilling, back ends the drill first (registered last, so it wins).
-            BackHandler(enabled = controller.drill != null) { controller.endDrill() }
+        // Back is ours, ONE level per press (the drill first, then a view, then the sheet) — the
+        // sheet's own back handling is off, or it closes everything (see LabModalSheet).
+        LabModalSheet(onDismiss = controller::close, dismissOnBack = false) {
+            BackHandler(enabled = controller.isOpen) { controller.back() }
             ExplorerStackView(
                 controller, env, refresh,
                 onAdd = { adding = it },

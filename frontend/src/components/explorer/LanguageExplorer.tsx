@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { breadcrumbTrail, buildDrill, itemKey, type DrillQuestion, type DrillTarget, type ExplorerItem } from '@shared/explorer';
 import type { CharWord } from '@shared/chars';
@@ -10,6 +10,21 @@ import { WordView } from './WordView';
 import '../chars/CharacterSheet.css';
 import './explorer.css';
 
+/** A quick drill over one view (practice only; analytics, never review events). */
+export interface DrillRun {
+  key: string;
+  target: DrillTarget;
+  pool: CharWord[];
+  questions: DrillQuestion[];
+  startedAt: number;
+}
+
+/** The drill running over the top view, if any (a drill over another view has ended). */
+export function activeDrill(drill: DrillRun | null, stack: ExplorerItem[]): DrillRun | null {
+  const top = stack[stack.length - 1];
+  return drill && top && drill.key === itemKey(top) ? drill : null;
+}
+
 /**
  * The explorer sheet: ← (from the second view), the breadcrumb trail and ✕ on top, the current
  * view scrolling below with its own pinned footer. Each depth remembers its scroll position, so
@@ -19,6 +34,8 @@ export function LanguageExplorer({
   stack,
   api,
   options,
+  drill,
+  setDrill,
   onBack,
   onCrumb,
   onClose,
@@ -26,6 +43,9 @@ export function LanguageExplorer({
   stack: ExplorerItem[];
   api: ExplorerApi;
   options: ExplorerOpenOptions;
+  /** Held by the provider: back (history) ends a drill before it pops a view. */
+  drill: DrillRun | null;
+  setDrill: (drill: DrillRun | null) => void;
   onBack: () => void;
   onCrumb: (index: number) => void;
   onClose: () => void;
@@ -34,19 +54,13 @@ export function LanguageExplorer({
   const body = useRef<HTMLDivElement>(null);
   // The view's pinned actions render here (a portal), under the scrolling body: never scrolled away.
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
-  // A quick drill over the current view (practice only; analytics, never review events).
-  const [drill, setDrill] = useState<{ key: string; target: DrillTarget; pool: CharWord[]; questions: DrillQuestion[]; startedAt: number } | null>(null);
   const startDrill = (target: DrillTarget, pool: CharWord[], seed = Date.now() % 2147483647) => {
     const questions = buildDrill(target, pool, seed);
     if (questions.length === 0) return;
     track('explorer.drill_start', { kind: target.kind, items: questions.length });
     setDrill({ key: itemKey(top), target, pool, questions, startedAt: Date.now() });
   };
-  const drilling = drill && drill.key === itemKey(top) ? drill : null;
-  // Moving in the stack ends a drill.
-  useEffect(() => {
-    setDrill(null);
-  }, [stack]);
+  const drilling = activeDrill(drill, stack);
   const scrolls = useRef<number[]>([]);
   const prevDepth = useRef(stack.length);
   const direction = stack.length >= prevDepth.current ? 'push' : 'pop';

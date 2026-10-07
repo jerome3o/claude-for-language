@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { explorerReducer, type ExplorerItem } from '@shared/explorer';
 import { track } from '../../services/analytics';
-import { LanguageExplorer } from './LanguageExplorer';
+import { useBackLevels } from '../../hooks/useBackLevels';
+import { activeDrill, LanguageExplorer, type DrillRun } from './LanguageExplorer';
 
 /** Where the explorer was opened from (analytics `explorer.open` source). */
 export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'other';
@@ -62,6 +63,23 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
 
   const api = useMemo<ExplorerApi>(() => ({ open, push, inside: false }), [open, push]);
 
+  // A quick drill over the top view; moving in the stack ends it.
+  const [drill, setDrill] = useState<DrillRun | null>(null);
+  const drilling = activeDrill(drill, stack);
+  useEffect(() => {
+    setDrill(null);
+  }, [stack]);
+
+  // Back (Android gesture / browser) pops ONE level: the drill first, then a view; on the first
+  // view it closes. One history entry per level, cleaned up when ✕ / ← / a crumb closes them.
+  const levels = stack.length + (drilling ? 1 : 0);
+  useBackLevels(levels, (level) => {
+    const views = stack.length;
+    if (level <= 0) dispatch({ type: 'close' });
+    else if (level < views) dispatch({ type: 'popTo', index: level - 1 });
+    else setDrill(null);
+  });
+
   useEffect(() => {
     if (stack.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
@@ -79,6 +97,8 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
           stack={stack}
           api={api}
           options={opts.current}
+          drill={drilling}
+          setDrill={setDrill}
           onBack={() => dispatch({ type: 'pop' })}
           onCrumb={(index) => dispatch({ type: 'popTo', index })}
           onClose={() => dispatch({ type: 'close' })}

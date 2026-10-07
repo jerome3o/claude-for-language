@@ -15,6 +15,16 @@ Web: `frontend/src/components/explorer/` · Lab: `ui/explorer/` · pure rules: `
   pushing one already further down the trail goes back to it (no loops). Depth ≤ 24.
 - `pop` = **←**, `popTo(i)` = a breadcrumb, `close` = **✕** / the backdrop / Escape / Android back
   on the first view.
+- **Android back (the edge swipe) and the browser's back take ONE level off**: a running quick
+  drill first, then the top view (like ←); only on the first view does back close the explorer.
+  Web: one history entry per level with the same URL (`hooks/useBackLevels.ts`, levels = views +
+  1 while drilling) — back pops one entry; ✕ / ← / a crumb / Escape remove the entries again with
+  `history.go(-n)`, unless something navigated on top meanwhile (Open card), so the page under
+  the explorer never moves. Lab: `LabModalSheet(dismissOnBack = false)` + one `BackHandler` →
+  `ExplorerController.back()`; Material3's own sheet back callback (registered on the window on
+  API 33+, which wins over any BackHandler under predictive back — on by default on Android 16 at
+  targetSdk 36) is off, as that is what closed the whole explorer. The scrim and a swipe down
+  still close it.
 - The header shows **←** (from the second view on), a compact breadcrumb (`breadcrumbTrail`: every
   view while 4 fit, else first … last two) and **✕**. The sheet never goes under the status bar
   and the footer action stays visible (`.sheet-footer` / Lab `SheetScaffold`).
