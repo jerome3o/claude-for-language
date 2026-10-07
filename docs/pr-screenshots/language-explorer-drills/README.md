@@ -15,7 +15,7 @@ A wrong pick: red shake, the right answer green, pinyin revealed.
 Which tone is 行 here? — the word with the character marked, five tone buttons.
 
 ![Done](web-05-done.png)
-The score: "4 / 5 — 很好！Nice", practice only, Again / Keep exploring.
+The score line (one wrong pick, the writing skipped), "Practice only", Again / Keep exploring.
 
 # Language explorer — quick drills
 
