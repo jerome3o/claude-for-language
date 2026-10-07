@@ -80,7 +80,7 @@ import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrectio
 import { ChatWordsText, type TappedWord } from '../components/chat/ChatWords';
 import { CorrectionBlock, CorrectMessageSheet } from '../components/chat/ChatCorrection';
 import { SayBetterSheet } from '../components/chat/SayBetterSheet';
-import { sayBetterLabel, sayBetterState } from '@shared/chats/autoCheck';
+import { coachDeepLink, openInCoachRequest, sayBetterLabel, sayBetterState, showCoachChip, type OpenInCoachSource } from '@shared/chats/autoCheck';
 import { MakeFlashcardsSheet } from '../components/chat/MakeFlashcardsSheet';
 import { CheckDraftPanel, type DraftCheck } from '../components/chat/CheckDraftPanel';
 import { useExplorer } from '../components/explorer/ExplorerContext';
@@ -1185,6 +1185,14 @@ export function ChatPage() {
       return next;
     });
 
+  /** "Open in Coach" (docs/CHAT.md "Chat ↔ Coach"): my message checked, theirs explained — the Coach runs it at once. */
+  const openInCoach = (msg: MessageWithSender, source: OpenInCoachSource) => {
+    const req = openInCoachRequest(msg, myId);
+    if (!req) return;
+    track('chat.open_in_coach', { source, action: req.action });
+    navigate(coachDeepLink(req, msg.id));
+  };
+
   const handleSheetAction = (id: MenuActionId) => {
     if (!sheet) return;
     const msg = sheet.message;
@@ -1193,6 +1201,9 @@ export function ChatPage() {
     switch (id) {
       case 'say_better':
         setSayBetterFor(msg);
+        break;
+      case 'open_coach':
+        openInCoach(msg, 'menu');
         break;
       case 'reply':
         setReplyingTo(msg);
@@ -1825,6 +1836,17 @@ export function ChatPage() {
                   </button>
                 ))}
               </div>
+            )}
+            {!pending && !selecting && !hidden && showCoachChip(msg, myId) && (
+              <button
+                type="button"
+                className="chat-coach-chip"
+                onClick={() => openInCoach(msg, 'chip')}
+                data-testid="chat-open-in-coach"
+                title="Check it in the Sentence Coach"
+              >
+                🎓 Open in Coach
+              </button>
             )}
             {msg.correction && !isDeleted && (
               <CorrectionBlock
@@ -2623,6 +2645,11 @@ export function ChatPage() {
             const msg = sayBetterFor;
             setSayBetterFor(null);
             setDiscussingMessage(msg);
+          }}
+          onOpenCoach={() => {
+            const msg = sayBetterFor;
+            setSayBetterFor(null);
+            openInCoach(msg, 'sheet');
           }}
           onClose={() => setSayBetterFor(null)}
         />

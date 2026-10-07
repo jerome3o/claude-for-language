@@ -8,7 +8,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { messageMenu, menuText, type MenuMessage } from '../../../shared/chats/messageMenu';
 import { queueLabel, loadDraft, saveDraft } from '../../../frontend/src/services/chatDrafts';
-import { sayBetterState, sayBetterLabel, autoCheckSettingShown } from '../../../shared/chats/autoCheck';
+import { sayBetterState, sayBetterLabel, autoCheckSettingShown, autoCheckText, openInCoachRequest, showCoachChip, coachDeepLink } from '../../../shared/chats/autoCheck';
 import { layoutBubbles, tickFor, localDay, firstLink, GROUP_GAP_MS, type BubbleMessage } from '../../../shared/chats/bubbles';
 
 const OUT = process.argv[2];
@@ -49,8 +49,8 @@ for (const content of contents)
     for (const mine of [true, false])
       for (const role of ['student', 'tutor'] as const)
         for (const ai of [false, true])
-          for (const variant of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
-            const msg: MenuMessage = { sender_id: mine ? 'me' : 'them', content, attachment };
+          for (const variant of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]) {
+            const msg: MenuMessage = { sender_id: mine ? 'me' : 'them', content, attachment: attachment ? { ...attachment } : attachment };
             // Spread the other fields over the variants (every field is covered at least once per combination of the above).
             if (variant === 1) msg.deleted_at = '2026-10-01T10:00:00.000Z';
             if (variant === 2) msg.pending = true;
@@ -64,6 +64,11 @@ for (const content of contents)
             if (variant === 9) { msg.auto_check = { status: 'ok', text: content }; msg.check_status = 'needs_improvement'; }
             if (variant === 10) msg.auto_check = { status: 'improvable', text: content + '了' };
             if (variant === 11) { msg.auto_check = { status: 'improvable', text: content }; msg.correction = { text: '你好！' }; }
+            // Chat ↔ Coach: the auto-check of a photo caption / voice transcript (autoCheckText), a transcript
+            // still pending, and a tutor's own message (Open in Coach only for the learner's own / anyone else's).
+            if (variant === 12) msg.auto_check = { status: 'improvable', text: autoCheckText(msg) };
+            if (variant === 13) { if (msg.attachment) msg.attachment.transcript_status = 'pending'; msg.auto_check = { status: 'improvable', text: msg.attachment?.transcript ?? content }; }
+            if (variant === 14) { if (msg.attachment) msg.attachment.transcript_status = 'done'; msg.auto_check = { status: 'ok', text: autoCheckText(msg) }; }
             for (const state of [{ pinyinOn: false, translateOn: false }, { pinyinOn: true, translateOn: false }, { pinyinOn: false, translateOn: true }, { pinyinOn: true, translateOn: true }]) {
               // Every toggle state only for the plain variants (keeps the file small).
               if (variant > 3 && (state.pinyinOn || state.translateOn)) continue;
@@ -173,9 +178,50 @@ for (const sender of ['me', 'them'])
             const msg = { sender_id: sender, content, deleted_at: deleted, attachment: kind === null ? null : { kind }, correction, auto_check: auto };
             sayBetter.push({ message: msg, result: sayBetterState({ ...msg, attachment: kind ? msg.attachment : null }, 'me') });
           }
+// Chat ↔ Coach: photo captions and voice transcripts (with their transcript_status), openInCoachRequest,
+// showCoachChip and coachDeepLink.
+const coachMsgs: unknown[] = [];
+const coachContents = ['我昨天去了商店买东西了', '  看这个 ', 'See you', '', '〇', '豈'];
+const coachAttachments = [
+  null, { kind: '' }, { kind: 'image' }, { kind: 'file' }, { kind: 'video' },
+  { kind: 'voice', transcript: '我昨天去了商店买东西了' }, { kind: 'voice', transcript: '我昨天去了商店', transcript_status: 'done' },
+  { kind: 'voice', transcript: '我昨天去了商店', transcript_status: 'pending' }, { kind: 'voice', transcript: '我昨天', transcript_status: 'failed' },
+  { kind: 'voice', transcript: '  ', transcript_status: 'done' }, { kind: 'voice', transcript: null, transcript_status: null },
+  { kind: 'voice', transcript: 'thanks a lot', transcript_status: 'done' }, { kind: 'voice', transcript: ' 好的呀 ', transcript_status: '' },
+];
+for (const sender of ['me', 'them'])
+  for (const content of coachContents)
+    for (const attachment of coachAttachments)
+      for (const deleted of [null, '', '2026-10-01T10:00:00.000Z'])
+        for (const auto of ['none', 'ok', 'improvable', 'stale', 'content'] as const)
+          for (const correction of [null, { text: '我昨天去商店买东西了' }]) {
+            if (deleted && (auto !== 'improvable' || correction)) continue;
+            const base = { sender_id: sender, content, deleted_at: deleted, attachment: attachment === null ? null : { ...attachment }, correction };
+            const t = autoCheckText(base);
+            const auto_check = auto === 'none' ? null : auto === 'ok' ? { status: 'ok' as const, text: t }
+              : auto === 'improvable' ? { status: 'improvable' as const, text: t }
+              : auto === 'stale' ? { status: 'improvable' as const, text: t + '。' } : { status: 'improvable' as const, text: content };
+            const msg = { ...base, auto_check };
+            const coach = openInCoachRequest(msg, 'me');
+            coachMsgs.push({
+              message: msg,
+              text: t,
+              sayBetter: sayBetterState({ ...msg, attachment: msg.attachment?.kind ? msg.attachment : null }, 'me'),
+              coach,
+              chip: showCoachChip(msg, 'me'),
+              link: coach ? coachDeepLink(coach, sender === 'me' ? 'msg-1' : null) : null,
+            });
+          }
+const coachLinks = [
+  { text: '我昨天去了商店买东西了', action: 'check' as const, id: 'm1' },
+  { text: 'a b&c=d?e/f+g%h#i', action: 'explain' as const, id: 'x y' },
+  { text: "*-._~!'()你好 😀", action: 'check' as const, id: null },
+  { text: '　全角　', action: 'explain' as const, id: '' },
+].map((r) => ({ ...r, link: coachDeepLink({ text: r.text, action: r.action }, r.id) }));
+
 const sayBetterLabels = (['corrected', 'improvable', null] as const).flatMap((state) =>
   [null, '', 'Minghui', 'Minghui Li', ' lead'].map((name) => ({ state, name, label: sayBetterLabel(state, name) })));
 const settingShown = [true, false, null].flatMap((setting) =>
   ['tutor', 'student', null, ''].map((role) => ({ setting, role, shown: autoCheckSettingShown(setting, role) })));
 
-writeFileSync(join(OUT, 'chat-round2.json'), JSON.stringify({ menus, layouts, ticks, days, links, groupGapMs: GROUP_GAP_MS, queueLabels, draftOps, finalDrafts, sayBetter, sayBetterLabels, settingShown }));
+writeFileSync(join(OUT, 'chat-round2.json'), JSON.stringify({ menus, layouts, ticks, days, links, groupGapMs: GROUP_GAP_MS, queueLabels, draftOps, finalDrafts, sayBetter, sayBetterLabels, settingShown, coachMsgs, coachLinks }));

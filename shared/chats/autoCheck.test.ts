@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autoCheckApplies, autoCheckSettingShown, autoCheckSkipReason, parseAutoCheck, sayBetterLabel, sayBetterState } from './autoCheck';
+import { autoCheckApplies, autoCheckSettingShown, autoCheckSkipReason, autoCheckText, coachDeepLink, openInCoachRequest, parseAutoCheck, sayBetterLabel, sayBetterState, showCoachChip } from './autoCheck';
 import { messageMenu } from './messageMenu';
 
 const S = '我昨天去了商店买东西了';
@@ -39,7 +39,7 @@ describe('sayBetterState', () => {
     expect(sayBetterState({ ...mine, content: '我改了' }, 'me')).toBeNull();
     expect(sayBetterState({ ...mine, auto_check: { status: 'ok', text: S } }, 'me')).toBeNull();
     expect(sayBetterState({ ...mine, deleted_at: 'x' }, 'me')).toBeNull();
-    expect(sayBetterState({ ...mine, attachment: { kind: 'image' } }, 'me')).toBeNull();
+    expect(sayBetterState({ ...mine, attachment: { kind: 'image' } }, 'me')).toBe('improvable') // a photo's caption is checked too (Chat ↔ Coach);
     expect(sayBetterLabel('improvable')).toBe('Could be better — hold to see');
     expect(sayBetterLabel('corrected', 'Minghui Li')).toBe('Minghui corrected this — hold to see');
   });
@@ -68,5 +68,38 @@ describe('parseAutoCheck', () => {
     expect(parseAutoCheck(stored, '别的')).toBeNull();
     expect(parseAutoCheck('not json', S)).toBeNull();
     expect(parseAutoCheck(null, S)).toBeNull();
+  });
+});
+
+describe('auto-check of media messages (Chat ↔ Coach)', () => {
+  const result = (text: string) => ({ status: 'improvable' as const, text });
+  it('autoCheckText: a photo / file / video caption, a voice transcript once done, else nothing', () => {
+    expect(autoCheckText({ content: '我的猫很可爱', attachment: { kind: 'image' } })).toBe('我的猫很可爱');
+    expect(autoCheckText({ content: '看这个', attachment: { kind: 'file' } })).toBe('看这个');
+    expect(autoCheckText({ content: '', attachment: { kind: 'video' } })).toBe('');
+    expect(autoCheckText({ content: '', attachment: { kind: 'voice', transcript: '我去了', transcript_status: 'done' } })).toBe('我去了');
+    expect(autoCheckText({ content: '', attachment: { kind: 'voice', transcript: null, transcript_status: 'pending' } })).toBe('');
+    expect(autoCheckText({ content: '', attachment: { kind: 'voice', transcript: '我去了', transcript_status: 'failed' } })).toBe('');
+    expect(autoCheckText({ content: '你好吗' })).toBe('你好吗');
+  });
+
+  it('sayBetterState / showCoachChip: a photo caption and a voice transcript count; stale or ok do not', () => {
+    const photo = { sender_id: 'me', content: '我昨天去了商店买东西了', attachment: { kind: 'image' }, auto_check: result('我昨天去了商店买东西了') };
+    expect(sayBetterState(photo, 'me')).toBe('improvable');
+    expect(showCoachChip(photo, 'me')).toBe(true);
+    expect(showCoachChip({ ...photo, auto_check: { status: 'ok' as const, text: photo.content } }, 'me')).toBe(false);
+    expect(showCoachChip({ ...photo, content: '我昨天去商店了' }, 'me')).toBe(false);
+    expect(showCoachChip(photo, 'tutor')).toBe(false);
+    const voice = { sender_id: 'me', content: '', attachment: { kind: 'voice', transcript: '我去了商店了', transcript_status: 'done' }, auto_check: result('我去了商店了') };
+    expect(sayBetterState(voice, 'me')).toBe('improvable');
+    expect(showCoachChip(voice, 'me')).toBe(true);
+  });
+
+  it('openInCoachRequest: mine → check, theirs → explain, no Chinese → null; coachDeepLink', () => {
+    expect(openInCoachRequest({ sender_id: 'me', content: '我的猫', attachment: { kind: 'image' } }, 'me')).toEqual({ text: '我的猫', action: 'check' });
+    expect(openInCoachRequest({ sender_id: 'them', content: '你吃饭了吗？' }, 'me')).toEqual({ text: '你吃饭了吗？', action: 'explain' });
+    expect(openInCoachRequest({ sender_id: 'me', content: 'hello' }, 'me')).toBeNull();
+    expect(openInCoachRequest({ sender_id: 'me', content: '你好', deleted_at: 'x' }, 'me')).toBeNull();
+    expect(coachDeepLink({ text: '我的猫', action: 'check' }, 'm1')).toBe('/coach?text=%E6%88%91%E7%9A%84%E7%8C%AB&action=check&from_message=m1');
   });
 });

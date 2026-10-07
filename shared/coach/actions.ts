@@ -110,6 +110,23 @@ export function resolveCoachAction(
   return { ok: true, action: requested };
 }
 
+/**
+ * A deep link `/coach?text=…[&action=…]`: which action runs AT ONCE, or null
+ * (the text waits in the box on its buttons). An explicit valid action runs
+ * ("Open in Coach" from a chat message sends action=check / explain); without
+ * one, only English runs (translate — its only button); Chinese waits, since
+ * only the learner knows whether to check or explain it.
+ */
+export function coachDeepLinkAction(text: string, action: unknown): CoachAction | null {
+  if (!text.trim()) return null;
+  if (action !== undefined && action !== null && action !== '') {
+    const resolved = resolveCoachAction(text.trim(), action);
+    return resolved.ok ? resolved.action : null;
+  }
+  const buttons = coachButtons(text);
+  return buttons.enabled && buttons.actions.length === 1 ? buttons.actions[0] : null;
+}
+
 /** A conversation's action; rows from before actions were recorded fall back to their language. */
 export function conversationAction(conv: { action?: string | null; input_language?: string | null }): CoachAction {
   if (conv.action === 'check' || conv.action === 'explain' || conv.action === 'translate') return conv.action;

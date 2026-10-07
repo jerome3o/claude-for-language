@@ -15,6 +15,16 @@ import androidx.navigation.navArgument
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.CoachAction
 import dev.jeromeswannack.chineselearning.lab.core.CoachActions
+import dev.jeromeswannack.chineselearning.lab.core.CoachBreakdownWord
+import dev.jeromeswannack.chineselearning.lab.core.CoachNewWords
+import dev.jeromeswannack.chineselearning.lab.data.api.EnrichWordIn
+import dev.jeromeswannack.chineselearning.lab.data.api.ExplainTextBody
+import dev.jeromeswannack.chineselearning.lab.data.api.addNotesBatch
+import dev.jeromeswannack.chineselearning.lab.data.api.enrichWords
+import dev.jeromeswannack.chineselearning.lab.data.api.explainSentenceText
+import dev.jeromeswannack.chineselearning.lab.data.api.retryCoachReply
+import dev.jeromeswannack.chineselearning.lab.data.api.serverMessage
+import kotlinx.coroutines.flow.first
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto
 import dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachBreakdownDto
@@ -54,8 +64,10 @@ import kotlinx.coroutines.withContext
  */
 fun NavGraphBuilder.coachGraph(nav: LabNav) {
     composable(
-        Routes.route("/coach?text={text}&c={c}&focus={focus}&draft={draft}"),
+        Routes.route("/coach?text={text}&c={c}&focus={focus}&draft={draft}&action={action}&from_message={from_message}"),
         arguments = listOf(
+            navArgument("action") { type = NavType.StringType; nullable = true; defaultValue = null },
+            navArgument("from_message") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("text") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("c") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("focus") { type = NavType.StringType; nullable = true; defaultValue = null },
@@ -66,9 +78,13 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
         val text = entry.arguments?.getString("text")
         val focus = entry.arguments?.getString("focus") == "1"
         val draft = entry.arguments?.getString("draft")
+        val action = entry.arguments?.getString("action")
+        val fromMessage = entry.arguments?.getString("from_message")
         if (conversationId != null) {
             val vm: CoachChatViewModel = viewModel(key = "coach-$conversationId", factory = CoachChatViewModel.Factory(nav.app, conversationId))
             val ui by vm.ui.collectAsStateWithLifecycle()
+            // A reply written in the background: look again every ~2.5 s while one is pending, only while this screen is shown.
+            LaunchedEffect(vm) { vm.pollWhilePending() }
             CoachChatScreen(
                 ui,
                 CoachChatActions(
@@ -83,6 +99,15 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                     onOpenBumpPicker = vm::openBumpPicker,
                     onCloseBumpPicker = vm::closeBumpPicker,
                     onBumpPicked = vm::bumpPicked,
+                    onRetryReply = vm::retryReply,
+                    onOpenNewWords = vm::openNewWords,
+                    newWords = NewWordsActions(
+                        onToggle = vm::toggleNewWord,
+                        onDeck = vm::selectNewWordsDeck,
+                        onAdd = vm::addNewWords,
+                        onBump = vm::bumpExisting,
+                        onClose = vm::closeNewWords,
+                    ),
                 ),
             )
         } else {
@@ -90,11 +115,15 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
             val ui by vm.ui.collectAsStateWithLifecycle()
             // ?draft= (a study card's sentence): in the box, not sent; back returns to the card.
             LaunchedEffect(draft) { if (!draft.isNullOrBlank() && vm.claimDraft(draft)) vm.setDraft(draft) }
-            // ?text=: English is translated at once; Chinese waits in the box on Check / Explain.
-            LaunchedEffect(text) {
-                if (!text.isNullOrBlank() && vm.claimDeepLink(text)) {
-                    val only = CoachActions.buttons(text).actions.singleOrNull()
-                    if (only != null) vm.start(text.trim(), only) { id -> nav.open(Routes.coachConversation(id)) } else vm.setDraft(text)
+            // While a conversation is still thinking, the list looks again every few seconds.
+            LaunchedEffect(vm) { vm.pollListWhilePending() }
+            // ?text=[&action=&from_message=] (core CoachActions.deepLinkAction): an explicit action runs at
+            // once ("Open in Coach" from a chat message — its auto-check is reused); without one English is
+            // translated at once and Chinese waits in the box on Check / Explain.
+            LaunchedEffect(text, action) {
+                if (!text.isNullOrBlank() && vm.claimDeepLink(text + "\u0000" + action.orEmpty())) {
+                    val run = CoachActions.deepLinkAction(text, action)
+                    if (run != null) vm.start(text.trim(), run, chatMessageId = fromMessage) { id -> nav.open(Routes.coachConversation(id)) } else vm.setDraft(text)
                 }
             }
             CoachHomeScreen(
@@ -130,6 +159,15 @@ private fun coachCardActions(app: LabApp): SentenceActions {
 
 /** The conversation route (web: `/coach?c=<id>`). */
 fun Routes.coachConversation(id: String) = "/coach?c=${android.net.Uri.encode(id)}"
+
+/**
+ * "Open in Coach" from a chat message (docs/CHAT.md "Chat ↔ Coach"): `/coach?text=&action=&from_message=`
+ * — the same link as core SayBetter.coachDeepLink, encoded for the Lab's router (Uri.encode: `%20`,
+ * which Navigation decodes; it would keep a form-encoded `+`).
+ */
+fun coachOpenPath(text: String, action: String, fromMessage: String?): String =
+    "/coach?text=${android.net.Uri.encode(text)}&action=${android.net.Uri.encode(action)}" +
+        (if (fromMessage.isNullOrEmpty()) "" else "&from_message=${android.net.Uri.encode(fromMessage)}")
 
 private const val LIST_KEY = "coach/conversations"
 private fun threadKey(id: String) = "coach/c/$id"
@@ -176,7 +214,15 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
      * Claude call) and the answer kept, so the sentence is explained offline next time — offline or
      * unreachable, the saved breakdown shows on this screen instead.
      */
-    fun start(text: String, action: CoachAction, onStarted: (String) -> Unit) {
+    /** The list again every [LIST_POLL_MS] while a conversation is still thinking (cancelled with the screen). */
+    suspend fun pollListWhilePending() {
+        while (true) {
+            kotlinx.coroutines.delay(LIST_POLL_MS)
+            if (list.state.value.data.orEmpty().any { it.pending_reply } && app.online.value) list.refresh().join()
+        }
+    }
+
+    fun start(text: String, action: CoachAction, chatMessageId: String? = null, onStarted: (String) -> Unit) {
         if (text.isEmpty() || local.value.starting) return
         local.update { it.copy(draft = text, starting = true, pendingAction = action, startError = null, savedBreakdown = null) }
         app.analytics.track("coach.start", mapOf("action" to action.id))
@@ -186,11 +232,18 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
                 local.update { it.copy(starting = false, pendingAction = null, savedBreakdown = CoachBreakdownDto.of(text, cached)) }
                 return@launch
             }
+            if (!app.online.value) {
+                // The text stays in the box for when the connection is back.
+                local.update { it.copy(starting = false, pendingAction = null, lastAction = action, startError = CoachRules.OFFLINE) }
+                return@launch
+            }
             try {
-                val res = CoachRules.retryOnce { app.repo.api.startCoachConversation(text, action.id, cached?.takeIf { !it.translation.isNullOrBlank() }) }
+                // background: true — the reply is written by the server's queue, so leaving never cancels it.
+                val res = CoachRules.retryOnce { app.repo.api.startCoachConversation(text, action.id, cached?.takeIf { !it.translation.isNullOrBlank() }, chatMessageId) }
                 app.cache.put(threadKey(res.conversation.id), "coach-thread", res)
+                CoachChatViewModel.startedHere += res.conversation.id
                 if (action == CoachAction.EXPLAIN) {
-                    res.messages.firstOrNull { it.content_type == "analysis" }?.let { CoachAnalysisDto.parse(it.content)?.breakdown }
+                    res.messages.firstOrNull { it.content_type == "analysis" && it.status == null }?.let { CoachAnalysisDto.parse(it.content)?.breakdown }
                         ?.let { runCatching { tools.cacheTextExplanation(text, it.asExplanation()) } }
                 }
                 app.haptics.tick()
@@ -228,9 +281,15 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
     }
 }
 
+private const val LIST_POLL_MS = 4000L
+private const val THREAD_POLL_MS = 2500L
+
 class CoachChatViewModel(private val app: LabApp, private val id: String) : ViewModel() {
     private val thread = app.cachedResource<CoachThreadDto>(viewModelScope, threadKey(id), "coach-thread") { coachConversation(id) }
     private val local = MutableStateFlow(CoachChatUi(deckId = lastDeck(app)))
+    private val tools = CardTools(app)
+    /** Reply ids seen pending on this screen: when one lands, its follow-ups run (sync, cache, haptic). */
+    private val seenPending = HashSet<String>()
     val ui: StateFlow<CoachChatUi> = combine(thread.state, local, app.online) { t, u, online -> u.copy(thread = t, online = online) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, CoachChatUi())
 
@@ -307,10 +366,17 @@ class CoachChatViewModel(private val app: LabApp, private val id: String) : View
     }
 
     fun send(message: String) {
-        if (message.isBlank() || local.value.sending) return
+        if (message.isBlank() || local.value.sending || ui.value.replyPending) return
+        if (!app.online.value) {
+            // Offline: say so; the typed text stays in the box.
+            local.update { it.copy(sendError = CoachRules.OFFLINE) }
+            return
+        }
         local.update { it.copy(sending = true, pendingMessage = message, sendError = null) }
+        startedHere += id
         viewModelScope.launch {
             try {
+                // background: true → 202 with my message and the PENDING reply, which [pollWhilePending] follows.
                 val res = app.repo.api.sendCoachMessage(id, message)
                 thread.update { t -> t?.copy(messages = t.messages + res.messages) ?: CoachThreadDto(dev.jeromeswannack.chineselearning.lab.data.api.CoachConversationDto(id), res.messages) }
                 local.update { it.copy(sending = false, pendingMessage = null, followUp = if (it.followUp.trim() == message) "" else it.followUp) }
@@ -324,7 +390,214 @@ class CoachChatViewModel(private val app: LabApp, private val id: String) : View
                 app.cache.delete(LIST_KEY)
             } catch (e: Exception) {
                 local.update { it.copy(sending = false, pendingMessage = null, sendError = CoachRules.errorText(e, "Couldn't send that", app.online.value)) }
+                // 409: a reply is still being written — pick it up.
+                if ((e as? dev.jeromeswannack.chineselearning.lab.data.HttpException)?.code == 409) thread.refresh()
             }
+        }
+    }
+
+    // ---------------- replies written in the background (docs/CHAT.md "Chat ↔ Coach") ----------------
+
+    /** Look again every [THREAD_POLL_MS] while a reply is pending; cancelled when the screen goes. */
+    suspend fun pollWhilePending() {
+        while (true) {
+            kotlinx.coroutines.delay(THREAD_POLL_MS)
+            if (thread.state.value.data?.hasPending == true && app.online.value) thread.refresh().join()
+        }
+    }
+
+    /** Retry a reply that failed: back on the server's queue (the thread comes back with it pending). */
+    fun retryReply(messageId: String) {
+        if (local.value.retrying) return
+        if (!app.online.value) { local.update { it.copy(sendError = CoachRules.OFFLINE) }; return }
+        local.update { it.copy(retrying = true, sendError = null) }
+        startedHere += id
+        viewModelScope.launch {
+            try {
+                val res = app.repo.api.retryCoachReply(id, messageId)
+                app.cache.put(threadKey(id), "coach-thread", res)
+                app.analytics.track("coach.reply_retry")
+                app.haptics.tick()
+                app.cache.delete(LIST_KEY)
+            } catch (e: Exception) {
+                local.update { it.copy(sendError = CoachRules.errorText(e, "Couldn't retry that", app.online.value)) }
+                thread.refresh()
+            } finally {
+                local.update { it.copy(retrying = false) }
+            }
+        }
+    }
+
+    init {
+        // Opened (not just sent from here) while a reply is still being written: counted once.
+        viewModelScope.launch {
+            val first = thread.state.first { !it.loading && it.data != null }.data!!
+            if (first.hasPending && id !in startedHere && resumeTracked.add(id)) app.analytics.track("coach.reply_resumed")
+        }
+        // A reply that lands: the same follow-ups as a reply that came back at once.
+        viewModelScope.launch {
+            thread.state.map { it.data?.messages.orEmpty() }.distinctUntilChanged().collect { msgs ->
+                for (m in msgs) {
+                    if (m.isPending) { seenPending += m.id; continue }
+                    if (!seenPending.remove(m.id) || m.isFailed) continue
+                    app.haptics.tick()
+                    app.cache.delete(LIST_KEY)
+                    if (m.content_type == "analysis") {
+                        // An Explain answer that came in the background is kept on the device too (offline second look).
+                        CoachAnalysisDto.parse(m.content)?.breakdown?.let { b ->
+                            app.safely("coach cache explain") { if (tools.cachedTextExplanation(b.hanzi) == null) tools.cacheTextExplanation(b.hanzi, b.asExplanation()) }
+                        }
+                    }
+                    val results = CoachAnalysisDto.toolResults(m.tool_results)
+                    // New cards / a mini lesson / bumped words: pull them onto the phone for the next session, even offline.
+                    if (results.any { it.success && (it.tool == "create_flashcards" || it.tool == "create_custom_lesson" || it.tool == "bump_cards") }) {
+                        if (results.any { it.success && it.tool == "create_flashcards" }) {
+                            app.sounds.play(Sounds.Sfx.CORRECT, 0.6f)
+                            app.haptics.correct()
+                        }
+                        app.scope.launch { runCatching { app.repo.sync() } }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------- "➕ Add new words" / "🃏 Card for this sentence" ----------------
+
+    /** Words added / found from this screen, so the chip stops offering them before the sync lands. */
+    private val justAdded = MutableStateFlow<Set<String>>(emptySet())
+
+    init {
+        // The sentence's breakdown: Explain's own, else the device's cached explain-text, else fetched once.
+        viewModelScope.launch {
+            thread.state.map { t -> t.data?.messages?.firstOrNull { it.content_type == "analysis" && it.status == null }?.let { CoachAnalysisDto.parse(it.content) } }
+                .distinctUntilChanged().collect { a ->
+                    val b = if (a == null) null else app.safely("coach breakdown") { sentenceBreakdown(a) }
+                    local.update { it.copy(breakdown = b) }
+                }
+        }
+        // Which of its words are in none of his decks (core CoachNewWords), whenever the notes change.
+        viewModelScope.launch {
+            combine(ui.map { it.breakdown }.distinctUntilChanged(), app.repo.dataVersion, justAdded) { b, _, added -> b to added }.collect { (b, added) ->
+                val words = if (b == null) emptyList() else app.safely("coach new words") {
+                    val known = withContext(Dispatchers.IO) {
+                        val live = app.repo.dao.decks().map { it.id }.toHashSet()
+                        app.repo.dao.allNotes().filter { it.deckId in live }.map { it.hanzi }
+                    }
+                    CoachNewWords.newWordsInSentence(b.words.map { CoachBreakdownWord(it.hanzi, it.pinyin, it.gloss) }, known + added)
+                }.orEmpty()
+                local.update { it.copy(newWords = words) }
+            }
+        }
+    }
+
+    private suspend fun sentenceBreakdown(a: CoachAnalysisDto): CoachBreakdownDto? {
+        val hanzi = a.sentence?.takeIf { it.isNotBlank() } ?: return null
+        val (pinyin, english) = when {
+            a.kind == "chinese" && a.coach != null -> a.coach.corrected.pinyin to a.coach.corrected.english
+            a.kind == "explain" && a.breakdown != null -> a.breakdown.pinyin to a.breakdown.translation.orEmpty()
+            else -> (a.translation?.primary?.pinyin.orEmpty()) to (a.translation?.primary?.english.orEmpty())
+        }
+        val e = if (a.kind == "explain" && a.breakdown != null) a.breakdown.asExplanation()
+        else tools.cachedTextExplanation(hanzi) ?: run {
+            if (!app.online.value) return null
+            app.repo.api.explainSentenceText(ExplainTextBody(hanzi, pinyin.ifBlank { null }, english.ifBlank { null })).also { tools.cacheTextExplanation(hanzi, it) }
+        }
+        return CoachBreakdownDto(
+            hanzi = hanzi,
+            pinyin = pinyin.ifBlank { e.words.map { it.pinyin }.filter { it.isNotEmpty() }.joinToString(" ") },
+            translation = english.ifBlank { e.translation.orEmpty() }.trim(),
+            words = e.words,
+            construction = e.construction.orEmpty(),
+        )
+    }
+
+    /** "➕ Add new words (N)": the picker, NOTHING ticked, the deck = the top of the study queue. */
+    fun openNewWords() {
+        val u = ui.value
+        if (u.newWords.isEmpty() || u.breakdown == null) return
+        viewModelScope.launch {
+            val decks = withContext(Dispatchers.IO) {
+                dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { CoachDeck(it.id, it.name) }
+            }
+            if (decks.isEmpty()) return@launch
+            local.update { it.copy(newWordsSheet = NewWordsSheetUi(u.newWords, decks)) }
+        }
+    }
+
+    fun closeNewWords() = local.update { if (it.newWordsSheet?.saving == true) it else it.copy(newWordsSheet = null) }
+
+    fun toggleNewWord(hanzi: String) = local.update { u ->
+        val s = u.newWordsSheet?.takeIf { !it.saving } ?: return@update u
+        u.copy(newWordsSheet = s.copy(picked = if (hanzi in s.picked) s.picked - hanzi else s.picked + hanzi, error = null))
+    }
+
+    fun selectNewWordsDeck(deckId: String) = local.update { u -> u.copy(newWordsSheet = u.newWordsSheet?.copy(deckId = deckId)) }
+
+    /**
+     * Save the ticked words (web NewWordsSheet.add): card drafts (core CoachNewWords.newWordCards) →
+     * enrich-words for the explanation and a shorter example (saved without it when Claude can't be
+     * reached) → ONE batch call with `skip_existing=1` → the done screen; then a sync.
+     */
+    fun addNewWords() {
+        val sheet = local.value.newWordsSheet ?: return
+        val b = local.value.breakdown ?: return
+        val deck = sheet.deck ?: return
+        val chosen = sheet.chosen
+        if (sheet.saving || chosen.isEmpty()) return
+        if (!app.online.value) {
+            local.update { it.copy(newWordsSheet = sheet.copy(error = "You're offline — adding cards needs a connection. Your ticks are kept.")) }
+            return
+        }
+        local.update { it.copy(newWordsSheet = sheet.copy(saving = true, error = null)) }
+        viewModelScope.launch {
+            val cards = CoachNewWords.newWordCards(chosen, b.hanzi, b.pinyin, b.translation)
+            val enriched = try {
+                app.repo.api.enrichWords(cards.map { EnrichWordIn(it.hanzi, it.pinyin, it.english) })
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val byHanzi = enriched.associateBy { it.hanzi }
+            val notes = cards.map { c ->
+                val e = byHanzi[c.hanzi]
+                val ownClue = e?.sentence_clue?.takeIf { it.isNotBlank() && it.contains(c.hanzi) } != null
+                NewNoteBody(
+                    c.hanzi, c.pinyin, c.english,
+                    fun_facts = e?.fun_facts?.takeIf { it.isNotBlank() },
+                    sentence_clue = if (ownClue) e!!.sentence_clue else c.sentenceClue,
+                    sentence_clue_pinyin = if (ownClue) e!!.sentence_clue_pinyin else c.sentenceCluePinyin,
+                    sentence_clue_translation = if (ownClue) e!!.sentence_clue_translation else c.sentenceClueTranslation,
+                )
+            }
+            try {
+                val res = app.repo.api.addNotesBatch(deck.id, notes, skipExisting = true)
+                val added = res.created.map { it.hanzi }
+                val failed = res.failed.map { f -> "${f.hanzi}: ${f.error}" }
+                justAdded.update { it + added + res.existing.map { e -> e.hanzi } }
+                app.analytics.track("coach.add_new_words", mapOf("count" to res.created.size, "existing" to res.existing.size))
+                if (res.created.isNotEmpty()) {
+                    app.sounds.play(Sounds.Sfx.CORRECT, 0.6f)
+                    app.haptics.correct()
+                }
+                local.update { u -> u.copy(newWordsSheet = u.newWordsSheet?.copy(saving = false, result = NewWordsResult(added, deck.name, res.existing, failed))) }
+                app.scope.launch { runCatching { app.repo.sync() } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val msg = (e as? dev.jeromeswannack.chineselearning.lab.data.HttpException)?.serverMessage()?.takeIf { it.isNotBlank() } ?: "Couldn't add the cards — try again."
+                local.update { u -> u.copy(newWordsSheet = u.newWordsSheet?.copy(saving = false, error = if (!app.online.value) CoachRules.OFFLINE else msg)) }
+            }
+        }
+    }
+
+    /** The done screen's "⚡ Study it today" on a word that was already in a deck. */
+    fun bumpExisting(noteId: String) {
+        viewModelScope.launch {
+            app.safely("coach new words bump") { BumpStore.bumpNotes(app, listOf(noteId), "coach") } ?: return@launch
+            app.haptics.correct()
+            local.update { u -> u.copy(newWordsSheet = u.newWordsSheet?.let { it.copy(bumped = it.bumped + noteId) }, bumpedNoteIds = u.bumpedNoteIds + noteId) }
         }
     }
 
@@ -333,9 +606,13 @@ class CoachChatViewModel(private val app: LabApp, private val id: String) : View
         override fun <T : ViewModel> create(modelClass: Class<T>): T = CoachChatViewModel(app, id) as T
     }
 
-    private companion object {
-        fun prefs(c: Context) = c.getSharedPreferences("lab-coach", Context.MODE_PRIVATE)
-        fun lastDeck(c: Context): String? = prefs(c).getString("last-deck", null)
+    companion object {
+        /** Conversations whose reply was asked for on this run of the app (vs. one still thinking when he came back). */
+        val startedHere: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+        private val resumeTracked: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+
+        private fun prefs(c: Context) = c.getSharedPreferences("lab-coach", Context.MODE_PRIVATE)
+        private fun lastDeck(c: Context): String? = prefs(c).getString("last-deck", null)
     }
 }
 
