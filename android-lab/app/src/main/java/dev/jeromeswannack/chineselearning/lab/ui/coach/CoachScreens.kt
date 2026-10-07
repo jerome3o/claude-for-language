@@ -518,9 +518,9 @@ internal fun ExplainResult(b: CoachBreakdownDto, enabled: Boolean, onAdd: (Chunk
         Card {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Word by word", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.weight(1f))
-                if (enabled) Text("Tap a word to add it as a card", fontSize = 12.sp, color = Lab.colors.muted)
+                if (enabled) Text("Tap a word to explore it", fontSize = 12.sp, color = Lab.colors.muted)
             }
-            SentenceBreakdown(b.asExplanation().copy(translation = null), enabled = enabled, onWord = { w -> onAdd(Chunk(w.hanzi, w.pinyin, w.gloss)) })
+            SentenceBreakdown(b.asExplanation().copy(translation = null), enabled = enabled, onWord = { w -> onAdd(Chunk(w.hanzi, w.pinyin, w.gloss)) }, sentence = b.hanzi)
             val card = CoachActions.sentenceCard(b.hanzi, b.pinyin, b.translation, b.words.map { CoachBreakdownWord(it.hanzi, it.pinyin, it.gloss) }, b.construction)
             SecondaryPill(
                 "+ Add whole sentence as card",

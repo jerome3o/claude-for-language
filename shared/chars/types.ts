@@ -65,3 +65,43 @@ export function charShard(char: string): number {
 export function charShardFile(shard: number): string {
   return `${String(shard).padStart(3, '0')}.dat`;
 }
+
+// ── The word dictionary (docs/LANGUAGE_EXPLORER.md) ─────────────────────────
+// Built beside the character records by scripts/build-word-dict.ts (CC-CEDICT + wordfreq)
+// into worker/char-dict/words/NNN.dat, served by `GET /api/words?w=` and cached on the device.
+
+/** Bump when the word record shape or its build rules change. */
+export const WORD_DICT_VERSION = 1;
+export const WORD_DICT_SHARDS = 128;
+/** Most words `GET /api/words?w=` answers in one call. */
+export const WORD_BATCH_MAX = 50;
+
+export interface WordRecord {
+  /** Simplified, 2–6 Han characters. */
+  hanzi: string;
+  /** One word's pinyin with tone marks (yínháng), 一 / 不 tone changes applied. */
+  pinyin: string;
+  /** The same, one syllable per character (["yín", "háng"]). */
+  syllables: string[];
+  /** Short gloss (first sense or two). */
+  english: string;
+  /** Up to four dictionary senses, cleaned. */
+  senses: string[];
+  /** Word frequency rank (1 = most frequent, the ranking of the shipped word-freq list); null = not ranked. */
+  rank: number | null;
+}
+
+/** FNV-1a over the word's UTF-16 code units, modulo the shard count. */
+export function wordShard(word: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < word.length; i++) {
+    h ^= word.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % WORD_DICT_SHARDS;
+}
+
+/** The shard's path inside the worker's static assets (`worker/char-dict/words/`). */
+export function wordShardFile(shard: number): string {
+  return `words/${String(shard).padStart(3, '0')}.dat`;
+}

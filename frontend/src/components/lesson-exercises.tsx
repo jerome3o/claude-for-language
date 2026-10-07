@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { ExplorableText } from './explorer/ExplorableText';
 import type { ExerciseAnswer } from '@shared/lesson';
 import { useLessonImage, lessonImagePlaceholder } from '../hooks/useLessonImage';
 import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
@@ -727,7 +728,8 @@ export function LessonNoteCard(props: {
       )}
       {sentences?.map((s, i) => (
         <div className="lesson-note-sentence" key={i} onClick={() => speak(s.hanzi)}>
-          <div className="lesson-note-hanzi">{s.hanzi} 🔊</div>
+          {/* A character opens the language explorer; the rest of the row still plays it. */}
+          <div className="lesson-note-hanzi"><ExplorableText text={s.hanzi} source="lesson" /> 🔊</div>
           {s.pinyin && <div className="translate-ref-pinyin">{s.pinyin}</div>}
           {s.english && <div className="contrast-english">{s.english}</div>}
         </div>

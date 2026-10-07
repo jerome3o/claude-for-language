@@ -1,4 +1,6 @@
 import type { SentenceBriefExplanation } from '../types';
+import { itemForText } from '@shared/explorer';
+import { useExplorer, type ExplorerSource } from './explorer/ExplorerContext';
 
 export interface BreakdownWord {
   hanzi: string;
@@ -9,33 +11,42 @@ export interface BreakdownWord {
 /**
  * "What's going on here?" — the brief breakdown of one sentence: one word per
  * row (hanzi · pinyin · meaning), then a line on the construction. Each word
- * row is a button that adds that word as a card (the caller opens
- * AddChunkModal). Shared by the study card's sentence list and the Sentence
- * Coach's Explain result, so both look and behave the same.
+ * row opens the language explorer (docs/LANGUAGE_EXPLORER.md) at that word —
+ * its Word view has "+ Add as card" / "⚡ Study it today", its characters and
+ * related words. Shared by the study card's sentence list, the homework pass,
+ * chat Explain and the Sentence Coach's Explain result.
  */
 export function SentenceWordBreakdown({
   explanation,
-  onWord,
+  sentence,
+  source = 'breakdown',
   disabled = false,
 }: {
   explanation: SentenceBriefExplanation;
-  onWord: (word: BreakdownWord) => void;
+  /** The sentence the breakdown is of ("More about this word" explains the word in it). */
+  sentence?: string;
+  source?: ExplorerSource;
   disabled?: boolean;
 }) {
+  const explorer = useExplorer();
   return (
     <div className="sentence-set-explanation" data-testid="sentence-word-breakdown">
-      {/* Each word is tappable: the breakdown doubles as the old
-          tap-a-word-to-make-a-card affordance. */}
       <ul className="sentence-set-words">
         {explanation.words.map((word, i) => (
           <li key={i}>
             <button
               type="button"
               className="sentence-set-word"
-              onClick={() => onWord(word)}
+              onClick={(e) => {
+                e.stopPropagation();
+                const item = itemForText(word.hanzi, { pinyin: word.pinyin, gloss: word.gloss, sentence });
+                if (!item) return;
+                if (explorer.inside) explorer.push(item);
+                else explorer.open(item, { source });
+              }}
               disabled={disabled}
-              title="Add this word as a card"
-              aria-label={`Add ${word.hanzi} as a card`}
+              title="Explore this word"
+              aria-label={`Explore ${word.hanzi}`}
             >
               <span className="hanzi">{word.hanzi}</span>
               <span className="sentence-set-word-pinyin">{word.pinyin}</span>

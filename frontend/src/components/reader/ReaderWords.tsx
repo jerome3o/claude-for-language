@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { isTappableWord, wordOffsets, sentenceAround, wordsMatchText, type ReaderWord } from '@shared/reader/words';
+import { itemForText } from '@shared/explorer';
 import { knownHanzi, localPageWords, requestReaderWords, sessionPageWords } from '../../services/readerWords';
-import { ReaderWordSheet } from './ReaderWordSheet';
-import { useReaderSpeed } from '../../services/readerSpeed';
+import { useExplorer } from '../explorer/ExplorerContext';
 import { track } from '../../services/analytics';
 import './ReaderWords.css';
 
@@ -63,19 +63,27 @@ export function useKnownHanzi(version = 0): Set<string> {
 /**
  * The revealed Chinese as tappable word chips (punctuation and line breaks
  * stay plain), or the plain text while the words aren't there yet. Tapping a
- * chip opens the word sheet; it never bubbles to the "hide Chinese" tap.
+ * chip opens the language explorer's Word view (docs/LANGUAGE_EXPLORER.md) with
+ * the chip's pinyin / gloss and its sentence — "More about this word" and
+ * "+ Add as card" live there; it never bubbles to the "hide Chinese" tap.
  */
 export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text' }: { readerId: string; page: PageLike; className?: string }) {
   const words = useReaderPageWords(readerId, page);
-  const [knownVersion, setKnownVersion] = useState(0);
-  const known = useKnownHanzi(knownVersion);
-  const [open, setOpen] = useState<number | null>(null);
-  const speed = useReaderSpeed();
+  const known = useKnownHanzi();
+  const explorer = useExplorer();
 
   if (!words) return <div className={className}>{page.content_chinese}</div>;
 
   const offsets = wordOffsets(words);
-  const tapped = open !== null ? words[open] : null;
+  const openWord = (i: number) => {
+    const w = words[i];
+    const item = itemForText(w.text, {
+      pinyin: w.pinyin || undefined,
+      gloss: w.gloss || undefined,
+      sentence: sentenceAround(page.content_chinese, offsets[i], offsets[i] + w.text.length),
+    });
+    if (item) explorer.open(item, { source: 'reader' });
+  };
 
   return (
     <>
@@ -92,7 +100,7 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
                 onClick={(e) => {
                   e.stopPropagation();
                   track('reader.word_tap');
-                  setOpen(i);
+                  openWord(i);
                 }}
               >
                 {w.text}
@@ -107,20 +115,6 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
           );
         })}
       </div>
-      {tapped && open !== null && (
-        <ReaderWordSheet
-          word={tapped}
-          sentence={sentenceAround(page.content_chinese, offsets[open], offsets[open] + tapped.text.length)}
-          known={known.has(tapped.text)}
-          onClose={() => setOpen(null)}
-          onAdded={() => {
-            track('reader.word_add_card');
-            setKnownVersion((v) => v + 1);
-          }}
-          onMore={() => track('reader.word_more')}
-          playbackRate={speed}
-        />
-      )}
     </>
   );
 }

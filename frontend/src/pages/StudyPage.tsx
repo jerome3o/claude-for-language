@@ -31,7 +31,8 @@ import { SentenceChunk } from '../types';
 import './RoleplayPage.css';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
-import { CharacterSheet } from '../components/chars/CharacterSheet';
+import { ExplorableText } from '../components/explorer/ExplorableText';
+import { useExplorer } from '../components/explorer/ExplorerContext';
 import { isLookupChar } from '../services/charDict';
 import {
   CardWithNote,
@@ -526,7 +527,6 @@ export function StudyCard({
   const [mcAnswered, setMcAnswered] = useState(() => !!restored.mc?.answered);
   const [shuffledMcOptions, setShuffledMcOptions] = useState<McOptionRow[] | null>(() => restored.mc?.rows ?? null);
   const mcRowRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   // Ask Claude: inline error (never alert())
   const [askError, setAskError] = useState<string | null>(null);
 
@@ -1406,11 +1406,16 @@ export function StudyCard({
     startRecordingWithDelay(true, true);
   };
 
-  // The character sheet (components/chars/CharacterSheet.tsx): card-independent dictionary
-  // data + the frequent words with the character, offline once cached. Replaces the old
-  // per-card Claude definition (WordDefinitionPopup / /api/vocabulary/define).
+  // The language explorer (docs/LANGUAGE_EXPLORER.md): a tapped character opens its Character
+  // view — card-independent dictionary data, offline once cached — and the learner can walk on
+  // to its words and their characters. "✍️ Write it" opens this card's writing pad.
+  const explorer = useExplorer();
+  const writeChar = (ch: string) => {
+    setWritingText(ch);
+    setShowWriting(true);
+  };
   const handleCharacterClick = (char: string) => {
-    if (isLookupChar(char)) setSelectedCharacter(char);
+    if (isLookupChar(char)) explorer.open({ kind: 'char', char }, { source: 'study', cardHanzi: card.note.hanzi, onWrite: writeChar });
   };
 
   // A multiple-choice answer that isn't fully right is shown row by row; a
@@ -1442,23 +1447,14 @@ export function StudyCard({
         ) : (
           // Show just the hanzi for non-typing cards - each character is clickable
           <div className="hanzi hanzi-large mb-1">
-            {[...card.note.hanzi].map((char, i) => (
-              <span key={i} className="hanzi-char-clickable" onClick={() => handleCharacterClick(char)}>{char}</span>
-            ))}
+            <ExplorableText
+              text={card.note.hanzi}
+              source="study"
+              tapClassName="hanzi-char-clickable"
+              cardHanzi={card.note.hanzi}
+              onWrite={writeChar}
+            />
           </div>
-        )}
-
-        {selectedCharacter && (
-          <CharacterSheet
-            char={selectedCharacter}
-            cardHanzi={card.note.hanzi}
-            onClose={() => setSelectedCharacter(null)}
-            onWrite={(ch) => {
-              setSelectedCharacter(null);
-              setWritingText(ch);
-              setShowWriting(true);
-            }}
-          />
         )}
 
         {renderTranscriptionResult()}

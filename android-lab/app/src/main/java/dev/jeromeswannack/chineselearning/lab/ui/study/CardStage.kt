@@ -276,7 +276,11 @@ fun CardStage(
                             // the answer consume their own taps; a drag (scroll) or a long press never flips.
                             .pointerInput(Unit) { detectTapGestures(onLongPress = {}) { peekToFront() } },
                     ) {
-                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, onCharacter = { sheet = CardSheet.Character(it) })
+                        // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
+                        val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
+                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, onCharacter = { ch ->
+                            if (explore != null) explore(dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem.Char(ch)) else sheet = CardSheet.Character(ch)
+                        })
                     }
                 }
             }

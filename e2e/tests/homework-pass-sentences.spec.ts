@@ -5,7 +5,7 @@ import { test, expect, APIRequestContext, Page } from '@playwright/test';
  * rows (SentenceSet variant="pass"): the Chinese is up, a tap adds the pinyin,
  * the next the English and the tools; "What's going on here?" shows the same
  * word-by-word breakdown (from the device cache — offline — when it has one),
- * each word opens "add as a card"; the generated set waits behind
+ * each word opens the language explorer (+ Add as card inside); the generated set waits behind
  * "+ N more sentences". None of it writes a review event or a homework event:
  * only Got it / Not yet do (a homework event).
  */
@@ -137,10 +137,16 @@ test('the pass sentence: reveal, breakdown, add a word — and nothing is record
   await expect(breakdown).toBeVisible();
   await expect(breakdown.locator('.sentence-set-word')).toHaveCount(3);
   await expect(sentences.getByRole('button', { name: '+ Add as card' })).toBeVisible();
-  await breakdown.getByRole('button', { name: 'Add 喜欢 as a card' }).click();
+  // A word opens the language explorer's Word view; adding it goes through the add sheet.
+  await breakdown.getByRole('button', { name: 'Explore 喜欢' }).click();
+  const wordView = page.getByRole('dialog', { name: 'The word 喜欢' });
+  await expect(wordView).toBeVisible();
+  await wordView.getByTestId('explorer-add-card').click();
   await expect(page.locator('.add-chunk-backdrop')).toBeVisible();
   await page.locator('.add-chunk-backdrop').getByRole('button', { name: 'Cancel' }).click();
   await expect(page.locator('.add-chunk-backdrop')).toHaveCount(0);
+  await page.getByTestId('explorer-close').click();
+  await expect(page.getByTestId('explorer')).toHaveCount(0);
 
   // Nothing recorded: no review, no homework event; still this word, still turned over.
   expect(await countRows(page, 'reviewEvents')).toBe(reviewsBefore);

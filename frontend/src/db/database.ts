@@ -471,6 +471,15 @@ export interface LocalCharDictEntry {
   cached_at: number;
 }
 
+/** The word dictionary of the language explorer (services/wordDict.ts, GET /api/words). */
+export interface LocalWordDictEntry {
+  hanzi: string;
+  record: import('@shared/chars/types').WordRecord | null;
+  /** WORD_DICT_VERSION it was fetched under: an older one is refetched. */
+  version: number;
+  cached_at: number;
+}
+
 export interface LocalCharExplanation {
   char: string;
   explanation: string;
@@ -679,6 +688,7 @@ export class ChineseLearningDB extends Dexie {
   // The character dictionary (services/charDict.ts): records + "More about 字" per character
   charDict!: Table<LocalCharDictEntry, string>;
   charExplanations!: Table<LocalCharExplanation, string>;
+  wordDict!: Table<LocalWordDictEntry, string>;
 
   // Debug tables
   syncLogs!: Table<SyncLogEntry, string>;
@@ -1134,6 +1144,12 @@ export class ChineseLearningDB extends Dexie {
     // Done-for-good / Bring-back events; replaced by each sync except this device's pending ones.
     this.version(29).stores({
       revisitEvents: 'id, item_id, _synced',
+    });
+
+    // Version 30: the language explorer's word dictionary (docs/LANGUAGE_EXPLORER.md) — one
+    // record per word the learner has explored, so the Word view opens offline afterwards.
+    this.version(30).stores({
+      wordDict: 'hanzi, cached_at',
     });
   }
 }

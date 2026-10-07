@@ -17,6 +17,7 @@ import { SentenceSet } from '../components/SentenceSet';
 import { Confetti } from '../components/Confetti';
 import { DueChip } from '../components/homework/HomeworkRow';
 import { LinkPass } from '../components/homework/LinkPass';
+import { ExplorableText } from '../components/explorer/ExplorableText';
 import { useNoteAudio } from '../hooks/useAudio';
 import { API_BASE, updateDeckSettings } from '../api/client';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -225,7 +226,10 @@ function DeckPass({
         </div>
       ) : (
         <div className="hw-pass-card" data-testid="hw-pass-card">
-          <div className="hw-pass-hanzi" lang="zh">{note.hanzi}</div>
+          <div className="hw-pass-hanzi" lang="zh">
+            {/* Answer side: every character opens the language explorer (docs/LANGUAGE_EXPLORER.md). */}
+            {revealed ? <ExplorableText text={note.hanzi} source="homework" cardHanzi={note.hanzi} /> : note.hanzi}
+          </div>
           <button type="button" className="hw-pass-play" onClick={() => play(note.audio_url ?? null, note.hanzi, API_BASE)} aria-label="Play audio">▶</button>
           {revealed ? (
             <div className="hw-pass-answer" data-testid="hw-pass-answer">

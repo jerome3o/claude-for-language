@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCharDict, cedictWordPinyin, cleanGloss, parseCedict, parseMakeMeAHanzi, parseWordfreq } from './build';
+import { buildCharDict, buildWordDict, cedictWordPinyin, cleanGloss, parseCedict, parseMakeMeAHanzi, parseWordfreq } from './build';
 import { decodeMsgpack } from './msgpack';
 import { charShard, charShardFile, CHAR_DICT_SHARDS } from './types';
 import { TINY_CEDICT, TINY_HANZI, TINY_WORDFREQ } from './__fixtures__/tiny';
@@ -88,5 +88,18 @@ describe('character dictionary build', () => {
   it('shards by code point', () => {
     expect(charShard('行')).toBe('行'.codePointAt(0)! % CHAR_DICT_SHARDS);
     expect(charShardFile(7)).toBe('007.dat');
+  });
+});
+
+describe('word dictionary build', () => {
+  it('keeps multi-character words wordfreq has seen, ranked like the shipped list, syllables per character', () => {
+    const words = buildWordDict({ cedict: parseCedict(TINY_CEDICT), freq: parseWordfreq(TINY_WORDFREQ) });
+    const byHanzi = new Map(words.map((w) => [w.hanzi, w]));
+    expect(words.every((w) => [...w.hanzi].length >= 2)).toBe(true);
+    expect(byHanzi.get('银行')).toMatchObject({ pinyin: 'yínháng', syllables: ['yín', 'háng'], english: 'bank', senses: ['bank'] });
+    expect(byHanzi.get('一样')?.syllables).toEqual(['yí', 'yàng']);
+    // Ranks follow frequency: 一样 / 银行 share a bucket (text order), 一点儿 is rarer.
+    expect(byHanzi.get('一样')!.rank!).toBeLessThan(byHanzi.get('一点儿')!.rank!);
+    expect(buildWordDict({ cedict: parseCedict(TINY_CEDICT), freq: parseWordfreq(TINY_WORDFREQ) }, { maxWords: 1 })).toHaveLength(1);
   });
 });

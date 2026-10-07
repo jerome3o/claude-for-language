@@ -423,7 +423,11 @@ private fun PassBack(note: PassNote, onPlay: () -> Unit, longTerm: @Composable (
     ) {
         Column(Modifier.widthIn(max = 560.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             val size = studyHanziSize(note.hanzi) * 0.85f
-            Text(note.hanzi, fontSize = size, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = size * 1.2f)
+            // Revealed: each character opens the language explorer (ui/explorer).
+            dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorableText(
+                note.hanzi, source = "homework", context = note.hanzi,
+                fontSize = size, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = size * 1.2f,
+            )
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             Spacer(Modifier.height(4.dp))

@@ -79,8 +79,8 @@ export function ExplainSheet({ text, mode, isOnline, onClose }: { text: string; 
         )}
         {explanation && (
           <>
-            <div className="chat-explain-tip">Tap a word to add it as a card</div>
-            <SentenceWordBreakdown explanation={explanation} onWord={(w) => setAdding({ hanzi: w.hanzi, pinyin: w.pinyin, english: w.gloss })} />
+            <div className="chat-explain-tip">Tap a word to explore it</div>
+            <SentenceWordBreakdown explanation={explanation} sentence={text} source="chat" />
             <button
               type="button"
               className="btn btn-primary chat-explain-save"

@@ -116,6 +116,12 @@ fun LabShell(
         seenAt.value = System.currentTimeMillis()
     }
 
+    // The language explorer (ui/explorer): one sheet with a stack of Character / Word views any screen can open.
+    val explorer = remember(app) {
+        dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerController(track = { e, p -> app.analytics.track(e, p) }, tick = { app.haptics.tick() })
+    }
+    val explorerEnv = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerEnv(app, nav, close = explorer::close)
+    androidx.compose.runtime.CompositionLocalProvider(dev.jeromeswannack.chineselearning.lab.ui.explorer.LocalExplorer provides explorer) {
     ShellFrame(
         tabs = state.tabs,
         active = NavRules.activeTab(state.tabs, path),
@@ -134,6 +140,8 @@ fun LabShell(
             featureGraphs(nav)
         }
         dev.jeromeswannack.chineselearning.lab.ui.calls.CallTopBar(nav, path)
+    }
+    dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerHost(explorer, explorerEnv)
     }
 }
 

@@ -10,6 +10,7 @@ import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
 import { FeedbackFAB } from './components/FeedbackFAB';
 import { CallAlerts } from './components/calls/CallAlerts';
+import { ExplorerProvider } from './components/explorer/ExplorerContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/Loading';
 import { LandingResolver } from './components/nav/LandingResolver';
@@ -698,12 +699,14 @@ function App() {
       <AuthProvider>
         <NetworkProvider>
           <BrowserRouter>
-            <NativeNavigationListener />
-            <AnalyticsListener />
-            <AppRoutes />
-            <OfflineBanner />
-            <FeedbackFAB />
-            <CallAlerts />
+            <ExplorerProvider>
+              <NativeNavigationListener />
+              <AnalyticsListener />
+              <AppRoutes />
+              <OfflineBanner />
+              <FeedbackFAB />
+              <CallAlerts />
+            </ExplorerProvider>
           </BrowserRouter>
         </NetworkProvider>
       </AuthProvider>

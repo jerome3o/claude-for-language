@@ -4,7 +4,8 @@ import { test, expect, APIRequestContext } from '@playwright/test';
  * The character sheet (docs/STUDY_SESSION.md "Character sheet"): tap a character on the card
  * back → card-independent dictionary data from GET /api/chars (no AI call), and "Words with 行"
  * marked from the learner's own cards — ✓ Known for a mature card, 📚 In your decks for one
- * still being learned — then add a word they don't have through the add-card sheet.
+ * still being learned — then a word row opens the explorer's Word view, where a word they
+ * don't have is added and one they have offers Open card / ⚡ Study it today.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
@@ -77,18 +78,23 @@ test('card back → tap 行 → the sheet shows its words with Known / In your d
   const hangye = rows.filter({ hasText: '行业' });
   await expect(hangye).toHaveAttribute('data-status', 'none');
 
-  // Add 行业 through the add-card sheet (top deck preselected).
+  // A word row opens its Word view (the language explorer); add 行业 from there (top deck preselected).
   await hangye.click();
+  const hangyeView = page.getByRole('dialog', { name: 'The word 行业' });
+  await expect(hangyeView).toContainText('hángyè');
+  await hangyeView.getByTestId('explorer-add-card').click();
   const add = page.getByRole('dialog', { name: 'Add 行业 as a card' });
   await expect(add).toBeVisible();
   await add.getByRole('button', { name: 'Add to deck' }).click();
   await expect(add).toBeHidden({ timeout: 10000 });
-  await expect(hangye).toHaveAttribute('data-status', 'in_decks', { timeout: 10000 });
+  await expect(hangyeView.getByTestId('explorer-word-card')).toContainText('✓ Added');
 
-  // A word they already have offers ⚡ Study it today instead.
-  await jinxing.click();
-  const have = page.getByRole('dialog', { name: 'Add 进行 as a card' });
-  await expect(have.getByTestId('already-have')).toContainText('You already have 进行');
+  // Back to 行; a word they already have offers Open card and ⚡ Study it today.
+  await page.getByTestId('explorer-back').click();
+  await expect(sheet).toBeVisible();
+  await sheet.getByTestId('char-word-row').filter({ hasText: '进行' }).click();
+  const have = page.getByRole('dialog', { name: 'The word 进行' });
+  await expect(have.getByTestId('explorer-word-card')).toContainText('You have this card in Older words');
   await expect(have.getByRole('button', { name: '⚡ Study it today' })).toBeVisible();
   await expect(have.getByRole('button', { name: 'Open card →' })).toBeVisible();
 });

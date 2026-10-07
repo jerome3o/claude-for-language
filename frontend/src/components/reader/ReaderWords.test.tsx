@@ -1,8 +1,9 @@
 /**
  * Reader word chips (web): a page with words shows chips, punctuation stays
- * plain, a word already in a deck is marked; tapping a chip opens the sheet
- * (without hiding the Chinese), "More about this word" shows the explanation,
- * and "+ Add as card" creates the note with the explanation's card fields.
+ * plain, a word already in a deck is marked; tapping a chip opens the language
+ * explorer's Word view (without hiding the Chinese) with the chip's pinyin,
+ * gloss and sentence, "More about this word" shows the explanation, and
+ * "+ Add as card" creates the note with the explanation's card fields.
  * A page without words is plain text until the backfill brings them, and
  * they are kept on the device for offline.
  */
@@ -18,12 +19,19 @@ const api = vi.hoisted(() => ({
   explainReaderWord: vi.fn(),
   createNote: vi.fn(),
   generatePracticeTTS: vi.fn(),
+  getDecks: vi.fn(),
+  fetchWordRecords: vi.fn(),
+  fetchCharRecord: vi.fn(),
+  fetchCharRecords: vi.fn(),
+  apiErrorStatus: (err: unknown) => (err as { status?: number } | null)?.status,
 }));
 vi.mock('../../api/client', () => api);
 vi.mock('../../services/analytics', () => ({ track: vi.fn(), trackError: vi.fn() }));
 
+import { MemoryRouter } from 'react-router-dom';
 import { db } from '../../db/database';
 import { ReaderWordsText } from './ReaderWords';
+import { ExplorerProvider } from '../explorer/ExplorerContext';
 
 const TEXT = '早上好。我叫小徐。';
 const WORDS: ReaderWord[] = [
@@ -48,9 +56,13 @@ describe('ReaderWordsText', () => {
   const render = async (page: { id: string; content_chinese: string; words?: ReaderWord[] | null }) => {
     await act(async () =>
       root.render(
-        <div onClick={hide}>
-          <ReaderWordsText readerId="r1" page={page} />
-        </div>,
+        <MemoryRouter>
+          <ExplorerProvider>
+            <div onClick={hide}>
+              <ReaderWordsText readerId="r1" page={page} />
+            </div>
+          </ExplorerProvider>
+        </MemoryRouter>,
       ),
     );
     await flush();
@@ -68,7 +80,7 @@ describe('ReaderWordsText', () => {
     document.body.appendChild(host);
     root = createRoot(host);
     hide.mockReset();
-    Object.values(api).forEach((f) => f.mockReset());
+    Object.values(api).forEach((f) => (f as { mockReset?: () => void }).mockReset?.());
     await db.decks.put({ id: 'd1', name: 'Readers', description: null, created_at: '', updated_at: '' } as never);
     await db.notes.put({ id: 'n1', deck_id: 'd1', hanzi: '早上', pinyin: 'zǎoshang', english: 'morning' } as never);
   });
@@ -88,7 +100,7 @@ describe('ReaderWordsText', () => {
     expect(api.backfillReaderWords).not.toHaveBeenCalled();
   });
 
-  it('tap → sheet → More about this word → Add as card', async () => {
+  it('tap → Word view with the chip\'s pinyin / gloss / sentence → More about this word → Add as card', async () => {
     api.explainReaderWord.mockResolvedValue({
       word: '小徐',
       pinyin: 'Xiǎo Xú',
@@ -100,23 +112,27 @@ describe('ReaderWordsText', () => {
       sentence_clue_translation: 'My name is Xiao Xu.',
     });
     api.createNote.mockResolvedValue({ id: 'n2' });
+    api.getDecks.mockResolvedValue([{ id: 'd1', name: 'Readers', study_priority: 0, created_at: '' }]);
+    api.fetchWordRecords.mockResolvedValue({ version: 1, records: {}, missing: ['小徐'] });
+    api.fetchCharRecords.mockResolvedValue({ version: 1, records: {}, missing: [] });
     await render({ id: 'p1', content_chinese: TEXT, words: WORDS });
 
     await click(chips()[4]);
     expect(hide).not.toHaveBeenCalled(); // the tap doesn't hide the Chinese
-    const sheet = document.querySelector('.rw-sheet');
-    expect(sheet?.querySelector('.rw-hanzi')?.textContent).toBe('小徐');
-    expect(sheet?.querySelector('.rw-pinyin')?.textContent).toBe('Xiǎo Xú');
-    expect(sheet?.querySelector('.rw-gloss')?.textContent).toBe('Xiao Xu');
-    expect(sheet?.querySelector('.rw-sentence')?.textContent).toBe('我叫小徐。');
+    const view = document.querySelector('[role="dialog"][aria-label="The word 小徐"]');
+    expect(view).toBeTruthy();
+    expect(view?.querySelector('.xp-word-pinyin')?.textContent).toBe('Xiǎo Xú');
+    expect(view?.querySelector('.xp-word-english')?.textContent).toBe('Xiao Xu');
+    expect(view?.textContent).toContain('我叫小徐。');
 
-    await click(byText('.rw-more', 'More about this word'));
+    await click(byText('button', 'More about this word'));
     expect(api.explainReaderWord).toHaveBeenCalledWith({ word: '小徐', sentence: '我叫小徐。', pinyin: 'Xiǎo Xú', gloss: 'Xiao Xu' });
-    expect(document.querySelector('[data-testid="rw-explanation"]')?.textContent).toContain('a surname');
+    expect(document.querySelector('[data-testid="explorer-word-more"]')?.textContent).toContain('a surname');
+    // the explanation is now on the device: offline it opens instantly
+    expect(await db.sentenceTextExplanations.get('reader-word:小徐|我叫小徐。')).toBeTruthy();
 
-    await click(byText('.rw-add', 'Add as card'));
-    expect((document.querySelector('.rw-select') as HTMLSelectElement).value).toBe('d1');
-    await click(byText('.rw-add', 'Add to deck'));
+    await click(byText('button', '+ Add as card'));
+    await click(byText('button', 'Add to deck'));
     expect(api.createNote).toHaveBeenCalledWith('d1', {
       hanzi: '小徐',
       pinyin: 'Xiǎo Xú',
@@ -126,23 +142,18 @@ describe('ReaderWordsText', () => {
       sentence_clue_pinyin: 'wǒ jiào Xiǎo Xú',
       sentence_clue_translation: 'My name is Xiao Xu.',
     });
-    expect(document.querySelector('.rw-success')?.textContent).toContain('Readers');
     expect(hide).not.toHaveBeenCalled();
-    // the explanation is now on the device: offline it opens instantly
-    const cached = await db.sentenceTextExplanations.get('reader-word:小徐|我叫小徐。');
-    expect(cached).toBeTruthy();
   });
 
-  it('a word I already have offers ⚡ Study it today first, then Add anyway', async () => {
+  it('a word I already have says so and offers ⚡ Study it today', async () => {
+    api.fetchWordRecords.mockResolvedValue({ version: 1, records: {}, missing: ['早上'] });
+    api.fetchCharRecords.mockResolvedValue({ version: 1, records: {}, missing: [] });
     await render({ id: 'p1', content_chinese: TEXT, words: WORDS });
     await click(chips()[0]);
-    expect(document.querySelector('.rw-known')).toBeTruthy();
     await flush();
-    expect(byText('.rw-notice', 'You already have')).toBeTruthy();
+    expect(byText('.xp-have-line', 'You have this card in Readers')).toBeTruthy();
     expect(byText('.bump-btn', 'Study it today')).toBeTruthy();
-    await click(byText('.rw-add-secondary', 'Add anyway'));
-    expect(byText('.rw-notice', 'already in that deck')).toBeTruthy();
-    expect(byText('.rw-add', 'Add anyway')).toBeTruthy();
+    expect(byText('button', 'Open card')).toBeTruthy();
   });
 
   it('plain text until the backfill brings the words, which are kept on the device', async () => {

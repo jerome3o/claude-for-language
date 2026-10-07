@@ -41,6 +41,7 @@ export const BUMP_SOURCES = [
   'breakdown',
   'card_hub',
   'char_sheet',
+  'explorer',
   'deck',
   'mcp',
   'tutor',
