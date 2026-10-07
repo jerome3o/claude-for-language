@@ -77,7 +77,8 @@ class TodaySplitStudyTest {
     private fun idle() = shadowOf(android.os.Looper.getMainLooper()).idle()
 
     private fun awaitUi(vm: StudyViewModel, what: String, ok: (StudyUi) -> Boolean): StudyUi {
-        repeat(300) {
+        // Up to ~10 s: the view model's loads run on background dispatchers, slower on a busy CI runner.
+        repeat(1000) {
             idle()
             val u = vm.ui.value
             if (ok(u)) return u

@@ -100,4 +100,38 @@ class ExplorerScreenshots : LabScreenshotTest() {
     @Test fun wordDark() = shoot("explorer-06-word-dark", dark = true) {
         overCard { WordView(ExplorerSamples.wordUi(), listOf(ExplorerItem.Char("银"), ExplorerSamples.item()), canOpenCard = true, canBump = true) }
     }
+
+    // ── Quick drills (explorer-drill-*.png → docs/pr-screenshots/language-explorer-drills/lab-*.png) ──
+
+    /** 银行 and its related words, seed 3: meaning · listen · tone · tone · write. */
+    private fun drill(): List<dev.jeromeswannack.chineselearning.lab.core.explorer.DrillQuestion> {
+        val (target, pool) = wordDrill(ExplorerSamples.wordUi()) ?: error("no drill")
+        return dev.jeromeswannack.chineselearning.lab.core.explorer.Drill.buildDrill(target, pool, 3)
+    }
+
+    private val drillStack = listOf(ExplorerItem.Char("银"), ExplorerSamples.item())
+
+    /** 🎯 1 / 5 — "What does it mean?" with four English options. */
+    @Test fun drillMeaning() = shoot("explorer-drill-01-meaning") {
+        overCard { DrillView(drillStack, drill()) }
+    }
+
+    /** "Which tone is 行 here?" — the word with the character highlighted, five tone buttons. */
+    @Test fun drillTone() = shoot("explorer-drill-02-tone") {
+        val qs = drill()
+        val i = qs.indexOfLast { it.kind == dev.jeromeswannack.chineselearning.lab.core.explorer.DrillKind.TONE }
+        overCard { DrillView(drillStack, qs, initial = DrillUiState(index = i, correct = i)) }
+    }
+
+    /** Answered wrong: the pick in red, the right one in green, the pinyin revealed, Next →. */
+    @Test fun drillAnswered() = shoot("explorer-drill-03-answered") {
+        val qs = drill()
+        val q = qs[0]
+        overCard { DrillView(drillStack, qs, initial = DrillUiState(index = 0, picked = (q.answer + 1) % q.options.size)) }
+    }
+
+    /** The score: 4 / 5 — 很好！Nice, 🎉, practice only, Again / Keep exploring. */
+    @Test fun drillDone() = shoot("explorer-drill-04-done") {
+        overCard { DrillView(drillStack, drill(), initial = DrillUiState(index = 4, correct = 4, done = true)) }
+    }
 }

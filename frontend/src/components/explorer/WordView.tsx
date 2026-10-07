@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type { CharRecord, CharWord, CharWordRow, WordRecord } from '@shared/chars';
-import { relatedWords, resolveWord, wordChars, wordFrequencyLabel, type WordItem } from '@shared/explorer';
+import { buildDrill, relatedWords, resolveWord, wordChars, wordFrequencyLabel, type DrillTarget, type WordItem } from '@shared/explorer';
 import { hanCharacters } from '@shared/progress/known';
 import type { ReaderWordExplanation } from '@shared/reader/words';
 import { charWordStatuses, lookupChar, prefetchChars } from '../../services/charDict';
@@ -65,12 +65,15 @@ export function WordView({
   cardHanzi,
   onClose,
   footer,
+  onDrill,
 }: {
   item: WordItem;
   cardHanzi?: string | null;
   onClose: () => void;
   /** The explorer's pinned footer (the card tie-in renders there). */
   footer?: HTMLElement | null;
+  /** "🎯 Quick drill" over this word and its related words. */
+  onDrill?: (target: DrillTarget, pool: CharWord[]) => void;
 }) {
   const hanzi = item.hanzi;
   const explorer = useExplorer();
@@ -176,6 +179,8 @@ export function WordView({
   };
 
   const decks = existing ? [...new Set(existing.map((e) => e.deckName))] : [];
+  const drillTarget: DrillTarget | null = word.english ? { kind: 'word', word: { hanzi, pinyin: word.pinyin, english: word.english }, syllables: word.syllables } : null;
+  const drillPool: CharWord[] = (related ?? []).map((r) => r.word);
 
   return (
     <div className="xp-view" data-testid="explorer-word-view">
@@ -251,6 +256,11 @@ export function WordView({
               ✨ More about this word
             </button>
           </>
+        )}
+        {onDrill && drillTarget && buildDrill(drillTarget, drillPool, 1).length > 0 && (
+          <button type="button" className="btn btn-secondary char-sheet-action xp-drill-btn" onClick={() => onDrill(drillTarget, drillPool)} data-testid="explorer-drill-start">
+            🎯 Quick drill
+          </button>
         )}
       </section>
 

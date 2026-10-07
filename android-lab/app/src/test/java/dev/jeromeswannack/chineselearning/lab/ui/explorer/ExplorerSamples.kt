@@ -60,18 +60,29 @@ object ExplorerSamples {
 
     fun item(sentence: String? = "明天我要去银行办卡。") = ExplorerItem.Word("银行", "yínháng", "bank", sentence)
 
-    fun env(online: Boolean = true, mine: MyWord = MyWord(), word: WordDict.Lookup = WordDict.Lookup.Ok(yinhang)) = ExplorerEnv(
+    fun env(
+        online: Boolean = true,
+        mine: MyWord = MyWord(),
+        word: WordDict.Lookup = WordDict.Lookup.Ok(yinhang),
+        myWord: (suspend (String) -> MyWord)? = null,
+        play: (String) -> Unit = {},
+        drillFx: DrillFx = DrillFx(),
+    ) = ExplorerEnv(
         chars = CharSheetActions(
             lookup = { c -> records[c]?.let { CharDict.Lookup.Ok(it) } ?: CharDict.Lookup.Missing },
             statuses = { words, _ -> words.map { dev.jeromeswannack.chineselearning.lab.core.CharWordRow(it, statuses[it.hanzi] ?: CharWordStatus.None, emptyList(), false) } },
         ),
         wordLookup = { word },
-        myWord = { mine },
+        myWord = myWord ?: { mine },
         rank = { ranks[it] },
         online = { online },
         canWrite = true,
         bump = { h, _ -> "⚡ ${h.first()} is in today's study" },
         openCard = {},
+        play = play,
+        drillFx = drillFx,
+        // No stroke data in tests: a drill's "Write it" shows the no-data note (Skip still works).
+        strokeLoader = { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeLoad.Missing },
     )
 
     /** The Word view's data as the host builds it (everything loaded). */

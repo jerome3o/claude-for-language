@@ -89,3 +89,57 @@ test('homework answer side → character → word → character → back, back �
   await expect(page.getByTestId('hw-pass-count')).toHaveText('0/1');
   await expect(page.getByTestId('hw-gotit')).toBeVisible();
 });
+
+test('a quick drill from the Word view: answer, see the score, keep exploring — no review recorded', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const user = await seedUser(request, 'drill', 'Jerome');
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token: user.token, data: { name: 'HSK 3' } });
+  await api(request, `/api/decks/${deck.id}/notes`, { method: 'POST', token: user.token, data: { hanzi: '银行', pinyin: 'yínháng', english: 'bank' } });
+
+  await page.goto(`/decks?session_token=${user.token}`);
+  await expect(page.getByText('HSK 3').first()).toBeVisible({ timeout: 30_000 });
+  // The study card's answer side: a character → its words → a Word view → 🎯 Quick drill.
+  await page.goto(`/study?deck=${deck.id}&autostart=true`);
+  const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first();
+  await reveal.waitFor({ timeout: 30_000 });
+  const gotIt = page.getByRole('button', { name: 'Got it' });
+  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+  const typed = page.locator('input[type="text"], textarea').first();
+  if (await typed.isVisible().catch(() => false)) await typed.fill('银行');
+  await reveal.click();
+  await page.getByTestId('study-action-row').waitFor({ timeout: 15_000 });
+  const reviewsBefore = await page.evaluate(() => new Promise<number>((resolve) => {
+    const open = indexedDB.open('ChineseLearningDB');
+    open.onsuccess = () => { const r = open.result.transaction('reviewEvents').objectStore('reviewEvents').count(); r.onsuccess = () => resolve(r.result); };
+  }));
+
+  await page.locator('.diff-char-clickable, .hanzi-char-clickable').filter({ hasText: '银' }).first().click();
+  await page.getByRole('dialog', { name: 'The character 银' }).getByTestId('char-word-row').filter({ hasText: '银行' }).first().click();
+  const word = page.getByRole('dialog', { name: 'The word 银行' });
+  await word.getByTestId('explorer-drill-start').click();
+
+  const drill = page.getByTestId('explorer-drill');
+  await expect(drill).toBeVisible();
+  for (let i = 0; i < 6; i++) {
+    if (await page.getByTestId('explorer-drill-done').isVisible().catch(() => false)) break;
+    const options = drill.getByTestId('explorer-drill-option');
+    if ((await options.count()) > 0) {
+      await drill.locator('[data-right="true"]').click();
+      await expect(drill.locator('.xp-drill-option.right')).toBeVisible();
+    } else {
+      await drill.getByRole('button', { name: 'Skip' }).click();
+    }
+    await drill.getByTestId('explorer-drill-next').click();
+  }
+  const done = page.getByTestId('explorer-drill-done');
+  await expect(done).toContainText(/\d \/ \d/);
+  await done.getByTestId('explorer-drill-exit').click();
+  await expect(page.getByRole('dialog', { name: 'The word 银行' }).getByTestId('explorer-word-view')).toBeVisible();
+
+  // Practice only: no review event was written.
+  const reviewsAfter = await page.evaluate(() => new Promise<number>((resolve) => {
+    const open = indexedDB.open('ChineseLearningDB');
+    open.onsuccess = () => { const r = open.result.transaction('reviewEvents').objectStore('reviewEvents').count(); r.onsuccess = () => resolve(r.result); };
+  }));
+  expect(reviewsAfter).toBe(reviewsBefore);
+});

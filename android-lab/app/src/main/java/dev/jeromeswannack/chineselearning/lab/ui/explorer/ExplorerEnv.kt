@@ -60,6 +60,10 @@ class ExplorerEnv(
     val openCard: ((noteId: String) -> Unit)? = null,
     /** "✍️ Write it" is offered (the stroke-order practice). */
     val canWrite: Boolean = false,
+    /** A quick drill's right / wrong / good-score feedback (Sounds + Haptics). */
+    val drillFx: DrillFx = DrillFx(),
+    /** Stroke data for a drill's "Write it" (null = the app's StrokeStore). */
+    val strokeLoader: (suspend (String) -> dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeLoad)? = null,
 )
 
 object ExplorerData {
@@ -111,6 +115,11 @@ fun rememberExplorerEnv(app: LabApp, nav: LabNav?, close: () -> Unit): ExplorerE
             },
             openCard = nav?.let { n -> { id: String -> close(); n.open(Routes.cardHub(id)) } },
             canWrite = true,
+            drillFx = DrillFx(
+                right = { app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.CORRECT); app.haptics.correct() },
+                wrong = { app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.WRONG); app.haptics.wrong() },
+                celebrate = { app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.FANFARE); app.haptics.celebrate() },
+            ),
         )
     }
 }

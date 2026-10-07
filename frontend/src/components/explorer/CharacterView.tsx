@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CHAR_STATUS_LABEL, charWordsSummary, type CharRecord, type CharWord, type CharWordRow } from '@shared/chars';
+import { buildDrill, type DrillTarget } from '@shared/explorer';
 import { isHanCodePoint } from '@shared/progress/known';
 import { charWordStatuses, explainChar, lookupChar, type CharLookup } from '../../services/charDict';
 import { track } from '../../services/analytics';
@@ -18,11 +19,14 @@ export function CharacterView({
   cardHanzi,
   onWrite,
   onClose,
+  onDrill,
 }: {
   char: string;
   cardHanzi?: string | null;
   onWrite?: (char: string) => void;
   onClose: () => void;
+  /** "🎯 Quick drill" over this character and its words. */
+  onDrill?: (target: DrillTarget, pool: CharWord[]) => void;
 }) {
   const explorer = useExplorer();
   const [lookup, setLookup] = useState<CharLookup | null>(null);
@@ -149,6 +153,11 @@ export function CharacterView({
         {more.state === 'idle' && (
           <button type="button" className="btn btn-secondary char-sheet-action" onClick={askMore}>
             ✨ More about {char}
+          </button>
+        )}
+        {onDrill && record && buildDrill({ kind: 'char', char }, record.words, 1).length > 0 && (
+          <button type="button" className="btn btn-secondary char-sheet-action" onClick={() => onDrill({ kind: 'char', char }, record.words)} data-testid="explorer-drill-start">
+            🎯 Quick drill
           </button>
         )}
       </div>
