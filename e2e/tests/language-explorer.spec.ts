@@ -143,3 +143,71 @@ test('a quick drill from the Word view: answer, see the score, keep exploring �
   }));
   expect(reviewsAfter).toBe(reviewsBefore);
 });
+
+test('Android / browser back pops ONE explorer level (the drill first); ✕ leaves the page where it was', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const user = await seedUser(request, 'back', 'Jerome');
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token: user.token, data: { name: 'Bank words' } });
+  await api(request, `/api/decks/${deck.id}/notes`, { method: 'POST', token: user.token, data: { hanzi: '银行', pinyin: 'yínháng', english: 'bank' } });
+
+  await page.goto(`/decks?session_token=${user.token}`);
+  await expect(page.getByText('Bank words').first()).toBeVisible({ timeout: 30_000 });
+  await page.goto(`/study?deck=${deck.id}&autostart=true`);
+  const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first();
+  await reveal.waitFor({ timeout: 30_000 });
+  const gotIt = page.getByRole('button', { name: 'Got it' });
+  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+  const typed = page.locator('input[type="text"], textarea').first();
+  if (await typed.isVisible().catch(() => false)) await typed.fill('银行');
+  await reveal.click();
+  const actions = page.getByTestId('study-action-row');
+  await actions.waitFor({ timeout: 15_000 });
+  const studyUrl = page.url();
+  const explorer = page.getByTestId('explorer');
+  const word = page.getByRole('dialog', { name: 'The word 银行' });
+  const openTwoDeep = async () => {
+    await page.locator('.diff-char-clickable, .hanzi-char-clickable').filter({ hasText: '银' }).first().click();
+    await page.getByRole('dialog', { name: 'The character 银' }).getByTestId('char-word-row').filter({ hasText: '银行' }).first().click();
+    await expect(word).toBeVisible();
+  };
+
+  // 银 › 银行 › 行 — three views deep.
+  await openTwoDeep();
+  await word.getByRole('button', { name: /^The character 行/ }).click();
+  await expect(page.getByRole('dialog', { name: 'The character 行' })).toBeVisible();
+  await expect(explorer.locator('.xp-crumb')).toHaveText(['银', '银行', '行']);
+
+  // Back → 银行 (the page under it never moves).
+  await page.goBack();
+  await expect(word).toBeVisible();
+  await expect(explorer.locator('.xp-crumb')).toHaveText(['银', '银行']);
+  expect(page.url()).toBe(studyUrl);
+
+  // A drill there: back leaves the drill first, the Word view stays.
+  await word.getByTestId('explorer-drill-start').click();
+  await expect(page.getByTestId('explorer-drill')).toBeVisible();
+  await page.goBack();
+  await expect(page.getByTestId('explorer-drill')).toHaveCount(0);
+  await expect(word.getByTestId('explorer-word-view')).toBeVisible();
+
+  // Back → 银, back → closed, still on the study card.
+  await page.goBack();
+  await expect(page.getByRole('dialog', { name: 'The character 银' })).toBeVisible();
+  await expect(page.getByTestId('explorer-back')).toHaveCount(0);
+  await page.goBack();
+  await expect(explorer).toHaveCount(0);
+  expect(page.url()).toBe(studyUrl);
+  await expect(actions).toBeVisible();
+
+  // Two deep again, closed with ✕: the explorer's history entries go with it and the study card
+  // stays (no double pop); the next back is an ordinary back to the page before.
+  await openTwoDeep();
+  await page.getByTestId('explorer-close').click();
+  await expect(explorer).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window.history.state as { backLevel?: number } | null)?.backLevel ?? 0)).toBe(0);
+  await page.waitForTimeout(300);
+  expect(page.url()).toBe(studyUrl);
+  await expect(actions).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/decks/);
+});

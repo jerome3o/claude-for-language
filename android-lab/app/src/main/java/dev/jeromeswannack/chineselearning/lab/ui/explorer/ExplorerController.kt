@@ -78,6 +78,15 @@ class ExplorerController(
     /** ✕, the scrim, a swipe down, back on the first view. */
     fun close() = dispatch(ExplorerAction.Close)
 
+    /** Android back: ONE level — the drill if one is running, else the top view, else the sheet. */
+    fun back() {
+        when {
+            drill != null -> endDrill()
+            stack.size > 1 -> pop()
+            else -> close()
+        }
+    }
+
     /** "🎯 Quick drill" (and Again, with a new seed): false when the pool can't make one. */
     fun startDrill(target: DrillTarget, pool: List<DictWord>, seed: Long = now() % 2147483647): Boolean {
         val questions = Drill.buildDrill(target, pool, seed)
