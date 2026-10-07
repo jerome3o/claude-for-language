@@ -99,6 +99,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── compute-state.ts    # Core FSRS logic, state computation from events
 │   │   ├── compute-state.test.ts # Tests for scheduler
 │   │   └── index.ts       # Re-exports
+│   ├── audio-lesson/      # Audio lessons (docs/AUDIO_LESSONS.md): plan types (DialoguePlan / SleepPlan), compile.ts (plan → speech/pause script, RATES / PAUSES), validate.ts, timeline.ts (chapters / transcript in ms, player helpers), input.ts
 │   ├── picture-hunt/      # Picture hunt (看图找词): types (normalised boxes / outlines), answer matching (match.ts), hit-testing (geometry.ts), feedback copy, validation — parity-tested by the Lab app
 │   ├── quest/             # Quests: the tile-map mini-game framework
 │   │   ├── types.ts       # World schema (terrain, objects, verbs, goal conditions)
@@ -320,6 +321,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `char_explanations` - "More about 字" on the character sheet: Haiku's short card-independent explanation per character, shared by everyone (migration 0108). The dictionary itself is static (`worker/char-dict/`, see "Character sheet")
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
 - `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0104): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
+- `audio_lessons` - Audio lessons (migration 0046 reused + 0111; docs/AUDIO_LESSONS.md): format dialogue|sleep, status queued/writing/speaking/rendering/ready/failed, progress + clips done/total, input, the agent transcript, plan, script, timeline (chapters + transcript), words, `audio_key` (R2 `audio-lessons/`), usage, pinned `zh_provider`, `for_relationship_id` (a label only). Rows with `format` NULL are the removed first attempt
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
@@ -1016,6 +1018,19 @@ create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overal
 - `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools)
 - `DELETE /api/coach/conversations/:id` - Delete a conversation
 
+### Audio lessons (`worker/src/routes/audio-lessons.ts`, `services/audio-lessons/`, page at `/audio-lessons`; read docs/AUDIO_LESSONS.md)
+Agent-written listening lessons rendered to ONE MP3 each. **dialogue** = English host + a Chinese dialogue
+played three times, line by line, then the new words / structures; **sleep** = all Chinese, very slow:
+the new words of a pasted text, each ×3 with simple explanations and three sentences ×3, long pauses.
+Claude Opus 5.5 (`agent.ts`, tools `check_known_words` + `submit_lesson`, transcript checkpointed) writes a
+PLAN; `shared/audio-lesson/compile.ts` makes the speech/pause SCRIPT; each distinct clip goes through
+`callProviderTTS` (`synth.ts`; Chinese in the stored order with the first provider PINNED per lesson,
+English Azure → Google; all clips 24 kHz mono MP3); `mp3.ts` joins frames + generated silence + one Xing
+header in the Worker. Queue `audio-lesson-queue` (re-enqueues on rate limits / after 4 min). R2
+`audio-lessons/` (person-made). Web player: offline (Cache API), chapters, ±10 s, speed, transcript,
+sleep timer, Media Session. MCP `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons`.
+- `GET|POST /api/audio-lessons`, `GET|DELETE /api/audio-lessons/:id`, `GET /api/audio-lessons/:id/audio`, `POST /api/audio-lessons/:id/retry`
+
 ### Quests (tile-map mini-games, page at `/quests`, play at `/quests/:id`)
 A quest is a small top-down grid world with a character the learner drives with on-screen
 arrows, a pick-up/put-down button and contextual verb buttons. Each goal is an **imperative
@@ -1041,7 +1056,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue`, `recording-check-queue` (docs/RECORDING_REVIEW.md).
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue`, `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md).
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -1844,6 +1859,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
+| `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` | Audio lessons (`tools/audio-lessons.ts`): start one (dialogue: `description` / `dialogue`; sleep: `text`; `target_minutes`; a tutor's `for_relationship_id` is only a label) / status, chapters, transcript, usage / the list |
 | `list_picture_hunts` / `create_picture_hunt` | The user's picture hunts (status, objects, best score) / start one from a scene description (`tools/picture-hunts.ts`) |
 | `list_folders` / `create_folder` / `rename_folder` / `delete_folder` / `move_to_folder` | Folders for decks, library lessons and readers (`tools/folders.ts`): list with paths + item counts, create (one level inside a top-level folder), rename / re-parent, delete (items → Unfiled, nothing deleted), file items by `folder_id` or by folder name (found or made). `list_decks`, `list_lesson_library`, `list_readers` show each item's folder and take a `folder_id` filter (`'unfiled'`); `create_deck`, `create_library_lesson`, `create_reader`, `generate_reader` take `folder_id` / `folder` |
 | `bump_cards` / `list_bumped_cards` / `clear_bumped_card` / `bump_student_cards` | "⚡ Study it today" (`tools/bumps.ts`): put words the user ALREADY has first in today's study (note_ids or hanzi; new cards even past the daily limit) instead of adding duplicates / the pocket / take one out / the tutor bumps a student's cards (the student sees "⚡ from <tutor>"). `search_notes` / `batch_search_notes` point at it |
@@ -2304,6 +2320,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/homework/:jobId` - Review a homework draft made from lesson notes (tutor): load gauge, words / skipped, modes, split, Claude chat, Assign
 - `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
 - `/tutor-notes`, `/tutor-notes/practice?cards=&notes=` - Notes from your tutor (More → From your tutor, Home row) / practising those cards in the study card (immersive; a rating counts only when due)
+- `/audio-lessons`, `/audio-lessons/:id` - Audio lessons: list + New audio lesson (More → Practice), the player (immersive; offline once opened)
 - `/picture-hunt`, `/picture-hunt/:id` - Picture hunt: list + make / upload, and the game (immersive; More → Practice)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/materials`, `/materials/:id` - Lesson materials (More → 📑 Lesson materials): upload / share / rename / delete, and the page viewer (cache-first, offline)

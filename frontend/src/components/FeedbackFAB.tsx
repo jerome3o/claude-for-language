@@ -223,7 +223,7 @@ export function FeedbackFAB() {
   if (!isAuthenticated) return null;
   // A video call fills the screen and has its own controls where the FAB would sit; so does the homework pass,
   // and a chat (its 🎤 / Send button is in that corner).
-  if (/^\/(calls|homework)\/[^/]+\/?$/.test(location.pathname)) return null;
+  if (/^\/(calls|homework|audio-lessons)\/[^/]+\/?$/.test(location.pathname)) return null;
   if (/^\/connections\/[^/]+\/chat\/[^/]+\/?$/.test(location.pathname)) return null;
 
   // Study, the tutor's "Try it" previews and the catalogue samples: keep the FAB faint, out of the card's way.

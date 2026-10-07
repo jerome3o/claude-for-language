@@ -18,6 +18,7 @@ const RESUMABLE: RegExp[] = [
   /^\/homework\/[^/]+\/?$/,
   /^\/readers\/(?!generate$|new$)[^/]+\/?$/,
   /^\/picture-hunt\/[^/]+\/?$/,
+  /^\/audio-lessons\/[^/]+\/?$/,
   /^\/quests\/[^/]+\/?$/,
   /^\/tutor-notes\/practice\/?$/,
   /^\/(library|decks)\/[^/]+\/try\/?$/,
