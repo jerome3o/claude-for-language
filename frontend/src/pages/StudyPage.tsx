@@ -539,6 +539,10 @@ export function StudyCard({
   const [reRecording, setReRecording] = useState(false);
   const [reRecordSeconds, setReRecordSeconds] = useState(0);
   const reRecordStartedRef = useRef(false);
+  // Set while a Record again is under way: once its new take is saved (and the card has turned
+  // back to the answer), the card's own clip plays, like on the reveal. Cancel / a microphone
+  // that never opened clears it, so nothing plays then.
+  const replayAfterReRecordRef = useRef(false);
 
   // Resume point (shared/study/resume.ts): the card on screen, revealed or not, its answer and
   // time so far — saved as it changes and when leaving, so coming back to Study (from the coach,
@@ -834,6 +838,28 @@ export function StudyCard({
     }
   }, [flipped, playRecordingAtIndex, wordAudioComing]);
 
+  // After a Record again: the new take has been saved and the card is back on the answer —
+  // the reveal's auto-play once more (the same clip, recordings in turn), so the right
+  // pronunciation follows straight after his own. His own take's playback stops for it; a
+  // clip still on its way is left to the reveal effect above, which plays it when it lands.
+  const playAfterReRecordRef = useRef(() => {});
+  playAfterReRecordRef.current = () => {
+    recordingPlayerRef.current.stop();
+    if (wordAudioComing && recordingsRef.current.length === 0) return;
+    playRecordingAtIndex(0);
+  };
+  const replayTimerRef = useRef<number | null>(null);
+  useEffect(() => () => { if (replayTimerRef.current) clearTimeout(replayTimerRef.current); }, []);
+  useEffect(() => {
+    if (!replayAfterReRecordRef.current || !audioBlob || !flipped) return;
+    replayAfterReRecordRef.current = false;
+    if (replayTimerRef.current) clearTimeout(replayTimerRef.current);
+    replayTimerRef.current = window.setTimeout(() => {
+      replayTimerRef.current = null;
+      playAfterReRecordRef.current();
+    }, 50);
+  }, [audioBlob, flipped]);
+
   const handleFlip = () => {
     if (!flipped) {
       setFlipped(true);
@@ -876,6 +902,7 @@ export function StudyCard({
 
   // Cancel a Record again: the new take is thrown away, the previous one stays as it was.
   const cancelReRecord = useCallback(() => {
+    replayAfterReRecordRef.current = false;
     liveRef.current?.abort();
     liveRef.current = null;
     livePromiseRef.current = null;
@@ -904,7 +931,10 @@ export function StudyCard({
     }
   }, [reRecording, isRecording]);
   useEffect(() => {
-    if (recorderError && reRecording && !reRecordStartedRef.current) setReRecording(false);
+    if (recorderError && reRecording && !reRecordStartedRef.current) {
+      replayAfterReRecordRef.current = false;
+      setReRecording(false);
+    }
   }, [recorderError, reRecording]);
   // The time so far, on the question side.
   useEffect(() => {
@@ -1402,6 +1432,8 @@ export function StudyCard({
   // until the new one is saved; the card shows the question while recording (effect below).
   const recordAgain = () => {
     stopAudio();
+    recordingPlayerRef.current.stop();
+    replayAfterReRecordRef.current = true;
     setReRecording(true);
     startRecordingWithDelay(true, true);
   };
