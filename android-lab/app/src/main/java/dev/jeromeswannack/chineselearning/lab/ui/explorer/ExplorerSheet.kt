@@ -87,6 +87,8 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
     if (controller.isOpen) {
         LabModalSheet(onDismiss = controller::close) {
             BackHandler(enabled = controller.stack.size > 1) { controller.pop() }
+            // While drilling, back ends the drill first (registered last, so it wins).
+            BackHandler(enabled = controller.drill != null) { controller.endDrill() }
             ExplorerStackView(
                 controller, env, refresh,
                 onAdd = { adding = it },
@@ -119,7 +121,23 @@ fun ExplorerStackView(
 ) {
     val item = controller.current ?: return
     key(ExplorerStack.itemKey(item)) {
-        when (item) {
+        val drill = controller.drill
+        if (drill != null) {
+            key(drill) {
+                DrillView(
+                    controller.stack, drill.questions,
+                    fx = env.drillFx,
+                    play = env.play,
+                    strokeLoader = env.strokeLoader,
+                    onBack = controller::pop,
+                    onCrumb = controller::popTo,
+                    onClose = controller::close,
+                    onFinish = controller::finishDrill,
+                    onAgain = { controller.startDrill(drill.target, drill.pool) },
+                    onExit = controller::endDrill,
+                )
+            }
+        } else when (item) {
             is ExplorerItem.Char -> CharacterViewHost(item.char, controller, env, onWrite)
             is ExplorerItem.Word -> WordViewHost(item, controller, env, refresh, onAdd)
         }
@@ -234,6 +252,7 @@ private fun CharacterViewHost(char: String, controller: ExplorerController, env:
         onChar = { controller.push(ExplorerItem.Char(it)) },
         onRow = { row -> ExplorerStack.itemForText(row.word.hanzi, row.word.pinyin, row.word.english)?.let(controller::push) },
         onWrite = { onWrite(char) },
+        onDrill = { t, pool -> controller.startDrill(t, pool) },
     )
 }
 
@@ -250,7 +269,10 @@ fun CharacterView(
     onChar: (String) -> Unit = {},
     onRow: (CharWordRow<CharWordDto>) -> Unit = {},
     onWrite: () -> Unit = {},
+    /** "🎯 Quick drill" over this character and its words (null = not offered). */
+    onDrill: ((dev.jeromeswannack.chineselearning.lab.core.explorer.DrillTarget, List<dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord>) -> Unit)? = null,
 ) {
+    val drill = remember(ui.char, ui.record) { if (onDrill == null) null else charDrill(ui.char, ui.record?.words) }
     ExplorerFrame(
         stack, onBack, onCrumb, onClose,
         footer = if (!canWrite) null else {
@@ -258,6 +280,9 @@ fun CharacterView(
         },
     ) {
         CharacterSheetContent(ui.copy(canWrite = false), onClose = onClose, onMore = onMore, onRow = onRow, onChar = onChar, showClose = false)
+        if (drill != null && onDrill != null) {
+            QuickDrillButton({ onDrill(drill.first, drill.second) }, Modifier.padding(start = 20.dp, top = 4.dp, bottom = 16.dp))
+        }
     }
 }
 
@@ -325,6 +350,7 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             onChar = { controller.push(ExplorerItem.Char(it)) },
             onWord = controller::push,
             onMore = ::askMore,
+            onDrill = { t, pool -> controller.startDrill(t, pool) },
         ),
         onOpenCard = { ui.mine?.card?.let { c -> env.openCard?.invoke(c.noteId) } },
         onBump = {

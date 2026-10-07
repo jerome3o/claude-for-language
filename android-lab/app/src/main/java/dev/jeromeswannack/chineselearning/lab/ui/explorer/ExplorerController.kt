@@ -7,6 +7,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord
+import dev.jeromeswannack.chineselearning.lab.core.explorer.Drill
+import dev.jeromeswannack.chineselearning.lab.core.explorer.DrillQuestion
+import dev.jeromeswannack.chineselearning.lab.core.explorer.DrillTarget
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAction
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
@@ -16,12 +20,18 @@ import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
  * views, hoisted to the app shell (LabShell → [ExplorerHost]) so any screen can
  * `LocalExplorer.current?.open(item, source)`. The reducer is core ExplorerStack (port of
  * shared/explorer/stack.ts, parity-tested); this class only holds the stack, remembers the card
- * on screen (the "Words with 字" highlight) and records the analytics events.
+ * on screen (the "Words with 字" highlight), runs a quick drill over the top view and records
+ * the analytics events.
  */
+
+/** A quick drill over the top view (practice only: analytics, never review events). */
+class DrillRun(val target: DrillTarget, val pool: List<DictWord>, val questions: List<DrillQuestion>, val startedAt: Long)
+
 @Stable
 class ExplorerController(
     private val track: (event: String, props: Map<String, Any?>) -> Unit = { _, _ -> },
     private val tick: () -> Unit = {},
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
     var stack by mutableStateOf<List<ExplorerItem>>(emptyList())
         private set
@@ -33,7 +43,12 @@ class ExplorerController(
     val isOpen: Boolean get() = stack.isNotEmpty()
     val current: ExplorerItem? get() = stack.lastOrNull()
 
+    /** The drill replacing the top view's body (null = none). Moving in the stack ends it. */
+    var drill by mutableStateOf<DrillRun?>(null)
+        private set
+
     private fun dispatch(action: ExplorerAction) {
+        drill = null
         stack = ExplorerStack.reduce(stack, action)
         if (stack.isEmpty()) context = null
     }
@@ -62,6 +77,25 @@ class ExplorerController(
 
     /** ✕, the scrim, a swipe down, back on the first view. */
     fun close() = dispatch(ExplorerAction.Close)
+
+    /** "🎯 Quick drill" (and Again, with a new seed): false when the pool can't make one. */
+    fun startDrill(target: DrillTarget, pool: List<DictWord>, seed: Long = now() % 2147483647): Boolean {
+        val questions = Drill.buildDrill(target, pool, seed)
+        if (questions.isEmpty()) return false
+        tick()
+        track("explorer.drill_start", mapOf("kind" to target.wire, "items" to questions.size))
+        drill = DrillRun(target, pool, questions, now())
+        return true
+    }
+
+    /** The last question answered: the result goes to analytics only. */
+    fun finishDrill(correct: Int) {
+        val d = drill ?: return
+        track("explorer.drill_finish", mapOf("kind" to d.target.wire, "items" to d.questions.size, "correct" to correct, "duration_ms" to (now() - d.startedAt)))
+    }
+
+    /** End / Keep exploring: back to the view. */
+    fun endDrill() { drill = null }
 
     fun record(event: String, props: Map<String, Any?> = emptyMap()) = track(event, props)
 }

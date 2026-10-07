@@ -171,6 +171,8 @@ class WordViewActions(
     val onChar: (String) -> Unit = {},
     val onWord: (ExplorerItem) -> Unit = {},
     val onMore: () -> Unit = {},
+    /** "🎯 Quick drill" over this word and its related words (null = not offered). */
+    val onDrill: ((dev.jeromeswannack.chineselearning.lab.core.explorer.DrillTarget, List<DictWord>) -> Unit)? = null,
 )
 
 const val EXPLORER_WORD_TAG = "explorer-word"
@@ -312,6 +314,14 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
                     style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
                     modifier = Modifier.heightIn(min = 32.dp).clickable(onClick = actions.onMore),
                 )
+            }
+        }
+
+        // 🎯 Quick drill (when the word and its related words make one)
+        actions.onDrill?.let { start ->
+            wordDrill(ui)?.let { (t, pool) ->
+                Spacer(Modifier.height(10.dp))
+                QuickDrillButton({ start(t, pool) })
             }
         }
 
