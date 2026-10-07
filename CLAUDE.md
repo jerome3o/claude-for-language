@@ -127,6 +127,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts), the "revisit later" schedule of mini lessons + "New lessons a day" (revisit.ts), graded readers read once / one a day / ▶ Play whole story (daily-reader.ts) — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── folders/           # Folders for decks / library lessons / readers: groupIntoFolders, one-level nesting rule (parentProblem), name rules, spliceGroupOrder, collapsed keys, copy (deleteFolderMessage, movedMessage) — parity-tested by the Lab app
+│   ├── explorer/          # The language explorer (docs/LANGUAGE_EXPLORER.md): the view stack (stack.ts: open / push / pop / popTo / close, breadcrumbTrail, itemForText), Word view facts (word.ts: wordChars + tones, wordFrequencyLabel, resolveWord dictionary-first), related words (related.ts), ExplorableText's segments (segments.ts) — parity-tested by the Lab app
 │   ├── chars/             # The character dictionary (card-independent): CharRecord, build rules from CC-CEDICT / Make Me a Hanzi / wordfreq (build.ts, msgpack.ts; scripts/build-char-dict.ts), the sheet's word statuses known / in_decks / none (status.ts — parity-tested by the Lab app)
 │   ├── pinyin/            # applyYiBuToneChanges: the 一 / 不 tone changes every automatic pinyin goes through (Lab ToneChange.kt, parity-tested)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts / new-card-order.ts ("Order new cards by": new characters, new words, most common, sentences last) + frequency.ts (the shipped wordfreq list, `shared/data/frequency/word-freq.txt`); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts), "⚡ Study it today" bump pocket (bumps.ts) — all parity-tested by the Lab app
@@ -629,11 +630,29 @@ day; active study time per day, `shared/study/`, `PUT /api/me/study-time`), and 
    "Today: 23 min · 142 reviews" (active time, `shared/study/activeTime.ts`)
 6. "Study More" button appears to add 10 bonus new cards beyond daily limit
 
+### Language explorer (docs/LANGUAGE_EXPLORER.md)
+ONE reusable bottom sheet holding a STACK of views — the Character view (the character sheet below) and a Word view
+(hanzi · ▶ cached practice TTS · pinyin · meaning · "#N most common word" from the shipped frequency list · a chip per
+character coloured by tone · "📚 You have this card in <deck>" → Open card / ⚡ Study it today, else + Add as card
+(AddChunkModal) · dictionary senses · the sentence it was tapped in + the learner's own cards with it · ✨ More about this
+word (the cached `/api/reader-words/explain`, online only) · related words sharing a character with ✓ Known / 📚 badges).
+Every Chinese character / word inside a view pushes another view; ← / the breadcrumb pop, ✕ closes. Rules in
+`shared/explorer` (Lab `core/…/explorer`, parity-tested). Web: `components/explorer/` — `ExplorerProvider` (App.tsx,
+`useExplorer().open(item, { source })`), `LanguageExplorer`, `CharacterView`, `WordView`, and **`<ExplorableText text
+segments? source />`**: makes any Chinese tappable, by word when segments match the text, by character otherwise. Used on
+the study card answer side, the homework pass answer side, reader word chips, chat word chips, sentence breakdown rows
+(study / homework / chat Explain / Coach) and lesson note sentences — never where a tap already means something (answer
+inputs, call board, games, the sentence rows' reveal). Word data: **`GET /api/words?w=银行,学生`** (≤ 50) → `{ version,
+records: { hanzi: WordRecord }, missing }` from `worker/char-dict/words/NNN.dat` (60,000 most frequent CC-CEDICT words,
+`npm run build:word-dict`, `buildWordDict` in `shared/chars/build.ts`, sharded by `wordShard`), cached on the device
+(IndexedDB `wordDict`, Dexie v30, `services/wordDict.ts`); offline the Word view builds from the character records + cards.
+Analytics `explorer.open / push / more / add_card / bump / write`.
+
 ### Character sheet (tap a character on the card back; docs/STUDY_SESSION.md "Character sheet")
 Card-INDEPENDENT dictionary data — readings, meaning, radical / components, strokes, frequency rank and
 the ~20 most frequent words with the character, each marked **✓ Known** (mature card) / **📚 In your decks**
 from the learner's own cards on the device (`shared/chars/status.ts`, Lab `CharWords.kt`, parity-tested);
-a row → `AddChunkModal` (⚡ Study it today / Open card → when they have it). Replaces the per-card Claude
+a row → the explorer's Word view (⚡ Study it today / Open card → / + Add as card there); the radical and components are tappable too. Replaces the per-card Claude
 popup (`WordDefinitionPopup`, `/api/vocabulary/define` — kept, unused by the card). Data: built by
 `npm run build:char-dict` (`scripts/build-char-dict.ts`, rules in `shared/chars/build.ts`) from **CC-CEDICT**
 (CC BY-SA 4.0), **Make Me a Hanzi** `dictionary.txt` (LGPL-3.0) and **wordfreq** `large_zh` (CC BY-SA 4.0

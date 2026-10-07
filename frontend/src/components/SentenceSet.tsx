@@ -319,10 +319,7 @@ export function SentenceSet({
     const state = explanations[row.key] ?? parseCachedExplanation(row.explanation) ?? (row.fromCard ? cachedClue : null);
     if (!state || state === 'error') return null;
     return (
-      <SentenceWordBreakdown
-        explanation={state}
-        onWord={(word) => setAddingChunk({ hanzi: word.hanzi, pinyin: word.pinyin, english: word.gloss })}
-      />
+      <SentenceWordBreakdown explanation={state} sentence={row.hanzi} />
     );
   };
 

@@ -1303,6 +1303,15 @@ export async function fetchCharRecords(chars: string): Promise<{
   return fetchJSON(`/chars?c=${encodeURIComponent(chars)}`);
 }
 
+/** The language explorer's word dictionary (≤ 50 words a call; docs/LANGUAGE_EXPLORER.md). */
+export async function fetchWordRecords(words: readonly string[]): Promise<{
+  version: number;
+  records: Record<string, import('@shared/chars/types').WordRecord>;
+  missing: string[];
+}> {
+  return fetchJSON(`/words?w=${encodeURIComponent(words.join(','))}`);
+}
+
 export async function fetchCharExplanation(char: string): Promise<{ char: string; explanation: string; cached: boolean }> {
   return fetchJSON(`/chars/${encodeURIComponent(char)}/explain`, { method: 'POST' });
 }

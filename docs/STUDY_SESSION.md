@@ -515,10 +515,11 @@ deck page's "mastered", the Progress page's "known"), **📚 In your decks** = t
 but nothing mature yet, nothing = they don't have it. The order is the dictionary's frequency
 order with the card's own word(s) first and highlighted; known rows are dimmed, not moved.
 Rules: `shared/chars/status.ts` (`charWordRows`, `charWordsSummary`; Lab `core/…/CharWords.kt`,
-parity-tested by `android-lab/parity/fixtures/char-words.ts`). A row opens the add-card sheet
-(`AddChunkModal`: the top deck in the study queue preselected); a word they already have gets
-"You already have 进行 in HSK 2", **⚡ Study it today** (the bump pocket, source `char_sheet`) and
-**Open card →** (the card hub). A word added from the sheet shows as In your decks at once.
+parity-tested by `android-lab/parity/fixtures/char-words.ts`). The sheet is now the
+**Character view of the language explorer** (docs/LANGUAGE_EXPLORER.md): a row opens that word's
+**Word view** — "You have this card in HSK 2" with **⚡ Study it today** (source `explorer`) and
+**Open card →**, or **+ Add as card** (`AddChunkModal`, the top queue deck preselected) — and the
+radical / components open their own Character views; ← and the breadcrumb go back.
 
 **Data** (`shared/chars/`, `scripts/build-char-dict.ts`): built once from open data —
 CC-CEDICT (CC BY-SA 4.0: readings, words, glosses; tone numbers → marks, one word's syllables

@@ -141,6 +141,7 @@ test('Chinese offers Check and Explain; Explain shows the translation and word r
   // The follow-up chips still work after Explain.
   await expect(page.getByTestId('coach-quick-actions')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Add 商店 as a card' }).click();
+  await page.getByRole('button', { name: 'Explore 商店' }).click();
+  await page.getByRole('dialog', { name: 'The word 商店' }).getByTestId('explorer-add-card').click();
   await expect(page.getByText('Save to deck:')).toBeVisible();
 });

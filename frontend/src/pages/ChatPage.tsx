@@ -83,7 +83,8 @@ import { SayBetterSheet } from '../components/chat/SayBetterSheet';
 import { sayBetterLabel, sayBetterState } from '@shared/chats/autoCheck';
 import { MakeFlashcardsSheet } from '../components/chat/MakeFlashcardsSheet';
 import { CheckDraftPanel, type DraftCheck } from '../components/chat/CheckDraftPanel';
-import { ReaderWordSheet } from '../components/reader/ReaderWordSheet';
+import { useExplorer } from '../components/explorer/ExplorerContext';
+import { itemForText } from '@shared/explorer';
 import { useKnownHanzi } from '../components/reader/ReaderWords';
 import { useLazyMessageWords } from '../hooks/useLazyMessageWords';
 import {
@@ -191,7 +192,12 @@ export function ChatPage() {
 
   // Learning tools (docs/CHAT.md PR 3)
   const [displayPrefs, setDisplayPrefs] = useState<ChatDisplayPrefs>(() => loadDisplayPrefs(convId || ''));
-  const [tappedWord, setTappedWord] = useState<TappedWord | null>(null);
+  // A tapped word chip opens the language explorer's Word view (docs/LANGUAGE_EXPLORER.md).
+  const explorer = useExplorer();
+  const setTappedWord = (t: TappedWord) => {
+    const item = itemForText(t.word.text, { pinyin: t.word.pinyin || undefined, gloss: t.word.gloss || undefined, sentence: t.sentence });
+    if (item) explorer.open(item, { source: 'chat' });
+  };
   const [knownVersion, setKnownVersion] = useState(0);
   const known = useKnownHanzi(knownVersion);
   const [fetchedTranslations, setFetchedTranslations] = useState<Map<string, string | null>>(new Map());
@@ -2463,16 +2469,6 @@ export function ChatPage() {
           error={correctError}
           onSave={(text, note) => void saveCorrection(text, note)}
           onCancel={() => setCorrecting(null)}
-        />
-      )}
-
-      {tappedWord && (
-        <ReaderWordSheet bumpSource="chat"
-          word={tappedWord.word}
-          sentence={tappedWord.sentence}
-          known={known.has(tappedWord.word.text.trim())}
-          onClose={() => setTappedWord(null)}
-          onAdded={() => setKnownVersion((v) => v + 1)}
         />
       )}
 

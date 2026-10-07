@@ -333,13 +333,9 @@ function ExplainResultBlock({ breakdown, onAdd, offlineNote, disabled = false }:
       <div className="card mt-3">
         <div className="coach-explain-head">
           <h3>Word by word</h3>
-          {!disabled && <span className="coach-explain-tip">Tap a word to add it as a card</span>}
+          {!disabled && <span className="coach-explain-tip">Tap a word to explore it</span>}
         </div>
-        <SentenceWordBreakdown
-          explanation={breakdown}
-          disabled={disabled}
-          onWord={(w) => onAdd({ hanzi: w.hanzi, pinyin: w.pinyin, english: w.gloss })}
-        />
+        <SentenceWordBreakdown explanation={breakdown} sentence={breakdown.hanzi} source="coach" disabled={disabled} />
         <button
           type="button"
           className="btn btn-secondary btn-block coach-explain-add-sentence"

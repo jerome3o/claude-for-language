@@ -80,9 +80,11 @@ test('Coach → a word I already have → ⚡ Study it today → Home → first 
   await expect(page.getByTestId('coach-explain-result')).toBeVisible({ timeout: 15000 });
   // The sentence's word I already have also gets the quick chip.
   await expect(page.getByTestId('coach-quick-bump')).toBeVisible();
-  await page.getByRole('button', { name: 'Add 银行 as a card' }).click();
-  await expect(page.getByTestId('already-have')).toContainText('You already have 银行 in HSK 2');
-  await page.getByRole('button', { name: '⚡ Study it today' }).click();
+  // The word opens the language explorer's Word view, which knows I have it.
+  await page.getByRole('button', { name: 'Explore 银行' }).click();
+  const word = page.getByRole('dialog', { name: 'The word 银行' });
+  await expect(word.getByTestId('explorer-word-card')).toContainText('You have this card in HSK 2');
+  await word.getByRole('button', { name: '⚡ Study it today' }).click();
   await expect(page.getByText('⚡ 银行 will come first in today’s study').first()).toBeVisible();
 
   // Home: one bumped word, and today's cards now hold its cards.
@@ -97,5 +99,5 @@ test('Coach → a word I already have → ⚡ Study it today → Home → first 
 
   // The server has it too (uploaded right away while online).
   const mine = await api<{ bumps: Array<{ hanzi: string; source: string }> }>(request, '/api/me/bumps', { token });
-  expect(mine.bumps.map((b) => [b.hanzi, b.source])).toEqual([['银行', 'coach']]);
+  expect(mine.bumps.map((b) => [b.hanzi, b.source])).toEqual([['银行', 'explorer']]);
 });
