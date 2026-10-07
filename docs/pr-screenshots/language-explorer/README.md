@@ -22,3 +22,23 @@ Scrolled: related words, most common first, with their badges.
 
 ![Offline](07-word-view-offline.png)
 Offline, a word never looked up: built from the cached character records; "More about this word" says "Needs internet".
+
+## Lab app (Roborazzi, phone 412dp)
+
+![Character view](lab-explorer-01-char-view.png)
+Character view inside the explorer sheet; radical / components tappable, ✍️ Write it in the footer.
+
+![Word with card](lab-explorer-02-word-with-card.png)
+Word view for a word they have: Open card / ⚡ Study it today.
+
+![New word](lab-explorer-03-word-new.png)
+A word they don't have: + Add as card, More about this word answered.
+
+![Deep stack](lab-explorer-04-deep-stack.png)
+Breadcrumb on a deep stack.
+
+![Offline](lab-explorer-05-word-offline.png)
+Offline word view.
+
+![Dark](lab-explorer-06-word-dark.png)
+Dark theme.

@@ -1,9 +1,9 @@
 /* The language explorer (docs/LANGUAGE_EXPLORER.md): one bottom sheet, a stack of views. */
 :root {
   --tone-1: #dc2626;
-  --tone-2: #d97706;
-  --tone-3: #16a34a;
-  --tone-4: #2563eb;
+  --tone-2: #16a34a;
+  --tone-3: #2563eb;
+  --tone-4: #7c3aed;
   --tone-5: #6b7280;
 }
 
