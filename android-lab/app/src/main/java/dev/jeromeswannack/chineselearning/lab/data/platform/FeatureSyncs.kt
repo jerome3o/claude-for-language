@@ -34,6 +34,7 @@ object FeatureSyncs {
         platform.register("chats", dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsSync) // the Chats tab inbox (/api/me/chats), offline + badge
         platform.register("folders", dev.jeromeswannack.chineselearning.lab.data.folders.FolderStore.Sync) // folders of decks / lessons / readers (after library + readers: re-applies pending moves)
         platform.register("analytics", dev.jeromeswannack.chineselearning.lab.data.analytics.AnalyticsSync) // usage events queued offline → POST /api/me/usage-events
+        platform.register("audio-lessons", dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonsSync) // audio lessons: list + details, the MP3s kept for the train (last: downloads)
         platform.register("chat-listening", dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore.Sync) // listening mode settings + message clips for offline taps
     }
 }

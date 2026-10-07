@@ -118,8 +118,22 @@ remembered), 🌙 sleep timer (10–60 min or end of chapter; the last 30 s fade
 transcript (on for dialogue, off for sleep; the current line highlighted and followed, tap a line to
 jump; an English sentence with Chinese inside shows as one row, `transcriptRows`), the word list,
 Media Session (lock screen / headphones: play, pause, ±10 s, chapter back / next, seek). The page must
-stay open: the web player stops when you navigate away. The Lab app's player (background playback
-with the screen off) is the next PR (android-lab/PARITY.md).
+stay open: the web player stops when you navigate away.
+
+## The player (Lab app)
+
+`android-lab/…/ui/audiolessons/` + `data/audiolessons/`: the same list, form and player, built for
+the train and for bed. The lesson plays in `AudioLessonService`, a Media3 `MediaSessionService`
+around ExoPlayer, so it carries on with the screen off and the app closed: a media notification
+and lock-screen controls (play / pause, ±10 s, previous / next = chapters via `ChapterPlayer`,
+"previous" within 3 s of a chapter's start goes one further back), headphone buttons, audio focus,
+pause when headphones are unplugged. The sleep timer (fade over the last 30 s, then pause; or the
+end of the chapter) and the remembered position run in the service's `AudioLessonEngine`, not the
+screen. Speed uses `PlaybackParameters(speed, pitch = 1)`. MP3s are kept under
+`files/audio-lessons/<id>-<audio_version>.mp3` (old versions deleted) and the sync saves every
+ready lesson, so they play offline without being opened first; seeking uses ExoPlayer's MP3 index
+seeking so chapter / transcript taps land exactly. The player's pure helpers are ported to
+`core/…/AudioLessonTimeline.kt` and parity-tested (`android-lab/parity/fixtures/audio-lesson.ts`).
 
 ## Cost per lesson
 
@@ -153,7 +167,7 @@ chapters, no offline player and no notion of what the learner already knew.
 
 ## Known limitations
 
-- The web player must stay on screen; background playback with the screen off is the Lab app's job.
+- The web player must stay on screen; for background playback with the screen off use the Lab app.
 - Pinned provider + rate limits: with MiniMax out of credit and Azure F0 shared with the backfill, a
   lesson takes minutes.
 - `analyseText` is a greedy match, not a word segmenter; Claude makes the final call.

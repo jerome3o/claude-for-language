@@ -1,0 +1,102 @@
+package dev.jeromeswannack.chineselearning.lab.core
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import java.io.File
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.test.fail
+
+/**
+ * The audio-lesson player's helpers reproduce shared/audio-lesson/timeline.ts exactly
+ * (parity/fixtures/audio-lesson.ts): chapter / line lookup, "previous chapter", clock text,
+ * the sleep fade, transcript rows — over the sample dialogue and sleep lessons as the web
+ * compiles and times them.
+ */
+class AudioLessonParityTest {
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private val fixture: JsonObject by lazy {
+        val dir = System.getProperty("parity.dir") ?: fail("parity.dir not set — run through Gradle")
+        Json.parseToJsonElement(File(dir, "audio-lesson.json").readText()).jsonObject
+    }
+
+    private fun rowsOf(o: kotlinx.serialization.json.JsonElement) = o.jsonArray.map { r ->
+        val x = r.jsonObject
+        AudioLessonTranscriptRow(
+            first = x["first"]!!.jsonPrimitive.int,
+            last = x["last"]!!.jsonPrimitive.int,
+            startMs = x["start_ms"]!!.jsonPrimitive.long,
+            lang = x["lang"]!!.jsonPrimitive.content,
+            text = x["text"]!!.jsonPrimitive.content,
+            pinyin = x["pinyin"]?.jsonPrimitive?.content,
+            english = x["english"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun lookupsOverRealLessonsMatchTypeScript() {
+        val lessons = fixture["lessons"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("dialogue", "sleep"), lessons.map { it["name"]!!.jsonPrimitive.content })
+        for (lesson in lessons) {
+            val name = lesson["name"]!!.jsonPrimitive.content
+            val chapters = json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonChapter.serializer()), lesson["chapters"]!!)
+            val lines = json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonTranscriptLine.serializer()), lesson["transcript"]!!)
+            assertTrue(chapters.size > 3 && lines.size > 30, "$name is a real lesson")
+            val queries = lesson["queries"]!!.jsonArray.map { it.jsonObject }
+            var backs = 0
+            for (q in queries) {
+                val ms = q["ms"]!!.jsonPrimitive.double
+                assertEquals(q["chapter"]!!.jsonPrimitive.int, AudioLessonTimeline.chapterIndexAt(chapters, ms), "$name chapterIndexAt $ms")
+                assertEquals(q["line"]!!.jsonPrimitive.int, AudioLessonTimeline.transcriptIndexAt(lines, ms), "$name transcriptIndexAt $ms")
+                val prev = AudioLessonTimeline.previousChapterTarget(chapters, ms)
+                assertEquals(q["previous"]!!.jsonPrimitive.long, prev, "$name previousChapterTarget $ms")
+                if (prev < chapters[AudioLessonTimeline.chapterIndexAt(chapters, ms)].startMs) backs++
+            }
+            assertTrue(backs > 0, "$name exercises the 3 s grace")
+            assertEquals(rowsOf(lesson["rows"]!!), AudioLessonTimeline.transcriptRows(lines), "$name transcriptRows")
+        }
+        // The dialogue's intro is narration around Chinese: one row of several lines.
+        val dialogueRows = AudioLessonTimeline.transcriptRows(
+            json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonTranscriptLine.serializer()), lessons[0]["transcript"]!!),
+        )
+        assertTrue(dialogueRows.any { it.last > it.first && it.text.contains("兰州拉面") })
+    }
+
+    @Test
+    fun transcriptRowEdgesMatchTypeScript() {
+        for ((i, c) in fixture["rowCases"]!!.jsonArray.map { it.jsonObject }.withIndex()) {
+            val lines = json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonTranscriptLine.serializer()), c["lines"]!!)
+            assertEquals(rowsOf(c["rows"]!!), AudioLessonTimeline.transcriptRows(lines), "row case $i")
+        }
+    }
+
+    @Test
+    fun clockDurationAndFadeMatchTypeScript() {
+        for (c in fixture["clocks"]!!.jsonArray.map { it.jsonObject }) {
+            val ms = c["ms"]!!.jsonPrimitive.double
+            assertEquals(c["clock"]!!.jsonPrimitive.content, AudioLessonTimeline.formatClock(ms), "formatClock $ms")
+            assertEquals(c["duration"]!!.jsonPrimitive.content, AudioLessonTimeline.durationLabel(ms), "durationLabel $ms")
+        }
+        for (f in fixture["fades"]!!.jsonArray.map { it.jsonObject }) {
+            val ms = f["ms"]!!.jsonPrimitive.double
+            assertEquals(f["volume"]!!.jsonPrimitive.double, AudioLessonTimeline.sleepFadeVolume(ms), "sleepFadeVolume $ms")
+        }
+        assertEquals(fixture["fadeMs"]!!.jsonPrimitive.long, AudioLessonTimeline.SLEEP_FADE_MS)
+    }
+
+    @Test
+    fun speedsAndTimerChoicesMatchTypeScript() {
+        assertEquals(fixture["speeds"]!!.jsonArray.map { it.jsonPrimitive.double }, AudioLessonTimeline.SPEEDS)
+        val timer = fixture["timer"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(timer.map { it["minutes"]!!.jsonPrimitive.int }, AudioLessonTimeline.SLEEP_TIMER_CHOICES)
+        for (t in timer) assertEquals(t["label"]!!.jsonPrimitive.content, AudioLessonTimeline.sleepTimerLabel(t["minutes"]!!.jsonPrimitive.int))
+    }
+}

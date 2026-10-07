@@ -143,6 +143,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                         add(row("✍️", "Write characters (preview)", "Stroke order, checked stroke by stroke", Routes.strokes()))
                         add(row("🎮", "Quests", "Carry out instructions in a tiny world", Routes.quests()))
                         add(row("🔎", "Picture hunt", "看图找词 · Name what you see in a picture", Routes.pictureHunts()))
+                        add(row("🎧", "Audio lessons", "Listen on the train, or fall asleep to slow Chinese", Routes.audioLessons()))
                         add(row("📹", "Video calls (beta)", "Live lessons with a whiteboard, then a transcript", Routes.calls()))
                         add(row("📑", "Lesson materials", "PDFs and slides from lessons", Routes.materials()))
                     },

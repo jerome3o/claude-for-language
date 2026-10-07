@@ -134,6 +134,8 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.okhttp)
     implementation(libs.zxing.core) // invite QR codes (ui/teaching)
+    implementation(libs.media3.exoplayer) // audio lessons: the player (ui/audiolessons, data/audiolessons)
+    implementation(libs.media3.session) // audio lessons: MediaSessionService — lock screen, headphones, screen-off playback
     implementation(libs.webrtc) // video calls (ui/calls, data/calls): org.webrtc, Google's WebRTC built for Android
     implementation(libs.kotlinx.serialization.json)
     implementation(platform(libs.firebase.bom))

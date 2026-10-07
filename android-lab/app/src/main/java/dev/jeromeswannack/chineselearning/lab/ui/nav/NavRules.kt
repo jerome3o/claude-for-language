@@ -64,7 +64,7 @@ object NavRules {
         TabId.MORE, "More", "/more",
         listOf(
             "/more", "/settings", "/profile", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
-            "/quests", "/picture-hunt", "/library", "/duplicate-finder", "/admin",
+            "/quests", "/picture-hunt", "/audio-lessons", "/library", "/duplicate-finder", "/admin",
             // Decks live under More since the Chats tab took their tab.
             "/decks", "/generate", "/search",
         ),
@@ -100,6 +100,7 @@ object NavRules {
         Regex("^/study/?$"),
         Regex("^/quests/[^/]+/?$"),
         Regex("^/picture-hunt/[^/]+/?$"),
+        Regex("^/audio-lessons/[^/]+/?$"),
         Regex("^/readers/(?!generate$)[^/]+(/(edit|print))?/?$"),
         Regex("^/library/[^/]+/(edit|print|try)/?$"),
         Regex("^/library/catalogue/[^/]+/?$"),
