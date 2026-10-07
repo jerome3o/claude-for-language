@@ -478,6 +478,16 @@ export async function fetchNoteSentences(noteId: string): Promise<NoteSentence[]
   return data.sentences || [];
 }
 
+/** `POST /api/sentences/:id/ensure-audio`: a set row's clip — ready (+ audio_url) · queued (ask again) · failed. */
+export interface SentenceAudioAnswer {
+  status: 'ready' | 'queued' | 'failed';
+  audio_url: string | null;
+}
+
+export async function ensureSentenceAudio(sentenceId: string): Promise<SentenceAudioAnswer> {
+  return fetchJSON<SentenceAudioAnswer>(`/sentences/${sentenceId}/ensure-audio`, { method: 'POST' });
+}
+
 export async function generateNoteSentenceSet(
   noteId: string,
   options?: GenerateSentenceSetOptions

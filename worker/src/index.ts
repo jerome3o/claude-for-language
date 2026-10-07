@@ -1650,7 +1650,9 @@ async function attachSentenceSetAudio(
           const row = await db.getNoteSentenceByIdUnscoped(env.DB, sentence.id);
           if (row?.audio_url) audioByIdMap.set(sentence.id, row.audio_url);
         } else if (result.status === 'rate_limited' || (result.status === 'failed' && !result.permanent)) {
-          await enqueueSentenceAudio(env, sentence.id, result.status === 'rate_limited' && result.minimax ? 60 : 5);
+          // Someone is looking at this set: interactive on the queue too, so these clips
+          // go ahead of the backfill instead of waiting behind it (docs/AUDIO.md).
+          await enqueueSentenceAudio(env, sentence.id, result.status === 'rate_limited' && result.minimax ? 60 : 5, 'interactive');
         }
       } catch (error) {
         console.error('[sentence-set] TTS failed for', sentence.id, error);
@@ -1663,9 +1665,37 @@ async function attachSentenceSetAudio(
 }
 
 /** Queue one sentence-set row's clip on tts-queue (idempotent: a current clip is left alone). */
-async function enqueueSentenceAudio(env: Env, sentenceId: string, delaySeconds?: number): Promise<boolean> {
-  return enqueueClip(env, { kind: 'sentence', id: sentenceId }, { priority: 'batch', delaySeconds });
+async function enqueueSentenceAudio(env: Env, sentenceId: string, delaySeconds?: number, priority: 'interactive' | 'batch' = 'batch'): Promise<boolean> {
+  return enqueueClip(env, { kind: 'sentence', id: sentenceId }, { priority, delaySeconds });
 }
+
+/**
+ * One sentence-set row's clip, for a ▶ on a row that has none yet (both apps'
+ * "Audio coming…"): made now when a provider has a slot, else queued at
+ * interactive priority. `ready` carries the audio_url; `queued` = ask again in
+ * a few seconds; `failed` = the device voice is the only option.
+ */
+app.post('/api/sentences/:id/ensure-audio', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const sentence = await db.getNoteSentenceById(c.env.DB, id, userId);
+  if (!sentence) return c.json({ error: 'Sentence not found' }, 404);
+  if (sentence.audio_url) return c.json({ status: 'ready', audio_url: sentence.audio_url });
+  if (!c.env.MINIMAX_API_KEY) return c.json({ status: 'failed', audio_url: null });
+  try {
+    const result = await ensureClip(c.env, { kind: 'sentence', id }, { priority: 'interactive', maxWaitMs: 4_000, onlyMissing: true });
+    if (result.status === 'rate_limited' || (result.status === 'failed' && !result.permanent)) {
+      const queued = await enqueueSentenceAudio(c.env, id, result.status === 'rate_limited' && result.minimax ? 60 : 5, 'interactive');
+      return c.json({ status: queued ? 'queued' : 'failed', audio_url: null });
+    }
+    const row = await db.getNoteSentenceById(c.env.DB, id, userId);
+    if (row?.audio_url) return c.json({ status: 'ready', audio_url: row.audio_url });
+    return c.json({ status: 'failed', audio_url: null });
+  } catch (error) {
+    console.error('[sentence-audio] ensure failed for', id, error);
+    return c.json({ status: 'failed', audio_url: null });
+  }
+});
 
 // List a note's sentence set
 app.get('/api/notes/:id/sentences', async (c) => {

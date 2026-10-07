@@ -955,6 +955,7 @@ later.
 - `DELETE /api/notes/:id/sentences` - Delete a note's set
 - `GET /api/sentences/changes?since=` - Offline sync: every sentence changed since a timestamp
 - `POST /api/sentences/prefetch` - Queue background generation (`{ note_ids?, limit? }`, default 20/call)
+- `POST /api/sentences/:id/ensure-audio` - One set row's clip for a ▶ on a row with none: `{ status: ready|queued|failed, audio_url }` (made now, else queued at interactive priority; both apps show "Audio coming…" and ask again)
 - `POST /api/sentences/:id/explain` - Brief breakdown of one sentence (cached on the row)
 - `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the card's own clue); breakdowns carry a one-line `translation` (Haiku via `structuredCall`; 503 retryable / 502 declined)
 - `GET /api/sentences/stats` - Coverage + background-job state, for the settings overview

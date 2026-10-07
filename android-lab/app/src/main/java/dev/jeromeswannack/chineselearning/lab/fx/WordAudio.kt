@@ -66,6 +66,7 @@ class WordAudio(private val context: Context, private val repo: Repository) {
             tts = TextToSpeech(context) { status ->
                 ttsReady = status == TextToSpeech.SUCCESS
                 tts?.language = Locale.SIMPLIFIED_CHINESE
+                tts?.setSpeechRate(dev.jeromeswannack.chineselearning.lab.core.ChatVoice.DEVICE_SPEECH_RATE.toFloat())
                 pendingSpeech?.let { tts?.speak(it, TextToSpeech.QUEUE_FLUSH, null, "lab") }
                 pendingSpeech = null
             }

@@ -7,6 +7,7 @@ import {
   prefetchSentenceSets,
   explainNoteSentence,
   explainSentenceText,
+  ensureSentenceAudio as ensureSentenceAudioApi,
   GenerateSentenceSetOptions,
 } from '../api/client';
 import { SentenceBriefExplanation } from '../types';
@@ -97,6 +98,63 @@ export function cacheSentenceAudio(sentences: Array<{ audio_url: string | null }
   preCacheAudio(urls).catch((err) =>
     console.error('[sentence-sets] Audio pre-cache failed:', err)
   );
+}
+
+/**
+ * ▶ on a set row whose clip isn't made yet (a new set while the provider works
+ * through it): wait for the real clip — "Audio coming…" — instead of reading
+ * the row in the device voice. Asks every SENTENCE_AUDIO_POLL_MS, at most
+ * SENTENCE_AUDIO_POLLS times (Lab: `SentenceAudioWait`, same numbers).
+ */
+export const SENTENCE_AUDIO_COMING_LABEL = 'Audio coming…';
+export const SENTENCE_AUDIO_POLL_MS = 4_000;
+export const SENTENCE_AUDIO_POLLS = 30;
+
+export type SentenceAudioWaitResult =
+  | { kind: 'ready'; url: string }
+  /** The server can't make it (or the ask failed): the device voice. */
+  | { kind: 'unavailable' }
+  /** Gave up waiting: nothing plays (the clip arrives with a later sync). */
+  | { kind: 'still_coming' }
+  /** The caller moved on (another card). */
+  | { kind: 'stopped' };
+
+/** Pure loop: `ask` → the clip url, 'coming', or null (unavailable). */
+export async function awaitSentenceAudio(
+  ask: () => Promise<string | 'coming' | null>,
+  opts: { onComing?: () => void; stopped?: () => boolean; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<SentenceAudioWaitResult> {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let i = 0; i < SENTENCE_AUDIO_POLLS; i++) {
+    if (opts.stopped?.()) return { kind: 'stopped' };
+    let got: string | 'coming' | null;
+    try {
+      got = await ask();
+    } catch {
+      got = null;
+    }
+    if (opts.stopped?.()) return { kind: 'stopped' };
+    if (got === null) return { kind: 'unavailable' };
+    if (got !== 'coming') return { kind: 'ready', url: got };
+    opts.onComing?.();
+    if (i < SENTENCE_AUDIO_POLLS - 1) await sleep(SENTENCE_AUDIO_POLL_MS);
+  }
+  return { kind: 'still_coming' };
+}
+
+/**
+ * Ask the server for one set row's clip (made now, or queued ahead of the
+ * backfill). A clip that is there is written onto the local row and cached.
+ */
+export async function ensureSentenceAudio(sentenceId: string): Promise<string | 'coming' | null> {
+  const answer = await ensureSentenceAudioApi(sentenceId);
+  if (answer.status === 'ready' && answer.audio_url) {
+    const url = answer.audio_url;
+    await db.noteSentences.update(sentenceId, { audio_url: url }).catch(() => 0);
+    cacheSentenceAudio([{ audio_url: url }]);
+    return url;
+  }
+  return answer.status === 'queued' ? 'coming' : null;
 }
 
 /**

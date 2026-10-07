@@ -128,6 +128,17 @@ export const PROVIDER_RATE_RANGE: Record<TtsProviderId, { min: number; max: numb
   google: { min: 0.25, max: 4, good_min: 0.6, good_max: 1.2 },
 };
 
+/**
+ * The phone's / browser's own Chinese voice (Web Speech `utterance.rate`,
+ * Android `TextToSpeech.setSpeechRate`; 1 = its natural pace), used only when
+ * no generated clip can be had (offline, or none made yet). The card clips'
+ * 0.6 is MiniMax's scale; a native-rate voice gets the same slow-but-natural
+ * pace at 0.7 — what Azure's mapping gives too (`providerRate(azure, 0.6)`).
+ * At the engine default 1.0 the Pixel's voice (Google's TTS engine) read new
+ * example sentences far too fast (Oct 2026). Lab: `ChatVoice.DEVICE_SPEECH_RATE`, parity-tested.
+ */
+export const DEVICE_SPEECH_RATE = 0.7;
+
 /** Azure F0 (free) allows 20 requests / 60 s: start well below it. */
 export const AZURE_DEFAULT_MAX_RPM = 15;
 export const RPM_LIMIT = 600;

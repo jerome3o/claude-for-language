@@ -1720,6 +1720,13 @@ button.queue-counts:active {
 }
 
 /* The hint on a row waiting for its answer */
+.sentence-set-audio-coming {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--color-primary);
+}
+
 .sentence-set-next {
   display: block;
   margin-top: 0.25rem;

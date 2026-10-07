@@ -29,6 +29,7 @@ class DeviceChineseVoice(private val context: Context) {
                 val choice = ChatVoice.pickDeviceVoice(voices.map { it.flatten() }, gender)
                 val voice = choice?.let { c -> voices.firstOrNull { it.name == c.name } }
                 if (voice != null) engine.voice = voice else engine.language = Locale.SIMPLIFIED_CHINESE
+                engine.setSpeechRate(ChatVoice.DEVICE_SPEECH_RATE.toFloat())
                 engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE)
                 Unit
             }
