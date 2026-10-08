@@ -44,7 +44,12 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
         val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> vm.finishExport(uri) }
 
         SettingsScreen(
-            revisitSettings = { RevisitSettingsCard(app) },
+            revisitSettings = {
+                androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {
+                    RevisitSettingsCard(app)
+                    dev.jeromeswannack.chineselearning.lab.ui.study.AskClaudeLanguageSettings(app)
+                }
+            },
             newCardOrder = { NewCardOrderSettingsCard(app) },
             podcastFeed = { dev.jeromeswannack.chineselearning.lab.ui.audiolessons.PodcastFeedCard(app) },
             callAlerts = {

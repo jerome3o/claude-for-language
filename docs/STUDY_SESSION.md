@@ -507,6 +507,45 @@ Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRe
 `replayAfterReRecordRef` in `StudyPage.tsx` (plays when the new take's blob lands); Lab
 `recordingAgain` / `playWordAfterRecordAgain` in `StudyViewModel.kt` (`RecordAgainAutoplayTest`).
 
+## Ask Claude — answers in Chinese, the chat's look and tools
+
+**Ask Claude** (the action row on the card back) is an immersion chat about the card. Web
+`components/askClaude/` (`AskClaudeSheet`, `useAskClaude`); Lab `ui/study/AskClaudeSheet.kt`;
+worker `routes/ask-claude.ts`, `services/ask-claude.ts`, `services/ask-prompt.ts`; pure rules
+`shared/study/askClaude.ts` + `askClaudeMenu` in `shared/chats/messageMenu.ts` (Lab core `AskClaude.kt`,
+parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
+
+- **Language.** "Ask Claude answers in: 中文 (default) / English" — Settings, and the 中文 | EN switch in the
+  sheet header (`users.ask_claude_language`, NULL = Chinese; `PUT /api/profile/ask-claude-language`; on
+  `/api/auth/me`, cached with the user / Lab prefs; every ask also sends the language on screen). In 中文 the
+  prompt asks for simple graded Chinese (about HSK 3–4, short sentences, the learner's own words — a sample
+  of ≤ 150 hanzi of started notes goes into the prompt — no pinyin / English, plain text: meaning, each
+  character, usage, one or two examples). An explicit "in English please" / 用英文 (`asksForEnglish`) answers
+  that turn in English. A Chinese answer is stored as plain text (`plainAnswerText` strips stray Markdown) with
+  `note_questions.answer_lang = 'zh'`; English answers stay Markdown. The quick chips ask in Chinese in 中文
+  mode (`askQuickActions`) and are not checked (`quick: true`). Tools (edit card, add cards, ⚡ bump, delete,
+  mini lesson) work in both, still behind Approve / Reject.
+- **Bubbles.** The tutor chat's bubbles (`chat-signal.css`): mine blue on the right, Claude's grey on the left.
+  Every Chinese word is a chip (`ChatWordsText` / Lab `ChineseWords`) — the chat's word splitter, made on
+  request after the answer (`POST /api/note-questions/:id/words { part: answer | question }`, cached on the
+  row); until they arrive each character is tappable on its own. A tap opens the **language explorer**
+  (source `ask_claude`).
+- **Long press** (right-click / the hover ⋯ on desktop) → the chat's message menu with only what fits
+  (`askClaudeMenu`): Copy · Translate (`POST /api/note-questions/:id/translate`, cached on the row) · Pinyin ·
+  Explain / Save as flashcard (sentence-sized text, ≤ 120 characters — the chat's Explain sheet) · Open in
+  Coach (mine checked, Claude's explained) · Read aloud (Claude in the app voice, mine in my voice; cached per
+  text). An English Markdown answer has Copy only. No reactions, reply, pin, edit or delete.
+- **My own Chinese is checked** like a chat message: the question goes through the chat's auto-check
+  (`checkAskQuestion` = `defaultAutoChecker` + `normalizeAutoCheck`, the `chat_auto_check` switch, the same skip
+  rules) in parallel with the answer; done within 2.5 s of the answer it comes back with it, else it is stored
+  in the background (`question_check_pending` → the app reads `GET /api/note-questions/:id` again). An
+  improvable question gets the ✎ mark, "✨ How to say it better" first in its menu (the chat's sheet; "Ask
+  Claude about this" fills the box with 为什么「…」更好？) and the **🎓 Open in Coach** chip under it.
+- **Offline.** Ask Claude needs the network (the button is disabled offline, errors are inline). Translations
+  and word chips are stored on the row, so a reopened conversation (card hub) has them.
+- Analytics: `study.ask_claude { card_type, language, quick }`, `study.ask_claude_language { language, source }`,
+  `study.ask_claude_tool { action, role }`.
+
 ## Character sheet
 
 Tapping a character of the hanzi on the card back (or of the answer diff on a typing card)

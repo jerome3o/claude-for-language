@@ -4,8 +4,12 @@ import { autoCheckText, sayBetterState, type AutoCheckCard } from '@shared/chats
 import type { MessageWithSender } from '../../types';
 import { AddChunkModal, type Chunk } from '../AddChunkModal';
 import { CorrectionDiffLine } from './ChatCorrection';
+import './message-sheet.css';
 
 const devicePinyin = (text: string) => autoPinyin(text, { nonZh: 'consecutive' }).replace(/\s+/g, ' ').trim();
+
+/** What the sheet reads off a message. */
+export type SayBetterMessage = Pick<MessageWithSender, 'sender_id' | 'content' | 'auto_check' | 'correction' | 'attachment' | 'translation' | 'deleted_at'>;
 
 const cardChunk = (card: AutoCheckCard): Chunk => ({ hanzi: card.hanzi, pinyin: card.pinyin, english: card.english, fun_facts: card.fun_facts || undefined });
 
@@ -25,7 +29,8 @@ export function SayBetterSheet({
   onOpenCoach,
   onClose,
 }: {
-  message: MessageWithSender;
+  /** A chat message — or an Ask Claude question shaped like one (components/askClaude). */
+  message: SayBetterMessage;
   viewerId: string;
   tutorName: string;
   playing: boolean;

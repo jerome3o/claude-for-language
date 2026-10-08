@@ -47,7 +47,7 @@ class MarkdownScreenshots : LabScreenshotTest() {
     @Composable
     private fun sheet() {
         Column(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(top = 18.dp, bottom = 20.dp)) {
-            AskClaudeBody(view, ask, null, AskActions())
+            AskClaudeBody(view, ask, "en", null, true, AskActions())
         }
     }
 

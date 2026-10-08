@@ -85,12 +85,13 @@ class CardExtrasLogicTest {
         assertFalse(CardExtrasLogic.isLookupCharacter(" "))
     }
 
-    @Test fun quickActionsFollowTheCard() {
-        val read = CardExtrasLogic.quickActions(CardTypes.HANZI_TO_MEANING, "打算", hasSentenceClue = false).map { it.label }
+    // The quick-question chips moved to core AskClaude.quickActions (parity-tested against shared/study/askClaude.ts).
+    @Test fun quickActionsFollowTheCardAndTheLanguage() {
+        val read = dev.jeromeswannack.chineselearning.lab.core.AskClaude.quickActions("en", typedAnswer = false, hasSentence = false).map { it.label }
         assertEquals(listOf("Use in sentence", "Explain characters", "Related words", "Explain grammar", "Add a fun fact"), read)
-        val typed = CardExtrasLogic.quickActions(CardTypes.MEANING_TO_HANZI, "打蒜", hasSentenceClue = true).map { it.label }
+        val typed = dev.jeromeswannack.chineselearning.lab.core.AskClaude.quickActions("en", typedAnswer = true, hasSentence = true).map { it.label }
         assertEquals(listOf("Use in sentence", "Explain characters", "Related words", "Check my answer", "Explain grammar", "Add a fun fact", "Explain sentence"), typed)
-        assertFalse(CardExtrasLogic.quickActions(CardTypes.AUDIO_TO_HANZI, "", false).any { it.label == "Check my answer" })
+        assertEquals("请用这个词造几个简单的句子。", dev.jeromeswannack.chineselearning.lab.core.AskClaude.quickActions("zh", false, false).first().question)
     }
 
     @Test fun askErrorsAreSentences() {

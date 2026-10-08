@@ -6,6 +6,7 @@ import { getTextExplanation } from '../../services/sentence-sets';
 import { SentenceWordBreakdown } from '../SentenceWordBreakdown';
 import { AddChunkModal, type Chunk } from '../AddChunkModal';
 import { describeError } from './InlineNotice';
+import './message-sheet.css';
 
 /**
  * The message menu's **Explain** (docs/CHAT.md "Round 2"): the message, its

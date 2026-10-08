@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget, updateShareUsage } from '../api/client';
 import { RevisitSettingsSection } from '../components/settings/RevisitSettingsSection';
 import { NewCardOrderSection } from '../components/settings/NewCardOrderSection';
+import { AskClaudeLanguageSection } from '../components/settings/AskClaudeLanguageSection';
 import { PodcastFeedSection } from '../components/settings/PodcastFeedSection';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
@@ -853,6 +854,7 @@ export function SettingsPage() {
         {!role.isTutorOnly && <DailyBudgetSection />}
         {!role.isTutorOnly && <NewCardOrderSection />}
         {!role.isTutorOnly && <RevisitSettingsSection />}
+        {!role.isTutorOnly && <AskClaudeLanguageSection />}
 
         <PodcastFeedSection />
 

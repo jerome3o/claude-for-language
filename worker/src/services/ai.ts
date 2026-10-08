@@ -5,6 +5,8 @@ import { validateLessonSpec } from '@shared/lesson';
 import { CARD_STANDARD, CARD_STANDARD_SHORT } from '@shared/cards';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
 import { addBumps, MAX_BUMPS_PER_REQUEST } from './study-bumps';
+import { buildAskSystemPrompt, ASK_KNOWN_WORDS_MAX } from './ask-prompt';
+import { plainAnswerText, type AskLanguage } from '@shared/study/askClaude';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -156,38 +158,6 @@ Respond with JSON in this exact format:
   }));
 }
 
-const ASK_SYSTEM_PROMPT = `You are a helpful Chinese language tutor. The user is studying a Chinese vocabulary word and has a question about it.
-
-You'll be given context about the card including its deck, mastery level (card status with queue state, interval, stability, and repetition count), and recent review history. Use this to tailor your responses — e.g., if the user keeps rating "Again", offer extra memory aids; if they're at high stability, challenge them with advanced usage.
-
-Be concise but thorough in your answers. Focus on practical usage and learning. You can explain:
-- Grammar patterns and sentence structures
-- Cultural context and usage notes
-- Related vocabulary or phrases
-- Common mistakes to avoid
-- Memory aids or mnemonics
-- Pronunciation tips
-
-Keep your responses focused and helpful for language learning. Use examples with both Chinese characters and pinyin when relevant.
-
-You have tools to help the user. Read-only tools (search_cards, list_conversations, get_deck_info) are executed automatically. Mutating tools require user approval.
-
-Tool usage guidelines:
-- The user points out an error in the card (wrong tone, incorrect translation, etc.) → use edit_current_card
-- The user asks for related vocabulary to be added → search_cards first, then create_flashcards for the words they don't have (can target any of the user's decks by specifying deck_id)
-- A word they want is already one of their cards, or they want to study a word they have today → use bump_cards (it comes first in today's study; never create a duplicate) and say so
-- The user says the card is a duplicate or should be removed → use delete_current_card
-- The user asks for a lesson, drill, or practice around a word/pattern/topic → use create_custom_lesson (it appears in their next study session and works offline)
-- Use search_cards to find related vocabulary, check for duplicates, or answer questions about what cards exist
-- Use list_conversations to find past discussions about cards
-- Use get_deck_info to understand the deck context
-
-When editing, only change the fields that need fixing. When creating cards, use proper pinyin with tone marks (nǐ hǎo), NOT tone numbers.
-After using a tool, briefly confirm what you did in your text response.
-
-Whenever you write or edit a flashcard (any tool or JSON with hanzi / pinyin / english / fun_facts), follow this:
-${CARD_STANDARD}`;
-
 export interface AskContext {
   userAnswer?: string;
   correctAnswer?: string;
@@ -197,102 +167,6 @@ export interface AskContext {
 export interface ConversationMessage {
   question: string;
   answer: string;
-}
-
-/**
- * Answer a question about a vocabulary note
- */
-export async function askAboutNote(
-  apiKey: string,
-  note: Note,
-  question: string,
-  askContext?: AskContext,
-  conversationHistory?: ConversationMessage[]
-): Promise<string> {
-  const client = new Anthropic({ apiKey });
-
-  // Build the vocabulary context that will be included in the first message
-  let vocabContextParts = [
-    `The user is studying this vocabulary:`,
-    `- Chinese: ${note.hanzi}`,
-    `- Pinyin: ${note.pinyin}`,
-    `- English: ${note.english}`,
-  ];
-
-  if (note.fun_facts) {
-    vocabContextParts.push(`- Notes: ${note.fun_facts}`);
-  }
-
-  if (note.sentence_clue) {
-    let clueStr = `- Sentence clue: ${note.sentence_clue}`;
-    if (note.sentence_clue_pinyin) clueStr += ` (${note.sentence_clue_pinyin})`;
-    if (note.sentence_clue_translation) clueStr += ` — ${note.sentence_clue_translation}`;
-    if (note.sentence_clue_audio_url) clueStr += ' (has audio)';
-    vocabContextParts.push(clueStr);
-  }
-
-  // Add user's answer context if provided
-  if (askContext?.userAnswer) {
-    vocabContextParts.push('');
-    vocabContextParts.push(`The user was asked to write the Chinese characters.`);
-    vocabContextParts.push(`User's answer: ${askContext.userAnswer}`);
-    vocabContextParts.push(`Correct answer: ${askContext.correctAnswer || note.hanzi}`);
-  }
-
-  const vocabContext = vocabContextParts.join('\n');
-
-  // Build messages array with conversation history
-  const messages: { role: 'user' | 'assistant'; content: string }[] = [];
-
-  if (conversationHistory && conversationHistory.length > 0) {
-    // First message includes vocab context
-    messages.push({
-      role: 'user',
-      content: `${vocabContext}\n\nUser's question: ${conversationHistory[0].question}`
-    });
-    messages.push({
-      role: 'assistant',
-      content: conversationHistory[0].answer
-    });
-
-    // Add remaining conversation history
-    for (let i = 1; i < conversationHistory.length; i++) {
-      messages.push({
-        role: 'user',
-        content: conversationHistory[i].question
-      });
-      messages.push({
-        role: 'assistant',
-        content: conversationHistory[i].answer
-      });
-    }
-
-    // Add current question
-    messages.push({
-      role: 'user',
-      content: question
-    });
-  } else {
-    // No history - just include vocab context with the question
-    messages.push({
-      role: 'user',
-      content: `${vocabContext}\n\nUser's question: ${question}`
-    });
-  }
-
-  const response = await client.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 1000,
-    messages,
-    system: ASK_SYSTEM_PROMPT,
-  });
-
-  const textContent = response.content.find(c => c.type === 'text');
-  if (!textContent || textContent.type !== 'text') {
-    throw new Error('No text content in AI response');
-  }
-
-  return textContent.text;
 }
 
 // Helper: human-readable time ago string
@@ -533,7 +407,10 @@ export interface ReadOnlyToolCall {
 }
 
 export interface AskWithToolsResponse {
+  /** In Chinese mode the plain text the bubble shows (Markdown taken out, plainAnswerText). */
   answer: string;
+  /** The language the answer was asked for in (Ask Claude only). */
+  language?: AskLanguage;
   toolActions: ToolAction[];
   readOnlyToolCalls: ReadOnlyToolCall[];
 }
@@ -583,6 +460,35 @@ export interface AskDbContext {
   bumpSource?: string;
 }
 
+export interface AskOptions {
+  /** 'zh' = the immersion answer in simple Chinese (ask-prompt.ts), 'en' = English Markdown. Default 'en'. */
+  language?: AskLanguage;
+  /** Tests: a stand-in model. */
+  client?: Pick<Anthropic, 'messages'>;
+}
+
+/**
+ * A sample of the words the learner has started (hanzi of notes with a reviewed card, 1–4
+ * characters) — the Chinese answer leans on them. Empty on any failure.
+ */
+export async function sampleKnownWords(db: D1Database, userId: string, limit = ASK_KNOWN_WORDS_MAX): Promise<string[]> {
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT n.hanzi FROM notes n JOIN decks d ON d.id = n.deck_id
+          WHERE d.user_id = ? AND length(n.hanzi) BETWEEN 1 AND 4
+            AND EXISTS (SELECT 1 FROM cards c WHERE c.note_id = n.id AND c.queue != 0)
+          ORDER BY random() LIMIT ?`,
+      )
+      .bind(userId, limit)
+      .all<{ hanzi: string }>();
+    return (rows.results ?? []).map((r) => r.hanzi).filter(Boolean);
+  } catch (err) {
+    console.error('[ask] known words sample failed:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
 /**
  * Answer a question about a vocabulary note with tool use (agent loop)
  */
@@ -592,10 +498,13 @@ export async function askAboutNoteWithTools(
   question: string,
   askContext?: AskContext,
   conversationHistory?: ConversationMessage[],
-  dbContext?: AskDbContext
+  dbContext?: AskDbContext,
+  opts: AskOptions = {}
 ): Promise<AskWithToolsResponse> {
-  const client = new Anthropic({ apiKey });
+  const client = opts.client ?? new Anthropic({ apiKey });
   const tools = getAskNoteTools(note);
+  const language: AskLanguage = opts.language ?? 'en';
+  let knownWords: string[] = [];
 
   // Build vocab context
   let vocabContextParts = [
@@ -652,8 +561,8 @@ export async function askAboutNoteWithTools(
       // Fetch card mastery info (aggregate across all card types for this note)
       const cards = await dbContext.db.prepare(`
         SELECT card_type, queue, ease_factor, interval, repetitions, stability
-        FROM cards WHERE note_id = ? AND deck_id = ?
-      `).bind(note.id, dbContext.deckId).all<{
+        FROM cards WHERE note_id = ?
+      `).bind(note.id).all<{
         card_type: string; queue: number; ease_factor: number;
         interval: number; repetitions: number; stability: number | null;
       }>();
@@ -678,10 +587,10 @@ export async function askAboutNoteWithTools(
         SELECT re.rating, re.reviewed_at, c.card_type
         FROM review_events re
         JOIN cards c ON re.card_id = c.id
-        WHERE c.note_id = ? AND c.deck_id = ?
+        WHERE c.note_id = ?
         ORDER BY re.reviewed_at DESC
         LIMIT 5
-      `).bind(note.id, dbContext.deckId).all<{
+      `).bind(note.id).all<{
         rating: number; reviewed_at: string; card_type: string;
       }>();
 
@@ -696,7 +605,9 @@ export async function askAboutNoteWithTools(
     } catch (err) {
       console.error('[askAboutNoteWithTools] Failed to fetch enhanced context:', err);
     }
+    if (language === 'zh') knownWords = await sampleKnownWords(dbContext.db, dbContext.userId);
   }
+  const system = buildAskSystemPrompt({ language, knownWords });
 
   if (askContext?.userAnswer) {
     vocabContextParts.push('');
@@ -755,7 +666,7 @@ export async function askAboutNoteWithTools(
       // and pinyin) is far bigger than a chat answer — the cap must fit it.
       max_tokens: 4000,
       messages,
-      system: ASK_SYSTEM_PROMPT,
+      system,
       tools: tools as Anthropic.Tool[],
     });
 
@@ -816,8 +727,10 @@ export async function askAboutNoteWithTools(
     messages.push({ role: 'user', content: toolResults });
   }
 
+  const text = textParts.join('\n');
   return {
-    answer: textParts.join('\n'),
+    answer: language === 'zh' ? plainAnswerText(text) : text,
+    language,
     toolActions: collectedToolActions,
     readOnlyToolCalls: collectedReadOnlyToolCalls,
   };

@@ -361,7 +361,7 @@ fun CardStage(
         CardSheet.Flag -> FlagCardSheet(ui.extras.flagTutors, note.hanzi, actions.sendFlag, onDismiss = { sheet = null })
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
         CardSheet.Write -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(note.hanzi, onClose = { sheet = null }, pinyin = note.pinyin, english = note.english)
-        CardSheet.Ask -> AskClaudeSheet(view, ui.extras.ask, typed, actions.ask, onDismiss = { sheet = null })
+        CardSheet.Ask -> AskClaudeSheet(view, ui.extras.ask, ui.askLanguage, typed, ui.aiAvailable, actions.ask, actions.sentences, onDismiss = { sheet = null })
         is CardSheet.WriteText -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(s.text, onClose = { sheet = null })
         is CardSheet.Character -> dev.jeromeswannack.chineselearning.lab.ui.chars.CharacterSheet(
             char = s.char,

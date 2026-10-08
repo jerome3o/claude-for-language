@@ -1490,14 +1490,16 @@ export async function createNoteQuestion(
   db: D1Database,
   noteId: string,
   question: string,
-  answer: string
+  answer: string,
+  /** 'zh' = a plain-text Chinese answer (word chips), 'en' = Markdown (migration 0116). */
+  answerLang: 'zh' | 'en' | null = null
 ): Promise<NoteQuestion> {
   const id = generateId();
   await db
     .prepare(
-      'INSERT INTO note_questions (id, note_id, question, answer) VALUES (?, ?, ?, ?)'
+      'INSERT INTO note_questions (id, note_id, question, answer, answer_lang) VALUES (?, ?, ?, ?, ?)'
     )
-    .bind(id, noteId, question, answer)
+    .bind(id, noteId, question, answer, answerLang)
     .run();
 
   const noteQuestion = await db

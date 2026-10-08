@@ -2,12 +2,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import {
-  askAboutNote,
   startSession,
   API_BASE,
-  NoteQuestionWithTools,
   AskToolResult,
-  ReadOnlyToolCall,
   getMyRelationships,
   createConversation,
   initiateAIConversation,
@@ -18,11 +15,12 @@ import {
   generateSentenceClue,
   generateMultipleChoice,
   generateFunFact,
-  createNote,
   getLocalDateString,
-  textToFlashcard,
   analyzeSentence,
 } from '../api/client';
+import { AskClaudeSheet } from '../components/askClaude/AskClaudeSheet';
+import { useAskClaude } from '../components/askClaude/useAskClaude';
+import { useAskLanguage } from '../services/askClaudeLanguage';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
 import { BumpBadge } from '../components/bumps/BumpButton';
@@ -109,7 +107,7 @@ import {
 } from '../services/studyResume';
 import { activeMsToday, reportStudyTimeIfDue } from '../services/studyTime';
 import { useActiveStudyTime } from '../hooks/useActiveStudyTime';
-import { track, trackError } from '../services/analytics';
+import { track } from '../services/analytics';
 import { playFanfare } from '../utils/fanfare';
 import { getTodayReviewSummary } from '../db/database';
 import { DEFAULT_TTS_SPEED } from '../types';
@@ -119,52 +117,6 @@ import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
 import { hanziAnswerKey, stripAnswerPunctuation } from '../utils/numberHanzi';
 import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
-
-// Friendly labels for read-only tool names
-const TOOL_LABELS: Record<string, string> = {
-  search_cards: 'Searched cards',
-  list_conversations: 'Checked conversations',
-  get_deck_info: 'Looked up deck info',
-  get_note_cards: 'Checked card details',
-  get_note_history: 'Checked review history',
-  get_deck_progress: 'Checked deck progress',
-  get_due_cards: 'Checked due cards',
-  get_overall_stats: 'Checked study stats',
-};
-
-function ToolCallsCollapsible({ calls }: { calls: ReadOnlyToolCall[] }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="claude-tool-calls-collapsible">
-      <button
-        className="claude-tool-calls-toggle"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span className="claude-tool-calls-icon">{expanded ? '▾' : '▸'}</span>
-        <span className="claude-tool-calls-summary">
-          Used {calls.length} tool{calls.length !== 1 ? 's' : ''}
-        </span>
-      </button>
-      {expanded && (
-        <div className="claude-tool-calls-details">
-          {calls.map((call, idx) => (
-            <div key={idx} className="claude-tool-call-item">
-              <span className="claude-tool-call-name">
-                {TOOL_LABELS[call.tool] || call.tool}
-              </span>
-              {call.input && Object.keys(call.input).length > 0 && (
-                <span className="claude-tool-call-input">
-                  ({Object.entries(call.input).map(([k, v]) => `${k}: ${v}`).join(', ')})
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 /** A word short enough to write by hand (sentence cards are skipped). */
 function canWriteHanzi(hanzi: string): boolean {
@@ -412,20 +364,12 @@ export function StudyCard({
   // Error handling for orphaned cards (cards with missing notes)
   const [dataError, setDataError] = useState<string | null>(null);
 
-  // Ask Claude state
+  // Ask Claude (components/askClaude): Chinese answers by default, the chat's word chips and
+  // long-press menu. The conversation (useAskClaude below) lives with the card, so closing the
+  // sheet keeps it.
   const [showAskClaude, setShowAskClaude] = useState(false);
-  const [question, setQuestion] = useState('');
-  const [conversation, setConversation] = useState<NoteQuestionWithTools[]>([]);
-  const [isAsking, setIsAsking] = useState(false);
   const [cardDeleted, setCardDeleted] = useState(false);
-  const [pendingToolResults, setPendingToolResults] = useState<AskToolResult[] | null>(null);
-  const questionInputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Message-to-flashcard state (for Ask Claude modal)
-  const [flashcardMsgIdx, setFlashcardMsgIdx] = useState<number | null>(null);
-  const [flashcardData, setFlashcardData] = useState<{ hanzi: string; pinyin: string; english: string; fun_facts?: string } | null>(null);
-  const [isGeneratingFlashcard, setIsGeneratingFlashcard] = useState(false);
-  const [flashcardSaved, setFlashcardSaved] = useState(false);
+  const [askLanguage, setAskLanguage] = useAskLanguage();
 
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -527,8 +471,6 @@ export function StudyCard({
   const [mcAnswered, setMcAnswered] = useState(() => !!restored.mc?.answered);
   const [shuffledMcOptions, setShuffledMcOptions] = useState<McOptionRow[] | null>(() => restored.mc?.rows ?? null);
   const mcRowRefs = useRef<(HTMLDivElement | null)[]>([]);
-  // Ask Claude: inline error (never alert())
-  const [askError, setAskError] = useState<string | null>(null);
 
   const { isRecording, audioBlob, audioLevel, error: recorderError, startRecording, stopRecording, cancelRecording, clearRecording } =
     useAudioRecorder(restored.recording);
@@ -672,6 +614,12 @@ export function StudyCard({
   const cardInfo = CARD_TYPE_INFO[card.card_type];
   const isTypingCard = cardInfo.action === 'type';
   const isSpeakingCard = cardInfo.action === 'speak';
+
+  const askTyped = useMemo(
+    () => (isTypingCard && userAnswer ? { userAnswer, correctAnswer: card.note.hanzi } : null),
+    [isTypingCard, userAnswer, card.note.hanzi],
+  );
+  const askChat = useAskClaude({ noteId: card.note.id, cardType: card.card_type, typed: askTyped, aiAvailable, language: askLanguage });
 
   // Keep a ref to recordings so callbacks always see the latest
   const recordingsRef = useRef(recordings);
@@ -1002,8 +950,6 @@ export function StudyCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteIdForChunks, sentenceClueForChunks, isOnline]);
 
-  // Get all decks for the deck picker
-  const allDecks = useLiveQuery(() => db.decks.toArray(), []);
 
   const handleGenerateFunFact = async () => {
     setIsGeneratingFunFact(true);
@@ -1216,61 +1162,6 @@ export function StudyCard({
           break;
         }
       }
-    }
-  };
-
-  const approveToolResults = () => {
-    if (pendingToolResults) {
-      processToolResults(pendingToolResults);
-      setPendingToolResults(null);
-    }
-  };
-
-  const rejectToolResults = () => {
-    setPendingToolResults(null);
-  };
-
-  const describeAskError = (error: unknown): string => {
-    if (!aiAvailable) return "Ask Claude needs an internet connection — you're offline right now.";
-    const msg = error instanceof Error ? error.message : '';
-    if (/network|fetch|failed to fetch/i.test(msg)) return "Couldn't reach Claude — check your connection and try again.";
-    return msg ? `Claude couldn't answer: ${msg}` : "Claude couldn't answer that. Try again in a moment.";
-  };
-
-  const handleAskClaude = async () => {
-    if (!question.trim() || isAsking) return;
-
-    setIsAsking(true);
-    setAskError(null);
-    try {
-      // Include user's answer context for typing cards
-      const context = isTypingCard && userAnswer ? {
-        userAnswer: userAnswer,
-        correctAnswer: card.note.hanzi,
-        cardType: card.card_type,
-      } : undefined;
-
-      // Pass conversation history for multi-turn context
-      const history = conversation.map(qa => ({
-        question: qa.question,
-        answer: qa.answer,
-      }));
-
-      const response = await askAboutNote(card.note.id, question.trim(), context, history);
-      track('study.ask_claude', { card_type: card.card_type });
-      setConversation((prev) => [...prev, response]);
-      setQuestion('');
-
-      // Store tool results as pending for user approval
-      if (response.toolResults && response.toolResults.length > 0) {
-        setPendingToolResults(response.toolResults);
-      }
-    } catch (error) {
-      console.error('Failed to ask Claude:', error);
-      setAskError(describeAskError(error));
-      trackError('study_ask_claude', error);
-    } finally {
-      setIsAsking(false);
     }
   };
 
@@ -1537,36 +1428,6 @@ export function StudyCard({
         {/* "Generate fun fact" and "Added <date>" moved into the ⋯ menu (D2, D5) */}
       </div>
     );
-  };
-
-  const sendQuickQuestion = async (questionText: string) => {
-    setQuestion(questionText);
-    // Need to call the API directly since setQuestion is async
-    setIsAsking(true);
-    setAskError(null);
-    try {
-      const context = isTypingCard && userAnswer ? {
-        userAnswer: userAnswer,
-        correctAnswer: card.note.hanzi,
-        cardType: card.card_type,
-      } : undefined;
-
-      const response = await askAboutNote(card.note.id, questionText, context);
-      track('study.ask_claude', { card_type: card.card_type });
-      setConversation((prev) => [...prev, response]);
-      setQuestion('');
-
-      // Store tool results as pending for user approval
-      if (response.toolResults && response.toolResults.length > 0) {
-        setPendingToolResults(response.toolResults);
-      }
-    } catch (error) {
-      console.error('Failed to ask Claude:', error);
-      setAskError(describeAskError(error));
-      trackError('study_ask_claude', error);
-    } finally {
-      setIsAsking(false);
-    }
   };
 
   const renderDebugModal = () => {
@@ -1905,266 +1766,19 @@ export function StudyCard({
 
   const renderAskClaudeModal = () => {
     if (!showAskClaude) return null;
-
-    const quickActions = [
-      { label: 'Use in sentence', question: 'Please use this word in a few example sentences with pinyin and English translations.' },
-      { label: 'Explain characters', question: 'Please break down each character in this word, explaining the radicals, components, and individual meanings.' },
-      { label: 'Related words', question: 'What are some related words or phrases I should learn alongside this one?' },
-      // One chip, not two that read as duplicates ("Check" + "Verify")
-      ...(isTypingCard && userAnswer
-        ? [{ label: 'Check my answer', question: 'Is my answer correct, grammatically and in meaning? If not, explain what is wrong and how I can improve.' }]
-        : []),
-      { label: 'Explain grammar', question: 'Can you explain the grammar of this sentence and break down each word?' },
-      { label: 'Add a fun fact', question: 'Add a brief, interesting fun fact or cultural context to this card.' },
-      ...(card.note.sentence_clue ? [{ label: 'Explain sentence', question: 'Please explain the example sentence for this card. Break down the grammar, explain each word, and provide any cultural context.' }] : []),
-    ];
-
     return (
-      <div className="modal-overlay claude-modal-overlay">
-        <div className="modal claude-modal" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-header">
-            <div className="modal-title">Ask about: {card.note.hanzi}</div>
-            <button className="modal-close" onClick={() => setShowAskClaude(false)}>×</button>
-          </div>
-
-          <div className="claude-modal-content">
-            {conversation.length === 0 && !isAsking && (
-              <div className="claude-quick-actions">
-                {quickActions.map((action) => (
-                  <button
-                    key={action.label}
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => sendQuickQuestion(action.question)}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {conversation.map((qa, qaIdx) => {
-              const isLatest = qaIdx === conversation.length - 1;
-              const hasPending = isLatest && pendingToolResults !== null;
-              return (
-                <div key={qa.id} className="claude-message-pair">
-                  <div className="claude-user-message" style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                    <div style={{ flex: 1 }}>{qa.question}</div>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem', flexShrink: 0, lineHeight: 1 }}
-                      title="Create flashcard from this message"
-                      disabled={isGeneratingFlashcard}
-                      onClick={async () => {
-                        if (flashcardMsgIdx === qaIdx) {
-                          setFlashcardMsgIdx(null);
-                          setFlashcardData(null);
-                          setFlashcardSaved(false);
-                          return;
-                        }
-                        setFlashcardMsgIdx(qaIdx);
-                        setFlashcardData(null);
-                        setFlashcardSaved(false);
-                        setIsGeneratingFlashcard(true);
-                        try {
-                          const result = await textToFlashcard(qa.question);
-                          setFlashcardData(result);
-                        } catch (err) {
-                          console.error('Failed to generate flashcard:', err);
-                        } finally {
-                          setIsGeneratingFlashcard(false);
-                        }
-                      }}
-                    >+</button>
-                  </div>
-                  {flashcardMsgIdx === qaIdx && (
-                    <div className="flashcard-from-message" style={{ padding: '0.5rem 0.75rem', margin: '0.25rem 0', background: 'var(--color-bg-secondary, #f8fafc)', borderRadius: '0.5rem', fontSize: '0.85rem' }}>
-                      {isGeneratingFlashcard ? (
-                        <div style={{ color: '#64748b' }}>Generating flashcard...</div>
-                      ) : flashcardSaved ? (
-                        <div style={{ color: '#22c55e' }}>Flashcard saved!</div>
-                      ) : flashcardData ? (
-                        <>
-                          <div><strong>{flashcardData.hanzi}</strong> ({flashcardData.pinyin}) — {flashcardData.english}</div>
-                          {flashcardData.fun_facts && <div style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '0.25rem' }}>{flashcardData.fun_facts}</div>}
-                          <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                            {allDecks?.map((d) => (
-                              <button
-                                key={d.id}
-                                className="btn btn-secondary btn-sm"
-                                style={{ fontSize: '0.75rem' }}
-                                onClick={async () => {
-                                  try {
-                                    await createNote(d.id, {
-                                      hanzi: flashcardData.hanzi,
-                                      pinyin: flashcardData.pinyin,
-                                      english: flashcardData.english,
-                                      fun_facts: flashcardData.fun_facts,
-                                    });
-                                    setFlashcardSaved(true);
-                                  } catch (err) {
-                                    console.error('Failed to save flashcard:', err);
-                                  }
-                                }}
-                              >
-                                {d.name}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{ color: '#ef4444' }}>Failed to generate flashcard. Try again.</div>
-                      )}
-                    </div>
-                  )}
-                  {qa.readOnlyToolCalls && qa.readOnlyToolCalls.length > 0 && (
-                    <ToolCallsCollapsible calls={qa.readOnlyToolCalls} />
-                  )}
-                  <div className="claude-response">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{qa.answer}</ReactMarkdown>
-                    {qa.toolResults && qa.toolResults.length > 0 && (
-                      <div className="claude-tool-results">
-                        {hasPending ? (
-                          /* Pending approval UI */
-                          <div className="tool-approval-box">
-                            <div className="tool-approval-header">Claude wants to make changes:</div>
-                            {qa.toolResults.map((tr, idx) => (
-                              <div key={idx} className="tool-approval-item">
-                                {tr.tool === 'edit_current_card' && tr.success && (
-                                  <div>
-                                    <span className="tool-approval-icon">&#9998;</span>
-                                    <strong>Edit card</strong>
-                                    {tr.data?.changes ? (
-                                      <div className="tool-approval-changes">
-                                        {Object.entries(tr.data.changes as Record<string, unknown>).map(([field, value]) => (
-                                          <div key={field} className="tool-approval-change">
-                                            <span className="tool-approval-field">{field}:</span> {String(value)}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                )}
-                                {tr.tool === 'create_flashcards' && tr.success && (
-                                  <div>
-                                    <span className="tool-approval-icon">&#43;</span>
-                                    <strong>Create {(tr.data?.count as number) || 0} new card{(tr.data?.count as number) !== 1 ? 's' : ''}</strong>
-                                    {(() => {
-                                      const created = tr.data?.created;
-                                      if (!Array.isArray(created)) return null;
-                                      const notes = created as Array<{ hanzi: string; pinyin: string; english: string }>;
-                                      return (
-                                        <div className="tool-approval-card-preview">
-                                          {notes.map((note, noteIdx) => (
-                                            <div key={noteIdx} className="tool-approval-card-item">
-                                              <span className="hanzi" style={{ fontSize: '1.1rem' }}>{note.hanzi}</span>
-                                              <span style={{ fontSize: '0.8rem', opacity: 0.7, marginLeft: '0.5rem' }}>{note.pinyin}</span>
-                                              <span style={{ fontSize: '0.8rem', opacity: 0.7, marginLeft: '0.5rem' }}>— {note.english}</span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
-                                )}
-                                {tr.tool === 'delete_current_card' && tr.success && (
-                                  <div>
-                                    <span className="tool-approval-icon">&#128465;</span>
-                                    <strong>Delete this card</strong>
-                                  </div>
-                                )}
-                                {tr.tool === 'create_custom_lesson' && tr.success && (
-                                  <div>
-                                    <span className="tool-approval-icon">&#127891;</span>
-                                    <strong>Mini lesson created: {String(tr.data?.title || '')}</strong>
-                                    <div className="tool-approval-changes">It will appear in your next study session.</div>
-                                  </div>
-                                )}
-                                {!tr.success && (
-                                  <div>Action failed: {tr.error || 'Unknown error'}</div>
-                                )}
-                              </div>
-                            ))}
-                            <div className="tool-approval-buttons">
-                              <button className="btn btn-success btn-sm" onClick={approveToolResults}>
-                                Approve
-                              </button>
-                              <button className="btn btn-secondary btn-sm" onClick={rejectToolResults}>
-                                Reject
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          /* Already applied tool results */
-                          qa.toolResults.map((tr, idx) => (
-                            <div key={idx} className={`claude-tool-result ${tr.success ? 'success' : 'error'}`}>
-                              {tr.tool === 'edit_current_card' && tr.success && (
-                                <span>Card updated{tr.data?.changes ? `: ${Object.keys(tr.data.changes as Record<string, unknown>).join(', ')} changed` : ''}</span>
-                              )}
-                              {tr.tool === 'create_flashcards' && tr.success && (
-                                <span>{(tr.data?.count as number) || 0} new card{(tr.data?.count as number) !== 1 ? 's' : ''} created</span>
-                              )}
-                              {tr.tool === 'delete_current_card' && tr.success && (
-                                <span>Card deleted — advancing to next card...</span>
-                              )}
-                              {tr.tool === 'create_custom_lesson' && tr.success && (
-                                <span>Mini lesson created: {String(tr.data?.title || '')} — it'll appear in your next study session</span>
-                              )}
-                              {!tr.success && (
-                                <span>Action failed: {tr.error || 'Unknown error'}</span>
-                              )}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-
-            {isAsking && (
-              <div className="claude-loading">Thinking...</div>
-            )}
-
-            {askError && !isAsking && (
-              <div className="study-inline-error" role="alert" data-testid="ask-claude-error">
-                {askError}
-              </div>
-            )}
-          </div>
-
-          {!cardDeleted && (
-            <div className="claude-input-row">
-              <textarea
-                ref={questionInputRef}
-                className="form-input claude-autogrow-input"
-                value={question}
-                onChange={(e) => {
-                  setQuestion(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-                }}
-                placeholder={pendingToolResults ? "Approve or reject changes first..." : "Ask a question..."}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleAskClaude();
-                  }
-                }}
-                disabled={isAsking || !!pendingToolResults}
-                rows={1}
-              />
-              <button
-                className="btn btn-primary"
-                onClick={handleAskClaude}
-                disabled={!question.trim() || isAsking || !!pendingToolResults}
-              >
-                Ask
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+      <AskClaudeSheet
+        hanzi={card.note.hanzi}
+        chat={askChat}
+        typedAnswer={!!askTyped}
+        hasSentence={!!card.note.sentence_clue}
+        cardDeleted={cardDeleted}
+        aiAvailable={aiAvailable}
+        language={askLanguage}
+        onLanguage={(l) => void setAskLanguage(l, 'sheet')}
+        onApprove={processToolResults}
+        onClose={() => setShowAskClaude(false)}
+      />
     );
   };
 
@@ -2264,13 +1878,7 @@ export function StudyCard({
 
     return (
       <StudyActionRow
-        onAskClaude={() => {
-          setShowAskClaude(!showAskClaude);
-          if (!showAskClaude) {
-            setAskError(null);
-            setTimeout(() => questionInputRef.current?.focus(), 100);
-          }
-        }}
+        onAskClaude={() => setShowAskClaude(!showAskClaude)}
         askClaudeOpen={showAskClaude}
         onEditCard={() => { track('study.edit_card'); setShowEditModal(true); }}
         aiDisabled={!aiAvailable}

@@ -110,10 +110,43 @@ fun ChineseText(
     /** A long press on a word chip opens the message's menu like one anywhere on the bubble. */
     onLongPress: (() -> Unit)? = null,
     plain: (@Composable (reserve: Dp) -> Unit)? = null,
+) = ChineseWords(
+    text = text,
+    // Picking messages: the plain text (taps select the message).
+    words = if (ui.selection != null) null else words,
+    isMe = isMe,
+    color = color,
+    showPinyin = ui.aids.pinyin(m.id) && ui.selection == null,
+    known = ui.known,
+    onChip = onChip,
+    fontSize = fontSize,
+    reserve = reserve,
+    onLongPress = onLongPress,
+    plain = plain,
+)
+
+/**
+ * [ChineseText] without the chat screen's state — the word chips of any message list (the chat,
+ * Ask Claude on the study card): [words] null = the plain text (+ the phone's pinyin line when
+ * [showPinyin]); [known] = hanzi already in a deck (quieter chips).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ChineseWords(
+    text: String,
+    words: List<ReaderWordDto>?,
+    isMe: Boolean,
+    color: Color,
+    showPinyin: Boolean,
+    known: Set<String>,
+    onChip: (Int) -> Unit,
+    fontSize: TextUnit = 17.sp,
+    reserve: Dp = 0.dp,
+    onLongPress: (() -> Unit)? = null,
+    plain: (@Composable (reserve: Dp) -> Unit)? = null,
 ) {
-    val showPinyin = ui.aids.pinyin(m.id) && ui.selection == null
     val pinyinColor = if (isMe) Color.White.copy(alpha = 0.82f) else Lab.colors.accent
-    if (words == null || ui.selection != null) {
+    if (words == null) {
         val line = if (showPinyin) ChatPinyin.line(text) else null
         val plainReserve = if (line == null) reserve else 0.dp
         if (plain != null) plain(plainReserve) else ReservedText(AnnotatedString(text), plainReserve, color = color, fontSize = fontSize, lineHeight = fontSize * 1.42f)
@@ -128,7 +161,7 @@ fun ChineseText(
         words.forEachIndexed { i, w ->
             when {
                 w.text.contains('\n') -> Spacer(Modifier.fillMaxWidth())
-                else -> Segment(w, chip = MessageTools.looksLikeChinese(w.text) && ReaderWords.isTappable(w.text), known = w.text.trim() in ui.known, showPinyin, isMe, color, pinyinColor, fontSize, onLongPress) { onChip(i) }
+                else -> Segment(w, chip = MessageTools.looksLikeChinese(w.text) && ReaderWords.isTappable(w.text), known = w.text.trim() in known, showPinyin, isMe, color, pinyinColor, fontSize, onLongPress) { onChip(i) }
             }
         }
         if (reserve > 0.dp) Spacer(Modifier.width(reserve).height(16.dp))

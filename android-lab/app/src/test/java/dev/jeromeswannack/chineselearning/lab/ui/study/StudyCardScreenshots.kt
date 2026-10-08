@@ -155,14 +155,14 @@ class StudyCardScreenshots : LabScreenshotTest() {
     @Test fun askClaude() = shoot("study-a09-ask-claude") {
         val v = view(CardTypes.MEANING_TO_HANZI)
         overCard(ui(v, CardExtras(ask = askConversation)), CardStartState(flipped = true, answer = "打算")) {
-            AskClaudeBody(v, askConversation, "打算", AskActions())
+            AskClaudeBody(v, askConversation, "en", "打算", true, AskActions())
         }
     }
 
     @Test fun askClaudeStart() = shoot("study-a10-ask-claude-start") {
         val v = view(CardTypes.MEANING_TO_HANZI)
         overCard(ui(v), CardStartState(flipped = true, answer = "打蒜")) {
-            AskClaudeBody(v, AskUi(), "打蒜", AskActions())
+            AskClaudeBody(v, AskUi(), "en", "打蒜", true, AskActions())
         }
     }
 

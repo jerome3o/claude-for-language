@@ -63,9 +63,18 @@ class Prefs(context: Context) {
             .putString("landing_page", me.landing_page)
             .putBoolean("share_usage", me.share_usage)
             .putString("voice_gender", me.voice_gender)
+            .putString("ask_claude_language", me.ask_claude_language)
             .apply()
         me.card_check?.let { cardCheck = it }
     }
+
+    /**
+     * "Ask Claude answers in" (core AskClaude): 'zh' (the default) | 'en' — the account's choice
+     * from /api/auth/me, or what was picked on this device since.
+     */
+    var askClaudeLanguage: String
+        get() = dev.jeromeswannack.chineselearning.lab.core.AskClaude.effectiveLanguage(sp.getString("ask_claude_language", null))
+        set(v) = sp.edit().putString("ask_claude_language", v).apply()
 
     /**
      * Word checks (Settings → "Check new words for mistakes"): Paste a list asks Claude to

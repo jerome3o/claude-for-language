@@ -41,6 +41,8 @@ data class MeDto(
     val email_chat_messages: Boolean = true,
     /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account; core SayBetter.settingShown). */
     val chat_auto_check: Boolean? = null,
+    /** "Ask Claude answers in": 'zh' | 'en', null = the default (Chinese; core AskClaude). */
+    val ask_claude_language: String? = null,
     /** The budget with who set it (a tutor can change it: shared/decks/tutor-budget.ts); null from an older server. */
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
     /** "Order new cards by" (shared/decks/new-card-order.ts → core NewCardOrder.parse); null from an older server. */

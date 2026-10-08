@@ -78,6 +78,7 @@ import {
 import { ListeningBubble, useListeningPlayer } from '../components/chat/ListeningBubble';
 import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrection, clearMessageCorrection, forwardChatMessage } from '../api/chat';
 import { ChatWordsText, type TappedWord } from '../components/chat/ChatWords';
+import { ChatTranslation, CoachChip, SayBetterMark } from '../components/chat/ChatBubbleParts';
 import { CorrectionBlock, CorrectMessageSheet } from '../components/chat/ChatCorrection';
 import { SayBetterSheet } from '../components/chat/SayBetterSheet';
 import { coachDeepLink, openInCoachRequest, sayBetterLabel, sayBetterState, showCoachChip, type OpenInCoachSource } from '@shared/chats/autoCheck';
@@ -1584,15 +1585,7 @@ export function ChatPage() {
           />
         )}
         {link && <LinkPreviewCard url={link} isOnline={isOnline} />}
-        {translateOn && (
-          <span className="chat-translation" data-testid="chat-translation">
-            {translationOf(msg) ?? (
-              <span className="chat-translation-pending">
-                <span className="chat-spinner" aria-hidden="true" /> Translating…
-              </span>
-            )}
-          </span>
-        )}
+        {translateOn && <ChatTranslation text={translationOf(msg)} />}
         {isMe && checkStatus && !msg.auto_check && (
           <button
             type="button"
@@ -1751,18 +1744,7 @@ export function ChatPage() {
                 {showMeta && (
                   <span className="chat-bubble-meta" data-testid="chat-bubble-meta">
                     {msg.pinned_at && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
-                    {better && (
-                      <span
-                        className={`chat-saybetter-mark ${better}`}
-                        data-testid="chat-saybetter-mark"
-                        data-state={better}
-                        role="img"
-                        aria-label={sayBetterLabel(better, otherUser.name)}
-                        title={sayBetterLabel(better, otherUser.name)}
-                      >
-                        ✎
-                      </span>
-                    )}
+                    {better && <SayBetterMark state={better} label={sayBetterLabel(better, otherUser.name)} />}
                     {showTime && msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
                     {showTime && <span className="chat-time">{formatTime(msg.created_at)}</span>}
                     {!showTime ? null : layout.tick === 'pending' ? (
@@ -1837,17 +1819,7 @@ export function ChatPage() {
                 ))}
               </div>
             )}
-            {!pending && !selecting && !hidden && showCoachChip(msg, myId) && (
-              <button
-                type="button"
-                className="chat-coach-chip"
-                onClick={() => openInCoach(msg, 'chip')}
-                data-testid="chat-open-in-coach"
-                title="Check it in the Sentence Coach"
-              >
-                🎓 Open in Coach
-              </button>
-            )}
+            {!pending && !selecting && !hidden && showCoachChip(msg, myId) && <CoachChip onClick={() => openInCoach(msg, 'chip')} />}
             {msg.correction && !isDeleted && (
               <CorrectionBlock
                 original={msg.content}

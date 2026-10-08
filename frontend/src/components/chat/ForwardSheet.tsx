@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getConversations, getMyRelationships } from '../../api/client';
 import { getOtherUserInRelationship, type ConversationWithLastMessage } from '../../types';
 import { describeError } from './InlineNotice';
+import './message-sheet.css';
 
 export interface ForwardTarget {
   conversationId: string;

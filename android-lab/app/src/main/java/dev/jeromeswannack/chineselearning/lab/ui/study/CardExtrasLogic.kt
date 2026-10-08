@@ -133,21 +133,6 @@ object CardExtrasLogic {
         return if (!msg.isNullOrBlank()) "Claude couldn't answer: $msg" else "Claude couldn't answer that. Try again in a moment."
     }
 
-    data class QuickAction(val label: String, val question: String)
-
-    /** The Ask Claude chips shown before the first question (renderAskClaudeModal). */
-    fun quickActions(cardType: String, userAnswer: String?, hasSentenceClue: Boolean): List<QuickAction> = buildList {
-        add(QuickAction("Use in sentence", "Please use this word in a few example sentences with pinyin and English translations."))
-        add(QuickAction("Explain characters", "Please break down each character in this word, explaining the radicals, components, and individual meanings."))
-        add(QuickAction("Related words", "What are some related words or phrases I should learn alongside this one?"))
-        if (cardType != CardTypes.HANZI_TO_MEANING && !userAnswer.isNullOrEmpty()) {
-            add(QuickAction("Check my answer", "Is my answer correct, grammatically and in meaning? If not, explain what is wrong and how I can improve."))
-        }
-        add(QuickAction("Explain grammar", "Can you explain the grammar of this sentence and break down each word?"))
-        add(QuickAction("Add a fun fact", "Add a brief, interesting fun fact or cultural context to this card."))
-        if (hasSentenceClue) add(QuickAction("Explain sentence", "Please explain the example sentence for this card. Break down the grammar, explain each word, and provide any cultural context."))
-    }
-
     /** The random MiniMax voice for "New voice" and its speaker name ("Sweet Lady", suffix dropped). */
     fun randomVoice(random: kotlin.random.Random = kotlin.random.Random.Default): Pair<MiniMaxVoice, String> {
         val v = MINIMAX_VOICES[random.nextInt(MINIMAX_VOICES.size)]

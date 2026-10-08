@@ -1,0 +1,123 @@
+/*
+ * Ask Claude on the study card — the tutor chat's bubbles (chat-signal.css / chat-learning.css)
+ * inside the Claude sheet. Only what the chat page's own stylesheet would otherwise give: the
+ * Signal colours, the bubble column layout, and room for longer Chinese answers.
+ */
+
+.ask-thread {
+  --sig-mine: #2c6bed;
+  --sig-mine-text: #fff;
+  --sig-theirs: #eef0f3;
+  --sig-theirs-text: #1b1b1d;
+  --sig-meta-mine: rgba(255, 255, 255, 0.8);
+  --sig-meta-theirs: rgba(27, 27, 29, 0.55);
+  display: flex;
+  flex-direction: column;
+}
+
+.ask-exchange {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.9rem;
+}
+
+.ask-thread .chat-message {
+  display: flex;
+  gap: 0.25rem;
+  max-width: 90%;
+}
+.ask-thread .chat-message.sent {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+  max-width: 82%;
+}
+.ask-thread .chat-message.received {
+  align-self: flex-start;
+}
+.ask-thread .chat-message-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ask-thread .chat-message.sent .chat-message-content {
+  align-items: flex-end;
+}
+
+/* Chinese reads better a little larger; line breaks of a plain answer stay. */
+.ask-thread .chat-bubble {
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+.ask-thread .chat-text {
+  white-space: pre-wrap;
+}
+.ask-thread .chat-words.with-pinyin {
+  line-height: 2.3;
+}
+.ask-thread .chat-bubble.pending {
+  background: var(--sig-mine);
+  color: var(--sig-mine-text);
+  opacity: 0.7;
+}
+
+/* An English (Markdown) answer inside the bubble: no box in a box. */
+.ask-thread .chat-bubble .claude-response {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 0.9375rem;
+}
+.ask-thread .chat-bubble .claude-response p:last-child {
+  margin-bottom: 0;
+}
+.ask-thread .chat-bubble .claude-tool-results {
+  margin-top: 0.5rem;
+}
+
+/* A long press opens the menu: keep the native text selection out of the way on touch. */
+@media (hover: none) {
+  .ask-thread .chat-bubble {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+.ask-hint {
+  margin: -0.25rem 0 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #666);
+}
+
+/* Header: 中文 | EN */
+.ask-claude-modal .modal-header {
+  gap: 0.5rem;
+}
+.ask-claude-modal .modal-title {
+  flex: 1;
+  min-width: 0;
+}
+.ask-lang-toggle {
+  display: inline-flex;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px;
+  flex-shrink: 0;
+}
+.ask-lang-toggle button {
+  min-width: 44px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-light, #555);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 0.6rem;
+}
+.ask-lang-toggle button.on {
+  background: #fff;
+  color: var(--color-primary, #2c6bed);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
