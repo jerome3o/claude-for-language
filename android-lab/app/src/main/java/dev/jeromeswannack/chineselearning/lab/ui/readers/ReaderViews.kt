@@ -288,10 +288,19 @@ fun ReaderProgress(fraction: Float) {
     }
 }
 
+/**
+ * The reader's title block: "📖 GRADED READER", the Chinese title, then [sub]. [leading] (the
+ * session's ▶ Play whole story) sits at the START of the label row, the label staying centred.
+ */
 @Composable
-fun PageTitle(titleChinese: String, sub: String) {
+fun PageTitle(titleChinese: String, sub: String, leading: (@Composable () -> Unit)? = null) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("📖  GRADED READER", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 1.sp)
+        val label = @Composable { Text("📖  GRADED READER", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 1.sp) }
+        if (leading == null) label()
+        else Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(Modifier.align(Alignment.CenterStart)) { leading() }
+            Box(Modifier.padding(horizontal = 52.dp)) { label() }
+        }
         Text(titleChinese, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
         Text(sub, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
     }

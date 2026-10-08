@@ -264,6 +264,8 @@ export function StudyReader({
     stopStory();
   };
 
+  const storyLabel = storyPlaying ? 'Stop the story' : currentPage === 0 ? 'Play whole story' : 'Play the rest';
+
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
@@ -294,22 +296,25 @@ export function StudyReader({
         onScroll={e => setScrolled(e.currentTarget.scrollTop > 0)}
       >
         <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
-          <div style={{ fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            📖 Graded Reader
+          {/* The label row: ▶ Play whole story tucked in at the start, the label kept centred. */}
+          <div className="study-reader-label-row">
+            <button
+              type="button"
+              className={`study-reader-story-btn${storyPlaying ? ' playing' : ''}`}
+              onClick={toggleStory}
+              data-testid="reader-play-story"
+              aria-pressed={storyPlaying}
+              aria-label={storyLabel}
+              title={storyLabel}
+            >
+              <span className="study-reader-story-icon" aria-hidden="true">{storyPlaying ? '■' : '▶'}</span>
+            </button>
+            <div className="study-reader-label">📖 Graded Reader</div>
           </div>
           <div className="hanzi" style={{ fontSize: '1.25rem', fontWeight: 600 }}>{reader.title_chinese}</div>
           <div className="text-light" style={{ fontSize: '0.8125rem' }} data-testid="study-reader-page-label">
             {reader.title_english} · Page {currentPage + 1} of {reader.pages.length}
           </div>
-          <button
-            type="button"
-            className={`study-reader-story-btn${storyPlaying ? ' playing' : ''}`}
-            onClick={toggleStory}
-            data-testid="reader-play-story"
-            aria-pressed={storyPlaying}
-          >
-            {storyPlaying ? '■ Stop the story' : currentPage === 0 ? '▶ Play whole story' : '▶ Play the rest'}
-          </button>
           {storyNote && <div className="study-reader-story-note" role="status">{storyNote}</div>}
         </div>
 

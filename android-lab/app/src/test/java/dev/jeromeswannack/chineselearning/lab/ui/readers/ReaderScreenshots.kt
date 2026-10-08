@@ -8,6 +8,7 @@ import android.graphics.Shader
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onLast
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
@@ -142,8 +143,8 @@ class ReaderScreenshots : LabScreenshotTest() {
         content()
     }
 
-    private fun shootAfter(name: String, content: @Composable () -> Unit, act: () -> Unit) {
-        compose.setContent { LabTheme { content() } }
+    private fun shootAfter(name: String, content: @Composable () -> Unit, dark: Boolean = false, act: () -> Unit) {
+        compose.setContent { LabTheme(dark = dark) { content() } }
         compose.mainClock.advanceTimeBy(1_500)
         act()
         compose.mainClock.advanceTimeBy(1_500)
@@ -164,8 +165,31 @@ class ReaderScreenshots : LabScreenshotTest() {
     @Test fun lastPage() = shootAfter("readers-03-session-finish", session()) { tap("Next"); tap("Next") }
     /** Listen-first: the story button on the first page. */
     @Test fun playWholeStory() = shoot("listen-01-play-whole-story", content = session())
-    /** The story playing: the button turns into "⏹ Stop the story". */
-    @Test fun playWholeStoryPlaying() = shootAfter("listen-02-story-playing", session()) { tap("▶ Play whole story") }
+    @Test fun playWholeStoryDark() = shoot("listen-01-play-whole-story-dark", dark = true, content = session())
+    /**
+     * Tapping the small ▶ (found by its content description). Robolectric can't play the clip,
+     * so the story stops again with the "wouldn't play" note — the same as before the move.
+     */
+    @Test fun playWholeStoryPlaying() = shootAfter("listen-02-story-playing", session()) { tapStory() }
+    @Test fun playWholeStoryPlayingDark() = shootAfter("listen-02-story-playing-dark", session(), dark = true) { tapStory() }
+
+    private fun tapStory() {
+        compose.onNodeWithContentDescription("Play whole story").assertExists()
+        compose.onNodeWithTag(READER_PLAY_STORY_TAG).performClick()
+        compose.mainClock.advanceTimeBy(400)
+    }
+
+    /** The title block with the story button at the start of the label row: idle, playing, later page — light and dark. */
+    @Composable private fun storyTitles() {
+        Column(Modifier.fillMaxWidth().background(Lab.colors.background).padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            PageTitle("食堂里的牛排", "The Steak in the Canteen · Page 1 of 10", leading = { StoryButton(playing = false, label = "Play whole story") {} })
+            PageTitle("食堂里的牛排", "The Steak in the Canteen · Page 1 of 10", leading = { StoryButton(playing = true, label = "Stop the story") {} })
+            PageTitle("食堂里的牛排", "The Steak in the Canteen · Page 4 of 10", leading = { StoryButton(playing = false, label = "Play the rest") {} })
+        }
+    }
+    @Test fun storyButtonStates() = shoot("listen-04-story-button-states") { storyTitles() }
+    @Test fun storyButtonStatesDark() = shoot("listen-04-story-button-states-dark", dark = true) { storyTitles() }
+
     /** A story is read once: the last page ends with Finish (no rating, no Done for good). */
     @Test fun finishRow() = shootAfter("listen-03-finish", session()) { tap("Next"); tap("Next") }
 
