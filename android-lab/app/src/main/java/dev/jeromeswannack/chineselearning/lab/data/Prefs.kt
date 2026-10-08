@@ -64,6 +64,7 @@ class Prefs(context: Context) {
             .putBoolean("share_usage", me.share_usage)
             .putString("voice_gender", me.voice_gender)
             .putString("ask_claude_language", me.ask_claude_language)
+            .putBoolean("ask_claude_listening", me.ask_claude_listening)
             .apply()
         me.card_check?.let { cardCheck = it }
     }
@@ -75,6 +76,11 @@ class Prefs(context: Context) {
     var askClaudeLanguage: String
         get() = dev.jeromeswannack.chineselearning.lab.core.AskClaude.effectiveLanguage(sp.getString("ask_claude_language", null))
         set(v) = sp.edit().putString("ask_claude_language", v).apply()
+
+    /** Ask Claude 🎧 Listen first (the account's, from /api/auth/me; or what was switched on this phone since). Off by default. */
+    var askClaudeListening: Boolean
+        get() = sp.getBoolean("ask_claude_listening", false)
+        set(v) = sp.edit().putBoolean("ask_claude_listening", v).apply()
 
     /**
      * Word checks (Settings → "Check new words for mistakes"): Paste a list asks Claude to

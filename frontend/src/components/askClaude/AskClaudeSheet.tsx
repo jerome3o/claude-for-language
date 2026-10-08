@@ -1,11 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { askClaudeMenu, type MenuActionId, type MenuItem } from '@shared/chats/messageMenu';
 import { coachDeepLink, openInCoachRequest, sayBetterLabel, sayBetterState, showCoachChip } from '@shared/chats/autoCheck';
 import { chatReadAloudSpeed, chatReadAloudVoice, parseVoiceGender } from '@shared/chats/voice';
-import { askQuickActions, type AskLanguage } from '@shared/study/askClaude';
+import { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE, askAnswerHidden, askAutoPlayId, askQuickActions, revealedWhenListeningOn, type AskLanguage } from '@shared/study/askClaude';
 import { fallbackReaderWords } from '@shared/reader/words';
 import { itemForText } from '@shared/explorer';
 import type { AskToolResult, NoteQuestionWithTools, ReadOnlyToolCall } from '../../api/client';
@@ -15,6 +15,8 @@ import { ChatTranslation, CoachChip, SayBetterMark } from '../chat/ChatBubblePar
 import { ExplainSheet } from '../chat/ExplainSheet';
 import { SayBetterSheet, type SayBetterMessage } from '../chat/SayBetterSheet';
 import { useLongPress } from '../chat/useLongPress';
+import { ListeningBubble, useListeningPlayer } from '../chat/ListeningBubble';
+import { getAskRevealed, revealAskAnswer, setAskRevealed, useAskRevealed } from '../../services/askClaudeListening';
 import { looksLikeChinese } from '../chat/messageTools';
 import { useExplorer } from '../explorer/ExplorerContext';
 import { useKnownHanzi } from '../reader/ReaderWords';
@@ -27,6 +29,7 @@ import { track } from '../../services/analytics';
 import type { AskClaudeConversation, AskPart } from './useAskClaude';
 import '../chat/chat-learning.css';
 import '../chat/chat-signal.css';
+import '../chat/chat-listening.css';
 import './ask-claude.css';
 
 /** Friendly labels for Claude's read-only lookups. */
@@ -172,6 +175,11 @@ const keyOf = (t: Target) => `${t.entry.id}:${t.part}`;
  * opens the chat's message menu with the parts that fit (Translate, Pinyin, Explain, Save as
  * flashcard, Open in Coach, Read aloud, Copy), and my own Chinese gets the chat's auto-check:
  * the ✎ mark, "How to say it better" and the "Open in Coach" chip.
+ *
+ * 🎧 Listen first (the header's 🎧, Settings): the chat's listening mode — Claude's Chinese answers
+ * arrive as the chat's hidden bubble (`ListeningBubble` + `useListeningPlayer`): a tap plays the
+ * Read-aloud clip (Claude's voice, cached by text + voice + speed), a long press / 👁 reveals it, and
+ * a new answer plays once by itself when it arrives (`askAutoPlayId`). My questions never hide.
  */
 export function AskClaudeSheet({
   hanzi,
@@ -182,6 +190,8 @@ export function AskClaudeSheet({
   aiAvailable,
   language,
   onLanguage,
+  listening,
+  onListening,
   onApprove,
   onClose,
 }: {
@@ -193,6 +203,9 @@ export function AskClaudeSheet({
   aiAvailable: boolean;
   language: AskLanguage;
   onLanguage: (language: AskLanguage) => void;
+  /** 🎧 Listen first. */
+  listening: boolean;
+  onListening: (on: boolean) => void;
   onApprove: (results: AskToolResult[]) => void;
   onClose: () => void;
 }) {
@@ -208,6 +221,28 @@ export function AskClaudeSheet({
   const [explain, setExplain] = useState<{ text: string; mode: 'explain' | 'save' } | null>(null);
   const [sayBetterFor, setSayBetterFor] = useState<NoteQuestionWithTools | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
+  // ----- 🎧 Listen first (the chat's listening mode, shared/study/askClaude.ts) -----
+  const revealed = useAskRevealed();
+  const [revealingId, setRevealingId] = useState<string | null>(null);
+  const [listenNotice, setListenNotice] = useState<{ id: string; text: string } | null>(null);
+  const listenIdRef = useRef<string | null>(null);
+  const autoRef = useRef(false);
+  const listenPlayer = useListeningPlayer(
+    (message) => {
+      const id = listenIdRef.current;
+      if (!id) return;
+      const offline = /not downloaded/i.test(message) || (typeof navigator !== 'undefined' && !navigator.onLine);
+      setListenNotice({ id, text: offline ? '🎧 Listening needs a connection the first time — hold to read it instead.' : "Couldn't play it — tap to try again, or hold to read it." });
+    },
+    {
+      onPlay: (slow) => {
+        track('study.ask_claude_listen_play', { auto: autoRef.current, slow });
+        autoRef.current = false;
+      },
+    },
+  );
+  /** Answers on screen when the sheet opened (and every answer already looked at): never auto-played. */
+  const seenRef = useRef<Set<string>>(new Set(chat.conversation.map((q) => q.id)));
   const quickActions = useMemo(() => askQuickActions({ language, typedAnswer, hasSentence }), [language, typedAnswer, hasSentence]);
   const myId = user?.id ?? 'me';
 
@@ -250,12 +285,13 @@ export function AskClaudeSheet({
       setPlaying(null);
       return;
     }
+    listenPlayer.stop();
     setPlaying(key);
-    // Claude reads in the app voice; my own lines in my voice (shared/chats/voice.ts).
+    // Claude reads in the app voice (ASK_CLAUDE_VOICE); my own lines in my voice (shared/chats/voice.ts).
     const senderGender = mine ? parseVoiceGender(user?.voice_gender) : null;
-    const voice = chatReadAloudVoice({ senderGender, enabled: readConversationVoices(), fromAi: false });
+    const voice = mine ? chatReadAloudVoice({ senderGender, enabled: readConversationVoices(), fromAi: false }) : ASK_CLAUDE_VOICE;
     try {
-      const blob = await getTTSWithCache(text, chatReadAloudSpeed({}), voice);
+      const blob = await getTTSWithCache(text, mine ? chatReadAloudSpeed({}) : ASK_CLAUDE_SPEED, voice);
       if (blob) {
         playerRef.current.play(blob, { onEnded: () => setPlaying(null), onError: () => setPlaying(null) });
         return;
@@ -343,7 +379,10 @@ export function AskClaudeSheet({
     const better = mine ? sayBetterState(asMessage(t.entry), myId) : null;
     const openMenu = (anchor: MenuAnchor) => setMenu({ target: t, anchor });
     return (
-      <div className={`chat-message ${mine ? 'sent' : 'received'} group-first group-last${menu && keyOf(menu.target) === k ? ' menu-open' : ''}`} data-testid={mine ? 'ask-mine' : 'ask-claude-reply'}>
+      <div
+        className={`chat-message ${mine ? 'sent' : 'received'} group-first group-last${menu && keyOf(menu.target) === k ? ' menu-open' : ''}${!mine && revealingId === t.entry.id ? ' listening-revealing' : ''}`}
+        data-testid={mine ? 'ask-mine' : 'ask-claude-reply'}
+      >
         <div className="chat-message-content">
           <div className="chat-bubble-row">
             <div
@@ -381,6 +420,107 @@ export function AskClaudeSheet({
     );
   };
 
+  const isHidden = (entry: NoteQuestionWithTools) => askAnswerHidden(entry, { listening, revealed });
+
+  /** A tap on a hidden answer: the Read-aloud clip, from the start (again). */
+  const listen = (entry: NoteQuestionWithTools, auto = false) => {
+    playerRef.current.stop();
+    setPlaying(null);
+    setListenNotice(null);
+    listenIdRef.current = entry.id;
+    autoRef.current = auto;
+    listenPlayer.play({ id: entry.id, content: entry.answer }, { voice: ASK_CLAUDE_VOICE, speed: ASK_CLAUDE_SPEED });
+  };
+
+  /** Long press / 👁: the text for good on this device (the chat's un-blur), then chips + the menu. */
+  const reveal = (entry: NoteQuestionWithTools) => {
+    if (!isHidden(entry)) return;
+    navigator.vibrate?.(18);
+    if (listenPlayer.playingId === entry.id || listenPlayer.loadingId === entry.id) listenPlayer.stop();
+    setListenNotice((n) => (n?.id === entry.id ? null : n));
+    setRevealingId(entry.id);
+    revealAskAnswer(entry.id);
+    window.setTimeout(() => setRevealingId((id) => (id === entry.id ? null : id)), 420);
+  };
+
+  const toggleListening = () => {
+    const on = !listening;
+    // History stays: what is on screen now keeps showing, anything newer hides.
+    if (on) setAskRevealed(revealedWhenListeningOn(chat.conversation, getAskRevealed()));
+    else listenPlayer.stop();
+    navigator.vibrate?.(10);
+    onListening(on);
+  };
+
+  // A new answer that arrives hidden plays once by itself — unless audio is already going.
+  const audioBusy = playing !== null || listenPlayer.playingId !== null || listenPlayer.loadingId !== null;
+  useEffect(() => {
+    const last = chat.conversation[chat.conversation.length - 1];
+    const id = askAutoPlayId({ listening, entries: chat.conversation, seen: seenRef.current, revealed, audioBusy });
+    if (last) seenRef.current.add(last.id);
+    if (id && last) listen(last, true);
+    // Only a new answer starts this (not a reveal or the end of a clip).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.conversation.length]);
+
+  /** Claude's answer as the chat's hidden bubble: tap plays, long press / right-click / 👁 reveals. */
+  const renderHidden = (entry: NoteQuestionWithTools, extra?: React.ReactNode) => {
+    const id = entry.id;
+    const playingThis = listenPlayer.playingId === id;
+    return (
+      <div className="chat-message received group-first group-last" data-testid="ask-claude-reply" data-hidden="true">
+        <div className="chat-message-content">
+          <div className="chat-bubble-row">
+            <div
+              className="chat-bubble listening"
+              data-testid="ask-listening-bubble"
+              role="button"
+              tabIndex={0}
+              aria-label="Claude's answer, hidden. Tap to listen, hold to reveal"
+              {...press.bind(() => reveal(entry))}
+              onClick={() => {
+                if (press.suppressTap()) return;
+                listen(entry);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                // A touch long press also fires contextmenu; it already revealed.
+                if (press.suppressTap()) return;
+                reveal(entry);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  listen(entry);
+                }
+              }}
+            >
+              <ListeningBubble
+                messageId={id}
+                text={entry.answer}
+                playing={playingThis}
+                loading={listenPlayer.loadingId === id}
+                progress={playingThis ? listenPlayer.progress : 0}
+                durationSec={listenPlayer.durations[id] ?? null}
+                slow={listenPlayer.slow}
+                onToggleSlow={listenPlayer.toggleSlow}
+              />
+            </div>
+            <button type="button" className="chat-listening-reveal" onClick={() => reveal(entry)} aria-label="Reveal the answer" title="Reveal" data-testid="ask-listening-reveal">
+              👁
+            </button>
+          </div>
+          {listenNotice?.id === id && (
+            <p className="ask-listen-notice" role="status" data-testid="ask-listening-notice">
+              {listenNotice.text}
+            </p>
+          )}
+          {extra && <div className="ask-hidden-extra">{extra}</div>}
+        </div>
+      </div>
+    );
+  };
+
   const empty = chat.conversation.length === 0 && !chat.isAsking;
 
   return (
@@ -388,6 +528,17 @@ export function AskClaudeSheet({
       <div className="modal claude-modal ask-claude-modal" onClick={(e) => e.stopPropagation()} data-testid="ask-claude-sheet">
         <div className="modal-header">
           <div className="modal-title">Ask about: {hanzi}</div>
+          <button
+            type="button"
+            className={`ask-listen-toggle${listening ? ' on' : ''}`}
+            aria-pressed={listening}
+            aria-label={listening ? 'Listen first is on: answers arrive hidden. Turn off' : 'Listen first: hear the answer before you read it'}
+            title={listening ? 'Listen first: on' : 'Listen first'}
+            onClick={toggleListening}
+            data-testid="ask-listen-toggle"
+          >
+            🎧
+          </button>
           <div className="ask-lang-toggle" role="group" aria-label="Claude answers in">
             <button type="button" aria-pressed={language === 'zh'} className={language === 'zh' ? 'on' : ''} onClick={() => language !== 'zh' && onLanguage('zh')} data-testid="ask-lang-zh">
               中文
@@ -411,10 +562,16 @@ export function AskClaudeSheet({
                   </button>
                 ))}
               </div>
-              {language === 'zh' && (
+              {listening ? (
                 <p className="ask-hint" data-testid="ask-hint">
-                  Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it.
+                  🎧 Listen first: Claude’s Chinese answers arrive hidden and play by themselves. Tap to hear again · hold to reveal.
                 </p>
+              ) : (
+                language === 'zh' && (
+                  <p className="ask-hint" data-testid="ask-hint">
+                    Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it.
+                  </p>
+                )
               )}
             </>
           )}
@@ -422,25 +579,25 @@ export function AskClaudeSheet({
           {chat.conversation.map((entry, i) => {
             const latest = i === chat.conversation.length - 1;
             const hasPending = latest && chat.pendingToolResults !== null;
+            const tools =
+              entry.toolResults && entry.toolResults.length > 0 ? (
+                <ToolResults
+                  results={entry.toolResults}
+                  pending={hasPending}
+                  onApprove={() => {
+                    const results = chat.pendingToolResults;
+                    chat.setPendingToolResults(null);
+                    if (results) onApprove(results);
+                  }}
+                  onReject={() => chat.setPendingToolResults(null)}
+                />
+              ) : undefined;
             return (
               <div key={entry.id} className="ask-exchange">
                 {renderBubble({ entry, part: 'question' })}
                 {entry.readOnlyToolCalls && entry.readOnlyToolCalls.length > 0 && <ToolCallsCollapsible calls={entry.readOnlyToolCalls} />}
-                {renderBubble(
-                  { entry, part: 'answer' },
-                  entry.toolResults && entry.toolResults.length > 0 ? (
-                    <ToolResults
-                      results={entry.toolResults}
-                      pending={hasPending}
-                      onApprove={() => {
-                        const results = chat.pendingToolResults;
-                        chat.setPendingToolResults(null);
-                        if (results) onApprove(results);
-                      }}
-                      onReject={() => chat.setPendingToolResults(null)}
-                    />
-                  ) : undefined,
-                )}
+                {/* 🎧 Listen first: Claude's Chinese answer as the chat's hidden bubble until revealed. */}
+                {isHidden(entry) ? renderHidden(entry, tools) : renderBubble({ entry, part: 'answer' }, tools)}
               </div>
             );
           })}

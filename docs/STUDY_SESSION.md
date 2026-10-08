@@ -541,6 +541,37 @@ parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
   in the background (`question_check_pending` → the app reads `GET /api/note-questions/:id` again). An
   improvable question gets the ✎ mark, "✨ How to say it better" first in its menu (the chat's sheet; "Ask
   Claude about this" fills the box with 为什么「…」更好？) and the **🎓 Open in Coach** chip under it.
+- **🎧 Listen first** (Jerome: "Please also allow it to be toggled to audio first, in the same way the messages
+  are, so I can listen to the answer."). The chat's Listening mode (docs/CHAT.md "Listening mode"), reused — not
+  forked: the same hidden bubble (web `ListeningBubble` + `useListeningPlayer`, Lab `ListeningContent` +
+  `ListeningPlayer`), the same 0.75× chip (remembered under the chat's key) and the same Read-aloud clip path.
+  - **The switch**: 🎧 in the sheet header beside 中文 | EN, and Settings → "Ask Claude answers in" → 🎧 Listen first.
+    Per account like the chat's setting: `users.ask_claude_listening` (migration 0117, NULL = off),
+    `PUT /api/profile/ask-claude-listening { ask_claude_listening }`, on `/api/auth/me` (cached with the user / Lab
+    prefs, so it is known offline); every ask also sends the switch on screen (`listening`). Switching it on keeps the
+    answers already on screen visible (`revealedWhenListeningOn` — the chat's "history stays").
+  - **What hides** (`askAnswerHidden`, shared/study/askClaude.ts): Claude's Chinese answers (`answer_lang` 'zh' with
+    Han characters, ≤ 2,000 characters) not revealed on this device. My own questions never hide; English answers (EN
+    mode, "in English please", older Markdown answers) never hide. Revealed ids are device-local (web localStorage
+    `ask-claude-revealed-v1`, Lab JsonCache `study/ask/listening/revealed`; newest 500).
+  - **Gestures**: tap plays (again, from the start); long press / right-click / 👁 reveals with the chat's un-blur —
+    no menu until revealed; then the normal word chips and long-press menu. Claude's tool results (Approve / Reject)
+    stay visible under a hidden answer.
+  - **Auto-play** (Ask Claude's own — the chat has none): a new answer that arrives hidden while the sheet is open
+    plays once by itself, unless audio is already playing or loading (Read aloud, another answer) — `askAutoPlayId`.
+    Answers on screen when the sheet opened never auto-play. Closing the sheet stops the clip.
+  - **Audio**: the Read-aloud clip — `POST /api/practice/tts` (MiniMax → the stored provider chain, the limiter, R2
+    `tts-cache/` by text + voice + speed), device cache by the same triple. Claude's voice is fixed: `ASK_CLAUDE_VOICE`
+    = the app voice (Radio Host, the one every card speaks in) at `ASK_CLAUDE_SPEED` = 0.6 (`CHAT_READ_ALOUD_SPEED`);
+    Read aloud on Claude's answer uses it too. One clip per answer: the path has no length limit below MiniMax's
+    10,000 characters and answers are a few hundred, so nothing is split. **Pre-generated**: with listening on, the
+    ask route makes the clip (`pregenerateAskClip`, interactive priority) alongside the question's check, waiting at
+    most `ASK_CLIP_GRACE_MS` (8 s — the bubble is hidden anyway) before answering (`answer_clip_ready`), else it
+    finishes in waitUntil — so the auto-play and a tap are instant.
+  - **Offline**: a cached clip plays; otherwise the line under the bubble says listening needs a connection the first
+    time, and a long press still reveals the text.
+  - Analytics: `study.ask_claude_listening { on, source: sheet | settings }`, `study.ask_claude_listen_play { auto, slow }`,
+    `study.ask_claude_listen_reveal`.
 - **Offline.** Ask Claude needs the network (the button is disabled offline, errors are inline). Translations
   and word chips are stored on the row, so a reopened conversation (card hub) has them.
 - Analytics: `study.ask_claude { card_type, language, quick }`, `study.ask_claude_language { language, source }`,

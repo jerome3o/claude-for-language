@@ -8,12 +8,17 @@
  *   POST /note-questions/:id/words         { part: 'answer'|'question' } → { words | null, cached }
  *   POST /note-questions/:id/translate     { part } → { translation, cached }
  *   PUT  /profile/ask-claude-language      { ask_claude_language: 'zh'|'en'|null } → { ask_claude_language }
+ *   PUT  /profile/ask-claude-listening     { ask_claude_listening: boolean } → { ask_claude_listening }
  *
  * The answer is in simple Chinese unless the account chose English (`users.ask_claude_language`)
  * or the learner explicitly asked for English (`turnLanguage`). A question with Chinese goes
  * through the chat's auto-check in parallel with the answer (`checkAskQuestion`): when it is
  * done within a moment of the answer it comes back with it, else it is stored in the background
  * (`question_check_pending: true` → the client reads the row again).
+ *
+ * 🎧 Listen first (`users.ask_claude_listening`, or the request's `listening`): a Chinese answer's
+ * read-aloud clip is made before the answer goes back (at most ASK_CLIP_GRACE_MS, then in the
+ * background), so the hidden bubble plays the moment it appears (`answer_clip_ready`).
  */
 
 import { Hono } from 'hono';
@@ -24,6 +29,7 @@ import * as content from '../services/content';
 import { createCustomLessonFromSpec } from '../services/custom-lesson';
 import { askAboutNoteWithTools, type ToolAction } from '../services/ai';
 import { parseAskLanguage, turnLanguage } from '@shared/study/askClaude';
+import { cachedConversationTTS } from '../services/tts-cache';
 import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import {
   AskClaudeError,
@@ -34,7 +40,9 @@ import {
   ensureAskWords,
   loadOwnedQuestion,
   parsePart,
+  pregenerateAskClip,
   setAskLanguage,
+  setAskListening,
   shapeNoteQuestion,
   storeQuestionCheck,
   within,
@@ -45,6 +53,8 @@ const askClaude = new Hono<{ Bindings: Env }>();
 
 /** How long the answer waits for the question's check once the answer itself is ready. */
 export const CHECK_GRACE_MS = 2500;
+/** 🎧 Listen first: how long the answer waits for its clip (the bubble is hidden anyway; then it plays at once). */
+export const ASK_CLIP_GRACE_MS = 8000;
 
 type ToolResult = { tool: string; success: boolean; data?: Record<string, unknown>; error?: string };
 
@@ -140,6 +150,8 @@ askClaude.post('/notes/:id/ask', async (c) => {
       language?: unknown;
       /** A quick-question chip: the app wrote it, so it isn't checked. */
       quick?: boolean;
+      /** The sheet's 🎧 (else the account's): make the answer's clip before answering. */
+      listening?: unknown;
     }>()
     .catch(() => ({} as Record<string, never>));
   const question = typeof body.question === 'string' ? body.question : '';
@@ -170,6 +182,13 @@ askClaude.post('/notes/:id/ask', async (c) => {
     const created = await db.createNoteQuestion(c.env.DB, id, question, answer, language);
     const row = created as unknown as NoteQuestionRow;
 
+    // 🎧 Listen first: the answer's clip, alongside the question's check.
+    const listening = typeof body.listening === 'boolean' ? body.listening : settings.listening;
+    const clip = listening
+      ? pregenerateAskClip(c.env, row, (env, text, v) => cachedConversationTTS(env, text, { voiceId: v.voiceId, speed: v.speed, priority: 'interactive' }))
+      : null;
+    const clipWait = clip ? within(clip, ASK_CLIP_GRACE_MS) : Promise.resolve(null);
+
     let pending = false;
     if (checking) {
       const r = await within(checking, CHECK_GRACE_MS);
@@ -184,9 +203,13 @@ askClaude.post('/notes/:id/ask', async (c) => {
       }
     }
 
+    const clipDone = await clipWait;
+    if (clip && clipDone && !clipDone.done) c.executionCtx.waitUntil(clip.catch(() => undefined));
+
     return c.json({
       ...shapeNoteQuestion(row),
       question_check_pending: pending,
+      answer_clip_ready: !!(clipDone && clipDone.done && clipDone.value),
       toolResults: toolResults.length > 0 ? toolResults : undefined,
       readOnlyToolCalls: readOnlyToolCalls.length > 0 ? readOnlyToolCalls : undefined,
     }, 201);
@@ -229,6 +252,14 @@ askClaude.put('/profile/ask-claude-language', async (c) => {
   const language = v === null ? null : parseAskLanguage(v);
   await setAskLanguage(c.env.DB, userIdOf(c), language);
   return c.json({ ask_claude_language: language });
+});
+
+askClaude.put('/profile/ask-claude-listening', async (c) => {
+  const body = await c.req.json<{ ask_claude_listening?: unknown }>().catch(() => ({} as { ask_claude_listening?: unknown }));
+  const v = body.ask_claude_listening;
+  if (typeof v !== 'boolean') return c.json({ error: 'ask_claude_listening must be true or false' }, 400);
+  await setAskListening(c.env.DB, userIdOf(c), v);
+  return c.json({ ask_claude_listening: v });
 });
 
 export default askClaude;

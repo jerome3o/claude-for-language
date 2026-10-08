@@ -11,7 +11,14 @@
 import type { Env } from '../types';
 import { parseReaderWords, type ReaderWord } from '@shared/reader/words';
 import { autoCheckApplies, autoCheckSkipReason, parseAutoCheck, type AutoCheckResult } from '@shared/chats/autoCheck';
-import { parseAskLanguage, type AskLanguage } from '@shared/study/askClaude';
+import {
+  ASK_CLAUDE_SPEED,
+  ASK_CLAUDE_VOICE,
+  askListeningCandidate,
+  parseAskLanguage,
+  parseAskListening,
+  type AskLanguage,
+} from '@shared/study/askClaude';
 import { StructuredCallError } from './structured-call';
 import { defaultSegment, type Segment } from './chat/messages';
 import { defaultAutoChecker, normalizeAutoCheck, type AutoChecker } from './chat/auto-check';
@@ -170,13 +177,42 @@ export async function ensureAskTranslation(
 // ---------- The learner's own Chinese, checked like a chat message ----------
 
 /** The account's settings Ask Claude reads: the answer language and the chat's auto-check switch. */
-export async function askSettings(db: D1Database, userId: string): Promise<{ language: AskLanguage | null; autoCheck: boolean | null }> {
+export async function askSettings(db: D1Database, userId: string): Promise<{ language: AskLanguage | null; autoCheck: boolean | null; listening: boolean }> {
   const row = await db
-    .prepare('SELECT ask_claude_language, chat_auto_check FROM users WHERE id = ?')
+    .prepare('SELECT ask_claude_language, chat_auto_check, ask_claude_listening FROM users WHERE id = ?')
     .bind(userId)
-    .first<{ ask_claude_language: string | null; chat_auto_check: number | null }>();
+    .first<{ ask_claude_language: string | null; chat_auto_check: number | null; ask_claude_listening: number | null }>();
   const ac = row?.chat_auto_check;
-  return { language: parseAskLanguage(row?.ask_claude_language), autoCheck: ac === null || ac === undefined ? null : ac !== 0 };
+  return {
+    language: parseAskLanguage(row?.ask_claude_language),
+    autoCheck: ac === null || ac === undefined ? null : ac !== 0,
+    listening: parseAskListening(row?.ask_claude_listening),
+  };
+}
+
+/** `users.ask_claude_listening` (🎧 Listen first): 1 = on, NULL = off. */
+export async function setAskListening(db: D1Database, userId: string, on: boolean): Promise<void> {
+  await db.prepare('UPDATE users SET ask_claude_listening = ? WHERE id = ?').bind(on ? 1 : null, userId).run();
+}
+
+/** Makes (or finds) one clip in the shared TTS cache — `cachedConversationTTS` in production. */
+export type AskClipMaker = (env: Env, text: string, voice: { voiceId: string; speed: number }) => Promise<unknown>;
+
+/**
+ * 🎧 Listen first: the answer's read-aloud clip, made as soon as the answer is written, in the
+ * one chat TTS path (services/tts-cache.ts, R2 `tts-cache/` by text + voice + speed — the clip
+ * `POST /api/practice/tts` then serves to both apps), in Claude's voice (`ASK_CLAUDE_VOICE` at
+ * `ASK_CLAUDE_SPEED`). Like the chat's `pregenerateMessageClip`, so the tap — and the
+ * auto-play when the answer arrives — is instant. True when the clip is there. Never throws.
+ */
+export async function pregenerateAskClip(env: Env, entry: { id: string; answer: string; answer_lang?: string | null }, make: AskClipMaker): Promise<boolean> {
+  if (!askListeningCandidate(entry)) return false;
+  try {
+    return !!(await make(env, entry.answer, { voiceId: ASK_CLAUDE_VOICE, speed: ASK_CLAUDE_SPEED }));
+  } catch (err) {
+    console.error('[ask] pre-generating the answer clip failed for', entry.id, err instanceof Error ? err.message : err);
+    return false;
+  }
 }
 
 /** `users.ask_claude_language`: 'zh' | 'en', or null = back to the default (Chinese). */

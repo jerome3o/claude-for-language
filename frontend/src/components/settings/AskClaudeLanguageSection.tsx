@@ -2,10 +2,12 @@
  * Settings → "Ask Claude answers in" (shared/study/askClaude.ts): 中文 (the default — simple,
  * graded Chinese with every word tappable) or English. Saved on the account
  * (PUT /api/profile/ask-claude-language), so the Lab app follows; the Ask Claude sheet's header
- * has the same switch.
+ * has the same switch. Below it, 🎧 Listen first (services/askClaudeListening.ts): Claude's Chinese
+ * answers arrive hidden like a chat message in listening mode — the sheet's 🎧 is the same switch.
  */
 import type { AskLanguage } from '@shared/study/askClaude';
 import { useAskLanguage } from '../../services/askClaudeLanguage';
+import { useAskListening } from '../../services/askClaudeListening';
 
 const OPTIONS: Array<{ value: AskLanguage; label: string; hint: string }> = [
   { value: 'zh', label: '中文 Chinese', hint: 'Simple Chinese explanations — tap any word to look it up, hold a message to translate it.' },
@@ -14,6 +16,7 @@ const OPTIONS: Array<{ value: AskLanguage; label: string; hint: string }> = [
 
 export function AskClaudeLanguageSection() {
   const [language, setLanguage] = useAskLanguage();
+  const [listening, setListening] = useAskListening();
   return (
     <div className="settings-section" data-testid="ask-claude-language">
       <h2>Ask Claude answers in</h2>
@@ -27,6 +30,14 @@ export function AskClaudeLanguageSection() {
       </div>
       <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
         {OPTIONS.find((o) => o.value === language)?.hint} Asking “in English please” always works for one answer.
+      </p>
+      <label className="settings-toggle-row" data-testid="ask-claude-listening">
+        <input type="checkbox" checked={listening} onChange={(e) => void setListening(e.target.checked, 'settings')} />
+        <span>🎧 Listen first</span>
+      </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.2rem' }}>
+        Claude’s Chinese answers arrive hidden, like a chat message in listening mode: they play by themselves, tap to hear
+        them again, hold to read them. The 🎧 in the Ask Claude sheet is the same switch.
       </p>
     </div>
   );
