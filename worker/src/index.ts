@@ -45,6 +45,9 @@ import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
+import askClaudeRoutes from './routes/ask-claude';
+import { shapeNoteQuestion, type NoteQuestionRow } from './services/ask-claude';
+import { parseAskLanguage } from '@shared/study/askClaude';
 import { runStorageCleanup, DEFAULT_MIN_AGE_DAYS } from './services/admin/storage-cleanup';
 import { handleLessonImageMessage, lessonImageHash, normalizeImagePrompt, LESSON_IMAGE_PREFIX, type LessonImageMessage } from './services/lesson-images';
 import lessonEditor from './routes/lesson-editor';
@@ -500,6 +503,8 @@ app.get('/api/auth/me', async (c) => {
       const v = (user as { chat_auto_check?: number | null }).chat_auto_check;
       return v === null || v === undefined ? null : v !== 0;
     })(),
+    // "Ask Claude answers in": 'zh' | 'en', null = the default (Chinese; shared/study/askClaude.ts).
+    ask_claude_language: parseAskLanguage((user as { ask_claude_language?: string | null }).ask_claude_language),
     // "Check new words for mistakes" (services/card-check.ts): the stored choice (null = default)
     // and what applies now (the default is on for tutors).
     card_check_setting: (() => {
@@ -580,6 +585,8 @@ app.route('/api', recordingNotesRoutes);
 // Flag a card for the tutor (routes/card-flags.ts) and Ask-Claude history + the card hub (routes/claude-chats.ts)
 app.route('/api', cardFlagsRoutes);
 app.route('/api', claudeChatsRoutes);
+// Ask Claude on the study card: POST /api/notes/:id/ask, /api/note-questions/:id[/words|/translate], PUT /api/profile/ask-claude-language
+app.route('/api', askClaudeRoutes);
 // Tutor dashboard, student overview, message/how-to, shared-deck update, client-state report
 app.route('/api', tutorDashboardRoutes);
 // Tutor → student sharing of graded readers (routes/shared-readers.ts)
@@ -1251,171 +1258,13 @@ app.get('/api/notes/:id/history', async (c) => {
   return c.json(history);
 });
 
-app.post('/api/notes/:id/ask', async (c) => {
-  const userId = c.get('user').id;
-  const id = c.req.param('id');
-  const { question, context, conversationHistory } = await c.req.json<{
-    question: string;
-    context?: { userAnswer?: string; correctAnswer?: string; cardType?: string };
-    conversationHistory?: { question: string; answer: string }[];
-  }>();
-
-  if (!question) {
-    return c.json({ error: 'question is required' }, 400);
-  }
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  const note = await db.getNoteById(c.env.DB, id, userId);
-  if (!note) {
-    return c.json({ error: 'Note not found' }, 404);
-  }
-
-  try {
-    const { answer, toolActions, readOnlyToolCalls } = await askAboutNoteWithTools(
-      c.env.ANTHROPIC_API_KEY, note, question, context, conversationHistory,
-      { db: c.env.DB, userId, deckId: note.deck_id }
-    );
-
-    // Process tool actions and collect results
-    const toolResults: Array<{
-      tool: string;
-      success: boolean;
-      data?: Record<string, unknown>;
-      error?: string;
-    }> = [];
-
-    for (const action of toolActions) {
-      try {
-        switch (action.tool) {
-          case 'edit_current_card': {
-            const updates: { hanzi?: string; pinyin?: string; english?: string; funFacts?: string; sentenceClue?: string; sentenceCluePinyin?: string; sentenceClueTranslation?: string } = {};
-            const input = action.input as { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string; sentence_clue_pinyin?: string; sentence_clue_translation?: string };
-            if (input.hanzi) updates.hanzi = input.hanzi;
-            if (input.pinyin) updates.pinyin = input.pinyin;
-            if (input.english) updates.english = input.english;
-            if (input.fun_facts !== undefined) updates.funFacts = input.fun_facts;
-            if (input.sentence_clue !== undefined) updates.sentenceClue = input.sentence_clue;
-            if (input.sentence_clue_pinyin !== undefined) updates.sentenceCluePinyin = input.sentence_clue_pinyin;
-            if (input.sentence_clue_translation !== undefined) updates.sentenceClueTranslation = input.sentence_clue_translation;
-
-            const updatedNote = await content.updateNote(c.env, userId, id, {
-              hanzi: updates.hanzi,
-              pinyin: updates.pinyin,
-              english: updates.english,
-              fun_facts: updates.funFacts,
-              sentence_clue: updates.sentenceClue,
-              sentence_clue_pinyin: updates.sentenceCluePinyin,
-              sentence_clue_translation: updates.sentenceClueTranslation,
-            }, c.executionCtx);
-            if (updatedNote) {
-              toolResults.push({
-                tool: 'edit_current_card',
-                success: true,
-                data: {
-                  note: updatedNote,
-                  changes: input,
-                },
-              });
-            } else {
-              toolResults.push({ tool: 'edit_current_card', success: false, error: 'Failed to update note' });
-            }
-            break;
-          }
-
-          case 'create_flashcards': {
-            const input = action.input as { deck_id?: string; flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
-            // Determine target deck — use provided deck_id if valid, otherwise current deck
-            let targetDeckId = note.deck_id;
-            if (input.deck_id && input.deck_id !== note.deck_id) {
-              const targetDeck = await db.getDeckById(c.env.DB, input.deck_id, userId);
-              if (targetDeck) {
-                targetDeckId = input.deck_id;
-              } else {
-                toolResults.push({ tool: 'create_flashcards', success: false, error: 'Target deck not found or not owned by user' });
-                break;
-              }
-            }
-            const made = await content.createNotes(c.env, userId, targetDeckId, input.flashcards, { audio: 'background', bg: c.executionCtx });
-            const createdNotes = made.created;
-            toolResults.push({
-              tool: 'create_flashcards',
-              success: true,
-              data: {
-                created: createdNotes,
-                count: createdNotes.length,
-                targetDeckId,
-              },
-            });
-            break;
-          }
-
-          case 'delete_current_card': {
-            await content.deleteNote(c.env, userId, id, c.executionCtx);
-            toolResults.push({
-              tool: 'delete_current_card',
-              success: true,
-              data: {
-                deletedNoteId: id,
-                reason: (action.input as { reason?: string }).reason || 'Deleted by user request',
-              },
-            });
-            break;
-          }
-
-          case 'create_custom_lesson': {
-            const result = await createCustomLessonFromSpec(c.env, userId, action.input, 'chat');
-            if (result.ok) {
-              toolResults.push({
-                tool: 'create_custom_lesson',
-                success: true,
-                data: {
-                  lesson_id: result.lesson.id,
-                  title: result.lesson.title,
-                  image_jobs: result.imageJobs,
-                },
-              });
-            } else {
-              toolResults.push({
-                tool: 'create_custom_lesson',
-                success: false,
-                error: `Invalid lesson spec: ${result.errors.join('; ')}`,
-              });
-            }
-            break;
-          }
-        }
-      } catch (toolError) {
-        console.error(`Tool ${action.tool} error:`, toolError);
-        toolResults.push({
-          tool: action.tool,
-          success: false,
-          error: `Failed to execute ${action.tool}`,
-        });
-      }
-    }
-
-    const noteQuestion = await db.createNoteQuestion(c.env.DB, id, question, answer);
-
-    // Return extended response with tool results and read-only tool calls
-    return c.json({
-      ...noteQuestion,
-      toolResults: toolResults.length > 0 ? toolResults : undefined,
-      readOnlyToolCalls: readOnlyToolCalls.length > 0 ? readOnlyToolCalls : undefined,
-    }, 201);
-  } catch (error) {
-    console.error('AI ask error:', error);
-    return c.json({ error: 'Failed to get answer from AI' }, 500);
-  }
-});
+// POST /api/notes/:id/ask lives in routes/ask-claude.ts (Ask Claude, immersion: Chinese answers, word chips, the auto-check).
 
 app.get('/api/notes/:id/questions', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
   const questions = await db.getNoteQuestions(c.env.DB, id, userId);
-  return c.json(questions);
+  return c.json(questions.map((q) => shapeNoteQuestion(q as unknown as NoteQuestionRow)));
 });
 
 app.post('/api/notes/:id/generate-audio', async (c) => {

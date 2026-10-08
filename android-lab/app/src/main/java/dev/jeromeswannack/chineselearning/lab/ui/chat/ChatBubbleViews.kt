@@ -915,9 +915,9 @@ fun JumpToLatest(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier)
 /** Test tag on the "🎓 Open in Coach" chip under a bubble. */
 const val CHAT_COACH_CHIP_TAG = "chat-open-in-coach"
 
-/** The small "🎓 Open in Coach" chip under my bubble (docs/CHAT.md "Chat ↔ Coach"): quiet, 44 dp tall to tap. */
+/** The small "🎓 Open in Coach" chip under my bubble (docs/CHAT.md "Chat ↔ Coach"): quiet, 44 dp tall to tap. Also Ask Claude's (ui/study/AskClaudeSheet). */
 @Composable
-private fun CoachChip(onClick: () -> Unit) {
+fun CoachChip(onClick: () -> Unit) {
     Box(
         Modifier.padding(top = 2.dp).heightIn(min = 44.dp).clip(RoundedCornerShape(50))
             .bouncyClickable(onClick = onClick).testTag(CHAT_COACH_CHIP_TAG),

@@ -1,6 +1,7 @@
 import type { MessageWithSender } from '../../types';
 import { formatBytes } from './FileBubble';
 import { formatDuration } from '../../services/chatThread';
+import './message-sheet.css';
 
 function when(iso: string | null | undefined): string | null {
   if (!iso) return null;

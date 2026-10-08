@@ -265,7 +265,15 @@ data class AskContext(val userAnswer: String? = null, val correctAnswer: String?
 data class AskHistoryItem(val question: String, val answer: String)
 
 @Serializable
-data class AskBody(val question: String, val context: AskContext? = null, val conversationHistory: List<AskHistoryItem>? = null)
+data class AskBody(
+    val question: String,
+    val context: AskContext? = null,
+    val conversationHistory: List<AskHistoryItem>? = null,
+    /** The sheet's 中 / EN (core AskClaude); the account's choice when null. */
+    val language: String? = null,
+    /** A quick-question chip (the app wrote it): not checked. */
+    val quick: Boolean? = null,
+)
 
 @Serializable
 data class AskToolResult(val tool: String, val success: Boolean = false, val data: JsonObject? = null, val error: String? = null)
@@ -280,9 +288,44 @@ data class AskAnswer(
     val answer: String = "",
     val toolResults: List<AskToolResult>? = null,
     val readOnlyToolCalls: List<ReadOnlyToolCall>? = null,
+    // Ask Claude, immersion (worker services/ask-claude.ts; docs/STUDY_SESSION.md "Ask Claude").
+    /** 'zh' = plain Chinese text (word chips), 'en' = Markdown; null = an answer from before (Markdown). */
+    val answer_lang: String? = null,
+    val answer_words: List<ReaderWordDto>? = null,
+    val answer_translation: String? = null,
+    val question_words: List<ReaderWordDto>? = null,
+    val question_translation: String? = null,
+    /** The chat's background "Check my Chinese" of the question (shared/chats/autoCheck.ts). */
+    val question_check: AutoCheckDto? = null,
+    /** The check is still running: read the row again in a moment. */
+    val question_check_pending: Boolean = false,
 )
 
 suspend fun Api.askAboutNote(noteId: String, body: AskBody): AskAnswer = post("/api/notes/${enc(noteId)}/ask", body)
+
+/** One Ask Claude Q&A as stored (word chips, translations, the question's check). */
+suspend fun Api.noteQuestion(id: String): AskAnswer = get("/api/note-questions/${enc(id)}")
+
+@Serializable
+data class AskPartBody(val part: String)
+
+@Serializable
+data class AskWordsAnswer(val words: List<ReaderWordDto>? = null, val cached: Boolean = false)
+
+@Serializable
+data class AskTranslationAnswer(val translation: String = "", val cached: Boolean = false)
+
+/** Word chips of the answer / the question ([part] = answer | question), made on request and cached on the row. */
+suspend fun Api.noteQuestionWords(id: String, part: String): AskWordsAnswer = post("/api/note-questions/${enc(id)}/words", AskPartBody(part))
+
+/** The answer / the question in English (the long-press menu's Translate), cached on the row. */
+suspend fun Api.translateNoteQuestion(id: String, part: String): AskTranslationAnswer = post("/api/note-questions/${enc(id)}/translate", AskPartBody(part))
+
+@Serializable
+data class AskLanguageBody(val ask_claude_language: String?)
+
+/** "Ask Claude answers in": 'zh' | 'en', null = the default (Chinese). */
+suspend fun Api.setAskClaudeLanguage(language: String?): AskLanguageBody = put("/api/profile/ask-claude-language", AskLanguageBody(language))
 
 @Serializable
 data class TextToFlashcardBody(val text: String)

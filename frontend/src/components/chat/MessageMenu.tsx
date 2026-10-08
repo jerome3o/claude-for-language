@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { MenuActionId, MenuItem } from '@shared/chats/messageMenu';
+import './message-sheet.css';
 
 export type MenuAnchor = { x: number; y: number } | null;
 

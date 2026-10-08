@@ -101,6 +101,8 @@ data class StudyUi(
     val cardAudio: CardAudio = CardAudio(),
     /** Lab "today split": mini lessons / today's story still to do (the top bar's "📘2 📖1"). */
     val todayLeft: TodayLeft = TodayLeft(),
+    /** "Ask Claude answers in": 'zh' (the default) | 'en' (core AskClaude; Settings + the sheet's 中 / EN). */
+    val askLanguage: String = dev.jeromeswannack.chineselearning.lab.core.AskClaude.DEFAULT_LANGUAGE,
 ) {
     /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
     val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }

@@ -1,5 +1,7 @@
 import type { NewCardOrderInfo, NewCardOrderUpdate, StudyBudget, StudyBudgetInfo, StudyBudgetUpdate } from '@shared/decks';
 import type { CoachAction } from '@shared/coach';
+import type { AskLanguage } from '@shared/study/askClaude';
+import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import {
   Deck,
   LandingPage,
@@ -52,6 +54,7 @@ import {
   ReaderPage,
   AppNotification,
   NoteSentence,
+  ChatWord,
   SentenceBriefExplanation,
 } from '../types';
 import type { Quest, QuestSummary } from '@shared/quest';
@@ -647,6 +650,15 @@ export interface NoteQuestion {
   question: string;
   answer: string;
   asked_at: string;
+  // Ask Claude, immersion (worker services/ask-claude.ts; migration 0116) — absent from older servers.
+  /** 'zh' = plain Chinese text (word chips), 'en' = Markdown; null = an answer from before (English Markdown). */
+  answer_lang?: AskLanguage | null;
+  answer_words?: ChatWord[] | null;
+  answer_translation?: string | null;
+  question_words?: ChatWord[] | null;
+  question_translation?: string | null;
+  /** The chat's background "Check my Chinese" of the question (shared/chats/autoCheck.ts). */
+  question_check?: AutoCheckResult | null;
 }
 
 export interface AskToolResult {
@@ -665,17 +677,21 @@ export interface ReadOnlyToolCall {
 export interface NoteQuestionWithTools extends NoteQuestion {
   toolResults?: AskToolResult[];
   readOnlyToolCalls?: ReadOnlyToolCall[];
+  /** The question's check is still running: read the row again in a moment (GET /note-questions/:id). */
+  question_check_pending?: boolean;
 }
 
 export async function askAboutNote(
   noteId: string,
   question: string,
   context?: { userAnswer?: string; correctAnswer?: string; cardType?: string },
-  conversationHistory?: { question: string; answer: string }[]
+  conversationHistory?: { question: string; answer: string }[],
+  /** language = the sheet's 中 / EN; quick = a quick-question chip (not checked). */
+  opts: { language?: AskLanguage; quick?: boolean } = {}
 ): Promise<NoteQuestionWithTools> {
   const res = await fetchJSON<NoteQuestionWithTools>(`/notes/${noteId}/ask`, {
     method: 'POST',
-    body: JSON.stringify({ question, context, conversationHistory }),
+    body: JSON.stringify({ question, context, conversationHistory, language: opts.language, quick: opts.quick || undefined }),
   });
   // Claude bumped words I already have ("⚡ Study it today"): pull the pocket now.
   if (res.readOnlyToolCalls?.some((c) => c.tool === 'bump_cards')) {
@@ -691,6 +707,26 @@ export async function searchNotesOnServer(q: string, limit = 50): Promise<{ note
 
 export async function getNoteQuestions(noteId: string): Promise<NoteQuestion[]> {
   return fetchJSON<NoteQuestion[]>(`/notes/${noteId}/questions`);
+}
+
+/** One Ask Claude Q&A (its word chips, translations and the question's check as stored). */
+export async function getNoteQuestion(id: string): Promise<NoteQuestion> {
+  return fetchJSON<NoteQuestion>(`/note-questions/${id}`);
+}
+
+/** Word chips of an Ask Claude answer / question, made on request and cached on the row. */
+export async function getNoteQuestionWords(id: string, part: 'answer' | 'question'): Promise<{ words: ChatWord[] | null; cached: boolean }> {
+  return fetchJSON(`/note-questions/${id}/words`, { method: 'POST', body: JSON.stringify({ part }) });
+}
+
+/** An Ask Claude answer / question in English (the long-press menu's Translate), cached on the row. */
+export async function translateNoteQuestion(id: string, part: 'answer' | 'question'): Promise<{ translation: string; cached: boolean }> {
+  return fetchJSON(`/note-questions/${id}/translate`, { method: 'POST', body: JSON.stringify({ part }) });
+}
+
+/** "Ask Claude answers in": 'zh' | 'en', null = back to the default (Chinese). */
+export async function setAskClaudeLanguage(language: AskLanguage | null): Promise<{ ask_claude_language: AskLanguage | null }> {
+  return fetchJSON(`/profile/ask-claude-language`, { method: 'PUT', body: JSON.stringify({ ask_claude_language: language }) });
 }
 
 // ============ Cards ============

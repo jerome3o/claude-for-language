@@ -84,6 +84,27 @@ export interface MessageMenu {
   items: MenuItem[];
 }
 
+/**
+ * The items both menus share (the chat's `messageMenu` and Ask Claude's `askClaudeMenu`), so a
+ * label or an icon never drifts between them.
+ */
+const ITEM = {
+  sayBetter: (): MenuItem => ({ id: 'say_better', label: 'How to say it better', icon: '✨', needsInternet: false }),
+  openCoach: (): MenuItem => ({ id: 'open_coach', label: 'Open in Coach', icon: '🎓', needsInternet: true }),
+  copy: (): MenuItem => ({ id: 'copy', label: 'Copy', icon: '📋', needsInternet: false }),
+  translate: (translated: boolean, on: boolean): MenuItem => ({
+    id: 'translate',
+    label: on ? 'Hide translation' : 'Translate',
+    icon: '🌐',
+    needsInternet: !translated && !on,
+    ...(on ? { active: true } : {}),
+  }),
+  pinyin: (on: boolean): MenuItem => ({ id: 'pinyin', label: on ? 'Hide pinyin' : 'Pinyin', icon: '拼', needsInternet: false, ...(on ? { active: true } : {}) }),
+  explain: (): MenuItem => ({ id: 'explain', label: 'Explain', icon: '🔍', needsInternet: true }),
+  saveCard: (): MenuItem => ({ id: 'save_card', label: 'Save as flashcard', icon: '🃏', needsInternet: true }),
+  play: (): MenuItem => ({ id: 'play', label: 'Read aloud', icon: '🔊', needsInternet: true }),
+};
+
 /** The text the learning tools work on: the voice transcript, else the message / caption. */
 export function menuText(msg: Pick<MenuMessage, 'content' | 'attachment'>): string {
   if (msg.attachment?.kind === 'voice') return (msg.attachment.transcript || '').trim();
@@ -101,7 +122,7 @@ export function messageMenu(
   const text = menuText(msg);
   const kind = msg.attachment?.kind ?? null;
   if (msg.pending) {
-    return { reactions: false, items: text ? [{ id: 'copy', label: 'Copy', icon: '📋', needsInternet: false }] : [] };
+    return { reactions: false, items: text ? [ITEM.copy()] : [] };
   }
   const isMine = msg.sender_id === viewerId;
   const isLearner = viewerRole === 'student' || isAiConversation;
@@ -110,32 +131,22 @@ export function messageMenu(
   const items: MenuItem[] = [];
   // Auto-check found something, or the tutor corrected it: the first thing to reach for.
   const sayBetter = !!sayBetterState({ ...msg, attachment: kind ? msg.attachment : null }, viewerId);
-  if (sayBetter) {
-    items.push({ id: 'say_better', label: 'How to say it better', icon: '✨', needsInternet: false });
-  }
+  if (sayBetter) items.push(ITEM.sayBetter());
   // "Open in Coach": my own message (as the learner) is checked there, anyone else's explained.
   const coach = openInCoachRequest({ ...msg, attachment: kind ? msg.attachment : null }, viewerId);
   const openCoach = !!coach && (!isMine || isLearner);
-  const coachItem: MenuItem = { id: 'open_coach', label: 'Open in Coach', icon: '🎓', needsInternet: true };
+  const coachItem = ITEM.openCoach();
   if (openCoach && sayBetter) items.push(coachItem);
   // A current auto-check answers "Check my Chinese" already.
   const autoChecked = !!msg.auto_check && msg.auto_check.text === autoCheckText({ ...msg, attachment: kind ? msg.attachment : null });
   items.push({ id: 'reply', label: 'Reply', icon: '↩️', needsInternet: false });
-  if (text) items.push({ id: 'copy', label: 'Copy', icon: '📋', needsInternet: false });
+  if (text) items.push(ITEM.copy());
   if (!isAiConversation) items.push({ id: 'forward', label: 'Forward', icon: '↪️', needsInternet: true });
   if (zh && (kind !== 'voice' || translated)) {
-    items.push({
-      id: 'translate',
-      label: state.translateOn ? 'Hide translation' : 'Translate',
-      icon: '🌐',
-      needsInternet: !translated && !state.translateOn,
-      ...(state.translateOn ? { active: true } : {}),
-    });
+    items.push(ITEM.translate(translated, state.translateOn));
   }
   if (zh) {
-    items.push({ id: 'pinyin', label: state.pinyinOn ? 'Hide pinyin' : 'Pinyin', icon: '拼', needsInternet: false, ...(state.pinyinOn ? { active: true } : {}) });
-    items.push({ id: 'explain', label: 'Explain', icon: '🔍', needsInternet: true });
-    items.push({ id: 'save_card', label: 'Save as flashcard', icon: '🃏', needsInternet: true });
+    items.push(ITEM.pinyin(state.pinyinOn), ITEM.explain(), ITEM.saveCard());
   }
   if (openCoach && !sayBetter) items.push(coachItem);
   if (text) items.push({ id: 'select_cards', label: 'Make flashcards from selection', icon: '🗂️', needsInternet: true });
@@ -150,7 +161,7 @@ export function messageMenu(
     items.push({ id: 'correct', label: msg.correction ? 'Edit correction' : 'Correct', icon: '✏️', needsInternet: true });
     if (msg.correction) items.push({ id: 'remove_correction', label: 'Remove correction', icon: '✖️', needsInternet: true });
   }
-  if (zh && kind !== 'voice') items.push({ id: 'play', label: 'Read aloud', icon: '🔊', needsInternet: true });
+  if (zh && kind !== 'voice') items.push(ITEM.play());
   if (isAiConversation && !isMine && zh && isLearner && !kind) {
     items.push({ id: 'word_by_word', label: 'Word by word', icon: '🈯', needsInternet: true });
   }
@@ -170,4 +181,54 @@ export function messageMenu(
   }
   items.push({ id: 'select', label: 'Select', icon: '☑️', needsInternet: false });
   return { reactions: true, items };
+}
+
+// ---------- Ask Claude on the study card (docs/STUDY_SESSION.md "Ask Claude") ----------
+
+/** One message of the Ask Claude conversation: the learner's question, or Claude's answer. */
+export interface AskMenuMessage {
+  /** True for the learner's own question. */
+  mine: boolean;
+  text: string;
+  /** The English already fetched for it (Translate then works offline). */
+  translation?: string | null;
+  /** The background check of the learner's own Chinese (shared/chats/autoCheck.ts). */
+  auto_check?: { status: 'ok' | 'improvable'; text: string } | null;
+  /** An English Markdown answer (the "English" setting / an older answer): Copy only. */
+  markdown?: boolean;
+}
+
+/** Longest text the sentence tools take (Explain, Save as flashcard, Open in Coach on Claude's text) — a sentence or two. */
+export const ASK_SENTENCE_TOOLS_MAX = 120;
+
+/**
+ * The long-press menu of an Ask Claude message — the chat's menu, only the parts that make
+ * sense here (no reactions, reply, forward, pin, edit, delete, select): How to say it better +
+ * Open in Coach first on my own Chinese the auto-check flagged, then Copy, Translate, Pinyin,
+ * Explain / Save as flashcard (a sentence-sized text only), Open in Coach (my own Chinese is
+ * checked there; Claude's — when sentence-sized — explained), Read aloud. An English Markdown
+ * answer has Copy only.
+ * Lab port: core `AskClaude.menu`, parity-tested.
+ */
+export function askClaudeMenu(msg: AskMenuMessage, state: MenuState = { pinyinOn: false, translateOn: false }): MessageMenu {
+  const text = (msg.text || '').trim();
+  if (!text) return { reactions: false, items: [] };
+  if (msg.markdown) return { reactions: false, items: [ITEM.copy()] };
+  const zh = looksLikeChinese(text);
+  const short = text.length <= ASK_SENTENCE_TOOLS_MAX;
+  const viewer = 'me';
+  const asMessage = { sender_id: msg.mine ? viewer : 'claude', content: msg.text, auto_check: msg.auto_check ?? null };
+  const sayBetter = !!sayBetterState(asMessage, viewer);
+  const coach = !!openInCoachRequest(asMessage, viewer) && (msg.mine || short);
+  const items: MenuItem[] = [];
+  if (sayBetter) items.push(ITEM.sayBetter());
+  if (coach && sayBetter) items.push(ITEM.openCoach());
+  items.push(ITEM.copy());
+  if (zh) {
+    items.push(ITEM.translate(!!msg.translation, state.translateOn), ITEM.pinyin(state.pinyinOn));
+    if (short) items.push(ITEM.explain(), ITEM.saveCard());
+  }
+  if (coach && !sayBetter) items.push(ITEM.openCoach());
+  if (zh) items.push(ITEM.play());
+  return { reactions: false, items };
 }

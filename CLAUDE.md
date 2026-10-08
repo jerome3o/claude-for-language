@@ -323,7 +323,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `deleted_items` - Tombstones (`kind` deck|note, `item_id`, `deleted_at`) written whenever a deck or note is deleted (API routes, Ask Claude's delete_current_card, the MCP server's delete_deck/delete_note); `GET /api/sync/changes` returns them as `deleted.deck_ids` / `note_ids` so offline clients drop the rows (with their cards) on the next sync
 - `reader_pages.words` / `reader_word_explanations` - Reader word chips (migration 0087): the page split into `{ text, pinyin, gloss }` segments (JSON), and Haiku's cached "More about this word" answers keyed by a hash of word + sentence. See "Reader word chips"
 - `char_explanations` - "More about 字" on the character sheet: Haiku's short card-independent explanation per character, shared by everyone (migration 0108). The dictionary itself is static (`worker/char-dict/`, see "Character sheet")
-- `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
+- `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at; migration 0116: `answer_lang` zh|en, word chips `answer_words` / `question_words`, `answer_translation` / `question_translation`, `question_check` = the auto-check JSON of the question). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
 - `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0104): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
 - `audio_lessons` - Audio lessons (migration 0046 reused + 0111; docs/AUDIO_LESSONS.md): format dialogue|sleep, status queued/writing/speaking/rendering/ready/failed, progress + clips done/total, input, the agent transcript, plan, script, timeline (chapters + transcript), words, `audio_key` (R2 `audio-lessons/`), usage, pinned `zh_provider`, `for_relationship_id` (a label only). Rows with `format` NULL are the removed first attempt
 - `podcast_feeds` - The private podcast feed of a user's audio lessons (migration 0112): one row per user, `token_hash` (SHA-256, how a feed request finds the user), `token_enc` (AES-GCM, so Settings can show the link again), created / rotated / last fetched, fetch count. Reset = new token; Turn off = row deleted
@@ -421,7 +421,16 @@ Uses Anthropic Claude API for several features:
 1. **Deck generation**: "Generate cards about zoo vocabulary" → creates full deck with 8-12 cards
 2. **Card suggestions**: While editing, suggest related vocabulary
 3. **Ask Claude**: During study, ask questions about a card (grammar, usage, cultural context)
-   - Questions and answers are stored in `note_questions` table
+   - **Immersion** (docs/STUDY_SESSION.md "Ask Claude"): answers in simple graded Chinese by default
+     (`users.ask_claude_language` 'zh' | 'en', NULL = Chinese; Settings + the sheet's 中文 | EN;
+     `PUT /api/profile/ask-claude-language`; prompt `worker/src/services/ask-prompt.ts` with a sample of the
+     learner's started words; "in English please" answers one turn in English — `shared/study/askClaude.ts`).
+     The sheet (`components/askClaude/`, Lab `ui/study/AskClaudeSheet.kt`) uses the tutor chat's bubbles,
+     word chips → the language explorer, the chat's long-press menu subset (`askClaudeMenu`), and the chat's
+     auto-check on the learner's own Chinese (✎, How to say it better, Open in Coach). Route
+     `worker/src/routes/ask-claude.ts`, service `services/ask-claude.ts`.
+   - Questions and answers are stored in `note_questions` table (+ `answer_lang`, `answer_words`,
+     `answer_translation`, `question_words`, `question_translation`, `question_check` — migration 0116)
    - Visible in note history modal
 
 ### Calling Gemini (read before adding a Gemini call)
@@ -918,7 +927,8 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `DELETE /api/notes/:id` - Delete note (tombstone; clips removed only if no copy references them)
 - `POST /api/notes/move` - `{ note_ids, deck_id }` move notes between your decks, cards and history kept
 - `GET /api/notes/:id/history` - Get review history and card stats
-- `POST /api/notes/:id/ask` - Ask Claude about a note
+- `POST /api/notes/:id/ask` - Ask Claude about a note (`{ question, context?, conversationHistory?, language?: zh|en, quick? }` → the Q&A with `answer_lang`, `question_check`, `question_check_pending`, tool results; `routes/ask-claude.ts`)
+- `GET /api/note-questions/:id` - one Q&A shaped (word chips, translations, the question's check) · `POST /api/note-questions/:id/words|translate` `{ part: answer|question }` → `{ words, cached }` / `{ translation, cached }` (made on request, cached on the row) · `PUT /api/profile/ask-claude-language` `{ ask_claude_language: zh|en|null }`
 - `GET /api/notes/:id/questions` - Get Q&A history
 - `GET /api/notes/search?q=&limit=` - Server-side search of my notes (hanzi / pinyin, tone-free too / english / card sentence) with `deck_name` + `total_notes` — the Decks tab search is local-first (`services/noteSearch.ts` `noteMatches`, cards + recent ratings loaded only for the notes on screen) and falls back to this when the device finds nothing, saying how many of the account's cards the device holds (`routes/note-search.ts`)
 - `POST /api/notes/:id/generate-audio` - Generate TTS audio for note

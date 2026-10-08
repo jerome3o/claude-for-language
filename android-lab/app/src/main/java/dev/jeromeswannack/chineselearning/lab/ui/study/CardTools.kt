@@ -24,6 +24,10 @@ import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.data.api.StudyNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.VocabularyDefinition
 import dev.jeromeswannack.chineselearning.lab.data.api.askAboutNote
+import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestion
+import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestionWords
+import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeLanguage
+import dev.jeromeswannack.chineselearning.lab.data.api.translateNoteQuestion
 import dev.jeromeswannack.chineselearning.lab.data.api.createConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.createNote
 import dev.jeromeswannack.chineselearning.lab.data.api.defineVocabulary
@@ -304,6 +308,18 @@ class CardTools(private val app: LabApp) {
     // ---------------- Ask Claude ----------------
 
     suspend fun ask(noteId: String, body: AskBody): AskAnswer = api.askAboutNote(noteId, body)
+
+    /** Ask Claude, immersion: word chips of the answer / my question ([part]), made on request. */
+    suspend fun askWords(id: String, part: String) = api.noteQuestionWords(id, part).words
+
+    /** The answer / my question in English (the long-press menu's Translate). */
+    suspend fun askTranslation(id: String, part: String) = api.translateNoteQuestion(id, part).translation
+
+    /** One Q&A as stored (the question's check once it has landed). */
+    suspend fun noteQuestion(id: String) = api.noteQuestion(id)
+
+    /** "Ask Claude answers in" on the account. */
+    suspend fun setAskLanguage(language: String) = api.setAskClaudeLanguage(language)
 
     suspend fun toFlashcard(text: String): FlashcardDraft = api.textToFlashcard(text)
 

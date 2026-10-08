@@ -55,6 +55,8 @@ export interface AuthUser {
   email_chat_messages?: boolean;
   /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account). */
   chat_auto_check?: boolean | null;
+  /** "Ask Claude answers in" on the study card: 'zh' | 'en', null = the default (Chinese; shared/study/askClaude.ts). */
+  ask_claude_language?: 'zh' | 'en' | null;
   /** "Check new words for mistakes" (worker services/card-check.ts): what applies now (default on for tutors) and the stored choice (null = default). */
   card_check?: boolean;
   card_check_setting?: boolean | null;

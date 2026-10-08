@@ -54,7 +54,7 @@ class StudyViewModel(
     private val zone = ZoneId.systemDefault()
     private val random = Random.Default
 
-    private val _ui = MutableStateFlow(StudyUi())
+    private val _ui = MutableStateFlow(StudyUi(askLanguage = app.prefs.askClaudeLanguage))
     val ui: StateFlow<StudyUi> = _ui.asStateFlow()
 
     private var queue: MutableList<QueueCard> = ArrayList()
@@ -1033,15 +1033,19 @@ class StudyViewModel(
         val q = question.trim()
         if (q.isEmpty() || _ui.value.extras.ask.asking) return
         updateAsk(v) { it.copy(asking = true, pendingQuestion = q, error = null) }
-        app.analytics.track("study.ask_claude", mapOf("card_type" to v.card.cardType))
+        val language = _ui.value.askLanguage
+        // A quick chip (no history) is the app's own question: not checked.
+        val quick = !withHistory
+        app.analytics.track("study.ask_claude", mapOf("card_type" to v.card.cardType, "language" to language, "quick" to quick))
         viewModelScope.launch {
             val typing = v.card.cardType != dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING
             val context = if (typing && !userAnswer.isNullOrEmpty()) dev.jeromeswannack.chineselearning.lab.data.api.AskContext(userAnswer, v.note.hanzi, v.card.cardType) else null
             val history = if (withHistory) _ui.value.extras.ask.conversation.map { dev.jeromeswannack.chineselearning.lab.data.api.AskHistoryItem(it.question, it.answer) } else null
             try {
-                val answer = tools.ask(v.note.id, dev.jeromeswannack.chineselearning.lab.data.api.AskBody(q, context, history))
+                val answer = tools.ask(v.note.id, dev.jeromeswannack.chineselearning.lab.data.api.AskBody(q, context, history, language = language, quick = quick.takeIf { it }))
                 updateAsk(v) { it.copy(conversation = it.conversation + answer, asking = false, pendingQuestion = null, pending = answer.toolResults?.takeIf { r -> r.isNotEmpty() }) }
                 app.haptics.tick()
+                askExtras(v, answer)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1049,6 +1053,65 @@ class StudyViewModel(
             }
         }
     }
+
+    private fun patchAsk(v: CardView, id: String, change: (dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer) -> dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer) =
+        updateAsk(v) { a -> a.copy(conversation = a.conversation.map { if (it.id == id) change(it) else it }) }
+
+    /**
+     * Ask Claude, immersion (docs/STUDY_SESSION.md "Ask Claude"): after an answer, its word chips
+     * (a Chinese answer, and my own Chinese question) and — when the question's check was still
+     * running — the row again a couple of times. Failures leave the characters tappable.
+     */
+    private fun askExtras(v: CardView, a: dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer) {
+        val zh = dev.jeromeswannack.chineselearning.lab.core.MessageTools::looksLikeChinese
+        if (a.answer_lang == dev.jeromeswannack.chineselearning.lab.core.AskClaude.ZH && a.answer_words == null && zh(a.answer)) {
+            viewModelScope.launch { runCatching { tools.askWords(a.id, "answer") }.getOrNull()?.let { w -> patchAsk(v, a.id) { it.copy(answer_words = w) } } }
+        }
+        if (a.question_words == null && zh(a.question)) {
+            viewModelScope.launch { runCatching { tools.askWords(a.id, "question") }.getOrNull()?.let { w -> patchAsk(v, a.id) { it.copy(question_words = w) } } }
+        }
+        if (a.question_check_pending) viewModelScope.launch {
+            for (wait in longArrayOf(3000, 5000)) {
+                delay(wait)
+                val row = runCatching { tools.noteQuestion(a.id) }.getOrNull() ?: continue
+                if (row.question_check != null) { patchAsk(v, a.id) { it.copy(question_check = row.question_check, question_check_pending = false) }; break }
+            }
+        }
+    }
+
+    /** Long-press → Translate: the English of the answer / my question ([part]), stored after the first time. False = couldn't. */
+    suspend fun translateAsk(id: String, part: String): Boolean {
+        val v = currentView() ?: return false
+        val entry = _ui.value.extras.ask.conversation.firstOrNull { it.id == id } ?: return false
+        if (!(if (part == "answer") entry.answer_translation else entry.question_translation).isNullOrEmpty()) return true
+        val t = runCatching { tools.askTranslation(id, part) }.getOrNull()?.takeIf { it.isNotBlank() } ?: return false
+        patchAsk(v, id) { if (part == "answer") it.copy(answer_translation = t) else it.copy(question_translation = t) }
+        return true
+    }
+
+    /** The sheet's 中 / EN (and Settings): shows at once, saved on the account in the background. */
+    fun setAskLanguage(language: String, source: String = "sheet") {
+        val l = dev.jeromeswannack.chineselearning.lab.core.AskClaude.parseLanguage(language) ?: return
+        app.prefs.askClaudeLanguage = l
+        _ui.update { it.copy(askLanguage = l) }
+        app.analytics.track("study.ask_claude_language", mapOf("language" to l, "source" to source))
+        app.scope.launch { runCatching { tools.setAskLanguage(l) } }
+    }
+
+    /** Long-press → Read aloud: Claude in the app voice, my own lines in my voice (shared/chats/voice.ts), cached per text. */
+    fun readAloudAsk(text: String, mine: Boolean) {
+        viewModelScope.launch {
+            val (voice, speed) = dev.jeromeswannack.chineselearning.lab.data.chat.ChatReadAloud.voice(app, senderIsMe = mine, otherGender = null, fromAi = false, personaVoice = null, personaSpeed = null)
+            val audio = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).audio
+            if (audio.playing.value == text) audio.stop() else audio.playClip(text, voice, speed)
+        }
+    }
+
+    /** Hanzi of every note on the device (Ask Claude's quieter chips for words already in a deck). */
+    suspend fun knownHanzi(): Set<String> = withContext(Dispatchers.IO) { repo.dao.allNotes().mapTo(HashSet()) { it.hanzi.trim() } }
+
+    /** Analytics of a learning tool used on an Ask Claude message (`study.ask_claude_tool`). */
+    fun trackAskTool(action: String, mine: Boolean) = app.analytics.track("study.ask_claude_tool", mapOf("action" to action, "role" to if (mine) "mine" else "claude"))
 
     /** `approveToolResults`: apply Claude's changes here (the server already made them). */
     fun approveTools() {
