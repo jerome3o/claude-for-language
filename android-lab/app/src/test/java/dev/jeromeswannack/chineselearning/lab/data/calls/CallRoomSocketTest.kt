@@ -66,8 +66,24 @@ class CallRoomSocketTest {
         }
     }
 
-    private fun socket(join: suspend () -> CallJoinDto, now: () -> Long = System::currentTimeMillis, pingMs: Long = 20_000, instance: String? = null, pongTimeoutMs: Long = 8_000) =
-        CallRoomSocket(join, OkHttpClient(), server.url("/").toString().removeSuffix("/"), handlers, scope, now, pingMs, instance, pongTimeoutMs)
+    private fun socket(join: suspend () -> CallJoinDto, now: () -> Long = System::currentTimeMillis, pingMs: Long = 20_000, instance: String? = null, pongTimeoutMs: Long = 8_000, http: OkHttpClient = OkHttpClient()) =
+        CallRoomSocket(join, http, server.url("/").toString().removeSuffix("/"), handlers, scope, now, pingMs, instance, pongTimeoutMs)
+
+    /**
+     * An OkHttp that runs the call on the caller's thread: the handshake finishes and onOpen fires
+     * INSIDE newWebSocket(), before it returns the socket — what a fast network or a descheduled
+     * thread does now and then for real. The room used to throw that socket away (it wasn't `ws`
+     * yet): no OPEN, no pings, a test waiting 10 s for "status:OPEN" (CI flakes on main).
+     */
+    private fun openBeforeReturnClient() = OkHttpClient.Builder().dispatcher(okhttp3.Dispatcher(object : java.util.concurrent.AbstractExecutorService() {
+        @Volatile private var down = false
+        override fun execute(command: Runnable) = command.run()
+        override fun shutdown() { down = true }
+        override fun shutdownNow(): MutableList<Runnable> { down = true; return mutableListOf() }
+        override fun isShutdown() = down
+        override fun isTerminated() = down
+        override fun awaitTermination(timeout: Long, unit: TimeUnit) = true
+    })).build()
 
     @Test fun joinsWithATicketTracksTheClockAndSends() {
         server.enqueue(upgrade { it.send("""{"type":"welcome","client_id":"c1","server_time":5000,"started_at":1,"peers":[],"board":[],"chat":[]}""") })
@@ -102,6 +118,25 @@ class CallRoomSocketTest {
         assertEquals("status:OPEN", next("status:OPEN"))
         // Same instance on every reconnect: the other side keeps our WebRTC link.
         assertEquals("/api/calls/c9/ws?ticket=t2&instance=k3j9x0ab12cd", server.takeRequest().path)
+        room.close()
+    }
+
+    @Test fun aSocketThatOpensBeforeNewWebSocketReturnsIsKept() {
+        server.enqueue(upgrade { it.send("""{"type":"welcome","client_id":"c1","server_time":5000,"started_at":1,"peers":[],"board":[],"chat":[]}""") })
+        server.enqueue(upgrade())
+        val joins = AtomicInteger()
+        val room = socket({ CallJoinDto("t${joins.incrementAndGet()}", "/ws") }, http = openBeforeReturnClient())
+        room.connect()
+        assertEquals("status:CONNECTING", next("status"))
+        assertEquals("status:OPEN", next("status"))
+        assertEquals("msg:Welcome", next("msg"))
+        assertTrue(room.send("""{"type":"chat","text":"你好"}"""))
+        assertEquals("""{"type":"chat","text":"你好"}""", received.poll(5, TimeUnit.SECONDS))
+        // A replacement that opens before it is returned is kept too.
+        room.reconnectNow()
+        assertEquals("status:RECONNECTING", next("status"))
+        assertEquals("status:OPEN", next("status:OPEN"))
+        assertEquals(2, joins.get())
         room.close()
     }
 

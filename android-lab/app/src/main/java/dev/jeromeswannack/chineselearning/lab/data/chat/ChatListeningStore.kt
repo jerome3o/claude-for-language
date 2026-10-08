@@ -76,22 +76,30 @@ object ChatListeningStore {
     fun withRow(state: ListeningStateDto, conversationId: String, on: Boolean, since: String?, nowIso: String): ListeningStateDto =
         state.copy(conversations = listOf(ListeningRowDto(conversationId, on, since, nowIso)) + state.conversations.filter { it.conversation_id != conversationId })
 
-    /** Sets one conversation's mode: cached now, sent through the outbox (offline-safe). */
+    /**
+     * Sets one conversation's mode: cached now, sent through the outbox (offline-safe). The cache
+     * write AND the outbox row are made under one lock, so the PUTs are queued in the order the
+     * changes were made — the outbox replays them in that order, so the last change also wins on
+     * the server. (Queued after the lock, a quick toggle → toggle → Hide all could queue Hide all
+     * before the second toggle: the server ended on the older setting.)
+     */
     suspend fun setConversation(app: LabApp, conversationId: String, on: Boolean, since: String?) {
         Analytics.track("chat.listening_mode", mapOf("scope" to "conversation", "on" to on))
         lock.withLock {
             val next = withRow(state(app.cache), conversationId, on, since, Js.toIsoString(System.currentTimeMillis()))
             app.cache.put(STATE, KIND, next)
+            app.outbox.enqueueJson(KIND_SET, "PUT", chatListeningPath(conversationId), ListeningBody(on, since), id = "listening-${UUID.randomUUID()}")
         }
-        app.outbox.enqueueJson(KIND_SET, "PUT", chatListeningPath(conversationId), ListeningBody(on, since), id = "listening-${UUID.randomUUID()}")
         flush(app)
     }
 
     /** Settings → "Listening mode in new chats". */
     suspend fun setDefault(app: LabApp, on: Boolean) {
         Analytics.track("chat.listening_mode", mapOf("scope" to "default", "on" to on))
-        lock.withLock { app.cache.put(STATE, KIND, state(app.cache).copy(default_on = on)) }
-        app.outbox.enqueueJson(KIND_DEFAULT, "PUT", CHAT_LISTENING_DEFAULT_PATH, ListeningDefaultBody(on), id = "listening-default-${UUID.randomUUID()}")
+        lock.withLock {
+            app.cache.put(STATE, KIND, state(app.cache).copy(default_on = on))
+            app.outbox.enqueueJson(KIND_DEFAULT, "PUT", CHAT_LISTENING_DEFAULT_PATH, ListeningDefaultBody(on), id = "listening-default-${UUID.randomUUID()}")
+        }
         flush(app)
     }
 
@@ -103,9 +111,11 @@ object ChatListeningStore {
     /** The server's settings, unless a change of ours is still in the outbox (then ours stand until it is sent). */
     suspend fun refresh(api: Api, cache: JsonCache, outbox: Outbox) {
         val fresh = api.chatListening()
-        val waiting = outbox.all().any { (it.kind == KIND_SET || it.kind == KIND_DEFAULT) && it.state == Outbox.PENDING }
-        if (waiting) return
-        lock.withLock { cache.put(STATE, KIND, fresh) }
+        // Checked under the lock: a change cached and queued meanwhile is never overwritten.
+        lock.withLock {
+            val waiting = outbox.all().any { (it.kind == KIND_SET || it.kind == KIND_DEFAULT) && it.state == Outbox.PENDING }
+            if (!waiting) cache.put(STATE, KIND, fresh)
+        }
     }
 
     suspend fun revealed(cache: JsonCache, conversationId: String): List<String> =
