@@ -4,8 +4,9 @@
  * explorer's Word view (without hiding the Chinese) with the chip's pinyin,
  * gloss and sentence, "More about this word" shows the explanation, and
  * "+ Add as card" creates the note with the explanation's card fields.
- * A page without words is plain text until the backfill brings them, and
- * they are kept on the device for offline.
+ * A page without words is split on the device (the deterministic segmenter)
+ * until the backfill brings Claude's words — plain text only until the
+ * segmenter's word lists are loaded — and they are kept on the device for offline.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
@@ -27,6 +28,12 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../../api/client', () => api);
 vi.mock('../../services/analytics', () => ({ track: vi.fn(), trackError: vi.fn() }));
+// The device's segmenter: null = its word lists aren't loaded (yet).
+const segmenter = vi.hoisted(() => ({ words: null as ReaderWord[] | null }));
+vi.mock('../../services/chineseSegmenter', () => ({
+  useSegmentedWords: (_text: string, enabled = true) => (enabled ? segmenter.words : null),
+  preloadSegmenter: () => {},
+}));
 
 import { MemoryRouter } from 'react-router-dom';
 import { db } from '../../db/database';
@@ -80,6 +87,7 @@ describe('ReaderWordsText', () => {
     document.body.appendChild(host);
     root = createRoot(host);
     hide.mockReset();
+    segmenter.words = null;
     Object.values(api).forEach((f) => (f as { mockReset?: () => void }).mockReset?.());
     await db.decks.put({ id: 'd1', name: 'Readers', description: null, created_at: '', updated_at: '' } as never);
     await db.notes.put({ id: 'n1', deck_id: 'd1', hanzi: '早上', pinyin: 'zǎoshang', english: 'morning' } as never);
@@ -170,6 +178,23 @@ describe('ReaderWordsText', () => {
     expect(chips()).toHaveLength(5);
     const local = await db.readers.get('r1');
     expect(local?.pages[0].words).toEqual(WORDS);
+  });
+
+  it('while Claude\'s words are missing, the page is split into words on the device', async () => {
+    await db.readers.put({ id: 'r1', pages: [{ id: 'p4', page_number: 1, content_chinese: TEXT, content_pinyin: '', content_english: '', image_url: null, image_prompt: null }] } as never);
+    api.backfillReaderWords.mockRejectedValue(new Error('offline'));
+    segmenter.words = [
+      { text: '早上好', pinyin: 'zǎoshanghǎo', gloss: '' },
+      { text: '。', pinyin: '', gloss: '' },
+      { text: '我', pinyin: 'wǒ', gloss: '' },
+      { text: '叫', pinyin: 'jiào', gloss: '' },
+      { text: '小', pinyin: 'xiǎo', gloss: '' },
+      { text: '徐', pinyin: 'xú', gloss: '' },
+      { text: '。', pinyin: '', gloss: '' },
+    ];
+    await render({ id: 'p4', content_chinese: TEXT, words: null });
+    expect(chips().map((c) => c.textContent)).toEqual(['早上好', '我', '叫', '小', '徐']);
+    expect(document.querySelector('[data-testid="reader-words"]')?.textContent).toBe(TEXT);
   });
 
   it('stale words (the page text changed) are not shown', async () => {

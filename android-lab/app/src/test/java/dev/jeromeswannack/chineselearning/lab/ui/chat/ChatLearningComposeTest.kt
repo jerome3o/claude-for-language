@@ -8,6 +8,8 @@ import androidx.compose.ui.test.performClick
 import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +48,10 @@ class ChatLearningComposeTest {
         onSendAsIs = { rec.calls += "send-as-is" },
     )
 
+    /** The phone's segmenter not loaded: the plain-text path (each test opts in). */
+    @Before fun noDeviceWords() = dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.setForTests(null)
+    @After fun resetDeviceWords() = dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.setForTests(null)
+
     private fun show(ui: ChatUi, rec: Rec) = compose.setContent { LabTheme { ChatScreen(ui, actions(rec)) } }
 
     private val two = S.student.copy(messages = listOf(S.m1, S.m2), aids = ChatLearning.Aids())
@@ -71,6 +77,15 @@ class ChatLearningComposeTest {
         assertTrue("words m1" in rec.calls)
         compose.onNodeWithTag("chat-pinyin", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("周末你做了什么？").assertExists()
+    }
+
+    @Test fun messagesWithoutWordsAreSplitIntoWordsOnThePhone() {
+        dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.setForTests(dev.jeromeswannack.chineselearning.lab.core.chinese.Segmenter.shipped)
+        val bare = S.m1.copy(words = null)
+        show(S.student.copy(messages = listOf(bare)), Rec())
+        compose.waitForIdle()
+        compose.onNodeWithText("周末").assertExists() // a word chip, not 周 + 末
+        assertTrue(compose.onAllNodesWithTag("chat-word-chip").fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun selectionPicksAndMakesCards() {

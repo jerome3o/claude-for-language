@@ -11,6 +11,10 @@ format and ranking in `shared/decks/frequency.ts`).
   8,000 most frequent characters (ranked by summed word frequency). About 250 kB, 150 kB gzipped.
 - **Rebuild:** `npm run build:word-freq` (downloads `large_zh.msgpack.gz` into `scripts/.cache`).
 
+`segment-words.txt` sits beside it for the word segmenter (`shared/chinese/segment.ts`, word chips without an LLM):
+the word dictionary's CC-CEDICT headwords that aren't in `word-freq.txt`, with their wordfreq rank, and the list's
+jieba compounds. Same sources and licence (CC-CEDICT and wordfreq, CC BY-SA 4.0). Rebuild: `npm run build:segment-words`.
+
 The web app loads it as a lazily imported, precached chunk (`frontend/src/services/wordFrequency.ts`);
 the Lab app reads the same file as a core classpath resource (`android-lab/core/build.gradle.kts`,
 `WordFrequency.shipped`). No network is used during study.

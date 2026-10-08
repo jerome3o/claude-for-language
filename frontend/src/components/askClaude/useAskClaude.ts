@@ -3,12 +3,10 @@ import type { AskLanguage } from '@shared/study/askClaude';
 import {
   askAboutNote,
   getNoteQuestion,
-  getNoteQuestionWords,
   translateNoteQuestion,
   type AskToolResult,
   type NoteQuestionWithTools,
 } from '../../api/client';
-import { looksLikeChinese } from '../chat/messageTools';
 import { track, trackError } from '../../services/analytics';
 
 export type AskPart = 'answer' | 'question';
@@ -28,9 +26,9 @@ export interface AskClaudeOptions {
 /**
  * The Ask Claude conversation on one card (docs/STUDY_SESSION.md "Ask Claude"): asking (with
  * the history, the language on screen), Claude's changes waiting for Approve / Reject, and
- * the immersion extras every message gets afterwards — its word chips (`/note-questions/:id/
- * words`, the answer and my own Chinese), the question's auto-check when it was still running,
- * and Translate on demand. Lives in the study card, so closing the sheet keeps the conversation.
+ * the immersion extras every message gets afterwards — the question's auto-check when it was
+ * still running and Translate on demand (word chips are made on the device by ChatWordsText's
+ * deterministic segmenter, so `/note-questions/:id/words` is no longer called). Lives in the study card, so closing the sheet keeps the conversation.
  */
 export function useAskClaude(opts: AskClaudeOptions) {
   const [conversation, setConversation] = useState<NoteQuestionWithTools[]>([]);
@@ -60,23 +58,6 @@ export function useAskClaude(opts: AskClaudeOptions) {
     if (/network|fetch|failed to fetch/i.test(msg)) return "Couldn't reach Claude — check your connection and try again.";
     return msg ? `Claude couldn't answer: ${msg}` : "Claude couldn't answer that. Try again in a moment.";
   };
-
-  /** Word chips for the answer (a Chinese answer) and my question (when it has Chinese). Failures leave the characters tappable. */
-  const fetchWords = useCallback(
-    (entry: NoteQuestionWithTools) => {
-      const parts: AskPart[] = [];
-      if (entry.answer_lang === 'zh' && !entry.answer_words && looksLikeChinese(entry.answer)) parts.push('answer');
-      if (!entry.question_words && looksLikeChinese(entry.question)) parts.push('question');
-      for (const part of parts) {
-        getNoteQuestionWords(entry.id, part)
-          .then((r) => {
-            if (r.words) patch(entry.id, part === 'answer' ? { answer_words: r.words } : { question_words: r.words });
-          })
-          .catch((err) => console.warn('[ask] word chips failed:', err));
-      }
-    },
-    [patch],
-  );
 
   /** A question whose check was still running: read the row again a couple of times. */
   const pollCheck = useCallback(
@@ -112,7 +93,6 @@ export function useAskClaude(opts: AskClaudeOptions) {
         setConversation((prev) => [...prev, response]);
         if (!how.quick) setQuestion('');
         if (response.toolResults && response.toolResults.length > 0) setPendingToolResults(response.toolResults);
-        fetchWords(response);
         if (response.question_check_pending) pollCheck(response.id);
       } catch (err) {
         console.error('Failed to ask Claude:', err);
@@ -126,7 +106,7 @@ export function useAskClaude(opts: AskClaudeOptions) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isAsking, conversation, opts.noteId, opts.cardType, opts.typed, opts.language, opts.aiAvailable, fetchWords, pollCheck],
+    [isAsking, conversation, opts.noteId, opts.cardType, opts.typed, opts.language, opts.aiAvailable, pollCheck],
   );
 
   /** The English of an answer / my question: stored after the first time (Translate works offline then). */

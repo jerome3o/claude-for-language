@@ -41,6 +41,9 @@ import kotlin.test.assertTrue
  * a long press → the chat's menu with the parts that fit. Screenshots: `ask-zh-*`.
  */
 class AskClaudeImmersionTest : LabScreenshotTest() {
+    // Word chips made on the phone (data/text/DeviceWords), as in the app.
+    @org.junit.Before fun deviceWords() = dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.setForTests(dev.jeromeswannack.chineselearning.lab.core.chinese.Segmenter.shipped)
+    @org.junit.After fun resetDeviceWords() = dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.setForTests(null)
     private val note = Samples.note.copy(hanzi = "银行", pinyin = "yínháng", english = "bank", sentenceClue = "我去银行取钱。")
     private val view = CardView(
         QueueCard("c1", note.id, "d1", CardTypes.HANZI_TO_MEANING, CardScheduler.initialCardState()), note, emptyList(),

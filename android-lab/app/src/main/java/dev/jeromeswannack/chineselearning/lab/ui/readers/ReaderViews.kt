@@ -72,6 +72,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import dev.jeromeswannack.chineselearning.lab.data.readers.ClipAnalysis
 import dev.jeromeswannack.chineselearning.lab.data.readers.decodeClip
+import dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords
 
 /** What a reader page may do outside itself (a fake in screenshots). */
 class ReaderEnv(
@@ -206,7 +207,8 @@ private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, onHide: () -> U
     }
     val box = Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.99f, onClick = onHide)
         .clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp)).padding(16.dp)
-    val w = words
+    // Without Claude's words (yet, or they failed): the words made on the phone.
+    val w = words ?: DeviceWords.of(page.contentChinese)
     if (w == null) {
         Text(page.contentChinese, fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box)
         return

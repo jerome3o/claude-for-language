@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { isTappableWord, wordOffsets, sentenceAround, wordsMatchText, type ReaderWord } from '@shared/reader/words';
 import { itemForText } from '@shared/explorer';
 import { knownHanzi, localPageWords, requestReaderWords, sessionPageWords } from '../../services/readerWords';
+import { useSegmentedWords } from '../../services/chineseSegmenter';
 import { useExplorer } from '../explorer/ExplorerContext';
 import { track } from '../../services/analytics';
 import './ReaderWords.css';
@@ -62,13 +63,18 @@ export function useKnownHanzi(version = 0): Set<string> {
 
 /**
  * The revealed Chinese as tappable word chips (punctuation and line breaks
- * stay plain), or the plain text while the words aren't there yet. Tapping a
+ * stay plain). While the page's Claude-made words aren't there yet (or could
+ * not be made) the page is split on the device by the deterministic segmenter
+ * (services/chineseSegmenter); only until its word lists load is it the plain
+ * text. Tapping a
  * chip opens the language explorer's Word view (docs/LANGUAGE_EXPLORER.md) with
  * the chip's pinyin / gloss and its sentence — "More about this word" and
  * "+ Add as card" live there; it never bubbles to the "hide Chinese" tap.
  */
 export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text' }: { readerId: string; page: PageLike; className?: string }) {
-  const words = useReaderPageWords(readerId, page);
+  const own = useReaderPageWords(readerId, page);
+  const local = useSegmentedWords(page.content_chinese, !own);
+  const words = own ?? local;
   const known = useKnownHanzi();
   const explorer = useExplorer();
 

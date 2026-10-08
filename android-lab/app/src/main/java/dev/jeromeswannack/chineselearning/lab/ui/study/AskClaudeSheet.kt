@@ -49,6 +49,7 @@ import dev.jeromeswannack.chineselearning.lab.core.AskClaude
 import dev.jeromeswannack.chineselearning.lab.core.MessageMenu
 import dev.jeromeswannack.chineselearning.lab.core.MessageTools
 import dev.jeromeswannack.chineselearning.lab.core.ReaderWords
+import dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords
 import dev.jeromeswannack.chineselearning.lab.core.SayBetter
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
 import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
@@ -141,23 +142,6 @@ private data class AskTarget(val entry: AskAnswer, val part: String) {
 private fun AskAnswer.asMessage() = ChatMessageDto(
     id = id, sender_id = "me", content = question, translation = question_translation, auto_check = question_check,
 )
-
-/** Every Han character on its own (tappable) until the word chips arrive; other runs as they are. */
-private fun charWords(text: String): List<ReaderWordDto> {
-    val out = ArrayList<ReaderWordDto>()
-    val run = StringBuilder()
-    for (ch in text) {
-        if (MessageTools.looksLikeChinese(ch.toString())) {
-            if (run.isNotEmpty()) { out += ReaderWordDto(run.toString()); run.clear() }
-            out += ReaderWordDto(ch.toString())
-        } else if (ch == '\n') {
-            if (run.isNotEmpty()) { out += ReaderWordDto(run.toString()); run.clear() }
-            out += ReaderWordDto("\n")
-        } else run.append(ch)
-    }
-    if (run.isNotEmpty()) out += ReaderWordDto(run.toString())
-    return out
-}
 
 /**
  * Ask Claude about this card (web components/askClaude/AskClaudeSheet.tsx): Claude answers in
@@ -398,13 +382,8 @@ private fun Bubble(
     val haptics = LocalHapticFeedback.current
     val long = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress() }
     val zh = MessageTools.looksLikeChinese(t.text)
-    // Until the chips arrive every character is tappable; with pinyin on, the phone's pinyin line instead.
-    val words = when {
-        !zh || t.markdown -> null
-        t.words != null -> t.words
-        showPinyin -> null
-        else -> charWords(t.text)
-    }
+    // Word chips made on the phone at once (data/text/DeviceWords: the deterministic segmenter).
+    val words = if (!zh || t.markdown) null else DeviceWords.of(t.text)
     val better = t.mine && SayBetter.state("me", t.entry.question, null, null, false, null, t.entry.question_check?.status, t.entry.question_check?.text, "me") != null
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (t.mine) Arrangement.End else Arrangement.Start) {
         Column(

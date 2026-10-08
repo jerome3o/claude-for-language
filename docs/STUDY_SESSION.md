@@ -526,10 +526,11 @@ parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
   mode (`askQuickActions`) and are not checked (`quick: true`). Tools (edit card, add cards, ⚡ bump, delete,
   mini lesson) work in both, still behind Approve / Reject.
 - **Bubbles.** The tutor chat's bubbles (`chat-signal.css`): mine blue on the right, Claude's grey on the left.
-  Every Chinese word is a chip (`ChatWordsText` / Lab `ChineseWords`) — the chat's word splitter, made on
-  request after the answer (`POST /api/note-questions/:id/words { part: answer | question }`, cached on the
-  row); until they arrive each character is tappable on its own. A tap opens the **language explorer**
-  (source `ask_claude`).
+  Every Chinese word is a chip (`ChatWordsText` / Lab `ChineseWords`), made on the device the moment the
+  answer arrives by the deterministic segmenter (`shared/chinese/segment.ts`; web `services/chineseSegmenter.ts`,
+  Lab `data/text/DeviceWords.kt`) — words, never single characters, offline too. (Until Oct 2026 Claude split the
+  text after the answer, `POST /api/note-questions/:id/words`: 2–31 s, sometimes failing, with every character
+  tappable meanwhile; the apps no longer call it.) A tap opens the **language explorer** (source `ask_claude`).
 - **Long press** (right-click / the hover ⋯ on desktop) → the chat's message menu with only what fits
   (`askClaudeMenu`): Copy · Translate (`POST /api/note-questions/:id/translate`, cached on the row) · Pinyin ·
   Explain / Save as flashcard (sentence-sized text, ≤ 120 characters — the chat's Explain sheet) · Open in
