@@ -13,9 +13,57 @@ import { runAudioLessonJob } from '../audio-lessons/job';
 import { fakeClip } from '../audio-lessons/fake';
 import { parseMp3Frames } from '../audio-lessons/mp3';
 import { analyseText, buildVocabIndex, checkWords } from '../audio-lessons/vocab';
-import { acceptPlan, buildBriefing, maxLessonMinutes, sleepWordTarget, systemPrompt, type ModelCall } from '../audio-lessons/agent';
+import { acceptPlan, buildBriefing, maxLessonMinutes, runAuthor, sleepWordTarget, systemPrompt, type ModelCall } from '../audio-lessons/agent';
 import { lessonClipRate, type ClipOutcome, type ClipRequest } from '../audio-lessons/synth';
 import { DEFAULT_TTS_CONFIG } from '@shared/tts';
+import { charShard, charShardFile, wordShard, wordShardFile, type CharRecord, type WordRecord } from '@shared/chars/types';
+import { clearCharDictCache, clearWordDictCache } from '../char-dict';
+import { makeCharLinks } from '../audio-lessons/char-links';
+import { assetsShardLoader } from '../char-dict';
+
+/** A CHAR_DICT binding serving a few records (shards as plain JSON; the reader takes either). */
+function fakeCharDict(chars: CharRecord[], words: WordRecord[]): Fetcher {
+  const files = new Map<string, Record<string, unknown>>();
+  const put = (file: string, key: string, rec: unknown) => files.set(file, { ...(files.get(file) ?? {}), [key]: rec });
+  for (const c of chars) put(charShardFile(charShard(c.char)), c.char, c);
+  for (const w of words) put(wordShardFile(wordShard(w.hanzi)), w.hanzi, w);
+  return {
+    async fetch(req: Request) {
+      const file = new URL(req.url).pathname.slice(1);
+      const body = files.get(file);
+      return body ? new Response(JSON.stringify(body)) : new Response('not found', { status: 404 });
+    },
+  } as unknown as Fetcher;
+}
+
+const charRecord = (char: string, words: Array<[string, string, string]>): CharRecord => ({
+  char,
+  readings: [],
+  meaning: '',
+  radical: null,
+  radical_meaning: null,
+  decomposition: null,
+  components: [],
+  etymology: null,
+  strokes: null,
+  rank: null,
+  words: words.map(([hanzi, pinyin, english]) => ({ hanzi, pinyin, english })),
+});
+const wordRecord = (hanzi: string, syllables: string[], english: string, rank: number | null): WordRecord => ({ hanzi, pinyin: syllables.join(''), syllables, english, senses: [english], rank });
+
+/** 局: 结局 / 局长 are common, 局面 is too rare; 寄: only rare words (so it is "new"). */
+const DICT = fakeCharDict(
+  [
+    charRecord('局', [['局面', 'júmiàn', 'situation'], ['结局', 'jiéjú', 'ending'], ['局长', 'júzhǎng', 'bureau chief']]),
+    charRecord('寄', [['寄托', 'jìtuō', 'to entrust']]),
+  ],
+  [
+    wordRecord('局面', ['jú', 'miàn'], 'situation', 6200),
+    wordRecord('结局', ['jié', 'jú'], 'ending', 3678),
+    wordRecord('局长', ['jú', 'zhǎng'], 'bureau chief', 2717),
+    wordRecord('寄托', ['jì', 'tuō'], 'to entrust', 12038),
+  ],
+);
 
 function fakeBucket() {
   const store = new Map<string, { bytes: Uint8Array; meta?: Record<string, string> }>();
@@ -49,7 +97,9 @@ function exec(sql: string, ...params: (string | number | null)[]) {
 beforeEach(async () => {
   db = await createSqliteD1();
   r2 = fakeBucket();
-  env = { DB: db, AUDIO_BUCKET: r2.bucket } as unknown as Env;
+  env = { DB: db, AUDIO_BUCKET: r2.bucket, CHAR_DICT: DICT } as unknown as Env;
+  clearCharDictCache();
+  clearWordDictCache();
   exec("INSERT INTO users (id, email, name, role) VALUES ('u1', 'learner@example.com', 'Learner', 'student')");
   exec("INSERT INTO decks (id, user_id, name) VALUES ('d1', 'u1', 'Mine')");
   const notes: Array<[string, string, string, number]> = [
@@ -58,6 +108,7 @@ beforeEach(async () => {
     ['信', 'xìn', 'letter', 2],
     ['送', 'sòng', 'to give, deliver', 1],
     ['加油', 'jiāyóu', 'come on!', 2],
+    ['邮件', 'yóujiàn', 'email', 2],
   ];
   notes.forEach(([hanzi, pinyin, english, tier], i) => {
     exec('INSERT INTO notes (id, deck_id, hanzi, pinyin, english) VALUES (?, ?, ?, ?, ?)', `n${i}`, 'd1', hanzi, pinyin, english);
@@ -121,6 +172,14 @@ describe('runAudioLessonJob', () => {
     const unique = uniqueSpeech(script).length;
     expect(row.progress_total).toBe(unique);
     expect(row.progress_done).toBe(3);
+    // Every character gets its line: a word he has (邮件), a common word (结局), a new character (寄).
+    const spoken = script.segments.flatMap((s) => (s.kind === 'speech' ? [s.text] : []));
+    expect(spoken).toContain('你学过‘邮件’的‘邮’。');
+    expect(spoken).toContain('‘局’也在‘结局’里。');
+    expect(spoken.some((t) => t.includes('‘寄’') && /没见过|没学过/.test(t))).toBe(true);
+    const plan = JSON.parse(row.plan_json!) as typeof SAMPLE_SLEEP_PLAN;
+    expect(plan.words[1].char_notes).toEqual([{ char: '寄', words: [], zh: '', kind: 'new' }]);
+    expect(plan.words[0].char_notes!.map((n) => n.kind)).toEqual(['known', 'common']);
 
     // Resume: only the missing clips are made, the model is not called again.
     expect(await runAudioLessonJob(env, id, deps)).toBe('done');
@@ -198,10 +257,62 @@ describe('runAudioLessonJob', () => {
   });
 });
 
+describe('character facts for a sleep lesson', () => {
+  it('from his cards and the dictionary: known, common (rank ≤ 5000, best first), new', async () => {
+    const index = buildVocabIndex(await q.learnerVocabulary(db, 'u1'));
+    const links = await makeCharLinks(index, assetsShardLoader(DICT))([{ hanzi: '邮局', pinyin: 'yóujú' }, { hanzi: '寄', pinyin: 'jì' }]);
+    expect(links['邮局']).toEqual([
+      { char: '邮', kind: 'known', words: [{ hanzi: '邮件', pinyin: 'yóujiàn', english: 'email' }] },
+      { char: '局', kind: 'common', words: [{ hanzi: '局长', pinyin: 'júzhǎng', english: 'bureau chief' }, { hanzi: '结局', pinyin: 'jiéjú', english: 'ending' }] },
+    ]);
+    expect(links['寄']).toEqual([{ char: '寄', kind: 'new', words: [] }]);
+    // Without the dictionary: no common words, so 局 is new too.
+    const bare = await makeCharLinks(index, null)([{ hanzi: '邮局' }]);
+    expect(bare['邮局'].map((l) => l.kind)).toEqual(['known', 'new']);
+  });
+
+  it('check_known_words hands the agent the facts; a word not among them is refused with the facts', async () => {
+    const index = buildVocabIndex(await q.learnerVocabulary(db, 'u1'));
+    const charLinks = makeCharLinks(index, assetsShardLoader(DICT));
+    const bad = JSON.parse(JSON.stringify(SAMPLE_SLEEP_PLAN));
+    bad.words[0].char_notes[0] = { char: '邮', words: ['邮票'], zh: '你学过‘邮票’的‘邮’。' };
+    const turns = [
+      { content: [{ type: 'tool_use', id: 'k1', name: 'check_known_words', input: { words: ['邮局', '寄'] } }] },
+      { content: [{ type: 'tool_use', id: 's1', name: 'submit_lesson', input: { plan: bad } }] },
+      { content: [{ type: 'tool_use', id: 's2', name: 'submit_lesson', input: { plan: SAMPLE_SLEEP_PLAN } }] },
+    ];
+    const seen: string[] = [];
+    let n = 0;
+    const call: ModelCall = async ({ messages }) => {
+      const last = messages[messages.length - 1];
+      if (Array.isArray(last.content)) seen.push(String((last.content[0] as { content?: unknown }).content));
+      return { ...turns[n++], stop_reason: 'tool_use' };
+    };
+    const out = await runAuthor({
+      format: 'sleep',
+      input: { text: '邮局', target_minutes: 5 },
+      index,
+      state: { messages: [{ role: 'user', content: 'go' }], rounds: 0, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+      call,
+      checkpoint: async () => {},
+      deadline: Date.now() + 60_000,
+      charLinks,
+    });
+    expect(out.kind).toBe('done');
+    const checked = JSON.parse(seen[0]) as Array<{ word: string; characters: Array<{ char: string; say: string; words: Array<{ hanzi: string }> }> }>;
+    expect(checked[0].characters.map((c) => [c.char, c.say, c.words.map((w) => w.hanzi)])).toEqual([
+      ['邮', 'known', ['邮件']],
+      ['局', 'common', ['局长', '结局']],
+    ]);
+    expect(checked[1].characters[0]).toMatchObject({ char: '寄', say: 'new', words: [] });
+    expect(seen[1]).toMatch(/"邮票" not among the words given for "邮".*he has LEARNED 邮件/);
+  });
+});
+
 describe('vocabulary for the agent', () => {
   it('statuses and known words per character', async () => {
     const index = buildVocabIndex(await q.learnerVocabulary(db, 'u1'));
-    expect(index.knownWords).toBe(4);
+    expect(index.knownWords).toBe(5);
     const [yin, song, youju] = checkWords(index, ['银', '送', '邮局']);
     expect(yin.status).toBe('new');
     expect(yin.characters[0].words.map((w) => w.hanzi)).toEqual(['银行']);
@@ -216,7 +327,7 @@ describe('vocabulary for the agent', () => {
     expect(a.unfamiliar.map((u) => u.text)).toEqual(['我去邮局寄', '邮局在', '旁边']);
     expect(a.coverage).toBeGreaterThan(0);
     const briefing = buildBriefing('sleep', { text: '邮局在银行旁边。' }, index);
-    expect(briefing).toContain('Knows 4 words');
+    expect(briefing).toContain('Knows 5 words');
     expect(briefing).toContain('Teach about');
   });
 
@@ -224,7 +335,7 @@ describe('vocabulary for the agent', () => {
     const big = JSON.parse(JSON.stringify(SAMPLE_SLEEP_PLAN));
     const second: Array<[string, string, number]> = [['一', 'yī', 1], ['二', 'èr', 4], ['三', 'sān', 1], ['四', 'sì', 4], ['五', 'wǔ', 3], ['六', 'liù', 4], ['七', 'qī', 1], ['八', 'bā', 1], ['九', 'jiǔ', 3], ['十', 'shí', 2], ['甲', 'jiǎ', 3], ['乙', 'yǐ', 3], ['丙', 'bǐng', 3], ['丁', 'dīng', 1]];
     const charTones = (i: number) => [{ char: '词', pinyin: 'cí', tone: 2 }, { char: second[i][0], pinyin: second[i][1], tone: second[i][2] }];
-    for (let i = 0; i < 14; i++) big.words.push({ ...big.words[0], hanzi: `词${'一二三四五六七八九十甲乙丙丁'[i]}`, pinyin: `cí ${second[i][1]}`, char_tones: charTones(i), sentences: big.words[0].sentences.map((s: { hanzi: string }) => ({ ...s, hanzi: s.hanzi.replace('邮局', `词${'一二三四五六七八九十甲乙丙丁'[i]}`) })) });
+    for (let i = 0; i < 14; i++) big.words.push({ ...big.words[0], char_notes: undefined, hanzi: `词${'一二三四五六七八九十甲乙丙丁'[i]}`, pinyin: `cí ${second[i][1]}`, char_tones: charTones(i), sentences: big.words[0].sentences.map((s: { hanzi: string }) => ({ ...s, hanzi: s.hanzi.replace('邮局', `词${'一二三四五六七八九十甲乙丙丁'[i]}`) })) });
     const out = acceptPlan('sleep', { plan: big }, { text: '', target_minutes: 5 });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.problems[0]).toMatch(/minutes/);

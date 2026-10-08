@@ -3,7 +3,8 @@
  * for the TTS providers, so the whole pipeline — agent loop, synthesis,
  * rendering, the player — runs in the E2E suite without keys.
  */
-import { SAMPLE_DIALOGUE_PLAN, SAMPLE_SLEEP_PLAN, type AudioLessonFormat } from '@shared/audio-lesson';
+import { defaultCharNote, SAMPLE_DIALOGUE_PLAN, SAMPLE_SLEEP_PLAN, type AudioLessonFormat, type SleepPlan } from '@shared/audio-lesson';
+import type { CharLinksFn } from './char-links';
 import { assembleMp3, emptyFrame, LESSON_MP3 } from './mp3';
 
 /**
@@ -17,9 +18,25 @@ export function fakeClip(text: string, rate: number): Uint8Array {
   return assembleMp3([{ kind: 'frames', frames }]).bytes;
 }
 
-/** The fake model's answer: the sample plan, as a `submit_lesson` tool call. */
-export function fakeModelResponse(format: AudioLessonFormat, title?: string): { content: Array<Record<string, unknown>>; usage: Record<string, number>; stop_reason: string } {
-  const plan = format === 'dialogue' ? { ...SAMPLE_DIALOGUE_PLAN } : { ...SAMPLE_SLEEP_PLAN };
+/**
+ * The fake model's answer: the sample plan, as a `submit_lesson` tool call. A sleep plan's
+ * char_notes are written from the real facts for this learner (`charLinks`), in the plain wording.
+ */
+export async function fakeModelResponse(
+  format: AudioLessonFormat,
+  title?: string,
+  charLinks?: CharLinksFn,
+): Promise<{ content: Array<Record<string, unknown>>; usage: Record<string, number>; stop_reason: string }> {
+  let plan: Record<string, unknown>;
+  if (format === 'dialogue') plan = { ...SAMPLE_DIALOGUE_PLAN };
+  else {
+    const sleep = JSON.parse(JSON.stringify(SAMPLE_SLEEP_PLAN)) as SleepPlan;
+    if (charLinks) {
+      const links = await charLinks(sleep.words.map((w) => ({ hanzi: w.hanzi, pinyin: w.pinyin })));
+      for (const w of sleep.words) w.char_notes = (links[w.hanzi] ?? []).map(defaultCharNote);
+    }
+    plan = sleep as unknown as Record<string, unknown>;
+  }
   if (title) plan.title = title;
   return {
     stop_reason: 'tool_use',

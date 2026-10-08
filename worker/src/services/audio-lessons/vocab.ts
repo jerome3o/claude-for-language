@@ -4,6 +4,7 @@
  * (`learnerVocabulary`, the same tiers as shared/progress/known.ts). Pure.
  */
 import { isHanCodePoint, noteKind } from '@shared/progress/known';
+import type { CharLinkKind } from '@shared/audio-lesson';
 import type { VocabRow } from '../../db/audio-lesson-queries';
 
 export type WordStatus = 'known' | 'learning' | 'in_deck' | 'new';
@@ -15,6 +16,8 @@ export interface VocabIndex {
   knownWords: number;
   learningWords: number;
   knownChars: Set<string>;
+  /** Characters of every note the learner has REVIEWED (words and sentences): "a new character" is only said outside it. */
+  metChars: Set<string>;
   maxWordLength: number;
 }
 
@@ -31,6 +34,7 @@ export function buildVocabIndex(rows: VocabRow[]): VocabIndex {
   const byHanzi = new Map<string, VocabRow>();
   const byChar = new Map<string, VocabRow[]>();
   const knownChars = new Set<string>();
+  const metChars = new Set<string>();
   let knownWords = 0;
   let learningWords = 0;
   let maxWordLength = 1;
@@ -40,6 +44,7 @@ export function buildVocabIndex(rows: VocabRow[]): VocabIndex {
     byHanzi.set(hanzi, row);
     const chars = hanOf(hanzi);
     if (row.tier >= 2) for (const c of chars) knownChars.add(c);
+    if (row.tier >= 1) for (const c of chars) metChars.add(c);
     if (noteKind(hanzi) !== 'word') continue;
     if (row.tier >= 2) knownWords++;
     else if (row.tier === 1) learningWords++;
@@ -53,7 +58,7 @@ export function buildVocabIndex(rows: VocabRow[]): VocabIndex {
   for (const list of byChar.values()) {
     list.sort((a, b) => b.tier - a.tier || [...a.hanzi].length - [...b.hanzi].length || a.hanzi.localeCompare(b.hanzi));
   }
-  return { byHanzi, byChar, knownWords, learningWords, knownChars, maxWordLength: Math.min(maxWordLength, 6) };
+  return { byHanzi, byChar, knownWords, learningWords, knownChars, metChars, maxWordLength: Math.min(maxWordLength, 6) };
 }
 
 export interface WordCheck {
@@ -61,7 +66,13 @@ export interface WordCheck {
   status: WordStatus;
   card?: { pinyin: string; english: string };
   /** Per character: words the learner knows (or is learning) that contain it — for "银 is the 银 of 银行". */
-  characters: Array<{ char: string; known: boolean; words: Array<{ hanzi: string; pinyin: string; english: string; status: WordStatus }> }>;
+  characters: Array<{
+    char: string;
+    known: boolean;
+    /** Sleep lessons: what the character's line may say (char-links.ts); `words` are then the only words it may name. */
+    say?: CharLinkKind;
+    words: Array<{ hanzi: string; pinyin: string; english: string; status?: WordStatus }>;
+  }>;
 }
 
 /** The `check_known_words` tool. */

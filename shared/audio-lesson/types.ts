@@ -128,6 +128,24 @@ export interface SleepCharTone {
   tone: 1 | 2 | 3 | 4 | 5;
 }
 
+/**
+ * One character's line in a sleep lesson, said right after its tone line (characters.ts): the
+ * words it names come from the facts the worker computed (`pickCharLinks`), never the model's memory.
+ */
+export interface SleepCharNote {
+  /** One distinct Han character of the word, in order. */
+  char: string;
+  /** The words the line names (empty for a new character). */
+  words: string[];
+  /** The spoken line: "你学过‘导游’的‘导’。" / "‘航’也在‘航空’里。"; "" for a new character (the app says that). */
+  zh: string;
+  /**
+   * Stamped by the worker from its facts when the plan is accepted (never trusted from the model):
+   * 'new' = the compiler says one of its own "a new character" lines (phrases.ts) instead of zh.
+   */
+  kind?: 'known' | 'common' | 'other_reading' | 'new' | 'none';
+}
+
 export interface SleepPlan {
   title: string;
   /** Very simple Chinese, 1–3 short sentences. */
@@ -150,8 +168,17 @@ export interface SleepPlan {
        * for plans written before it existed; validateSleepPlan requires it.
        */
       char_tones?: SleepCharTone[];
-      /** Its characters, related to words the learner knows ("'银'就是'银行'的'银'。"): 0–3 sentences. */
-      characters_zh: string[];
+      /**
+       * One entry per DISTINCT character of the word, in order: the line said after that
+       * character's tone ("导，第三声。" → "你学过‘导游’的‘导’。"). Required by the worker since
+       * round 4; plans written before it compile without the lines.
+       */
+      char_notes?: SleepCharNote[];
+      /**
+       * Before round 4: its characters, related to words the learner knows ("'银'就是'银行'的'银'。"),
+       * 0–3 sentences. Empty in plans with char_notes (they replace it).
+       */
+      characters_zh?: string[];
       /**
        * The ONE English line after the word's block, spoken as "The word was 银行: <recap_en>"
        * — the meaning, with the sense pinned down when the English word has several

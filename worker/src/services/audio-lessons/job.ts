@@ -34,6 +34,8 @@ import { anthropicModelCall, AUDIO_LESSON_MODEL, buildBriefing, claudeCostUsd, r
 import { assembleMp3, frameMs, parseMp3Frames, type AssemblyPart } from './mp3';
 import { speakClip, type ClipOutcome, type ClipRequest } from './synth';
 import { buildVocabIndex } from './vocab';
+import { makeCharLinks, type CharLinksFn } from './char-links';
+import { assetsShardLoader } from '../char-dict';
 import { fakeModelResponse } from './fake';
 
 export interface AudioLessonJobMessage {
@@ -123,9 +125,10 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
   try {
     // ---------- 1. writing ----------
     if (!row.script_json) {
-      const call = deps.call ?? (env.E2E_TEST_MODE === 'true' ? fakeCall(row.format) : env.ANTHROPIC_API_KEY ? anthropicModelCall(env.ANTHROPIC_API_KEY) : null);
-      if (!call) return fail('Audio lessons need the Claude key, which is not configured on the server');
       const index = buildVocabIndex(await q.learnerVocabulary(env.DB, row.user_id));
+      const charLinks = makeCharLinks(index, env.CHAR_DICT ? assetsShardLoader(env.CHAR_DICT) : null);
+      const call = deps.call ?? (env.E2E_TEST_MODE === 'true' ? fakeCall(row.format, charLinks) : env.ANTHROPIC_API_KEY ? anthropicModelCall(env.ANTHROPIC_API_KEY) : null);
+      if (!call) return fail('Audio lessons need the Claude key, which is not configured on the server');
       const saved = parseJson<{ messages?: Anthropic.MessageParam[]; usage?: AuthorState['usage'] } | Anthropic.MessageParam[] | null>(row.agent_transcript, null);
       const state: AuthorState = {
         messages: Array.isArray(saved) ? saved : saved?.messages ?? [],
@@ -148,6 +151,7 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
         state,
         call,
         deadline,
+        charLinks,
         checkpoint: (s, progress) => q.patchAudioLesson(env.DB, lessonId, { agent_transcript: { messages: s.messages, usage: s.usage } as unknown as unknown[], rounds: s.rounds, progress }),
       });
       const usage = usageFor(out.state.usage, out.state.rounds, null, null, null);
@@ -289,7 +293,7 @@ export function usageFor(author: AuthorState['usage'], rounds: number, script: A
 }
 
 /** E2E: the fake model answers with the sample plan at once. */
-function fakeCall(format: 'dialogue' | 'sleep'): ModelCall {
-  return async () => fakeModelResponse(format) as unknown as Awaited<ReturnType<ModelCall>>;
+function fakeCall(format: 'dialogue' | 'sleep', charLinks: CharLinksFn): ModelCall {
+  return async () => (await fakeModelResponse(format, undefined, charLinks)) as unknown as Awaited<ReturnType<ModelCall>>;
 }
 
