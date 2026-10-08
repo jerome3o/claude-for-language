@@ -35,6 +35,6 @@ describe('frequencyTier', () => {
 
   it('has a one-line key in tier order', () => {
     expect(FREQUENCY_DECAL_KEY.map((k) => k.tier)).toEqual(['top100', 'top1000', 'top2000', 'rare']);
-    expect(frequencyKeyLine()).toBe('purple top 100 · green top 1,000 · orange top 2,000 · grey rare');
+    expect(frequencyKeyLine()).toBe('purple top 100 · green top 1,000 · yellow top 2,000 · grey rare');
   });
 });

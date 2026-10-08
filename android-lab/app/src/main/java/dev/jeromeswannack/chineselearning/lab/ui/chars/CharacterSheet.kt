@@ -72,7 +72,7 @@ import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyDecal
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.DecalOf
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.FrequencyKeyButton
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.FrequencyKeyLine
-import dev.jeromeswannack.chineselearning.lab.ui.explorer.decalColor
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.decalStyle
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.frequencyDecal
 import kotlinx.coroutines.launch
 
@@ -236,7 +236,7 @@ fun CharacterSheetContent(
         Row(verticalAlignment = Alignment.Top) {
             Box(
                 Modifier.widthIn(min = 76.dp).clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint)
-                    .frequencyDecal(decalColor(ui.decalOf?.invoke(char, DecalKind.CHAR)), RoundedCornerShape(14.dp))
+                    .frequencyDecal(decalStyle(ui.decalOf?.invoke(char, DecalKind.CHAR)), RoundedCornerShape(14.dp))
                     .testTag(CHAR_GLYPH_TAG)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center,
@@ -308,7 +308,7 @@ fun CharacterSheetContent(
                         val tappable = CharDict.isLookupChar(c.char) && c.char != char
                         Row(
                             Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint)
-                                .frequencyDecal(decalColor(if (tappable) ui.decalOf?.invoke(c.char, DecalKind.CHAR) else null), RoundedCornerShape(10.dp))
+                                .frequencyDecal(decalStyle(if (tappable) ui.decalOf?.invoke(c.char, DecalKind.CHAR) else null), RoundedCornerShape(10.dp))
                                 .then(if (tappable) Modifier.clickable { onChar(c.char) }.testTag(CHAR_COMPONENT_TAG) else Modifier)
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -440,7 +440,7 @@ private fun WordRow(row: CharWordRow<CharWordDto>, char: String, decal: Frequenc
             textAlign = TextAlign.Center,
             // The word tile: a rounded square, the same size with or without its frequency decal.
             modifier = Modifier.widthIn(min = 60.dp).alpha(if (known) 0.6f else 1f)
-                .frequencyDecal(decalColor(decal), RoundedCornerShape(8.dp))
+                .frequencyDecal(decalStyle(decal), RoundedCornerShape(8.dp))
                 .testTag(WORD_TILE_TAG)
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         )

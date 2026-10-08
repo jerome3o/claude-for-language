@@ -6,7 +6,7 @@ package dev.jeromeswannack.chineselearning.lab.core.explorer
  * from its rank in the shipped word-freq list (WordFrequency.shipped). Parity-tested
  * (ExplorerParityTest).
  *
- *   top 100 → purple · top 1,000 → green · top 2,000 → orange · in between → none
+ *   top 100 → purple · top 1,000 → green · top 2,000 → yellow · in between → none
  *   rare → grey: not listed, or beyond RARE_WORD_RANK (words) / RARE_CHAR_RANK (characters)
  */
 
@@ -38,7 +38,7 @@ object FrequencyDecals {
     val KEY: List<KeyEntry> = listOf(
         KeyEntry(FrequencyDecal.TOP100, "purple", "top 100"),
         KeyEntry(FrequencyDecal.TOP1000, "green", "top 1,000"),
-        KeyEntry(FrequencyDecal.TOP2000, "orange", "top 2,000"),
+        KeyEntry(FrequencyDecal.TOP2000, "yellow", "top 2,000"),
         KeyEntry(FrequencyDecal.RARE, "grey", "rare"),
     )
 

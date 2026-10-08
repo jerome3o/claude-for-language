@@ -5,7 +5,7 @@
  * is. The rank is the item's place in the shipped word-freq list (shared/decks/frequency.ts —
  * words for a word, characters for a character), looked up in the already-loaded index.
  *
- *   top 100  → purple · top 1,000 → green · top 2,000 → orange · in between → no outline
+ *   top 100  → purple · top 1,000 → green · top 2,000 → yellow · in between → no outline
  *   rare     → grey: not in the list, or ranked beyond RARE_WORD_RANK (words) /
  *              RARE_CHAR_RANK (characters)
  *
@@ -39,11 +39,11 @@ export function frequencyTier(rank: number | null | undefined, kind: 'word' | 'c
 export const FREQUENCY_DECAL_KEY: ReadonlyArray<{ tier: FrequencyDecal; colour: string; label: string }> = [
   { tier: 'top100', colour: 'purple', label: 'top 100' },
   { tier: 'top1000', colour: 'green', label: 'top 1,000' },
-  { tier: 'top2000', colour: 'orange', label: 'top 2,000' },
+  { tier: 'top2000', colour: 'yellow', label: 'top 2,000' },
   { tier: 'rare', colour: 'grey', label: 'rare' },
 ];
 
-/** "purple top 100 · green top 1,000 · orange top 2,000 · grey rare" — the key as one line (screen readers). */
+/** "purple top 100 · green top 1,000 · yellow top 2,000 · grey rare" — the key as one line (screen readers). */
 export function frequencyKeyLine(): string {
   return FREQUENCY_DECAL_KEY.map((k) => `${k.colour} ${k.label}`).join(' · ');
 }
