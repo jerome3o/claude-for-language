@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
 import coachRoutes from './routes/coach';
+import idiomsRoutes from './routes/idioms';
+import { runIdiomJob, type IdiomQueueMessage } from './services/idioms';
 import messageTranslateRoutes from './routes/message-translate';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
@@ -554,6 +556,7 @@ app.use('/api/*', bindAnalyticsScope);
 mountMergedConversations(app);
 app.route('/api', oneChatRoutes);
 app.route('/api', coachRoutes);
+app.route('/api', idiomsRoutes); // 成语 Idioms (beta): GET|POST /api/idioms, GET /api/idioms/:hanzi
 app.route('/api', messageTranslateRoutes);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
@@ -6472,12 +6475,12 @@ export default {
   },
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
     return runInScope({ env, userId: null, route: `queue:${batch.queue}`, waitUntil: (p) => ctx.waitUntil(p) }, () => handleQueueBatch(batch, env));
   },
 };
 
-async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage>, env: Env): Promise<void> {
+async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6814,6 +6817,18 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           console.error('[Queue] card check crashed:', body, err);
           message.retry();
         }
+      }
+    } else if (queueName === 'idiom-queue') {
+      // 成语 Idioms (services/idioms.ts): one structured call per message; the row is written
+      // ready / not_idiom / failed, so every message is acked (Retry re-queues from the page).
+      for (const message of batch.messages) {
+        const { hanzi } = message.body as IdiomQueueMessage;
+        try {
+          console.log('[Queue] idiom', hanzi, await runIdiomJob(env, hanzi));
+        } catch (err) {
+          console.error('[Queue] idiom crashed:', hanzi, err);
+        }
+        message.ack();
       }
     } else if (queueName === 'coach-reply-queue') {
       // Sentence Coach replies (services/coach-replies.ts): checkpointed in D1; 'retry' = a

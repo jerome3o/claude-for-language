@@ -64,6 +64,10 @@ class ExplorerEnv(
     val canWrite: Boolean = false,
     /** A quick drill's right / wrong / good-score feedback (Sounds + Haptics). */
     val drillFx: DrillFx = DrillFx(),
+    /** A ready 成语 entry is on the phone (the "📜 Story & usage" row, docs/IDIOMS.md). */
+    val idiomKnown: suspend (String) -> Boolean = { false },
+    /** "📜 Story & usage" → the idiom page (null = no link: previews). */
+    val openIdiom: ((hanzi: String) -> Unit)? = null,
     /** Stroke data for a drill's "Write it" (null = the app's StrokeStore). */
     val strokeLoader: (suspend (String) -> dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeLoad)? = null,
 )
@@ -117,6 +121,8 @@ fun rememberExplorerEnv(app: LabApp, nav: LabNav?, close: () -> Unit): ExplorerE
                 dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpHanzi(app, hanzi, "explorer", deck).message
             },
             openCard = nav?.let { n -> { id: String -> close(); n.open(Routes.cardHub(id)) } },
+            idiomKnown = { h -> dev.jeromeswannack.chineselearning.lab.data.idioms.IdiomStore.isCached(app, h) },
+            openIdiom = nav?.let { n -> { h: String -> close(); n.open(Routes.idiom(h, "explorer")) } },
             canWrite = true,
             drillFx = DrillFx(
                 right = { app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.CORRECT); app.haptics.correct() },

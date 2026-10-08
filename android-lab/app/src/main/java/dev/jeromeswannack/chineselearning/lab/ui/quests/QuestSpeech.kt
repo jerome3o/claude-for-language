@@ -50,6 +50,24 @@ class QuestSpeech(private val app: LabApp) {
         }
     }
 
+    /** Fetch clips not yet on the phone, one by one (offline reading later: 成语 Idioms' story). */
+    suspend fun prefetch(texts: List<String>) {
+        for (text in texts) {
+            if (text.isBlank() || !app.online.value) continue
+            val file = fileFor(text)
+            if (file.exists()) continue
+            runCatching {
+                val clip = app.repo.api.practiceTts(text, null, null)
+                withContext(Dispatchers.IO) {
+                    dir.mkdirs()
+                    val tmp = File(dir, file.name + ".part")
+                    tmp.writeBytes(Base64.decode(clip.audioBase64, Base64.DEFAULT))
+                    tmp.renameTo(file)
+                }
+            }
+        }
+    }
+
     private fun play(file: File, onEnd: (() -> Unit)?) {
         stop()
         val mp = MediaPlayer()

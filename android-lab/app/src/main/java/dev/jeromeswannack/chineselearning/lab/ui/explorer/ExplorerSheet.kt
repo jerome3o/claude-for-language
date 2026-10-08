@@ -312,6 +312,10 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             ui = ui.copy(statuses = rows.associate { it.word.hanzi to it.status })
         }
     }
+    // A 成语 already on the phone (the "📜 Story & usage" row).
+    LaunchedEffect(Unit) {
+        if (dev.jeromeswannack.chineselearning.lab.core.idioms.Idioms.isShaped(hanzi)) ui = ui.copy(idiomKnown = runCatching { env.idiomKnown(hanzi) }.getOrDefault(false))
+    }
     // The learner's own card and notes (again after an add).
     LaunchedEffect(refresh) { ui = ui.copy(mine = runCatching { env.myWord(hanzi) }.getOrDefault(MyWord())) }
     // A "More about" already on the device opens at once.
@@ -352,6 +356,7 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             onWord = controller::push,
             onMore = ::askMore,
             onDrill = { t, pool -> controller.startDrill(t, pool) },
+            onIdiom = env.openIdiom?.let { open -> { open(hanzi) } },
         ),
         onOpenCard = { ui.mine?.card?.let { c -> env.openCard?.invoke(c.noteId) } },
         onBump = {

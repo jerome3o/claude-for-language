@@ -25,6 +25,7 @@ export type AnalyticsArea =
   | 'readers'
   | 'quests'
   | 'picture_hunt'
+  | 'idioms'
   | 'lessons'
   | 'coach'
   | 'decks'
@@ -177,6 +178,10 @@ export const ANALYTICS_EVENTS = {
   'quest.complete': e('quests', 'Finished a quest.', ['moves']),
   'picture_hunt.create': e('picture_hunt', 'Made a picture hunt.', ['source']),
   'picture_hunt.play_done': e('picture_hunt', 'Finished a picture hunt round.', ['found', 'total', 'gave_up']),
+  'idioms.open': e('idioms', 'Opened a 成语 idiom page (source = list / search / explorer / related; cached = read from the device).', ['source', 'cached']),
+  'idioms.generate': e('idioms', 'An idiom entry started generating (status after the request; retry = Retry after a failure).', ['status', 'retry'], { server: true }),
+  'idioms.add_card': e('idioms', '"+ Add as card" from an idiom page.', []),
+  'idioms.quiz': e('idioms', 'Finished the "Try it" check on an idiom page (practice only, nothing recorded).', ['correct', 'total']),
   'audio_lesson.create': e('lessons', 'Asked for a new audio lesson (docs/AUDIO_LESSONS.md).', ['format', 'target_minutes']),
   'audio_lesson.play': e('lessons', 'Started playing an audio lesson.', ['format', 'offline', 'resumed']),
   'audio_lesson.complete': e('lessons', 'Listened to an audio lesson to the end.', ['format', 'duration_ms']),

@@ -261,6 +261,19 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 4
 
+# Queue for 成语 Idioms (beta; services/idioms.ts): one entry per idiom, written by one long
+# structured call (story + usage + quiz), shared by every account. Clients poll the row.
+# Create with: `wrangler queues create idiom-queue`
+[[queues.producers]]
+queue = "idiom-queue"
+binding = "IDIOM_QUEUE"
+
+[[queues.consumers]]
+queue = "idiom-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+
 # Queue for the tutor's "Needs your ear" recording checks (services/recording-checks.ts):
 # transcribe each pronunciation take and score it with Azure Pronunciation Assessment.
 # One at a time so the free tier's 20 requests / minute is never exceeded.

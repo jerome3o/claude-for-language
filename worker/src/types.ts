@@ -29,6 +29,8 @@ export interface Env {
   /** Sentence Coach replies in the background (services/coach-replies.ts). */
   COACH_REPLY_QUEUE?: Queue<import('./services/coach-replies').CoachReplyMessage>;
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
+  /** 成语 Idioms (beta): one generated entry per idiom (services/idioms.ts, docs/IDIOMS.md). */
+  IDIOM_QUEUE?: Queue<import('./services/idioms').IdiomQueueMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
   TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
   /** One rate limiter per TTS provider (idFromName = minimax | azure | google; docs/AUDIO.md). Optional so tests run without it. */

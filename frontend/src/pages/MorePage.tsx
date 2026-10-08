@@ -130,6 +130,7 @@ export function MorePage() {
             <NavSection title="Tools">
               <NavRow icon="🧑‍🏫" label="Sentence Coach" desc="Check or translate a sentence" to="/coach" />
               <NavRow icon="🔍" label="Sentence Breakdown" desc="Split any sentence into words" to="/analyze" />
+              <NavRow icon="📜" label="成语 Idioms (beta)" desc="The story behind each idiom, and how to use it" to="/idioms" />
             </NavSection>
           </>
         ) : (<>
@@ -146,6 +147,7 @@ export function MorePage() {
           <NavRow icon="✍️" label="Write characters (preview)" desc="Stroke order, checked stroke by stroke" to="/practice/strokes" />
           <NavRow icon="🎮" label="Quests" desc="Carry out instructions in a tiny world" to="/quests" />
           <NavRow icon="🔎" label="Picture hunt" desc="看图找词 · Name what you see in a picture" to="/picture-hunt" />
+          <NavRow icon="📜" label="成语 Idioms (beta)" desc="The story behind each idiom, and how to use it" to="/idioms" />
           <NavRow icon="🎧" label="Audio lessons" desc="Listen on the train, or fall asleep to slow Chinese" to="/audio-lessons" />
           <NavRow icon="📹" label="Video calls (beta)" desc="Live lessons with a whiteboard, then a transcript" to="/calls" />
           <NavRow icon="📑" label="Lesson materials" desc="PDFs and slides from lessons" to="/materials" />
