@@ -74,6 +74,8 @@ export const ANALYTICS_EVENTS = {
   'study.sentence_coach': e('study', 'Opened the Sentence coach from a study card.', []),
   'study.write_it': e('study', 'Opened stroke-order practice (Write it).', []),
   'study.take_transcribed': e('study', 'A pronunciation take got its "You said" (via = live | upload | failed | offline; live_error = why the live Soniox stream gave nothing: none | timeout | soniox_<code> | closed | empty | socket | no_session | aborted; ms = Stop → result).', ['via', 'live_error', 'ms']),
+  'study.answer_spoken': e('study', 'Said the answer of a typing card with the 🎤 button (result = submitted | filled | failed | empty | cancelled; via = live | upload | none; live_error as in study.take_transcribed; speech_ms = how long the mic was open; ms = stop → transcript; auto_submit = "Submit spoken answers automatically").', ['card_type', 'result', 'via', 'live_error', 'speech_ms', 'ms', 'auto_submit']),
+  'study.spoken_answer_checked': e('study', 'A spoken answer was checked on a typing card (verdict = exact | punctuation_only | equivalent | alternative | sound — a homophone | close — other tones | wrong).', ['card_type', 'verdict']),
   'study.char_sheet_open': e('study', 'Tapped a character on the card back: the character sheet (dictionary + words with it).', ['found', 'words']),
   'study.char_word_tap': e('study', 'Tapped a word in the character sheet\'s "Words with 字" list.', ['status', 'current']),
   'study.char_word_added': e('study', 'Added a word from the character sheet as a card.', []),

@@ -1029,6 +1029,16 @@ kept either way. A take Soniox refuses for its key (401 / 403, `liveFailureInval
 *binary* frame is just an empty audio chunk to Soniox — the Lab app sent that until Oct 2026, so every take timed out
 after 4 s and went the upload way. Every take emits `study.take_transcribed { via, live_error, ms }` (analytics), so a
 broken live path shows in `event_counts` without reading logs.
+**Say the answer** on the typing cards (meaning → hanzi, audio → hanzi; docs/STUDY_SESSION.md "Say the answer"): a 🎤
+beside the answer box runs the SAME take (recorder + live stream, upload fallback, "tap to retry") with the transcript shown
+in the box as it is spoken (`LiveTranscriber` / `SonioxStream` `onUpdate`); ⏹ makes the final text the answer, submitted at
+once when Settings → Study → "Submit spoken answers automatically" is on (default, per device). The take rides with the
+review (`recording_url`, offline queue) and the review's answer is the transcript — no schema change. Homophones count by
+sound: `checkSpokenAnswer` in `shared/cards/answer.ts` (also `checkTypedAnswer`, the typed AnswerDiff decision; Lab
+`AnswerKey.checkSpoken`, parity-tested) accepts other hanzi whose toned pinyin (automatic pinyin + 一 / 不, or the note's
+pinyin) is the answer's — "Sounded right ✓ — written 由"; other tones = `close` (wrong). Web `hooks/useSpokenAnswer.ts` +
+`services/spokenAnswer.ts` (pure controller, unit-tested); Lab `StudyViewModel` "say the answer". Analytics
+`study.answer_spoken`, `study.spoken_answer_checked`.
 - `POST /api/transcribe/live` - `{ provider: 'soniox', api_key, expires_at, websocket_url, model, language_hints }` or `{ provider: 'upload' }`; 502 when Soniox refuses (client falls back)
 - `POST /api/transcribe` - multipart `file` (+ `live_error`, `client`) → `{ text, language, provider }`; 502 `{ error, providers }` when every provider failed (`routes/transcription.ts`)
 - `GET /api/admin/transcription` - admin: which providers are configured (booleans only, never a key)

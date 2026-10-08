@@ -50,6 +50,8 @@ import { ensureAudioForNote, isPending, nextAskInMs, reportBrokenClip } from '..
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
+import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
+import { checkSpokenAnswer, checkTypedAnswer, spokenVerdictNote } from '@shared/cards/answer';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
@@ -115,7 +117,6 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
-import { hanziAnswerKey, stripAnswerPunctuation } from '../utils/numberHanzi';
 import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
@@ -124,7 +125,6 @@ function canWriteHanzi(hanzi: string): boolean {
   return n >= 1 && n <= 6;
 }
 
-function normalizeHanzi(s: string) { return s.trim().toLowerCase(); }
 
 const EMPTY_TUTOR_NOTES: LocalRecordingNote[] = [];
 
@@ -140,29 +140,23 @@ function formatAddedDate(createdAt: string | null | undefined): string | null {
   return `Added ${date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`;
 }
 
-// Character diff component for typed answers (Anki-style)
-function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick }: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void }) {
-  const normalizedUser = normalizeHanzi(userAnswer);
-  const normalizedCorrect = normalizeHanzi(correctAnswer);
-  const isFullyCorrect = normalizedUser === normalizedCorrect;
-
-  // A punctuation-only difference (e.g. a missing trailing 。) is functionally
-  // correct — the hanzi are identical. Treat it like a full match and show a
-  // single green row rather than the "your answer / canonical answer" diff.
-  const isPunctuationOnlyMatch = !isFullyCorrect &&
-    stripAnswerPunctuation(userAnswer) === stripAnswerPunctuation(correctAnswer);
-
-  // Equivalence key: numbers normalized to hanzi (typing "7" matches 七),
-  // 两/二 treated the same, punctuation ignored (missing trailing 。 is fine).
-  const userKey = hanziAnswerKey(userAnswer);
-
-  // Check if user matched the answer up to number/punctuation equivalence,
-  // or an acceptable alternative (exact or equivalent).
-  const matchedAlternative = isFullyCorrect
-    ? null
-    : userKey === hanziAnswerKey(correctAnswer)
-      ? correctAnswer
-      : alternatives?.find(alt => normalizeHanzi(alt) === normalizedUser || hanziAnswerKey(alt) === userKey) ?? null;
+/**
+ * Character diff for typed answers (Anki-style). The decision is shared/cards/answer.ts:
+ * exact / punctuation-only → one green row; equivalent (numbers, 两 / 二) or a listed
+ * alternative → green + the canonical answer; otherwise the character diff. A SPOKEN answer
+ * (🎤, `spoken`) is also right by sound: a homophone transcript (油 for 由) shows the expected
+ * characters green with "Sounded right ✓ — written 由"; other tones are `close` (the diff + a note).
+ */
+function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick, spoken, notePinyin }: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; spoken?: boolean; notePinyin?: string }) {
+  const verdict = spoken
+    ? checkSpokenAnswer(userAnswer, correctAnswer, alternatives ?? [], notePinyin ?? '')
+    : checkTypedAnswer(userAnswer, correctAnswer, alternatives ?? []);
+  const isFullyCorrect = verdict === 'exact';
+  // A punctuation-only difference (e.g. a missing trailing 。) is functionally correct.
+  const isPunctuationOnlyMatch = verdict === 'punctuation_only';
+  // Matched up to number / punctuation equivalence, or an acceptable alternative.
+  const matchedAlternative = verdict === 'equivalent' || verdict === 'alternative' ? correctAnswer : null;
+  const spokenNote = spokenVerdictNote(verdict, correctAnswer);
 
   const userChars = [...userAnswer];
 
@@ -185,6 +179,23 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
           ))}
         </div>
         <div className="answer-diff-pinyin">{greenPinyin}</div>
+      </div>
+    );
+  }
+
+  if (verdict === 'sound') {
+    // Said right, written with other characters (speech can't tell 由 / 油 apart): the answer in green.
+    const canonicalChars = [...correctAnswer];
+    return (
+      <div className="answer-diff" data-testid="spoken-answer-sound" data-verdict="sound">
+        <div className="answer-diff-row">
+          {canonicalChars.map((c, i) => (
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{c}</span>
+          ))}
+        </div>
+        <div className="answer-diff-pinyin">{canonicalPinyin}</div>
+        <div className="answer-diff-spoken-note">{spokenNote}</div>
+        <div className="answer-diff-alternative-label">You said: {userAnswer}</div>
       </div>
     );
   }
@@ -214,7 +225,8 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
   // A wrong answer: character by character against the canonical answer
   const diff = typedAnswerDiff(userAnswer, correctAnswer);
   return (
-    <div className="answer-diff" data-testid="typed-answer-diff">
+    <div className="answer-diff" data-testid="typed-answer-diff" data-verdict={verdict}>
+      {spokenNote && <div className="answer-diff-spoken-note answer-diff-spoken-note--close">{spokenNote}</div>}
       <div className="answer-diff-row">
         {diff.typed.map((c, i) => <DiffCellView key={i} cell={c} clickable={clickable} onCharacterClick={onCharacterClick} />)}
       </div>
@@ -542,6 +554,25 @@ export function StudyCard({
   );
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
 
+  // Say the answer (typing cards, docs/STUDY_SESSION.md): 🎤 streams to the same live
+  // transcriber as a read card's take; the transcript becomes the answer (checked at once when
+  // "Submit spoken answers automatically" is on). `spokenText` = the answer as spoken — while the
+  // box still holds exactly it, the back checks it in spoken mode (homophones count by sound).
+  const [spokenText, setSpokenText] = useState<string | null>(null);
+  const [micHint, setMicHint] = useState(false);
+  const spoken = useSpokenAnswer({
+    recorder: { startRecording, stopRecording, cancelRecording, clearRecording },
+    micDeviceId,
+    cardType: card.card_type,
+    online: aiAvailable,
+    onResult: (text, submit) => {
+      setUserAnswer(text);
+      setSpokenText(text);
+      if (submit) setFlipped(true);
+      else window.setTimeout(() => inputRef.current?.focus(), 0);
+    },
+  });
+
   // Track initial 0.5s delay to prevent accidental stop clicks
   const [isRecordingDelayActive, setIsRecordingDelayActive] = useState(false);
   const recordingDelayTimeoutRef = useRef<number | null>(null);
@@ -763,8 +794,22 @@ export function StudyCard({
   // time the answer shows: the live (Soniox) result when it streamed, else the upload.
   liveAllowedRef.current = isSpeakingCard && aiAvailable;
   useEffect(() => {
-    if (isSpeakingCard && aiAvailable) prefetchLiveSession();
-  }, [isSpeakingCard, aiAvailable]);
+    // Read cards record a take; typing cards' 🎤 says the answer — both stream live.
+    if ((isSpeakingCard || isTypingCard) && aiAvailable) prefetchLiveSession();
+  }, [isSpeakingCard, isTypingCard, aiAvailable]);
+
+  // A spoken answer, checked: which way it went (enums only — never the transcript).
+  const answerWasSpoken = isTypingCard && !!spokenText && userAnswer.trim() === spokenText;
+  const spokenCheckTracked = useRef(false);
+  useEffect(() => {
+    if (!flipped || !answerWasSpoken || spokenCheckTracked.current) return;
+    spokenCheckTracked.current = true;
+    const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!); } catch { return []; } })() : [];
+    track('study.spoken_answer_checked', {
+      card_type: card.card_type,
+      verdict: checkSpokenAnswer(userAnswer, card.note.hanzi, alts, card.note.pinyin),
+    });
+  }, [flipped, answerWasSpoken, userAnswer, card.card_type, card.note.alternatives, card.note.hanzi, card.note.pinyin]);
   useEffect(() => {
     if (isSpeakingCard && audioBlob) {
       transcribe(audioBlob, card.note.hanzi, card.note.pinyin, livePromiseRef.current);
@@ -1365,6 +1410,8 @@ export function StudyCard({
                 correctAnswer={card.note.hanzi}
                 alternatives={card.note.alternatives ? JSON.parse(card.note.alternatives) : undefined}
                 onCharacterClick={handleCharacterClick}
+                spoken={answerWasSpoken}
+                notePinyin={card.note.pinyin}
               />
           </div>
         ) : (
@@ -2141,21 +2188,78 @@ export function StudyCard({
         {mcFallbackNote && (
           <p className="study-mc-note" data-testid="mc-fallback-note">{mcFallbackNote}</p>
         )}
-        <input
-          ref={inputRef}
-          type="text"
-          lang="zh-CN"
-          className="form-input study-typing-input"
-          value={userAnswer}
-          onChange={(e) => setUserAnswer(e.target.value)}
-          placeholder={placeholder}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleFlip();
-          }}
-        />
-        <button className="btn btn-primary btn-block" onClick={handleFlip}>
-          Check Answer
-        </button>
+        <div className="study-typing-row">
+          {spoken.busy ? (
+            // What is being said, live: confirmed text black, the provisional tail grey.
+            <div className="form-input study-typing-input study-spoken-live" data-testid="spoken-live" aria-live="polite">
+              {spoken.finalText || spoken.partialText ? (
+                <>
+                  <span className="study-spoken-final">{spoken.finalText}</span>
+                  <span className="study-spoken-interim">{spoken.partialText}</span>
+                </>
+              ) : (
+                <span className="study-spoken-placeholder">{spoken.phase === 'finishing' ? 'Finishing…' : 'Listening… say the answer'}</span>
+              )}
+            </div>
+          ) : (
+            <input
+              ref={inputRef}
+              type="text"
+              lang="zh-CN"
+              className="form-input study-typing-input"
+              value={userAnswer}
+              onChange={(e) => setUserAnswer(e.target.value)}
+              placeholder={placeholder}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleFlip();
+              }}
+            />
+          )}
+          <button
+            type="button"
+            className={`study-mic-btn${spoken.listening ? ' is-listening' : ''}${!aiAvailable ? ' is-unavailable' : ''}`}
+            aria-label={spoken.listening ? 'Stop and use what I said' : 'Say the answer'}
+            aria-disabled={!aiAvailable || spoken.phase === 'finishing'}
+            data-testid="spoken-mic"
+            onClick={() => {
+              if (!aiAvailable) { setMicHint(true); return; }
+              if (spoken.phase === 'finishing') return;
+              setMicHint(false);
+              if (spoken.listening) spoken.stop();
+              else {
+                stopAudio(); // a listen card's clip must not play into the microphone
+                spoken.start();
+              }
+            }}
+          >
+            {spoken.listening ? '⏹' : '🎤'}
+          </button>
+        </div>
+        {spoken.busy && (
+          <button type="button" className="study-spoken-cancel" onClick={spoken.cancel} data-testid="spoken-cancel">
+            ✕ Cancel
+          </button>
+        )}
+        {micHint && !aiAvailable && (
+          <p className="study-spoken-hint" data-testid="spoken-offline-hint">Saying the answer needs a connection — type it instead.</p>
+        )}
+        {recorderError && !spoken.busy && (
+          <p className="study-spoken-hint" data-testid="spoken-mic-error">{recorderError}</p>
+        )}
+        {spoken.phase === 'failed' && spoken.failure !== 'empty' && (
+          <button type="button" className="transcription-result transcription-failed" data-testid="spoken-retry" onClick={spoken.retry}>
+            Couldn’t transcribe — tap to retry
+            <span className="transcription-failed-note">Or type your answer</span>
+          </button>
+        )}
+        {spoken.phase === 'failed' && spoken.failure === 'empty' && (
+          <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap 🎤 to try again, or type it.</p>
+        )}
+        {!spoken.busy && (
+          <button className="btn btn-primary btn-block" onClick={handleFlip}>
+            Check Answer
+          </button>
+        )}
       </div>
     );
   };
@@ -2435,7 +2539,7 @@ export function StudyCard({
           there sat on top of the rating buttons. */}
       {isAudioCard && !flipped && (
         <button
-          className={`audio-replay-fab${isPlaying ? ' audio-replay-fab--playing' : ''}`}
+          className={`audio-replay-fab${isPlaying ? ' audio-replay-fab--playing' : ''}${!showMultipleChoice ? ' audio-replay-fab--above-typing' : ''}`}
           onClick={cycleAndPlay}
           disabled={isPlaying}
           aria-label="Replay audio"

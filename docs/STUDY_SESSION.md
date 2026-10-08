@@ -614,6 +614,42 @@ shortened on phones) and a tap cycles auto → forced → auto. When offline:
   multiple choice) is disabled with a "Needs internet" title. Cached sentences and cached
   multiple-choice options still work.
 
+## Say the answer (🎤 on the typing cards)
+
+The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the answer box (web
+`hooks/useSpokenAnswer.ts` + `services/spokenAnswer.ts`; Lab `StudyViewModel` "say the answer" +
+`CardStage` `SpokenMicButton`). It is the read cards' pronunciation take, not a fork:
+
+- **Tap 🎤** → the SAME recorder and live Soniox stream as a read card's take (web
+  `useAudioRecorder` + `LiveTranscriber`, Lab `VoiceRecorder.startLive` + `SonioxStream`); the box
+  turns into the live transcript — confirmed text in ink, the provisional tail grey (the
+  transcriber's `onUpdate`). **✕ Cancel** throws the take away and fills nothing. A listen card's
+  clip is stopped first so it doesn't play into the microphone.
+- **Tap ⏹** → the final text is the answer. With **Settings → Study → "Submit spoken answers
+  automatically"** on (the default; per device: web localStorage `spoken-answer-auto-submit-v1`,
+  Lab `StudyPrefs.spokenAutoSubmit`) it is checked at once — the same path as Check; off, it only
+  fills the box and Enter / Check submits it.
+- **The take is kept**: it rides with the review like a read card's (`recording_url` via the
+  offline recording queue — web `pendingRecordings`, Lab outbox `rec-<eventId>`), so the tutor can
+  hear it; the review's `answer` is the transcript. No schema change.
+- **Fallback, never silent**: live missing / failing / empty → the take is uploaded to
+  `POST /api/transcribe` (`transcribeTakeOutcome`, Lab `TakeTranscription.outcome`). Both failing →
+  "Couldn't transcribe — tap to retry" (the same take, upload only), the box stays editable, nothing
+  is submitted. Nothing heard → "Didn't catch anything — tap 🎤 to try again, or type it".
+- **Offline**: the 🎤 stays, dimmed; a tap says "Saying the answer needs a connection — type it
+  instead." Typing is never blocked.
+- **Homophones** (`shared/cards/answer.ts` `checkSpokenAnswer`, Lab `AnswerKey.checkSpoken`,
+  parity-tested by `parity/fixtures/spoken-answer.ts`): speech can't tell 由 / 油 / 游 apart, so a
+  spoken answer whose hanzi differ but whose pinyin WITH TONES matches the card's (the app's
+  automatic pinyin over the answer key — numbers → hanzi, 两 → 二, punctuation dropped — then the
+  一 / 不 tone changes; the note's own written pinyin and the alternatives count as targets too) is
+  **right by sound**: the expected characters in green with "Sounded right ✓ — written 由" and "You
+  said: 油". The same syllables with other tones is **close** — still wrong (the diff, plus "Close —
+  the tones are off"). Exact hanzi = right, as typed. Edited after speaking = a typed answer again.
+  The expected answer is never sent to Soniox (no context) — it would bias recognition.
+- Analytics: `study.answer_spoken` (result submitted / filled / failed / empty / cancelled, via,
+  live_error, speech_ms, ms, auto_submit) and `study.spoken_answer_checked` (verdict).
+
 ## Multiple choice
 
 Options come from the note's cached `multiple_choice_options`; otherwise a generation request

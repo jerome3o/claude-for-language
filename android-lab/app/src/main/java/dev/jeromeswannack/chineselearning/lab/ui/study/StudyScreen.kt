@@ -113,6 +113,13 @@ class StudyActions(
     val onCancelRecording: () -> Unit = {},
     /** "Couldn't transcribe — tap to retry" (the same saved take). */
     val onRetryTranscription: () -> Unit = {},
+    // say the answer (typing cards: 🎤)
+    val onStartSpoken: () -> Unit = {},
+    val onStopSpoken: () -> Unit = {},
+    val onCancelSpoken: () -> Unit = {},
+    val onRetrySpoken: () -> Unit = {},
+    /** The back checked a spoken answer (analytics). */
+    val onSpokenChecked: (AnswerKey.Verdict) -> Unit = {},
     val recordingLevel: kotlinx.coroutines.flow.StateFlow<Float> = kotlinx.coroutines.flow.MutableStateFlow(0f),
     /** "Use in sentence" when the note has none yet, and ↻ on the shown one. */
     val onGenerateSentenceClue: () -> Unit = {},
@@ -221,6 +228,11 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onClearRecording = vm::clearRecording,
             onCancelRecording = vm::cancelRecording,
             onRetryTranscription = vm::retryTranscription,
+            onStartSpoken = vm::startSpokenAnswer,
+            onStopSpoken = vm::stopSpokenAnswer,
+            onCancelSpoken = vm::cancelSpokenAnswer,
+            onRetrySpoken = vm::retrySpokenAnswer,
+            onSpokenChecked = vm::onSpokenAnswerChecked,
             recordingLevel = vm.level,
             sendFlag = vm::flag,
             edit = EditCardActions(

@@ -49,6 +49,8 @@ class StudyViewModel(
     private val practice: PracticeSpec? = null,
     /** The microphone (tests pass a fake: Robolectric's MediaRecorder writes nothing). */
     newRecorder: ((kotlinx.coroutines.CoroutineScope) -> VoiceRecorder)? = null,
+    /** Where a typing card's spoken answer is transcribed (tests pass a fake; default: Soniox live + the upload). */
+    newSpokenTranscription: SpokenTranscription? = null,
 ) : ViewModel() {
     private val repo = app.repo
     private val zone = ZoneId.systemDefault()
@@ -365,6 +367,8 @@ class StudyViewModel(
         saveResumePoint()
         app.audio.stop()
         extras.stopAudio() // Package B
+        // A spoken answer being said is dropped (the box keeps what it had); a read card's take is kept.
+        if (_ui.value.extras.spoken.busy) cancelSpokenAnswer()
         if (recorder.recording) currentView()?.let { stopRecording(flipped = false) }
         app.scope.launch {
             if (app.online.value) {
@@ -504,6 +508,7 @@ class StudyViewModel(
         take?.delete()
         take = null
         dropLive()
+        dropSpoken()
         recordingAgain = false
         replayJob?.cancel()
         _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras(), practice = it.practice?.copy(counts = practiceCounts(card))) }
@@ -535,7 +540,8 @@ class StudyViewModel(
             // Auto-audio: a missing or 404ing clip is made now (queued while offline).
             app.noteAudio.checkCard(view.note)
             if (!aiAvailable) return@launch
-            if (view.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING) liveKeys.prefetch(viewModelScope)
+            // Read cards record a take; typing cards' 🎤 says the answer — both stream live.
+            liveKeys.prefetch(viewModelScope)
             runCatching { tools.voices(view.note.id) }.getOrNull()?.let { v -> updateExtras(view) { it.copy(voices = v) } }
             // Nothing cached but online: the set may exist server-side and not have synced yet.
             if (view.sentences.isEmpty()) runCatching { tools.fetchSetIfMissing(view.note.id) }.getOrNull()?.let { showSentences(view.note.id, it) }
@@ -956,6 +962,186 @@ class StudyViewModel(
         )
     }
 
+    // ---------------- say the answer (typing cards) ----------------
+
+    /**
+     * The 🎤 on a typing card (docs/STUDY_SESSION.md "Say the answer"; the web's useSpokenAnswer):
+     * the SAME recorder + live Soniox stream as a read card's take, the transcript shown as it is
+     * spoken, then — at Stop — the final text as the answer (checked at once when
+     * "Submit spoken answers automatically" is on). Fallback: the upload, like a read card. Both
+     * failing: "Couldn't transcribe — tap to retry", nothing submitted. The take is [take], so it
+     * goes up with the review (recording_url) like a read card's.
+     */
+    private val spokenTranscription: SpokenTranscription = newSpokenTranscription ?: object : SpokenTranscription {
+        override fun open(onUpdate: (SonioxProtocol.Transcript) -> Unit): LiveStream? =
+            liveKeys.usable()?.let { runCatching { SonioxStream(repo.api.http, it, onUpdate) }.getOrNull() }
+        override suspend fun upload(take: java.io.File, mime: String, liveError: String?): String = repo.api.transcribe(take, mime, liveError).text
+    }
+    private var spokenStream: LiveStream? = null
+    private var spokenJob: Job? = null
+    /** Bumped by every spoken take / cancel / new card: an older result never lands. */
+    private var spokenGeneration = 0
+    private var spokenStartedAt = 0L
+    private var spokenSpeechMs = 0L
+    private var spokenSeq = 0
+
+    private fun updateSpoken(view: CardView, change: (SpokenUi) -> SpokenUi) = updateExtras(view) { it.copy(spoken = change(it.spoken)) }
+
+    private fun dropSpoken() {
+        spokenGeneration++
+        spokenJob?.cancel()
+        spokenJob = null
+        spokenStream?.abort()
+        spokenStream = null
+    }
+
+    fun startSpokenAnswer() {
+        val v = currentView() ?: return
+        if (v.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING) return
+        if (_ui.value.extras.spoken.busy) return
+        if (!aiAvailable) return updateSpoken(v) { it.copy(offlineHint = true) }
+        dropSpoken()
+        val gen = spokenGeneration
+        if (recorder.recording) recorder.stop()?.delete()
+        take?.delete()
+        take = null
+        app.audio.stop() // a listen card's clip must not play into the microphone
+        recorder.stopPlayback()
+        val stream = spokenTranscription.open { t ->
+            viewModelScope.launch {
+                if (gen == spokenGeneration && _ui.value.extras.spoken.listening && currentView()?.presentation == v.presentation) {
+                    updateSpoken(v) { it.copy(finalText = t.finalText, partialText = t.partialText) }
+                }
+            }
+        }
+        val started = when {
+            stream != null && recorder.startLive { buf, n -> stream.send(buf, n) } -> { spokenStream = stream; true }
+            else -> { stream?.abort(); recorder.start() }
+        }
+        if (!started) {
+            updateExtras(v) { it.copy(notice = "Couldn't open the microphone.", spoken = SpokenUi()) }
+            return
+        }
+        spokenStartedAt = System.currentTimeMillis()
+        spokenSpeechMs = 0
+        app.haptics.tick()
+        updateSpoken(v) { SpokenUi(phase = SpokenPhase.LISTENING) }
+    }
+
+    /** 🎤 again (⏹): stop; the transcript becomes the answer. */
+    fun stopSpokenAnswer() {
+        val v = currentView() ?: return
+        if (!_ui.value.extras.spoken.listening) return
+        val gen = spokenGeneration
+        val stoppedAt = System.currentTimeMillis()
+        spokenSpeechMs = stoppedAt - spokenStartedAt
+        val file = recorder.stop()
+        val stream = spokenStream
+        spokenStream = null
+        app.haptics.tick()
+        if (file == null) {
+            stream?.abort()
+            landSpoken(v, null, 0, streamed = false, empty = true)
+            return
+        }
+        take = file
+        takeGeneration++
+        val mime = recorder.mime
+        updateSpoken(v) { it.copy(phase = SpokenPhase.FINISHING) }
+        val live = stream?.let { s -> viewModelScope.async { s.finish() } }
+        spokenJob = viewModelScope.launch {
+            val outcome = TakeTranscription.outcome(
+                live = live,
+                online = { aiAvailable },
+                compare = { text -> Transcription.compare(text, v.note.hanzi) },
+                upload = { liveError -> spokenTranscription.upload(file, mime, liveError) },
+            )
+            if (gen != spokenGeneration) return@launch
+            outcome.liveError?.let { reason ->
+                android.util.Log.w("spoken", "live gave nothing, uploaded instead: $reason")
+                if (SonioxProtocol.invalidatesKey(reason)) liveKeys.invalidate()
+            }
+            landSpoken(v, outcome, System.currentTimeMillis() - stoppedAt, streamed = live != null)
+        }
+    }
+
+    /** ✕ while listening / finishing: nothing is filled in, the take is thrown away. */
+    fun cancelSpokenAnswer() {
+        val v = currentView() ?: return
+        val sp = _ui.value.extras.spoken
+        if (sp.phase == SpokenPhase.IDLE) return
+        val wasBusy = sp.busy
+        if (sp.listening) {
+            spokenSpeechMs = System.currentTimeMillis() - spokenStartedAt
+            recorder.stop()?.delete()
+        } else if (sp.phase == SpokenPhase.FINISHING) {
+            take?.delete()
+            take = null
+        }
+        dropSpoken()
+        if (wasBusy) trackSpoken(v, "cancelled", null, 0, streamed = false)
+        updateSpoken(v) { SpokenUi(result = it.result) }
+    }
+
+    /** "Couldn't transcribe — tap to retry": the same take, upload only. */
+    fun retrySpokenAnswer() {
+        val v = currentView() ?: return
+        val sp = _ui.value.extras.spoken
+        val file = take ?: return
+        if (sp.phase != SpokenPhase.FAILED || sp.failure == SpokenFailure.EMPTY) return
+        dropSpoken()
+        val gen = spokenGeneration
+        val mime = recorder.mime
+        val startedAt = System.currentTimeMillis()
+        updateSpoken(v) { it.copy(phase = SpokenPhase.FINISHING, failure = null) }
+        spokenJob = viewModelScope.launch {
+            val outcome = TakeTranscription.outcome(
+                live = null,
+                online = { aiAvailable },
+                compare = { text -> Transcription.compare(text, v.note.hanzi) },
+                upload = { liveError -> spokenTranscription.upload(file, mime, liveError) },
+            )
+            if (gen == spokenGeneration) landSpoken(v, outcome, System.currentTimeMillis() - startedAt, streamed = false)
+        }
+    }
+
+    private fun landSpoken(v: CardView, outcome: TakeTranscription.Outcome?, ms: Long, streamed: Boolean, empty: Boolean = false) {
+        val text = (outcome?.ui as? TranscriptionUi.Done)?.result?.transcribedHanzi?.trim().orEmpty()
+        if (!empty && text.isNotEmpty()) {
+            val submit = studyPrefs.spokenAutoSubmit
+            trackSpoken(v, if (submit) "submitted" else "filled", outcome, ms, streamed)
+            updateSpoken(v) { SpokenUi(result = SpokenResult(text, submit, ++spokenSeq)) }
+            return
+        }
+        val failure = when {
+            empty || outcome?.ui is TranscriptionUi.Done -> SpokenFailure.EMPTY
+            outcome?.ui == TranscriptionUi.Offline -> SpokenFailure.OFFLINE
+            else -> SpokenFailure.FAILED
+        }
+        trackSpoken(v, if (failure == SpokenFailure.EMPTY) "empty" else "failed", outcome, ms, streamed)
+        app.haptics.wrong()
+        updateSpoken(v) { SpokenUi(phase = SpokenPhase.FAILED, failure = failure, result = it.result) }
+    }
+
+    /** A spoken answer was checked on the back (`study.spoken_answer_checked`; enums only — never the transcript). */
+    fun onSpokenAnswerChecked(verdict: AnswerKey.Verdict) {
+        val v = currentView() ?: return
+        app.analytics.track("study.spoken_answer_checked", mapOf("card_type" to v.card.cardType, "verdict" to AnswerKey.verdictName(verdict)))
+    }
+
+    /** `study.answer_spoken`: enums, durations and a boolean only — never the transcript. */
+    private fun trackSpoken(v: CardView, result: String, outcome: TakeTranscription.Outcome?, ms: Long, streamed: Boolean) {
+        app.analytics.track("study.answer_spoken", mapOf(
+            "card_type" to v.card.cardType,
+            "result" to result,
+            "via" to (outcome?.via ?: "none"),
+            "live_error" to if (streamed) SonioxProtocol.errorKind(outcome?.liveError) else "none",
+            "speech_ms" to spokenSpeechMs.coerceAtLeast(0),
+            "ms" to ms.coerceAtLeast(0),
+            "auto_submit" to studyPrefs.spokenAutoSubmit,
+        ))
+    }
+
     // ---------------- multiple choice ----------------
 
     private fun updateMc(view: CardView, change: (McUi) -> McUi) = updateExtras(view) { it.copy(mc = change(it.mc)) }
@@ -1189,8 +1375,11 @@ class StudyViewModel(
     fun onRevealed(verdict: AnswerKey.Verdict?) {
         currentView()?.let { v ->
             revealedPresentation = v.presentation
+            if (_ui.value.extras.spoken.busy) cancelSpokenAnswer()
+            val readCard = v.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING
             if (_ui.value.extras.take.recording) stopRecording(flipped = true)
-            else if (take != null && _ui.value.extras.take.transcription == null) transcribe(v)
+            // A typing card's take is its spoken answer, already transcribed — no "You said" line.
+            else if (readCard && take != null && _ui.value.extras.take.transcription == null) transcribe(v)
         }
         when {
             verdict == null -> { app.sounds.play(Sounds.Sfx.FLIP, 0.5f); app.haptics.flip() }
@@ -1229,7 +1418,7 @@ class StudyViewModel(
         app.sounds.ratingPop()
         app.analytics.track("study.card_rated", mapOf(
             "rating" to RATING_NAMES.getOrNull(rating), "card_type" to card.cardType, "queue" to card.queue, "time_ms" to timeSpentMs,
-            "recorded" to (recorder.recording || _ui.value.extras.take.hasTake),
+            "recorded" to (recorder.recording || _ui.value.extras.take.hasTake || take != null),
         ))
 
         if (practice != null) return ratePractice(card, rating, timeSpentMs, userAnswer, stats)

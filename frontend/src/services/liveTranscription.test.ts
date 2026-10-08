@@ -46,6 +46,23 @@ describe('LiveTranscriber', () => {
     expect(sock.closed).toBe(true);
   });
 
+  it('onUpdate reports the confirmed text and the provisional tail as they arrive (the spoken answer box)', async () => {
+    let sock!: FakeSocket;
+    const seen: Array<[string, string]> = [];
+    const t = new LiveTranscriber(Promise.resolve(session), {
+      createSocket: () => (sock = new FakeSocket()),
+      onUpdate: (tr) => seen.push([tr.finalText, tr.partialText]),
+    });
+    await tick();
+    sock.open();
+    sock.reply({ tokens: [{ text: '由', is_final: false }] });
+    sock.reply({ tokens: [{ text: '由', is_final: true }, { text: '于', is_final: false }] });
+    const done = t.finish();
+    sock.reply({ tokens: [{ text: '于', is_final: true }], finished: true });
+    await expect(done).resolves.toBe('由于');
+    expect(seen).toEqual([['', '由'], ['由', '于'], ['由于', '']]);
+  });
+
   it('finish before the socket opens still flushes and ends', async () => {
     let sock!: FakeSocket;
     const t = new LiveTranscriber(Promise.resolve(session), { createSocket: () => (sock = new FakeSocket()) });
