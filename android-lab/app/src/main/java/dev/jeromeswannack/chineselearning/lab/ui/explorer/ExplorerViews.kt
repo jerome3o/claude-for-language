@@ -258,7 +258,7 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
                 val meaning = charChipMeaning(ui.charRecords[wc.char], wc.syllable)
                 Column(
                     Modifier.widthIn(min = 64.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint)
-                        .frequencyDecal(decalColor(ui.decalOf?.invoke(wc.char, DecalKind.CHAR)), RoundedCornerShape(12.dp))
+                        .frequencyDecal(decalStyle(ui.decalOf?.invoke(wc.char, DecalKind.CHAR)), RoundedCornerShape(12.dp))
                         .bouncyClickable { actions.onChar(wc.char) }.testTag(EXPLORER_WORD_CHAR_TAG)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -405,7 +405,7 @@ private fun RelatedWordRow(row: RelatedRow, explored: Set<String>, decal: Freque
             fontSize = 22.sp, color = Lab.colors.ink, textAlign = TextAlign.Center,
             // The word tile (same size with or without its frequency decal), as in "Words with 字".
             modifier = Modifier.widthIn(min = 64.dp).alpha(if (known) 0.6f else 1f)
-                .frequencyDecal(decalColor(decal), RoundedCornerShape(8.dp))
+                .frequencyDecal(decalStyle(decal), RoundedCornerShape(8.dp))
                 .testTag(EXPLORER_RELATED_TILE_TAG)
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         )

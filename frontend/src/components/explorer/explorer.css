@@ -568,33 +568,46 @@
 
 /* ── Frequency decals (docs/LANGUAGE_EXPLORER.md "Frequency decals") ──
  * A 1.5px outline around a word / character tile from shared/explorer frequencyTier:
- * purple top 100 · green top 1,000 · orange top 2,000 · grey rare. Drawn with box-shadow
+ * purple top 100 · green top 1,000 · yellow top 2,000 · grey rare. Drawn with box-shadow
  * (or the tile's existing border), so a decal never changes a tile's size or the layout.
  * Light set (the web app is light-only today) ≥ 3:1 on the white sheet for the three tiers,
  * grey 2.5:1 on purpose (rare = the quietest). The dark set (≥ 3:1 on #1c1c20, same as the
  * Lab app's dark theme) applies under an explicit data-theme="dark" only: under a dark
- * system setting the web sheet stays white, where the light set is the right one. */
+ * system setting the web sheet stays white, where the light set is the right one.
+ *
+ * Yellow can't be a pure yellow line on white: a yellow bright enough to read as yellow is
+ * under 2:1, and darkening it to 3:1 turns it gold. So on light the yellow tier is a 2px
+ * dark-yellow outline (#a89000, 3.2:1) around a yellow fill (#fef08a) — the fill is what
+ * reads "yellow" (a background-image layer, so the tile's own background stays under it and
+ * a transparent fill changes nothing). On dark #facc15 is yellow at 11:1, no fill. */
 :root {
   --freq-top100: #8b5cf6;
   --freq-top1000: #16a34a;
-  --freq-top2000: #ea580c;
+  --freq-top2000: #a89000;
+  --freq-top2000-fill: #fef08a;
   --freq-rare: #9ca3af;
 }
 
 :root[data-theme='dark'] {
   --freq-top100: #a78bfa;
   --freq-top1000: #4ade80;
-  --freq-top2000: #fb923c;
+  --freq-top2000: #facc15;
+  --freq-top2000-fill: transparent;
   --freq-rare: #71717a;
 }
 
 .freq-decal--top100 { --freq: var(--freq-top100); }
 .freq-decal--top1000 { --freq: var(--freq-top1000); }
-.freq-decal--top2000 { --freq: var(--freq-top2000); }
+/* Two classes: beats a tile's own `background` shorthand wherever its stylesheet loads. */
+.freq-decal.freq-decal--top2000 {
+  --freq: var(--freq-top2000);
+  --freq-w: 2px;
+  background-image: linear-gradient(var(--freq-top2000-fill), var(--freq-top2000-fill));
+}
 .freq-decal--rare { --freq: var(--freq-rare); }
 
 .freq-decal {
-  box-shadow: inset 0 0 0 1.5px var(--freq);
+  box-shadow: inset 0 0 0 var(--freq-w, 1.5px) var(--freq);
 }
 
 /* The word tile in "Words with 字" / "Related words": a rounded square around the hanzi, the
@@ -606,12 +619,12 @@
   border-radius: 8px;
 }
 
-/* The Word view's character chips already have a 1px border: colour it and add 0.5px outside
- * (1.5px in all), keeping the tone bar on top. */
+/* The Word view's character chips already have a 1px border: colour it and add the rest outside
+ * (1.5px in all, 2px for yellow), keeping the tone bar on top. */
 .xp-char-chip.freq-decal {
   border-color: var(--freq);
   border-top-color: var(--tone, var(--freq));
-  box-shadow: 0 0 0 0.5px var(--freq);
+  box-shadow: 0 0 0 calc(var(--freq-w, 1.5px) - 1px) var(--freq);
 }
 
 /* The ⓘ next to a list header and the one-line key it opens. */

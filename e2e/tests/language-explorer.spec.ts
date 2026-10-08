@@ -73,6 +73,8 @@ test('homework answer side → character → word → character → back, back �
   await expect(explorer.getByTestId('freq-key')).toHaveCount(0);
   await explorer.getByTestId('freq-key-toggle').click();
   await expect(explorer.getByTestId('freq-key')).toContainText('purple top 100');
+  // The 1,001–2,000 tier is yellow (= common; it was orange, which read as gold / rare).
+  await expect(explorer.getByTestId('freq-key')).toContainText('yellow top 2,000');
   await rows.filter({ hasText: '进行' }).first().click();
 
   const word = page.getByRole('dialog', { name: 'The word 进行' });

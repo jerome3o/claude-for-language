@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.explorer
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.WordFrequency
@@ -35,7 +37,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /*
  * Frequency decals (docs/LANGUAGE_EXPLORER.md "Frequency decals"; web
- * components/explorer/FrequencyDecal.tsx + explorer.css): a 1.5dp outline around a word /
+ * components/explorer/FrequencyDecal.tsx + explorer.css): a 1.5dp outline (2dp + a yellow fill
+ * for the yellow tier on light) around a word /
  * character tile from its rank in the shipped word-freq list (core FrequencyDecals.tier,
  * parity-tested). Modifier.border draws inside the tile's bounds, so a decal never changes
  * its size or the layout.
@@ -50,34 +53,55 @@ fun shippedDecals(): DecalOf? = WordFrequency.shipped?.let { idx ->
 }
 
 /**
- * The web's --freq-* tokens. Light (on #FFFDF8 / #FFFFFF): purple 4.2:1, green 3.2:1, orange
- * 3.5:1, grey 2.5:1 (rare = the quietest, on purpose). Dark (on #1C1C20): 5.5 / 8.6 / 6.7 / 3.1.
+ * The web's --freq-* tokens. Light (on #FFFDF8 / #FFFFFF): purple 4.2:1, green 3.2:1, yellow
+ * 3.1:1, grey 2.5:1 (rare = the quietest, on purpose). Dark (on #1C1C20): 5.5 / 8.6 / 11.1 / 3.1.
+ *
+ * Yellow (top 2,000) can't be a pure yellow line on a light card: every yellow bright enough to
+ * read as yellow is under 2:1 on white, and darkening it to 3:1 turns it gold / olive. So on the
+ * light theme its outline is a dark yellow (#A89000, 3.1:1) 2dp wide around a yellow fill
+ * (#FEF08A) — the fill is what reads "yellow". On the dark theme #FACC15 is yellow and 11:1 on
+ * its own, so no fill there.
  */
 object DecalColors {
     val light = mapOf(
         FrequencyDecal.TOP100 to Color(0xFF8B5CF6),
         FrequencyDecal.TOP1000 to Color(0xFF16A34A),
-        FrequencyDecal.TOP2000 to Color(0xFFEA580C),
+        FrequencyDecal.TOP2000 to Color(0xFFA89000),
         FrequencyDecal.RARE to Color(0xFF9CA3AF),
     )
     val dark = mapOf(
         FrequencyDecal.TOP100 to Color(0xFFA78BFA),
         FrequencyDecal.TOP1000 to Color(0xFF4ADE80),
-        FrequencyDecal.TOP2000 to Color(0xFFFB923C),
+        FrequencyDecal.TOP2000 to Color(0xFFFACC15),
         FrequencyDecal.RARE to Color(0xFF71717A),
     )
+
+    /** The fill behind the yellow tier on the light theme (none on dark, none for the other tiers). */
+    val yellowFillLight = Color(0xFFFEF08A)
 }
+
+/** How one decal is drawn: the outline colour and width, and an optional fill (the yellow tier on light). */
+data class DecalStyle(val color: Color, val width: Dp = 1.5.dp, val fill: Color? = null)
 
 @Composable
-fun decalColor(tier: FrequencyDecal?): Color? {
+fun decalStyle(tier: FrequencyDecal?): DecalStyle? {
     tier ?: return null
     val dark = Lab.colors.card.luminance() < 0.4f
-    return (if (dark) DecalColors.dark else DecalColors.light)[tier]
+    val color = (if (dark) DecalColors.dark else DecalColors.light)[tier] ?: return null
+    return if (tier == FrequencyDecal.TOP2000) {
+        DecalStyle(color, 2.dp, if (dark) null else DecalColors.yellowFillLight)
+    } else {
+        DecalStyle(color)
+    }
 }
 
-/** The 1.5dp outline (nothing when [color] is null). */
-fun Modifier.frequencyDecal(color: Color?, shape: Shape): Modifier =
-    if (color == null) this else this.border(1.5.dp, color, shape)
+/** The outline (+ the yellow tier's fill on light); nothing when [style] is null. */
+fun Modifier.frequencyDecal(style: DecalStyle?, shape: Shape): Modifier =
+    if (style == null) {
+        this
+    } else {
+        (if (style.fill != null) this.background(style.fill, shape) else this).border(style.width, style.color, shape)
+    }
 
 const val FREQ_KEY_TOGGLE_TAG = "freq-key-toggle"
 const val FREQ_KEY_TAG = "freq-key"
@@ -106,7 +130,7 @@ fun FrequencyKeyLine(modifier: Modifier = Modifier) {
         FrequencyDecals.KEY.forEachIndexed { i, k ->
             // The separator ends an entry, so a wrapped line starts with a swatch, never a "·".
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(13.dp).frequencyDecal(decalColor(k.tier), RoundedCornerShape(4.dp)))
+                Box(Modifier.size(13.dp).frequencyDecal(decalStyle(k.tier), RoundedCornerShape(4.dp)))
                 Spacer(Modifier.width(4.dp))
                 Text(
                     "${k.colour} ${k.label}" + if (i < FrequencyDecals.KEY.lastIndex) "  ·" else "",

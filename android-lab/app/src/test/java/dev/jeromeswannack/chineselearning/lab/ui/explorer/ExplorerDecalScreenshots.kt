@@ -17,7 +17,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.core.WordFrequency
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem
+import dev.jeromeswannack.chineselearning.lab.data.api.CharReadingDto
+import dev.jeromeswannack.chineselearning.lab.data.api.CharRecordDto
+import dev.jeromeswannack.chineselearning.lab.data.api.CharWordDto
+import dev.jeromeswannack.chineselearning.lab.data.api.WordRecordDto
+import dev.jeromeswannack.chineselearning.lab.data.chars.WordDict
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetSamples
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -63,5 +69,42 @@ class ExplorerDecalScreenshots : LabScreenshotTest() {
 
     @Test fun wordViewDark() = shoot("explorer-decals-04-word-dark", dark = true) {
         sheet { WordView(yinhang(), listOf(ExplorerItem.Word("银行")), canOpenCard = true, canBump = true) }
+    }
+
+    /**
+     * 不够: every tier in one Word view — chips 不 purple and 够 green, related words 不是 (#77,
+     * purple), 不行 (#1,821, yellow), 不锈钢 (#15,433, grey rare); ranks from the shipped list.
+     */
+    private fun bugou(): WordViewUi {
+        val bu = CharRecordDto(
+            char = "不", readings = listOf(CharReadingDto("bù", "not; no")), meaning = "not; no", rank = 4,
+            words = listOf(
+                CharWordDto("不是", "bú shì", "is not"),
+                CharWordDto("不够", "búgòu", "not enough"),
+                CharWordDto("不行", "bùxíng", "won't do; no way"),
+                CharWordDto("不锈钢", "búxiùgāng", "stainless steel"),
+            ),
+        )
+        val gou = CharRecordDto(char = "够", readings = listOf(CharReadingDto("gòu", "enough")), meaning = "enough; to reach")
+        val word = WordRecordDto("不够", "búgòu", listOf("bú", "gòu"), "not enough", listOf("not enough", "insufficient"))
+        val idx = WordFrequency.shipped
+        return WordViewUi(
+            item = ExplorerItem.Word("不够", "búgòu", "not enough"),
+            lookup = WordDict.Lookup.Ok(word.copy(rank = idx?.words?.get("不够"))),
+            charRecords = mapOf("不" to bu, "够" to gou),
+            mine = MyWord(),
+            rank = idx?.words?.get("不够"),
+            rankOf = { idx?.words?.get(it) },
+            decalOf = ExplorerSamples.decals,
+            keyOpen = true,
+        )
+    }
+
+    @Test fun wordViewAllTiers() = shoot("explorer-decals-05-word-tiers") {
+        sheet { WordView(bugou(), listOf(ExplorerItem.Word("不够")), canOpenCard = true, canBump = true) }
+    }
+
+    @Test fun wordViewAllTiersDark() = shoot("explorer-decals-06-word-tiers-dark", dark = true) {
+        sheet { WordView(bugou(), listOf(ExplorerItem.Word("不够")), canOpenCard = true, canBump = true) }
     }
 }
