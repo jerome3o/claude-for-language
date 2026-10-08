@@ -52,6 +52,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import dev.jeromeswannack.chineselearning.lab.core.DailyReader
 import dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -156,11 +164,10 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpent
                 Modifier.fillMaxSize().widthIn(max = 720.dp).testTag(READER_SCROLL_TAG).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                PageTitle(reader.titleChinese, "${reader.titleEnglish} · Page ${page + 1} of ${pages.size}")
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                PageTitle(reader.titleChinese, "${reader.titleEnglish} · Page ${page + 1} of ${pages.size}", leading = {
                     StoryButton(
                         playing = storyPlaying,
-                        label = when { storyPlaying -> "■ Stop the story"; page == 0 -> "▶ Play whole story"; else -> "▶ Play the rest" },
+                        label = when { storyPlaying -> "Stop the story"; page == 0 -> "Play whole story"; else -> "Play the rest" },
                     ) {
                         if (storyPlaying) stopStory(track = true)
                         else {
@@ -170,8 +177,8 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpent
                             env.onTap()
                         }
                     }
-                    storyNote?.let { Text(it, fontSize = 12.sp, color = Color(0xFF92400E), textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp)) }
-                }
+                })
+                storyNote?.let { Text(it, fontSize = 12.sp, color = Color(0xFF92400E), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
                 PagesContent(reader, page, env, scrubber = true, story = story)
                 Spacer(Modifier.height(16.dp))
             }
@@ -190,15 +197,29 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpent
     }
 }
 
-/** The "▶ Play whole story" pill (violet, filled while the story plays). */
+/**
+ * "▶ Play whole story": a small violet round button at the start of the "GRADED READER" row
+ * (a 36dp circle in a 48dp touch target), filled with ■ while the story plays. [label] is its
+ * content description ("Play whole story" / "Play the rest" / "Stop the story").
+ */
 @Composable
-private fun StoryButton(playing: Boolean, label: String, onClick: () -> Unit) {
-    val bg = if (playing) Color(0xFF6D28D9) else Color(0xFFF5F3FF)
-    val fg = if (playing) Color.White else Color(0xFF6D28D9)
+internal fun StoryButton(playing: Boolean, label: String, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (playing) Color(0xFF6D28D9) else Violet.copy(alpha = 0.14f), label = "storyBg")
+    val fg = if (playing) Color.White else Violet
     Box(
-        Modifier.heightIn(min = 48.dp).clip(CircleShape).background(bg).bouncyClickable(onClick = onClick).testTag(READER_PLAY_STORY_TAG).padding(horizontal = 20.dp, vertical = 12.dp),
+        Modifier.size(48.dp).clip(CircleShape).bouncyClickable(pressedScale = 0.9f, onClick = onClick)
+            .semantics { contentDescription = label; selected = playing }
+            .testTag(READER_PLAY_STORY_TAG),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+    ) {
+        Box(
+            Modifier.size(36.dp).clip(CircleShape).background(bg)
+                .border(1.dp, if (playing) Color(0xFF6D28D9) else Violet.copy(alpha = 0.45f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(if (playing) Icons.Filled.Stop else Icons.Filled.PlayArrow, contentDescription = null, tint = fg, modifier = Modifier.size(20.dp))
+        }
+    }
 }
 
 @Composable

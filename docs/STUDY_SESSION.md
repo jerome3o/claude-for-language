@@ -349,7 +349,7 @@ parity-tested by `parity/fixtures/daily-reader.ts`):
   opens; TTS goes through `/api/practice/tts`'s stored provider order (MiniMax → Azure), cached by
   `readerTtsKey`, so the whole story plays offline. Lab: `ReaderStore.prefetchMedia` /
   `cacheNarration`.
-- **▶ Play whole story** (under the title; "▶ Play the rest" after page 1): plays each page's
+- **▶ Play whole story** (a small round ▶ at the start of the "📖 Graded Reader" row, the label kept centred; named "Play the rest" after page 1, ■ "Stop the story" while playing): plays each page's
   narration, waits a beat (`storyPageGapMs` — 600 ms, longer at slower speeds), turns to the next
   page and plays it, at the speed chip's speed (1× / 0.75× / 0.5×, pitch kept). A manual page turn
   carries on from the new page; **■ Stop the story** (or the page's own stop) stops it; a page with no

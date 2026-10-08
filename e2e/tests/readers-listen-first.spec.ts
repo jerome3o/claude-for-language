@@ -111,8 +111,11 @@ test('▶ Play whole story turns the pages, and listening to the end finishes th
   await page.goto(`/study?autostart=true&session_token=${user.token}`);
   await expect(page.getByTestId('reader-play-story')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId('study-reader-page-label')).toContainText('Page 1 of 3');
+  // A small ▶ at the start of the "Graded Reader" row, named for screen readers.
+  await expect(page.getByRole('button', { name: 'Play whole story' })).toBeVisible();
   await page.getByTestId('reader-play-story').click();
-  await expect(page.getByTestId('reader-play-story')).toContainText('Stop the story');
+  await expect(page.getByTestId('reader-play-story')).toHaveAttribute('aria-label', 'Stop the story');
+  await expect(page.getByRole('button', { name: 'Stop the story' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('study-reader-page-label')).toContainText('Page 2 of 3', { timeout: 20_000 });
   await expect(page.getByTestId('study-reader-page-label')).toContainText('Page 3 of 3', { timeout: 20_000 });
 
