@@ -924,7 +924,14 @@ class StudyViewModel(
                 // A refused key would fail every take until it expires: mint a fresh one.
                 if (SonioxProtocol.invalidatesKey(reason)) liveKeys.invalidate()
             }
-            android.util.Log.i("transcribe", "${outcome.via ?: "no result"} after ${System.currentTimeMillis() - started} ms")
+            val ms = System.currentTimeMillis() - started
+            android.util.Log.i("transcribe", "${outcome.via ?: "no result"} after $ms ms")
+            // Enums + a duration only (never the transcript): a broken live path shows in analytics.
+            app.analytics.track("study.take_transcribed", mapOf(
+                "via" to (outcome.via ?: if (outcome.ui == TranscriptionUi.Offline) "offline" else "failed"),
+                "live_error" to if (live != null) SonioxProtocol.errorKind(outcome.liveError) else "none",
+                "ms" to ms,
+            ))
             if (gen == takeGeneration) updateTake(v) { it.copy(transcription = outcome.ui) }
         }
     }

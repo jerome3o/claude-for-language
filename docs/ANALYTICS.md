@@ -148,6 +148,7 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `study.flag_card` | — | Flagged a card for the tutor. |
 | `study.sentence_coach` | — | Opened the Sentence coach from a study card. |
 | `study.write_it` | — | Opened stroke-order practice (Write it). |
+| `study.take_transcribed` | `via`, `live_error`, `ms` | A pronunciation take got its "You said": via live / upload / failed / offline; live_error = why the live Soniox stream gave nothing (none / timeout / soniox_<code> / closed / empty / socket / no_session / aborted); ms = Stop → result. `event_counts` on it shows at once when live transcription stops working on a client. |
 | `study.study_more` | `count` | Pressed Study More (bonus new cards). |
 | `study.celebration` | `reviews`, `active_ms` | Emptied today's queue (the once-a-day celebration). |
 | `study.long_term_toggle` | `value` | "Add to my long-term review" switched for a word. |

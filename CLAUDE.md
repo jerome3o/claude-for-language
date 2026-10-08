@@ -1025,6 +1025,10 @@ transcribe when online". **Never silent**: when live and the upload both fail th
 to retry"** (web `services/takeTranscription.ts` `transcribeTakeOutcome` + `useTranscription().retry`; Lab
 `TakeTranscription.outcome` + `StudyViewModel.retryTranscription`), which re-sends the SAME saved take; the recording is
 kept either way. A take Soniox refuses for its key (401 / 403, `liveFailureInvalidatesKey`) drops the cached key.
+**End of audio is an EMPTY TEXT frame** (`SONIOX_END_OF_AUDIO` / Lab `SonioxProtocol.END_OF_AUDIO`): an empty
+*binary* frame is just an empty audio chunk to Soniox — the Lab app sent that until Oct 2026, so every take timed out
+after 4 s and went the upload way. Every take emits `study.take_transcribed { via, live_error, ms }` (analytics), so a
+broken live path shows in `event_counts` without reading logs.
 - `POST /api/transcribe/live` - `{ provider: 'soniox', api_key, expires_at, websocket_url, model, language_hints }` or `{ provider: 'upload' }`; 502 when Soniox refuses (client falls back)
 - `POST /api/transcribe` - multipart `file` (+ `live_error`, `client`) → `{ text, language, provider }`; 502 `{ error, providers }` when every provider failed (`routes/transcription.ts`)
 - `GET /api/admin/transcription` - admin: which providers are configured (booleans only, never a key)

@@ -40,6 +40,7 @@ object AnalyticsEvents {
         ev("study.flag_card", "study", emptyList()),
         ev("study.sentence_coach", "study", emptyList()),
         ev("study.write_it", "study", emptyList()),
+        ev("study.take_transcribed", "study", listOf("via", "live_error", "ms")),
         ev("study.char_sheet_open", "study", listOf("found", "words")),
         ev("study.char_word_tap", "study", listOf("status", "current")),
         ev("study.char_word_added", "study", emptyList()),

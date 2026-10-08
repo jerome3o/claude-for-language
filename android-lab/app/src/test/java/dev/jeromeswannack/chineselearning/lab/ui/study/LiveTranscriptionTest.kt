@@ -63,6 +63,27 @@ class LiveTranscriptionTest {
         assertEquals("Soniox 402: Balance exhausted", SonioxProtocol.apply(t0, """{"tokens":[],"error_code":402,"error_type":"organization_balance_exhausted","error_message":"Balance exhausted"}""").error)
     }
 
+    @Test fun endOfAudioIsAnEmptyTextFrame() {
+        // Soniox: "An empty binary frame is an empty audio chunk and does not end the stream."
+        assertEquals("", SonioxProtocol.END_OF_AUDIO)
+    }
+
+    /** Same vectors as shared/transcription/soniox.test.ts `liveErrorKind`. */
+    @Test fun liveErrorKindIsAnAnalyticsEnum() {
+        assertEquals("none", SonioxProtocol.errorKind(null))
+        assertEquals("none", SonioxProtocol.errorKind("  "))
+        assertEquals("timeout", SonioxProtocol.errorKind("Timed out waiting for 4000 ms"))
+        assertEquals("timeout", SonioxProtocol.errorKind("timeout"))
+        assertEquals("soniox_402", SonioxProtocol.errorKind("Soniox 402: Balance exhausted"))
+        assertEquals("soniox_401", SonioxProtocol.errorKind("Soniox 401: Invalid API key"))
+        assertEquals("soniox_error", SonioxProtocol.errorKind("Soniox : error"))
+        assertEquals("empty", SonioxProtocol.errorKind("live returned no text"))
+        assertEquals("closed", SonioxProtocol.errorKind("closed early"))
+        assertEquals("aborted", SonioxProtocol.errorKind("aborted"))
+        assertEquals("no_session", SonioxProtocol.errorKind("no live session"))
+        assertEquals("socket", SonioxProtocol.errorKind("socket error"))
+    }
+
     @Test fun onlyARefusedKeyIsDropped() {
         assertTrue(SonioxProtocol.invalidatesKey("Soniox 401: Incorrect API key provided."))
         assertTrue(SonioxProtocol.invalidatesKey("Soniox 403: temp_api_key_session_expired"))
@@ -168,15 +189,19 @@ class LiveTranscriptionTest {
         val got = CopyOnWriteArrayList<Any>()
         val server = MockWebServer()
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
-            override fun onMessage(webSocket: WebSocket, text: String) { got.add(text) }
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                got.add(bytes.size)
-                if (bytes.size == 0 && answer) {
+            // Like the real Soniox: ONLY an empty TEXT frame ends the stream. An empty BINARY frame
+            // is just an empty audio chunk ("does not end the stream", Soniox's WebSocket docs) —
+            // the Lab app used to send that, so every take waited out the 4 s timeout and went
+            // the slow upload way instead ("live stream failed on lab: Timed out waiting for 4000 ms").
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                got.add(text)
+                if (text.isEmpty() && answer) {
                     webSocket.send("""{"tokens":[{"text":"是","is_final":true},{"text":"<fin>","is_final":true}]}""")
                     webSocket.send("""{"tokens":[],"finished":true}""")
                     webSocket.close(1000, null)
                 }
             }
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) { got.add(bytes.size) }
             override fun onOpen(webSocket: WebSocket, response: Response) {}
         }))
         server.start()
@@ -195,7 +220,8 @@ class LiveTranscriptionTest {
         assertEquals("是", stream.finish())
         val config = Json.parseToJsonElement(got[0] as String).jsonObject
         assertEquals("temp:1", config["api_key"]!!.jsonPrimitive.content)
-        assertEquals(listOf(3200, 1600, 0), got.drop(1))
+        // Audio as binary frames, then the end of audio as an EMPTY TEXT frame.
+        assertEquals(listOf<Any>(3200, 1600, ""), got.drop(1))
         server.shutdown()
     }
 
