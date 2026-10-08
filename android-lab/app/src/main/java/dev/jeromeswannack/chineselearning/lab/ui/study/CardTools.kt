@@ -27,6 +27,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.askAboutNote
 import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestion
 import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestionWords
 import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeLanguage
+import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeListening
 import dev.jeromeswannack.chineselearning.lab.data.api.translateNoteQuestion
 import dev.jeromeswannack.chineselearning.lab.data.api.createConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.createNote
@@ -319,6 +320,9 @@ class CardTools(private val app: LabApp) {
 
     /** "Ask Claude answers in" on the account. */
     suspend fun setAskLanguage(language: String) = api.setAskClaudeLanguage(language)
+
+    /** Ask Claude 🎧 Listen first on the account. */
+    suspend fun setAskListening(on: Boolean) = api.setAskClaudeListening(on)
 
     suspend fun toFlashcard(text: String): FlashcardDraft = api.textToFlashcard(text)
 

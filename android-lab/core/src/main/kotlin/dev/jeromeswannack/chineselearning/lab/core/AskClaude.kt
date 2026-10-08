@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.core
 
+import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListening
+
 /**
  * Ask Claude on the study card, immersion edition (docs/STUDY_SESSION.md "Ask Claude"): the client
  * half of shared/study/askClaude.ts (the answer language, the quick-question chips) and of
@@ -85,5 +87,45 @@ object AskClaude {
         if (coach && !sayBetter) items += coachItem
         if (zh) items += item(MessageMenu.PLAY, "Read aloud", "🔊", true)
         return MessageMenu.Menu(false, items)
+    }
+
+    // ---- 🎧 Listen first: the chat's listening mode in the Ask Claude sheet ----
+
+    /** Port of ASK_CLAUDE_VOICE: the app's voice (`ChatVoice.DEFAULT_VOICE`), never the listener's pools. */
+    const val VOICE = ChatVoice.DEFAULT_VOICE
+
+    /** Port of ASK_CLAUDE_SPEED: the chat's read-aloud speed. */
+    const val SPEED = ChatVoice.SPEED
+
+    /** Port of ASK_CLIP_MAX_CHARS. */
+    const val CLIP_MAX_CHARS = 2000
+
+    /** Port of AskListeningEntry. */
+    data class ListeningEntry(val id: String, val answer: String, val answerLang: String?)
+
+    /** Port of askListeningCandidate: Claude's Chinese answer ('zh') with Chinese in it — never English / Markdown answers. */
+    fun listeningCandidate(e: ListeningEntry): Boolean {
+        if (e.answerLang != ZH) return false
+        val text = NoteSearch.jsTrim(e.answer)
+        return text.isNotEmpty() && text.length <= CLIP_MAX_CHARS && ChatListening.hasHan(text)
+    }
+
+    /** Port of askAnswerHidden. */
+    fun answerHidden(e: ListeningEntry, listening: Boolean, revealed: Collection<String>): Boolean =
+        listening && listeningCandidate(e) && e.id !in revealed
+
+    /** Port of revealedWhenListeningOn: switched on, what is on screen stays visible. */
+    fun revealedWhenListeningOn(entries: List<ListeningEntry>, revealed: List<String>, max: Int = ChatListening.REVEALED_MAX): List<String> {
+        var next = revealed.toList()
+        for (e in entries) if (listeningCandidate(e) && e.id !in next) next = ChatListening.addRevealed(next, e.id, max)
+        return next
+    }
+
+    /** Port of askAutoPlayId: the newest answer, new since the sheet opened, hidden, with no audio going. */
+    fun autoPlayId(listening: Boolean, entries: List<ListeningEntry>, seen: Collection<String>, revealed: Collection<String>, audioBusy: Boolean): String? {
+        if (!listening || audioBusy || entries.isEmpty()) return null
+        val last = entries.last()
+        if (last.id in seen) return null
+        return if (answerHidden(last, true, revealed)) last.id else null
     }
 }

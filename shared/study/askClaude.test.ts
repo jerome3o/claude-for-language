@@ -1,6 +1,68 @@
 import { describe, expect, it } from 'vitest';
-import { askQuickActions, asksForEnglish, effectiveAskLanguage, parseAskLanguage, plainAnswerText, turnLanguage } from './askClaude';
+import {
+  ASK_CLAUDE_SPEED,
+  ASK_CLAUDE_VOICE,
+  ASK_CLIP_MAX_CHARS,
+  askAnswerHidden,
+  askAutoPlayId,
+  askListeningCandidate,
+  askQuickActions,
+  asksForEnglish,
+  effectiveAskLanguage,
+  parseAskLanguage,
+  parseAskListening,
+  plainAnswerText,
+  revealedWhenListeningOn,
+  turnLanguage,
+} from './askClaude';
 import { askClaudeMenu, ASK_SENTENCE_TOOLS_MAX } from '../chats/messageMenu';
+import { CHAT_READ_ALOUD_SPEED, chatReadAloudVoice } from '../chats/voice';
+import { DEFAULT_LESSON_VOICE } from '../lesson/voices';
+
+describe('Ask Claude listening (🎧 Listen first)', () => {
+  const zh = (id: string, answer = '银行就是放钱的地方。') => ({ id, answer, answer_lang: 'zh' });
+  it('reads in the app voice at the chat read-aloud speed, whatever voices the listener enabled', () => {
+    expect(ASK_CLAUDE_VOICE).toBe(DEFAULT_LESSON_VOICE);
+    expect(ASK_CLAUDE_VOICE).toBe(chatReadAloudVoice({ senderGender: null, enabled: ['female-shaonv'] }));
+    expect(ASK_CLAUDE_SPEED).toBe(CHAT_READ_ALOUD_SPEED);
+  });
+  it('the setting is on only for true / 1', () => {
+    expect(parseAskListening(true)).toBe(true);
+    expect(parseAskListening(1)).toBe(true);
+    expect(parseAskListening('1')).toBe(true);
+    for (const v of [null, undefined, 0, false, 'true', 'on', 2]) expect(parseAskListening(v)).toBe(false);
+  });
+  it('only Claude’s Chinese answers are candidates — never English or Markdown answers', () => {
+    expect(askListeningCandidate(zh('a'))).toBe(true);
+    expect(askListeningCandidate({ id: 'a', answer: 'A bank 银行 is…', answer_lang: 'en' })).toBe(false);
+    expect(askListeningCandidate({ id: 'a', answer: '银行', answer_lang: null })).toBe(false);
+    expect(askListeningCandidate(zh('a', 'OK!'))).toBe(false);
+    expect(askListeningCandidate(zh('a', '   '))).toBe(false);
+    expect(askListeningCandidate(zh('a', '银'.repeat(ASK_CLIP_MAX_CHARS)))).toBe(true);
+    expect(askListeningCandidate(zh('a', '银'.repeat(ASK_CLIP_MAX_CHARS + 1)))).toBe(false);
+  });
+  it('hides while on and not revealed', () => {
+    expect(askAnswerHidden(zh('a'), { listening: true, revealed: [] })).toBe(true);
+    expect(askAnswerHidden(zh('a'), { listening: true, revealed: new Set(['a']) })).toBe(false);
+    expect(askAnswerHidden(zh('a'), { listening: false, revealed: [] })).toBe(false);
+  });
+  it('turning on keeps what is on screen visible', () => {
+    const entries = [zh('a'), { id: 'b', answer: 'English', answer_lang: 'en' }, zh('c')];
+    expect(revealedWhenListeningOn(entries, ['x'])).toEqual(['x', 'a', 'c']);
+    expect(revealedWhenListeningOn(entries, ['a'])).toEqual(['a', 'c']);
+    expect(revealedWhenListeningOn([zh('a'), zh('b')], ['x', 'y'], 2)).toEqual(['a', 'b']);
+  });
+  it('auto-plays a new hidden answer once, never over other audio', () => {
+    const base = { listening: true, entries: [zh('a'), zh('b')], seen: ['a'], revealed: [] as string[], audioBusy: false };
+    expect(askAutoPlayId(base)).toBe('b');
+    expect(askAutoPlayId({ ...base, seen: new Set(['a', 'b']) })).toBeNull();
+    expect(askAutoPlayId({ ...base, audioBusy: true })).toBeNull();
+    expect(askAutoPlayId({ ...base, listening: false })).toBeNull();
+    expect(askAutoPlayId({ ...base, revealed: ['b'] })).toBeNull();
+    expect(askAutoPlayId({ ...base, entries: [zh('a'), { id: 'b', answer: 'in English', answer_lang: 'en' }] })).toBeNull();
+    expect(askAutoPlayId({ ...base, entries: [] })).toBeNull();
+  });
+});
 
 describe('Ask Claude language', () => {
   it('defaults to Chinese; only zh / en are choices', () => {

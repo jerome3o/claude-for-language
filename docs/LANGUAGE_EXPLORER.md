@@ -85,15 +85,24 @@ are no decals (never a flash of grey). Port: `core/…/explorer/FrequencyDecal.k
 
 Look: 1.5px (web: `box-shadow: inset`, or the chip's own border + 0.5px; Lab: `Modifier.border`)
 so a decal never changes a tile's size. Tokens (web `--freq-*` in `explorer.css`, Lab
-`DecalColors`): light purple `#8b5cf6` · green `#16a34a` · yellow `#a89000` on a `#fef08a` fill ·
-grey `#9ca3af` (≥ 3:1 on the sheet for the three tiers, grey 2.5:1 on purpose); dark `#a78bfa` ·
-`#4ade80` · `#facc15` · `#71717a` (≥ 3:1 on the Lab's dark card). **Yellow = common**: it was
-orange (`#ea580c`) until Oct 2026, which read as gold / "rare". A pure yellow line can't reach
-3:1 on white (anything bright enough to read yellow is under 2:1, and darkening it turns it
-gold), so on light the yellow tier is a 2px dark-yellow outline (3.2:1) around a yellow fill —
-the fill is what reads yellow (web: a `background-image` layer over the tile's own background;
-Lab: `DecalStyle.fill`). On dark `#facc15` is 11:1 on its own: 2px, no fill. The web app is
-light-only, so the dark set applies only under an explicit `data-theme="dark"`. An **ⓘ** next
+`DecalColors`):
+
+| Tier | Light (sheet `#ffffff` / Lab card `#fffdf8`) | Dark (Lab card `#1c1c20`) |
+|---|---|---|
+| purple · top 100 | `#8b5cf6` 1.5px (4.2:1) | `#a78bfa` 1.5px (6.2:1) |
+| green · top 1,000 | `#16a34a` 1.5px (3.3:1) | `#4ade80` 1.5px (9.7:1) |
+| yellow · top 2,000 | `#948c00` 2px (3.5:1 on white, 3.4:1 on the Lab card, 3.25:1 on its fill) around a `#fef9c3` fill | `#fde047` 2px (12.9:1), no fill |
+| grey · rare | `#9ca3af` 1.5px (2.5:1, the quietest on purpose) | `#71717a` 1.5px (3.5:1) |
+
+**Yellow = common, and it is lemon yellow**: it was orange (`#ea580c`) until Oct 2026, which read
+as gold / "rare", then `#a89000` on `#fef08a` (light) / `#facc15` (dark), which still read
+orange on the Lab's dark card. A pure yellow line can't reach 3:1 on white (anything bright
+enough to read yellow is under 2:1, and darkening it turns it gold), so on light the yellow tier
+is a 2px lemon-olive outline around a pale lemon fill — the fill is what reads yellow (web: a
+`background-image` layer over the tile's own background; Lab: `DecalStyle.fill`). On dark
+`#fde047` (yellow-300) is lemon on its own; no fill there, because any yellow tint over the dark
+card comes out khaki and pulls it back towards gold. The web app is light-only, so the dark set
+applies only under an explicit `data-theme="dark"`. An **ⓘ** next
 to the list header opens the one-line key: "purple top 100 · green top 1,000 · yellow top 2,000 · grey rare".
 
 ## Data and offline

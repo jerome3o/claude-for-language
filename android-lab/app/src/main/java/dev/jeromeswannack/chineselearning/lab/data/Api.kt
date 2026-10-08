@@ -43,6 +43,8 @@ data class MeDto(
     val chat_auto_check: Boolean? = null,
     /** "Ask Claude answers in": 'zh' | 'en', null = the default (Chinese; core AskClaude). */
     val ask_claude_language: String? = null,
+    /** Ask Claude 🎧 Listen first: Claude's Chinese answers arrive hidden (core AskClaude.answerHidden). */
+    val ask_claude_listening: Boolean = false,
     /** The budget with who set it (a tutor can change it: shared/decks/tutor-budget.ts); null from an older server. */
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
     /** "Order new cards by" (shared/decks/new-card-order.ts → core NewCardOrder.parse); null from an older server. */

@@ -220,6 +220,16 @@ test('a card sentence with no pinyin or English still reveals both', async ({ pa
   await sentences.locator('.sentence-set-reveal').click();
   await expect(sentences.locator('.sentence-set-translation')).toHaveText("Waiter, we'd like to order.");
   await expect(sentences.getByRole('button', { name: '+ Add as card' })).toBeVisible();
+  // The badge is a tab on the row's top edge: it covers none of the row's lines and not ▶.
+  const badgeBox = await sentences.locator('.sentence-set-corner').boundingBox();
+  expect(badgeBox).not.toBeNull();
+  for (const sel of ['.sentence-set-hanzi', '.sentence-set-pinyin', '.sentence-set-translation', '.sentence-set-play']) {
+    const box = await sentences.locator(sel).first().boundingBox();
+    expect(box, sel).not.toBeNull();
+    const apart = badgeBox!.x + badgeBox!.width <= box!.x || box!.x + box!.width <= badgeBox!.x
+      || badgeBox!.y + badgeBox!.height <= box!.y || box!.y + box!.height <= badgeBox!.y;
+    expect(apart, `"From the card" clear of ${sel}`).toBe(true);
+  }
   // Only the line was kept: the breakdown waits for "What's going on here?".
   await expect(sentences.getByTestId('sentence-word-breakdown')).toHaveCount(0);
   await expect(sentences.getByRole('button', { name: 'What’s going on here?' })).toBeVisible();

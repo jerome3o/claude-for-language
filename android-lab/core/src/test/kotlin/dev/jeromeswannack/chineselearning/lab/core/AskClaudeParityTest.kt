@@ -69,6 +69,47 @@ class AskClaudeParityTest {
         }
     }
 
+    private fun strings(e: JsonElement?): List<String> = e!!.jsonArray.map { it.jsonPrimitive.content }
+
+    private fun entry(e: JsonElement): AskClaude.ListeningEntry = e.jsonObject.let { AskClaude.ListeningEntry(it.str("id")!!, it.str("answer")!!, it.str("answer_lang")) }
+
+    @Test
+    fun listeningConstantsMatch() {
+        assertEquals(f.str("voice"), AskClaude.VOICE)
+        assertEquals(f["speed"]!!.jsonPrimitive.content.toDouble(), AskClaude.SPEED)
+        assertEquals(f["clipMax"]!!.jsonPrimitive.int, AskClaude.CLIP_MAX_CHARS)
+    }
+
+    @Test
+    fun hiddenAnswersMatchTypeScript() {
+        val cases = f["listening"]!!.jsonArray
+        assertTrue(cases.size > 100)
+        for (c in cases) {
+            val o = c.jsonObject
+            val e = entry(o["entry"]!!)
+            assertEquals(o.bool("candidate"), AskClaude.listeningCandidate(e), "askListeningCandidate $e")
+            assertEquals(o.bool("hidden"), AskClaude.answerHidden(e, o.bool("on"), strings(o["revealed"])), "askAnswerHidden $o")
+        }
+    }
+
+    @Test
+    fun revealedWhenOnMatchesTypeScript() {
+        for (c in f["revealedOn"]!!.jsonArray) {
+            val o = c.jsonObject
+            val entries = o["entries"]!!.jsonArray.map(::entry)
+            assertEquals(strings(o["result"]), AskClaude.revealedWhenListeningOn(entries, strings(o["revealed"]), o["max"]!!.jsonPrimitive.int), "revealedWhenListeningOn $o")
+        }
+    }
+
+    @Test
+    fun autoPlayMatchesTypeScript() {
+        for (c in f["autoplay"]!!.jsonArray) {
+            val o = c.jsonObject
+            val entries = o["entries"]!!.jsonArray.map(::entry)
+            assertEquals(o.str("result"), AskClaude.autoPlayId(o.bool("on"), entries, strings(o["seen"]), strings(o["revealed"]), o.bool("audioBusy")), "askAutoPlayId $o")
+        }
+    }
+
     @Test
     fun languagesMatchTypeScript() {
         for (c in f["languages"]!!.jsonArray) {

@@ -33,7 +33,12 @@ vi.mock('../../services/ai', async (importOriginal) => {
   };
 });
 
+// 🎧 Listen first: the answer's clip goes through the one chat TTS path (faked here).
+const tts = vi.hoisted(() => ({ make: vi.fn() }));
+vi.mock('../../services/tts-cache', () => ({ cachedConversationTTS: (...args: unknown[]) => tts.make(...args) }));
+
 const { default: askClaude } = await import('../ask-claude');
+const { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE } = await import('@shared/study/askClaude');
 
 const ME = 'user-1';
 const OTHER = 'user-2';
@@ -190,5 +195,60 @@ describe('Ask Claude (immersion)', () => {
     expect(got.body.answer_translation).toBe('A bank is where money is kept.');
     expect((await as(OTHER)('GET', `/api/note-questions/${id}`)).status).toBe(404);
     expect((await as(OTHER)('POST', `/api/note-questions/${id}/words`, { part: 'answer' })).status).toBe(404);
+  });
+
+  describe('🎧 Listen first', () => {
+    beforeEach(() => {
+      tts.make.mockReset();
+      tts.make.mockResolvedValue({ audioBase64: 'AAAA', contentType: 'audio/mpeg', voiceId: ASK_CLAUDE_VOICE, cached: false });
+    });
+
+    it('the account setting is saved, validated and off by default', async () => {
+      expect(db.raw.exec('SELECT ask_claude_listening FROM users WHERE id = ?', [ME])[0].values[0][0]).toBeNull();
+      expect((await as(ME)('PUT', '/api/profile/ask-claude-listening', { ask_claude_listening: true })).body).toEqual({ ask_claude_listening: true });
+      expect(db.raw.exec('SELECT ask_claude_listening FROM users WHERE id = ?', [ME])[0].values[0][0]).toBe(1);
+      expect((await as(ME)('PUT', '/api/profile/ask-claude-listening', { ask_claude_listening: false })).body).toEqual({ ask_claude_listening: false });
+      expect(db.raw.exec('SELECT ask_claude_listening FROM users WHERE id = ?', [ME])[0].values[0][0]).toBeNull();
+      expect((await as(ME)('PUT', '/api/profile/ask-claude-listening', { ask_claude_listening: 'yes' })).status).toBe(400);
+    });
+
+    it('no clip unless listening is on', async () => {
+      const r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', quick: true });
+      expect(r.status).toBe(201);
+      expect(r.body.answer_clip_ready).toBe(false);
+      expect(tts.make).not.toHaveBeenCalled();
+    });
+
+    it("pre-generates a Chinese answer's clip in Claude's voice before answering (the request's choice or the account's)", async () => {
+      let r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', quick: true, listening: true });
+      expect(r.body.answer_clip_ready).toBe(true);
+      expect(tts.make).toHaveBeenCalledTimes(1);
+      const [, text, opts] = tts.make.mock.calls[0];
+      // Exactly the text the bubble plays (POST /api/practice/tts with the same voice + speed finds it in R2).
+      expect(text).toBe(r.body.answer);
+      expect(opts).toMatchObject({ voiceId: ASK_CLAUDE_VOICE, speed: ASK_CLAUDE_SPEED });
+
+      await as(ME)('PUT', '/api/profile/ask-claude-listening', { ask_claude_listening: true });
+      r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', quick: true });
+      expect(r.body.answer_clip_ready).toBe(true);
+      expect(tts.make).toHaveBeenCalledTimes(2);
+      // The sheet switched it off for this ask: no clip.
+      r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', quick: true, listening: false });
+      expect(tts.make).toHaveBeenCalledTimes(2);
+    });
+
+    it('English answers get no clip, and a TTS failure never fails the answer', async () => {
+      answerFor = () => textReply('**Bank**: a place for money.');
+      let r = await as(ME)('POST', '/api/notes/n-1/ask', { question: 'What is it?', quick: true, listening: true, language: 'en' });
+      expect(r.status).toBe(201);
+      expect(tts.make).not.toHaveBeenCalled();
+
+      answerFor = () => textReply(ZH_ANSWER);
+      tts.make.mockRejectedValue(new Error('MiniMax is busy'));
+      r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', quick: true, listening: true });
+      expect(r.status).toBe(201);
+      expect(r.body.answer_clip_ready).toBe(false);
+      expect(r.body.answer_lang).toBe('zh');
+    });
   });
 });

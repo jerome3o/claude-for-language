@@ -20,12 +20,18 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +66,10 @@ import dev.jeromeswannack.chineselearning.lab.ui.chat.ChineseWords
 import dev.jeromeswannack.chineselearning.lab.ui.chat.CoachChip
 import dev.jeromeswannack.chineselearning.lab.ui.chat.ExplainContent
 import dev.jeromeswannack.chineselearning.lab.ui.chat.ExplainUi
+import dev.jeromeswannack.chineselearning.lab.ui.chat.ListeningContent
+import dev.jeromeswannack.chineselearning.lab.ui.chat.ListeningUi
+import dev.jeromeswannack.chineselearning.lab.ui.chat.RevealButton
+import dev.jeromeswannack.chineselearning.lab.ui.chat.RevealIn
 import dev.jeromeswannack.chineselearning.lab.ui.chat.MessageMenuContent
 import dev.jeromeswannack.chineselearning.lab.ui.chat.SayBetterAmber
 import dev.jeromeswannack.chineselearning.lab.ui.chat.SayBetterContent
@@ -102,6 +112,21 @@ class AskActions(
     val known: suspend () -> Set<String> = { emptySet() },
     /** Analytics `study.ask_claude_tool`. */
     val track: (action: String, mine: Boolean) -> Unit = { _, _ -> },
+    // ---- 🎧 Listen first (the chat's listening mode; ui/study/AskListening.kt) ----
+    /** The header's 🎧. */
+    val setListening: (Boolean) -> Unit = {},
+    /** A tap on a hidden answer ([auto] = a new answer playing by itself). */
+    val listen: (id: String, auto: Boolean) -> Unit = { _, _ -> },
+    /** Long press / 👁 on a hidden answer. */
+    val reveal: (id: String) -> Unit = {},
+    /** The 0.75× chip. */
+    val toggleSlow: () -> Unit = {},
+    /** Something is playing (a hidden answer, Read aloud): a new answer doesn't play by itself. */
+    val audioBusy: () -> Boolean = { false },
+    /** The sheet closed: stop the hidden answer playing. */
+    val stopListening: () -> Unit = {},
+    /** The sheet opened: 中文 / EN and 🎧 as Settings last left them. */
+    val onOpen: () -> Unit = {},
 )
 
 /** Friendly labels for Claude's read-only lookups (`TOOL_LABELS`). */
@@ -125,6 +150,9 @@ object AskTags {
     const val LANG_EN = "ask-lang-en"
     const val HINT = "ask-hint"
     const val MARK = "ask-say-better-mark"
+    const val LISTEN = "ask-listen-toggle"
+    const val HIDDEN = "ask-listening-bubble"
+    const val HIDDEN_NOTICE = "ask-listening-notice"
 }
 
 /** One bubble: the answer or my question of one Q&A. */
@@ -150,6 +178,11 @@ private fun AskAnswer.asMessage() = ChatMessageDto(
  * [AskClaude.menu]: Translate, Pinyin, Explain, Save as flashcard, Open in Coach, Read aloud, Copy),
  * and my own Chinese gets the chat's auto-check (✎, How to say it better, the Open in Coach chip).
  * Claude's changes still wait for Approve / Reject.
+ *
+ * 🎧 Listen first (the header's 🎧, Settings): the chat's listening mode — Claude's Chinese answers
+ * arrive as the chat's hidden bubble ([ListeningContent]): a tap plays the Read-aloud clip in Claude's
+ * voice, a long press / 👁 reveals it, and a new answer plays once by itself ([AskClaude.autoPlayId]).
+ * My questions never hide, and neither do English answers.
  */
 @Composable
 fun AskClaudeSheet(
@@ -161,8 +194,11 @@ fun AskClaudeSheet(
     actions: AskActions,
     sentences: SentenceActions,
     onDismiss: () -> Unit,
+    listening: Boolean = false,
+    listen: ListeningUi = ListeningUi(),
+    listenNotice: AskListenNotice? = null,
 ) {
-    LabBottomSheet(onDismiss = onDismiss) { AskClaudeBody(view, ask, language, userAnswer, online, actions, sentences) }
+    LabBottomSheet(onDismiss = onDismiss) { AskClaudeBody(view, ask, language, userAnswer, online, actions, sentences, listening, listen, listenNotice) }
 }
 
 @Composable
@@ -174,8 +210,23 @@ fun AskClaudeBody(
     online: Boolean,
     actions: AskActions,
     sentences: SentenceActions = SentenceActions(),
+    listening: Boolean = false,
+    listen: ListeningUi = ListeningUi(),
+    listenNotice: AskListenNotice? = null,
 ) {
     var question by remember { mutableStateOf("") }
+    // 🎧 Answers on screen when the sheet opened (and every answer already looked at) never play by themselves.
+    val seen = remember { ask.conversation.mapTo(HashSet()) { it.id } }
+    LaunchedEffect(ask.conversation.size) {
+        val entries = ask.conversation.map(AskListening::entryOf)
+        val id = AskClaude.autoPlayId(listening, entries, seen, listen.revealed, actions.audioBusy())
+        ask.conversation.lastOrNull()?.let { seen += it.id }
+        if (id != null) actions.listen(id, true)
+    }
+    DisposableEffect(Unit) {
+        actions.onOpen()
+        onDispose { actions.stopListening() }
+    }
     var pinyinOn by remember { mutableStateOf(emptySet<String>()) }
     var translateOn by remember { mutableStateOf(emptySet<String>()) }
     var menuFor by remember { mutableStateOf<AskTarget?>(null) }
@@ -216,6 +267,8 @@ fun AskClaudeBody(
     Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).testTag(AskTags.SHEET), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Ask about: ${view.note.hanzi}", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, modifier = Modifier.weight(1f))
+            ListenToggle(listening, actions.setListening)
+            Spacer(Modifier.width(6.dp))
             LanguageToggle(language, actions.setLanguage)
         }
 
@@ -225,7 +278,10 @@ fun AskClaudeBody(
                     LabChip(qa.label) { actions.ask(qa.question, false, userAnswer) }
                 }
             }
-            if (language == AskClaude.ZH) Text(
+            if (listening) Text(
+                "🎧 Listen first: Claude’s Chinese answers arrive hidden and play by themselves. Tap to hear again · hold to reveal.",
+                style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.testTag(AskTags.HINT),
+            ) else if (language == AskClaude.ZH) Text(
                 "Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it.",
                 style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.testTag(AskTags.HINT),
             )
@@ -237,16 +293,7 @@ fun AskClaudeBody(
                 for (part in listOf("question", "answer")) {
                     val t = AskTarget(qa, part)
                     if (part == "answer") qa.readOnlyToolCalls?.takeIf { it.isNotEmpty() }?.let { ToolCalls(it.map { c -> c.tool to c.input }) }
-                    Bubble(
-                        t, showPinyin = t.key in pinyinOn, showTranslation = t.key in translateOn, known = known,
-                        onWord = { w, sentence ->
-                            ExplorerStack.itemForText(w.text, w.pinyin.ifEmpty { null }, w.gloss.ifEmpty { null }, sentence)?.let { item ->
-                                actions.track("word", t.mine)
-                                explore?.invoke(item)
-                            }
-                        },
-                        onLongPress = { menuFor = t },
-                    ) {
+                    val toolsBox: @Composable () -> Unit = {
                         if (!t.mine) {
                             val results = qa.toolResults.orEmpty()
                             if (results.isNotEmpty()) {
@@ -255,6 +302,23 @@ fun AskClaudeBody(
                             }
                         }
                     }
+                    // 🎧 Listen first: Claude's Chinese answer as the chat's hidden bubble until revealed.
+                    if (!t.mine && AskClaude.answerHidden(AskListening.entryOf(qa), listening, listen.revealed)) {
+                        HiddenAnswer(qa, listen, listenNotice?.takeIf { it.id == qa.id }?.text, actions)
+                        toolsBox()
+                        continue
+                    }
+                    RevealIn(qa.id, animate = !t.mine && qa.id in listen.justRevealed) { Bubble(
+                        t, showPinyin = t.key in pinyinOn, showTranslation = t.key in translateOn, known = known,
+                        onWord = { w, sentence ->
+                            ExplorerStack.itemForText(w.text, w.pinyin.ifEmpty { null }, w.gloss.ifEmpty { null }, sentence)?.let { item ->
+                                actions.track("word", t.mine)
+                                explore?.invoke(item)
+                            }
+                        },
+                        onLongPress = { menuFor = t },
+                        extra = toolsBox,
+                    ) }
                     if (t.mine && SayBetter.showCoachChip("me", qa.question, null, null, null, null, qa.question_check?.status, qa.question_check?.text, "me")) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { CoachChip { openCoach(t, "chip") } }
                     }
@@ -345,6 +409,47 @@ fun AskClaudeBody(
 }
 
 private fun jsTrim(s: String) = dev.jeromeswannack.chineselearning.lab.core.NoteSearch.jsTrim(s)
+
+/** 🎧 — Listen first on / off (Settings has the same switch). */
+@Composable
+private fun ListenToggle(on: Boolean, onChange: (Boolean) -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    Box(
+        Modifier.size(44.dp).clip(CircleShape)
+            .background(if (on) Lab.colors.accent.copy(alpha = 0.16f) else Lab.colors.ink.copy(alpha = 0.06f))
+            .then(if (on) Modifier.border(2.dp, Lab.colors.accent, CircleShape) else Modifier)
+            .toggleable(value = on, role = Role.Switch) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onChange(it) }
+            .semantics { contentDescription = if (on) "Listen first is on: answers arrive hidden" else "Listen first: hear the answer before you read it" }
+            .testTag(AskTags.LISTEN),
+        contentAlignment = Alignment.Center,
+    ) { Text("🎧", fontSize = 19.sp, modifier = Modifier.alpha(if (on) 1f else 0.55f)) }
+}
+
+/** Claude's answer hidden: the chat's listening bubble (tap plays, long press / 👁 reveals). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HiddenAnswer(qa: AskAnswer, listen: ListeningUi, notice: String?, actions: AskActions) {
+    val c = chatColors()
+    val haptics = LocalHapticFeedback.current
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.clip(RoundedCornerShape(18.dp)).background(c.theirs)
+                    .combinedClickable(
+                        onClickLabel = "Listen",
+                        onLongClickLabel = "Reveal",
+                        onClick = { actions.listen(qa.id, false) },
+                        onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); actions.reveal(qa.id) },
+                    )
+                    .testTag(AskTags.HIDDEN),
+            ) {
+                ListeningContent(ChatMessageDto(id = qa.id, sender_id = "claude", content = qa.answer), null, listen, actions.toggleSlow)
+            }
+            RevealButton { actions.reveal(qa.id) }
+        }
+        notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.widthIn(max = 300.dp).testTag(AskTags.HIDDEN_NOTICE)) }
+    }
+}
 
 /** 中文 | EN — what Claude answers in (Settings has the same switch). */
 @Composable

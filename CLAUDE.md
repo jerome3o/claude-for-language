@@ -430,6 +430,16 @@ Uses Anthropic Claude API for several features:
      word chips → the language explorer, the chat's long-press menu subset (`askClaudeMenu`), and the chat's
      auto-check on the learner's own Chinese (✎, How to say it better, Open in Coach). Route
      `worker/src/routes/ask-claude.ts`, service `services/ask-claude.ts`.
+   - **🎧 Listen first** (Jerome: "toggled to audio first, in the same way the messages are"): the chat's
+     Listening mode REUSED in the sheet — 🎧 beside 中文 | EN + Settings (`users.ask_claude_listening`,
+     migration 0117, `PUT /api/profile/ask-claude-listening`, on `/api/auth/me`; every ask sends `listening`).
+     Claude's Chinese answers show as the chat's `ListeningBubble` / Lab `ListeningContent` (tap plays with the
+     0.75× chip, long press / 👁 reveals, then chips + menu); my questions and English answers never hide; a new
+     answer plays once by itself unless audio is playing (`askAutoPlayId`); revealed ids per device. Audio = the
+     Read-aloud clip in Claude's voice (`ASK_CLAUDE_VOICE` = the app voice Radio Host at 0.6, one clip per answer
+     — no length split needed), pre-generated before the answer returns (`pregenerateAskClip`, ≤ 8 s, then
+     waitUntil). Rules `shared/study/askClaude.ts` (Lab core `AskClaude.kt`, parity-tested); Lab
+     `ui/study/AskListening.kt`.
    - Questions and answers are stored in `note_questions` table (+ `answer_lang`, `answer_words`,
      `answer_translation`, `question_words`, `question_translation`, `question_check` — migration 0116)
    - Visible in note history modal
@@ -943,7 +953,8 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `DELETE /api/notes/:id` - Delete note (tombstone; clips removed only if no copy references them)
 - `POST /api/notes/move` - `{ note_ids, deck_id }` move notes between your decks, cards and history kept
 - `GET /api/notes/:id/history` - Get review history and card stats
-- `POST /api/notes/:id/ask` - Ask Claude about a note (`{ question, context?, conversationHistory?, language?: zh|en, quick? }` → the Q&A with `answer_lang`, `question_check`, `question_check_pending`, tool results; `routes/ask-claude.ts`)
+- `POST /api/notes/:id/ask` - Ask Claude about a note (`{ question, context?, conversationHistory?, language?: zh|en, quick?, listening? }` → the Q&A with `answer_lang`, `question_check`, `question_check_pending`, `answer_clip_ready`, tool results; `routes/ask-claude.ts`)
+- `PUT /api/profile/ask-claude-listening` - `{ ask_claude_listening: boolean }` Ask Claude 🎧 Listen first (on `/api/auth/me`)
 - `GET /api/note-questions/:id` - one Q&A shaped (word chips, translations, the question's check) · `POST /api/note-questions/:id/words|translate` `{ part: answer|question }` → `{ words, cached }` / `{ translation, cached }` (made on request, cached on the row; `/words` is legacy — both apps now make Ask Claude's word chips on the device with `shared/chinese/segment.ts` and no longer call it) · `PUT /api/profile/ask-claude-language` `{ ask_claude_language: zh|en|null }`
 - `GET /api/notes/:id/questions` - Get Q&A history
 - `GET /api/notes/search?q=&limit=` - Server-side search of my notes (hanzi / pinyin, tone-free too / english / card sentence) with `deck_name` + `total_notes` — the Decks tab search is local-first (`services/noteSearch.ts` `noteMatches`, cards + recent ratings loaded only for the notes on screen) and falls back to this when the device finds nothing, saying how many of the account's cards the device holds (`routes/note-search.ts`)
