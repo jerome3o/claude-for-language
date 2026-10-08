@@ -4,6 +4,7 @@ import { oneOffOnlyTargetIds, recordTargetDone, sortHomeworkItems, syncHomework,
 import { getDueCustomLessons, completeCustomLesson } from './custom-lesson-study';
 import { CardQueue } from '../types';
 import { writeRevisitSettings } from './revisit';
+import { markLessonStarted, lessonsStartedToday } from './lessonsStarted';
 
 function assignment(over: Partial<LocalHomeworkAssignment> = {}): LocalHomeworkAssignment {
   return {
@@ -114,6 +115,42 @@ describe('one-off lessons and readers stay out of FSRS', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ assignment_id: 'a1', item_id: 'l1', result: 'done' });
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/me/homework/events'), expect.objectContaining({ method: 'POST' }));
+  });
+});
+
+describe("homework lessons and today's new-lesson place (Jerome, 8 Oct)", () => {
+  beforeEach(() => {
+    try { localStorage.removeItem('lessons-started-v1'); } catch { /* no storage */ }
+  });
+
+  it('finishing the homework lesson in its pass does not use up the new lesson of the day', async () => {
+    // China trip 1 is older than the homework lesson; one new lesson a day (the default).
+    await db.customLessons.bulkPut([
+      { ...lesson('trip1'), created_at: '2026-08-01T00:00:00Z' },
+      { ...lesson('trip2'), created_at: '2026-08-02T00:00:00Z' },
+      { ...lesson('hw'), created_at: '2026-09-20T00:00:00Z' },
+    ]);
+    await db.homeworkAssignments.put(assignment({ id: 'a-hw', kind: 'lesson', target_id: 'hw', mode: 'both', item_ids: null, item_count: 1 }));
+    // The homework lesson rides on top of today's place.
+    expect((await getDueCustomLessons()).map((l) => l.id)).toEqual(['hw', 'trip1']);
+    // Done in the pass (rating Hard) — China trip 1 is still today's lesson.
+    await completeCustomLesson('hw', 14, 28, 1, undefined, [], { source: 'homework' });
+    expect((await getDueCustomLessons()).map((l) => l.id)).toEqual(['trip1']);
+  });
+
+  it('a lesson opened and closed (no rating) records nothing and stays today\'s lesson', async () => {
+    await db.customLessons.bulkPut([{ ...lesson('trip1'), created_at: '2026-08-01T00:00:00Z' }, { ...lesson('trip2'), created_at: '2026-08-02T00:00:00Z' }]);
+    markLessonStarted('trip1'); // the player opened it; ✕ calls nothing else
+    expect(await db.customLessonCompletionEvents.count()).toBe(0);
+    expect(lessonsStartedToday()).toEqual(new Set(['trip1']));
+    // trip2 is then done from the Mini Lessons page: trip1 doesn't vanish from today.
+    await completeCustomLesson('trip2', 1, 1, 2, undefined, [], { source: 'replay' });
+    expect((await getDueCustomLessons()).map((l) => l.id)).toEqual(['trip1']);
+  });
+
+  it('a lesson opened on an earlier day is not pinned today', async () => {
+    markLessonStarted('old', new Date(Date.now() - 2 * 86_400_000));
+    expect(lessonsStartedToday().has('old')).toBe(false);
   });
 });
 

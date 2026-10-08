@@ -43,6 +43,41 @@ class TodayPlanTest {
         assertFalse(plan.isDone)
     }
 
+    /**
+     * Jerome, 8 Oct (Lab 0.560): China trip 1 was today's new lesson and had been opened in Study;
+     * then the homework lesson ("both") was finished in its pass. Today's list said "All done" (the
+     * homework finish used up the one new place) while Study still showed China trip 1. Homework
+     * now comes on top of the place, and a lesson opened today keeps its place.
+     */
+    @Test fun homeworkFinishedInItsPassDoesNotUseUpTheDaysNewLesson() {
+        val ev = listOf(ItemEvent("hw-1", "hw", Rating.HARD, "2026-09-27T10:39:54.716Z"))
+        val lessons = listOf(
+            replayed("hw", ev, created = "2026-09-20T00:00:00Z"),
+            item("trip1", CardQueue.NEW, created = "2026-09-06T22:43:00Z"),
+            item("trip2", CardQueue.NEW, created = "2026-09-06T22:44:56Z"),
+        )
+        // The old rule (no homework set): nothing to do, "All done for today".
+        assertEquals(emptyList(), TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone).toDo.map { it.id })
+        val plan = TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone, homeworkPass = setOf("hw"))
+        assertEquals(listOf("trip1"), plan.toDo.map { it.id })
+        assertEquals(listOf("hw"), plan.done)
+        // Before the homework was done: both, homework first (on top of the place).
+        val before = listOf(item("hw", CardQueue.NEW, created = "2026-09-20T00:00:00Z")) + lessons.drop(1)
+        assertEquals(listOf("hw", "trip1"), TodayPlan.lessons(before, emptyList(), emptySet(), cutoff, now, zone, homeworkPass = setOf("hw")).toDo.map { it.id })
+    }
+
+    @Test fun aLessonOpenedTodayKeepsItsPlace() {
+        // trip1 opened (and closed on its intro); then trip2 started from the Mini Lessons page and finished.
+        val ev = listOf(ItemEvent("t2", "trip2", Rating.GOOD, "2026-09-27T11:00:00.000Z"))
+        val lessons = listOf(
+            item("trip1", CardQueue.NEW, created = "2026-09-06T22:43:00Z"),
+            replayed("trip2", ev, created = "2026-09-06T22:44:56Z"),
+            item("trip3", CardQueue.NEW, created = "2026-09-06T22:46:22Z"),
+        )
+        assertEquals(emptyList(), TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone).toDo.map { it.id })
+        assertEquals(listOf("trip1"), TodayPlan.lessons(lessons, ev, emptySet(), cutoff, now, zone, startedToday = setOf("trip1")).toDo.map { it.id })
+    }
+
     @Test fun aNewLessonStartedTodayTakesTheDaysSlot() {
         // new1 was done this morning and rated Easy → REVIEW in a few days: done, not due.
         val ev = listOf(ItemEvent("e1", "new1", Rating.EASY, "2026-09-27T08:00:00.000Z"))

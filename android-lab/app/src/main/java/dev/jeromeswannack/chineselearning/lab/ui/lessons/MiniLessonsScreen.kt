@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -75,6 +78,8 @@ class MiniLessonsActions(
     val onDoneForGood: (id: String) -> Unit = {},
     /** "↩ Bring back" on a lesson done for good (due again at once). */
     val onBringBack: (id: String) -> Unit = {},
+    /** "▶ Start" / "▶ Do it again": the real player outside the session (`/lessons/:id/play`). */
+    val onPlay: (id: String) -> Unit = {},
 )
 
 private val DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
@@ -102,8 +107,9 @@ fun revisitChip(s: RevisitState, cutoff: StudyCutoff): Pair<String, androidx.com
 /**
  * `/lessons` — the web's MiniLessonsPage: Up next (new / due today), Coming back later (the
  * "revisit later" schedule, soonest first) and Done for good (↩ Bring back), every exercise of
- * a lesson, Edit, ✓ Done for good, My answers and Delete. Renders the cached lessons at once
- * and refreshes behind them.
+ * a lesson, Edit, ✓ Done for good, My answers and Delete — and on every card ▶ Start (new) /
+ * ▶ Do it again (`/lessons/:id/play`, LessonReplay.kt). Renders the cached lessons at once and
+ * refreshes behind them.
  */
 @Composable
 fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
@@ -174,6 +180,16 @@ private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLesso
                 Text(meta, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
             }
             StatusPill(chip, chipColor, Modifier.padding(start = 8.dp))
+        }
+        // Play it from here (the real player): a new lesson starts, a finished one is "Do it again".
+        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill(
+                if (entry.state.isNew) "▶ Start" else "▶ Do it again",
+                Modifier.height(44.dp).testTag("lesson-play-${l.id}"),
+            ) { actions.onPlay(l.id) }
+            androidx.compose.material3.TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 44.dp)) {
+                Text(if (expanded) "Hide the parts" else "See the parts", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
         }
         AnimatedVisibility(expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

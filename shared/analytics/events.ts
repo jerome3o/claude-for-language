@@ -199,6 +199,8 @@ export const ANALYTICS_EVENTS = {
   // ── lessons ────────────────────────────────────────────────────────────
   'lesson.start': e('lessons', 'Started a mini lesson.', ['source', 'exercises']),
   'lesson.complete': e('lessons', 'Finished a mini lesson.', ['rating', 'source', 'duration_ms']),
+  'lesson.replay': e('lessons', '▶ Do it again / ▶ Start on a mini lesson outside the session (from: lessons_page, today, homework; practice = not due today, Practice only offered).', ['from', 'practice']),
+  'lesson.replay_practice': e('lessons', 'Ended a replayed mini lesson with Practice only (nothing recorded).', ['exercises', 'duration_ms']),
   'study.done_for_good': e('study', '"Done for good" on a finished lesson: never scheduled again (readers until Oct 2026; now read once).', ['kind', 'source']),
   'study.bring_back': e('study', '"Bring back" a lesson that was done for good.', ['kind']),
   'lesson.grammar_start': e('lessons', 'Started the OLD fixed-phase grammar lesson.', [], { replacedBy: 'lesson.start' }),

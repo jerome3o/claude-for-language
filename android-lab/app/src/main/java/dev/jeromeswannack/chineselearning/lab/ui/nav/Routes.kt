@@ -83,6 +83,8 @@ object Routes {
     fun catalogueTrial(sampleId: String) = "/library/catalogue/${seg(sampleId)}"
     fun lessons() = "/lessons"
     fun lessonEdit(id: String) = "/lessons/${seg(id)}/edit"
+    /** "▶ Do it again" / "▶ Start" outside the session; [from] = lessons_page | today | homework (analytics). */
+    fun lessonPlay(id: String, from: String = "lessons_page") = "/lessons/${seg(id)}/play?from=$from"
     fun lessonAttempts(attemptId: String? = null) = "/lesson-attempts" + (attemptId?.let { "/${seg(it)}" } ?: "")
     fun readers() = "/readers"
     fun reader(id: String) = "/readers/${seg(id)}"

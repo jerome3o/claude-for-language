@@ -206,7 +206,7 @@ const val TAG_READER = "today-reader"
  * the ones finished today (✓). Starting one here counts exactly as in the session.
  */
 @Composable
-fun TodayLessonsScreen(today: TodayHome?, onBack: () -> Unit, onOpen: (String) -> Unit, onAllLessons: () -> Unit) {
+fun TodayLessonsScreen(today: TodayHome?, onBack: () -> Unit, onOpen: (String) -> Unit, onAllLessons: () -> Unit, onAgain: (String) -> Unit = {}) {
     val left = today?.lessonsToDo.orEmpty()
     val done = today?.lessonsDone.orEmpty()
     dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen(
@@ -219,6 +219,8 @@ fun TodayLessonsScreen(today: TodayHome?, onBack: () -> Unit, onOpen: (String) -
             else -> "${left.size} to do" + if (done.isNotEmpty()) " · ${done.size} done" else ""
         },
     ) {
+        // Still working today out (the first open after a process start): a spinner, never an empty page.
+        if (today == null) item(key = "loading") { dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState() }
         if (today != null && left.isEmpty() && done.isEmpty()) {
             item {
                 Text(
@@ -243,7 +245,7 @@ fun TodayLessonsScreen(today: TodayHome?, onBack: () -> Unit, onOpen: (String) -
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card)) {
                     done.forEachIndexed { i, l ->
                         if (i > 0) HorizontalDivider(Modifier.padding(start = 64.dp, end = 16.dp), color = Lab.colors.faint)
-                        LessonRow(l, index = null, onClick = null)
+                        LessonRow(l, index = null) { onAgain(l.id) }
                     }
                 }
             }
@@ -273,14 +275,16 @@ private fun LessonRow(l: TodayLessonRow, index: Int?, onClick: (() -> Unit)?) {
             Text(l.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = if (l.done) Lab.colors.muted else Lab.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 when {
-                    index == null -> "Done today"
+                    index == null -> "Done today · tap to do it again"
                     l.inProgress -> "${l.status} · half done"
                     else -> "${l.status} · lesson $index"
                 },
                 style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1,
             )
         }
-        if (l.done) Text("✓", color = Palette.Good, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        else Text(if (l.inProgress) "Continue ›" else "Start ›", color = LessonViolet, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+        if (l.done) {
+            Text("✓", color = Palette.Good, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            if (onClick != null) Text("  Again ›", color = LessonViolet, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+        } else Text(if (l.inProgress) "Continue ›" else "Start ›", color = LessonViolet, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
     }
 }

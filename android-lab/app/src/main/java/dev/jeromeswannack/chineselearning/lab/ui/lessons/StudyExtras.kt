@@ -124,6 +124,9 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
     }
 
     val remainingLessons: Int get() = lessons.size
+
+    /** Whether [lessonId] is still one of today's lessons (not finished from Home / the list meanwhile). */
+    fun stillToDo(lessonId: String): Boolean = lessons.any { it.id == lessonId }
     val readerLeft: Boolean get() = readers.isNotEmpty()
 
     /** Titles for the "Flashcards done" pause: lessons in order, then the story. */

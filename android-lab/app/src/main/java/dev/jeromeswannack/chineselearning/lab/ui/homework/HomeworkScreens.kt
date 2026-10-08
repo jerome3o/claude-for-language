@@ -215,6 +215,8 @@ class PassActions(
     val onOpenLink: (String) -> Unit = {},
     /** Link homework: the `done` event with the optional note. */
     val onLinkDone: (String?) -> Unit = {},
+    /** A finished lesson pass: "▶ Do it again" (the replay route, `/lessons/:id/play`). */
+    val onLessonAgain: (lessonId: String) -> Unit = {},
 )
 
 /** The lesson a pass plays (the web's `db.customLessons.get(target_id)` + its interval previews). */
@@ -471,6 +473,8 @@ private fun PassDone(
     actions: PassActions,
     longTerm: LongTerm.Summary? = null,
     deckInReview: Boolean = !oneOffOnly,
+    /** A finished lesson: "▶ Do it again". */
+    onAgain: (() -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -505,6 +509,7 @@ private fun PassDone(
                     }
                 }
             }
+            if (onAgain != null) SecondaryPill("▶ Do it again", Modifier.fillMaxWidth().height(52.dp).testTag("hw-lesson-again")) { onAgain() }
             PrimaryPill("Done", Modifier.fillMaxWidth().height(56.dp)) { actions.onClose() }
         }
         ConfettiRain(key = title, colors = Palette.Confetti)
@@ -520,7 +525,8 @@ private fun PlayerPass(ui: PassUi.Player, actions: PassActions, lessonEnv: Exerc
         ui.complete || ui.finished -> {
             val title = reader?.reader?.titleChinese?.ifBlank { null } ?: ui.title
             PassTopBar(title, actions.onClose)
-            PassDone(title, null, false, AddState.Idle, true, actions)
+            val again = lesson?.id?.takeIf { ui.kind == "lesson" && it.isNotEmpty() }?.let { id -> { actions.onLessonAgain(id) } }
+            PassDone(title, null, false, AddState.Idle, true, actions, onAgain = again)
         }
         !ui.loaded -> Box(Modifier.fillMaxSize())
         ui.kind == "reader" && reader != null && reader.reader.pages.isNotEmpty() ->

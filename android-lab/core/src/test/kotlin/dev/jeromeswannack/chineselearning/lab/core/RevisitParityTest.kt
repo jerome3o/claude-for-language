@@ -117,10 +117,32 @@ class RevisitParityTest {
             assertEquals(c["introduced"]!!.jsonPrimitive.int, introduced, "introduced #$i $c")
             val fresh = c["fresh"]!!.jsonArray.map { it.jsonObject }.map { it["id"]!!.jsonPrimitive.content to it["created_at"]!!.jsonPrimitive.content }
             val perDay = intOrNull(c["per_day"]) ?: Revisit.DEFAULT.newLessonsPerDayInt
-            val got = Revisit.pickNewForToday(fresh, { it.first }, { it.second }, introduced, perDay).map { it.first }
+            val started = c["started"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+            val got = Revisit.pickNewForToday(fresh, { it.first }, { it.second }, introduced, perDay, started).map { it.first }
             assertEquals(c["picked"]!!.jsonArray.map { it.jsonPrimitive.content }, got, "picked #$i $c")
         }
         assertEquals(1, Revisit.DEFAULT.newLessonsPerDayInt)
+    }
+
+    /** `pickTodaysLessons` — the one rule for the session, Home's Today and today's lesson list. */
+    @Test fun todaysLessons() {
+        val cases = list("todays")
+        assertTrue(cases.size >= 250)
+        for ((i, c) in cases.withIndex()) {
+            val lessons = c["lessons"]!!.jsonArray.map { it.jsonObject }.map {
+                ScheduledItem(it["id"]!!.jsonPrimitive.content, it["created_at"]!!.jsonPrimitive.content, state(it["state"]))
+            }
+            val events = c["events"]!!.jsonArray.map { it.jsonObject }.mapIndexed { k, e -> ItemEvent("e$k", e["lesson_id"]!!.jsonPrimitive.content, null, e["completed_at"]!!.jsonPrimitive.content) }
+            fun set(key: String) = c[key]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+            val cutoff = StudyCutoff(c["cutoff"]!!.jsonPrimitive.long)
+            val got = LessonSchedule.todaysLessons(
+                lessons, events, c["day_start"]!!.jsonPrimitive.long, cutoff, set("one_off_only"), set("homework_pass"), set("started"),
+                c["revisited_today"]!!.jsonPrimitive.int, intOrNull(c["per_day"]) ?: Revisit.DEFAULT.newLessonsPerDayInt,
+            ).map { it.id }
+            assertEquals(c["picked"]!!.jsonArray.map { it.jsonPrimitive.content }, got, "todays #$i $c")
+            val practice = c["practice"]!!.jsonArray.map { it.jsonPrimitive.boolean }
+            assertEquals(practice, lessons.map { Revisit.replayIsPractice(it.state, cutoff.ts) }, "practice #$i")
+        }
     }
 
     @Test fun namedSchedule() {

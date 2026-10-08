@@ -99,6 +99,12 @@ sealed interface PlayerContext {
     data object Preview : PlayerContext
     /** Lab "today split": a lesson started from Home / today's list (recorded exactly like the session). */
     data object Today : PlayerContext
+    /**
+     * "▶ Do it again" / "▶ Start" outside the session (Mini Lessons, a done row of today's list, a
+     * finished homework pass). A rating is a normal completion; [practice] (`replayIsPractice`: not
+     * due today) also offers Practice only, which records nothing.
+     */
+    data class Replay(val practice: Boolean) : PlayerContext
 }
 
 /**
@@ -107,6 +113,10 @@ sealed interface PlayerContext {
  */
 class LessonResumeHandle(
     val saved: dev.jeromeswannack.chineselearning.lab.core.LessonResume.Progress?,
+    /** Opened earlier today (and left before answering anything): "Back to today's lesson". */
+    val openedBefore: Boolean = false,
+    /** A real run opened: the lesson is today's (LessonProgressStore.markStarted). */
+    val onOpen: () -> Unit = {},
     val onProgress: (index: Int, correct: Int, total: Int, startedAt: Long, attempts: List<ExerciseAttempt>, recordings: List<LessonRecording>) -> Unit = { _, _, _, _, _, _ -> },
     val onStartOver: () -> Unit = {},
 )
@@ -123,6 +133,7 @@ private fun lessonSource(context: PlayerContext): String = when (context) {
     PlayerContext.Homework -> "homework"
     PlayerContext.Preview -> "preview"
     PlayerContext.Today -> "today"
+    is PlayerContext.Replay -> "replay"
 }
 
 @Composable
@@ -143,6 +154,8 @@ fun LessonPlayer(
     onIndex: (Int) -> Unit = {},
     /** Continue a half-done run and save this one after every exercise (null: previews, nothing kept). */
     resume: LessonResumeHandle? = null,
+    /** [PlayerContext.Replay]'s "Practice only": the run ends with nothing recorded. */
+    onPracticeDone: () -> Unit = {},
 ) {
     val items = remember(spec) { flattenSpec(spec) }
     var run by remember { mutableIntStateOf(0) }
@@ -166,6 +179,8 @@ fun LessonPlayer(
     LaunchedEffect(done) { if (done) onCelebrate() }
     // Usage analytics: a real run (previews record nothing — not even this).
     LaunchedEffect(run) { if (!preview) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.start", mapOf("source" to lessonSource(context), "exercises" to items.size)) }
+    // A real run makes the lesson today's: closing it (even on its intro) never drops it from today.
+    LaunchedEffect(Unit) { if (!preview) resume?.onOpen?.invoke() }
     LaunchedEffect(idx) { onIndex(idx) }
 
     fun advance(isCorrect: Boolean?, answer: dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer?, recording: java.io.File?) {
@@ -192,6 +207,7 @@ fun LessonPlayer(
                         is PlayerContext.Session -> SessionCounts(context.counts)
                         PlayerContext.Homework -> Text("Homework", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
                         PlayerContext.Today -> Text("Today's mini lesson", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
+                        is PlayerContext.Replay -> Text("Mini lesson · again", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
                         PlayerContext.Preview -> Text("Preview · nothing is recorded", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                             modifier = Modifier.clip(CircleShape).background(Violet.copy(alpha = 0.12f)).padding(horizontal = 12.dp, vertical = 6.dp))
                     }
@@ -214,6 +230,9 @@ fun LessonPlayer(
                             continuing = false
                             run++
                         }
+                    } else if (restored == null && resume?.openedBefore == true && run == 0 && idx == 0 && !preview && items.isNotEmpty()) {
+                        // Opened earlier today and closed on the first exercise (nothing to restore).
+                        ContinueLine(dev.jeromeswannack.chineselearning.lab.core.LessonResume.reopenedLine(items.size), onStartOver = null)
                     }
                     if (!done) {
                         val progress by animateFloatAsState(if (items.isEmpty()) 1f else idx.toFloat() / items.size, spring(dampingRatio = 0.9f, stiffness = 120f), label = "lessonProgress")
@@ -270,6 +289,16 @@ fun LessonPlayer(
                         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.complete", mapOf("rating" to "good", "source" to lessonSource(context), "duration_ms" to System.currentTimeMillis() - startedAt))
                         onComplete(LessonResult(correct, total, Rating.GOOD, attempt, recordings.toList(), retire = true))
                     }
+                    if (context is PlayerContext.Replay && context.practice) {
+                        // Not due today: practise it without changing when it comes back (nothing recorded).
+                        SecondaryPill("Practice only", Modifier.fillMaxWidth().height(48.dp).testTag(PRACTICE_ONLY_TAG), enabled = !rating) {
+                            if (rating) return@SecondaryPill
+                            rating = true
+                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.replay_practice", mapOf("exercises" to items.size, "duration_ms" to System.currentTimeMillis() - startedAt))
+                            onPracticeDone()
+                        }
+                        Text("Nothing is recorded · it comes back when it was going to", color = Lab.colors.muted, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    }
                 }
             }
             if (done && preview) {
@@ -284,14 +313,14 @@ fun LessonPlayer(
 
 /** "Continuing where you left off · exercise 4 of 9 · Start over" — subtle, above the progress bar. */
 @Composable
-private fun ContinueLine(text: String, onStartOver: () -> Unit) {
+private fun ContinueLine(text: String, onStartOver: (() -> Unit)?) {
     Row(
         Modifier.fillMaxWidth().clip(CircleShape).background(Violet.copy(alpha = 0.08f)).padding(start = 14.dp, end = 4.dp)
             .testTag(CONTINUE_TAG),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        androidx.compose.material3.TextButton(onClick = onStartOver, modifier = Modifier.heightIn(min = 44.dp)) {
+        Text(text, color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.weight(1f).then(if (onStartOver == null) Modifier.padding(vertical = 12.dp) else Modifier))
+        if (onStartOver != null) androidx.compose.material3.TextButton(onClick = onStartOver, modifier = Modifier.heightIn(min = 44.dp)) {
             Text("Start over", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
         }
     }
@@ -299,6 +328,9 @@ private fun ContinueLine(text: String, onStartOver: () -> Unit) {
 
 /** Test tag of the "Continuing where you left off" line. */
 const val CONTINUE_TAG = "lesson-continue"
+
+/** Test tag of a replay's "Practice only". */
+const val PRACTICE_ONLY_TAG = "lesson-practice-only"
 
 @Composable
 private fun DoneBody(icon: String?, title: String, correct: Int, total: Int, preview: Boolean) {

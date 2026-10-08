@@ -251,3 +251,21 @@
 .study-reader-finish-row .btn-primary {
   flex: 2;
 }
+
+/* "Practice only" under a replayed lesson's ratings (StudyCustomLesson `replay`). */
+.lesson-practice-only {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem 0.75rem;
+}
+.lesson-practice-only .practice-btn {
+  min-height: 44px;
+  min-width: 12rem;
+}
+.lesson-practice-only-hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+  text-align: center;
+}

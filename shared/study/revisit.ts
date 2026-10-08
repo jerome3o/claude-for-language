@@ -310,14 +310,101 @@ export function newLessonsIntroducedToday(
   return n;
 }
 
-/** The NEW lessons today still has room for: oldest first (ties by id), `perDay` minus those already introduced. */
+/** Oldest first, ties by id. */
+function sortByCreated<T extends { id: string; created_at: string }>(xs: T[]): T[] {
+  return [...xs].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * The NEW lessons today still has room for: oldest first (ties by id), `perDay` minus those
+ * already introduced. A lesson in `startedToday` (opened today, not finished yet) keeps its
+ * place whatever else has been finished since — it was today's lesson when it was opened, so
+ * leaving it half-way never makes it vanish from today — and it fills one of the day's places.
+ */
 export function pickNewLessonsForToday<T extends { id: string; created_at: string }>(
   fresh: T[],
   introducedToday: number,
   perDay: number = DEFAULT_REVISIT_SETTINGS.new_lessons_per_day,
+  startedToday: ReadonlySet<string> = new Set(),
 ): T[] {
-  const room = Math.max(0, Math.floor(perDay) - introducedToday);
-  return [...fresh]
-    .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    .slice(0, room);
+  const sorted = sortByCreated(fresh);
+  const started = sorted.filter(l => startedToday.has(l.id));
+  const room = Math.max(0, Math.floor(perDay) - introducedToday - started.length);
+  const keep = new Set([...started, ...sorted.filter(l => !startedToday.has(l.id)).slice(0, room)].map(l => l.id));
+  return sorted.filter(l => keep.has(l.id));
+}
+
+// ============ Today's lessons: ONE definition (session, Home's Today, today's lesson list) ============
+
+/** A lesson as `pickTodaysLessons` sees it. */
+export interface TodayLessonCandidate {
+  id: string;
+  created_at: string;
+  state: RevisitState;
+}
+
+export interface TodaysLessonsInput<T extends TodayLessonCandidate> {
+  lessons: T[];
+  /** Every lesson completion event on this device (any lesson). */
+  events: Array<{ lesson_id: string; completed_at: string }>;
+  /** Local midnight today (ms). */
+  dayStartMs: number;
+  /** The study cutoff (end of today): revisits due by it are today's. */
+  cutoffMs: number;
+  /** Lessons assigned one-off only (`oneOffOnlyTargets`): never in the rotation. */
+  oneOffOnly: ReadonlySet<string>;
+  /** Lessons with a homework pass (`homeworkPassTargets`): on top of the daily new-lesson place. */
+  homeworkPass: ReadonlySet<string>;
+  /** NEW lessons opened today and not finished: they stay today's. */
+  startedToday?: ReadonlySet<string>;
+  /** Lessons revisited today (`lessonRevisitsToday`). */
+  revisitedToday: number;
+  /** "New lessons a day". */
+  perDay?: number;
+}
+
+/**
+ * Today's mini lessons, in session order: the ONE rule the study session, Home's "Today" and
+ * today's lesson list all use (Lab port: LessonSchedule.todaysLessons, parity-tested).
+ * - revisits due by the cutoff, most overdue first, at most MAX_LESSON_REVISITS_PER_DAY a day;
+ * - then NEW lessons the tutor sent as homework with a pass (one_off would be left out above,
+ *   so: `both`), oldest first — ON TOP of the daily place: the tutor's homework neither takes
+ *   the "New lessons a day" place nor uses it up when it is finished (Oct 2026: finishing a
+ *   homework lesson in its pass made "China trip 1" vanish from Today while Study still
+ *   showed it);
+ * - then the queue's NEW lessons oldest first, "New lessons a day" (default 1) minus the
+ *   lessons introduced today. A lesson opened today and not finished keeps its place
+ *   (`pickNewLessonsForToday`'s startedToday).
+ * Done-for-good lessons and one-off-only homework never appear.
+ */
+export function pickTodaysLessons<T extends TodayLessonCandidate>(input: TodaysLessonsInput<T>): T[] {
+  const pool = input.lessons.filter(l => !input.oneOffOnly.has(l.id) && l.state.status !== 'retired');
+  const notCounted = new Set([...input.oneOffOnly, ...input.homeworkPass]);
+  const introduced = newLessonsIntroducedToday(input.events, input.dayStartMs, notCounted);
+  const homework = sortByCreated(pool.filter(l => l.state.status === 'new' && input.homeworkPass.has(l.id)));
+  const fresh = pickNewLessonsForToday(
+    pool.filter(l => l.state.status === 'new' && !input.homeworkPass.has(l.id)),
+    introduced,
+    input.perDay ?? DEFAULT_REVISIT_SETTINGS.new_lessons_per_day,
+    input.startedToday ?? new Set(),
+  );
+  const due = pickRevisitsForToday(
+    pool.filter(l => l.state.status !== 'new').map(l => ({ item: l, state: l.state })),
+    input.cutoffMs,
+    input.revisitedToday,
+    MAX_LESSON_REVISITS_PER_DAY,
+  );
+  return [...due, ...homework, ...fresh];
+}
+
+/**
+ * "▶ Do it again" (a lesson replayed from the Mini Lessons page or a finished homework pass),
+ * the /tutor-notes/practice rule for lessons: when the lesson is due today (new, or due by
+ * the cutoff) the replay is a normal run — the rating records the completion (attempt for the
+ * tutor, "revisit later" pacing, homework done). When it isn't due (finished and scheduled
+ * later, or Done for good) the replay ends with "Practice only" too, which records nothing;
+ * rating it anyway is a normal completion, so it is re-scheduled from now.
+ */
+export function replayIsPractice(state: RevisitState, cutoffMs: number): boolean {
+  return !isRevisitDue(state, cutoffMs);
 }

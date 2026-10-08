@@ -55,9 +55,11 @@ object TodayPlan {
     private fun localDate(iso: String, zone: ZoneId): LocalDate = Instant.ofEpochMilli(Js.parseDate(iso)).atZone(zone).toLocalDate()
 
     /**
-     * Today's lessons: [LessonSchedule.dueLessons] — due revisits most overdue first, at most two
-     * a day, then new oldest first, [newPerDay] a day minus the lessons first finished today;
-     * one-off homework and Done-for-good out.
+     * Today's lessons: [LessonSchedule.todaysLessons] (`pickTodaysLessons`) — due revisits most
+     * overdue first, at most two a day, then NEW homework lessons on top of the daily place, then
+     * new oldest first, [newPerDay] a day minus the lessons first finished today (homework
+     * finishes don't count; a lesson in [startedToday] keeps its place); one-off homework and
+     * Done-for-good out. The session (StudyExtras) reads the same snapshot.
      */
     fun lessons(
         all: List<ScheduledItem>,
@@ -67,15 +69,17 @@ object TodayPlan {
         nowMs: Long,
         zone: ZoneId,
         newPerDay: Int = Revisit.DEFAULT.newLessonsPerDayInt,
+        homeworkPass: Set<String> = emptySet(),
+        startedToday: Set<String> = emptySet(),
     ): Lessons {
         val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
         val regular = all.mapTo(HashSet()) { it.id }.apply { removeAll(oneOffOnly) }
         val byLesson = events.filter { it.itemId in regular }.groupBy { it.itemId }
         val completedToday = byLesson.filterValues { ev -> ev.any { localDate(it.at, zone) == today } }.keys
-        val introduced = LessonSchedule.introducedToday(events, nowMs, zone, oneOffOnly)
         // Revisits are capped per day (`lessonRevisitsToday`, every lesson's completions).
         val revisited = LessonSchedule.revisitsToday(events, nowMs, zone)
-        val toDo = LessonSchedule.dueLessons(all, oneOffOnly, cutoff, revisited, introduced, newPerDay)
+        val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
+        val toDo = LessonSchedule.todaysLessons(all, events, dayStart, cutoff, oneOffOnly, homeworkPass, startedToday, revisited, newPerDay)
         val toDoIds = toDo.mapTo(HashSet()) { it.id }
         val done = all.filter { it.id in completedToday && it.id !in toDoIds }.map { it.id }
         return Lessons(toDo, done)

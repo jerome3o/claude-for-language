@@ -57,6 +57,7 @@ const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => (
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => ({ default: m.LessonNotesPage })));
 const StrokePracticePage = lazy(() => import('./pages/StrokePracticePage').then(m => ({ default: m.StrokePracticePage })));
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
+const LessonReplayPage = lazy(() => import('./pages/LessonReplayPage').then(m => ({ default: m.LessonReplayPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const NewReaderPage = lazy(() => import('./pages/NewReaderPage').then(m => ({ default: m.NewReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
@@ -693,6 +694,7 @@ function AppRoutes() {
       <Route path="/library/:id/print" element={<ProtectedRoute><LessonPrintPage target="library" /></ProtectedRoute>} />
       <Route path="/lessons/:id/edit" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load the editor"><LessonEditorPage target="lesson" /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/lessons/:id/print" element={<ProtectedRoute><LessonPrintPage target="lesson" /></ProtectedRoute>} />
+      <Route path="/lessons/:id/play" element={<ProtectedRoute><LessonReplayPage /></ProtectedRoute>} />
       <Route
         path="/duplicate-finder"
         element={

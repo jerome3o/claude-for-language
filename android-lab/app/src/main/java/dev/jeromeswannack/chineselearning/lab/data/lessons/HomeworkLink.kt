@@ -29,6 +29,9 @@ class HomeworkLink(private val cache: JsonCache, private val outbox: Outbox) {
     /** `oneOffOnlyTargetIds`: one-off assignments whose target has no long-term (fsrs / both) assignment. */
     suspend fun oneOffOnly(): Set<String> = runCatching { Homework.oneOffOnlyTargets(assignments()) }.getOrDefault(emptySet())
 
+    /** `homeworkPassTargetIds`: lessons / readers with a pass (one_off / both, not cancelled) — on top of the daily new-lesson place. */
+    suspend fun homeworkPass(): Set<String> = runCatching { Homework.homeworkPassTargets(assignments()) }.getOrDefault(emptySet())
+
     /**
      * `recordTargetDone`: a `done` pass event for each active one-off / both assignment of
      * [targetId] that has none yet. Never throws — study must not fail because of homework

@@ -151,6 +151,8 @@ object AnalyticsEvents {
         ev("audio_lesson.music", "lessons", listOf("on", "format", "volume_pct")),
         ev("lesson.start", "lessons", listOf("source", "exercises")),
         ev("lesson.complete", "lessons", listOf("rating", "source", "duration_ms")),
+        ev("lesson.replay", "lessons", listOf("from", "practice")),
+        ev("lesson.replay_practice", "lessons", listOf("exercises", "duration_ms")),
         ev("study.done_for_good", "study", listOf("kind", "source")),
         ev("study.bring_back", "study", listOf("kind")),
         ev("lesson.grammar_start", "lessons", emptyList(), replacedBy = "lesson.start"),

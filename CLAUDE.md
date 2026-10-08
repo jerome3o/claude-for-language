@@ -1247,7 +1247,14 @@ on `/api/sync/changes`); the gaps are per account (`users.revisit_settings`, Set
 readers", `PUT /api/profile/revisit-settings`, `revisit_settings` on `/api/auth/me` + sync). Due
 revisits re-enter the mix at most `MAX_LESSON_REVISITS_PER_DAY` (2) a day, most overdue first. Completions are
 offline events (idempotent by id) uploaded in sync; other devices' completions come down
-inside `GET /api/custom-lessons`. Authoring paths: the MCP `create_custom_lesson` tool, the in-app
+inside `GET /api/custom-lessons`. **Today's lessons are one rule**, `pickTodaysLessons` (`shared/study/revisit.ts`,
+Lab `LessonSchedule.todaysLessons`, parity-tested): due revisits, then NEW homework lessons (`both`) on TOP of the
+"New lessons a day" place (a homework finish never uses it up — `homeworkPassTargets`), then the queue's new lessons;
+a lesson opened today keeps its place (`services/lessonsStarted.ts`, Lab `LessonProgressStore.markStarted`). Closing a
+lesson never records anything — only the rating / Done for good. **▶ Do it again**: `/lessons/:id/play?from=`
+(`pages/LessonReplayPage.tsx`, Lab `ui/lessons/LessonReplay.kt`) from every Mini Lessons card (▶ Start / ▶ Do it
+again), a finished homework lesson pass and the Lab's "Done today" rows — due today = a normal run; not due = the
+ratings plus **Practice only** (nothing recorded, `replayIsPractice`); docs/STUDY_SESSION.md. Authoring paths: the MCP `create_custom_lesson` tool, the in-app
 Ask Claude chat's `create_custom_lesson` tool, or the REST endpoint. The shared exercise
 views live in `frontend/src/components/lesson-exercises.tsx` (StudyGrammar reuses the
 scramble/choice/translate ones). The **Mini Lessons page** (`/lessons`, in the profile
@@ -2421,6 +2428,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/progress` - Student progress view (tutor only)
 - `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view
 - `/lessons/:id/edit`, `/lessons/:id/print` - Lesson editor / print view for a student's own lesson or one the tutor assigned
+- `/lessons/:id/play?from=lessons_page|homework|today` - ▶ Start / ▶ Do it again outside the session (immersive; Practice only when not due)
 - `/library/catalogue`, `/library/catalogue/:sampleId` - Exercise catalogue / a sample lesson as a trial (immersive, nothing recorded)
 - `/connections/:relId/lesson-attempts[/:attemptId]`, `/lesson-attempts[/:attemptId]` - Lesson attempt review (tutor / learner)
 - `/readers/:id/edit`, `/readers/:id/print` - Reader editor (form + preview + Claude co-editor + exports) / print view

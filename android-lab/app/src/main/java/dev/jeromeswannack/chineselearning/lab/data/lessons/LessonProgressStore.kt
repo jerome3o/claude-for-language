@@ -69,9 +69,32 @@ class LessonProgressStore(context: Context, private val zone: () -> ZoneId = { Z
 
     fun has(lessonId: String): Boolean = sp.contains(KEY + lessonId)
 
+    /**
+     * A real run of [lessonId] was opened (session, Home / today's list, homework pass, Mini
+     * Lessons ▶): the lesson is today's from now on — leaving it, even on its intro, never drops
+     * it from today (`pickNewLessonsForToday`'s startedToday). Nothing reaches the server.
+     */
+    @Synchronized
+    fun markStarted(lessonId: String, nowMs: Long = System.currentTimeMillis()) {
+        val day = today(nowMs)
+        val edit = sp.edit()
+        for ((k, v) in sp.all) if (k.startsWith(STARTED) && v != day) edit.remove(k)
+        edit.putString(STARTED + lessonId, day).apply()
+    }
+
+    /** Lessons opened on today's local date. */
+    fun startedToday(nowMs: Long = System.currentTimeMillis()): Set<String> {
+        val day = today(nowMs)
+        return sp.all.filter { (k, v) -> k.startsWith(STARTED) && v == day }.keys.mapTo(HashSet()) { it.removePrefix(STARTED) }
+    }
+
+    /** Opened earlier today (before this run): the player says it's picking today's lesson up again. */
+    fun startedTodayBefore(lessonId: String, nowMs: Long = System.currentTimeMillis()): Boolean = sp.getString(STARTED + lessonId, null) == today(nowMs)
+
     companion object {
         private const val PREFS = "lab_lesson_progress"
         private const val KEY = "progress/"
+        private const val STARTED = "started/"
         private val specJson = Json { encodeDefaults = true }
 
         @Volatile private var instance: LessonProgressStore? = null
