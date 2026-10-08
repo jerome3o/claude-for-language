@@ -61,9 +61,13 @@ const val LISTENING_HINT = "Tap to listen · hold to reveal"
 
 /** The hidden bubble's inside (the bubble itself — shape, colour, gestures — is MessageBubbleRow's). */
 @Composable
-fun ListeningContent(m: ChatMessageDto, meta: AnnotatedString?, ui: ChatUi, actions: ChatActions) {
+fun ListeningContent(m: ChatMessageDto, meta: AnnotatedString?, ui: ChatUi, actions: ChatActions) =
+    ListeningContent(m, meta, ui.listening, actions.onListeningSlow)
+
+/** The same inside for any hidden message (Ask Claude's answers: ui/study/AskClaudeSheet.kt). */
+@Composable
+fun ListeningContent(m: ChatMessageDto, meta: AnnotatedString?, l: ListeningUi, onSlow: () -> Unit) {
     val c = chatColors()
-    val l = ui.listening
     val playing = l.playing == m.id
     val loading = l.loading == m.id
     val fg = c.onTheirs
@@ -88,7 +92,7 @@ fun ListeningContent(m: ChatMessageDto, meta: AnnotatedString?, ui: ChatUi, acti
         Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(l.durationLabel(m), fontSize = 12.sp, color = c.metaTheirs, modifier = Modifier.testTag("chat-listening-duration"))
             Spacer(Modifier.width(6.dp))
-            SlowChip(l.slow, actions.onListeningSlow)
+            SlowChip(l.slow, onSlow)
             Spacer(Modifier.weight(1f))
             meta?.let { Text(it, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1) }
         }

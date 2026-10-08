@@ -47,7 +47,7 @@ import { generateStory, generatePageImage, getDailyStoryLens } from './services/
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
 import askClaudeRoutes from './routes/ask-claude';
 import { shapeNoteQuestion, type NoteQuestionRow } from './services/ask-claude';
-import { parseAskLanguage } from '@shared/study/askClaude';
+import { parseAskLanguage, parseAskListening } from '@shared/study/askClaude';
 import { runStorageCleanup, DEFAULT_MIN_AGE_DAYS } from './services/admin/storage-cleanup';
 import { handleLessonImageMessage, lessonImageHash, normalizeImagePrompt, LESSON_IMAGE_PREFIX, type LessonImageMessage } from './services/lesson-images';
 import lessonEditor from './routes/lesson-editor';
@@ -505,6 +505,8 @@ app.get('/api/auth/me', async (c) => {
     })(),
     // "Ask Claude answers in": 'zh' | 'en', null = the default (Chinese; shared/study/askClaude.ts).
     ask_claude_language: parseAskLanguage((user as { ask_claude_language?: string | null }).ask_claude_language),
+    // Ask Claude 🎧 Listen first: Claude's Chinese answers arrive hidden — tap plays, hold reveals.
+    ask_claude_listening: parseAskListening((user as { ask_claude_listening?: number | null }).ask_claude_listening),
     // "Check new words for mistakes" (services/card-check.ts): the stored choice (null = default)
     // and what applies now (the default is on for tutors).
     card_check_setting: (() => {
@@ -585,7 +587,7 @@ app.route('/api', recordingNotesRoutes);
 // Flag a card for the tutor (routes/card-flags.ts) and Ask-Claude history + the card hub (routes/claude-chats.ts)
 app.route('/api', cardFlagsRoutes);
 app.route('/api', claudeChatsRoutes);
-// Ask Claude on the study card: POST /api/notes/:id/ask, /api/note-questions/:id[/words|/translate], PUT /api/profile/ask-claude-language
+// Ask Claude on the study card: POST /api/notes/:id/ask, /api/note-questions/:id[/words|/translate], PUT /api/profile/ask-claude-language|-listening
 app.route('/api', askClaudeRoutes);
 // Tutor dashboard, student overview, message/how-to, shared-deck update, client-state report
 app.route('/api', tutorDashboardRoutes);

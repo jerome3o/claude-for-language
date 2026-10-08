@@ -54,8 +54,17 @@ class StudyViewModel(
     private val zone = ZoneId.systemDefault()
     private val random = Random.Default
 
-    private val _ui = MutableStateFlow(StudyUi(askLanguage = app.prefs.askClaudeLanguage))
+    private val _ui = MutableStateFlow(StudyUi(askLanguage = app.prefs.askClaudeLanguage, askListening = app.prefs.askClaudeListening))
     val ui: StateFlow<StudyUi> = _ui.asStateFlow()
+
+    /** Ask Claude 🎧 Listen first: the hidden answers' player (ui/study/AskListening.kt). */
+    private val askListen = AskListening(
+        app, viewModelScope,
+        state = { _ui.value.askListen },
+        update = { f -> _ui.update { it.copy(askListen = f(it.askListen)) } },
+        notice = { n -> _ui.update { it.copy(askListenNotice = n) } },
+        stopOthers = { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).audio.stop() },
+    ).also { it.start() }
 
     private var queue: MutableList<QueueCard> = ArrayList()
     private var reviewedNoteIds: MutableSet<String> = HashSet()
@@ -1049,7 +1058,7 @@ class StudyViewModel(
             val context = if (typing && !userAnswer.isNullOrEmpty()) dev.jeromeswannack.chineselearning.lab.data.api.AskContext(userAnswer, v.note.hanzi, v.card.cardType) else null
             val history = if (withHistory) _ui.value.extras.ask.conversation.map { dev.jeromeswannack.chineselearning.lab.data.api.AskHistoryItem(it.question, it.answer) } else null
             try {
-                val answer = tools.ask(v.note.id, dev.jeromeswannack.chineselearning.lab.data.api.AskBody(q, context, history, language = language, quick = quick.takeIf { it }))
+                val answer = tools.ask(v.note.id, dev.jeromeswannack.chineselearning.lab.data.api.AskBody(q, context, history, language = language, quick = quick.takeIf { it }, listening = _ui.value.askListening))
                 updateAsk(v) { it.copy(conversation = it.conversation + answer, asking = false, pendingQuestion = null, pending = answer.toolResults?.takeIf { r -> r.isNotEmpty() }) }
                 app.haptics.tick()
                 askExtras(v, answer)
@@ -1105,10 +1114,47 @@ class StudyViewModel(
         app.scope.launch { runCatching { tools.setAskLanguage(l) } }
     }
 
-    /** Long-press → Read aloud: Claude in the app voice, my own lines in my voice (shared/chats/voice.ts), cached per text. */
+    /** The sheet's 🎧 (and Settings): Listen first on / off, at once; saved on the account in the background. */
+    fun setAskListening(on: Boolean, source: String = "sheet") {
+        app.prefs.askClaudeListening = on
+        // History stays: what is on screen now keeps showing, anything newer hides.
+        if (on) askListen.keepOnScreen(_ui.value.extras.ask.conversation) else askListen.stop()
+        app.haptics.tick()
+        _ui.update { it.copy(askListening = on, askListenNotice = null) }
+        app.analytics.track("study.ask_claude_listening", mapOf("on" to on, "source" to source))
+        app.scope.launch { runCatching { tools.setAskListening(on) } }
+    }
+
+    /** A tap on a hidden answer (or a new answer playing by itself). */
+    fun listenAsk(id: String, auto: Boolean) {
+        val entry = _ui.value.extras.ask.conversation.firstOrNull { it.id == id } ?: return
+        askListen.play(entry, auto)
+    }
+
+    /** Long press / 👁 on a hidden answer. */
+    fun revealAsk(id: String) = askListen.reveal(id)
+
+    fun toggleAskListenSlow() = askListen.toggleSlow()
+
+    /** The sheet closed: a hidden answer stops playing (the web player stops when the sheet unmounts). */
+    fun stopAskListening() = askListen.stop()
+
+    /** The sheet opened: 中文 / EN and 🎧 as last set (Settings may have changed them since this session began). */
+    fun refreshAskPrefs() {
+        val language = app.prefs.askClaudeLanguage
+        val listening = app.prefs.askClaudeListening
+        if (language != _ui.value.askLanguage || listening != _ui.value.askListening) _ui.update { it.copy(askLanguage = language, askListening = listening) }
+    }
+
+    /** Anything playing (a hidden answer, Read aloud): a new answer then waits for a tap. */
+    fun askAudioBusy(): Boolean = askListen.busy() || dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).audio.playing.value != null
+
+    /** Long-press → Read aloud: Claude in the app voice (AskClaude.VOICE), my own lines in my voice (shared/chats/voice.ts), cached per text. */
     fun readAloudAsk(text: String, mine: Boolean) {
+        askListen.stop()
         viewModelScope.launch {
-            val (voice, speed) = dev.jeromeswannack.chineselearning.lab.data.chat.ChatReadAloud.voice(app, senderIsMe = mine, otherGender = null, fromAi = false, personaVoice = null, personaSpeed = null)
+            val (voice, speed) = if (mine) dev.jeromeswannack.chineselearning.lab.data.chat.ChatReadAloud.voice(app, senderIsMe = true, otherGender = null, fromAi = false, personaVoice = null, personaSpeed = null)
+            else dev.jeromeswannack.chineselearning.lab.core.AskClaude.VOICE to dev.jeromeswannack.chineselearning.lab.core.AskClaude.SPEED
             val audio = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).audio
             if (audio.playing.value == text) audio.stop() else audio.playClip(text, voice, speed)
         }
@@ -1350,6 +1396,7 @@ class StudyViewModel(
     fun play(key: String?, text: String) = app.audio.play(key, text, aiAvailable)
 
     override fun onCleared() {
+        askListen.stop()
         analyticsStartedAt?.let { started ->
             val reviews = _ui.value.stats.reviews
             app.analytics.track("study.session_end", mapOf("reviews" to reviews, "duration_ms" to System.currentTimeMillis() - started, "reason" to if (_ui.value.phase is StudyPhase.Done) "emptied" else "left"))

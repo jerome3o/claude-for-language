@@ -501,6 +501,11 @@ cache by the same triple (`getTTSWithCache`; Lab the same cache as Read aloud).
   ~2.5 s after a change so the server's clip is usually there), on a live `message` event while a chat / the inbox
   is open (→ `/api/me/chat-clips`), and in background sync (`/api/me/chat-clips`). A tap then plays at once, offline.
 
+**Reused by Ask Claude** (docs/STUDY_SESSION.md "Ask Claude" → 🎧 Listen first): the study card's Ask Claude sheet
+hides Claude's Chinese answers with this same bubble, player, 0.75× chip and Read-aloud clip path (in Claude's fixed
+voice, `ASK_CLAUDE_VOICE`); its setting is `users.ask_claude_listening`, its rules `shared/study/askClaude.ts`. Unlike
+the chat, a new answer plays once by itself.
+
 **UI**
 - Chats with a person only (a Claude role-play chat's replies are spoken already: no toggle there).
 - Chat header ⋯ → **🎧 Listening mode** (a checkbox item; on → off), and while on **🙈 Hide all messages**.

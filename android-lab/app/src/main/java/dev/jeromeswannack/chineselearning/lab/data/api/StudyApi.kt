@@ -273,6 +273,8 @@ data class AskBody(
     val language: String? = null,
     /** A quick-question chip (the app wrote it): not checked. */
     val quick: Boolean? = null,
+    /** The sheet's 🎧 Listen first: the server makes the answer's clip before answering. */
+    val listening: Boolean? = null,
 )
 
 @Serializable
@@ -299,6 +301,8 @@ data class AskAnswer(
     val question_check: AutoCheckDto? = null,
     /** The check is still running: read the row again in a moment. */
     val question_check_pending: Boolean = false,
+    /** 🎧 Listen first: the answer's read-aloud clip was made before the answer came back. */
+    val answer_clip_ready: Boolean = false,
 )
 
 suspend fun Api.askAboutNote(noteId: String, body: AskBody): AskAnswer = post("/api/notes/${enc(noteId)}/ask", body)
@@ -326,6 +330,12 @@ data class AskLanguageBody(val ask_claude_language: String?)
 
 /** "Ask Claude answers in": 'zh' | 'en', null = the default (Chinese). */
 suspend fun Api.setAskClaudeLanguage(language: String?): AskLanguageBody = put("/api/profile/ask-claude-language", AskLanguageBody(language))
+
+@Serializable
+data class AskListeningBody(val ask_claude_listening: Boolean)
+
+/** Ask Claude 🎧 Listen first on / off (the account's). */
+suspend fun Api.setAskClaudeListening(on: Boolean): AskListeningBody = put("/api/profile/ask-claude-listening", AskListeningBody(on))
 
 @Serializable
 data class TextToFlashcardBody(val text: String)

@@ -57,6 +57,8 @@ export interface AuthUser {
   chat_auto_check?: boolean | null;
   /** "Ask Claude answers in" on the study card: 'zh' | 'en', null = the default (Chinese; shared/study/askClaude.ts). */
   ask_claude_language?: 'zh' | 'en' | null;
+  /** Ask Claude 🎧 Listen first: Claude's Chinese answers arrive hidden (tap plays, hold reveals). */
+  ask_claude_listening?: boolean;
   /** "Check new words for mistakes" (worker services/card-check.ts): what applies now (default on for tutors) and the stored choice (null = default). */
   card_check?: boolean;
   card_check_setting?: boolean | null;

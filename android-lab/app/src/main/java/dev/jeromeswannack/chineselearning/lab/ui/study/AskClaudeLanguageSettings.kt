@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.AskClaude
 import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeLanguage
+import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeListening
+import dev.jeromeswannack.chineselearning.lab.ui.kit.ToggleRow
+import androidx.compose.foundation.layout.Box
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.ui.settings.SettingsSection
 import dev.jeromeswannack.chineselearning.lab.ui.settings.StatusLine
@@ -37,9 +40,9 @@ private val OPTIONS = listOf(
     Triple(AskClaude.EN, "English", "Explanations in English, with the Chinese and pinyin in the examples."),
 )
 
-/** Settings → "Ask Claude answers in" (stateless for screenshots). */
+/** Settings → "Ask Claude answers in" + 🎧 Listen first (stateless for screenshots). */
 @Composable
-fun AskClaudeLanguageSection(language: String, note: String?, onChange: (String) -> Unit) {
+fun AskClaudeLanguageSection(language: String, note: String?, onChange: (String) -> Unit, listening: Boolean = false, onListening: (Boolean) -> Unit = {}) {
     SettingsSection("Ask Claude answers in", OPTIONS.first { it.first == language }.third + " Asking “in English please” always works for one answer.") {
         for ((value, label, _) in OPTIONS) {
             val on = language == value
@@ -52,6 +55,12 @@ fun AskClaudeLanguageSection(language: String, note: String?, onChange: (String)
                 Text(label, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
             }
         }
+        // 🎧 Listen first — the same switch as the Ask Claude sheet's 🎧 (web AskClaudeLanguageSection).
+        Box(Modifier.testTag("ask-claude-listening")) { ToggleRow("🎧", "Listen first", listening, onChange = onListening) }
+        Text(
+            "Claude’s Chinese answers arrive hidden, like a chat message in listening mode: they play by themselves, tap to hear them again, hold to read them. The 🎧 in the Ask Claude sheet is the same switch.",
+            style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted,
+        )
         StatusLine(note)
     }
 }
@@ -63,15 +72,28 @@ fun AskClaudeLanguageSection(language: String, note: String?, onChange: (String)
 @Composable
 fun AskClaudeLanguageSettings(app: LabApp) {
     var language by remember { mutableStateOf(app.prefs.askClaudeLanguage) }
+    var listening by remember { mutableStateOf(app.prefs.askClaudeListening) }
     var note by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         runCatching { app.repo.api.me() }.getOrNull()?.let { me ->
             app.prefs.saveProfile(me)
             language = app.prefs.askClaudeLanguage
+            listening = app.prefs.askClaudeListening
         }
     }
-    AskClaudeLanguageSection(language, note) { next ->
+    val setListening: (Boolean) -> Unit = { on ->
+        listening = on
+        note = null
+        app.prefs.askClaudeListening = on
+        app.haptics.tick()
+        app.analytics.track("study.ask_claude_listening", mapOf("on" to on, "source" to "settings"))
+        scope.launch {
+            runCatching { app.repo.api.setAskClaudeListening(on) }
+                .onFailure { note = "Saved on this phone — the account will follow when you're online (${it.userMessage()})." }
+        }
+    }
+    AskClaudeLanguageSection(language, note, listening = listening, onListening = setListening, onChange = { next ->
         language = next
         note = null
         app.prefs.askClaudeLanguage = next
@@ -80,5 +102,5 @@ fun AskClaudeLanguageSettings(app: LabApp) {
             runCatching { app.repo.api.setAskClaudeLanguage(next) }
                 .onFailure { note = "Saved on this phone — the account will follow when you're online (${it.userMessage()})." }
         }
-    }
+    })
 }

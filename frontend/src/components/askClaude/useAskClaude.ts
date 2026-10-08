@@ -23,6 +23,8 @@ export interface AskClaudeOptions {
   typed: { userAnswer: string; correctAnswer: string } | null;
   aiAvailable: boolean;
   language: AskLanguage;
+  /** 🎧 Listen first (the sheet's switch): sent with each ask, so the server makes the clip first. */
+  listening?: boolean;
 }
 
 /**
@@ -106,7 +108,7 @@ export function useAskClaude(opts: AskClaudeOptions) {
         const context = opts.typed ? { ...opts.typed, cardType: opts.cardType } : undefined;
         // Quick chips start a conversation; typed questions carry the history.
         const history = how.quick ? undefined : conversation.map((qa) => ({ question: qa.question, answer: qa.answer }));
-        const response = await askAboutNote(opts.noteId, q, context, history, { language: opts.language, quick: how.quick });
+        const response = await askAboutNote(opts.noteId, q, context, history, { language: opts.language, quick: how.quick, listening: opts.listening });
         track('study.ask_claude', { card_type: opts.cardType, language: response.answer_lang ?? opts.language, quick: !!how.quick });
         if (!live.current) return;
         setConversation((prev) => [...prev, response]);
@@ -126,7 +128,7 @@ export function useAskClaude(opts: AskClaudeOptions) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isAsking, conversation, opts.noteId, opts.cardType, opts.typed, opts.language, opts.aiAvailable, fetchWords, pollCheck],
+    [isAsking, conversation, opts.noteId, opts.cardType, opts.typed, opts.language, opts.listening, opts.aiAvailable, fetchWords, pollCheck],
   );
 
   /** The English of an answer / my question: stored after the first time (Translate works offline then). */

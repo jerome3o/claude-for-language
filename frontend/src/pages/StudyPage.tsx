@@ -21,6 +21,7 @@ import {
 import { AskClaudeSheet } from '../components/askClaude/AskClaudeSheet';
 import { useAskClaude } from '../components/askClaude/useAskClaude';
 import { useAskLanguage } from '../services/askClaudeLanguage';
+import { useAskListening } from '../services/askClaudeListening';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
 import { BumpBadge } from '../components/bumps/BumpButton';
@@ -370,6 +371,7 @@ export function StudyCard({
   const [showAskClaude, setShowAskClaude] = useState(false);
   const [cardDeleted, setCardDeleted] = useState(false);
   const [askLanguage, setAskLanguage] = useAskLanguage();
+  const [askListening, setAskListening] = useAskListening();
 
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -619,7 +621,7 @@ export function StudyCard({
     () => (isTypingCard && userAnswer ? { userAnswer, correctAnswer: card.note.hanzi } : null),
     [isTypingCard, userAnswer, card.note.hanzi],
   );
-  const askChat = useAskClaude({ noteId: card.note.id, cardType: card.card_type, typed: askTyped, aiAvailable, language: askLanguage });
+  const askChat = useAskClaude({ noteId: card.note.id, cardType: card.card_type, typed: askTyped, aiAvailable, language: askLanguage, listening: askListening });
 
   // Keep a ref to recordings so callbacks always see the latest
   const recordingsRef = useRef(recordings);
@@ -1776,6 +1778,8 @@ export function StudyCard({
         aiAvailable={aiAvailable}
         language={askLanguage}
         onLanguage={(l) => void setAskLanguage(l, 'sheet')}
+        listening={askListening}
+        onListening={(on) => void setAskListening(on, 'sheet')}
         onApprove={processToolResults}
         onClose={() => setShowAskClaude(false)}
       />

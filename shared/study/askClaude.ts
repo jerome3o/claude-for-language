@@ -9,6 +9,10 @@
  * client half in core `AskClaude.kt`, parity-tested (android-lab/parity/fixtures/ask-claude.ts).
  */
 
+import { DEFAULT_LESSON_VOICE } from '../lesson/voices';
+import { CHAT_READ_ALOUD_SPEED } from '../chats/voice';
+import { addRevealed, hasHan, REVEALED_MAX } from '../chats/listening';
+
 export type AskLanguage = 'zh' | 'en';
 
 /** NULL in `users.ask_claude_language` = this: answers in Chinese. */
@@ -142,4 +146,90 @@ export function askQuickActions(opts: { language: AskLanguage; typedAnswer: bool
     });
   }
   return list;
+}
+
+// ---------------------------------------------------------------------------------------------
+// 🎧 Listen first — the chat's listening mode (shared/chats/listening.ts) in the Ask Claude sheet.
+// Jerome: "Please also allow it to be toggled to audio first, in the same way the messages are,
+// so I can listen to the answer." Claude's Chinese answers arrive as the chat's hidden bubble —
+// tap plays, long press reveals — and a new one plays once by itself. Ported in core `AskClaude.kt`
+// (parity-tested by android-lab/parity/fixtures/ask-claude.ts).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The voice Claude's answers are read in (Read aloud, the listening tap, the server's
+ * pre-generated clip): the app's own voice — the one every card and word clip speaks in — at the
+ * chat's read-aloud speed. It is what `chatReadAloudVoice` gives a sender with no voice gender, so
+ * it never depends on the listener's conversation voices: one clip per answer, made once.
+ */
+export const ASK_CLAUDE_VOICE = DEFAULT_LESSON_VOICE;
+export const ASK_CLAUDE_SPEED = CHAT_READ_ALOUD_SPEED;
+
+/**
+ * Longest answer a clip is made for (the chat's `wantsClip` limit). An answer is ONE clip: the
+ * TTS path has no length limit below MiniMax's 10,000 characters, and answers are a few hundred.
+ */
+export const ASK_CLIP_MAX_CHARS = 2000;
+
+/** `users.ask_claude_listening` / a request's `listening`: on only for true / 1 (NULL = off). */
+export function parseAskListening(v: unknown): boolean {
+  return v === true || v === 1 || v === '1';
+}
+
+/** The parts of a Q&A the listening rules read. */
+export interface AskListeningEntry {
+  id: string;
+  answer: string;
+  answer_lang?: string | null;
+}
+
+/**
+ * An answer listening mode could hide: Claude's answer in Chinese (`answer_lang` 'zh', plain
+ * text) that has Chinese in it. My own questions never hide, and neither do English answers
+ * (EN mode, "in English please") or older Markdown answers.
+ */
+export function askListeningCandidate(entry: AskListeningEntry): boolean {
+  if (entry.answer_lang !== 'zh') return false;
+  const text = (entry.answer || '').trim();
+  return text.length > 0 && text.length <= ASK_CLIP_MAX_CHARS && hasHan(text);
+}
+
+function revealedHas(revealed: ReadonlySet<string> | readonly string[], id: string): boolean {
+  return Array.isArray(revealed) ? revealed.includes(id) : (revealed as ReadonlySet<string>).has(id);
+}
+
+/** Is this answer drawn as the chat's hidden listening bubble? */
+export function askAnswerHidden(entry: AskListeningEntry, ctx: { listening: boolean; revealed: ReadonlySet<string> | readonly string[] }): boolean {
+  return ctx.listening && askListeningCandidate(entry) && !revealedHas(ctx.revealed, entry.id);
+}
+
+/**
+ * Switched ON in the sheet: the answers already on screen stay as they are (the chat's
+ * `sinceWhenTurnedOn` — history stays, anything newer hides), so they join the revealed ids.
+ * Returns the new revealed list (newest last, capped like the chat's).
+ */
+export function revealedWhenListeningOn(entries: readonly AskListeningEntry[], revealed: readonly string[], max: number = REVEALED_MAX): string[] {
+  let next = [...revealed];
+  for (const e of entries) if (askListeningCandidate(e) && !next.includes(e.id)) next = addRevealed(next, e.id, max);
+  return next;
+}
+
+/**
+ * The answer to play by itself: the newest one, when it arrived while the sheet was open (not in
+ * `seen` = the ids on screen when the sheet opened, plus every id this already looked at), it is
+ * hidden, and no audio is playing or loading (Read aloud, another hidden answer). Once only: the
+ * caller adds the newest id to `seen` whatever this returns. The chat has no auto-play — this is
+ * Ask Claude's own: the learner has just asked and is waiting for the answer.
+ */
+export function askAutoPlayId(opts: {
+  listening: boolean;
+  entries: readonly AskListeningEntry[];
+  seen: ReadonlySet<string> | readonly string[];
+  revealed: ReadonlySet<string> | readonly string[];
+  audioBusy: boolean;
+}): string | null {
+  if (!opts.listening || opts.audioBusy || opts.entries.length === 0) return null;
+  const last = opts.entries[opts.entries.length - 1];
+  if (revealedHas(opts.seen, last.id)) return null;
+  return askAnswerHidden(last, { listening: true, revealed: opts.revealed }) ? last.id : null;
 }

@@ -67,7 +67,6 @@ class MediaListeningPlayer : ListeningPlayer {
     private var mp: MediaPlayer? = null
 
     override fun play(file: File, speed: Float, onDone: () -> Unit) {
-        Analytics.track("chat.listening_play", mapOf("slow" to (speed < 1f)))
         stop()
         val p = MediaPlayer()
         mp = p
@@ -207,6 +206,7 @@ class ChatListeningMode(
             measure(m.id, file)
             val next = ListeningPlayer.factory()
             player = next
+            Analytics.track("chat.listening_play", mapOf("slow" to ui.value.listening.slow))
             update { it.copy(loading = null, playing = m.id, playNonce = it.playNonce + 1) }
             next.play(file, if (ui.value.listening.slow) SLOW else 1f) {
                 if (player === next) { player = null; update { it.copy(playing = null) } }

@@ -103,6 +103,12 @@ data class StudyUi(
     val todayLeft: TodayLeft = TodayLeft(),
     /** "Ask Claude answers in": 'zh' (the default) | 'en' (core AskClaude; Settings + the sheet's 中 / EN). */
     val askLanguage: String = dev.jeromeswannack.chineselearning.lab.core.AskClaude.DEFAULT_LANGUAGE,
+    /** Ask Claude 🎧 Listen first (Settings + the sheet's 🎧). */
+    val askListening: Boolean = false,
+    /** The hidden answers' playback + the ids revealed on this phone (the chat's [ListeningUi]; `setting` unused). */
+    val askListen: dev.jeromeswannack.chineselearning.lab.ui.chat.ListeningUi = dev.jeromeswannack.chineselearning.lab.ui.chat.ListeningUi(),
+    /** A hidden answer that couldn't play (offline, never fetched): the line under it. */
+    val askListenNotice: AskListenNotice? = null,
 ) {
     /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
     val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }

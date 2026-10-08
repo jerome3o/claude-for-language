@@ -70,8 +70,11 @@ export interface ListeningPlayer {
   toggleSlow: () => void;
 }
 
-/** One player for the hidden bubbles of a chat: tap = play from the start (again), cache-first, slow 0.75× remembered. */
-export function useListeningPlayer(onError?: (message: string) => void): ListeningPlayer {
+/**
+ * One player for the hidden bubbles of a chat: tap = play from the start (again), cache-first, slow 0.75× remembered.
+ * `onPlay` replaces the chat's `chat.listening_play` event (Ask Claude records its own).
+ */
+export function useListeningPlayer(onError?: (message: string) => void, opts: { onPlay?: (slow: boolean) => void } = {}): ListeningPlayer {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -85,6 +88,8 @@ export function useListeningPlayer(onError?: (message: string) => void): Listeni
   slowRef.current = slow;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const onPlayRef = useRef(opts.onPlay);
+  onPlayRef.current = opts.onPlay;
 
   const release = useCallback(() => {
     if (audio.current) {
@@ -112,7 +117,8 @@ export function useListeningPlayer(onError?: (message: string) => void): Listeni
   const play = useCallback(
     (msg: { id: string; content: string }, params: ReadAloudParams) => {
       const mine = ++token.current;
-      track('chat.listening_play');
+      if (onPlayRef.current) onPlayRef.current(slowRef.current);
+      else track('chat.listening_play', { slow: slowRef.current });
       release();
       setPlayingId(null);
       setProgress(0);

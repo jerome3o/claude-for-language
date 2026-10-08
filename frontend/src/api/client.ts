@@ -679,6 +679,8 @@ export interface NoteQuestionWithTools extends NoteQuestion {
   readOnlyToolCalls?: ReadOnlyToolCall[];
   /** The question's check is still running: read the row again in a moment (GET /note-questions/:id). */
   question_check_pending?: boolean;
+  /** 🎧 Listen first: the answer's read-aloud clip was made before the answer came back (a tap plays at once). */
+  answer_clip_ready?: boolean;
 }
 
 export async function askAboutNote(
@@ -686,12 +688,12 @@ export async function askAboutNote(
   question: string,
   context?: { userAnswer?: string; correctAnswer?: string; cardType?: string },
   conversationHistory?: { question: string; answer: string }[],
-  /** language = the sheet's 中 / EN; quick = a quick-question chip (not checked). */
-  opts: { language?: AskLanguage; quick?: boolean } = {}
+  /** language = the sheet's 中 / EN; quick = a quick-question chip (not checked); listening = the sheet's 🎧 (the clip is made first). */
+  opts: { language?: AskLanguage; quick?: boolean; listening?: boolean } = {}
 ): Promise<NoteQuestionWithTools> {
   const res = await fetchJSON<NoteQuestionWithTools>(`/notes/${noteId}/ask`, {
     method: 'POST',
-    body: JSON.stringify({ question, context, conversationHistory, language: opts.language, quick: opts.quick || undefined }),
+    body: JSON.stringify({ question, context, conversationHistory, language: opts.language, quick: opts.quick || undefined, listening: opts.listening }),
   });
   // Claude bumped words I already have ("⚡ Study it today"): pull the pocket now.
   if (res.readOnlyToolCalls?.some((c) => c.tool === 'bump_cards')) {
@@ -727,6 +729,11 @@ export async function translateNoteQuestion(id: string, part: 'answer' | 'questi
 /** "Ask Claude answers in": 'zh' | 'en', null = back to the default (Chinese). */
 export async function setAskClaudeLanguage(language: AskLanguage | null): Promise<{ ask_claude_language: AskLanguage | null }> {
   return fetchJSON(`/profile/ask-claude-language`, { method: 'PUT', body: JSON.stringify({ ask_claude_language: language }) });
+}
+
+/** Ask Claude 🎧 Listen first on / off (the account's; the sheet and Settings). */
+export async function setAskClaudeListening(on: boolean): Promise<{ ask_claude_listening: boolean }> {
+  return fetchJSON(`/profile/ask-claude-listening`, { method: 'PUT', body: JSON.stringify({ ask_claude_listening: on }) });
 }
 
 // ============ Cards ============
