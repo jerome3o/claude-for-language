@@ -32,6 +32,30 @@ import java.time.Instant
 object SonioxProtocol {
     const val SAMPLE_RATE = 16_000
 
+    /**
+     * `SONIOX_END_OF_AUDIO`: the end of audio is an EMPTY TEXT frame. An empty BINARY frame
+     * (`ByteString.EMPTY`) is only an empty audio chunk to Soniox and does NOT end the stream —
+     * sending that made every Lab take wait out the 4 s timeout and fall back to the upload.
+     */
+    const val END_OF_AUDIO = ""
+
+    /** `liveErrorKind`: why live gave nothing, as an analytics enum (never the raw message). */
+    fun errorKind(reason: String?): String {
+        val r = reason?.trim().orEmpty()
+        if (r.isEmpty()) return "none"
+        Regex("^Soniox (\\d{3})\\b").find(r)?.let { return "soniox_${it.groupValues[1]}" }
+        if (r.startsWith("Soniox")) return "soniox_error"
+        val l = r.lowercase()
+        return when {
+            "timed out" in l || "timeout" in l -> "timeout"
+            "no text" in l -> "empty"
+            "closed early" in l -> "closed"
+            "aborted" in l -> "aborted"
+            "no live session" in l -> "no_session"
+            else -> "socket"
+        }
+    }
+
     /** `buildSonioxConfig` — no `context`: biasing towards the answer would hide mistakes. */
     fun config(apiKey: String, model: String, languageHints: List<String>, sampleRate: Int = SAMPLE_RATE, channels: Int = 1): String =
         buildJsonObject {
@@ -116,7 +140,7 @@ class LiveSessionCache(private val now: () -> Long = System::currentTimeMillis, 
 
 /**
  * One take streamed to Soniox (the web's LiveTranscriber). Audio sent before the socket
- * opens is queued; [finish] sends the empty end-of-audio frame and returns the final text,
+ * opens is queued; [finish] sends the end of audio (an EMPTY TEXT frame) and returns the final text,
  * or throws (error, early close, timeout) so the caller uploads the take instead.
  */
 class SonioxStream(http: OkHttpClient, private val session: LiveTranscriptionSessionDto) {
@@ -136,7 +160,7 @@ class SonioxStream(http: OkHttpClient, private val session: LiveTranscriptionSes
                     queue.forEach { webSocket.send(it) }
                     queue.clear()
                     open = true
-                    if (ended) webSocket.send(ByteString.EMPTY)
+                    if (ended) webSocket.send(SonioxProtocol.END_OF_AUDIO)
                 }
             }
 
@@ -175,7 +199,7 @@ class SonioxStream(http: OkHttpClient, private val session: LiveTranscriptionSes
         synchronized(lock) {
             if (!ended) {
                 ended = true
-                if (open) socket.send(ByteString.EMPTY)
+                if (open) socket.send(SonioxProtocol.END_OF_AUDIO)
             }
         }
         return try {

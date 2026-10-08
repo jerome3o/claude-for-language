@@ -12,7 +12,8 @@
  *   2. send the config JSON (`buildSonioxConfig`) as the first text frame
  *   3. send audio as binary frames (webm/Opus chunks from MediaRecorder → `audio_format:
  *      'auto'`; raw 16 kHz mono PCM from Android's AudioRecord → `pcm_s16le`)
- *   4. send an EMPTY frame: end of audio. The server finalises every token, replies with
+ *   4. send an EMPTY TEXT frame (`SONIOX_END_OF_AUDIO`; an empty BINARY frame is just an
+ *      empty audio chunk): end of audio. The server finalises every token, replies with
  *      `finished: true` and closes.
  * Responses carry `tokens: [{ text, is_final }]`; final tokens never change, non-final ones
  * may. Errors come back as `{ error_code, error_message }`.
@@ -110,6 +111,33 @@ export function liveKeyUsable(session: LiveTranscriptionSession | null | undefin
   if (!session || session.provider !== 'soniox') return false;
   const expires = Date.parse(session.expires_at);
   return Number.isFinite(expires) && expires - marginMs > nowMs;
+}
+
+/**
+ * The end-of-audio frame: an EMPTY TEXT frame (`socket.send('')`). An empty BINARY frame is
+ * only an empty audio chunk to Soniox and does NOT end the stream ("An empty binary frame is
+ * an empty audio chunk and does not end the stream" — Soniox WebSocket API). The Lab app sent
+ * an empty binary frame until Oct 2026, so every take timed out after 4 s and was uploaded.
+ */
+export const SONIOX_END_OF_AUDIO = '';
+
+/**
+ * Why the live stream gave nothing, as an analytics enum (`study.take_transcribed`'s
+ * `live_error`) — never the raw message. Lab port: `SonioxProtocol.errorKind`.
+ */
+export function liveErrorKind(reason: string | null | undefined): string {
+  const r = (reason ?? '').trim();
+  if (!r) return 'none';
+  const code = /^Soniox (\d{3})\b/.exec(r);
+  if (code) return `soniox_${code[1]}`;
+  if (r.startsWith('Soniox')) return 'soniox_error';
+  const l = r.toLowerCase();
+  if (l.includes('timed out') || l.includes('timeout')) return 'timeout';
+  if (l.includes('no text')) return 'empty';
+  if (l.includes('closed early')) return 'closed';
+  if (l.includes('aborted')) return 'aborted';
+  if (l.includes('no live session')) return 'no_session';
+  return 'socket';
 }
 
 /**

@@ -2,7 +2,8 @@ import { useState, useCallback, useRef } from 'react';
 import { transcribeAudio, TranscriptionResult } from '../api/client';
 import { transcribeTakeOutcome } from '../services/takeTranscription';
 import { resetLiveSessionCache } from '../services/liveTranscription';
-import { liveFailureInvalidatesKey } from '@shared/transcription/soniox';
+import { liveErrorKind, liveFailureInvalidatesKey } from '@shared/transcription/soniox';
+import { track } from '../services/analytics';
 import { compareTranscription, type TranscriptionComparison } from '@shared/recordings/transcript';
 
 // The comparison lives in shared/ so the worker's recording check agrees with the card.
@@ -62,6 +63,12 @@ export function useTranscription() {
       if (liveFailureInvalidatesKey(outcome.liveError)) resetLiveSessionCache();
     }
     const ms = Math.round(performance.now() - startedAt);
+    // Enums + a duration only (never the transcript): makes a broken live path visible in analytics.
+    track('study.take_transcribed', {
+      via: outcome.kind === 'done' ? outcome.via : outcome.kind,
+      live_error: live ? liveErrorKind(outcome.liveError) : 'none',
+      ms,
+    });
     switch (outcome.kind) {
       case 'done':
         console.info(`[transcribe] ${outcome.via === 'live' ? 'live (Soniox)' : 'upload'} ready ${ms} ms after stop`);

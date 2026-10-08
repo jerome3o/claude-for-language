@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { applySonioxMessage, buildSonioxConfig, EMPTY_TRANSCRIPT, liveFailureInvalidatesKey, liveKeyUsable, transcriptText } from './soniox';
+import { applySonioxMessage, buildSonioxConfig, EMPTY_TRANSCRIPT, liveErrorKind, liveFailureInvalidatesKey, liveKeyUsable, SONIOX_END_OF_AUDIO, transcriptText } from './soniox';
+
+describe('SONIOX_END_OF_AUDIO', () => {
+  // Soniox ends the stream only on an EMPTY TEXT frame; an empty binary frame is an empty audio
+  // chunk. The Lab app sent the binary one, so every take timed out after 4 s (Oct 2026).
+  it('is an empty string (a text frame), never an empty byte array', () => {
+    expect(SONIOX_END_OF_AUDIO).toBe('');
+    expect(typeof SONIOX_END_OF_AUDIO).toBe('string');
+  });
+});
+
+describe('liveErrorKind', () => {
+  it('turns a live failure reason into an analytics enum (same vectors as the Lab port)', () => {
+    expect(liveErrorKind(null)).toBe('none');
+    expect(liveErrorKind('  ')).toBe('none');
+    expect(liveErrorKind('Timed out waiting for 4000 ms')).toBe('timeout');
+    expect(liveErrorKind('timeout')).toBe('timeout');
+    expect(liveErrorKind('Soniox 402: Balance exhausted')).toBe('soniox_402');
+    expect(liveErrorKind('Soniox 401: Invalid API key')).toBe('soniox_401');
+    expect(liveErrorKind('Soniox : error')).toBe('soniox_error');
+    expect(liveErrorKind('live returned no text')).toBe('empty');
+    expect(liveErrorKind('closed early')).toBe('closed');
+    expect(liveErrorKind('aborted')).toBe('aborted');
+    expect(liveErrorKind('no live session')).toBe('no_session');
+    expect(liveErrorKind('socket error')).toBe('socket');
+  });
+});
 
 describe('buildSonioxConfig', () => {
   it('streams webm with auto-detection and zh + en hints', () => {

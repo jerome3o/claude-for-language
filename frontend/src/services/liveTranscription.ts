@@ -17,6 +17,7 @@ import {
   buildSonioxConfig,
   EMPTY_TRANSCRIPT,
   liveKeyUsable,
+  SONIOX_END_OF_AUDIO,
   transcriptText,
   type LiveTranscriptionSession,
   type SonioxTranscript,
@@ -107,7 +108,7 @@ export class LiveTranscriber {
       socket.send(JSON.stringify(buildSonioxConfig(s.api_key, { kind: 'auto' }, s.model, s.language_hints)));
       for (const chunk of this.queue) socket.send(chunk);
       this.queue = [];
-      if (this.ended) socket.send('');
+      if (this.ended) socket.send(SONIOX_END_OF_AUDIO);
     };
     socket.onmessage = (ev) => {
       if (typeof ev.data !== 'string') return;
@@ -139,7 +140,7 @@ export class LiveTranscriber {
       return p;
     }
     this.ended = true;
-    if (this.socket?.readyState === OPEN) this.socket.send('');
+    if (this.socket?.readyState === OPEN) this.socket.send(SONIOX_END_OF_AUDIO);
     this.timer = setTimeout(() => this.fail('timeout'), this.opts.finishTimeoutMs ?? 4000);
     return p;
   }
