@@ -37,7 +37,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /*
  * Frequency decals (docs/LANGUAGE_EXPLORER.md "Frequency decals"; web
- * components/explorer/FrequencyDecal.tsx + explorer.css): a 1.5dp outline (2dp + a yellow fill
+ * components/explorer/FrequencyDecal.tsx + explorer.css): a 1.5dp outline (2dp + a lemon fill
  * for the yellow tier on light) around a word /
  * character tile from its rank in the shipped word-freq list (core FrequencyDecals.tier,
  * parity-tested). Modifier.border draws inside the tile's bounds, so a decal never changes
@@ -54,30 +54,31 @@ fun shippedDecals(): DecalOf? = WordFrequency.shipped?.let { idx ->
 
 /**
  * The web's --freq-* tokens. Light (on #FFFDF8 / #FFFFFF): purple 4.2:1, green 3.2:1, yellow
- * 3.1:1, grey 2.5:1 (rare = the quietest, on purpose). Dark (on #1C1C20): 5.5 / 8.6 / 11.1 / 3.1.
+ * 3.4:1, grey 2.5:1 (rare = the quietest, on purpose). Dark (on #1C1C20): 6.2 / 9.7 / 12.9 / 3.5.
  *
- * Yellow (top 2,000) can't be a pure yellow line on a light card: every yellow bright enough to
- * read as yellow is under 2:1 on white, and darkening it to 3:1 turns it gold / olive. So on the
- * light theme its outline is a dark yellow (#A89000, 3.1:1) 2dp wide around a yellow fill
- * (#FEF08A) — the fill is what reads "yellow". On the dark theme #FACC15 is yellow and 11:1 on
- * its own, so no fill there.
+ * Yellow (top 2,000) is LEMON yellow, never amber / gold. A pure yellow line can't reach 3:1 on a
+ * light card (every yellow bright enough to read as yellow is under 2:1 on white), so on light its
+ * outline is a lemon-olive (#948C00, 3.4:1 on the card, 3.25:1 on its fill) 2dp wide around a pale
+ * lemon fill (#FEF9C3) — the fill is what reads "yellow". On dark #FDE047 (yellow-300, 12.9:1) is
+ * lemon on its own; #FACC15 read as orange there (Oct 2026). No fill on dark: any yellow tint over
+ * #1C1C20 comes out khaki and pulls it back towards gold.
  */
 object DecalColors {
     val light = mapOf(
         FrequencyDecal.TOP100 to Color(0xFF8B5CF6),
         FrequencyDecal.TOP1000 to Color(0xFF16A34A),
-        FrequencyDecal.TOP2000 to Color(0xFFA89000),
+        FrequencyDecal.TOP2000 to Color(0xFF948C00),
         FrequencyDecal.RARE to Color(0xFF9CA3AF),
     )
     val dark = mapOf(
         FrequencyDecal.TOP100 to Color(0xFFA78BFA),
         FrequencyDecal.TOP1000 to Color(0xFF4ADE80),
-        FrequencyDecal.TOP2000 to Color(0xFFFACC15),
+        FrequencyDecal.TOP2000 to Color(0xFFFDE047),
         FrequencyDecal.RARE to Color(0xFF71717A),
     )
 
     /** The fill behind the yellow tier on the light theme (none on dark, none for the other tiers). */
-    val yellowFillLight = Color(0xFFFEF08A)
+    val yellowFillLight = Color(0xFFFEF9C3)
 }
 
 /** How one decal is drawn: the outline colour and width, and an optional fill (the yellow tier on light). */
