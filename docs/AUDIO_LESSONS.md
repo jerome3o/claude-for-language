@@ -22,10 +22,14 @@ dialogue). Chapters:
 **Sleep (format B, slow immersion, comprehensible input).** Input: any Chinese text. Chinese throughout —
 no pinyin is ever spoken; the only English is one recap line per word and one translation per example sentence,
 both in a calm English voice (role `recap`: Azure `en-US-EmmaNeural`, Google `en-US-Neural2-F`; app rate 0.9). For
-each new word (one chapter each, round 3 order, Oct 2026):
+each new word (one chapter each, round 3 order, Oct 2026; round 4 adds the per-character lines and the varied wordings):
 1. **"这是一个新词。我说三遍。" + the word ×3** — Jerome hears this every word, so its pauses are short (0.5 s
-   between the two phrases, 0.9 s before the word, 1.3 s between repeats, 2 s after).
-2. **Its characters**: each with its tone (below, "导，第三声。"), then `characters_zh` (0–3: "'银'就是'银行'的'银'。").
+   between the two phrases, 0.9 s before the word, 1.3 s between repeats, 2 s after). The intro is said in one of a
+   few plain wordings ("我们来学一个新词。我念三遍。" …, see "Variation").
+2. **Each character, one by one** (every distinct character of the word; a one-character word once): its tone
+   (below, "导，第三声。"), then its own line (`char_notes`, below, "Each character": "你学过‘导游’的‘导’。" /
+   "‘航’也在‘航空’里。" / "‘驶’是一个新字，你以前没见过。"), then the next character; after the last one, where the word
+   says a tone differently ("在‘任务’里，‘务’读轻声。"). Plans written before round 4 say `characters_zh` here instead.
 3. **What it MEANS** (`meaning_zh`, REQUIRED, 5–8 short sentences, each ≤ 30 characters): comprehensible input — the
    meaning said, then said again a little differently, a tiny everyday situation, a contrast with a known word, and
    restated plainly, all with words the learner knows ("邮局是一个地方。" "在邮局，你可以寄信。" "你想给妈妈寄一封信，
@@ -43,6 +47,39 @@ word for word, or has a sentence that only says where a character comes from (`i
 transcript shows the recap as one row (`transcriptRows`: a `recap` line + the `sleep` word right after it); a line
 said several times in a row is ONE row with "×3" (`TranscriptRow.repeat`), and an example sentence's spoken
 translation joins that sentence's row (it is already its `english`).
+
+**Each character** (round 4, Oct 2026, `shared/audio-lesson/characters.ts`, `worker/…/audio-lessons/char-links.ts`).
+Jerome: "the last one doesn't seem to explain all the characters" — the round-3 `characters_zh` was optional and the
+agent covered about half of them (安静的周末: 附, 锻, 炼, 筝, 天, 散 … had nothing). Now every character gets a line,
+and WHICH words it names is decided in code, never from the model's memory. `pickCharLinks` per distinct character:
+1. **known** — 1–3 words he has REVIEWED (a learning or mature card; `learnerVocabulary` tier ≥ 1) that contain the
+   character with the same reading as in the taught word, mature first, then the most frequent (wordfreq rank), then
+   2-character words: "你学过‘导游’的‘导’。";
+2. **common** — else 1–2 words containing it with the same reading within the top 5000 of the wordfreq list
+   (`CHAR_LINK_LIMITS.commonMaxRank`): the character dictionary's frequent words (`CharRecord.words`) ranked by the
+   word dictionary (`WordRecord.rank` / `syllables`), both static assets read through `CHAR_DICT`: "‘航’也在‘航空’里。";
+3. **other_reading** — else his reviewed words where it is read differently ("你在‘不行’里见过‘行’，这里读音不一样。");
+4. **new** — else, when no reviewed note of his (word or sentence) contains it: the app's own line, "‘驶’是一个新字，
+   你以前没见过。" (one of `NEW_CHARACTER_LINES`); **none** — met only in a sentence card: nothing more is said.
+The taught word itself is never offered. Readings: the word's pinyin when it lines up with the characters, else
+pinyin-pro (`charReadings`). The facts reach the agent in `check_known_words` (per character `say` + `words`, sleep
+only) and again in any refusal; at `submit_lesson` the worker recomputes them for the plan's words and
+`charNoteProblems` checks each `char_notes` entry `{ char, words, zh }`: one per distinct character in order; named
+words (and anything quoted in `zh`) only from the facts; known 1–3, common 1–2 and never "学过 / 认识 / 见过 / 你知道";
+not "新字" for a character he knows; zh Chinese only, ≤ 40 characters, saying the character and every named word;
+a new character: words [] (its zh is replaced). `stampCharNotes` then writes each note's `kind` from the facts (never
+the model's) and clears a new character's zh, so the compiler says the new-character line itself. Without the
+dictionary binding (tests) there are no common words — a character is then "new" only if he truly never met it.
+
+**Variation** (`shared/audio-lesson/phrases.ts`). The fixed lines of a word block come in 4–6 hand-written, plain
+(HSK 1–3) wordings each, never improvised by the model: the intro (`NEW_WORD_INTROS`: "这是一个新词。我说三遍。",
+"我们来学一个新词。我念三遍。", "下面是一个新词。请听三遍。" …), the tone line (`TONE_LINES`: "导，第三声。" / "导，是第三声。" /
+"导，读第三声。" / "导，它是第三声。"), the tone-change line (`TONE_CHANGE_LINES`), the new-character line
+(`NEW_CHARACTER_LINES`), "我们听三个句子。" (`SENTENCES_INTROS`) and the English recap's opening (`RECAP_OPENINGS`: "The
+word was" / "That word was" / "Our new word was" / "The new word was"). `variantIndex` picks deterministically from a
+seed of the lesson (`sleepVariationSeed`: title + words) and the word's index — an offset plus a step that is never a
+multiple of the pool size, so a plan always compiles to the same script and two consecutive words never use the same
+wording (new-character lines count their own index across the lesson). No seed = variant 0 = the original line.
 
 **Character tones** (`shared/audio-lesson/tones.ts`). Claude gives every Han character of the word its CITATION
 tone — `char_tones: [{ char: '导', pinyin: 'dǎo', tone: 3 }, { char: '航', pinyin: 'háng', tone: 2 }]` (tone 1–4,
@@ -89,16 +126,17 @@ the rates the app already uses; no clip was synthesised to compare them in the b
 | 我说三遍。 | 0.9 s (`sleepAfterIntro`) |
 | the word ×3 | 1.3 s between (`sleepWordRepeat`), 2 s after the third (`sleepAfterWord`) |
 | each tone line | 1.5 s (`sleepCharTone`) |
-| each `characters_zh` sentence | 2 s (`sleepSentence`) |
+| each sentence of a character's line | 1.8 s (`sleepCharNote`) |
+| each `characters_zh` sentence (plans before round 4) | 2 s (`sleepSentence`) |
 | each meaning sentence | 2.2 s (`sleepMeaning`) |
 | the English recap | 1.5 s (`sleepRecap`) |
 | 我们听三个句子。 | 1.5 s |
 | each example sentence | 1.8 s between repeats, 1.2 s before its translation, 2.5 s after the translation |
 | end of the word | 3.5 s (`sleepBetweenWords`) |
 
-A word now takes about 2.7 minutes (`SLEEP_MINUTES_PER_WORD`, `agent.ts`): the briefing asks for
-`round((minutes − 0.5) / 2.7)` words (2–12; 20 min → 7) and a plan estimated over `1.3 × target + 2` minutes is sent
-back ("teach fewer words"). The distinct-clip limit is 260 (each word ≈ 17 clips).
+A word now takes about 3 minutes (`SLEEP_MINUTES_PER_WORD`, `agent.ts`; 2.7 before the character lines): the briefing
+asks for `round((minutes − 0.5) / 3)` words (2–12; 20 min → 7) and a plan estimated over `1.3 × target + 2` minutes is sent
+back ("teach fewer words"). The distinct-clip limit is 260 (each word ≈ 20 clips).
 
 ## Music
 
@@ -286,6 +324,12 @@ with the audio backfill → roughly 5–15 minutes per lesson.
 
 ## Tests
 
+- `shared/audio-lesson/characters.test.ts`: the picker (known words first — mature, then frequent; common words within
+  the rank limit and with the word's reading; other reading; new vs met-only-in-a-sentence; never the word itself;
+  one step for a one-character word / 姐姐), `char_notes` validation against the facts (invented / unquoted-in-facts
+  words, "学过" for common words, "新字" for a known one, a new character naming words), `stampCharNotes`, the compile
+  order (tone → its line → next character → meaning; the app's new-character line), and the wordings (4–6 per pool,
+  every one Chinese-only / short / closed, deterministic, never the same twice in a row in a compiled lesson).
 - `shared/audio-lesson/audio-lesson.test.ts`: compile (three plays, ×3 repeats, the sleep word order a–e, the short
   intro pauses, the translations after each triplet, voices and rates, source text), plan validation (5–8 meaning
   sentences, no repeats / origins, a spoken English translation per sentence), timeline, transcript rows (×3, the
@@ -293,7 +337,8 @@ with the audio backfill → roughly 5–15 minutes per lesson.
   你好 / 一样 / 不是 / 姐姐 / 银行 lines, their place and pauses, the transcript's pinyin, `char_tones` validation).
 - `worker/…/__tests__/audio-lesson-mp3.test.ts`: frame parsing (tags, Xing, junk), format check,
   silence, assembly (frame boundaries, durations, the Xing header + TOC).
-- `worker/…/__tests__/audio-lesson-job.test.ts`: the sleep rates per provider (`lessonClipRate`), the word target
+- `worker/…/__tests__/audio-lesson-job.test.ts`: the character facts from cards + a fake `CHAR_DICT` (`makeCharLinks`),
+  `check_known_words` carrying them and a refusal naming them; the sleep rates per provider (`lessonClipRate`), the word target
   and length limit, the prompt's order; the whole job on real SQLite with a mocked model and
   voices — a repair round, a rate-limit wait → re-enqueue → resume without remaking clips, rendering,
   parts deleted, provider pinning, failure + Retry, the nudge.

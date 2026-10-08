@@ -5,6 +5,7 @@
  */
 import { hasHan } from './compile';
 import { charToneProblems } from './tones';
+import { charNoteProblems, type CharLink } from './characters';
 import type { AudioLessonScript, DialoguePlan, SleepPlan } from './types';
 
 export const SCRIPT_LIMITS = {
@@ -118,7 +119,7 @@ export function validateDialoguePlan(raw: unknown): string[] {
 
 /**
  * "'银'就是'银行'的'银'。" / "'寄'是'寄信'的'寄'。" — a sentence that only says which known word
- * a character comes from. Fine in characters_zh, not as the whole meaning.
+ * a character comes from. Fine in char_notes, not as the whole meaning.
  */
 export function isCharacterOrigin(sentence: string): boolean {
   const s = sentence.replace(/[\s‘’“”'"「」『』]/g, '').replace(/[。！？!?，,]+$/u, '');
@@ -138,7 +139,11 @@ function checkRecap(where: string, v: unknown, problems: string[]): void {
   if (TONE_MARKS.test(englishOnly)) problems.push(`${where}: no pinyin — it is read by an English voice`);
 }
 
-export function validateSleepPlan(raw: unknown): string[] {
+/**
+ * `charLinks` (word → what may be said about each of its characters, worker `pickCharLinks`):
+ * given by the worker, it makes `char_notes` required and checks every named word against it.
+ */
+export function validateSleepPlan(raw: unknown, opts: { charLinks?: Record<string, CharLink[]> } = {}): string[] {
   const problems: string[] = [];
   if (!raw || typeof raw !== 'object') return ['The plan is missing'];
   const p = raw as Partial<SleepPlan>;
@@ -181,12 +186,13 @@ export function validateSleepPlan(raw: unknown): string[] {
     checkZh('characters_zh', chars ?? [], 40);
     const origins = meaning.flatMap((s, j) => (typeof s === 'string' && isCharacterOrigin(s) ? [j] : []));
     if (origins.length) {
-      problems.push(`words[${i}].meaning_zh[${origins.join(', ')}]: only says where a character comes from — that goes in characters_zh; meaning_zh must say what the word MEANS (what it is, what it does, what it is like, when you use it, or its opposite)`);
+      problems.push(`words[${i}].meaning_zh[${origins.join(', ')}]: only says where a character comes from — that goes in char_notes; meaning_zh must say what the word MEANS (what it is, what it does, what it is like, when you use it, or its opposite)`);
     }
     const norm = (s: unknown) => (typeof s === 'string' ? s.replace(/[\s，,。！？!?、‘’“”'"]/g, '') : '');
     const dupes = meaning.filter((s, j) => norm(s) && meaning.findIndex((t) => norm(t) === norm(s)) !== j);
     if (dupes.length) problems.push(`words[${i}].meaning_zh: "${String(dupes[0])}" is there twice — restate the meaning in a slightly DIFFERENT way each time`);
     if (str(w.hanzi)) problems.push(...charToneProblems(`words[${i}]`, w));
+    if (str(w.hanzi)) problems.push(...charNoteProblems(`words[${i}]`, w, opts.charLinks ? opts.charLinks[w.hanzi.trim()] ?? [] : null));
     checkRecap(`words[${i}].recap_en`, w.recap_en, problems);
     if (!Array.isArray(w.related_known)) problems.push(`words[${i}].related_known: a list (may be empty)`);
     const sentences = Array.isArray(w.sentences) ? w.sentences : [];

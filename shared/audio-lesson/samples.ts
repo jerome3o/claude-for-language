@@ -2,6 +2,7 @@
  * One small plan per format: the unit tests' fixtures and the fake model's
  * answer in E2E_TEST_MODE (worker services/audio-lessons/fake.ts).
  */
+import type { CharLink } from './characters';
 import type { DialoguePlan, SleepPlan } from './types';
 
 export const SAMPLE_DIALOGUE_PLAN: DialoguePlan = {
@@ -74,7 +75,12 @@ export const SAMPLE_SLEEP_PLAN: SleepPlan = {
         { char: '邮', pinyin: 'yóu', tone: 2 },
         { char: '局', pinyin: 'jú', tone: 2 },
       ],
-      characters_zh: ['‘邮’是‘邮件’的‘邮’。'],
+      // The facts these notes were written from: SAMPLE_SLEEP_CHAR_LINKS.
+      char_notes: [
+        { char: '邮', words: ['邮件'], zh: '你学过‘邮件’的‘邮’。' },
+        { char: '局', words: ['结局'], zh: '‘局’也在‘结局’里。结局，就是最后。' },
+      ],
+      characters_zh: [],
       recap_en: 'post office, the place where you send letters and parcels.',
       related_known: ['地方', '信'],
       sentences: [
@@ -97,6 +103,8 @@ export const SAMPLE_SLEEP_PLAN: SleepPlan = {
         '送是你自己去，寄是别人帮你送。',
       ],
       char_tones: [{ char: '寄', pinyin: 'jì', tone: 4 }],
+      // A new character: the model writes nothing; the worker stamps kind 'new' and the app says it.
+      char_notes: [{ char: '寄', words: [], zh: '', kind: 'new' }],
       characters_zh: [],
       recap_en: 'to send by post, as in posting a letter, not sending a text message.',
       related_known: ['送', '东西'],
@@ -111,3 +119,15 @@ export const SAMPLE_SLEEP_PLAN: SleepPlan = {
 };
 
 export const SAMPLE_SLEEP_SOURCE = '我家旁边有一个邮局，邮局在银行旁边。我常常去邮局给妈妈寄信。';
+
+/**
+ * What the worker would hand the agent for the sample's words (`pickCharLinks`) for a learner who
+ * has reviewed 邮件, has no word with 局 (结局 is common) and has never met 寄.
+ */
+export const SAMPLE_SLEEP_CHAR_LINKS: Record<string, CharLink[]> = {
+  邮局: [
+    { char: '邮', kind: 'known', words: [{ hanzi: '邮件', pinyin: 'yóujiàn', english: 'email; mail' }] },
+    { char: '局', kind: 'common', words: [{ hanzi: '结局', pinyin: 'jiéjú', english: 'ending' }, { hanzi: '局长', pinyin: 'júzhǎng', english: 'bureau chief' }] },
+  ],
+  寄: [{ char: '寄', kind: 'new', words: [] }],
+};

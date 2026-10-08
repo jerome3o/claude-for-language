@@ -46,10 +46,12 @@ test('make a sleep lesson, then play it from the device', async ({ authenticated
   await expect(sentenceRow).toHaveCount(1);
   await expect(sentenceRow).toContainText('×3');
   await expect(sentenceRow).toContainText('I want to send a letter.');
-  // Each character with its tone: spoken "寄，第四声。", shown with the pinyin.
-  await expect(page.getByLabel('Transcript').getByText('寄，jì，第四声。')).toBeVisible();
+  // Each character with its tone (a few wordings: "寄，第四声。" / "寄，是第四声。" …), shown with the pinyin,
+  // then its own line: words he has with it, common words, or "a new character".
+  await expect(page.getByLabel('Transcript').getByText(/^寄，jì，.{0,2}第四声。$/)).toBeVisible();
+  await expect(page.getByLabel('Transcript').getByText(/‘寄’/).first()).toBeVisible();
   // After the meaning, before the sentences: ONE English recap line, the word inside it.
-  await expect(page.getByLabel('Transcript').getByText('The word was 寄: to send by post, as in posting a letter, not sending a text message.')).toBeVisible();
+  await expect(page.getByLabel('Transcript').getByText(/^(The|That|Our new|The new) word was 寄: to send by post, as in posting a letter, not sending a text message\.$/)).toBeVisible();
 
   // The music bed: on by default for a sleep lesson, a second looping track that plays with the lesson.
   const music = page.getByRole('button', { name: 'Music' });

@@ -34,8 +34,19 @@ import {
   validateSleepPlan,
   type SleepCharTone,
   type SpeechSegment,
+  NEW_WORD_INTROS,
+  pickVariant,
+  RECAP_OPENINGS,
+  SENTENCES_INTROS,
+  sleepVariationSeed,
 } from './index';
 import { SAMPLE_DIALOGUE_PLAN, SAMPLE_SLEEP_PLAN, SAMPLE_SLEEP_SOURCE } from './samples';
+
+/** The wordings the sample sleep lesson's word `i` gets (phrases.ts). */
+const SEED = sleepVariationSeed(SAMPLE_SLEEP_PLAN);
+const introOf = (i: number) => pickVariant(NEW_WORD_INTROS, SEED, 'newWord', i);
+const sentencesOf = (i: number) => pickVariant(SENTENCES_INTROS, SEED, 'sentences', i);
+const recapOf = (i: number) => pickVariant(RECAP_OPENINGS, SEED, 'recap', i);
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
@@ -114,7 +125,8 @@ describe('format B (sleep)', () => {
     expect(SLEEP_ZH_PROVIDER_RATE).toEqual({ minimax: 0.5, azure: 0.6, google: 0.6 });
     expect(speech.filter((s) => s.lang === 'en').every((s) => s.voice === 'recap')).toBe(true);
     expect(speech.filter((s) => s.voice === 'recap').every((s) => s.lang === 'en')).toBe(true);
-    expect(speech.filter((s) => s.text === '这是一个新词。').length).toBe(2);
+    expect(speech.filter((s) => s.text === introOf(0)[0]).length).toBe(introOf(0)[0] === introOf(1)[0] ? 2 : 1);
+    expect(speech.filter((s) => s.text === introOf(1)[0]).length).toBeGreaterThanOrEqual(1);
     expect(validateScript(script)).toEqual([]);
   });
 
@@ -126,28 +138,32 @@ describe('format B (sleep)', () => {
     const repeats = texts.flatMap((t, j) => (t === '邮局' ? [j] : []));
     expect(repeats.length).toBe(4); // ×3, then once inside the recap
     // a) the intro, then the word three times
-    expect(at('这是一个新词。')).toBe(0);
-    expect(at('我说三遍。')).toBe(2);
+    expect(at(introOf(0)[0])).toBe(0);
+    expect(at(introOf(0)[1])).toBe(2);
     expect(repeats.slice(0, 3)).toEqual([4, 6, 8]);
-    // b) the characters: tones, then characters_zh
-    expect(at('邮，第二声。')).toBeGreaterThan(repeats[2]);
-    expect(at('局，第二声。')).toBeGreaterThan(at('邮，第二声。'));
-    expect(at('‘邮’是‘邮件’的‘邮’。')).toBeGreaterThan(at('局，第二声。'));
+    // b) the characters, one by one: tone, then that character's line
+    const youTone = texts.findIndex((t) => !!t && t.startsWith('邮，'));
+    const juTone = texts.findIndex((t) => !!t && t.startsWith('局，'));
+    expect(youTone).toBeGreaterThan(repeats[2]);
+    expect(at('你学过‘邮件’的‘邮’。')).toBe(youTone + 2);
+    expect(juTone).toBe(youTone + 4);
+    expect(at('‘局’也在‘结局’里。')).toBe(juTone + 2);
+    expect(at('结局，就是最后。')).toBe(juTone + 4);
     // c) the meaning, every sentence of it, in order
     const meaning = SAMPLE_SLEEP_PLAN.words[0].meaning_zh.flatMap(splitChineseSentences);
     const meaningAt = meaning.map(at);
-    expect(meaningAt.every((j) => j > at('‘邮’是‘邮件’的‘邮’。'))).toBe(true);
+    expect(meaningAt.every((j) => j > at('结局，就是最后。'))).toBe(true);
     expect([...meaningAt].sort((x, y) => x - y)).toEqual(meaningAt);
     // d) the English recap, BEFORE the example sentences
-    expect(at('The word was')).toBeGreaterThan(Math.max(...meaningAt));
-    expect(at('我们听三个句子。')).toBeGreaterThan(at('The word was'));
-    const inRecap = segs[at('The word was') + 2];
+    expect(at(recapOf(0))).toBeGreaterThan(Math.max(...meaningAt));
+    expect(at(sentencesOf(0))).toBeGreaterThan(at(recapOf(0)));
+    const inRecap = segs[at(recapOf(0)) + 2];
     expect(inRecap).toMatchObject({ lang: 'zh', voice: 'sleep', text: '邮局', rate: RATES.sleepWord });
     expect(speechKey(inRecap as SpeechSegment)).toBe(speechKey(segs[repeats[0]] as SpeechSegment));
     // e) each sentence ×3, then its English once (the recap voice), then the next sentence
     const english = segs.filter((s): s is SpeechSegment => s.kind === 'speech' && s.lang === 'en');
     expect(english.map((s) => s.text)).toEqual([
-      'The word was',
+      recapOf(0),
       ': post office, the place where you send letters and parcels.',
       'The post office is next to the bank.',
       "I'm going to the post office to send a letter.",
@@ -159,7 +175,7 @@ describe('format B (sleep)', () => {
       expect(idx.length).toBe(3);
       expect(texts[idx[2] + 2]).toBe(sentence.english);
     }
-    expect(at('我们听三个句子。')).toBeLessThan(at(SAMPLE_SLEEP_PLAN.words[0].sentences[0].hanzi));
+    expect(at(sentencesOf(0))).toBeLessThan(at(SAMPLE_SLEEP_PLAN.words[0].sentences[0].hanzi));
   });
 
   it('short pauses around the intro; longer ones where there is something to take in', () => {
@@ -170,8 +186,8 @@ describe('format B (sleep)', () => {
       const next = segs[i + 1];
       return next?.kind === 'pause' ? next.ms : 0;
     };
-    expect(pauseAfter('这是一个新词。')).toBe(PAUSES.sleepIntroPhrase);
-    expect(pauseAfter('我说三遍。')).toBe(PAUSES.sleepAfterIntro);
+    expect(pauseAfter(introOf(1)[0])).toBe(PAUSES.sleepIntroPhrase);
+    expect(pauseAfter(introOf(1)[1])).toBe(PAUSES.sleepAfterIntro);
     expect(pauseAfter('寄', 0)).toBe(PAUSES.sleepWordRepeat);
     expect(pauseAfter('寄', 1)).toBe(PAUSES.sleepWordRepeat);
     expect(pauseAfter('寄', 2)).toBe(PAUSES.sleepAfterWord);
@@ -199,6 +215,7 @@ describe('format B (sleep)', () => {
       'The word was 银行: bank, as in the place where you keep your money, not the bank of a river.',
     );
     expect(sleepRecapText('银行', 'The word was 银行: bank.')).toBe('The word was 银行: bank.');
+    expect(sleepRecapText('银行', 'That word was 银行: bank.', 'Our new word was')).toBe('Our new word was 银行: bank.');
   });
 
   it('each word ×3 and each sentence ×3 with pauses of at least 1.2 s', () => {
@@ -261,7 +278,7 @@ describe('plan validation', () => {
     delete p.words[1].recap_en;
     const problems = validateSleepPlan(p);
     expect(problems.some((x) => x.startsWith('words[0].meaning_zh') && x.includes('required'))).toBe(true);
-    expect(problems.some((x) => x.startsWith('words[1].meaning_zh') && x.includes('characters_zh'))).toBe(true);
+    expect(problems.some((x) => x.startsWith('words[1].meaning_zh') && x.includes('char_notes'))).toBe(true);
     expect(problems.some((x) => x.startsWith('words[1].recap_en') && x.includes('required'))).toBe(true);
     const q = clone(SAMPLE_SLEEP_PLAN);
     q.words[0].recap_en = 'yóujú, post office';
@@ -279,7 +296,7 @@ describe('plan validation', () => {
     q.words[0].meaning_zh = [...q.words[0].meaning_zh.slice(0, 7), '‘邮’是‘邮件’的‘邮’。'];
     q.words[1].meaning_zh = [...q.words[1].meaning_zh.slice(0, 6), '寄'.repeat(31) + '。'];
     const more = validateSleepPlan(q);
-    expect(more.some((x) => x.startsWith('words[0].meaning_zh[7]') && x.includes('characters_zh'))).toBe(true);
+    expect(more.some((x) => x.startsWith('words[0].meaning_zh[7]') && x.includes('char_notes'))).toBe(true);
     expect(more.some((x) => x.startsWith('words[1].meaning_zh[6]: too long'))).toBe(true);
     const r = clone(SAMPLE_SLEEP_PLAN);
     r.words[0].meaning_zh = [...r.words[0].meaning_zh, '邮局里有人。', '邮局很近。'];
@@ -396,15 +413,15 @@ describe('transcriptRows', () => {
     const script = compileSleepLesson(SAMPLE_SLEEP_PLAN);
     const frames = new Map(uniqueSpeech(script).map((u) => [u.key, 30]));
     const rows = transcriptRows(buildTimeline(script, frames, 24).transcript);
-    expect(rows.map((r) => r.text)).toContain('The word was 邮局: post office, the place where you send letters and parcels.');
+    expect(rows.map((r) => r.text)).toContain(`${recapOf(0)} 邮局: post office, the place where you send letters and parcels.`);
     // The word ×3 is one row, "×3", with its pinyin; each sentence ×3 + its spoken translation is one row.
     expect(rows.filter((r) => r.text === '邮局')).toEqual([expect.objectContaining({ repeat: 3, pinyin: 'yóujú', english: 'post office' })]);
     const sentence = rows.find((r) => r.text === '我去邮局寄信。');
     expect(sentence).toMatchObject({ repeat: 3, english: "I'm going to the post office to send a letter." });
     expect(sentence!.last - sentence!.first).toBe(3);
     expect(rows.filter((r) => r.text === "I'm going to the post office to send a letter.")).toEqual([]);
-    expect(rows.find((r) => r.text === '这是一个新词。')?.repeat).toBeUndefined();
-    expect(rows.find((r) => r.text.startsWith('The word was 寄'))?.lang).toBe('en');
+    expect(rows.find((r) => r.text === introOf(0)[0])?.repeat).toBeUndefined();
+    expect(rows.find((r) => r.text.startsWith(`${recapOf(1)} 寄`))?.lang).toBe('en');
   });
 });
 
@@ -420,8 +437,8 @@ describe('sleep: each character with its tone', () => {
       ]),
     );
     expect(lines).toEqual([
-      { spoken: '导，第三声。', display: '导，dǎo，第三声。' },
-      { spoken: '航，第二声。', display: '航，háng，第二声。' },
+      { spoken: '导，第三声。', display: '导，dǎo，第三声。', char: '导' },
+      { spoken: '航，第二声。', display: '航，háng，第二声。', char: '航' },
     ]);
   });
 
@@ -457,33 +474,49 @@ describe('sleep: each character with its tone', () => {
 
   it('a polyphone is spoken inside the word, so the voice picks the right reading', () => {
     const lines = charToneLines(word('银行', 'yínháng', [{ char: '银', pinyin: 'yín', tone: 2 }, { char: '行', pinyin: 'háng', tone: 2 }]));
-    expect(lines[1]).toEqual({ spoken: '银行的行，第二声。', display: '行，háng，第二声。' });
+    expect(lines[1]).toEqual({ spoken: '银行的行，第二声。', display: '行，háng，第二声。', char: '行' });
   });
 
   it('plans written before char_tones compile without the lines', () => {
     expect(charToneLines(word('邮局', 'yóujú', undefined))).toEqual([]);
   });
 
-  it('compiler: after the word ×3, before characters_zh and the meaning, each with a pause; the transcript shows the pinyin', () => {
+  it('wordings vary with the seed; no seed = the plain line; the display keeps the pinyin', () => {
+    const daohang = word('导航', 'dǎoháng', [{ char: '导', pinyin: 'dǎo', tone: 3 }, { char: '航', pinyin: 'háng', tone: 2 }]);
+    const seen = new Set<string>();
+    for (let i = 0; i < 8; i++) {
+      const [dao] = charToneLines(daohang, { seed: 'lesson', index: i });
+      expect(dao.spoken).toMatch(/^导，.*第三声。$/);
+      expect(dao.display).toMatch(/^导，dǎo，.*第三声。$/);
+      seen.add(dao.spoken);
+      const next = charToneLines(daohang, { seed: 'lesson', index: i + 1 })[0];
+      expect(next.spoken).not.toBe(dao.spoken);
+    }
+    expect(seen.size).toBeGreaterThan(1);
+    const renwu = charToneLines(word('任务', 'rènwu', [{ char: '任', pinyin: 'rèn', tone: 4 }, { char: '务', pinyin: 'wù', tone: 4 }]), { seed: 'x', index: 3 });
+    expect(renwu[2].spoken).toMatch(/任务.*‘务’.*读轻声。$/);
+  });
+
+  it('compiler: after the word ×3, before the meaning, each with a pause; the transcript shows the pinyin', () => {
     const script = compileSleepLesson(SAMPLE_SLEEP_PLAN);
     const ch = script.chapters.findIndex((c) => c.title.startsWith('邮局'));
     const segs = script.segments.filter((s) => s.chapter === ch);
     const texts = segs.map((s) => (s.kind === 'speech' ? s.text : null));
-    const you = texts.indexOf('邮，第二声。');
-    expect(you).toBeGreaterThan(texts.lastIndexOf('邮局', texts.indexOf('The word was')));
+    const you = texts.findIndex((t) => !!t && /^邮，.*第二声。$/.test(t));
+    expect(you).toBeGreaterThan(texts.lastIndexOf('邮局', texts.indexOf(recapOf(0))));
     expect(you).toBeLessThan(texts.indexOf('在邮局，你可以寄信。'));
-    expect(texts.indexOf('局，第二声。')).toBe(you + 2);
-    expect(texts.indexOf('‘邮’是‘邮件’的‘邮’。')).toBeGreaterThan(you + 2);
-    for (const i of [you, you + 2]) {
+    expect(texts[you + 4]).toMatch(/^局，.*第二声。$/);
+    for (const i of [you, you + 4]) {
       const next = segs[i + 1];
       expect(next.kind === 'pause' && next.ms >= 1500).toBe(true);
     }
-    expect(segs[you]).toMatchObject({ kind: 'speech', lang: 'zh', voice: 'sleep', rate: RATES.sleep, display: '邮，yóu，第二声。' });
+    expect(segs[you]).toMatchObject({ kind: 'speech', lang: 'zh', voice: 'sleep', rate: RATES.sleep });
+    expect((segs[you] as SpeechSegment).display).toMatch(/^邮，yóu，.*第二声。$/);
     expect(validateScript(script)).toEqual([]);
     const frames = new Map(uniqueSpeech(script).map((u) => [u.key, 30]));
     const transcript = buildTimeline(script, frames, 24).transcript.map((l) => l.text);
-    expect(transcript).toContain('邮，yóu，第二声。');
-    expect(transcript).toContain('寄，jì，第四声。');
+    expect(transcript.some((t) => /^邮，yóu，.*第二声。$/.test(t))).toBe(true);
+    expect(transcript.some((t) => /^寄，jì，.*第四声。$/.test(t))).toBe(true);
     expect(transcript).not.toContain('邮，第二声。');
   });
 });
@@ -499,6 +532,7 @@ describe('sleep plan validation: char_tones', () => {
     const w = p.words[0];
     w.sentences.forEach((s) => (s.hanzi = s.hanzi.replace(w.hanzi, hanzi)));
     Object.assign(w, { hanzi, pinyin, char_tones });
+    delete w.char_notes;
     return p;
   };
 

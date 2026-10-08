@@ -26,7 +26,10 @@ import {
   type AudioLessonScript,
   type DialoguePlan,
   type SleepPlan,
+  type CharLink,
+  stampCharNotes,
 } from '@shared/audio-lesson';
+import type { CharLinksFn } from './char-links';
 import { CARD_STANDARD_SHORT } from './prompt-bits';
 import { analyseText, checkWords, levelSample, type VocabIndex } from './vocab';
 
@@ -83,7 +86,8 @@ The learner pastes a Chinese text. You find the words in it they do not know yet
 - Your intro_zh, slowly.
 - For each word, in its own chapter, in this order:
   a) "这是一个新词。我说三遍。" and the word three times.
-  b) Each character with its tone, built from your char_tones ("导，第三声。航，第二声。" — plus "在‘任务’里，‘务’读轻声。" where the word is said with another tone), then your characters_zh.
+  b) Each character, one by one: its tone, built from your char_tones ("导，第三声。"), then your char_notes line for that character ("你学过‘导游’的‘导’。"; for a new character the app says "‘驶’是一个新字，你以前没见过。"); then "在‘任务’里，‘务’读轻声。" where the word is said with another tone.
+  The fixed lines (the word's intro, the tone lines, "我们听三个句子。", the new-character line) are the app's own and vary a little from word to word — never write them yourself.
   c) Your meaning_zh, sentence by sentence, slowly, with a pause after each — the heart of the lesson.
   d) ONE English line, "The word was <the word>: <your recap_en>".
   e) "我们听三个句子。", then each example sentence three times with pauses, then its english translation once; then the next sentence.
@@ -95,10 +99,16 @@ Choosing the words
 - How many: the briefing gives a number for the target length — each word takes about 2½–3 minutes, so stay near that number (fewer is fine, never more: a lesson far over its length is refused). If the text has fewer new words, teach fewer — never pad with words they know.
 
 Explaining — in VERY short, VERY simple Chinese built only from words the learner knows (check_known_words tells you which words, and which words containing these characters, they know). Never use a word harder than the one you explain. Quote words with ‘’ or “” if you like; no brackets.
-- meaning_zh (REQUIRED, 5–8 sentences): comprehensible input, like a patient teacher talking to someone half asleep. Say what the word MEANS, then say it AGAIN in a slightly different simple way, and again: what it is, what you do with it, where or when you meet it, a tiny everyday situation ("你想给妈妈寄一封信，你去邮局。"), a contrast with a word they know ("邮局不是银行。银行里有钱，邮局里有信。"), and end by restating it plainly ("邮局，就是寄信的地方。"). Each sentence short (≤ 15 characters is ideal, never more than 30), each a little different — repetition with variation is the point, an identical sentence twice is not. Never where a character comes from (that is characters_zh). The learner must understand the word from meaning_zh alone.
+- meaning_zh (REQUIRED, 5–8 sentences): comprehensible input, like a patient teacher talking to someone half asleep. Say what the word MEANS, then say it AGAIN in a slightly different simple way, and again: what it is, what you do with it, where or when you meet it, a tiny everyday situation ("你想给妈妈寄一封信，你去邮局。"), a contrast with a word they know ("邮局不是银行。银行里有钱，邮局里有信。"), and end by restating it plainly ("邮局，就是寄信的地方。"). Each sentence short (≤ 15 characters is ideal, never more than 30), each a little different — repetition with variation is the point, an identical sentence twice is not. Never where a character comes from (that is char_notes). The learner must understand the word from meaning_zh alone.
   Example for 邮局: ["邮局是一个地方。", "在邮局，你可以寄信。", "你想给妈妈寄一封信，你去邮局。", "你想给朋友寄一本书，你也去邮局。", "邮局里有很多信，也有很多东西。", "邮局不是银行。银行里有钱，邮局里有信。", "邮局，就是寄信的地方。"]
 - char_tones (REQUIRED): one entry per character of the word, in order: { char, pinyin, tone } with the character's CITATION (dictionary) tone — tone 1–4, or 5 for an inherently neutral character (了 le, 的 de, 吗 ma); pinyin = that one syllable with its tone mark, agreeing with the tone. 导航 → [{"char":"导","pinyin":"dǎo","tone":3},{"char":"航","pinyin":"háng","tone":2}]; 任务 → 务 wù 4; 你好 → 你 nǐ 3; 一样 → 一 yī 1; 不是 → 不 bù 4. Use the reading the word uses (银行 → 行 háng, not xíng). Don't write the tone lines yourself: the app says "导，第三声。" for each, and from the word's pinyin adds one short line where the word is said differently — a neutral syllable you write unmarked in the word's pinyin (任务 rènwu), third-tone sandhi (你好), 一 / 不 changes. So write the word's pinyin as it is really said (neutral syllables unmarked).
-- characters_zh (0–2 sentences, may be empty): relate its characters to words they know: "'银'就是'银行'的'银'。" Skip it when the characters don't help.
+- char_notes (REQUIRED): one entry per DISTINCT character of the word, in order — { char, words, zh } — EVERY character gets one. zh is one or two very short Chinese sentences (≤ 40 characters) said right after that character's tone; words lists the words zh names. What you may say is decided by the app from the learner's cards and a frequency list: check_known_words gives, for every character, "say" and "words" — use exactly those words (never others, never from memory), quoted with ‘’:
+  · say "known": he has learned these words — name 1–3 of them: "你学过‘导游’的‘导’。" / "你学过‘指导’和‘导游’，里面都有‘导’。"
+  · say "common": he has no word with it yet; these are common words he should meet — name 1–2, with a very short, simple gloss if it helps, never "学过" / "认识" / "见过" (he hasn't): "‘航’也在‘航空’里。航空，就是飞机的事。"
+  · say "other_reading": he has seen it in these words, read differently — name one and say so: "你在‘不行’里见过‘行’，这里读音不一样。"
+  · say "new": a new character he has never met — zh "" and words []: the app itself says it is a new character.
+  · say "none": zh "" and words [].
+  Call check_known_words with every word you teach (the facts are per word); the same facts are checked when you submit. Leave characters_zh out (or []).
 - recap_en (REQUIRED): the meaning in plain English, spoken after "The word was <the word>: " — so write only what follows the colon, e.g. for 银行 "bank, as in the place where you keep your money, not the bank of a river." When the English word has several meanings, pin down the sense used here ("not the bank of a river", "to post a letter, not to send a text"). One short line, no pinyin, no Chinese needed.
 Example sentences: exactly three per word, each SHORT (≤ 16 characters is ideal, never more than 24) and simple, each containing the word exactly as written, everyday situations, mostly known words, calm content (this is for falling asleep — nothing alarming). Each one's english is SPOKEN after it: a natural, plain English translation, one sentence, no pinyin.
 intro_zh / outro_zh: one or two very simple sentences each (a calm hello; a calm goodnight).
@@ -178,7 +188,19 @@ const SLEEP_PLAN_SCHEMA = {
             },
             description: 'One entry per character of the word, in order, with its citation tone. 导航 → 导 dǎo 3, 航 háng 2.',
           },
-          characters_zh: { type: 'array', items: { type: 'string' }, maxItems: 3, description: "Its characters related to known words (\"'银'就是'银行'的'银'。\"); may be empty." },
+          char_notes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                char: { type: 'string', description: 'One distinct character of the word, in order.' },
+                words: { type: 'array', items: { type: 'string' }, description: 'The words zh names — only ones check_known_words gave for this character; [] for a new character.' },
+                zh: { type: 'string', description: 'One or two very short Chinese sentences said after the character\'s tone: "你学过‘导游’的‘导’。" / "‘航’也在‘航空’里。"; "" for a new character (the app says it).' },
+              },
+              required: ['char', 'words', 'zh'],
+            },
+            description: 'One entry per DISTINCT character of the word, in order, from the facts check_known_words gives (say + words).',
+          },
           related_known: { type: 'array', items: { type: 'string' } },
           sentences: {
             type: 'array',
@@ -192,7 +214,7 @@ const SLEEP_PLAN_SCHEMA = {
             description: 'English, spoken after "The word was <hanzi>: " — the meaning with the sense pinned down, e.g. "bank, as in the place where you keep your money, not the bank of a river."',
           },
         },
-        required: ['hanzi', 'pinyin', 'english', 'meaning_zh', 'char_tones', 'characters_zh', 'related_known', 'sentences', 'recap_en'],
+        required: ['hanzi', 'pinyin', 'english', 'meaning_zh', 'char_tones', 'char_notes', 'related_known', 'sentences', 'recap_en'],
       },
     },
     outro_zh: { type: 'string' },
@@ -205,7 +227,9 @@ export function authorTools(format: AudioLessonFormat): Anthropic.Tool[] {
     {
       name: 'check_known_words',
       description:
-        "What the learner's flashcards say about these words: status known / learning / in_deck / new (+ the card's pinyin and meaning), and for every character the words they know or are learning that contain it. Exact match on simplified hanzi.",
+        format === 'sleep'
+          ? "What the learner's flashcards say about these words: status known / learning / in_deck / new (+ the card's pinyin and meaning), and for every character what its char_notes line may say (say: known / common / other_reading / new / none) with the only words it may name. Exact match on simplified hanzi."
+          : "What the learner's flashcards say about these words: status known / learning / in_deck / new (+ the card's pinyin and meaning), and for every character the words they know or are learning that contain it. Exact match on simplified hanzi.",
       input_schema: {
         type: 'object',
         properties: { words: { type: 'array', items: { type: 'string' }, description: 'Up to 80 words, phrases or single characters.' } },
@@ -227,11 +251,11 @@ export function authorTools(format: AudioLessonFormat): Anthropic.Tool[] {
 // ---------------- Briefing ----------------
 
 /**
- * Format B: how many words for a target length. A word takes ~2.7 minutes (the intro and the
- * word ×3, its tones, 5–8 meaning sentences, the recap, three sentences ×3 with their English,
+ * Format B: how many words for a target length. A word takes ~3 minutes (the intro and the
+ * word ×3, each character's tone and line, 5–8 meaning sentences, the recap, three sentences ×3 with their English,
  * at the sleep voice's slowest rate), plus ~half a minute of hello / goodnight.
  */
-export const SLEEP_MINUTES_PER_WORD = 2.7;
+export const SLEEP_MINUTES_PER_WORD = 3;
 export function sleepWordTarget(minutes: number): number {
   return Math.max(2, Math.min(12, Math.round((minutes - 0.5) / SLEEP_MINUTES_PER_WORD)));
 }
@@ -275,11 +299,34 @@ export type SubmitResult =
   | { ok: true; plan: DialoguePlan | SleepPlan; script: AudioLessonScript }
   | { ok: false; problems: string[] };
 
+function planOf(raw: unknown): unknown {
+  return raw && typeof raw === 'object' && 'plan' in (raw as Record<string, unknown>) ? (raw as { plan: unknown }).plan : raw;
+}
+
+/** The words of a handed-in sleep plan (for their character facts). */
+export function planWords(raw: unknown): Array<{ hanzi: string; pinyin: string | null }> {
+  const plan = planOf(raw) as { words?: unknown } | null;
+  if (!plan || !Array.isArray(plan.words)) return [];
+  return plan.words.flatMap((w) =>
+    w && typeof w === 'object' && typeof (w as { hanzi?: unknown }).hanzi === 'string'
+      ? [{ hanzi: (w as { hanzi: string }).hanzi.trim(), pinyin: typeof (w as { pinyin?: unknown }).pinyin === 'string' ? (w as { pinyin: string }).pinyin : null }]
+      : [],
+  );
+}
+
 /** Validate + compile what the model handed in. Pure. */
-export function acceptPlan(format: AudioLessonFormat, raw: unknown, input: AudioLessonInput): SubmitResult {
-  const plan = raw && typeof raw === 'object' && 'plan' in (raw as Record<string, unknown>) ? (raw as { plan: unknown }).plan : raw;
-  const problems = format === 'dialogue' ? validateDialoguePlan(plan) : validateSleepPlan(plan);
+export function acceptPlan(
+  format: AudioLessonFormat,
+  raw: unknown,
+  input: AudioLessonInput,
+  /** Sleep: the facts for each word's characters (char-links.ts) — makes char_notes required and checked. */
+  opts: { charLinks?: Record<string, CharLink[]> } = {},
+): SubmitResult {
+  let plan = planOf(raw);
+  const problems = format === 'dialogue' ? validateDialoguePlan(plan) : validateSleepPlan(plan, { charLinks: opts.charLinks });
   if (problems.length) return { ok: false, problems };
+  // Sleep: each character note takes its kind from the facts (a new character is said by the app).
+  if (format === 'sleep' && opts.charLinks) plan = stampCharNotes(plan as SleepPlan, opts.charLinks);
   const script = format === 'dialogue' ? compileDialogueLesson(plan as DialoguePlan) : compileSleepLesson(plan as SleepPlan, { sourceText: input.text });
   const scriptProblems = validateScript(script);
   if (scriptProblems.length) return { ok: false, problems: scriptProblems };
@@ -383,8 +430,10 @@ export async function runAuthor(args: {
   call: ModelCall;
   checkpoint: (state: AuthorState, progress: string) => Promise<void>;
   deadline: number;
+  /** Sleep: what each character's line may say (char-links.ts); without it char_notes are only shape-checked. */
+  charLinks?: CharLinksFn;
 }): Promise<AuthorOutcome> {
-  const { format, input, index, call, checkpoint } = args;
+  const { format, input, index, call, checkpoint, charLinks } = args;
   const state = args.state;
   const system = systemPrompt(format);
   const tools = authorTools(format);
@@ -422,10 +471,22 @@ export async function runAuthor(args: {
       const toolInput = (use.input ?? {}) as Record<string, unknown>;
       if (use.name === 'check_known_words') {
         const words = Array.isArray(toolInput.words) ? toolInput.words.filter((w): w is string => typeof w === 'string') : [];
-        results.push({ type: 'tool_result', tool_use_id: use.id, content: JSON.stringify(checkWords(index, words)) });
+        const checks = checkWords(index, words);
+        if (format === 'sleep' && charLinks) {
+          const links = await charLinks(checks.map((c) => ({ hanzi: c.word, pinyin: c.card?.pinyin ?? null })));
+          for (const c of checks) {
+            const forWord = links[c.word] ?? [];
+            c.characters = c.characters.map((ch) => {
+              const link = forWord.find((l) => l.char === ch.char);
+              return link ? { char: ch.char, known: ch.known, say: link.kind, words: link.words } : ch;
+            });
+          }
+        }
+        results.push({ type: 'tool_result', tool_use_id: use.id, content: JSON.stringify(checks) });
         progress = `Checking ${words.length} word${words.length === 1 ? '' : 's'} against your cards…`;
       } else if (use.name === 'submit_lesson') {
-        const out = acceptPlan(format, toolInput, input);
+        const links = format === 'sleep' && charLinks ? await charLinks(planWords(toolInput)) : undefined;
+        const out = acceptPlan(format, toolInput, input, { charLinks: links });
         if (out.ok) {
           accepted = out;
           results.push({ type: 'tool_result', tool_use_id: use.id, content: 'Accepted. The lesson is being recorded.' });

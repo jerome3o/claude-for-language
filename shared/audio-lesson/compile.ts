@@ -13,6 +13,7 @@ import type {
   VoiceRole,
 } from './types';
 import { charToneLines } from './tones';
+import { fillPhrase, NEW_CHARACTER_LINES, NEW_WORD_INTROS, pickVariant, RECAP_OPENINGS, SENTENCES_INTROS } from './phrases';
 
 /** Speeds on the app's scale (MiniMax: 1 = normal; cards are 0.6). */
 export const RATES = {
@@ -72,6 +73,8 @@ export const PAUSES = {
   sleepAfterWord: 2000,
   /** After each character's tone line ("导，第三声。") — a beat to hear it, shorter than a sentence. */
   sleepCharTone: 1500,
+  /** After each sentence of a character's line ("你学过‘导游’的‘导’。"), before the next character. */
+  sleepCharNote: 1800,
   /** After each sentence of the intro / outro / characters. */
   sleepSentence: 2000,
   /** After each sentence of the meaning — slow comprehensible input, room to take it in. */
@@ -300,10 +303,15 @@ export const SLEEP_PHRASES = {
  * place where you keep your money, not the bank of a river." The word itself is said by
  * the sleep voice (the same clip as its three repeats), the English by the recap voice.
  */
-export function sleepRecapText(hanzi: string, recapEn: string): string {
-  const body = recapEn.trim().replace(/^the word (was|is)\s+[^\s:：]*\s*[:：,，]?\s*/i, '').trim();
+export function sleepRecapText(hanzi: string, recapEn: string, opening: string = RECAP_OPENINGS[0]): string {
+  const body = recapEn.trim().replace(/^(the|that|our|our new|the new) word (was|is)\s+[^\s:：]*\s*[:：,，]?\s*/i, '').trim();
   const sentence = /[.!?]["”’)]?$/.test(body) ? body : `${body}.`;
-  return `The word was ${hanzi}: ${sentence}`;
+  return `${opening} ${hanzi}: ${sentence}`;
+}
+
+/** The seed of a lesson's wordings (phrases.ts): the same plan always compiles to the same lines. */
+export function sleepVariationSeed(plan: Pick<SleepPlan, 'title' | 'words'>): string {
+  return `${plan.title}|${(plan.words ?? []).map((w) => w.hanzi).join(',')}`;
 }
 
 /** An example sentence's English translation as spoken after its three repeats: one sentence, closed. */
@@ -319,7 +327,8 @@ export const SLEEP_SOURCE_MAX_CHARS = 600;
  * Format B: Chinese, as slow as the voice allows, every word three times. Per word
  * (docs/AUDIO_LESSONS.md "Sleep"):
  * a) "这是一个新词。我说三遍。" and the word ×3 — short pauses, it comes every word;
- * b) each character with its tone ("导，第三声。", + where the word says it differently), then its characters;
+ * b) each character: its tone ("导，第三声。") then its line (char_notes: "你学过‘导游’的‘导’。" /
+ *    "‘航’也在‘航空’里。" / "‘驶’是一个新字，你以前没见过。"), then where the word says a tone differently;
  * c) what it means: 5–8 short sentences circling the meaning (comprehensible input), slowly, with room after each;
  * d) ONE English recap line ("The word was 银行: bank, as in …");
  * e) "我们听三个句子。" and each example sentence three times, then its English translation once.
@@ -337,24 +346,44 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
   }
   b.pause(PAUSES.sleepPhrase);
 
-  plan.words.forEach((w) => {
+  // The fixed lines vary between words (phrases.ts): seeded by the lesson, never twice in a row.
+  const seed = sleepVariationSeed(plan);
+  let newCharacters = 0;
+  plan.words.forEach((w, wi) => {
     b.chapter(`${w.hanzi} ${w.pinyin}`);
     // a) The intro and the word ×3.
-    sleepy(SLEEP_PHRASES.newWord);
+    const [newWord, sayThree] = pickVariant(NEW_WORD_INTROS, seed, 'newWord', wi);
+    sleepy(newWord);
     b.pause(PAUSES.sleepIntroPhrase);
-    sleepy(SLEEP_PHRASES.sayThree);
+    sleepy(sayThree);
     b.pause(PAUSES.sleepAfterIntro);
     for (let i = 0; i < 3; i++) {
       if (i === 0) b.zh('sleep', w, RATES.sleepWord);
       else sleepy(w.hanzi, RATES.sleepWord);
       b.pause(i < 2 ? PAUSES.sleepWordRepeat : PAUSES.sleepAfterWord);
     }
-    // b) Its characters: each one's tone ("导，第三声。"), where the word says it differently
-    // ("在‘任务’里，‘务’读轻声。"), then where they come from.
-    for (const line of charToneLines(w)) {
+    // b) Its characters, one by one: the tone ("导，第三声。") and the character's line — words he
+    // has with it, common words, or "a new character" (char_notes, characters.ts); then where the
+    // word says a tone differently ("在‘任务’里，‘务’读轻声。"); plans before round 4: characters_zh.
+    const notes = Array.isArray(w.char_notes) ? w.char_notes : [];
+    const noted = new Set<string>();
+    const sayNote = (char: string) => {
+      if (noted.has(char)) return;
+      noted.add(char);
+      const note = notes.find((n) => n && n.char === char);
+      // A new character: the app's own line, in one of its wordings (never the model's).
+      const text = note?.kind === 'new' ? fillPhrase(pickVariant(NEW_CHARACTER_LINES, seed, 'newCharacter', newCharacters++), { c: char }) : note?.zh ?? '';
+      for (const s of splitChineseSentences(text)) {
+        sleepy(s);
+        b.pause(PAUSES.sleepCharNote);
+      }
+    };
+    for (const line of charToneLines(w, { seed, index: wi })) {
       b.say('zh', 'sleep', line.spoken, RATES.sleep, { display: line.display });
       b.pause(PAUSES.sleepCharTone);
+      if (line.char) sayNote(line.char);
     }
+    for (const n of notes) if (n && typeof n.char === 'string') sayNote(n.char);
     for (const s of (w.characters_zh ?? []).flatMap(splitChineseSentences)) {
       sleepy(s);
       b.pause(PAUSES.sleepSentence);
@@ -366,11 +395,11 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
     }
     // d) The English recap.
     if (w.recap_en?.trim()) {
-      b.mixed(sleepRecapText(w.hanzi, w.recap_en), RATES.sleepWord, { en: 'recap', zh: 'sleep', enRate: RATES.recap });
+      b.mixed(sleepRecapText(w.hanzi, w.recap_en, pickVariant(RECAP_OPENINGS, seed, 'recap', wi)), RATES.sleepWord, { en: 'recap', zh: 'sleep', enRate: RATES.recap });
       b.pause(PAUSES.sleepRecap);
     }
     // e) The example sentences: each ×3, then its English once.
-    sleepy(SLEEP_PHRASES.sentences);
+    sleepy(pickVariant(SENTENCES_INTROS, seed, 'sentences', wi));
     b.pause(PAUSES.sleepPhrase + 300);
     w.sentences.forEach((s, j) => {
       for (let i = 0; i < 3; i++) {

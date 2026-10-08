@@ -18,6 +18,7 @@
 import { pinyin as pinyinPro } from 'pinyin-pro';
 import { applyYiBuToneChanges, pinyinSyllables, syllableTone, toneless } from '../pinyin/toneChange';
 import type { SleepCharTone } from './types';
+import { fillPhrase, pickVariant, TONE_CHANGE_LINES, TONE_LINES } from './phrases';
 
 export type ToneNumber = 1 | 2 | 3 | 4 | 5;
 
@@ -101,6 +102,8 @@ export interface CharToneLine {
   spoken: string;
   /** What the transcript shows. */
   display: string;
+  /** The character a per-character line is about (absent on a "在‘任务’里…" line). */
+  char?: string;
 }
 
 function validTone(t: unknown): t is ToneNumber {
@@ -112,7 +115,12 @@ function validTone(t: unknown): t is ToneNumber {
  * shown "导，dǎo，第三声。"), then one line per character the word says with another tone
  * ("在‘任务’里，‘务’读轻声。"). Empty without `char_tones` (plans written before them).
  */
-export function charToneLines(word: { hanzi: string; pinyin: string; char_tones?: SleepCharTone[] }): CharToneLine[] {
+export function charToneLines(
+  word: { hanzi: string; pinyin: string; char_tones?: SleepCharTone[] },
+  /** The lesson's seed and the word's index: which wording each line gets (phrases.ts); none = the plain one. */
+  variation: { seed?: string; index?: number } = {},
+): CharToneLine[] {
+  const slot = variation.index ?? 0;
   const entries = Array.isArray(word.char_tones) ? word.char_tones.filter((e) => e && typeof e.char === 'string' && validTone(e.tone)) : [];
   if (entries.length === 0) return [];
   const hanzi = word.hanzi.trim();
@@ -126,9 +134,11 @@ export function charToneLines(word: { hanzi: string; pinyin: string; char_tones?
     said.add(key);
     const name = TONE_NAMES_ZH[e.tone];
     const inWord = chars.length > 1 && syllable && !readsAloneAs(e.char, syllable);
+    const template = pickVariant(TONE_LINES, variation.seed, `toneLine:${lines.length}`, slot);
     lines.push({
-      spoken: inWord ? `${hanzi}的${e.char}，${name}。` : `${e.char}，${name}。`,
-      display: syllable ? `${e.char}，${syllable}，${name}。` : `${e.char}，${name}。`,
+      spoken: fillPhrase(template, { x: inWord ? `${hanzi}的${e.char}` : e.char, tone: name }),
+      display: fillPhrase(template, { x: syllable ? `${e.char}，${syllable}` : e.char, tone: name }),
+      char: e.char,
     });
   }
   // Where the word is said with another tone than the characters' own.
@@ -140,7 +150,8 @@ export function charToneLines(word: { hanzi: string; pinyin: string; char_tones?
       if (actual === e.tone) return;
       const count = chars.filter((c) => c === e.char).length;
       const nth = count > 1 ? ORDINALS[chars.slice(0, k).filter((c) => c === e.char).length] ?? '' : '';
-      const text = `在‘${hanzi}’里，${nth}‘${e.char}’读${TONE_NAMES_ZH[actual]}。`;
+      const template = pickVariant(TONE_CHANGE_LINES, variation.seed, `toneChange:${k}`, slot);
+      const text = fillPhrase(template, { w: hanzi, c: `${nth}‘${e.char}’`, tone: TONE_NAMES_ZH[actual] });
       lines.push({ spoken: text, display: text });
     });
   }
