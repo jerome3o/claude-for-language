@@ -151,7 +151,35 @@ data class CardExtras(
     val mc: McUi = McUi(),
     /** The Ask Claude conversation about this card (kept while the card is up). */
     val ask: AskUi = AskUi(),
+    /** Say the answer on a typing card (🎤). */
+    val spoken: SpokenUi = SpokenUi(),
 )
+
+enum class SpokenPhase { IDLE, LISTENING, FINISHING, FAILED }
+
+/** Why a spoken take gave no answer: both paths failed / offline (retry the take), or nothing was heard. */
+enum class SpokenFailure { FAILED, OFFLINE, EMPTY }
+
+/** The answer said: the card puts it in the box (and checks it when [submit]); [seq] bumps per answer. */
+data class SpokenResult(val text: String, val submit: Boolean, val seq: Int)
+
+/**
+ * "Say the answer" on a typing card (the web's useSpokenAnswer / services/spokenAnswer.ts): the
+ * live transcript while listening (confirmed [finalText] black, provisional [partialText] grey),
+ * then the [result] — or a [failure] ("Couldn't transcribe — tap to retry"; nothing submitted).
+ */
+data class SpokenUi(
+    val phase: SpokenPhase = SpokenPhase.IDLE,
+    val finalText: String = "",
+    val partialText: String = "",
+    val failure: SpokenFailure? = null,
+    val result: SpokenResult? = null,
+    /** 🎤 tapped offline: "Saying the answer needs a connection — type it instead." */
+    val offlineHint: Boolean = false,
+) {
+    val listening: Boolean get() = phase == SpokenPhase.LISTENING
+    val busy: Boolean get() = phase == SpokenPhase.LISTENING || phase == SpokenPhase.FINISHING
+}
 
 /** The web's recorder + useTranscription state for the current card. */
 data class TakeUi(

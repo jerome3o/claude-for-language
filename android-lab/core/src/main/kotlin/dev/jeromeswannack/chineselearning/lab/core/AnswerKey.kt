@@ -124,7 +124,12 @@ object AnswerKey {
     fun hanziAnswerKey(s: String): String =
         ANSWER_PUNCTUATION.replace(LIANG.replace(normalizeNumbersToHanzi(lower(jsTrim(s))), "二"), "")
 
-    enum class Verdict { EXACT, PUNCTUATION_ONLY, ALTERNATIVE, EQUIVALENT, WRONG }
+    /**
+     * Port of `AnswerVerdict` (shared/cards/answer.ts). [SOUND] and [CLOSE] only come from
+     * [checkSpoken]: other characters with the answer's pinyin (tones included) / the same
+     * syllables with other tones.
+     */
+    enum class Verdict { EXACT, PUNCTUATION_ONLY, ALTERNATIVE, EQUIVALENT, SOUND, CLOSE, WRONG }
 
     /**
      * The AnswerDiff decision: exact → punctuation-only → accepted equivalent
@@ -141,5 +146,72 @@ object AnswerKey {
         return Verdict.WRONG
     }
 
-    fun isAccepted(verdict: Verdict) = verdict != Verdict.WRONG
+    /** Port of `isAcceptedVerdict`: [Verdict.CLOSE] is still wrong. */
+    fun isAccepted(verdict: Verdict) = verdict != Verdict.WRONG && verdict != Verdict.CLOSE
+
+    // ---- spoken answers (shared/cards/answer.ts) ----
+
+    private const val TONED = "āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ"
+    private const val BASE = "aaaaeeeeiiiioooouuuuüüüü"
+    private val NOT_PINYIN = Regex("[^a-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]")
+
+    /** Port of `normalizeSpokenPinyin`: NFC, lower case, letters and tone-marked vowels only. */
+    fun normalizeSpokenPinyin(py: String): String =
+        NOT_PINYIN.replace(lower(java.text.Normalizer.normalize(py, java.text.Normalizer.Form.NFC)), "")
+
+    /** Port of `tonelessPinyin` (ǚ → ü). */
+    fun tonelessPinyin(key: String): String {
+        val out = StringBuilder(key.length)
+        for (ch in key) {
+            val i = TONED.indexOf(ch)
+            out.append(if (i >= 0) BASE[i] else ch)
+        }
+        return out.toString()
+    }
+
+    /** Port of `spokenPinyinKey`: the answer key, then the app's automatic pinyin (pinyin-pro + 一 / 不). */
+    fun spokenPinyinKey(hanzi: String): String {
+        val key = hanziAnswerKey(hanzi)
+        if (key.isEmpty()) return ""
+        return normalizeSpokenPinyin(ToneChange.applyYiBuToneChanges(key, Pinyin.toPinyin(key)))
+    }
+
+    private fun hasHan(s: String): Boolean {
+        var i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            if (Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN) return true
+            i += Character.charCount(cp)
+        }
+        return false
+    }
+
+    /**
+     * Port of `checkSpokenAnswer`: the typed check first; then by sound — [Verdict.SOUND] when the
+     * transcript's toned pinyin is the answer's (an alternative's, or the note's written pinyin),
+     * [Verdict.CLOSE] when only the toneless syllables match. Nothing Chinese heard is wrong.
+     */
+    fun checkSpoken(transcript: String, correct: String, alternatives: List<String> = emptyList(), notePinyin: String = ""): Verdict {
+        val typed = check(transcript, correct, alternatives)
+        if (typed != Verdict.WRONG) return typed
+        if (!hasHan(transcript)) return Verdict.WRONG
+        val heard = spokenPinyinKey(transcript)
+        if (heard.isEmpty()) return Verdict.WRONG
+        val targets = (listOf(correct) + alternatives).map(::spokenPinyinKey) + normalizeSpokenPinyin(notePinyin)
+        val live = targets.filter { it.isNotEmpty() }
+        if (heard in live) return Verdict.SOUND
+        val bare = tonelessPinyin(heard)
+        if (live.any { tonelessPinyin(it) == bare }) return Verdict.CLOSE
+        return Verdict.WRONG
+    }
+
+    /** Port of `spokenVerdictNote`: the line under a spoken answer on the back. */
+    fun spokenVerdictNote(verdict: Verdict, correct: String): String? = when (verdict) {
+        Verdict.SOUND -> "Sounded right ✓ — written ${jsTrim(correct)}"
+        Verdict.CLOSE -> "Close — the tones are off"
+        else -> null
+    }
+
+    /** The verdict's name in shared/cards/answer.ts (`AnswerVerdict`), for parity tests and analytics. */
+    fun verdictName(v: Verdict): String = v.name.lowercase(java.util.Locale.ROOT)
 }

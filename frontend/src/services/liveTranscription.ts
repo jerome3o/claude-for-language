@@ -76,6 +76,11 @@ export interface LiveTranscriberOptions {
   /** How long finish() waits for the server's final answer before giving up. */
   finishTimeoutMs?: number;
   createSocket?: (url: string) => SocketLike;
+  /**
+   * Every server response folded in: the confirmed text and the provisional tail, as the
+   * learner speaks — a typing card's 🎤 shows them in the answer box (final black, tail grey).
+   */
+  onUpdate?: (transcript: SonioxTranscript) => void;
 }
 
 const OPEN = 1;
@@ -114,6 +119,7 @@ export class LiveTranscriber {
       if (typeof ev.data !== 'string') return;
       this.transcript = applySonioxMessage(this.transcript, ev.data);
       if (this.transcript.error) return this.fail(this.transcript.error);
+      this.opts.onUpdate?.(this.transcript);
       if (this.transcript.finished) this.done();
     };
     socket.onerror = () => this.fail('socket error');

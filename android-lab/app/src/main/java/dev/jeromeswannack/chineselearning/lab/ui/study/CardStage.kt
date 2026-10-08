@@ -151,6 +151,13 @@ fun CardStage(
     var flipped by remember(view.presentation) { mutableStateOf(start.flipped && !start.peeking) }
     var answer by remember(view.presentation) { mutableStateOf(start.answer) }
     var mcSlots by remember(view.presentation) { mutableStateOf(start.mcSlots) }
+    // Say the answer (🎤): the answer as spoken. While the box still holds exactly it, the back
+    // checks it in spoken mode — a homophone (油 for 由) is right by sound (core AnswerKey.checkSpoken).
+    var spokenText by remember(view.presentation) { mutableStateOf<String?>(null) }
+    var consumedSpoken by remember(view.presentation) { mutableIntStateOf(0) }
+    fun answerIsSpoken(a: String) = spokenText != null && a.trim() == spokenText
+    fun checkAnswer(a: String): AnswerKey.Verdict =
+        if (answerIsSpoken(a)) AnswerKey.checkSpoken(a, note.hanzi, view.alternatives, note.pinyin) else AnswerKey.check(a, note.hanzi, view.alternatives)
     var verdict by remember(view.presentation) {
         mutableStateOf(if ((start.flipped || start.peeking) && typing && start.answer.isNotBlank()) AnswerKey.check(start.answer, note.hanzi, view.alternatives) else null)
     }
@@ -191,17 +198,29 @@ fun CardStage(
 
     fun reveal() {
         if (revealed) return
-        val v = if (typing && answer.isNotBlank()) AnswerKey.check(answer, note.hanzi, view.alternatives) else null
+        val v = if (typing && answer.isNotBlank()) checkAnswer(answer) else null
         verdict = v
         revealed = true
         flipped = true
         actions.onReveal(v)
+        if (v != null && answerIsSpoken(answer)) actions.onSpokenChecked(v)
         if (v != null && AnswerKey.isAccepted(v)) burst++
         if (v != null && !AnswerKey.isAccepted(v)) scope.launch { shake.shake() }
         scope.launch {
             delay(if (v != null && AnswerKey.isAccepted(v)) 380 else 160)
             if (autoplay) actions.onPlayWord(false)
         }
+    }
+
+    // A spoken answer arrived: into the box, and checked at once when auto-submit is on.
+    val spoken = ui.extras.spoken
+    LaunchedEffect(spoken.result?.seq) {
+        val r = spoken.result ?: return@LaunchedEffect
+        if (r.seq <= consumedSpoken || revealed) return@LaunchedEffect
+        consumedSpoken = r.seq
+        answer = r.text
+        spokenText = r.text
+        if (r.submit) reveal() else runCatching { focus.requestFocus() }
     }
 
     /** Peek: turn a revealed card to [toBack] (the same flip + haptic) — nothing checked, played or recorded. */
@@ -316,21 +335,30 @@ fun CardStage(
                         Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), textAlign = TextAlign.Center)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = answer,
-                            onValueChange = { answer = it },
-                            modifier = Modifier.weight(1f).focusRequester(focus),
-                            placeholder = { Text(if (view.card.cardType == CardTypes.AUDIO_TO_HANZI) "Type what you hear…" else "Type in Chinese…") },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.titleLarge,
-                            shape = RoundedCornerShape(18.dp),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = { reveal() }),
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        PrimaryPill(if (answer.isBlank()) "Show" else "Check", Modifier.height(56.dp)) { reveal() }
+                        if (spoken.busy) {
+                            SpokenLiveBox(spoken, Modifier.weight(1f))
+                        } else {
+                            OutlinedTextField(
+                                value = answer,
+                                onValueChange = { answer = it },
+                                modifier = Modifier.weight(1f).focusRequester(focus),
+                                placeholder = { Text(if (view.card.cardType == CardTypes.AUDIO_TO_HANZI) "Type what you hear…" else "Type in Chinese…") },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.titleLarge,
+                                shape = RoundedCornerShape(18.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { reveal() }),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        SpokenMicButton(spoken, ui.aiAvailable, actions)
+                        if (!spoken.busy) {
+                            Spacer(Modifier.width(8.dp))
+                            PrimaryPill(if (answer.isBlank()) "Show" else "Check", Modifier.height(56.dp)) { reveal() }
+                        }
                     }
+                    SpokenStatus(spoken, ui.aiAvailable, actions)
                 } else {
                     RecordControls(ui.extras.take, actions, onReveal = { reveal() })
                 }
@@ -696,7 +724,17 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
             TappableHanzi(correct, size * 0.8f, Lab.colors.ink, onChar)
             Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
-        AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        AnswerKey.Verdict.SOUND -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.testTag(SPOKEN_SOUND_TAG)) {
+            // Said right, written with other characters (speech can't tell 由 / 油 apart): the answer in green.
+            TappableHanzi(correct, size, Palette.Good, onChar)
+            Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
+            Text(AnswerKey.spokenVerdictNote(verdict, correct).orEmpty(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.Good, textAlign = TextAlign.Center)
+            Text("You said: $typed", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, textAlign = TextAlign.Center)
+        }
+        AnswerKey.Verdict.CLOSE, AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            AnswerKey.spokenVerdictNote(verdict, correct)?.let {
+                Text(it, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.Hard, textAlign = TextAlign.Center)
+            }
             // Wrong characters red + underlined, missing ones a "?" with a dashed underline (AnswerMarks).
             val diff = AnswerMarks.typedDiff(typed, correct)
             MarkedAnswerRow(diff.typed, size * 0.8f, onChar)
@@ -864,6 +902,107 @@ private fun rememberRecordPermission(onGranted: () -> Unit): () -> Unit {
     return {
         val granted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (granted) onGranted() else launcher.launch(android.Manifest.permission.RECORD_AUDIO)
+    }
+}
+
+/** Test tags of the spoken answer (say the answer on a typing card). */
+const val SPOKEN_MIC_TAG = "spoken-mic"
+const val SPOKEN_LIVE_TAG = "spoken-live"
+const val SPOKEN_RETRY_TAG = "spoken-retry"
+const val SPOKEN_SOUND_TAG = "spoken-answer-sound"
+
+/**
+ * 🎤 in the typing row (the web's `.study-mic-btn`): tap to say the answer, ⏹ to stop and use it.
+ * Offline it stays in place, dimmed; a tap says why ("needs a connection") — typing is never blocked.
+ */
+@Composable
+private fun SpokenMicButton(spoken: SpokenUi, online: Boolean, actions: StudyActions) {
+    val start = rememberRecordPermission { actions.onStartSpoken() }
+    val pulse by rememberInfiniteTransition(label = "spoken-mic").animateFloat(
+        1f, if (spoken.listening) 1.1f else 1f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "pulse",
+    )
+    val finishing = spoken.phase == SpokenPhase.FINISHING
+    Box(
+        Modifier
+            .size(52.dp)
+            .scale(pulse)
+            .clip(CircleShape)
+            .background(if (spoken.listening) Palette.Again.copy(alpha = 0.16f) else Lab.colors.faint)
+            .border(1.dp, if (spoken.listening) Palette.Again.copy(alpha = 0.55f) else Lab.colors.cardBorder, CircleShape)
+            .clickable {
+                when {
+                    finishing -> Unit
+                    spoken.listening -> actions.onStopSpoken()
+                    !online -> actions.onStartSpoken() // the VM shows the offline hint
+                    else -> start()
+                }
+            }
+            .testTag(SPOKEN_MIC_TAG),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (finishing) CircularProgressIndicator(Modifier.size(22.dp), color = Lab.colors.accent, strokeWidth = 2.dp)
+        else Text(if (spoken.listening) "⏹" else "🎤", fontSize = 20.sp, modifier = Modifier.graphicsLayer { alpha = if (online) 1f else 0.45f })
+    }
+}
+
+/** What is being said, live (instead of the text field): confirmed text in ink, the provisional tail grey. */
+@Composable
+private fun SpokenLiveBox(spoken: SpokenUi, modifier: Modifier) {
+    Box(
+        modifier
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.5.dp, Palette.Again.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .testTag(SPOKEN_LIVE_TAG),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (spoken.finalText.isEmpty() && spoken.partialText.isEmpty()) {
+            Text(if (spoken.phase == SpokenPhase.FINISHING) "Finishing…" else "Listening… say the answer", style = MaterialTheme.typography.bodyLarge, color = Lab.colors.muted)
+        } else {
+            Text(
+                androidx.compose.ui.text.buildAnnotatedString {
+                    append(spoken.finalText)
+                    pushStyle(androidx.compose.ui.text.SpanStyle(color = Lab.colors.muted.copy(alpha = 0.7f)))
+                    append(spoken.partialText)
+                    pop()
+                },
+                style = MaterialTheme.typography.titleLarge,
+                color = Lab.colors.ink,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** Under the typing row: ✕ Cancel while listening, "Couldn't transcribe — tap to retry", nothing heard, offline. */
+@Composable
+private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyActions) {
+    val hint: @Composable (String) -> Unit = { text ->
+        Text(text, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+    }
+    when {
+        spoken.busy -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TextButton(onClick = actions.onCancelSpoken, modifier = Modifier.heightIn(min = 44.dp)) { Text("✕ Cancel", color = Lab.colors.muted) }
+        }
+        spoken.phase == SpokenPhase.FAILED && spoken.failure == SpokenFailure.EMPTY -> hint("Didn’t catch anything — tap 🎤 to try again, or type it.")
+        spoken.phase == SpokenPhase.FAILED -> Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Palette.Again.copy(alpha = 0.10f))
+                .border(1.dp, Palette.Again.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                .clickable(onClick = actions.onRetrySpoken)
+                .heightIn(min = 44.dp)
+                .padding(horizontal = 14.dp, vertical = 7.dp)
+                .testTag(SPOKEN_RETRY_TAG),
+        ) {
+            Text("Couldn’t transcribe — tap to retry", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+            Text("Or type your answer", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
+        }
+        spoken.offlineHint && !online -> hint("Saying the answer needs a connection — type it instead.")
     }
 }
 

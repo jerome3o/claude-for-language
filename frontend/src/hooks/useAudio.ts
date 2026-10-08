@@ -38,11 +38,13 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
 
   /**
    * `live.onChunk` gets the webm/Opus data every `timesliceMs` while recording (streamed to
-   * the live transcriber); `live.onStop` runs once the last chunk has been delivered.
+   * the live transcriber); `live.onStop` runs once the last chunk has been delivered, with the
+   * whole take (a typing card's spoken answer uploads it when the live stream gives nothing).
+   * Resolves true once the microphone is recording, false when it couldn't be opened (`error`).
    * `keepPrevious` (Record again): the last take stays in `audioBlob` until the new one is
    * saved by Stop — `cancelRecording` then leaves it untouched.
    */
-  const startRecording = useCallback(async (deviceId?: string, live?: { onChunk: (chunk: Blob) => void; onStop: () => void; timesliceMs?: number }, keepPrevious = false) => {
+  const startRecording = useCallback(async (deviceId?: string, live?: { onChunk: (chunk: Blob) => void; onStop: (take: Blob) => void; timesliceMs?: number }, keepPrevious = false): Promise<boolean> => {
     try {
       setError(null);
       discardRef.current = false;
@@ -93,13 +95,14 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
         }
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         setAudioBlob(blob);
-        live?.onStop();
+        live?.onStop(blob);
       };
 
       // With a live transcriber, hand over audio every 250 ms instead of once at the end.
       if (live) mediaRecorder.start(live.timesliceMs ?? 250);
       else mediaRecorder.start();
       setIsRecording(true);
+      return true;
     } catch (err: unknown) {
       const e = err as DOMException;
       if (e.name === 'NotAllowedError') {
@@ -112,24 +115,31 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
         setError('Could not access microphone.');
       }
       console.error('Recording error:', err);
+      return false;
     }
   }, [stopLevelMonitor]);
 
+  // The recorder's own state, not `isRecording`: a caller holding an older callback (the spoken
+  // answer's controller, right after `startRecording` resolved) must still be able to stop it.
+  const isLive = (r: MediaRecorder | null): r is MediaRecorder => !!r && r.state !== 'inactive';
+
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
+    const r = mediaRecorderRef.current;
+    if (isLive(r)) {
+      r.stop();
       setIsRecording(false);
     }
-  }, [isRecording]);
+  }, []);
 
   /** Stop without keeping the take: `audioBlob` stays what it was before this recording. */
   const cancelRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
+    const r = mediaRecorderRef.current;
+    if (isLive(r)) {
       discardRef.current = true;
-      mediaRecorderRef.current.stop();
+      r.stop();
       setIsRecording(false);
     }
-  }, [isRecording]);
+  }, []);
 
   const clearRecording = useCallback(() => {
     setAudioBlob(null);

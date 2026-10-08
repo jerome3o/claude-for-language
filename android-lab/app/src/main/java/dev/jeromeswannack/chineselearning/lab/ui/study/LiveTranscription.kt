@@ -138,12 +138,36 @@ class LiveSessionCache(private val now: () -> Long = System::currentTimeMillis, 
     }
 }
 
+/** One take's live stream ([SonioxStream]); fakeable in tests. */
+interface LiveStream {
+    /** 16-bit little-endian mono PCM from the microphone. */
+    fun send(pcm: ByteArray, length: Int)
+    /** End of audio: the final text, or throws (→ the upload). */
+    suspend fun finish(timeoutMs: Long = 4_000): String
+    fun abort()
+}
+
+/**
+ * Where a typing card's spoken answer is transcribed (StudyViewModel's "say the answer"): a live
+ * stream for the take ([open], null = no key / offline → upload only; [onUpdate] gets the running
+ * transcript off the main thread) and the upload path. Tests pass a fake.
+ */
+interface SpokenTranscription {
+    fun open(onUpdate: (SonioxProtocol.Transcript) -> Unit): LiveStream?
+    suspend fun upload(take: java.io.File, mime: String, liveError: String?): String
+}
+
 /**
  * One take streamed to Soniox (the web's LiveTranscriber). Audio sent before the socket
  * opens is queued; [finish] sends the end of audio (an EMPTY TEXT frame) and returns the final text,
- * or throws (error, early close, timeout) so the caller uploads the take instead.
+ * or throws (error, early close, timeout) so the caller uploads the take instead. [onUpdate] gets
+ * every response folded in (the web's `onUpdate`: a typing card shows the words as they come).
  */
-class SonioxStream(http: OkHttpClient, private val session: LiveTranscriptionSessionDto) {
+class SonioxStream(
+    http: OkHttpClient,
+    private val session: LiveTranscriptionSessionDto,
+    private val onUpdate: ((SonioxProtocol.Transcript) -> Unit)? = null,
+) : LiveStream {
     private val lock = Any()
     private var open = false
     private var ended = false
@@ -166,6 +190,7 @@ class SonioxStream(http: OkHttpClient, private val session: LiveTranscriptionSes
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val t = synchronized(lock) { SonioxProtocol.apply(transcript, text).also { transcript = it } }
+                if (t.error == null) runCatching { onUpdate?.invoke(t) }
                 when {
                     t.error != null -> fail(t.error)
                     t.finished -> succeed()
@@ -185,8 +210,7 @@ class SonioxStream(http: OkHttpClient, private val session: LiveTranscriptionSes
         })
     }
 
-    /** 16-bit little-endian mono PCM from the microphone. */
-    fun send(pcm: ByteArray, length: Int) {
+    override fun send(pcm: ByteArray, length: Int) {
         if (length <= 0 || result.isCompleted) return
         val bytes = pcm.toByteString(0, length)
         synchronized(lock) {
@@ -195,7 +219,7 @@ class SonioxStream(http: OkHttpClient, private val session: LiveTranscriptionSes
         }
     }
 
-    suspend fun finish(timeoutMs: Long = 4_000): String {
+    override suspend fun finish(timeoutMs: Long): String {
         synchronized(lock) {
             if (!ended) {
                 ended = true
@@ -209,7 +233,7 @@ class SonioxStream(http: OkHttpClient, private val session: LiveTranscriptionSes
         }
     }
 
-    fun abort() {
+    override fun abort() {
         fail("aborted")
         socket.cancel()
     }
