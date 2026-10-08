@@ -11,6 +11,7 @@
 import {
   localDate,
   oneOffOnlyTargets,
+  homeworkPassTargets,
   sortHomeworkItems,
   titleParts,
   toHomeworkItems as toItems,
@@ -111,6 +112,18 @@ export async function recordTargetDone(kind: 'lesson' | 'reader', targetId: stri
 export async function oneOffOnlyTargetIds(): Promise<Set<string>> {
   try {
     return oneOffOnlyTargets(await db.homeworkAssignments.toArray());
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Lessons / readers with a homework pass (one_off or both, not cancelled): they come on top of
+ * the day's new-lesson place — never take it, never use it up.
+ */
+export async function homeworkPassTargetIds(): Promise<Set<string>> {
+  try {
+    return homeworkPassTargets(await db.homeworkAssignments.toArray());
   } catch {
     return new Set();
   }

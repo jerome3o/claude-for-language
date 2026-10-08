@@ -71,7 +71,10 @@ fun NavGraphBuilder.todayGraph(nav: LabNav) {
     composable(Routes.route("/today/lessons")) {
         val vm: TodayViewModel = viewModel(factory = factory { TodayViewModel(nav.app) })
         val today by vm.ui.collectAsStateWithLifecycle()
-        TodayLessonsScreen(today, onBack = nav::back, onOpen = { nav.open(Routes.todayLesson(it)) }, onAllLessons = { nav.open(Routes.lessons()) })
+        TodayLessonsScreen(
+            today, onBack = nav::back, onOpen = { nav.open(Routes.todayLesson(it)) }, onAllLessons = { nav.open(Routes.lessons()) },
+            onAgain = { nav.open(Routes.lessonPlay(it, "today")) },
+        )
     }
     composable(Routes.route("/today/lessons/{id}")) { entry ->
         val id = entry.arguments?.getString("id").orEmpty()
@@ -98,8 +101,15 @@ object TodayHomeLoader {
         val reviewed = app.repo.dao.reviewsSince(Js.toIsoString(StudyQueue.startOfDay(nowMs, zone)))
         val snapshot = runCatching { TodayData(app).snapshot(nowMs, zone) }.getOrDefault(TodaySnapshot.EMPTY)
         val progress = LessonProgressStore.get(app)
-        TodayHome.from(snapshot, counts.total, reviewed) { progress.has(it) }
+        TodayHome.from(snapshot, counts.total, reviewed) { progress.has(it) }.also { last.value = it }
     }
+
+    /**
+     * The last "Today" worked out (Home or today's list): today's lesson list shows it at once
+     * while it is worked out again (that takes seconds — it decodes every lesson and reader), so
+     * opening the list never shows an empty page. Same process only; null at start.
+     */
+    val last = MutableStateFlow<TodayHome?>(null)
 
     /**
      * After a lesson / the story from Home: when that was the last of today's work (cards,
@@ -117,7 +127,7 @@ object TodayHomeLoader {
 
 /** Today's lessons / story, kept fresh as lessons are completed and synced. */
 class TodayViewModel(private val app: LabApp) : ViewModel() {
-    private val _ui = MutableStateFlow<TodayHome?>(null)
+    private val _ui = MutableStateFlow<TodayHome?>(TodayHomeLoader.last.value)
     val ui: StateFlow<TodayHome?> = _ui.asStateFlow()
 
     init {

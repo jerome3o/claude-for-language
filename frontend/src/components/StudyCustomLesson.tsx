@@ -14,6 +14,13 @@
  *
  * `preview` runs the same lesson with nothing recorded: no rating, no event —
  * a tutor trying a library lesson or a catalogue sample.
+ *
+ * `replay` is "▶ Do it again" from the Mini Lessons page or a finished homework
+ * pass: the same rating footer (a rating is a normal completion — attempt for
+ * the tutor, "revisit later" pacing), plus, when the lesson isn't due today,
+ * "Practice only", which records nothing (`replayIsPractice`).
+ *
+ * Closing (✕) never records anything: only the rating / Done for good does.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,6 +37,7 @@ import { QueueCounts, Rating, IntervalPreview } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
 import { track } from '../services/analytics';
 import { RatingButtons } from './RatingButtons';
+import { markLessonStarted } from '../services/lessonsStarted';
 import { ExerciseView } from './ExerciseView';
 import { getTTSWithCache } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
@@ -93,6 +101,9 @@ export function StudyCustomLesson({
   onComplete,
   onEnd,
   preview = false,
+  lessonId,
+  replay,
+  onPracticeDone,
 }: {
   lesson: PlayableLesson;
   intervalPreviews?: Record<Rating, IntervalPreview>;
@@ -103,6 +114,12 @@ export function StudyCustomLesson({
   onEnd: () => void;
   /** "Try it" for a tutor (library item, catalogue sample): no queue counts, no rating, no attempt — nothing is recorded. */
   preview?: boolean;
+  /** The lesson's id for a real run: opening it pins it to today's lessons (services/lessonsStarted). */
+  lessonId?: string;
+  /** "▶ Do it again" outside the session; `practice` = the lesson isn't due today (offer Practice only). */
+  replay?: { practice: boolean };
+  /** "Practice only": the replay ends with nothing recorded. */
+  onPracticeDone?: () => void;
 }) {
   const speak = useOfflineSpeak();
   const items = useMemo(() => flattenSpec(lesson.spec), [lesson]);
@@ -117,9 +134,11 @@ export function StudyCustomLesson({
   const attempts = useRef<ExerciseAttempt[]>([]);
   const recordings = useRef<LessonRecording[]>([]);
   // Analytics: where this lesson is taken (session / homework pass / a tutor's preview).
-  const lessonSource = preview ? 'preview' : counts ? 'session' : 'homework';
+  const lessonSource = preview ? 'preview' : replay ? 'replay' : counts ? 'session' : 'homework';
   useEffect(() => {
     track('lesson.start', { source: lessonSource, exercises: items.length });
+    // A real run makes the lesson today's: leaving it half-way never drops it from today.
+    if (!preview && lessonId) markLessonStarted(lessonId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lesson]);
 
@@ -201,7 +220,7 @@ export function StudyCustomLesson({
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
-        {preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : counts ? <QueueCountsHeader counts={counts} /> : <span className="study-topbar-label">Homework</span>}
+        {preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : replay ? <span className="study-topbar-label">Mini lesson · again</span> : counts ? <QueueCountsHeader counts={counts} /> : <span className="study-topbar-label">Homework</span>}
         <div className="study-topbar-controls">
           <button className="study-close-btn" onClick={onEnd} aria-label={preview ? 'Close preview' : 'End session'}>
             ✕
@@ -263,6 +282,25 @@ export function StudyCustomLesson({
             }}
             disabled={isRating}
           />
+          {replay?.practice && onPracticeDone && (
+            <div className="lesson-practice-only">
+              <button
+                type="button"
+                className="practice-btn"
+                data-testid="lesson-practice-only"
+                disabled={isRating}
+                onClick={() => {
+                  if (isRating) return;
+                  setIsRating(true);
+                  track('lesson.replay_practice', { exercises: items.length, duration_ms: Date.now() - startedAt.current.getTime() });
+                  onPracticeDone();
+                }}
+              >
+                Practice only
+              </button>
+              <span className="lesson-practice-only-hint">Nothing is recorded · it comes back when it was going to</span>
+            </div>
+          )}
         </div>
       )}
       {done && preview && (

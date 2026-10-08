@@ -12,6 +12,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.editor.editorGraph
 import dev.jeromeswannack.chineselearning.lab.ui.home.homeGraph
 import dev.jeromeswannack.chineselearning.lab.ui.homework.homeworkGraph
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.lessonsGraph
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.lessonReplayGraph
 import dev.jeromeswannack.chineselearning.lab.ui.library.libraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.more.moreGraph
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.placeholderGraph
@@ -57,6 +58,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     chatGraph(nav)          // "/connections/:relId/chat/:convId" E
     strokesGraph(nav)       // "/practice/strokes" H
     lessonsGraph(nav)       // "/lessons", "/lesson-attempts"  B
+    lessonReplayGraph(nav)  // "/lessons/:id/play" (▶ Do it again / ▶ Start)
     readersGraph(nav)       // "/readers", "/readers/generate", "/readers/:id"  B
     questsGraph(nav)        // "/quests"     H
     coachGraph(nav)         // "/coach"      H

@@ -2865,6 +2865,7 @@ export function StudyPage() {
         <StudyCustomLesson
           key={`${currentCustomLesson.id}-${cardVersion}`}
           lesson={currentCustomLesson}
+          lessonId={currentCustomLesson.id}
           intervalPreviews={customLessonIntervalPreviews}
           counts={counts}
           onComplete={completeCustomLesson}

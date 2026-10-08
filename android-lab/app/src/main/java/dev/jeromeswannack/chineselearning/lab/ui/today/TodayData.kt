@@ -53,8 +53,11 @@ class TodayData(private val app: LabApp) {
         val cutoff = StudyQueue.cutoff(nowMs, zone)
         val entries = runtime.store.entries()
         val oneOff = runtime.store.homework.oneOffOnly()
+        val homeworkPass = runtime.store.homework.homeworkPass()
         val perDay = runtime.store.revisit.settings().newLessonsPerDayInt
-        val plan = TodayPlan.lessons(entries.map { it.item }, entries.flatMap { it.events }, oneOff, cutoff, nowMs, zone, perDay)
+        // A lesson opened today and left half-way stays today's (LessonProgressStore.startedToday).
+        val started = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app).startedToday(nowMs)
+        val plan = TodayPlan.lessons(entries.map { it.item }, entries.flatMap { it.events }, oneOff, cutoff, nowMs, zone, perDay, homeworkPass, started)
         val readers = runtime.readers.entries()
         val readerOneOff = runtime.readers.oneOffOnly()
         val readToday = ReaderSchedule.readToday(readers.filter { it.id !in readerOneOff }.flatMap { it.events }, nowMs, zone)

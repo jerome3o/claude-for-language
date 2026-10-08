@@ -105,7 +105,7 @@ object NavRules {
         Regex("^/library/[^/]+/(edit|print|try)/?$"),
         Regex("^/library/catalogue/[^/]+/?$"),
         Regex("^/decks/[^/]+/try/?$"),
-        Regex("^/lessons/[^/]+/(edit|print)/?$"),
+        Regex("^/lessons/[^/]+/(edit|print|play)/?$"),
         Regex("^/connections/[^/]+/chat(/|$)"),
         Regex("^/join/"),
         Regex("^/calls/[^/]+/?$"),

@@ -110,6 +110,7 @@ class HomeworkParityTest {
             assertEquals(o["todo"]!!.strings(), sorted.todo.map { it.assignment.id }, "screen[$i] todo order")
             assertEquals(o["done"]!!.strings(), sorted.done.map { it.assignment.id }, "screen[$i] done order")
             assertEquals(o["one_off_only"]!!.strings(), Homework.oneOffOnlyTargets(assignments).toList(), "screen[$i] one-off only")
+            assertEquals(o["homework_pass"]!!.strings(), Homework.homeworkPassTargets(assignments).toList(), "screen[$i] homework pass")
         }
     }
 

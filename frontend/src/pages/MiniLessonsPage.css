@@ -145,3 +145,26 @@
   background: #f3f4f6;
   color: var(--color-text-light);
 }
+
+/* ▶ Start / ▶ Do it again + "See the parts", always visible under the head. */
+.mini-lesson-play-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.75rem 0.75rem;
+}
+.mini-lesson-play {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.mini-lesson-parts {
+  min-height: 44px;
+  background: none;
+  border: none;
+  color: var(--color-primary, #2563eb);
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0 0.5rem;
+  cursor: pointer;
+}

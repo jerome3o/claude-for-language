@@ -219,6 +219,10 @@ object Homework {
             (if (showTutor && !a.tutor_name.isNullOrEmpty()) " · from ${a.tutor_name}" else "")
     }
 
+    /** Port of homeworkPassTargets: lessons / readers with a pass (one_off / both, not cancelled) — on top of the daily new-lesson place. */
+    fun homeworkPassTargets(list: List<HomeworkAssignment>): Set<String> =
+        list.filter { it.mode != "fsrs" && it.status != "cancelled" }.map { it.target_id }.toSortedSet()
+
     /** Port of oneOffOnlyTargets: lessons / readers the study mix and daily reader leave out. */
     fun oneOffOnlyTargets(list: List<HomeworkAssignment>): Set<String> {
         val fsrs = list.filter { it.mode != "one_off" }.map { it.target_id }.toHashSet()

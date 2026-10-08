@@ -305,10 +305,39 @@ Lessons page under "Done for good", where **↩ Bring back** puts it back in rot
 - **New lessons are paced per local DAY**: at most **"New lessons a day"** (default **1**) NEW
   lessons join the study session per day, oldest first (`pickNewLessonsForToday`), counted from the
   completion events like cards' introduced-today — a lesson whose FIRST finish is at/after local
-  midnight (`newLessonsIntroducedToday`; one-off homework lessons don't count). So a batch of 12
-  "China trip" lessons arrives one a day, whether in one session or across several. Revisits never
-  count against it (they have their own pacing below). Lab: `LessonSchedule.dueLessons(…,
-  introducedToday, newPerDay)`, `TodayPlan.lessons(…, newPerDay)`.
+  midnight (`newLessonsIntroducedToday`). So a batch of 12 "China trip" lessons arrives one a day,
+  whether in one session or across several. Revisits never count against it (they have their own
+  pacing below).
+- **Today's lessons are ONE rule** — `pickTodaysLessons` (`shared/study/revisit.ts`; Lab
+  `LessonSchedule.todaysLessons`, parity-tested): the web session (`getDueCustomLessons`), and in the
+  Lab the session, Home's "Today" row and `/today/lessons` all read it, so Study and Today can't
+  disagree about what's left. Due revisits first (capped), then:
+  - **homework comes on top of the daily place.** A lesson the tutor sent with a pass (`both`; a
+    `one_off`-only one is never in the rotation) is offered while NEW without taking the place, and
+    finishing it — in its pass or anywhere — doesn't use the place up (`homeworkPassTargets`,
+    `shared/homework/items.ts`). Oct 2026: Jerome finished his tutor's lesson in its homework pass;
+    that used up the one place, so Today said "All done" while Study (which still had China trip 1
+    on screen) kept opening China trip 1;
+  - **a lesson opened today keeps its place** until it's finished, whatever else is finished
+    meanwhile (`startedToday`: web `services/lessonsStarted.ts` in localStorage, Lab
+    `LessonProgressStore.markStarted` — set when a real run opens, previews never).
+- **Closing never completes.** ✕ / back / leaving Study / leaving a homework pass record nothing —
+  only the rating (or ✓ Done for good) writes the completion event, the attempt and the homework
+  `done`. Checked against production on 8 Oct: every completion carries a rating and an attempt with
+  a real duration. Coming back to a lesson continues it: the Lab restores a half-done run
+  ("Continuing where you left off · 3 of 4"), and a lesson opened earlier today and left on its first
+  exercise says "Back to today's lesson · 1 of 6" (`LessonResume.reopenedLine`). If the lesson on
+  screen in Study was finished elsewhere meanwhile, Study moves on (`StudyExtras.stillToDo`).
+- **▶ Do it again** (`/lessons/:id/play?from=`, web `pages/LessonReplayPage.tsx`, Lab
+  `ui/lessons/LessonReplay.kt`; immersive): every lesson on the Mini Lessons page has **▶ Start**
+  (new) / **▶ Do it again**, as do a finished homework lesson pass and (Lab) the "Done today" rows of
+  `/today/lessons`. The real player; the rule is `/tutor-notes/practice`'s, for lessons
+  (`replayIsPractice`): a lesson **due today** (new, or due by the cutoff) replays as a normal run —
+  the rating records the completion (attempt for the tutor, "revisit later" pacing, homework done);
+  a lesson **not due** (coming back later, or Done for good) gets the same ratings plus **Practice
+  only** ("Nothing is recorded · it comes back when it was going to"). Rating it anyway is a normal
+  completion, re-scheduled from now. Analytics `lesson.replay { from, practice }`,
+  `lesson.replay_practice`, `lesson.complete { source: 'replay' }`.
 - **Settings → "Lessons & readers"**: New lessons a day (0–20), the Hard / Good / Easy gaps (days),
   growth and longest gap, Reset to defaults — `users.revisit_settings` (JSON, NULL = defaults),
   `PUT /api/profile/revisit-settings` (validated by `pickRevisitSettingsUpdate`: days 1–365 whole,

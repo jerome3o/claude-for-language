@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -242,6 +243,8 @@ class LessonScreenshots : LabScreenshotTest() {
     }
     /** Up next / Coming back later / Done for good, with ↩ Bring back on the retired one. */
     @Test fun miniLessonsRevisit() = shootAfter("revisit-03-mini-lessons", content = { MiniLessonsScreen(lessonsUi, MiniLessonsActions(onBack = {})) }) {
+        // The cards are taller since ▶ Start / ▶ Do it again: scroll the retired one into view first.
+        compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(androidx.compose.ui.test.hasText("Numbers 1–10"))
         compose.onNodeWithText("Numbers 1–10").performClick()
         compose.mainClock.advanceTimeBy(600)
         runCatching { compose.onNodeWithText("↩ Bring back").performScrollTo() }

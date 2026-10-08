@@ -68,6 +68,17 @@ export function oneOffOnlyTargets(list: Pick<HomeworkAssignment, 'mode' | 'targe
   return new Set(list.filter((a) => a.mode === 'one_off' && !fsrs.has(a.target_id)).map((a) => a.target_id));
 }
 
+/**
+ * Lessons / readers with a homework PASS (an assignment in `one_off` or `both` mode that wasn't
+ * cancelled): the tutor's homework comes on top of the day's "New lessons a day" place — it
+ * neither takes it while NEW nor uses it up when finished (`pickTodaysLessons`,
+ * shared/study/revisit.ts). Once finished, a `both` lesson rotates on the "revisit later"
+ * schedule like any other.
+ */
+export function homeworkPassTargets(list: Pick<HomeworkAssignment, 'mode' | 'target_id' | 'status'>[]): Set<string> {
+  return new Set(list.filter((a) => a.mode !== 'fsrs' && a.status !== 'cancelled').map((a) => a.target_id));
+}
+
 const KIND_WORD: Record<string, string> = { lesson: 'mini lesson', reader: 'reader', link: 'link' };
 
 /** The meta line of a homework row: "Day 1 of 2 · 3 of 12 words left · then long-term review · from 老师". */

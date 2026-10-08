@@ -49,6 +49,7 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
                 onPlaySentence = vm::playSentence,
                 onOpenLink = { url -> vm.linkOpened(); openExternal(context, url) },
                 onLinkDone = vm::markLinkDone,
+                onLessonAgain = { nav.open(Routes.lessonPlay(it, "homework")) },
             ),
             lessonEnv = lessonEnv,
             readerEnv = readerEnv,

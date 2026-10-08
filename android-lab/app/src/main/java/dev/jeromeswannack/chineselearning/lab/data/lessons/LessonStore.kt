@@ -116,16 +116,26 @@ class LessonStore(
 
     suspend fun entry(id: String): LessonEntry? = entries().firstOrNull { it.id == id }
 
-    /** `getDueCustomLessons` over the cache (revisits capped per day, "New lessons a day", Done-for-good out). */
-    suspend fun dueLessons(cutoff: StudyCutoff, nowMs: Long = System.currentTimeMillis(), zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): List<LessonEntry> {
+    /**
+     * `getDueCustomLessons` over the cache — `pickTodaysLessons` (LessonSchedule.todaysLessons):
+     * revisits capped per day, homework lessons on top of "New lessons a day", lessons opened
+     * today ([startedToday]) kept, Done-for-good out.
+     */
+    suspend fun dueLessons(
+        cutoff: StudyCutoff,
+        nowMs: Long = System.currentTimeMillis(),
+        zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+        startedToday: Set<String> = emptySet(),
+    ): List<LessonEntry> {
         val all = entries()
         val byId = all.associateBy { it.id }
         val oneOff = homework.oneOffOnly()
         val events = all.flatMap { it.events }
         val revisited = LessonSchedule.revisitsToday(events, nowMs, zone)
-        val introduced = LessonSchedule.introducedToday(events, nowMs, zone, oneOff)
+        val dayStart = java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
         val perDay = revisit.settings().newLessonsPerDayInt
-        return LessonSchedule.dueLessons(all.map { it.item }, oneOff, cutoff, revisited, introduced, perDay).mapNotNull { byId[it.id] }
+        return LessonSchedule.todaysLessons(all.map { it.item }, events, dayStart, cutoff, oneOff, homework.homeworkPass(), startedToday, revisited, perDay)
+            .mapNotNull { byId[it.id] }
     }
 
     private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>, marks: List<RevisitMark>, settings: RevisitSettings): List<LessonEntry> {

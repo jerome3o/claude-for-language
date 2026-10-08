@@ -18,6 +18,7 @@ import {
   titleParts,
   homeworkRowDetail,
   oneOffOnlyTargets,
+  homeworkPassTargets,
   itemStatus,
   KIND_ICON,
   type HomeworkAssignment,
@@ -134,6 +135,7 @@ const screens = Array.from({ length: 80 }, () => {
     todo: sorted.todo.map((i) => i.assignment.id),
     done: sorted.done.map((i) => i.assignment.id),
     one_off_only: [...oneOffOnlyTargets(assignments)].sort(),
+    homework_pass: [...homeworkPassTargets(assignments)].sort(),
   };
 });
 

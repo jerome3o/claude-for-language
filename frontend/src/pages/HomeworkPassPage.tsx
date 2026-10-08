@@ -295,6 +295,7 @@ function PassDone({
   oneOffOnly,
   longTerm,
   onExit,
+  onAgain,
 }: {
   title: string;
   words?: number;
@@ -302,6 +303,8 @@ function PassDone({
   oneOffOnly?: boolean;
   longTerm?: { inReview: boolean; added: number; leftOut: number };
   onExit: () => void;
+  /** A lesson: "▶ Do it again" (the replay page). */
+  onAgain?: () => void;
 }) {
   const { isOnline } = useNetwork();
   const [added, setAdded] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
@@ -345,6 +348,9 @@ function PassDone({
           )}
         </div>
       )}
+      {onAgain && (
+        <button type="button" className="btn btn-secondary" style={{ minHeight: 44 }} onClick={onAgain} data-testid="hw-lesson-again">▶ Do it again</button>
+      )}
       <button type="button" className="btn btn-primary" onClick={onExit}>Done</button>
     </div>
   );
@@ -353,14 +359,17 @@ function PassDone({
 // ============ Lesson / reader: the regular players, once ============
 
 function LessonPass({ assignmentTitle, targetId, complete, onExit }: { assignmentTitle: string; targetId: string; complete: boolean; onExit: () => void }) {
+  const navigate = useNavigate();
   const lesson = useLiveQuery(() => db.customLessons.get(targetId), [targetId]);
   const previews = useMemo(() => (lesson ? getCustomLessonIntervalPreviews(lesson) : null), [lesson]);
   const [finished, setFinished] = useState(false);
+  // Finished (now or earlier): "▶ Do it again" opens the real player outside the pass (LessonReplayPage).
+  const again = lesson ? () => navigate(`/lessons/${lesson.id}/play?from=homework`) : undefined;
   if (complete && !finished) {
     return (
       <div className="study-fullscreen hw-pass">
         <PassTopbar title={assignmentTitle} onClose={onExit} />
-        <PassDone title={assignmentTitle} onExit={onExit} />
+        <PassDone title={assignmentTitle} onExit={onExit} onAgain={again} />
       </div>
     );
   }
@@ -370,13 +379,14 @@ function LessonPass({ assignmentTitle, targetId, complete, onExit }: { assignmen
     return (
       <div className="study-fullscreen hw-pass">
         <PassTopbar title={assignmentTitle} onClose={onExit} />
-        <PassDone title={assignmentTitle} onExit={onExit} />
+        <PassDone title={assignmentTitle} onExit={onExit} onAgain={again} />
       </div>
     );
   }
   return (
     <StudyCustomLesson
       lesson={lesson}
+      lessonId={lesson.id}
       intervalPreviews={previews}
       onComplete={(correct, total, rating, attempt, recordings, retire) => {
         // The per-exercise attempt (and any recordings) travels with the completion, as in a study session.

@@ -349,11 +349,31 @@ object Revisit {
         return first.values.count { it >= dayStartMs }
     }
 
-    /** `pickNewLessonsForToday`: the NEW lessons today still has room for, oldest first (ties by id). */
-    fun <T> pickNewForToday(fresh: List<T>, id: (T) -> String, createdAt: (T) -> String, introducedToday: Int, perDay: Int = DEFAULT.newLessonsPerDayInt): List<T> {
-        val room = maxOf(0, perDay - introducedToday)
-        return fresh.sortedWith(compareBy<T>({ createdAt(it) }, { id(it) })).take(room)
+    /**
+     * `pickNewLessonsForToday`: the NEW lessons today still has room for, oldest first (ties by
+     * id). A lesson in [startedToday] (opened today, not finished) keeps its place whatever was
+     * finished since, and fills one of the day's places.
+     */
+    fun <T> pickNewForToday(
+        fresh: List<T>,
+        id: (T) -> String,
+        createdAt: (T) -> String,
+        introducedToday: Int,
+        perDay: Int = DEFAULT.newLessonsPerDayInt,
+        startedToday: Set<String> = emptySet(),
+    ): List<T> {
+        val sorted = fresh.sortedWith(compareBy<T>({ createdAt(it) }, { id(it) }))
+        val started = sorted.filter { id(it) in startedToday }
+        val room = maxOf(0, perDay - introducedToday - started.size)
+        val keep = (started + sorted.filter { id(it) !in startedToday }.take(room)).mapTo(HashSet()) { id(it) }
+        return sorted.filter { id(it) in keep }
     }
+
+    /**
+     * `replayIsPractice`: "▶ Do it again" outside the session is a normal run when the lesson is
+     * due today (new, or due by the cutoff); otherwise it also offers Practice only (nothing recorded).
+     */
+    fun replayIsPractice(state: RevisitState, cutoffMs: Long): Boolean = !isDue(state, cutoffMs)
 
     // ============ Device rows & labels ============
 

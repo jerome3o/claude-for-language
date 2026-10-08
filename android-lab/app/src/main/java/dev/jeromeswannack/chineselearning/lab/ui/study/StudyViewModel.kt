@@ -428,8 +428,15 @@ class StudyViewModel(
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
         bumpedCardIds = built.bumped.mapTo(HashSet()) { it.id }
         // Lessons / the story may have been done from Home meanwhile (Lab today split).
-        if (_ui.value.phase is StudyPhase.Showing) extras.reload()
+        val phase = _ui.value.phase
+        if (phase is StudyPhase.Showing || phase is StudyPhase.Lesson) extras.reload()
         _ui.update { it.copy(hasMoreNew = built.hasMoreNew, counts = StudyQueue.counts(queue, reviewedNoteIds), todayLeft = todayLeft()) }
+        if (phase is StudyPhase.Lesson && !extras.stillToDo(phase.lesson.entry.id)) {
+            // The lesson on screen was finished elsewhere (Home, today's list, ▶ Do it again): move on,
+            // so Study and Today never disagree about what's left (one rule: pickTodaysLessons).
+            presentNext(nextItem(null))
+            return
+        }
         if (showing == null) return // a lesson / reader stays as it is
         if (queue.none { it.id == showing.card.id }) {
             dayStore.clearResumePoint(showing.card.id)

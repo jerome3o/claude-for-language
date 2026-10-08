@@ -2,7 +2,8 @@
  * Mini Lessons — inspect the agent-authored custom lessons (shared/lesson):
  * what's waiting in the study queue, what's been completed, and exactly which
  * exercises each lesson holds. Lessons are created by agents (MCP tools, the
- * in-app chats); this page is for looking and pruning, not authoring.
+ * in-app chats); this page is for looking, pruning and playing: every lesson
+ * has ▶ Start / ▶ Do it again (`/lessons/:id/play`, LessonReplayPage).
  *
  * Online it lists everything from the server (including completed lessons);
  * offline it falls back to the locally cached pending lessons.
@@ -87,6 +88,20 @@ function LessonCard({ lesson, schedule, onDelete, deleting }: {
           </div>
         </div>
         <span className={`mini-lesson-status ${chip.cls}`}>{chip.label}</span>
+      </div>
+      {/* Play it from here: the real player (LessonReplayPage) — a new lesson starts,
+          a finished one is "Do it again" (Practice only when it isn't due). */}
+      <div className="mini-lesson-play-row">
+        <Link
+          to={`/lessons/${lesson.id}/play?from=lessons_page`}
+          className="btn btn-primary btn-sm mini-lesson-play"
+          data-testid={`lesson-play-${lesson.id}`}
+        >
+          {schedule.status === 'new' ? '▶ Start' : '▶ Do it again'}
+        </Link>
+        <button type="button" className="mini-lesson-parts" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+          {expanded ? 'Hide the parts' : 'See the parts'}
+        </button>
       </div>
 
       {expanded && (

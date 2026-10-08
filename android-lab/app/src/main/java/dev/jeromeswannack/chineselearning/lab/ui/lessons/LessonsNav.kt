@@ -52,6 +52,7 @@ fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
                 onRetry = vm::refresh,
                 onDoneForGood = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RETIRE) },
                 onBringBack = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RESTORE) },
+                onPlay = { nav.open(Routes.lessonPlay(it, "lessons_page")) },
             ),
         )
     }

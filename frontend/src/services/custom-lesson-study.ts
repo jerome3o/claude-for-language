@@ -16,12 +16,11 @@
 
 import { CustomLessonSpec, LessonAttemptData, lessonTtsTexts, lessonConversationClips } from '@shared/lesson';
 import {
-  pickRevisitsForToday,
-  pickNewLessonsForToday,
+  pickTodaysLessons,
   newLessonsIntroducedToday,
-  MAX_LESSON_REVISITS_PER_DAY,
   type RevisitState,
 } from '@shared/study/revisit';
+import { lessonsStartedToday } from './lessonsStarted';
 import { audioForConversation } from './conversationAudio';
 import {
   db,
@@ -29,9 +28,9 @@ import {
   LocalCustomLesson,
   LocalCustomLessonCompletionEvent,
 } from '../db/database';
-import { Rating, IntervalPreview, CardQueue } from '../types';
+import { Rating, IntervalPreview } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
-import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
+import { homeworkPassTargetIds, oneOffOnlyTargetIds, recordTargetDone } from './homework';
 import { prefetchConversationClips, prefetchTTSClips } from './ttsCache';
 import { describeImageKeys } from '@shared/lesson/images';
 import { prefetchStrokeData } from './strokeData';
@@ -176,39 +175,39 @@ export async function newLessonsToday(exclude?: ReadonlySet<string>): Promise<nu
 }
 
 /**
- * Lessons for study right now, mixed into the session's card flow:
+ * Today's mini lessons, mixed into the session's card flow (the ONE rule,
+ * `pickTodaysLessons` in shared/study/revisit.ts):
  * - revisits due by the study cutoff (end of today), most overdue first, at
- *   most MAX_LESSON_REVISITS_PER_DAY a day (so a backlog — e.g. lessons that
- *   were overdue when the schedule changed — trickles back, never floods in);
- *   they never count against the new-lesson budget;
+ *   most MAX_LESSON_REVISITS_PER_DAY a day; they never count against the
+ *   new-lesson budget;
  * - NEW lessons, oldest first, paced per local DAY: at most "New lessons a
  *   day" (Settings → Lessons & readers, default 1) minus the lessons already
- *   introduced today (counted from completion events, like cards' introducedToday).
- * Done-for-good lessons and one-off homework lessons are never offered.
+ *   introduced today (from completion events). A homework lesson the tutor
+ *   sent (both) comes on top: it doesn't take that place, and finishing it
+ *   doesn't use it up. A lesson opened today and left half-way keeps its place.
+ * Done-for-good lessons and one-off-only homework are never offered.
  */
 export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
   const cutoff = getStudyCutoff();
-  // One-off homework lessons are done in the homework pass, not rotated.
-  const [allLessons, oneOffOnly, revisitedToday] = await Promise.all([
+  const [allLessons, events, oneOffOnly, homeworkPass, revisitedToday] = await Promise.all([
     db.customLessons.toArray(),
+    db.customLessonCompletionEvents.toArray(),
     oneOffOnlyTargetIds(),
+    homeworkPassTargetIds(),
     lessonRevisitsToday(),
   ]);
-  const introducedToday = await newLessonsToday(oneOffOnly);
-  const lessons = allLessons.filter(l => !oneOffOnly.has(l.id) && !l.retired);
-
-  const fresh = pickNewLessonsForToday(
-    lessons.filter(l => (l.queue ?? CardQueue.NEW) === CardQueue.NEW),
-    introducedToday,
-    readRevisitSettings().new_lessons_per_day,
-  );
-  const due = pickRevisitsForToday(
-    lessons.filter(l => (l.queue ?? CardQueue.NEW) !== CardQueue.NEW).map(l => ({ item: l, state: rowRevisitState(l) })),
-    cutoff.ts,
+  const picked = pickTodaysLessons({
+    lessons: allLessons.map(l => ({ id: l.id, created_at: l.created_at, state: rowRevisitState(l), row: l })),
+    events,
+    dayStartMs: localDayStartMs(),
+    cutoffMs: cutoff.ts,
+    oneOffOnly,
+    homeworkPass,
+    startedToday: lessonsStartedToday(),
     revisitedToday,
-    MAX_LESSON_REVISITS_PER_DAY,
-  );
-  return [...due, ...fresh];
+    perDay: readRevisitSettings().new_lessons_per_day,
+  });
+  return picked.map(p => p.row);
 }
 
 /**

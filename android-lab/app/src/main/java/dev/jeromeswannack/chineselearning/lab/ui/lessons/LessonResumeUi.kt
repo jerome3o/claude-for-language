@@ -24,6 +24,8 @@ fun lessonResumeHandle(store: LessonProgressStore, lessonId: String, spec: Custo
     val count = flattenSpec(spec).size
     return LessonResumeHandle(
         saved = store.restore(lessonId, hash, count),
+        openedBefore = store.startedTodayBefore(lessonId),
+        onOpen = { store.markStarted(lessonId) },
         onProgress = { index, correct, total, startedAt, attempts, recordings -> store.save(lessonId, hash, index, correct, total, startedAt, attempts, recordings) },
         onStartOver = { store.clear(lessonId, deleteRecordings = true) },
     )

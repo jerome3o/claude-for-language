@@ -7,7 +7,9 @@
  *     with isRevisitDue and revisitPreviews on each result;
  *   - revisitGapLabel, pickRevisitSettingsUpdate / applyRevisitSettingsUpdate /
  *     parseRevisitSettings (problems verbatim), isDefaultRevisitSettings;
- *   - pickRevisitsForToday; newLessonsIntroducedToday + pickNewLessonsForToday ("New lessons a day").
+ *   - pickRevisitsForToday; newLessonsIntroducedToday + pickNewLessonsForToday ("New lessons a day",
+ *     lessons started today kept); pickTodaysLessons (homework on top of the daily place, one-off
+ *     only / Done for good out); replayIsPractice.
  * Writes revisit.json; core RevisitParityTest asserts Revisit.kt matches exactly.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -25,6 +27,8 @@ import {
   pickRevisitsForToday,
   newLessonsIntroducedToday,
   pickNewLessonsForToday,
+  pickTodaysLessons,
+  replayIsPractice,
   DEFAULT_REVISIT_SETTINGS,
   type RevisitEvent,
   type RevisitSettings,
@@ -208,12 +212,50 @@ for (let i = 0; i < 200; i++) {
     created_at: rand() < 0.15 ? '2026-10-01T00:00:00.000Z' : new Date(T0 - int(0, 60) * DAY - int(0, 1000) * 1000).toISOString(),
   }));
   const perDay = rand() < 0.5 ? undefined : int(0, 4);
+  // Lessons opened today and not finished (some ids that aren't fresh at all).
+  const started = [...fresh.filter(() => rand() < 0.2).map(f => f.id), ...(rand() < 0.2 ? ['gone'] : [])];
   newLessons.push({
     events, day_start: dayStart, exclude, introduced,
-    fresh, per_day: perDay ?? null,
-    picked: pickNewLessonsForToday(fresh, introduced, perDay).map(f => f.id),
+    fresh, per_day: perDay ?? null, started,
+    picked: pickNewLessonsForToday(fresh, introduced, perDay, new Set(started)).map(f => f.id),
   });
 }
 
-writeFileSync(join(OUT, 'revisit.json'), JSON.stringify({ gaps, histories, labels, updates, parses, defaults, picks, newLessons }));
+// Today's lessons (pickTodaysLessons): revisits, homework on top of the place, then the queue's new.
+const todays: unknown[] = [];
+for (let i = 0; i < 250; i++) {
+  const dayStart = T0 + int(0, 30) * DAY;
+  const cutoff = dayStart + DAY + int(-2, 2) * 3600_000;
+  const lessons = Array.from({ length: int(0, 10) }, (_, k) => {
+    const status = pick(['new', 'new', 'new', 'scheduled', 'scheduled', 'retired'] as const);
+    const due_ms = status === 'scheduled' ? (rand() < 0.08 ? null : dayStart + int(-20, 20) * DAY + int(0, 3) * 1000) : null;
+    return {
+      id: `L${k}`,
+      created_at: rand() < 0.15 ? '2026-10-01T00:00:00.000Z' : new Date(T0 - int(0, 60) * DAY - int(0, 1000) * 1000).toISOString(),
+      state: { status, due_ms, gap_days: int(0, 60), last_ms: null, finishes: status === 'new' ? 0 : int(1, 5) } as RevisitState,
+    };
+  });
+  const ids = lessons.map(l => l.id);
+  const events = Array.from({ length: int(0, 10) }, (_, k) => ({
+    lesson_id: ids.length ? pick(ids) : 'L0',
+    completed_at: rand() < 0.03 ? 'garbage' : new Date(dayStart + int(-3, 1) * DAY + int(0, DAY - 1) + (k % 2)).toISOString(),
+  }));
+  const oneOffOnly = ids.filter(() => rand() < 0.1);
+  const homeworkPass = [...oneOffOnly, ...ids.filter(() => rand() < 0.2)];
+  const started = ids.filter(() => rand() < 0.15);
+  const revisitedToday = int(0, 3);
+  const perDay = rand() < 0.5 ? undefined : int(0, 4);
+  todays.push({
+    lessons, events, day_start: dayStart, cutoff, one_off_only: oneOffOnly, homework_pass: homeworkPass, started,
+    revisited_today: revisitedToday, per_day: perDay ?? null,
+    picked: pickTodaysLessons({
+      lessons, events, dayStartMs: dayStart, cutoffMs: cutoff,
+      oneOffOnly: new Set(oneOffOnly), homeworkPass: new Set(homeworkPass), startedToday: new Set(started),
+      revisitedToday, perDay,
+    }).map(l => l.id),
+    practice: lessons.map(l => replayIsPractice(l.state, cutoff)),
+  });
+}
+
+writeFileSync(join(OUT, 'revisit.json'), JSON.stringify({ gaps, histories, labels, updates, parses, defaults, picks, newLessons, todays }));
 console.log(`revisit: ${gaps.length} gaps, ${histories.length} histories, ${labels.length} labels, ${updates.length} updates, ${parses.length} parses, ${picks.length} picks`);

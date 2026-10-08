@@ -71,6 +71,12 @@ object LessonResume {
         return age < 0 || age > MAX_AGE_MS
     }
 
+    /**
+     * A lesson opened earlier today and left on its first exercise (nothing answered, so no saved
+     * run): coming back says so instead of looking like a brand-new lesson out of nowhere.
+     */
+    fun reopenedLine(count: Int): String = "Back to today's lesson · 1 of $count"
+
     /** "Continuing where you left off" — "exercise 4 of 9" / "the rating" when everything was answered. */
     fun continueLine(index: Int, count: Int): String =
         if (index >= count) "Continuing where you left off · all done" else "Continuing where you left off · ${index + 1} of $count"
