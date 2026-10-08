@@ -131,10 +131,10 @@ test('Ask Claude answers in Chinese: word chips → explorer, ✎ + Open in Coac
   await sheet.locator('textarea').fill(QUESTION);
   await sheet.locator('textarea').press('Enter');
 
-  // Claude's reply: word chips (once they arrive), not Markdown.
+  // Claude's reply: word chips (made on the device at once), not Markdown.
   const reply = sheet.getByTestId('ask-claude-reply');
   await expect(reply.getByTestId('chat-words')).toBeVisible();
-  await expect(reply.locator('.chat-word', { hasText: '取钱' })).toBeVisible();
+  await expect(reply.locator('.chat-word', { hasText: '地方' })).toBeVisible();
 
   // My question: the ✎ mark and the Open in Coach chip (the chat's auto-check).
   const mine = sheet.getByTestId('ask-mine');

@@ -123,7 +123,8 @@ word in one `GET /api/words`; everything already on the device renders at once.
 
 `<ExplorableText text segments? />` (web, `components/explorer/ExplorableText.tsx`) and
 `ExplorableText` (Lab) make Chinese tappable: **by word** when the place has word segments that
-line up with the text exactly (reader words, chat words, a breakdown), **by character** otherwise.
+line up with the text exactly (reader words, chat words — Claude's or the device's deterministic ones, see "Word chips
+without an LLM" —, a breakdown), **by character** otherwise.
 Inside a view it pushes; elsewhere it opens a fresh stack. Used on:
 
 - the study card's answer side (the hanzi, the typed / multiple-choice answer diff),
@@ -134,6 +135,41 @@ Inside a view it pushes; elsewhere it opens a fresh stack. Used on:
 
 Not inside places where a tap already means something (answer inputs, the call board, games
 where tapping is the answer, example-sentence rows that reveal line by line).
+
+## Word chips without an LLM (`shared/chinese/segment.ts`)
+
+Word chips everywhere (Ask Claude, chat, reader pages) need text split into WORDS. Claude used to do it
+(`segmentReaderText`, Haiku) after the text arrived; for Ask Claude that took 2–31 s and sometimes failed (Oct 2026:
+one of three Chinese answers came back with "covered only 9%" then an empty reply), and meanwhile every character
+was its own chip — you couldn't see which characters belong together. Now the device segments deterministically:
+
+- **Dictionary**: `shared/data/frequency/word-freq.txt` (wordfreq large_zh, top 30,000 tokens, rank = line) plus
+  `segment-words.txt` — the word dictionary's CC-CEDICT headwords that aren't in that list, with their wordfreq rank
+  (`#ranked`, written as rank steps), and the list's words that are NOT dictionary headwords (`#compounds`: jieba's
+  glued tokens like 这是 / 我要, +3500 so they rarely win). Built by `npm run build:segment-words`
+  (`scripts/build-segment-words.ts`) from `worker/char-dict/words`; ~220 kB gzipped. CC BY-SA 4.0 like its sources.
+- **Algorithm** (jieba's): for each run of Han characters, a DAG of every dictionary word starting at each position
+  (≤ 8 characters) + rule edges, then DP from the end for the cheapest path. A word costs `3300 + round(1000 · ln rank)`
+  milli-nats (Zipf: −ln p); an unknown character costs rank 100,000; equal totals prefer the longer word.
+- **Rules** (modest, tested): numbers + a measure word / date unit (三本, 两个, 第一次, 十二月, 二十五号); AA (看看,
+  慢慢), AABB (高高兴兴), A一A / A不A (看一看, 去不去 — not inside 不用不用); a word + 儿 (聊天儿). Function words are
+  never doubled. No name rule (小明 is in the list; other names fall back to characters).
+- **Everything else** (punctuation, Latin letters / digits, spaces, line breaks) is a plain segment grouped like
+  `fallbackReaderWords`; the segments concatenate back to the text exactly.
+- **Pinyin** per word: the app's auto-pinyin (pinyin-pro + 一 / 不 tone changes; Lab `ToneChange.autoPinyin`) over the
+  whole run, its syllables handed out to the words ("wǒmen"). **Gloss** is empty: the Word view looks the word up
+  (`/api/words`, cached), so the explorer opens with the dictionary's meaning.
+- **Where**: Ask Claude's answer and question bubbles always (the Claude splitter is no longer called — it saved
+  nothing that the dictionary + Word view don't give); chat messages and reader pages keep Claude's words (they carry
+  contextual glosses) and use the device's words while those are missing or failed. Web
+  `frontend/src/services/chineseSegmenter.ts` (`loadSegmenter` lazy-imports the two lists once, precached;
+  `preloadSegmenter` at idle; `useSegmentedWords`), used by `ChatWordsText` and `ReaderWordsText`; Lab
+  `core/…/chinese/Segmenter.kt` + `data/text/DeviceWords.kt` (loaded at app start, Compose state).
+- **Parity**: `android-lab/parity/fixtures/segment.ts` runs the TypeScript over `shared/chinese/__fixtures__/corpus.txt`
+  (480+ texts: Ask Claude-style explanations, chat lines, reader pages, the repo's sentences) + edge cases; Kotlin
+  `SegmenterParityTest` matches segments AND pinyin exactly. ICU / `Intl.Segmenter` was considered and rejected — its
+  dictionary differs between Node (CI), browsers and Android versions, so the two apps would drift.
+- **Speed**: ~0.05 ms per line, a long reply well under a few ms; loading the lists ~100–300 ms once.
 
 ## Mini drills (`shared/explorer/drill.ts`)
 

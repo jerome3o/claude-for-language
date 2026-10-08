@@ -130,6 +130,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── folders/           # Folders for decks / library lessons / readers: groupIntoFolders, one-level nesting rule (parentProblem), name rules, spliceGroupOrder, collapsed keys, copy (deleteFolderMessage, movedMessage) — parity-tested by the Lab app
 │   ├── explorer/          # The language explorer (docs/LANGUAGE_EXPLORER.md): the view stack (stack.ts: open / push / pop / popTo / close, breadcrumbTrail, itemForText), Word view facts (word.ts: wordChars + tones, wordFrequencyLabel, resolveWord dictionary-first), related words (related.ts), ExplorableText's segments (segments.ts), quick drills (drill.ts) — parity-tested by the Lab app
 │   ├── chars/             # The character dictionary (card-independent): CharRecord, build rules from CC-CEDICT / Make Me a Hanzi / wordfreq (build.ts, msgpack.ts; scripts/build-char-dict.ts), the sheet's word statuses known / in_decks / none (status.ts — parity-tested by the Lab app)
+│   ├── chinese/           # Deterministic word segmentation (segment.ts, jieba-style DAG + DP over the shipped word-freq.txt + segment-words.txt, a few rules: numbers + measure words, AA / AABB, A一A / A不A, word + 儿): word chips without an LLM for Ask Claude (always), chat + reader pages (while Claude's words are missing / failed) — Lab chinese/Segmenter.kt, parity-tested over __fixtures__/corpus.txt
 │   ├── pinyin/            # applyYiBuToneChanges: the 一 / 不 tone changes every automatic pinyin goes through (Lab ToneChange.kt, parity-tested)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; budget.ts / study-queue.ts / novelty.ts / new-card-order.ts ("Order new cards by": new characters, new words, most common, sentences last) + frequency.ts (the shipped wordfreq list, `shared/data/frequency/word-freq.txt`); the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts), "⚡ Study it today" bump pocket (bumps.ts) — all parity-tested by the Lab app
 │   ├── recordings/        # "Needs your ear": queue rule + labels (queue.ts), transcript ↔ card comparison (transcript.ts), mix-ups (mixups.ts) — docs/RECORDING_REVIEW.md
@@ -652,6 +653,21 @@ day; active study time per day, `shared/study/`, `PUT /api/me/study-time`), and 
    "Today: 23 min · 142 reviews" (active time, `shared/study/activeTime.ts`)
 6. "Study More" button appears to add 10 bonus new cards beyond daily limit
 
+### Word chips without an LLM (`shared/chinese/segment.ts`; docs/LANGUAGE_EXPLORER.md "Word chips without an LLM")
+A deterministic segmenter on the device (jieba's algorithm: DAG of every dictionary word in a Han run, DP for the cheapest
+path; cost = 3300 + 1000·ln(rank) milli-nats, integer so both apps tie-break alike) over `shared/data/frequency/word-freq.txt`
++ `segment-words.txt` (CC-CEDICT headwords outside the list with their wordfreq rank, and the list's jieba "compounds" such as
+这是 that get +3500; `npm run build:segment-words` from `worker/char-dict/words`). Rules: numbers + measure word (三本, 第一次,
+十二月), AA / AABB, A一A / A不A, word + 儿; punctuation / Latin / spaces are plain segments (concatenation invariant). Pinyin per
+word from the app's auto-pinyin on each run; gloss '' (the Word view looks the word up). Web `services/chineseSegmenter.ts`
+(lists lazily imported + precached, preloaded at idle; `useSegmentedWords`; `ChatWordsText` / `ReaderWordsText` fall back to
+it), Lab `core/…/chinese/Segmenter.kt` + `data/text/DeviceWords.kt` (preloaded at app start; tests opt in with `setForTests`),
+parity-tested over `shared/chinese/__fixtures__/corpus.txt` (`parity/fixtures/segment.ts` → `SegmenterParityTest`, segments AND
+pinyin). **Ask Claude always uses it** (Claude's `/note-questions/:id/words` was slow — 2–31 s — and sometimes failed, leaving
+single characters); the chat and reader pages keep Claude's contextual words as primary and use it while those load / fail.
+ICU / `Intl.Segmenter` deliberately not used (dictionaries differ across Node, browsers and Android → parity drift). ~0.05 ms per
+line; the lists load in ~100–300 ms once.
+
 ### Language explorer (docs/LANGUAGE_EXPLORER.md)
 ONE reusable bottom sheet holding a STACK of views — the Character view (the character sheet below) and a Word view
 (hanzi · ▶ cached practice TTS · pinyin · meaning · "#N most common word" from the shipped frequency list · a chip per
@@ -939,7 +955,7 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `GET /api/notes/:id/history` - Get review history and card stats
 - `POST /api/notes/:id/ask` - Ask Claude about a note (`{ question, context?, conversationHistory?, language?: zh|en, quick?, listening? }` → the Q&A with `answer_lang`, `question_check`, `question_check_pending`, `answer_clip_ready`, tool results; `routes/ask-claude.ts`)
 - `PUT /api/profile/ask-claude-listening` - `{ ask_claude_listening: boolean }` Ask Claude 🎧 Listen first (on `/api/auth/me`)
-- `GET /api/note-questions/:id` - one Q&A shaped (word chips, translations, the question's check) · `POST /api/note-questions/:id/words|translate` `{ part: answer|question }` → `{ words, cached }` / `{ translation, cached }` (made on request, cached on the row) · `PUT /api/profile/ask-claude-language` `{ ask_claude_language: zh|en|null }`
+- `GET /api/note-questions/:id` - one Q&A shaped (word chips, translations, the question's check) · `POST /api/note-questions/:id/words|translate` `{ part: answer|question }` → `{ words, cached }` / `{ translation, cached }` (made on request, cached on the row; `/words` is legacy — both apps now make Ask Claude's word chips on the device with `shared/chinese/segment.ts` and no longer call it) · `PUT /api/profile/ask-claude-language` `{ ask_claude_language: zh|en|null }`
 - `GET /api/notes/:id/questions` - Get Q&A history
 - `GET /api/notes/search?q=&limit=` - Server-side search of my notes (hanzi / pinyin, tone-free too / english / card sentence) with `deck_name` + `total_notes` — the Decks tab search is local-first (`services/noteSearch.ts` `noteMatches`, cards + recent ratings loaded only for the notes on screen) and falls back to this when the device finds nothing, saying how many of the account's cards the device holds (`routes/note-search.ts`)
 - `POST /api/notes/:id/generate-audio` - Generate TTS audio for note
@@ -2364,7 +2380,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
   conversation lists. Web: `services/chatLive.ts`, `hooks/useChatThread.ts`, `components/chat/*Bubble.tsx`; Lab: `ui/chat/ChatRich.kt`, `data/chat/ChatMedia.kt`.
 - **Learning tools in the chat** (docs/CHAT.md "PR 3", migration 0091): every Chinese message (and voice transcript)
   gets reader-style word chips in the background (`messages.words`, `segmentReaderText`; lazily
-  `POST /api/messages/:id/words`) → the reader word sheet (+ Add as card); per-message 拼 / EN toggles (remembered per
+  `POST /api/messages/:id/words`; while they're missing or failed the device's deterministic segmenter makes the chips — `shared/chinese/segment.ts`, web `services/chineseSegmenter.ts`, Lab `data/text/DeviceWords.kt`) → the reader word sheet (+ Add as card); per-message 拼 / EN toggles (remembered per
   conversation); **Make flashcards** (select messages / Today / Last 50 → `POST /api/conversations/:id/flashcards/propose`,
   structuredCall + CARD_STANDARD + FLASHCARD_ITEM_SCHEMA, `already_have` per card → review sheet → one
   `POST /api/decks/:id/notes/batch`) replaces the old single "+ Card"; **Correct this** (the relationship's tutor,

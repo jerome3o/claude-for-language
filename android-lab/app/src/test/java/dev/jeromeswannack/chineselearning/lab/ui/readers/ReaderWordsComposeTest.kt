@@ -18,6 +18,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordExplanationDto
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,12 +31,17 @@ import kotlin.test.assertEquals
  * Reader word chips as a user taps them: reveal the Chinese → chips (punctuation plain, a word in
  * a deck marked) → tap a word → the sheet (the Chinese stays revealed) → "More about this word"
  * → "+ Add as card" → Add to deck creates the note with the explanation's card fields. A page
- * without words is plain text; words that don't match the page are never shown.
+ * without words is plain text until the phone's own words are ready (data/text/DeviceWords), then
+ * those; words that don't match the page are never shown.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class, qualifiers = "w412dp-h915dp-xxhdpi")
 class ReaderWordsComposeTest {
     @get:Rule val compose = createComposeRule()
+
+    /** The phone's segmenter not loaded: the plain-text path (each test opts in). */
+    @Before fun noDeviceWords() = dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.setForTests(null)
+    @After fun resetDeviceWords() = dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.setForTests(null)
 
     private val text = "早上好。我叫小徐。"
     private val words = listOf(
@@ -133,6 +140,16 @@ class ReaderWordsComposeTest {
         show { Harness(ReaderPageDto("p1", 1, text), rec, load = { words }) }
         tap("Tap to reveal Chinese")
         assertEquals(5, compose.onAllNodesWithTag("word-chip").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun withoutClaudesWordsThePhoneSplitsThePageIntoWords() {
+        dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.setForTests(dev.jeromeswannack.chineselearning.lab.core.chinese.Segmenter.shipped)
+        show { Harness(ReaderPageDto("p3", 1, "早上好。我们明天去银行。"), Recorder(), load = { null }) }
+        tap("Tap to reveal Chinese")
+        val chips = compose.onAllNodesWithTag("word-chip").fetchSemanticsNodes().size
+        assertEquals(5, chips) // 早上好 · 我们 · 明天 · 去 · 银行
+        compose.onNodeWithText("银行").assertExists()
     }
 
     @Test

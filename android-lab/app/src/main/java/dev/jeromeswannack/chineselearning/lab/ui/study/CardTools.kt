@@ -311,7 +311,6 @@ class CardTools(private val app: LabApp) {
     suspend fun ask(noteId: String, body: AskBody): AskAnswer = api.askAboutNote(noteId, body)
 
     /** Ask Claude, immersion: word chips of the answer / my question ([part]), made on request. */
-    suspend fun askWords(id: String, part: String) = api.noteQuestionWords(id, part).words
 
     /** The answer / my question in English (the long-press menu's Translate). */
     suspend fun askTranslation(id: String, part: String) = api.translateNoteQuestion(id, part).translation

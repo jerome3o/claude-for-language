@@ -81,6 +81,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords
 
 /*
  * docs/CHAT.md PR 3 in the Lab chat: word chips (+ pinyin over each word), the 拼 / EN toggles,
@@ -112,8 +113,9 @@ fun ChineseText(
     plain: (@Composable (reserve: Dp) -> Unit)? = null,
 ) = ChineseWords(
     text = text,
-    // Picking messages: the plain text (taps select the message).
-    words = if (ui.selection != null) null else words,
+    // Picking messages: the plain text (taps select the message). Without Claude's words (yet, or
+    // they failed): the words made on the phone (data/text/DeviceWords), never single characters.
+    words = if (ui.selection != null) null else words ?: DeviceWords.of(text),
     isMe = isMe,
     color = color,
     showPinyin = ui.aids.pinyin(m.id) && ui.selection == null,

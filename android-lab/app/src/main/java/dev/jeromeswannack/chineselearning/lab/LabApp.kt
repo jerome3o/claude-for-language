@@ -100,6 +100,8 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
         reportLastCrash()
         dev.jeromeswannack.chineselearning.lab.shell.Shell.install(this) // widget, notifications (package I)
         runCatching { dev.jeromeswannack.chineselearning.lab.data.chat.ChatDelivery.install(this) } // chat notifications, live socket, FCM
+        // Word chips made on the phone (tests opt in with DeviceWords.setForTests, so they stay deterministic).
+        if (android.os.Build.FINGERPRINT != "robolectric") scope.launch { dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.preload() }
     }
 
     private fun appVersion(): String = appVersionOrNull() ?: "unknown"

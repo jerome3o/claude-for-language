@@ -1074,18 +1074,11 @@ class StudyViewModel(
         updateAsk(v) { a -> a.copy(conversation = a.conversation.map { if (it.id == id) change(it) else it }) }
 
     /**
-     * Ask Claude, immersion (docs/STUDY_SESSION.md "Ask Claude"): after an answer, its word chips
-     * (a Chinese answer, and my own Chinese question) and — when the question's check was still
-     * running — the row again a couple of times. Failures leave the characters tappable.
+     * Ask Claude, immersion (docs/STUDY_SESSION.md "Ask Claude"): after an answer, when the
+     * question's check was still running, the row again a couple of times. (Word chips are made on
+     * the phone — data/text/DeviceWords — so Claude's splitter is no longer asked.)
      */
     private fun askExtras(v: CardView, a: dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer) {
-        val zh = dev.jeromeswannack.chineselearning.lab.core.MessageTools::looksLikeChinese
-        if (a.answer_lang == dev.jeromeswannack.chineselearning.lab.core.AskClaude.ZH && a.answer_words == null && zh(a.answer)) {
-            viewModelScope.launch { runCatching { tools.askWords(a.id, "answer") }.getOrNull()?.let { w -> patchAsk(v, a.id) { it.copy(answer_words = w) } } }
-        }
-        if (a.question_words == null && zh(a.question)) {
-            viewModelScope.launch { runCatching { tools.askWords(a.id, "question") }.getOrNull()?.let { w -> patchAsk(v, a.id) { it.copy(question_words = w) } } }
-        }
         if (a.question_check_pending) viewModelScope.launch {
             for (wait in longArrayOf(3000, 5000)) {
                 delay(wait)

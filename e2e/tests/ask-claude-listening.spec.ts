@@ -163,7 +163,7 @@ test('🎧 Listen first: the answer arrives hidden and plays by itself, tap play
   // Long press → revealed: the word chips, and no message menu yet.
   await longPress(hidden);
   const reply = sheet.getByTestId('ask-claude-reply');
-  await expect(reply.locator('.chat-word', { hasText: '取钱' })).toBeVisible();
+  await expect(reply.locator('.chat-word', { hasText: '地方' })).toBeVisible();
   await expect(sheet.getByTestId('ask-listening-bubble')).toHaveCount(0);
   await expect(page.getByTestId('message-menu')).toHaveCount(0);
   if (process.env.SHOOT) {

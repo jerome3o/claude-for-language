@@ -204,7 +204,8 @@ ALTER TABLE messages ADD COLUMN correction TEXT;   -- JSON { text, note, by, at 
 ```
 - Words are computed in the background for every message (or voice transcript) containing Chinese, with the reader
   words splitter (`segmentReaderText`, Haiku), and lazily by `POST /api/messages/:id/words` → `{ words }` for older
-  messages. `message_updated` when they land.
+  messages. `message_updated` when they land. Until then (or when Claude's split failed) the device makes the chips with
+  the deterministic segmenter (`shared/chinese/segment.ts`; docs/LANGUAGE_EXPLORER.md "Word chips without an LLM").
 - **Pinyin / Translate toggles** per message (pinyin from `words`; translation from `translation`), remembered per
   conversation on the device. A "Show pinyin for all" switch in the chat header menu.
   A message with no `translation` yet asks `POST /api/messages/:id/translate` → `{ translation }`

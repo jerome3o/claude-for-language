@@ -6,7 +6,6 @@ import { askClaudeMenu, type MenuActionId, type MenuItem } from '@shared/chats/m
 import { coachDeepLink, openInCoachRequest, sayBetterLabel, sayBetterState, showCoachChip } from '@shared/chats/autoCheck';
 import { chatReadAloudSpeed, chatReadAloudVoice, parseVoiceGender } from '@shared/chats/voice';
 import { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE, askAnswerHidden, askAutoPlayId, askQuickActions, revealedWhenListeningOn, type AskLanguage } from '@shared/study/askClaude';
-import { fallbackReaderWords } from '@shared/reader/words';
 import { itemForText } from '@shared/explorer';
 import type { AskToolResult, NoteQuestionWithTools, ReadOnlyToolCall } from '../../api/client';
 import { MessageMenu, type MenuAnchor } from '../chat/MessageMenu';
@@ -17,7 +16,6 @@ import { SayBetterSheet, type SayBetterMessage } from '../chat/SayBetterSheet';
 import { useLongPress } from '../chat/useLongPress';
 import { ListeningBubble, useListeningPlayer } from '../chat/ListeningBubble';
 import { getAskRevealed, revealAskAnswer, setAskRevealed, useAskRevealed } from '../../services/askClaudeListening';
-import { looksLikeChinese } from '../chat/messageTools';
 import { useExplorer } from '../explorer/ExplorerContext';
 import { useKnownHanzi } from '../reader/ReaderWords';
 import { useAuth } from '../../contexts/AuthContext';
@@ -369,11 +367,7 @@ export function AskClaudeSheet({
     const text = textOf(t);
     const mine = t.part === 'question';
     const k = keyOf(t);
-    const zh = looksLikeChinese(text);
     const markdown = isMarkdown(t);
-    const stored = t.part === 'answer' ? t.entry.answer_words : t.entry.question_words;
-    // Until the word chips arrive every character is tappable on its own.
-    const words = zh && !markdown ? stored ?? fallbackReaderWords(text) : null;
     const translation = t.part === 'answer' ? t.entry.answer_translation : t.entry.question_translation;
     const translateOn = shown.translate.has(k);
     const better = mine ? sayBetterState(asMessage(t.entry), myId) : null;
@@ -398,7 +392,7 @@ export function AskClaudeSheet({
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
                 </div>
               ) : (
-                <ChatWordsText text={text} words={words} showPinyin={shown.pinyin.has(k)} known={known} onTapWord={(w) => tapWord(w, roleOf(t))} suppressTap={press.suppressTap} />
+                <ChatWordsText text={text} words={null} showPinyin={shown.pinyin.has(k)} known={known} onTapWord={(w) => tapWord(w, roleOf(t))} suppressTap={press.suppressTap} />
               )}
               {translateOn && <ChatTranslation text={translation ?? (chat.translateErrors.has(k) ? "Couldn't translate — hold to try again" : null)} />}
               {better && (
