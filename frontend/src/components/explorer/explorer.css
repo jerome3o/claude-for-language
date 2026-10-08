@@ -575,23 +575,25 @@
  * Lab app's dark theme) applies under an explicit data-theme="dark" only: under a dark
  * system setting the web sheet stays white, where the light set is the right one.
  *
- * Yellow can't be a pure yellow line on white: a yellow bright enough to read as yellow is
- * under 2:1, and darkening it to 3:1 turns it gold. So on light the yellow tier is a 2px
- * dark-yellow outline (#a89000, 3.2:1) around a yellow fill (#fef08a) — the fill is what
- * reads "yellow" (a background-image layer, so the tile's own background stays under it and
- * a transparent fill changes nothing). On dark #facc15 is yellow at 11:1, no fill. */
+ * Yellow is LEMON yellow, never amber / gold. It can't be a pure yellow line on white: a yellow
+ * bright enough to read as yellow is under 2:1, and darkening it to 3:1 turns it gold. So on
+ * light the yellow tier is a 2px lemon-olive outline (#948c00, 3.5:1 on white, 3.25:1 on its
+ * fill) around a pale lemon fill (#fef9c3) — the fill is what reads "yellow" (a background-image
+ * layer, so the tile's own background stays under it and a transparent fill changes nothing).
+ * On dark #fde047 (yellow-300) is lemon at 12.9:1 (#facc15 read as orange there), no fill: any
+ * yellow tint over a dark card comes out khaki. */
 :root {
   --freq-top100: #8b5cf6;
   --freq-top1000: #16a34a;
-  --freq-top2000: #a89000;
-  --freq-top2000-fill: #fef08a;
+  --freq-top2000: #948c00;
+  --freq-top2000-fill: #fef9c3;
   --freq-rare: #9ca3af;
 }
 
 :root[data-theme='dark'] {
   --freq-top100: #a78bfa;
   --freq-top1000: #4ade80;
-  --freq-top2000: #facc15;
+  --freq-top2000: #fde047;
   --freq-top2000-fill: transparent;
   --freq-rare: #71717a;
 }
