@@ -1,14 +1,22 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
@@ -17,8 +25,10 @@ import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.data.SentenceEntity
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.robolectric.annotation.Config
@@ -32,6 +42,11 @@ import org.robolectric.annotation.Config
  * header hidden under the rows, "+ 5 more sentences" over the first row). These tests check the
  * stacking at font scale 1.0 and 1.3, folded and unfolded, and shoot the state Jerome saw
  * (dark theme, 1.3) collapsed and with Show all.
+ *
+ * And the "From the card" badge takes no line of its own (a tab on the row's top edge): collapsed,
+ * row 1 is exactly as tall as row 2 with its "Tap to reveal" at the same height (Jerome's
+ * screenshot, Oct 2026: the badge's own line pushed it below the centre); revealed, the badge
+ * overlaps none of the row's lines and not ▶.
  */
 class SentenceRowsLayoutTest : LabScreenshotTest() {
     private val note = Samples.note.copy(
@@ -117,7 +132,7 @@ class SentenceRowsLayoutTest : LabScreenshotTest() {
         compose.onRoot().captureRoboImage("screenshots/study-e02-sentences-expanded-dark-1.3.png")
         scrollToEnd()
         compose.onRoot().captureRoboImage("screenshots/study-e03-sentences-expanded-end-dark-1.3.png")
-        // Row 1 is the note's own sentence, badged as such on its own small line above the text —
+        // Row 1 is the note's own sentence, badged as such by a tab on the row's top edge above the text —
         // never where the English goes (it used to sit under the hanzi where the English belonged).
         val clue = node(note.sentenceClue!!)
         val badge = node("From the card")
@@ -134,5 +149,85 @@ class SentenceRowsLayoutTest : LabScreenshotTest() {
         scrollToEnd()
         compose.onRoot().captureRoboImage("screenshots/study-e04-sentences-unfolded-dark-1.3.png")
         assertStacked(6, "Tap to reveal")
+    }
+
+    // ── The "From the card" badge: no line of its own ──
+
+    /** The list alone on the card colour (the PR shots), [showAll] = every row fully open. */
+    private fun renderList(dark: Boolean, showAll: Boolean) {
+        compose.setContent {
+            LabTheme(dark = dark) {
+                Column(Modifier.fillMaxSize().background(Lab.colors.card).padding(16.dp)) {
+                    SentenceList(
+                        Samples.note, Samples.sentences, presentation = 1, online = true, playingKey = null,
+                        s = SentenceActions(), onPlay = { _, _ -> }, startShowAll = showAll,
+                    )
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(2_000)
+    }
+
+    private fun tagged(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes()
+    private fun texts(text: String) = compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes()
+    private fun SemanticsNode.rect(): Rect = boundsInRoot
+    private val px1dp get() = compose.density.run { 1.dp.toPx() }
+
+    /** Collapsed: row 1 the same height as row 2, "Tap to reveal" at the same place in it, centred. */
+    private fun assertClueRowAligned() {
+        val rows = tagged(SENTENCE_ROW_TAG).map { it.rect() }
+        val placeholders = texts("Tap to reveal").map { it.rect() }
+        assertTrue(rows.size >= 2 && placeholders.size == rows.size)
+        assertEquals("row 1 as tall as row 2", rows[1].height, rows[0].height, px1dp)
+        assertEquals(
+            "Tap to reveal at the same height in row 1 as in row 2",
+            placeholders[1].top - rows[1].top, placeholders[0].top - rows[0].top, px1dp,
+        )
+        assertEquals("centred between EN and ▶", rows[0].center.y, placeholders[0].center.y, px1dp)
+        assertFalse("badge clear of Tap to reveal", tagged(SENTENCE_CARD_BADGE_TAG).single().rect().overlaps(placeholders[0]))
+    }
+
+    /** Fully open: the badge covers none of the row's three lines and not ▶. */
+    private fun assertBadgeClear(lines: List<String>) {
+        val badge = tagged(SENTENCE_CARD_BADGE_TAG).single().rect()
+        for (line in lines) assertFalse("badge clear of \"$line\"", badge.overlaps(texts(line).first().rect()))
+        assertFalse("badge clear of ▶", badge.overlaps(tagged(SENTENCE_PLAY_TAG).first().rect()))
+    }
+
+    private val sampleLines get() = Samples.note.let { listOf(it.sentenceClue!!, it.sentenceCluePinyin!!, it.sentenceClueTranslation!!) }
+
+    @Test fun clueBadgeCollapsedLight() {
+        renderList(dark = false, showAll = false)
+        compose.onRoot().captureRoboImage("screenshots/study-e09-clue-badge-collapsed.png")
+        assertClueRowAligned()
+    }
+
+    @Test fun clueBadgeCollapsedDark() {
+        renderList(dark = true, showAll = false)
+        compose.onRoot().captureRoboImage("screenshots/study-e09-clue-badge-collapsed-dark.png")
+        assertClueRowAligned()
+    }
+
+    @Test fun clueBadgeRevealedLight() {
+        renderList(dark = false, showAll = true)
+        compose.onRoot().captureRoboImage("screenshots/study-e10-clue-badge-revealed.png")
+        assertBadgeClear(sampleLines)
+    }
+
+    @Test fun clueBadgeRevealedDark() {
+        renderList(dark = true, showAll = true)
+        compose.onRoot().captureRoboImage("screenshots/study-e10-clue-badge-revealed-dark.png")
+        assertBadgeClear(sampleLines)
+    }
+
+    @Test fun clueBadgeAlignedOnTheCardBackAtFontScale13() {
+        studyBack(1.3f, dark = true)
+        assertClueRowAligned()
+    }
+
+    @Test fun clueBadgeClearOnTheCardBackAtFontScale13() {
+        studyBack(1.3f, dark = true)
+        showAll()
+        assertBadgeClear(listOf(note.sentenceClue!!, note.sentenceCluePinyin!!, note.sentenceClueTranslation!!))
     }
 }
