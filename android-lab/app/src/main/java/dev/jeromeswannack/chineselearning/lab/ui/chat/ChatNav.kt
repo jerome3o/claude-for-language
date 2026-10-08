@@ -216,6 +216,11 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onListen = vm.listening::tap,
             onReveal = vm.listening::reveal,
             onListeningSlow = vm.listening::toggleSlow,
+            onOpenAlbumMenu = vm::openAlbumMenu,
+            onAlbumViewerOpen = vm::albumViewerOpened,
+            onSharePhoto = vm::sharePhoto,
+            onForwardPhoto = { m -> vm.startForward(listOf(m.id)) },
+            onDeletePhoto = vm::askDelete,
         ),
         callBanner = call?.let { b ->
             {
@@ -269,6 +274,12 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                     runCatching { context.startActivity(android.content.Intent.createChooser(send, name)) }
                 },
                 onSaveFile = { path, name, _ -> vm.openSheet(null); saving = path; runCatching { saveCopy.launch(name) } },
+                onAlbumMenuAction = { id, ids ->
+                    val head = vm.albumHead(vm.albumPhotos(ids))
+                    if (id == dev.jeromeswannack.chineselearning.lab.core.MessageMenu.OPEN_COACH && head != null) vm.openInCoach(head, "menu")?.let(nav::open)
+                    else vm.onAlbumMenuAction(id, ids)
+                },
+                onDeleteAll = vm::deleteAll,
                 onSendPhoto = vm::sendPhoto,
                 onDiscardPhoto = vm::discardPhoto,
                 onJump = vm::jumpTo,

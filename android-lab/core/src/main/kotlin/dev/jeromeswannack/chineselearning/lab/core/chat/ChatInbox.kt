@@ -72,12 +72,14 @@ object ChatInbox {
 
     /**
      * Port of chatMessagePreview() in shared/chats/inbox.ts. [attachmentKind]: "image" | "voice" | "file" |
-     * "video" | null; [attachmentName] = a file's name ("📄 <name>", else "📄 File").
+     * "video" | null; [attachmentName] = a file's name ("📄 <name>", else "📄 File"); [albumCount] = a photo
+     * album's photo count (2 or more → "📷 3 photos", docs/CHAT.md "Photo albums").
      */
-    fun messagePreview(content: String, attachmentKind: String? = null, deleted: Boolean = false, attachmentName: String? = null): String {
+    fun messagePreview(content: String, attachmentKind: String? = null, deleted: Boolean = false, attachmentName: String? = null, albumCount: Double? = null): String {
         if (deleted) return "Message deleted"
+        val photos = if (albumCount != null && albumCount.isFinite()) maxOf(1.0, kotlin.math.floor(albumCount)) else 1.0
         val label = when (attachmentKind) {
-            "image" -> "📷 Photo"
+            "image" -> if (photos > 1) "📷 ${photos.toLong()} photos" else "📷 Photo"
             "voice" -> "🎤 Voice message"
             "file" -> if (!attachmentName.isNullOrEmpty()) "📄 $attachmentName" else "📄 File"
             "video" -> "🎬 Video"

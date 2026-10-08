@@ -379,6 +379,54 @@ type ChatAttachment = /* image | voice as before */
   (Web: the app-wide "Offline" badge is hidden on the chat page — it covered Send.)
 - The message menu gains **Forward** (after Copy) and **Info** (after Pin) — `messageMenu` in shared/chats/messageMenu.ts.
 
+## Photo albums (migration 0118_chat_albums.sql)
+
+Several photos picked together arrive as ONE bubble the person can tap and swipe through (WhatsApp / Signal style).
+
+```sql
+ALTER TABLE messages ADD COLUMN album_id TEXT;            -- photos picked together share it (client-chosen, client_id shape)
+ALTER TABLE messages ADD COLUMN album_index INTEGER;      -- 0-based place in the album
+ALTER TABLE messages ADD COLUMN album_notified_at TEXT;   -- set on the ONE photo that sent the album's notification
+```
+- **Still one message per photo.** Forward, delete, reactions, read receipts, info all keep working per photo; an album is
+  only how consecutive messages render. The sender's app gives every photo of a multi-select its own `client_id` and
+  outbox entry plus the shared `album_id` / `album_index` and `album_count` (2–10):
+  `POST /api/conversations/:id/media?kind=image&…&album_id=&album_index=&album_count=` (400 on a malformed set; ignored on
+  non-photos). The outbox sends a conversation's entries in order, so an album queued offline stays together. The caption
+  and the reply ride on the FIRST photo (as before albums).
+- **Grouping** — `layoutBubbles` (shared/chats/bubbles.ts; Lab `ChatBubbles.kt`, parity-tested by
+  `parity/fixtures/chat-albums.ts`) emits `kind: 'album'` items with `messageIds` + `captionId`:
+  consecutive messages from one sender with the same `album_id`; a deleted photo is hidden inside its album, a run with
+  no photo left is one "Message deleted" bubble, an album left with one photo is a plain photo bubble. **Photos sent
+  before albums** (no album id) group when they are consecutive photos from one person on one local day, each within
+  `ALBUM_LEGACY_GAP_MS` (10 s) of the previous, and none but the first has a caption. An album is one bubble of its
+  group; its tick is the worst of its photos' (failed › pending) else its last photo's; the caption shown is the last
+  photo with one.
+- **Bubble** — `albumTiles(n)`: 2 side by side, 3 = one big + two small, 4 = 2 × 2, 5+ = 2 × 2 with "+N" on the last
+  tile; one rounded bubble, fixed size per layout (loading placeholders never move the thread), time + ticks inside on
+  the last tile (on the caption line when there is one). Web `components/chat/AlbumBubble.tsx` (+ `chat-album.css`), Lab
+  `ui/chat/ChatAlbumViews.kt` (`ChatRow.Album`, pending outbox photos join their album with 🕓 per tile).
+- **Viewer** — a tap opens the photo tapped, swipe left / right through the album, "3 / 5" (`albumCounter`), pinch /
+  double-tap zoom (a zoomed photo pans instead of swiping). Web: pointer swipe, ‹ › arrows where there is a mouse,
+  arrow keys, Escape; the Android back gesture closes only the viewer (`useBackLevels`); Save / Forward / Delete (mine)
+  of the photo on screen. Lab: `HorizontalPager` in a Dialog (back closes it), Share / Forward / Delete (mine).
+- **Menu** — long-press an album: `albumMenu(messageMenu(head), n)` (shared; Lab `MessageMenu.albumMenu`, parity-tested):
+  Reply, Copy / Explain / Save as flashcard (the caption), **Forward all N** (each photo forwarded with ONE new album id —
+  `POST /api/messages/:id/forward { …, album_id, album_index, album_count }` — so it is an album there too), Pin, Info,
+  Edit caption, **Delete all N** (confirm "Delete these N photos?"). The single-message actions act on the album's
+  **head** = its caption's photo, else its last. **Reactions go on the album's LAST photo** (and the bubble shows that
+  photo's reactions).
+- **Notifications** — one per album, not one per photo: the first photo of an album to reach the worker claims it
+  (`claimAlbumNotification`: one atomic `UPDATE … album_notified_at WHERE NOT EXISTS (a claimed photo of this album)`) and
+  FCM / Web Push / e-mail / the bell / ntfy say **"📷 3 photos[: caption]"** with the declared `album_count`; FCM data
+  carries `album_id` + `album_count`. The other photos only go out live (the ChatHub `message` event stays per message,
+  now with `album_count`). A re-sent photo (same client_id) returns 200 and notifies nothing. The inbox row
+  (`GET /api/me/chats`) counts the album's photos and shows its caption; `GET /api/me/chat-inbox` lists an album once
+  (its first photo, `album_id`, `album_count`). The Lab keys a notification line by `album:<conv>:<album_id>`
+  (`IncomingChat.lineKey`), so FCM, the live socket and the inbox check never add a second line. `chatMessagePreview`
+  takes `album_count` (Lab `ChatInbox.messagePreview`, parity-tested). Listening mode is unaffected (photos are never hidden).
+- Analytics: `chat.album_sent { count, offline }`, `chat.album_viewer_open { count, index }`.
+
 ## Chats tab (the inbox)
 
 The bottom tab bar's **Chats** tab (it replaced Decks; Decks is now the first row of More, Home's

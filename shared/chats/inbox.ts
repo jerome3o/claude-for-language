@@ -63,13 +63,20 @@ export function chatMessagePreview(message: {
   /** A file's name (kind 'file'). */
   attachment_name?: string | null;
   deleted?: boolean;
+  /** A photo album's photo count (docs/CHAT.md "Photo albums"): 2 or more → "📷 3 photos". */
+  album_count?: number | null;
 }): string {
   if (message.deleted) return 'Message deleted';
   const kind = message.attachment_kind;
   if (!kind || !(kind in PREVIEW_LABEL)) return message.content;
   const caption = message.content.trim();
-  const label = kind === 'file' && message.attachment_name ? `📄 ${message.attachment_name}` : PREVIEW_LABEL[kind];
+  const photos = kind === 'image' ? albumPhotoCount(message.album_count) : 1;
+  const label = photos > 1 ? `📷 ${photos} photos` : kind === 'file' && message.attachment_name ? `📄 ${message.attachment_name}` : PREVIEW_LABEL[kind];
   return caption ? `${label}: ${caption}` : label;
+}
+
+function albumPhotoCount(count: number | null | undefined): number {
+  return typeof count === 'number' && Number.isFinite(count) ? Math.max(1, Math.floor(count)) : 1;
 }
 
 /** Newest activity first; ties by conversation id so the order is stable. */

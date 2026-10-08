@@ -119,6 +119,8 @@ export function useChatList({ live = false }: { live?: boolean } = {}) {
               attachment_kind: m.attachment?.kind ?? null,
               attachment_name: m.attachment?.kind === 'file' ? m.attachment.name : null,
               deleted: !!m.deleted_at,
+              // A photo of an album: "📷 3 photos" like the server's row.
+              album_count: e.type === 'message' && m.album_id ? e.album_count ?? null : null,
             }),
             created_at: m.created_at,
             attachment_kind: m.attachment?.kind ?? null,

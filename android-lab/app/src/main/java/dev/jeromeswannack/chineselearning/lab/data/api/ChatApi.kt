@@ -59,6 +59,11 @@ data class ChatMessageDto(
     // ---- round 2 PR 3 ----
     /** The message this one was forwarded from — shown as "↪ Forwarded". */
     val forwarded_from: String? = null,
+    // ---- photo albums (docs/CHAT.md "Photo albums") ----
+    /** Photos picked together share it; the chat draws them as ONE album bubble (ChatBubbles). */
+    val album_id: String? = null,
+    /** 0-based place in the album as picked. */
+    val album_index: Int? = null,
     // ---- auto-check (docs/CHAT.md "Auto-check") ----
     /** The background "Check my Chinese" of this text message — only on the SENDER's own view; null when stale / not checked. */
     val auto_check: AutoCheckDto? = null,
@@ -261,9 +266,12 @@ fun chatMediaUploadPath(
     /** A video's shape (kind video; 0 / null = unknown). */
     width: Int? = null,
     height: Int? = null,
+    /** A photo of an album (docs/CHAT.md "Photo albums"): the album id, this photo's index, the album's size. */
+    album: AlbumRef? = null,
 ): String =
     buildString {
         append("/api/conversations/${enc(conversationId)}/media?kind=${enc(kind)}&client_id=${enc(clientId)}")
+        if (album != null) append("&album_id=${enc(album.id)}&album_index=${album.index}&album_count=${album.count}")
         if (!caption.isNullOrBlank()) append("&caption=${enc(caption)}")
         if (replyTo != null) append("&reply_to_message_id=${enc(replyTo)}")
         if (durationMs != null) append("&duration_ms=$durationMs")
@@ -272,9 +280,21 @@ fun chatMediaUploadPath(
         if (height != null && height > 0) append("&height=$height")
     }
 
-/** `POST /api/messages/:id/forward` (round 2 PR 3): idempotent by [client_id]. */
+/** A photo's place in an album: the album id, its 0-based index, the album's size (2–10). */
+data class AlbumRef(val id: String, val index: Int, val count: Int)
+
+/**
+ * `POST /api/messages/:id/forward` (round 2 PR 3): idempotent by [client_id]. "Forward all" of an
+ * album sends each photo with one new [album_id], so it stays one album there (docs/CHAT.md "Photo albums").
+ */
 @Serializable
-data class ForwardBody(val conversation_id: String, val client_id: String)
+data class ForwardBody(
+    val conversation_id: String,
+    val client_id: String,
+    val album_id: String? = null,
+    val album_index: Int? = null,
+    val album_count: Int? = null,
+)
 
 fun chatForwardPath(messageId: String): String = "/api/messages/${enc(messageId)}/forward"
 

@@ -50,6 +50,15 @@ const previewInputs = [
   { content: '', attachment_kind: 'video' as const },
   { content: '看这个', attachment_kind: 'video' as const },
   { content: 'gone', attachment_kind: 'file' as const, attachment_name: 'a.pdf', deleted: true },
+  // Photo albums (docs/CHAT.md "Photo albums"): "📷 N photos" (+ caption).
+  { content: '', attachment_kind: 'image' as const, album_count: 3 },
+  { content: ' 我们的猫 ', attachment_kind: 'image' as const, album_count: 2 },
+  { content: '', attachment_kind: 'image' as const, album_count: 1 },
+  { content: '', attachment_kind: 'image' as const, album_count: 0 },
+  { content: '', attachment_kind: 'image' as const, album_count: 10.7 },
+  { content: '', attachment_kind: 'image' as const, album_count: null },
+  { content: '', attachment_kind: 'voice' as const, album_count: 4 },
+  { content: '', attachment_kind: 'image' as const, album_count: 5, deleted: true },
 ];
 const previews = previewInputs.map((input) => ({ input, result: chatMessagePreview(input) }));
 

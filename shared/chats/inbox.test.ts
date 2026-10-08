@@ -41,6 +41,14 @@ describe('chatMessagePreview', () => {
     expect(chatMessagePreview({ content: '', attachment_kind: 'file' })).toBe('📄 File');
     expect(chatMessagePreview({ content: '', attachment_kind: 'video' })).toBe('🎬 Video');
   });
+  it('a photo album is "📷 N photos" (+ its caption)', () => {
+    expect(chatMessagePreview({ content: '', attachment_kind: 'image', album_count: 3 })).toBe('📷 3 photos');
+    expect(chatMessagePreview({ content: '我们的猫', attachment_kind: 'image', album_count: 2 })).toBe('📷 2 photos: 我们的猫');
+    expect(chatMessagePreview({ content: '', attachment_kind: 'image', album_count: 1 })).toBe('📷 Photo');
+    expect(chatMessagePreview({ content: '', attachment_kind: 'image', album_count: null })).toBe('📷 Photo');
+    expect(chatMessagePreview({ content: '', attachment_kind: 'voice', album_count: 3 })).toBe('🎤 Voice message');
+    expect(chatMessagePreview({ content: '', attachment_kind: 'image', album_count: 3, deleted: true })).toBe('Message deleted');
+  });
 });
 
 describe('chatRelativeTime', () => {

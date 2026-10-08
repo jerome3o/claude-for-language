@@ -121,6 +121,8 @@ export const ANALYTICS_EVENTS = {
   'chat.listening_play': e('chat', 'Listening mode: tapped a hidden message to hear it.', ['slow']),
   'chat.listening_reveal': e('chat', 'Listening mode: held a hidden message to reveal its text.', []),
   'chat.inbox_open': e('chat', 'Opened the Chats tab.', ['conversations', 'unread']),
+  'chat.album_sent': e('chat', 'Sent several photos at once as one album.', ['count', 'offline']),
+  'chat.album_viewer_open': e('chat', 'Opened a photo album in the full-screen viewer.', ['count', 'index']),
 
   // ── calls ──────────────────────────────────────────────────────────────
   'call.start': e('calls', 'Started a video call.', ['solo']),

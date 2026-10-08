@@ -27,6 +27,7 @@ import {
   type OutboxEntry,
 } from '../services/chatOutbox';
 import { forgetChatMedia, primeChatMedia } from '../services/chatMedia';
+import type { ChatAlbumRef } from '../api/chat';
 
 export const POLL_SOCKET_DOWN_MS = 3000;
 export const POLL_SOCKET_UP_MS = 30_000;
@@ -81,6 +82,8 @@ function outboxBubble(entry: OutboxEntry, me: Me): ChatMessage {
     translation: null,
     segmentation: null,
     client_id: entry.client_id,
+    album_id: entry.album?.id ?? null,
+    album_index: entry.album?.index ?? null,
     attachment,
     media_url: null,
     sender: { id: me.id, name: me.name, picture_url: me.picture_url },
@@ -120,6 +123,8 @@ export interface ChatThread {
     height?: number;
     duration_ms?: number;
     replyTo?: MessageWithSender | null;
+    /** A photo of an album (photos picked together, docs/CHAT.md "Photo albums"). */
+    album?: ChatAlbumRef | null;
   }) => Promise<void>;
   retry: (clientId: string) => void;
   discard: (clientId: string) => void;
@@ -327,6 +332,7 @@ export function useChatThread(
         height: input.height ?? null,
         duration_ms: input.duration_ms ?? null,
         name: input.name ?? null,
+        album: input.album ?? null,
         reply_to_message_id: input.replyTo?.id ?? null,
         reply_preview: replyPreview(input.replyTo),
       });

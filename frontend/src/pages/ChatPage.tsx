@@ -38,7 +38,7 @@ import { Loading, ErrorMessage } from '../components/Loading';
 import { MessageDiscussionModal } from '../components/MessageDiscussionModal';
 import { MessageMenu, type MenuAnchor } from '../components/chat/MessageMenu';
 import { looksLikeChinese } from '../components/chat/messageTools';
-import { messageMenu, menuText, type MenuActionId } from '@shared/chats/messageMenu';
+import { albumMenu, messageMenu, menuText, type MenuActionId } from '@shared/chats/messageMenu';
 import { firstLink, layoutBubbles, type BubbleLayout } from '@shared/chats/bubbles';
 import { ExplainSheet } from '../components/chat/ExplainSheet';
 import { LinkPreviewCard } from '../components/chat/LinkPreviewCard';
@@ -63,7 +63,7 @@ import { FULL_EMOJI_LIST, getQuickEmojis, getRecentEmojis, saveRecentEmoji } fro
 import { attachmentLabel, useChatThread, type ChatMessage } from '../hooks/useChatThread';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { firstUnreadId, shouldSendTyping } from '../services/chatThread';
-import { compressPhoto, fileProblem, videoInfo, VIDEO_MAX_BYTES } from '../services/chatMedia';
+import { chatMediaUrl, compressPhoto, fileProblem, videoInfo, VIDEO_MAX_BYTES } from '../services/chatMedia';
 import { searchMessages } from '@shared/chats/search';
 import { HIDE_ALL_SINCE, shouldHideMessage, sinceWhenTurnedOn } from '@shared/chats/listening';
 import {
@@ -101,6 +101,8 @@ import {
   type FlashcardScope,
 } from '../services/chatLearning';
 import { PhotoBubble, PhotoViewer } from '../components/chat/PhotoBubble';
+import { AlbumBubble, AlbumViewer, type AlbumPhoto } from '../components/chat/AlbumBubble';
+import { useBackLevels } from '../hooks/useBackLevels';
 import { VoiceBubble } from '../components/chat/VoiceBubble';
 import { VoiceComposer, type VoiceCommand } from '../components/chat/VoiceComposer';
 import { PhotoComposeSheet } from '../components/chat/PhotoComposeSheet';
@@ -121,6 +123,14 @@ import '../components/chat/chat-signal.css';
 import '../components/chat/chat-listening.css';
 
 const LONG_PRESS_MS = 500;
+
+/** A photo album as the page draws it (docs/CHAT.md "Photo albums"): its photos, the one with the caption, the one that stands for it in the menu (caption ?? last) and its last (reactions). */
+interface AlbumView {
+  photos: ChatMessage[];
+  captionMsg: ChatMessage | null;
+  head: ChatMessage;
+  last: ChatMessage;
+}
 
 export function ChatPage() {
   const { relId, convId } = useParams<{ relId: string; convId: string }>();
@@ -161,6 +171,13 @@ export function ChatPage() {
   const [pendingPhotos, setPendingPhotos] = useState<Array<{ blob: Blob; width: number; height: number }> | null>(null);
   // Forward (message ids, oldest first) / Message info (round 2 PR 3).
   const [forwarding, setForwarding] = useState<string[] | null>(null);
+  // "Forward all" of an album: the photos keep being one album there.
+  const [forwardingAlbum, setForwardingAlbum] = useState(false);
+  // The album viewer (docs/CHAT.md "Photo albums"): the album's photo ids and the one on screen.
+  const [albumViewer, setAlbumViewer] = useState<{ ids: string[]; index: number } | null>(null);
+  useBackLevels(albumViewer ? 1 : 0, (level) => {
+    if (level === 0) setAlbumViewer(null);
+  }, 'chat-album');
   const [infoFor, setInfoFor] = useState<ChatMessage | null>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -184,7 +201,8 @@ export function ChatPage() {
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<ChatMessage | null>(null);
+  // One message, or every photo of an album ("Delete all").
+  const [deleting, setDeleting] = useState<ChatMessage[] | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -275,7 +293,7 @@ export function ChatPage() {
   const [replyingTo, setReplyingTo] = useState<MessageWithSender | null>(null);
 
   // Per-message action sheet (⋯ / long-press)
-  const [sheet, setSheet] = useState<{ message: ChatMessage; anchor: MenuAnchor; emojiFirst?: boolean } | null>(null);
+  const [sheet, setSheet] = useState<{ message: ChatMessage; anchor: MenuAnchor; emojiFirst?: boolean; album?: AlbumView | null } | null>(null);
   const pressTimer = useRef<number | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
   const pressFiredAt = useRef(0);
@@ -627,9 +645,22 @@ export function ChatPage() {
   const sendPhoto = (caption: string) => {
     if (!pendingPhotos?.length) return;
     trackSend('image');
+    // Several photos are one album (docs/CHAT.md "Photo albums"): each its own message and outbox
+    // entry, sharing an album id; the caption and the reply ride on the first, as before.
+    const count = pendingPhotos.length;
+    const albumId = count > 1 ? newClientId() : null;
+    if (albumId) track('chat.album_sent', { count, offline: !isOnline });
     pendingPhotos.forEach((p, i) => {
       void thread
-        .sendMedia({ kind: 'image', blob: p.blob, width: p.width, height: p.height, caption: i === 0 ? caption : '', replyTo: i === 0 ? replyingTo : null })
+        .sendMedia({
+          kind: 'image',
+          blob: p.blob,
+          width: p.width,
+          height: p.height,
+          caption: i === 0 ? caption : '',
+          replyTo: i === 0 ? replyingTo : null,
+          album: albumId ? { id: albumId, index: i, count } : null,
+        })
         .catch((error) => showError("Couldn't queue the photo.", error));
     });
     setPendingPhotos(null);
@@ -673,11 +704,14 @@ export function ChatPage() {
   // Forward: each message as a forwarded copy into the chosen conversation, in order.
   const doForward = async (ids: string[], target: ForwardTarget) => {
     setForwarding(null);
+    // "Forward all" of an album: one new album id, so the photos are one album there too.
+    const albumId = forwardingAlbum && ids.length > 1 ? newClientId() : null;
+    setForwardingAlbum(false);
     stopSelecting();
     let sent = 0;
-    for (const id of ids) {
+    for (const [i, id] of ids.entries()) {
       try {
-        await forwardChatMessage(id, target.conversationId, newClientId());
+        await forwardChatMessage(id, target.conversationId, newClientId(), albumId ? { id: albumId, index: i, count: ids.length } : null);
         sent++;
       } catch (error) {
         showError(sent ? `Forwarded ${sent} of ${ids.length}.` : "Couldn't forward that.", error);
@@ -686,7 +720,7 @@ export function ChatPage() {
     }
     if (target.conversationId === convId) void thread.pollNow();
     track('chat.forward', { kind: serverMessages.find((m) => m.id === ids[0])?.attachment?.kind ?? 'text' });
-    showSuccess(`Forwarded ${sent === 1 ? 'the message' : `${sent} messages`} to ${target.label}${target.sub ? ` · ${target.sub}` : ''}.`);
+    showSuccess(`Forwarded ${albumId ? `${sent} photos` : sent === 1 ? 'the message' : `${sent} messages`} to ${target.label}${target.sub ? ` · ${target.sub}` : ''}.`);
   };
 
   const sendVoice = (blob: Blob, durationMs: number) => {
@@ -720,13 +754,15 @@ export function ChatPage() {
 
   const confirmDelete = async () => {
     if (!deleting) return;
-    const msg = deleting;
     setDeleteBusy(true);
     try {
-      const res = await deleteChatMessage(msg.id);
-      thread.applyMessage(
-        isMessageWithSender(res) ? res : { ...msg, content: '', attachment: null, media_url: null, deleted_at: new Date().toISOString() },
-      );
+      // One message, or every photo of an album, oldest first.
+      for (const msg of deleting) {
+        const res = await deleteChatMessage(msg.id);
+        thread.applyMessage(
+          isMessageWithSender(res) ? res : { ...msg, content: '', attachment: null, media_url: null, deleted_at: new Date().toISOString() },
+        );
+      }
       setDeleting(null);
       void thread.pollNow();
     } catch (error) {
@@ -1114,9 +1150,9 @@ export function ChatPage() {
   };
 
   // ----- The message menu (docs/CHAT.md "Round 2") -----
-  const openSheet = (message: ChatMessage, anchor: MenuAnchor, emojiFirst = false) => {
+  const openSheet = (message: ChatMessage, anchor: MenuAnchor, emojiFirst = false, album: AlbumView | null = null) => {
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator && !anchor) navigator.vibrate?.(12);
-    setSheet({ message, anchor, emojiFirst });
+    setSheet({ message, anchor, emojiFirst, album });
   };
 
   const clearPress = () => {
@@ -1127,7 +1163,7 @@ export function ChatPage() {
     pressStart.current = null;
   };
 
-  const startPress = (msg: ChatMessage, hidden = false) => (e: React.PointerEvent<HTMLElement>) => {
+  const startPress = (msg: ChatMessage, hidden = false, album: AlbumView | null = null) => (e: React.PointerEvent<HTMLElement>) => {
     // Long-press is for touch / pen; a mouse right-clicks (or uses the hover ⋯).
     if (e.pointerType === 'mouse') return;
     clearPress();
@@ -1142,7 +1178,7 @@ export function ChatPage() {
       setSwipeState(null);
       // Listening mode: a long press on a hidden message reveals it (no menu until then).
       if (hidden) reveal(msg);
-      else openSheet(msg, null);
+      else openSheet(msg, null, false, album);
     }, LONG_PRESS_MS);
   };
 
@@ -1226,7 +1262,11 @@ export function ChatPage() {
         setExplain({ text: menuText(msg), mode: 'save' });
         break;
       case 'forward':
-        setForwarding([msg.id]);
+        if (sheet.album) {
+          // "Forward all": the album's photos, oldest first, as one album there.
+          setForwarding(sheet.album.photos.filter((p) => !p.outbox).map((p) => p.id));
+          setForwardingAlbum(true);
+        } else setForwarding([msg.id]);
         break;
       case 'info':
         setInfoFor(msg);
@@ -1265,7 +1305,7 @@ export function ChatPage() {
         setEditing(msg);
         break;
       case 'delete':
-        setDeleting(msg);
+        setDeleting(sheet.album ? sheet.album.photos.filter((p) => p.sender_id === myId && !p.outbox) : [msg]);
         break;
       case 'correction_card':
         openCards({ kind: 'correction', id: msg.id });
@@ -1434,11 +1474,64 @@ export function ChatPage() {
       created_at: m.created_at,
       deleted_at: m.deleted_at,
       pending: m.outbox ? (m.outbox.status === 'failed' ? ('failed' as const) : ('sending' as const)) : null,
+      // Photos picked together are one album bubble (docs/CHAT.md "Photo albums").
+      attachment_kind: m.attachment?.kind ?? null,
+      content: m.content,
+      album_id: m.album_id ?? null,
     })),
     myId,
     isAIConversation ? null : thread.readState.other,
     offsetMinutes,
   );
+  const messageById = new Map(messages.map((m) => [m.id, m] as const));
+  /** An album's photos, its caption's photo and the photo that stands for it in the menu (caption ?? last). */
+  const albumOf = (layout: BubbleLayout): AlbumView | null => {
+    if (layout.kind !== 'album') return null;
+    const photos = layout.messageIds.map((id) => messageById.get(id)).filter((m): m is ChatMessage => !!m);
+    if (photos.length < 2) return null;
+    const captionMsg = layout.captionId ? messageById.get(layout.captionId) ?? null : null;
+    return { photos, captionMsg, head: captionMsg ?? photos[photos.length - 1], last: photos[photos.length - 1] };
+  };
+  const toAlbumPhoto = (m: ChatMessage): AlbumPhoto => ({
+    id: m.id,
+    mediaUrl: m.media_url,
+    width: m.attachment?.kind === 'image' ? m.attachment.width : 0,
+    height: m.attachment?.kind === 'image' ? m.attachment.height : 0,
+    localBlob: m.outbox?.blob,
+    pending: !!m.outbox,
+  });
+  const openAlbumViewer = (album: AlbumView, index: number) => {
+    track('chat.album_viewer_open', { count: album.photos.length, index });
+    setAlbumViewer({ ids: album.photos.map((p) => p.id), index });
+  };
+  /** The viewer's per-photo actions: Save, Forward (this photo), Delete (this photo). */
+  const albumPhotoAction = async (id: string, photo: AlbumPhoto, shown: ChatMessage[]) => {
+    const msg = shown.find((m) => m.id === photo.id);
+    if (!msg) return;
+    if (id === 'save') {
+      try {
+        const url = photo.localBlob ? URL.createObjectURL(photo.localBlob) : photo.mediaUrl ? await chatMediaUrl(photo.id, photo.mediaUrl) : null;
+        if (!url) return;
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `photo-${msg.created_at.slice(0, 10)}-${shown.indexOf(msg) + 1}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch (error) {
+        showError("Couldn't save the photo.", error);
+      }
+      return;
+    }
+    if (msg.outbox) {
+      setNotice({ kind: 'info', text: 'That photo is still sending.' });
+      return;
+    }
+    // The sheets open over the chat: the viewer steps aside first.
+    setAlbumViewer(null);
+    if (id === 'forward') setForwarding([msg.id]);
+    else if (id === 'delete' && msg.sender_id === myId) setDeleting([msg]);
+  };
 
   // A message's check status is whatever we learnt locally, else what the server stored.
   const withCheckStatus = <T extends MessageWithSender>(msg: T): T => {
@@ -1604,16 +1697,32 @@ export function ChatPage() {
     );
   };
 
+  /** A photo album's bubble body: the collage, then the album's caption (docs/CHAT.md "Photo albums"). */
+  const renderAlbumBody = (album: AlbumView, pinyinOn: boolean) => {
+    const cap = album.captionMsg;
+    return (
+      <>
+        <AlbumBubble photos={album.photos.map(toAlbumPhoto)} onOpen={(i) => openAlbumViewer(album, i)} />
+        {cap?.content && (
+          <div className="chat-photo-caption">
+            <ChatWordsText text={cap.content} words={usableWords(cap)} showPinyin={pinyinOn} known={known} onTapWord={setTappedWord} suppressTap={suppressWordTap} />
+          </div>
+        )}
+      </>
+    );
+  };
+
   const TICK_LABEL: Record<string, string> = { pending: 'Sending', sent: 'Sent', read: 'Seen', failed: 'Not sent' };
   const tickGlyph = (tick: string) => (tick === 'pending' ? '🕓' : tick === 'read' ? '✓✓' : tick === 'sent' ? '✓' : '!');
 
-  const renderMessage = (rawMsg: ChatMessage, layout: BubbleLayout) => {
+  const renderMessage = (rawMsg: ChatMessage, layout: BubbleLayout, album: AlbumView | null = null) => {
     const msg = withCheckStatus(rawMsg);
     const isMe = layout.mine;
     const isPlaying = playingAudioMessageId === msg.id;
     const isChecking = checkingMessageId === msg.id;
     const isDeleted = !!msg.deleted_at;
-    const pending = msg.outbox;
+    // An album is pending while any of its photos is (its 🕓 / Not sent show on the album).
+    const pending = album ? album.photos.find((p) => p.outbox?.status === 'failed')?.outbox ?? album.photos.find((p) => p.outbox)?.outbox : msg.outbox;
     const kind = msg.attachment?.kind ?? null;
     const interactive = !pending && !isDeleted;
     const wordsText = isDeleted ? null : wordsTextOf(msg);
@@ -1621,11 +1730,15 @@ export function ChatPage() {
     const pinyinOn = hasZh && isShown(displayPrefs, 'pinyin', msg.id);
     const canTranslate = hasZh && !pending && (kind === 'voice' ? !!translationOf(msg) : kind !== 'image');
     const translateOn = canTranslate && isShown(displayPrefs, 'translate', msg.id);
-    const selectable = selecting && interactive && !!wordsText;
+    const selectable = selecting && interactive && !!wordsText && !album;
     const selected = selectable && selectedIds.has(msg.id);
     const showTime = layout.lastInGroup || shownTimes.has(msg.id) || !!pending;
     // My message could be better (auto-check) or was corrected by the tutor: a calm ✎ next to the time.
-    const better = pending ? null : sayBetterState(msg, myId);
+    const better = pending || album ? null : sayBetterState(msg, myId);
+    // An album's reactions are its last photo's; it shows 📌 when any photo is pinned.
+    const reactionsOf = album ? album.last : msg;
+    const pinned = album ? album.photos.some((p) => p.pinned_at) : !!msg.pinned_at;
+    const albumIds = album ? album.photos.map((p) => p.id) : null;
     const showMeta = showTime || !!better;
     const swipeDx = swipeState?.id === msg.id ? swipeState.dx : 0;
     const hidden = interactive && !selecting && isHidden(rawMsg);
@@ -1649,13 +1762,13 @@ export function ChatPage() {
       .join(' ');
 
     return (
-      <div key={msg.id}>
+      <div key={album ? `album-${layout.id}` : msg.id}>
         {layout.newDay && (
           <div className="chat-date-divider">
-            <span>{formatDate(msg.created_at)}</span>
+            <span>{formatDate(album ? album.photos[0].created_at : msg.created_at)}</span>
           </div>
         )}
-        {dividerId === msg.id && (
+        {(dividerId === msg.id || (!!dividerId && !!albumIds?.includes(dividerId))) && (
           <div className="chat-unread-divider" data-unread-divider data-testid="chat-unread-divider">
             <span>New messages</span>
           </div>
@@ -1679,8 +1792,9 @@ export function ChatPage() {
           <div className="chat-message-content" style={swipeDx ? { transform: `translateX(${swipeDx}px)` } : undefined}>
             <div className="chat-bubble-row">
               <div
-                className={`chat-bubble${isDeleted ? ' deleted' : ''}${kind ? ` has-${kind}` : ''}${kind === 'image' && !msg.content ? ' photo-only' : ''}${hidden ? ' listening' : ''}`}
-                onPointerDown={interactive || pending ? startPress(msg, hidden) : undefined}
+                className={`chat-bubble${isDeleted ? ' deleted' : ''}${kind ? ` has-${kind}` : ''}${album ? ' has-album' : ''}${kind === 'image' && !msg.content ? ' photo-only' : ''}${hidden ? ' listening' : ''}`}
+                data-album-count={album ? album.photos.length : undefined}
+                onPointerDown={interactive || pending ? startPress(msg, hidden, album) : undefined}
                 onPointerMove={movePress}
                 onPointerUp={endPress(msg)}
                 onPointerCancel={endPress(msg)}
@@ -1697,7 +1811,7 @@ export function ChatPage() {
                   // A touch long-press also fires contextmenu; it already opened the sheet.
                   if (pressTimer.current || Date.now() - pressFiredAt.current < 1000 || selecting) return;
                   if (hidden) return reveal(msg);
-                  if (interactive || pending) openSheet(msg, { x: e.clientX, y: e.clientY });
+                  if (interactive || pending) openSheet(msg, { x: e.clientX, y: e.clientY }, false, album);
                 }}
                 role={hidden ? 'button' : undefined}
                 tabIndex={hidden ? 0 : undefined}
@@ -1739,14 +1853,14 @@ export function ChatPage() {
                     onToggleSlow={listenPlayer.toggleSlow}
                   />
                 ) : (
-                  renderBody(msg, isMe, hasZh, pinyinOn, translateOn)
+                  album ? renderAlbumBody(album, pinyinOn) : renderBody(msg, isMe, hasZh, pinyinOn, translateOn)
                 )}
                 {showMeta && (
                   <span className="chat-bubble-meta" data-testid="chat-bubble-meta">
-                    {msg.pinned_at && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
+                    {pinned && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
                     {better && <SayBetterMark state={better} label={sayBetterLabel(better, otherUser.name)} />}
                     {showTime && msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
-                    {showTime && <span className="chat-time">{formatTime(msg.created_at)}</span>}
+                    {showTime && <span className="chat-time">{formatTime(album ? album.last.created_at : msg.created_at)}</span>}
                     {!showTime ? null : layout.tick === 'pending' ? (
                       <span className="chat-tick pending" data-testid="chat-send-pending" aria-label="Sending" title="Sending…">
                         {tickGlyph('pending')}
@@ -1780,7 +1894,7 @@ export function ChatPage() {
                     className="chat-hover-btn"
                     onClick={(e) => {
                       const r = e.currentTarget.getBoundingClientRect();
-                      openSheet(msg, { x: r.left, y: r.bottom + 4 }, true);
+                      openSheet(msg, { x: r.left, y: r.bottom + 4 }, true, album);
                     }}
                     aria-label="React"
                     title="React"
@@ -1792,7 +1906,7 @@ export function ChatPage() {
                     className="chat-hover-btn"
                     onClick={(e) => {
                       const r = e.currentTarget.getBoundingClientRect();
-                      openSheet(msg, { x: r.left, y: r.bottom + 4 });
+                      openSheet(msg, { x: r.left, y: r.bottom + 4 }, false, album);
                     }}
                     aria-label="More actions"
                     title="More"
@@ -1804,13 +1918,13 @@ export function ChatPage() {
                 </div>
               )}
             </div>
-            {!isDeleted && msg.reactions && msg.reactions.length > 0 && (
+            {!isDeleted && reactionsOf.reactions && reactionsOf.reactions.length > 0 && (
               <div className="message-reactions">
-                {msg.reactions.map((r) => (
+                {reactionsOf.reactions.map((r) => (
                   <button
                     key={r.emoji}
                     className={`reaction-badge ${r.users.some((u) => u.id === user!.id) ? 'mine' : ''}`}
-                    onClick={() => handleReaction(msg.id, r.emoji)}
+                    onClick={() => handleReaction(reactionsOf.id, r.emoji)}
                     title={r.users.map((u) => u.name || 'Unknown').join(', ')}
                   >
                     {r.emoji}
@@ -1819,7 +1933,7 @@ export function ChatPage() {
                 ))}
               </div>
             )}
-            {!pending && !selecting && !hidden && showCoachChip(msg, myId) && <CoachChip onClick={() => openInCoach(msg, 'chip')} />}
+            {!pending && !album && !selecting && !hidden && showCoachChip(msg, myId) && <CoachChip onClick={() => openInCoach(msg, 'chip')} />}
             {msg.correction && !isDeleted && (
               <CorrectionBlock
                 original={msg.content}
@@ -1836,7 +1950,11 @@ export function ChatPage() {
               />
             )}
             {pending?.status === 'failed' && (
-              <OutboxState status="failed" onRetry={() => thread.retry(pending.client_id)} onDiscard={() => thread.discard(pending.client_id)} />
+              <OutboxState
+                status="failed"
+                onRetry={() => (album ? album.photos.forEach((p) => p.outbox?.status === 'failed' && thread.retry(p.outbox.client_id)) : thread.retry(pending.client_id))}
+                onDiscard={() => (album ? album.photos.forEach((p) => p.outbox?.status === 'failed' && thread.discard(p.outbox.client_id)) : thread.discard(pending.client_id))}
+              />
             )}
             {(isChecking || isPlaying) && (
               <span className="msg-status" role="status">
@@ -2072,7 +2190,11 @@ export function ChatPage() {
               <p>{isAIConversation ? 'Start practicing Chinese!' : 'Start the conversation!'}</p>
             </div>
           ) : (
-            messages.map((m, i) => renderMessage(m, layouts[i]))
+            layouts.map((l) => {
+              const album = albumOf(l);
+              const m = album ? album.head : messageById.get(l.id);
+              return m ? renderMessage(m, l, album) : null;
+            })
           )}
           {showTyping && <TypingIndicator name={otherFirstName} />}
           {isWaitingForAI && (
@@ -2389,7 +2511,10 @@ export function ChatPage() {
         />
       )}
       {forwarding && user && (
-        <ForwardSheet myId={user.id} count={forwarding.length} currentConversationId={convId} onPick={(t) => void doForward(forwarding, t)} onClose={() => setForwarding(null)} />
+        <ForwardSheet myId={user.id} count={forwarding.length} currentConversationId={convId} onPick={(t) => void doForward(forwarding, t)} onClose={() => {
+            setForwarding(null);
+            setForwardingAlbum(false);
+          }} />
       )}
       {infoFor && (
         <MessageInfoSheet
@@ -2401,6 +2526,29 @@ export function ChatPage() {
         />
       )}
       {viewer && <PhotoViewer url={viewer.url} caption={viewer.caption} onClose={() => setViewer(null)} />}
+      {albumViewer &&
+        (() => {
+          // The album's photos as they are now (a photo deleted meanwhile drops out).
+          const shown = albumViewer.ids
+            .map((id) => messageById.get(id))
+            .filter((m): m is ChatMessage => !!m && !m.deleted_at && m.attachment?.kind === 'image');
+          if (shown.length === 0) return null;
+          const captionMsg = shown.find((m) => m.content.trim()) ?? null;
+          return (
+            <AlbumViewer
+              photos={shown.map(toAlbumPhoto)}
+              startIndex={albumViewer.index}
+              caption={captionMsg?.content ?? null}
+              actions={[
+                { id: 'save', label: 'Save photo', icon: '⬇️' },
+                { id: 'forward', label: 'Forward this photo', icon: '↪️', show: !isAIConversation },
+                { id: 'delete', label: 'Delete this photo', icon: '🗑️', show: shown.some((m) => m.sender_id === myId) },
+              ]}
+              onAction={(id, photo) => void albumPhotoAction(id, photo, shown)}
+              onClose={() => setAlbumViewer(null)}
+            />
+          );
+        })()}
       {editing && (
         <EditMessageSheet
           initial={editing.content}
@@ -2411,16 +2559,32 @@ export function ChatPage() {
           onCancel={() => setEditing(null)}
         />
       )}
-      {deleting && <ConfirmDeleteSheet busy={deleteBusy} onConfirm={() => void confirmDelete()} onCancel={() => setDeleting(null)} />}
+      {deleting && (
+        <ConfirmDeleteSheet
+          busy={deleteBusy}
+          count={deleting.length}
+          photos={deleting.every((m) => m.attachment?.kind === 'image')}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
 
       {/* The message menu (long-press / right-click / hover ⋯) */}
       {sheet &&
         (() => {
-          const menu = menuFor(sheet.message);
+          // A photo album: the menu of the photo that stands for it, whole-album actions only;
+          // reactions go on its last photo (docs/CHAT.md "Photo albums").
+          const album = sheet.album ?? null;
+          const menu = album ? albumMenu(menuFor(sheet.message), album.photos.length) : menuFor(sheet.message);
+          const reactTo = album ? album.last.id : sheet.message.id;
           return (
             <MessageMenu
               senderName={sheet.message.sender_id === myId ? 'You' : sheet.message.sender.name || 'Unknown'}
-              preview={menuText(sheet.message) || attachmentLabel(sheet.message.attachment)}
+              preview={
+                album
+                  ? `📷 ${album.photos.length} photos${album.captionMsg?.content ? `: ${album.captionMsg.content}` : ''}`
+                  : menuText(sheet.message) || attachmentLabel(sheet.message.attachment)
+              }
               items={menu.items}
               reactions={menu.reactions}
               isOnline={isOnline}
@@ -2430,7 +2594,7 @@ export function ChatPage() {
               recentEmojis={getRecentEmojis()}
               allEmojis={FULL_EMOJI_LIST}
               onAction={handleSheetAction}
-              onReact={(emoji) => handleReaction(sheet.message.id, emoji)}
+              onReact={(emoji) => handleReaction(reactTo, emoji)}
               onClose={() => setSheet(null)}
             />
           );

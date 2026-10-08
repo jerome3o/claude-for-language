@@ -312,6 +312,8 @@ type MessageRow = {
   pinned_at: string | null;
   pinned_by: string | null;
   forwarded_from: string | null;
+  album_id: string | null;
+  album_index: number | null;
   words: string | null;
   correction: string | null;
   auto_check: string | null;
@@ -339,7 +341,7 @@ async function queryMessages(
            m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
            m.translation, m.segmentation, m.client_id,
            m.updated_at, m.edited_at, m.deleted_at, m.attachment, m.pinned_at, m.pinned_by,
-           m.words, m.correction, m.forwarded_from, m.auto_check,
+           m.words, m.correction, m.forwarded_from, m.auto_check, m.album_id, m.album_index,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
            rm.id as reply_id, rm.content as reply_content, rm.deleted_at as reply_deleted_at, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
@@ -385,6 +387,8 @@ async function queryMessages(
       pinned_at: row.pinned_at ?? null,
       pinned_by: row.pinned_by ?? null,
       forwarded_from: row.forwarded_from ?? null,
+      album_id: row.album_id ?? null,
+      album_index: row.album_index ?? null,
       words: words?.words ?? null,
       words_source: words?.source ?? null,
       correction: deleted ? null : parseCorrection(row.correction),
@@ -509,6 +513,8 @@ export async function sendMessage(
     attachment?: StoredAttachment | null;
     /** The source message of a forward (round 2 PR 3). */
     forwardedFrom?: string | null;
+    /** A photo album's id and this photo's place in it (docs/CHAT.md "Photo albums"). */
+    album?: { id: string; index: number } | null;
   } = {}
 ): Promise<SentMessage> {
   // Verify access
@@ -529,10 +535,14 @@ export async function sendMessage(
   try {
     await db
       .prepare(`
-        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id, attachment, forwarded_from)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id, attachment, forwarded_from, album_id, album_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .bind(id, conversationId, userId, content, now, replyToMessageId || null, clientId, opts.attachment ? JSON.stringify(opts.attachment) : null, opts.forwardedFrom ?? null)
+      .bind(
+        id, conversationId, userId, content, now, replyToMessageId || null, clientId,
+        opts.attachment ? JSON.stringify(opts.attachment) : null, opts.forwardedFrom ?? null,
+        opts.album?.id ?? null, opts.album ? opts.album.index : null,
+      )
       .run();
   } catch (err) {
     // Two sends with the same key at once: the other one won the unique index.
@@ -574,6 +584,8 @@ export async function sendMessage(
     pinned_at: null,
     pinned_by: null,
     forwarded_from: opts.forwardedFrom ?? null,
+    album_id: opts.album?.id ?? null,
+    album_index: opts.album ? opts.album.index : null,
     words: null,
     words_source: null,
     correction: null,

@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.MessageMenu
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MINIMAX_VOICES
 import dev.jeromeswannack.chineselearning.lab.data.api.SuggestedCard
@@ -124,6 +125,11 @@ class ChatSheetActions(
     /** No app opens a file: share it / save a copy (path, name, mime). */
     val onShareFile: (String, String, String) -> Unit = { _, _, _ -> },
     val onSaveFile: (String, String, String) -> Unit = { _, _, _ -> },
+    // ---- photo albums (docs/CHAT.md "Photo albums") ----
+    /** An album menu action (MessageMenu ids) on the album's photos (message ids, oldest first). */
+    val onAlbumMenuAction: (id: String, photoIds: List<String>) -> Unit = { _, _ -> },
+    /** "Delete all N" confirmed. */
+    val onDeleteAll: (List<ChatMessageDto>) -> Unit = {},
     // ---- listening mode ----
     /** ⋯ → 🎧 Listening mode (on ↔ off). */
     val onToggleListening: () -> Unit = {},
@@ -148,6 +154,31 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
                 )
             }
         }
+        is ChatSheet.AlbumActions -> {
+            // A photo album (docs/CHAT.md "Photo albums"): the menu of the photo that stands for it,
+            // whole-album actions only; reactions go on its LAST photo.
+            val ids = s.photoIds.toSet()
+            val photos = ui.messages.filter { it.id in ids && !it.isDeleted }
+            val head = photos.lastOrNull { it.content.isNotBlank() } ?: photos.lastOrNull()
+            val last = photos.lastOrNull()
+            if (head != null && last != null) LabBottomSheet(onDismiss = actions.onDismiss) {
+                val caption = head.content.trim()
+                MessageMenuContent(
+                    head, MessageMenu.albumMenu(ui.menu(head), photos.size), ui.online, ui.recentEmojis, mine = head.sender_id == ui.myId,
+                    onReact = { e -> actions.onReact(last, e) },
+                    onAction = { id -> actions.onAlbumMenuAction(id, photos.map { it.id }) },
+                    preview = "📷 ${photos.size} photos" + if (caption.isNotEmpty()) ": $caption" else "",
+                )
+            }
+        }
+        is ChatSheet.ConfirmDeleteAll -> dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog(
+            "Delete these ${s.messages.size} photos?",
+            "They're removed for both of you.",
+            confirmLabel = "Delete all",
+            onConfirm = { actions.onDeleteAll(s.messages) },
+            onDismiss = actions.onDismiss,
+            danger = true,
+        )
         ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss) { AttachContent(ui, actions) }
         is ChatSheet.SayBetter -> {
             val m = ui.messages.firstOrNull { it.id == s.message.id } ?: s.message

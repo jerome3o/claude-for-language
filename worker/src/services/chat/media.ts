@@ -236,12 +236,14 @@ export function publicAttachment(stored: StoredAttachment | null): ChatAttachmen
 }
 
 /** The one-line text a notification shows for a message (photo / voice / file / video label + caption): the shared rule. */
-export function messagePreviewText(message: Pick<MessageWithSender, 'content' | 'attachment' | 'deleted_at'>): string {
+export function messagePreviewText(message: Pick<MessageWithSender, 'content' | 'attachment' | 'deleted_at'>, albumCount?: number | null): string {
   const a = message.attachment;
   return chatMessagePreview({
     content: message.content,
     attachment_kind: a?.kind ?? null,
     attachment_name: a?.kind === 'file' ? a.name : null,
     deleted: !!message.deleted_at,
+    // A photo album: "📷 3 photos" (docs/CHAT.md "Photo albums").
+    album_count: albumCount ?? null,
   });
 }

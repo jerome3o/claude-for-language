@@ -363,6 +363,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `conversations` - Chat threads within a relationship: ONE per tutor–student pair (migration 0102 merged the extras, `merged_into` = the chat an old id became, unique index on live human rows); Claude practice chats may be several
 - `messages` - Individual chat messages
 - `messages.forwarded_from` - the source message of a forward (migration 0095)
+- `messages.album_id` / `album_index` / `album_notified_at` - photo albums (migration 0118, docs/CHAT.md "Photo albums"): photos picked together share the album id (client-chosen), their 0-based index, and the one photo that sent the album's notification
 - `chat_listening` / `users.chat_listening_default` - Chat listening mode (migration 0099, docs/CHAT.md "Listening mode"): per person + conversation `{ listening, since }` (messages after `since` arrive hidden) and the Settings default
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
 - `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message — the text, a photo / file / video caption, or a voice transcript once it exists (`autoCheckText`) — (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0101; docs/CHAT.md "Auto-check", "Chat ↔ Coach")
@@ -2386,6 +2387,16 @@ The app supports many-to-many tutor-student relationships where users can be tut
   locks; `VoiceComposer` `mode` held / locked). Voice bubbles: real waveform (`services/voiceWaveform.ts`) + 1× / 1.5× / 2×.
   Link previews: `GET /api/link-preview?url=` (`services/link-preview.ts`: public http(s) only, ≤ 512 KB, cached a day;
   client `services/linkPreview.ts`). Styles: `components/chat/chat-signal.css`.
+- **Photo albums** (docs/CHAT.md "Photo albums", migration 0118 `messages.album_id` / `album_index` / `album_notified_at`):
+  photos picked together stay one message each (forward / delete / reactions / receipts per photo) but carry a client-chosen
+  `album_id` + index (`…/media?album_id=&album_index=&album_count=`; offline outbox keeps them in order) and render as ONE
+  bubble — `layoutBubbles` emits `kind: 'album'` items (old photos without an id group by the 10 s rule), `albumTiles`
+  collage (2 / 1 big + 2 / 2 × 2 / 2 × 2 + "+N"), tap → swipe viewer "3 / 5" (web `components/chat/AlbumBubble.tsx`, Lab
+  `ui/chat/ChatAlbumViews.kt` HorizontalPager), long-press → `albumMenu` (Forward all with one new album id, Delete all;
+  reactions go on the album's LAST photo). ONE notification per album: the first photo to arrive claims it
+  (`services/chat/albums.ts` `claimAlbumNotification`) and push / e-mail / bell say "📷 3 photos"; live events stay per
+  photo (+ `album_count`); the inbox row and `/api/me/chat-inbox` show the album once. Shared rules parity-tested
+  (`parity/fixtures/chat-albums.ts`); events `chat.album_sent`, `chat.album_viewer_open`
 - **Chat round 2 PR 3** (docs/CHAT.md "Round 2 — PR 3", migration 0095 `messages.forwarded_from`): files / PDFs
   (`kind=file&name=`, ≤ 20 MB, extension whitelist `FILE_TYPES`, served with Content-Disposition + `sandbox` CSP) and video
   clips (`kind=video`, ≤ 25 MB) on `POST /api/conversations/:id/media`; several photos at once (one message each); **Forward**

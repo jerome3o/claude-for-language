@@ -15,7 +15,7 @@
 
 import Dexie, { type Table } from 'dexie';
 import type { MessageWithSender } from '../types';
-import { sendChatMedia, sendChatText } from '../api/chat';
+import { sendChatMedia, sendChatText, type ChatAlbumRef } from '../api/chat';
 
 export type OutboxKind = 'text' | 'image' | 'voice' | 'file' | 'video';
 export type OutboxStatus = 'pending' | 'sending' | 'failed';
@@ -36,6 +36,12 @@ export interface OutboxEntry {
   duration_ms?: number | null;
   /** A file's name (kind file). */
   name?: string | null;
+  /**
+   * A photo of an album (docs/CHAT.md "Photo albums"): every photo of one pick
+   * has its own entry (own client_id), sharing the album id; they are sent in
+   * order like everything else in the conversation, so the group stays together.
+   */
+  album?: ChatAlbumRef | null;
   created_at: string;
   status: OutboxStatus;
   attempts: number;
@@ -213,6 +219,7 @@ async function sendEntry(entry: OutboxEntry): Promise<MessageWithSender> {
     name: entry.name,
     width: entry.width,
     height: entry.height,
+    album: entry.kind === 'image' ? entry.album ?? null : null,
   });
 }
 

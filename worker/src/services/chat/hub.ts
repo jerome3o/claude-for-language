@@ -10,7 +10,8 @@ import type { MessageWithSender } from '../../types';
 
 export type ChatLiveEvent =
   | { type: 'hello'; user_id: string; server_time: string }
-  | { type: 'message'; message: MessageWithSender; relationship_id: string }
+  /** `album_count`: the photo is part of an album of that many (docs/CHAT.md "Photo albums"). */
+  | { type: 'message'; message: MessageWithSender; relationship_id: string; album_count?: number }
   | { type: 'message_updated'; message: MessageWithSender; relationship_id: string }
   | { type: 'read'; conversation_id: string; user_id: string; last_read_at: string }
   | { type: 'typing'; conversation_id: string; user_id: string };

@@ -43,6 +43,8 @@ data class PendingBubble(
     val name: String? = null,
     /** The staged file's size (files / videos: the bubble's "840 KB · PDF"). */
     val bytes: Long = 0,
+    /** A photo of an album (photos picked together, docs/CHAT.md "Photo albums"). */
+    val albumId: String? = null,
 )
 
 /** The chat's rich-message rules (docs/CHAT.md PR 2), pure — unit-tested in ChatRichTest. */
@@ -82,6 +84,7 @@ object ChatRich {
                         durationMs = q["duration_ms"]?.toLongOrNull(),
                         name = q["name"],
                         bytes = if (kind == "file" || kind == "video") item.filePath?.let { runCatching { java.io.File(it).length() }.getOrNull() } ?: 0 else 0,
+                        albumId = if (kind == "image") q["album_id"]?.takeIf { it.isNotEmpty() } else null,
                     )
                 }
                 else -> null
@@ -198,6 +201,30 @@ sealed interface ChatRow {
     /** A message and where it sits in its group (chat round 2: ChatBubbles, parity-tested). */
     data class Msg(val message: ChatMessageDto, val layout: ChatBubbles.Layout) : ChatRow { override val key = message.id }
     data class Pending(val bubble: PendingBubble, val layout: ChatBubbles.Layout) : ChatRow { override val key = "p-" + bubble.clientId }
+    /** Photos sent together drawn as ONE bubble (docs/CHAT.md "Photo albums"); some may still be in my outbox. */
+    data class Album(val photos: List<AlbumPhoto>, val layout: ChatBubbles.Layout) : ChatRow {
+        override val key = "album-" + layout.id
+        /** The server messages of the album (sent photos), oldest first. */
+        val messages: List<ChatMessageDto> get() = photos.mapNotNull { it.message }
+        /** The photo whose caption shows under the collage (the last one with a caption). */
+        val caption: AlbumPhoto? get() = layout.captionId?.let { id -> photos.firstOrNull { it.id == id } }
+        /** Reactions go on the album's LAST photo. */
+        val last: AlbumPhoto get() = photos.last()
+        /** The photo that stands for the album in the menu (reply, copy, pin, info, edit caption): its caption's, else its last. */
+        val head: AlbumPhoto get() = caption ?: last
+        val mine: Boolean get() = layout.mine
+        val pending: Boolean get() = photos.any { it.pending != null && !it.pending.delivered }
+        val failed: Boolean get() = photos.any { it.pending?.failed == true }
+    }
+}
+
+/** One photo of an album row: a server message, or my send still in the outbox. */
+data class AlbumPhoto(val message: ChatMessageDto?, val pending: PendingBubble?) {
+    /** The layout's id for it (a message id, or "p-<clientId>"). */
+    val id: String get() = message?.id ?: ("p-" + pending!!.clientId)
+    val width: Int get() = message?.attachment?.width ?: pending?.width ?: 0
+    val height: Int get() = message?.attachment?.height ?: pending?.height ?: 0
+    val content: String get() = message?.content ?: pending?.content.orEmpty()
 }
 
 object ChatRows {
@@ -220,6 +247,15 @@ object ChatRows {
     fun bubbleOf(p: PendingBubble, myId: String?) = ChatBubbles.Message(
         "p-" + p.clientId, myId ?: "", Js.toIsoString(p.createdAtMs), null,
         when { p.failed -> "failed"; p.delivered -> null; else -> "sending" },
+        attachmentKind = if (p.kind == "text") null else p.kind,
+        content = p.content,
+        albumId = p.albumId,
+    )
+
+    /** A server message as the layout sees it (photos carry their album id, docs/CHAT.md "Photo albums"). */
+    fun bubbleOf(m: ChatMessageDto) = ChatBubbles.Message(
+        m.id, m.sender_id, m.created_at, m.deleted_at, null,
+        attachmentKind = m.attachment?.kind, content = m.content, albumId = m.album_id,
     )
 
     /**
@@ -235,18 +271,22 @@ object ChatRows {
         nowMs: Long = System.currentTimeMillis(),
         offsetMinutes: Int = offsetMinutes(),
     ): List<ChatRow> {
-        val bubbles = messages.map { ChatBubbles.Message(it.id, it.sender_id, it.created_at, it.deleted_at, null) } + pending.map { bubbleOf(it, myId) }
+        val bubbles = messages.map { bubbleOf(it) } + pending.map { bubbleOf(it, myId) }
         val layouts = ChatBubbles.layoutBubbles(bubbles, myId ?: "", otherReadAt, offsetMinutes)
         val today = Js.toIsoString(nowMs + offsetMinutes * 60_000L).take(10)
+        val byId = HashMap<String, Int>(bubbles.size * 2)
+        bubbles.forEachIndexed { i, b -> byId[b.id] = i }
+        fun photo(i: Int) = if (i < messages.size) AlbumPhoto(messages[i], null) else AlbumPhoto(null, pending[i - messages.size])
         val rows = ArrayList<ChatRow>(bubbles.size + 8)
-        layouts.forEachIndexed { i, l ->
+        for (l in layouts) {
             if (l.newDay) rows += ChatRow.Day(dayLabel(l.day, today), "d-" + l.id)
-            if (i < messages.size) {
-                val m = messages[i]
-                if (m.id == unreadId) rows += ChatRow.Unread
-                rows += ChatRow.Msg(m, l)
-            } else {
-                rows += ChatRow.Pending(pending[i - messages.size], l)
+            val members = l.messageIds.mapNotNull { byId[it] }
+            if (unreadId != null && members.any { it < messages.size && messages[it].id == unreadId }) rows += ChatRow.Unread
+            val i = members.firstOrNull() ?: continue
+            rows += when {
+                l.album -> ChatRow.Album(members.map(::photo), l)
+                i < messages.size -> ChatRow.Msg(messages[i], l)
+                else -> ChatRow.Pending(pending[i - messages.size], l)
             }
         }
         return rows

@@ -29,6 +29,7 @@ import {
   otherParticipant,
 } from '../services/chat/reads';
 import { notifyChatRead, notifyNewChatMessage } from '../services/chat/notify';
+import type { AlbumParams } from '../services/chat/albums';
 import { deleteDeviceToken, DeviceTokenError, saveDeviceToken } from '../services/push/devices';
 import { createPurposeTicket, verifyPurposeTicket } from '../services/chat/ticket';
 import { enrichMessageInBackground } from '../services/chat/messages';
@@ -108,14 +109,21 @@ chat.post('/conversations/:id/messages', async (c) => {
  * everything before it, the recipient is notified (live, FCM, Web Push, the
  * bell, e-mail, ntfy). Never throws.
  */
-export async function deliverSentMessage(env: Env, convId: string, userId: string, message: MessageWithSender): Promise<void> {
+export async function deliverSentMessage(
+  env: Env,
+  convId: string,
+  userId: string,
+  message: MessageWithSender,
+  opts: { album?: AlbumParams | null } = {},
+): Promise<void> {
   try {
     // Writing a message means I've read everything before it.
     const unreadBefore = await countUnread(env.DB, convId, userId);
     const read = await markConversationRead(env.DB, convId, userId, message.created_at);
     const participants = await getConversationParticipants(env.DB, convId);
     if (!participants) return;
-    const work: Promise<unknown>[] = [notifyNewChatMessage(env, message, { id: convId, relationship_id: participants.relationship_id })];
+    // A photo album notifies once (docs/CHAT.md "Photo albums").
+    const work: Promise<unknown>[] = [notifyNewChatMessage(env, message, { id: convId, relationship_id: participants.relationship_id }, {}, { album: opts.album })];
     if (unreadBefore > 0 && read.moved && read.last_read_at) {
       await db.markNotificationsReadByConversation(env.DB, userId, convId);
       work.push(notifyChatRead(env, userId, participants, read.last_read_at));

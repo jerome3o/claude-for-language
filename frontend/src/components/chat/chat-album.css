@@ -1,0 +1,200 @@
+/* Photo albums (docs/CHAT.md "Photo albums"): one bubble, a collage of tiles. */
+
+.chat-album {
+  display: grid;
+  gap: 2px;
+  max-width: 100%;
+  border-radius: 0.875rem;
+  overflow: hidden;
+}
+.chat-album-2 {
+  grid-template-columns: 1fr 1fr;
+}
+/* One big on the left, two small stacked on the right. */
+.chat-album-3 {
+  grid-template-columns: 3fr 2fr;
+  grid-template-rows: 1fr 1fr;
+}
+.chat-album-3 .t0 {
+  grid-row: 1 / span 2;
+}
+.chat-album-4 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.chat-album-tile {
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  overflow: hidden;
+  cursor: zoom-in;
+  background: linear-gradient(110deg, #e5e7eb 30%, #f3f4f6 50%, #e5e7eb 70%);
+  background-size: 200% 100%;
+  animation: chat-photo-shimmer 1.4s linear infinite;
+}
+.chat-album-tile.loaded {
+  animation: none;
+  background: #e5e7eb;
+}
+.chat-album-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.chat-album-tile.loaded img {
+  opacity: 1;
+}
+.chat-album-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+.chat-album-pending {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  font-size: 0.75rem;
+  padding: 2px 5px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* The album bubble itself: like a photo bubble (no background when there is no caption). */
+.chat-bubble.has-album {
+  position: relative;
+}
+.chat-bubble.has-album .chat-photo-caption {
+  max-width: 264px;
+}
+
+/* ---- The viewer ---- */
+.chat-viewer.chat-album-viewer {
+  background: #000;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
+}
+.chat-album-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(0.5rem, env(safe-area-inset-top)) 0.5rem 0.5rem 1rem;
+  background: linear-gradient(rgba(0, 0, 0, 0.55), transparent);
+  color: #fff;
+}
+.chat-album-counter {
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.chat-album-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+.chat-album-action {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 1.125rem;
+  cursor: pointer;
+}
+.chat-album-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+.chat-album-track {
+  display: flex;
+  height: 100%;
+  will-change: transform;
+}
+.chat-album-track.settle {
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.chat-album-slide {
+  flex: 0 0 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.chat-album-slide .chat-viewer-img {
+  max-width: 100%;
+  max-height: 100%;
+}
+.chat-album-slide-loading {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: chat-album-spin 0.9s linear infinite;
+}
+@keyframes chat-album-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.chat-album-slide-error {
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 1rem;
+  min-height: 44px;
+}
+.chat-album-arrow {
+  display: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.chat-album-arrow.prev {
+  left: 1rem;
+}
+.chat-album-arrow.next {
+  right: 1rem;
+}
+/* Arrows where there is a mouse; touch swipes. */
+@media (hover: hover) and (pointer: fine) {
+  .chat-album-arrow {
+    display: block;
+  }
+}
+.chat-album-viewer .chat-viewer-caption {
+  z-index: 2;
+}

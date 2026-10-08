@@ -183,6 +183,8 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `chat.listening_play` | `slow` | Listening mode: tapped a hidden message to hear it. |
 | `chat.listening_reveal` | — | Listening mode: held a hidden message to reveal its text. |
 | `chat.inbox_open` | `conversations`, `unread` | Opened the Chats tab. |
+| `chat.album_sent` | `count`, `offline` | Sent several photos at once as one album. |
+| `chat.album_viewer_open` | `count`, `index` | Opened a photo album in the full-screen viewer. |
 
 ### calls
 

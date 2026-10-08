@@ -156,4 +156,23 @@ object MessageMenu {
         items += Item(SELECT, "Select", "☑️", false)
         return Menu(true, items)
     }
+
+    private val ALBUM_KEEPS = listOf(REPLY, COPY, FORWARD, EXPLAIN, SAVE_CARD, PIN, UNPIN, INFO, EDIT, DELETE)
+
+    /**
+     * Port of albumMenu (docs/CHAT.md "Photo albums"): the album bubble's menu — Reply, Copy / Explain /
+     * Save as flashcard (the caption), Forward all, Pin, Info, Edit caption, Delete all; reactions stay.
+     */
+    fun albumMenu(menu: Menu, photoCount: Int): Menu {
+        val n = photoCount.coerceAtLeast(0)
+        val items = menu.items.filter { it.id in ALBUM_KEEPS }.map {
+            when (it.id) {
+                FORWARD -> it.copy(label = "Forward all $n")
+                DELETE -> it.copy(label = "Delete all $n")
+                EDIT -> it.copy(label = "Edit caption")
+                else -> it
+            }
+        }
+        return Menu(menu.reactions, items)
+    }
 }

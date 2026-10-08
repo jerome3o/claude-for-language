@@ -220,6 +220,15 @@ class ChatActions(
     val onReveal: (ChatMessageDto) -> Unit = {},
     /** The 0.75× chip. */
     val onListeningSlow: () -> Unit = {},
+    // ---- photo albums (docs/CHAT.md "Photo albums") ----
+    /** A long press on an album: its menu (the photos' message ids, oldest first). */
+    val onOpenAlbumMenu: (List<String>) -> Unit = {},
+    /** A tile tapped: the viewer opens (photo count, index) — analytics. */
+    val onAlbumViewerOpen: (count: Int, index: Int) -> Unit = { _, _ -> },
+    /** The viewer's per-photo actions. */
+    val onSharePhoto: (ChatMessageDto) -> Unit = {},
+    val onForwardPhoto: (ChatMessageDto) -> Unit = {},
+    val onDeletePhoto: (ChatMessageDto) -> Unit = {},
 )
 
 /**
@@ -261,12 +270,21 @@ fun ChatScreen(ui: ChatUi, actions: ChatActions, callBanner: (@Composable () -> 
             }
         } }
     }
-    viewer?.let { ImageViewer(it, actions) { viewer = null } }
+    viewer?.let { v ->
+        if (v.album != null) AlbumViewer(v.album, v.index, ui, actions) { viewer = null }
+        else ImageViewer(v, actions) { viewer = null }
+    }
     sheets()
 }
 
 /** What the full-screen photo viewer shows. */
-data class ViewerTarget(val message: ChatMessageDto?, val localPath: String?)
+data class ViewerTarget(
+    val message: ChatMessageDto?,
+    val localPath: String?,
+    /** A photo album (docs/CHAT.md "Photo albums"): the pager over its photos, opened at [index]. */
+    val album: List<AlbumPhoto>? = null,
+    val index: Int = 0,
+)
 
 /** ← · name (+ "typing…" / the title) · 📹 · ⋯ (search, make flashcards, pinyin / translations for all, …). */
 @Composable
@@ -378,7 +396,10 @@ private fun MessageList(ui: ChatUi, actions: ChatActions, onView: (ViewerTarget)
     val lead = (if (ui.offlineHistory) 1 else 0) + (if (ui.messages.isEmpty() && ui.pending.isEmpty()) 1 else 0)
     val tail = (if (ui.waitingForAi) 1 else 0) + (if (ui.typing) 1 else 0)
     val total = lead + rows.size + tail
-    fun indexOf(id: String): Int = if (id == ChatViewModel.END) total - 1 else rows.indexOfFirst { it.key == id || (it is ChatRow.Pending && it.bubble.clientId == id) }.let { if (it < 0) -1 else it + lead }
+    fun indexOf(id: String): Int = if (id == ChatViewModel.END) total - 1 else rows.indexOfFirst {
+        it.key == id || (it is ChatRow.Pending && it.bubble.clientId == id) ||
+            (it is ChatRow.Album && it.photos.any { p -> p.id == id || p.pending?.clientId == id })
+    }.let { if (it < 0) -1 else it + lead }
     // Open at the "New messages" divider when there is one (the VM asks), else at the end.
     val initialIndex = remember { ui.scrollTo?.let { r -> indexOf(r.id).takeIf { it >= 0 }?.let { (it - 1).coerceAtLeast(0) } } ?: (total - 1).coerceAtLeast(0) }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
@@ -421,6 +442,7 @@ private fun MessageList(ui: ChatUi, actions: ChatActions, onView: (ViewerTarget)
                     ChatRow.Unread -> UnreadDivider()
                     is ChatRow.Msg -> MessageBubbleRow(row.message, row.layout, ui, actions, onView)
                     is ChatRow.Pending -> PendingBubbleRow(row.bubble, row.layout, ui, actions, onView)
+                    is ChatRow.Album -> AlbumBubbleRow(row, ui, actions, onView)
                 }
             }
             if (ui.waitingForAi) item(key = "typing-ai") { TypingBubble() }

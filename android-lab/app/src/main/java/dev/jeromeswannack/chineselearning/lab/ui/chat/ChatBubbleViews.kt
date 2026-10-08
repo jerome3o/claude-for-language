@@ -142,7 +142,7 @@ fun chatColors(): ChatColors {
 private val BIG = 18.dp
 private val SMALL = 4.dp
 val MAX_BUBBLE = 480.dp
-private const val BUBBLE_FRACTION = 0.78f
+internal const val BUBBLE_FRACTION = 0.78f
 
 /** 18 dp corners; inside a group the corners facing the neighbouring bubbles are 4 dp. */
 fun bubbleShape(mine: Boolean, first: Boolean, last: Boolean): RoundedCornerShape {
@@ -195,7 +195,7 @@ fun metaText(meta: BubbleMeta, base: Color, read: Color): AnnotatedString = buil
 
 /** The room the meta needs at the end of the last line. */
 @Composable
-private fun rememberMetaWidth(text: AnnotatedString?): Dp {
+internal fun rememberMetaWidth(text: AnnotatedString?): Dp {
     if (text == null) return 0.dp
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -217,7 +217,7 @@ private fun MetaLabel(text: AnnotatedString, modifier: Modifier = Modifier) {
 
 /** A long press after 450 ms (docs/CHAT.md), not the platform's default. */
 @Composable
-private fun ChatLongPress(content: @Composable () -> Unit) {
+internal fun ChatLongPress(content: @Composable () -> Unit) {
     val base = LocalViewConfiguration.current
     val vc = remember(base) { object : ViewConfiguration by base { override val longPressTimeoutMillis: Long = LONG_PRESS_MS } }
     CompositionLocalProvider(LocalViewConfiguration provides vc) { content() }
@@ -440,7 +440,7 @@ private fun CheckBadge(status: String, onClick: () -> Unit) {
 
 /** The reactions pill over the bubble's bottom edge (`❤️ 2`); a tap on an emoji toggles mine. */
 @Composable
-private fun Reactions(m: ChatMessageDto, mine: Boolean, ui: ChatUi, actions: ChatActions, bubble: @Composable () -> Unit) {
+internal fun Reactions(m: ChatMessageDto, mine: Boolean, ui: ChatUi, actions: ChatActions, bubble: @Composable () -> Unit) {
     val list = if (m.isDeleted) emptyList() else m.reactions.filter { it.count > 0 || it.users.isNotEmpty() }
     if (list.isEmpty()) { bubble(); return }
     val c = chatColors()
@@ -476,7 +476,7 @@ private fun Reactions(m: ChatMessageDto, mine: Boolean, ui: ChatUi, actions: Cha
 
 /** The reply quote inside the bubble: a 3 dp bar, the name and one line; tap jumps to it. */
 @Composable
-private fun ReplyQuote(r: ChatReplyToDto, mine: Boolean, ui: ChatUi, onJump: () -> Unit) {
+internal fun ReplyQuote(r: ChatReplyToDto, mine: Boolean, ui: ChatUi, onJump: () -> Unit) {
     val c = chatColors()
     val original = ui.messages.firstOrNull { it.id == r.id }
     val name = if (r.sender.id.isNotEmpty() && r.sender.id == ui.myId) "You" else r.sender.name ?: "Unknown"
@@ -500,7 +500,7 @@ private fun ReplyQuote(r: ChatReplyToDto, mine: Boolean, ui: ChatUi, onJump: () 
 }
 
 @Composable
-private fun BoxScope.MetaCorner(meta: AnnotatedString?) {
+internal fun BoxScope.MetaCorner(meta: AnnotatedString?) {
     if (meta != null) MetaLabel(meta, Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 5.dp))
 }
 
@@ -661,7 +661,7 @@ private fun VideoContent(m: ChatMessageDto, fg: Color, meta: AnnotatedString?, u
 
 /** On a photo without a caption: the time on a dark scrim. */
 @Composable
-private fun BoxScope.PhotoMeta(meta: AnnotatedString) {
+internal fun BoxScope.PhotoMeta(meta: AnnotatedString) {
     val plain = AnnotatedString(meta.text)
     Text(
         plain, style = META_STYLE, color = Color.White, maxLines = 1,

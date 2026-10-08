@@ -88,14 +88,14 @@ test('a PDF and several photos go out; the file opens; info shows what it is', a
   await page.getByTestId('chat-file-input').setInputFiles({ name: 'page.html', mimeType: 'text/html', buffer: Buffer.from('<p>x</p>') });
   await expect(page.getByText('That kind of file can’t be sent')).toBeVisible();
 
-  // Three photos at once → three photo messages, the caption on the first.
+  // Three photos at once (one dropped) → two photo messages, one album bubble, the caption on the first.
   const files = await Promise.all(['#f97316', '#2563eb', '#16a34a'].map(async (c, i) => ({ name: `p${i}.png`, mimeType: 'image/png', buffer: await png(page, c) })));
   await page.getByTestId('chat-photo-input').setInputFiles(files);
   await expect(page.getByTestId('photo-compose-strip').locator('img')).toHaveCount(3);
   await page.getByRole('button', { name: 'Remove photo 3' }).click();
   await page.getByRole('textbox', { name: 'Caption' }).fill('我的作业');
   await page.getByTestId('photo-send').click();
-  await expect(page.getByTestId('chat-photo')).toHaveCount(2, { timeout: 10000 });
+  await expect(page.getByTestId('chat-album-tile')).toHaveCount(2, { timeout: 10000 });
   await expect(page.getByTestId('chat-send-pending')).toHaveCount(0, { timeout: 15000 });
 
   // Info on the PDF.
