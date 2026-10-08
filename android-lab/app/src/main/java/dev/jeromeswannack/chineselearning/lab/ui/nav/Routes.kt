@@ -98,6 +98,9 @@ object Routes {
     fun quest(id: String) = "/quests/${seg(id)}"
     fun pictureHunts() = "/picture-hunt"
     fun pictureHunt(id: String) = "/picture-hunt/${seg(id)}"
+    /** 成语 Idioms (beta): the list and one idiom ([from] = list | search | explorer | related, for analytics). */
+    fun idioms() = "/idioms"
+    fun idiom(hanzi: String, from: String? = null) = "/idioms/${seg(hanzi)}" + query("from" to from)
     fun audioLessons() = "/audio-lessons"
     fun audioLesson(id: String) = "/audio-lessons/${seg(id)}"
     fun strokes(text: String? = null) = "/practice/strokes" + query("text" to text)

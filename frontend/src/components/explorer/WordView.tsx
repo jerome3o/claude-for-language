@@ -5,6 +5,8 @@ import type { FrequencyIndex } from '@shared/decks';
 import type { CharRecord, CharWord, CharWordRow, WordRecord } from '@shared/chars';
 import { buildDrill, relatedWords, resolveWord, wordChars, wordFrequencyLabel, type DrillTarget, type WordItem } from '@shared/explorer';
 import { hanCharacters } from '@shared/progress/known';
+import { isIdiomShaped, showIdiomLink } from '@shared/idioms';
+import { hasCachedIdiom } from '../../services/idioms';
 import type { ReaderWordExplanation } from '@shared/reader/words';
 import { charWordStatuses, lookupChar, prefetchChars } from '../../services/charDict';
 import { lookupWord, type WordLookup } from '../../services/wordDict';
@@ -94,6 +96,7 @@ export function WordView({
   const [addedTo, setAddedTo] = useState(false);
   const [bumpMsg, setBumpMsg] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [idiomKnown, setIdiomKnown] = useState(false);
   const player = useRef(createAudioPlayer());
   const tts = useTTS();
   const sentence = item.sentence || hanzi;
@@ -121,6 +124,7 @@ export function WordView({
     });
     void findExistingNotes(hanzi).then((e) => alive && setExisting(e)).catch(() => alive && setExisting([]));
     void examplesFor(hanzi).then((e) => alive && setExamples(e));
+    if (isIdiomShaped(hanzi)) void hasCachedIdiom(hanzi).then((k) => alive && setIdiomKnown(k));
     void cachedWordExplanation(hanzi, sentence).then((c) => alive && c && setMore({ kind: 'ready', value: c }));
     const p = player.current;
     return () => {
@@ -203,6 +207,21 @@ export function WordView({
       <div className="xp-chips">
         <span className={`xp-freq xp-freq--${freq.tier}`} data-testid="explorer-word-freq">{freq.text}</span>
       </div>
+
+      {showIdiomLink(hanzi, { known: idiomKnown, senses: word.senses }) && (
+        <button
+          type="button"
+          className="xp-idiom-row"
+          data-testid="explorer-idiom-link"
+          onClick={() => {
+            onClose();
+            navigate(`/idioms/${encodeURIComponent(hanzi)}?from=explorer`);
+          }}
+        >
+          <span>📜 Story & usage</span>
+          <span className="xp-idiom-sub">成语 · 典故 and how to use it →</span>
+        </button>
+      )}
 
       <section className="xp-section" aria-label="Characters">
         <div className="xp-char-chips">

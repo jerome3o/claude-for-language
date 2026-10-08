@@ -203,6 +203,17 @@ been reviewed; unfinished bumps carry over. Home shows "⚡ N bumped for today",
 Claude (Ask Claude, the coach chat, chat Discuss, the MCP server) can bump words too, and a tutor can bump
 a student's own cards. Rules: `shared/decks/bumps.ts`; details in docs/STUDY_SESSION.md.
 
+### 15. 成语 Idioms (beta)
+
+A learner reads, on their own, what a 成语 means, the story behind it (典故) and how to use it
+(More → Practice → 📜 成语 Idioms; asked for by the tutor). Look one up or browse ~46 common idioms; each
+entry — generated once by Claude and shared by everyone — has the meaning, a character-by-character
+literal row (→ the language explorer), the 典故 retold in simple Chinese with pinyin / English toggles and
+narration, its source only when known (uncertain or modern origins say so), usage (role, register,
+褒义 / 贬义), collocations, examples easiest → hardest (tap to reveal), the common mistake, similar /
+opposite idioms and a 2–3 question "Try it" (practice only). "+ Add as card" makes a card-standard card;
+opened entries read offline. The explorer's Word view links a 成语 to its page. Details: docs/IDIOMS.md.
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities

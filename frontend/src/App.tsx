@@ -72,6 +72,8 @@ const MorePage = lazy(() => import('./pages/MorePage').then(m => ({ default: m.M
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
+const IdiomsPage = lazy(() => import('./pages/IdiomsPage').then(m => ({ default: m.IdiomsPage })));
+const IdiomPage = lazy(() => import('./pages/IdiomPage').then(m => ({ default: m.IdiomPage })));
 const PictureHuntsPage = lazy(() => import('./pages/PictureHuntsPage').then(m => ({ default: m.PictureHuntsPage })));
 const PictureHuntPlayPage = lazy(() => import('./pages/PictureHuntPlayPage').then(m => ({ default: m.PictureHuntPlayPage })));
 const AudioLessonsPage = lazy(() => import('./pages/AudioLessonsPage').then(m => ({ default: m.AudioLessonsPage })));
@@ -614,6 +616,18 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <QuestsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/idioms" element={<ProtectedRoute><Header /><IdiomsPage /></ProtectedRoute>} />
+      <Route
+        path="/idioms/:hanzi"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ErrorBoundary fallbackTitle="Couldn't load this idiom">
+              <IdiomPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />

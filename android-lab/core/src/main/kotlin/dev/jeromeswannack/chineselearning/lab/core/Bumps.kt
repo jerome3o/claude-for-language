@@ -43,7 +43,7 @@ object Bumps {
     /** Where a bump came from (analytics + the API's `source`). Port of BUMP_SOURCES. */
     val BUMP_SOURCES = listOf(
         "coach", "coach_chat", "ask_claude", "chat", "chat_discuss", "reader", "picture_hunt",
-        "paste_list", "breakdown", "card_hub", "char_sheet", "explorer", "deck", "mcp", "tutor", "other",
+        "paste_list", "breakdown", "card_hub", "char_sheet", "explorer", "idioms", "deck", "mcp", "tutor", "other",
     )
 
     /** Port of normalizeBumpSource(). */

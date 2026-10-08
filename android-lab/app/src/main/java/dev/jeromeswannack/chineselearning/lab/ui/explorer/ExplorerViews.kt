@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.explorer
 
+import dev.jeromeswannack.chineselearning.lab.core.idioms.Idioms
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -118,7 +119,12 @@ data class WordViewUi(
     val decalOf: DecalOf? = null,
     /** The decal key under "Related words" starts open (screenshots). */
     val keyOpen: Boolean = false,
+    /** A ready 成语 entry is on the phone (docs/IDIOMS.md). */
+    val idiomKnown: Boolean = false,
 ) {
+    /** Port of the web's `showIdiomLink`: four Han characters and a reason to think it's a 成语. */
+    val showIdiom: Boolean get() = Idioms.showLink(item.hanzi, idiomKnown, resolved.senses)
+
     val hanzi: String get() = item.hanzi
     private val chars: List<String> get() = hanzi.codePoints().toArray().map { String(Character.toChars(it)) }
     val record get() = (lookup as? WordDict.Lookup.Ok)?.record
@@ -184,6 +190,8 @@ class WordViewActions(
     val onMore: () -> Unit = {},
     /** "🎯 Quick drill" over this word and its related words (null = not offered). */
     val onDrill: ((dev.jeromeswannack.chineselearning.lab.core.explorer.DrillTarget, List<DictWord>) -> Unit)? = null,
+    /** "📜 Story & usage" → the 成语 page (null = not offered). */
+    val onIdiom: (() -> Unit)? = null,
 )
 
 const val EXPLORER_WORD_TAG = "explorer-word"
@@ -234,6 +242,12 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
         } else if (ui.lookup is WordDict.Lookup.Error) {
             Spacer(Modifier.height(10.dp))
             InlineNotice("Couldn’t load the dictionary entry: ${(ui.lookup as WordDict.Lookup.Error).message}", kind = NoticeKind.Error)
+        }
+
+        // A 成语: its story and usage (docs/IDIOMS.md).
+        if (ui.showIdiom && actions.onIdiom != null) {
+            Spacer(Modifier.height(12.dp))
+            dev.jeromeswannack.chineselearning.lab.ui.idioms.IdiomLinkRow(actions.onIdiom)
         }
 
         // Characters, each with its syllable coloured by tone → the Character view

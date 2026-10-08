@@ -480,6 +480,15 @@ export interface LocalWordDictEntry {
   cached_at: number;
 }
 
+/** 成语 Idioms (services/idioms.ts, docs/IDIOMS.md): an idiom entry opened on this device. */
+export interface LocalIdiom {
+  hanzi: string;
+  record: import('@shared/idioms/types').IdiomRecord;
+  cached_at: number;
+  /** When it was last opened here (the list's "Opened on this device"). */
+  opened_at: number;
+}
+
 export interface LocalCharExplanation {
   char: string;
   explanation: string;
@@ -689,6 +698,7 @@ export class ChineseLearningDB extends Dexie {
   charDict!: Table<LocalCharDictEntry, string>;
   charExplanations!: Table<LocalCharExplanation, string>;
   wordDict!: Table<LocalWordDictEntry, string>;
+  idioms!: Table<LocalIdiom, string>;
 
   // Debug tables
   syncLogs!: Table<SyncLogEntry, string>;
@@ -1150,6 +1160,12 @@ export class ChineseLearningDB extends Dexie {
     // record per word the learner has explored, so the Word view opens offline afterwards.
     this.version(30).stores({
       wordDict: 'hanzi, cached_at',
+    });
+
+    // Version 31: 成语 Idioms (docs/IDIOMS.md) — every idiom entry opened here, so it reads
+    // offline afterwards (the list shows them when the network is down).
+    this.version(31).stores({
+      idioms: 'hanzi, opened_at',
     });
   }
 }
