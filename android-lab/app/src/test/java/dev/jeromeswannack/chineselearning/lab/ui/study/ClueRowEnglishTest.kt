@@ -84,7 +84,7 @@ class ClueRowEnglishTest : LabScreenshotTest() {
 
     @Test fun revealsHanziThenPinyinThenFetchedEnglish() {
         studyBack(online = true)
-        // Badge on its own line from the start, the row otherwise blank (listen first).
+        // The badge tab from the start, the row otherwise blank (listen first).
         assertEquals(1, tagged(SENTENCE_CARD_BADGE_TAG).size)
         tapClueRow(2)
         // Two taps: hanzi + the device's pinyin, no English yet and not open (no tools).

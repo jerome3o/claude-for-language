@@ -1754,13 +1754,24 @@ button.queue-counts:active {
   white-space: nowrap;
 }
 
-/* "From the card": its own small line at the row's top right, beside ▶ */
+/* "From the card": a small tab on the row's top edge (straddling the divider),
+   left of ▶. It takes no line, so the row is as tall as the others with its
+   blank / text where every row has it, and it never lands in a line the taps
+   uncover (hanzi / pinyin / English). Taps go through to the row. */
+.sentence-set-row.is-from-card {
+  position: relative;
+}
+
 .sentence-set-corner {
-  display: block;
-  width: fit-content;
-  margin: 0 0 0.125rem auto;
+  position: absolute;
+  top: 0;
+  transform: translateY(-50%);
+  right: calc(36px + 0.125rem + 0.625rem);
   font-size: 0.625rem;
   line-height: 1.4;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface, #fff);
+  pointer-events: none;
 }
 
 /* The card sentence's English while it is fetched / can't be */

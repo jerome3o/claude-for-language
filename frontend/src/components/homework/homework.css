@@ -391,6 +391,11 @@
   background-color: var(--color-surface, #fff);
 }
 
+/* "From the card" tab: clear of ▶ with the pass row's wider side padding */
+.sentence-set--pass .sentence-set-corner {
+  right: calc(36px + 0.625rem + 0.625rem);
+}
+
 .hw-pass-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
