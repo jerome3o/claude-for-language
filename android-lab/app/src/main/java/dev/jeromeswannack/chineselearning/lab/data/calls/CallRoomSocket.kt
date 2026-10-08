@@ -70,6 +70,14 @@ class CallRoomSocket(
     private var retry: Job? = null
     /** When the last ping went out unanswered (0 = none outstanding). */
     @Volatile private var awaitingPongSince = 0L
+    /**
+     * Which socket is the current one: each connect gets the next number and its [Listener] keeps
+     * it; a socket that was dropped / replaced / closed gets a stale number (everything it still
+     * says is ignored). By number, not by `ws` identity: OkHttp can open the socket (onOpen) before
+     * `newWebSocket()` has returned it to us, and an identity check then threw away a good socket
+     * (no OPEN, no pings, nothing ever again). Guarded by `this`.
+     */
+    @Volatile private var generation = 0
 
     @Volatile override var clockOffset = 0L
         private set
@@ -99,28 +107,45 @@ class CallRoomSocket(
         if (closed) return
         handlers.onJoinInfo(info)
         val request = Request.Builder().url(socketUrl(baseUrl, info.ws_path, info.ticket, instance)).build()
-        ws = http.newBuilder().pingInterval(0, TimeUnit.SECONDS).build().newWebSocket(request, Listener())
+        val listener = synchronized(this) {
+            if (closed) return
+            Listener(++generation)
+        }
+        val socket = http.newBuilder().pingInterval(0, TimeUnit.SECONDS).build().newWebSocket(request, listener)
+        synchronized(this) {
+            // onOpen may already have made it the current socket; replaced / closed meanwhile → drop it.
+            if (listener.generation == generation) {
+                if (ws == null) ws = socket
+            } else {
+                socket.cancel()
+            }
+        }
     }
 
-    private inner class Listener : WebSocketListener() {
+    private fun isCurrent(gen: Int) = synchronized(this) { gen == generation }
+
+    private inner class Listener(val generation: Int) : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            if (webSocket !== ws) return
-            attempt = 0
-            everOpened = true
-            open = true
+            synchronized(this@CallRoomSocket) {
+                if (generation != this@CallRoomSocket.generation) return
+                ws = webSocket // possibly before newWebSocket() returned it
+                attempt = 0
+                everOpened = true
+                open = true
+            }
             handlers.onStatus(RoomStatus.OPEN)
             ping?.cancel()
             awaitingPongSince = 0L
             ping = scope.launch {
                 while (isActive) {
                     delay(pingMs)
-                    if (ws !== webSocket) return@launch
+                    if (!isCurrent(generation)) return@launch
                     if (send(CallProtocol.ping(now()))) awaitingPongSince = System.nanoTime()
                     // The watchdog: no pong in time → the socket is dead even if TCP hasn't noticed.
                     delay(pongTimeoutMs)
-                    if (ws === webSocket && awaitingPongSince != 0L) {
+                    if (isCurrent(generation) && awaitingPongSince != 0L) {
                         webSocket.cancel()
-                        gone(webSocket, null)
+                        gone(generation, null)
                         return@launch
                     }
                 }
@@ -128,7 +153,7 @@ class CallRoomSocket(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            if (webSocket !== ws) return // a socket we already replaced
+            if (!isCurrent(generation)) return // a socket we already replaced
             val msg = CallProtocol.parseServer(text) ?: return
             when (msg) {
                 is ServerMessage.Welcome -> clockOffset = msg.serverTime - now()
@@ -145,17 +170,19 @@ class CallRoomSocket(
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             webSocket.close(code, null)
-            gone(webSocket, code)
+            gone(generation, code)
         }
 
-        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = gone(webSocket, code)
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = gone(generation, code)
 
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = gone(webSocket, null)
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = gone(generation, null)
     }
 
+    /** The socket of [gen] ended (closed, failed, or the watchdog gave up on it). */
     @Synchronized
-    private fun gone(webSocket: WebSocket, code: Int?) {
-        if (webSocket !== ws) return
+    private fun gone(gen: Int, code: Int?) {
+        if (gen != generation) return
+        generation++ // finished: anything it still says is ignored
         ws = null
         open = false
         ping?.cancel()
@@ -190,6 +217,7 @@ class CallRoomSocket(
     override fun reconnectNow() {
         if (closed) return
         val socket = ws
+        generation++ // a connect still in flight is dropped too
         retry?.cancel()
         ping?.cancel()
         ws = null
@@ -207,9 +235,11 @@ class CallRoomSocket(
         retry?.cancel()
         ping?.cancel()
         if (!wasClosed) runCatching { send(CallProtocol.leave()) }
-        ws?.close(1000, "Left the call")
-        ws = null
-        open = false
+        val socket = synchronized(this) {
+            generation++
+            ws.also { ws = null; open = false }
+        }
+        socket?.close(1000, "Left the call")
     }
 
     companion object {

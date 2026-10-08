@@ -16,6 +16,7 @@ import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
 import dev.jeromeswannack.chineselearning.lab.data.chat.IncomingChat
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.ui.connections.ConnectionsKeys
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
@@ -148,6 +149,26 @@ class ChatListeningAppTest {
         assertTrue(last["on"]!!.jsonPrimitive.boolean)
         assertEquals(ChatListening.HIDE_ALL_SINCE, last["since"]!!.jsonPrimitive.content)
         idle("cached") { runBlocking { ChatListeningStore.setting(app.cache, "c1") }.since == ChatListening.HIDE_ALL_SINCE }
+    }
+
+    /**
+     * Many changes at once (several threads): the PUTs are queued in the same order as the cache
+     * writes, so the last PUT the server gets is the setting the phone ends on.
+     */
+    @Test fun outboxOrderFollowsTheCacheWrites() {
+        runBlocking {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                (0 until 24).map { i ->
+                    launch { ChatListeningStore.setConversation(app, "c1", i % 2 == 0, "2026-10-02T09:${(10 + i).toString().padStart(2, '0')}:00.000Z") }
+                }.forEach { it.join() }
+            }
+        }
+        val rows = runBlocking { app.outbox.all() }.filter { it.kind == ChatListeningStore.KIND_SET }
+        assertEquals(24, rows.size)
+        val last = app.repo.api.json.parseToJsonElement(rows.last().bodyJson!!).jsonObject
+        val cached = runBlocking { ChatListeningStore.setting(app.cache, "c1") }
+        assertEquals(cached.on, last["on"]!!.jsonPrimitive.boolean)
+        assertEquals(cached.since, last["since"]!!.jsonPrimitive.content)
     }
 
     @Test fun inboxAndNotificationsSayNewMessage() = runBlocking {
