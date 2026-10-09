@@ -118,8 +118,10 @@ test.describe('Live pronunciation transcription', () => {
     await recordOneTake(page);
 
     await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible({ timeout: 5000 });
-    const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; chunks: number; ended: boolean } }).__soniox);
-    expect(stats.config).toMatchObject({ api_key: 'snx_temp_e2e', model: 'stt-rt-v5', audio_format: 'auto' });
+    const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; chunks: number; ended: boolean; protocols: string[] | null } }).__soniox);
+    expect(stats.protocols).toEqual(['soniox-api-key', 'snx_temp_e2e']); // the key with the connection
+    expect(stats.config).toMatchObject({ model: 'stt-rt-v5', audio_format: 'auto' });
+    expect(stats.config).not.toHaveProperty('api_key');
     expect(stats.chunks).toBeGreaterThan(1); // streamed while recording, not one blob at the end
     expect(stats.ended).toBe(true);
     expect(uploads).toBe(0);
