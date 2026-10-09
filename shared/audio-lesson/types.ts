@@ -129,7 +129,12 @@ export interface DialoguePlan {
   title: string;
   /** English, 2–5 sentences: the situation and what to listen for. Chinese words may appear in Han characters (spoken in the Chinese voice). */
   intro_en: string;
-  speakers: Array<{ id: 'A' | 'B'; name: string; gender: Gender }>;
+  /**
+   * `learner`: the speaker whose part the learner plays (the one who says 我 as the traveller /
+   * customer / guest) — at most one. With the account's voice gender set, that speaker takes it
+   * (`applyLearnerGender`, worker agent.ts).
+   */
+  speakers: Array<{ id: 'A' | 'B'; name: string; gender: Gender; learner?: boolean }>;
   dialogue: Array<PlanLine & { speaker: 'A' | 'B' }>;
   /** The words and structures to dig into, most important first. */
   points: Array<

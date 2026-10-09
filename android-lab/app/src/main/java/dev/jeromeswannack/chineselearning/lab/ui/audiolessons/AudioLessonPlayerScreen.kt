@@ -460,9 +460,10 @@ private fun TranscriptRowView(
                         chipColors = TranscriptChips,
                     )
                 }
-                // Said several times in a row: "×3" (the web's .al-line-repeat).
-                row.repeat?.let {
-                    Text("×$it", color = AlColors.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp).semantics { contentDescription = "said $it times" })
+                // Said several times in a row: "×3", line by line "×3 +1" (the web's .al-line-repeat).
+                val (repeatText, repeatAria) = AudioLessonTimeline.repeatLabel(row.repeat, row.again)
+                if (repeatText.isNotEmpty()) {
+                    Text(repeatText, color = AlColors.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp).semantics { contentDescription = repeatAria })
                 }
             }
             if (showPinyin) row.pinyin?.let { Text(it, color = AlColors.periwinkle.copy(alpha = 0.85f), fontSize = 13.sp) }

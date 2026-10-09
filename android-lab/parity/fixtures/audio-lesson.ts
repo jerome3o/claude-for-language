@@ -44,6 +44,7 @@ import {
   speechKey,
   transcriptIndexAt,
   transcriptRows,
+  repeatLabel,
   type AudioLessonScript,
 } from '../../../shared/audio-lesson';
 
@@ -102,7 +103,12 @@ const lessons = [
     line: transcriptIndexAt(timeline.transcript, ms),
     previous: previousChapterTarget(timeline.chapters, ms),
   }));
-  return { name, chapters: timeline.chapters, transcript: timeline.transcript, duration_ms: end, rows: transcriptRows(timeline.transcript), queries };
+  const rows = transcriptRows(timeline.transcript);
+  const labels = rows.map((row) => {
+    const l = repeatLabel(row);
+    return [l.text, l.aria];
+  });
+  return { name, chapters: timeline.chapters, transcript: timeline.transcript, duration_ms: end, rows, labels, queries };
 });
 
 // Hand-made transcripts for transcriptRows' edges: narration split around Chinese, punctuation glue, chapter breaks.
@@ -131,6 +137,13 @@ const rowCases = [
   [L(0, 'zh', 'sleep', '好。'), L(500, 'zh', 'teacher', '好。'), L(1000, 'zh', 'teacher', '好。', 1), L(1500, 'zh', 'teacher', '好。', 1)],
   [L(0, 'zh', 'sleep', '你好。', 0, 'nǐ hǎo', 'Hello!'), L(400, 'en', 'recap', 'Hello?'), L(800, 'en', 'recap', '  hello  ')],
   [L(0, 'en', 'narrator', 'Again'), L(400, 'en', 'narrator', 'Again')],
+  // Line by line: ×3, the host's English, the line once more → one row "×3 +1"; the next line is its own row.
+  [L(0, 'zh', 'speaker_a', '你好。', 2, 'nǐ hǎo.', 'Hello.'), L(500, 'zh', 'speaker_a', '你好。', 2), L(1000, 'zh', 'speaker_a', '你好。', 2), L(1500, 'en', 'narrator', 'Hello.', 2), L(2200, 'zh', 'speaker_a', '你好。', 2), L(2700, 'zh', 'speaker_b', '你好。', 2, 'nǐ hǎo.', 'Hello.'), L(3200, 'zh', 'speaker_b', '你好。', 2)],
+  // …but not another voice, another line, a story's recap translation, or a fourth time after the "+1".
+  [L(0, 'zh', 'speaker_a', '好。', 0, 'hǎo.', 'OK.'), L(500, 'en', 'narrator', 'OK.'), L(900, 'zh', 'speaker_b', '好。')],
+  [L(0, 'zh', 'speaker_a', '好。', 0, 'hǎo.', 'OK.'), L(500, 'en', 'recap', 'OK.'), L(900, 'zh', 'speaker_a', '好。')],
+  [L(0, 'zh', 'speaker_a', '好。', 0, 'hǎo.', 'OK.'), L(500, 'en', 'narrator', 'OK.'), L(900, 'zh', 'speaker_a', '好。'), L(1300, 'zh', 'speaker_a', '好。'), L(1700, 'en', 'narrator', 'OK.')],
+  [L(0, 'zh', 'speaker_a', '好。', 0, 'hǎo.', 'OK.'), L(500, 'en', 'narrator', 'OK.'), L(900, 'zh', 'speaker_a', '好。', 1)],
   [],
 ].map((lines) => ({ lines, rows: transcriptRows(lines as never) }));
 

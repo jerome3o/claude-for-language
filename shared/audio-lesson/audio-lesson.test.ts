@@ -18,6 +18,7 @@ import {
   parseMusicVolume,
   PAUSES,
   RATES,
+  repeatLabel,
   SLEEP_ZH_PROVIDER_RATE,
   sleepTranslationText,
   previousChapterTarget,
@@ -80,12 +81,43 @@ describe('format A (dialogue)', () => {
 
   it('plays the dialogue three times, then line by line, then once more', () => {
     const first = SAMPLE_DIALOGUE_PLAN.dialogue[0].hanzi;
-    // 3 plays + line by line + final play = 5 (no point uses line 0)
-    expect(speech.filter((s) => s.text === first).length).toBe(5);
+    // 3 plays + line by line (×3, the English, once more) + final play = 8 (no point uses line 0)
+    expect(speech.filter((s) => s.text === first).length).toBe(8);
     expect(script.chapters.map((c) => c.title).slice(0, 5)).toEqual([
       'Introduction', 'First listen', 'Second listen', 'Third listen, a little slower', 'Line by line',
     ]);
     expect(script.chapters[script.chapters.length - 1].title).toBe('Final listen');
+  });
+
+  it('line by line: each line three times, its English, then the line once more', () => {
+    const ch = script.chapters.findIndex((c) => c.title === 'Line by line');
+    const segs = script.segments.filter((s) => s.chapter === ch);
+    const said = segs.filter((s): s is SpeechSegment => s.kind === 'speech').slice(1); // after the host's intro
+    expect(said).toHaveLength(SAMPLE_DIALOGUE_PLAN.dialogue.length * 5);
+    SAMPLE_DIALOGUE_PLAN.dialogue.forEach((line, i) => {
+      const [a, b, c, en, d] = said.slice(i * 5, i * 5 + 5);
+      const role = line.speaker === 'A' ? 'speaker_a' : 'speaker_b';
+      for (const zh of [a, b, c, d]) expect(zh).toMatchObject({ lang: 'zh', voice: role, text: line.hanzi, rate: RATES.line });
+      expect(en).toMatchObject({ lang: 'en', voice: 'narrator', text: line.english });
+      // Pinyin / English ride on the first play only (one transcript row).
+      expect(a.pinyin).toBe(line.pinyin);
+      expect(b.pinyin).toBeUndefined();
+      expect(d.pinyin).toBeUndefined();
+    });
+    // The pauses: short between the plays, a beat around the English, then the next line.
+    const first = segs.findIndex((s) => s.kind === 'speech' && s.text === SAMPLE_DIALOGUE_PLAN.dialogue[0].hanzi);
+    const gaps = segs.slice(first, first + 10).filter((s) => s.kind === 'pause').map((s) => (s as { ms: number }).ms);
+    expect(gaps).toEqual([PAUSES.lineRepeat, PAUSES.lineRepeat, PAUSES.lineThenEnglish, PAUSES.englishThenLine, PAUSES.afterLineByLine]);
+    // Still one clip per line: the four plays share it.
+    const keys = uniqueSpeech(script).filter((u) => u.text === SAMPLE_DIALOGUE_PLAN.dialogue[0].hanzi && u.rate === RATES.line);
+    expect(keys).toHaveLength(1);
+  });
+
+  it('the lesson stays near its length: line by line is about 20 s a line', () => {
+    const ch = script.chapters.findIndex((c) => c.title === 'Line by line');
+    const lbl = estimateScriptMs({ ...script, segments: script.segments.filter((s) => s.chapter === ch) });
+    expect(lbl / SAMPLE_DIALOGUE_PLAN.dialogue.length).toBeLessThan(22_000);
+    expect(estimateScriptMs(script) / 60000).toBeLessThan(12);
   });
 
   it('the third play is slower and each speaker keeps a voice', () => {
@@ -406,6 +438,17 @@ describe('transcriptRows', () => {
     expect(rows.filter((r) => r.text === "I'd like a bowl of beef noodles.")).toEqual([]);
     const lineByLine = rows.filter((r) => r.text === '我要一碗牛肉面。' && r.last > r.first);
     expect(lineByLine.length).toBe(1);
+    // …and it is ONE row: ×3, the English, once more ("×3 +1").
+    expect(lineByLine[0]).toMatchObject({ repeat: 3, again: 1, english: "I'd like a bowl of beef noodles." });
+    expect(lineByLine[0].last - lineByLine[0].first).toBe(4);
+    expect(repeatLabel(lineByLine[0])).toEqual({ text: '×3 +1', aria: 'said 3 times, then once more after the English' });
+    // The "+1" rows: each line of the line by line (×3 +1), and a point's example (Chinese, English,
+    // Chinese again: "+1"); the dialogue's plays stay one row per line.
+    const again = rows.filter((r) => r.again);
+    expect(again.filter((r) => r.repeat === 3)).toHaveLength(SAMPLE_DIALOGUE_PLAN.dialogue.length);
+    const examples = SAMPLE_DIALOGUE_PLAN.points.flatMap((p) => (p.example ? [p.example.hanzi] : []));
+    expect(again.filter((r) => !r.repeat).map((r) => r.text)).toEqual(examples);
+    expect(repeatLabel(again.find((r) => !r.repeat)!)).toEqual({ text: '+1', aria: 'said once, then once more after the English' });
   });
 
   it('a sleep lesson recap is one row; the Chinese lines around it stay their own', async () => {

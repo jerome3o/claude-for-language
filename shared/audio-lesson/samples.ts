@@ -10,7 +10,7 @@ export const SAMPLE_DIALOGUE_PLAN: DialoguePlan = {
   intro_en:
     "You're at a busy Lanzhou beef noodle shop, a 兰州拉面 place. You order at the counter: the kind of noodle, how spicy, and whether you want an egg. Listen for how the staff ask about thickness.",
   speakers: [
-    { id: 'A', name: 'Customer', gender: 'male' },
+    { id: 'A', name: 'Customer', gender: 'male', learner: true },
     { id: 'B', name: 'Cook', gender: 'female' },
   ],
   dialogue: [

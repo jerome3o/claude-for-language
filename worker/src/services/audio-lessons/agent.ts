@@ -25,6 +25,7 @@ import {
   type AudioLessonInput,
   type AudioLessonScript,
   type DialoguePlan,
+  type Gender,
   type SleepPlan,
   type CharLink,
   stampCharNotes,
@@ -63,13 +64,14 @@ FORMAT: "dialogue" — like a ChinesePod lesson, an English host with Chinese.
 The learner describes a situation to practise (and may paste a dialogue). The app builds the audio from your plan like this — you write only the content:
 1. Your intro_en (English, 2–5 sentences): set the scene and say what to listen for.
 2. The dialogue three times: twice at natural speed, once a little slower, two different Chinese voices.
-3. Line by line: each Chinese line, then its English translation.
+3. Line by line: each Chinese line three times, then its English translation, then the line once more.
 4. For each point, in its own chapter: the word said slowly twice, its tones (the app's own lines, built from your pinyin: "打, third tone." for each character, then "In 打扰了, 打 is said with a second tone, before another third tone." / "In 任务, 务 is neutral tone here." where the word says one differently), your explanation_en, the dialogue line that uses it, your example (Chinese, English, Chinese again), the word once more.
 5. The whole dialogue once more, then your outro_en.
 
 The dialogue
 - Two people (A and B) in the described situation, 6–12 short lines, natural spoken Chinese a real person would say there. Keep lines short (≤ 20 characters is ideal; never more than 40). If the learner pasted a dialogue, build on it: keep its content, fix mistakes, simplify or trim it to fit.
 - Pitch it slightly above the learner's level: mostly words they know, with 3–6 genuinely useful new words or structures for this situation. Speakers get a short English role name ("Customer", "Cook") and a gender; prefer one female and one male voice.
+- The learner's part: mark the speaker the learner would be in this situation — the one who says 我 as the learner would: the traveller, customer, guest, patient, passenger — with learner: true (exactly one). When the briefing gives the learner's gender, that speaker has that gender (and the Chinese they say fits it), and the other speaker is the other gender so the two voices are easy to tell apart, unless the situation needs otherwise.
 
 The points (the teaching part)
 - 3–7 points, most important first. Prioritise words and structures the learner does NOT know yet (status new / in_deck), then ones they are still learning. A known word only when it is used in a new way here.
@@ -78,7 +80,7 @@ The points (the teaching part)
 - explanation_en: 2–3 short spoken English sentences (about 40 words; the tones already take a few seconds). Relate the new word to words the learner already KNOWS (use check_known_words: "You know 银行, the bank — 银 is the 银 there, silver"). Break a word into its characters when that helps. Mention a common mistake or contrast when there is one. Write Chinese words IN CHARACTERS inside the English (they are spoken by a Chinese voice); NEVER write pinyin or tone descriptions like "third tone" spelled in pinyin in the narration — an English voice would mangle it.
 - example: one more short, simple sentence using the point (not from the dialogue), when it helps.
 
-Length: aim for the target minutes in the briefing. A typical 12-minute lesson = 8–10 dialogue lines and 4–5 points (each point's chapter runs about a minute).`;
+Length: aim for the target minutes in the briefing. A typical 12-minute lesson = 8–10 dialogue lines and 4–5 points (each line takes about 20 seconds in the line by line part, each point's chapter about a minute).`;
 
 const SLEEP_PROMPT = `${COMMON}
 
@@ -134,7 +136,16 @@ const DIALOGUE_PLAN_SCHEMA = {
     intro_en: { type: 'string' },
     speakers: {
       type: 'array',
-      items: { type: 'object', properties: { id: { type: 'string', enum: ['A', 'B'] }, name: { type: 'string' }, gender: { type: 'string', enum: ['female', 'male'] } }, required: ['id', 'name', 'gender'] },
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', enum: ['A', 'B'] },
+          name: { type: 'string' },
+          gender: { type: 'string', enum: ['female', 'male'] },
+          learner: { type: 'boolean', description: "true for the ONE speaker whose part the learner plays (the traveller / customer / guest who says 我); that speaker takes the learner's gender from the briefing." },
+        },
+        required: ['id', 'name', 'gender'],
+      },
     },
     dialogue: { type: 'array', items: { ...LINE, properties: { ...LINE.properties, speaker: { type: 'string', enum: ['A', 'B'] } }, required: ['speaker', 'hanzi', 'pinyin', 'english'] } },
     points: {
@@ -265,10 +276,19 @@ export function clipText(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n[… cut at ${max} characters]` : text;
 }
 
-export function buildBriefing(format: AudioLessonFormat, input: AudioLessonInput, index: VocabIndex, title?: string | null): string {
+/** The briefing's line about the learner's own part in a dialogue (their voice gender, when set). */
+export function learnerPartLine(gender: Gender | null | undefined): string {
+  if (!gender) return "Their part in the dialogue: mark the speaker the learner would be (traveller / customer / guest — the one who says 我) with learner: true.";
+  const other = gender === 'male' ? 'female' : 'male';
+  const who = gender === 'male' ? 'a man' : 'a woman';
+  return `The learner is ${who}: their own part in the dialogue (the traveller / customer / guest — the one who says 我) is spoken in a ${gender} voice. Mark that speaker learner: true with gender "${gender}", and make the other speaker ${other} so the two voices contrast.`;
+}
+
+export function buildBriefing(format: AudioLessonFormat, input: AudioLessonInput, index: VocabIndex, title?: string | null, learnerGender?: Gender | null): string {
   const minutes = input.target_minutes ?? AUDIO_LESSON_INPUT_LIMITS.defaultMinutes[format];
   const parts: string[] = [];
-  parts.push(`# The learner\nKnows ${index.knownWords} words (mature cards), is learning ${index.learningWords} more. A sample of words they know: ${levelSample(index).join('、') || '(none yet)'}.`);
+  const part = format === 'dialogue' ? ` ${learnerPartLine(learnerGender)}` : '';
+  parts.push(`# The learner\nKnows ${index.knownWords} words (mature cards), is learning ${index.learningWords} more. A sample of words they know: ${levelSample(index).join('、') || '(none yet)'}.${part}`);
   parts.push(`# The lesson\nFormat: ${format}. Target length: about ${minutes} minutes.${title ? ` Title the learner gave: "${title}".` : ''}`);
   if (format === 'dialogue') {
     parts.push(`# The situation to practise\n${input.description?.trim() || '(none given — choose an everyday situation)'}`);
@@ -315,17 +335,40 @@ export function planWords(raw: unknown): Array<{ hanzi: string; pinyin: string |
   );
 }
 
+/**
+ * The learner's own part speaks in the account's voice gender (users.voice_gender; Jerome, Oct 2026:
+ * lessons A and B gave the traveller "我" a woman's voice). The speaker marked `learner` takes it; when
+ * the other speaker had that gender (the plan meant the two to contrast), it takes the learner's old
+ * one. Null gender (other / not set) or no learner marked: the plan's genders as written.
+ */
+export function applyLearnerGender(plan: DialoguePlan, gender: Gender | null | undefined): DialoguePlan {
+  if (!gender) return plan;
+  const learner = plan.speakers.find((s) => s.learner === true);
+  if (!learner || learner.gender === gender) return plan;
+  const other = plan.speakers.find((s) => s !== learner);
+  const swap = !!other && other.gender === gender;
+  return {
+    ...plan,
+    speakers: plan.speakers.map((s) => (s === learner ? { ...s, gender } : swap && s === other ? { ...s, gender: learner.gender } : s)),
+  };
+}
+
 /** Validate + compile what the model handed in. Pure. */
 export function acceptPlan(
   format: AudioLessonFormat,
   raw: unknown,
   input: AudioLessonInput,
   /** Sleep: the facts for each word's characters (char-links.ts) — makes char_notes required and checked. */
-  opts: { charLinks?: Record<string, CharLink[]> } = {},
+  opts: { charLinks?: Record<string, CharLink[]>; learnerGender?: Gender | null } = {},
 ): SubmitResult {
   let plan = planOf(raw);
   const problems = format === 'dialogue' ? validateDialoguePlan(plan) : validateSleepPlan(plan, { charLinks: opts.charLinks });
+  // Dialogue with the learner's gender known: one speaker must be the learner's part (it takes that voice).
+  if (format === 'dialogue' && opts.learnerGender && !problems.length && !(plan as DialoguePlan).speakers.some((s) => s.learner === true)) {
+    problems.push(`speakers: mark the speaker whose part the learner plays (the traveller / customer / guest who says 我) with learner: true — that part is spoken in the learner's ${opts.learnerGender} voice`);
+  }
   if (problems.length) return { ok: false, problems };
+  if (format === 'dialogue') plan = applyLearnerGender(plan as DialoguePlan, opts.learnerGender);
   // Sleep: each character note takes its kind from the facts (a new character is said by the app).
   if (format === 'sleep' && opts.charLinks) plan = stampCharNotes(plan as SleepPlan, opts.charLinks);
   const script = format === 'dialogue' ? compileDialogueLesson(plan as DialoguePlan) : compileSleepLesson(plan as SleepPlan, { sourceText: input.text });
@@ -433,8 +476,10 @@ export async function runAuthor(args: {
   deadline: number;
   /** Sleep: what each character's line may say (char-links.ts); without it char_notes are only shape-checked. */
   charLinks?: CharLinksFn;
+  /** Dialogue: the account's voice gender — the learner's own part speaks in it (applyLearnerGender). */
+  learnerGender?: Gender | null;
 }): Promise<AuthorOutcome> {
-  const { format, input, index, call, checkpoint, charLinks } = args;
+  const { format, input, index, call, checkpoint, charLinks, learnerGender } = args;
   const state = args.state;
   const system = systemPrompt(format);
   const tools = authorTools(format);
@@ -487,7 +532,7 @@ export async function runAuthor(args: {
         progress = `Checking ${words.length} word${words.length === 1 ? '' : 's'} against your cards…`;
       } else if (use.name === 'submit_lesson') {
         const links = format === 'sleep' && charLinks ? await charLinks(planWords(toolInput)) : undefined;
-        const out = acceptPlan(format, toolInput, input, { charLinks: links });
+        const out = acceptPlan(format, toolInput, input, { charLinks: links, learnerGender });
         if (out.ok) {
           accepted = out;
           results.push({ type: 'tool_result', tool_use_id: use.id, content: 'Accepted. The lesson is being recorded.' });

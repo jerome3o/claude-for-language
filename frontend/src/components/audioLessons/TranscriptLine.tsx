@@ -1,6 +1,6 @@
 import { forwardRef } from 'react';
 import { itemForText } from '@shared/explorer';
-import type { TranscriptRow } from '@shared/audio-lesson';
+import { repeatLabel, type TranscriptRow } from '@shared/audio-lesson';
 import { looksLikeChinese } from '@shared/chats/messageTools';
 import { ChatWordsText, type TappedWord } from '../chat/ChatWords';
 import { useExplorer } from '../explorer/ExplorerContext';
@@ -26,6 +26,8 @@ export const TranscriptLine = forwardRef<
 >(function TranscriptLine({ row, current, showPinyin, showEnglish, known, onSeek }, ref) {
   const explorer = useExplorer();
   const zh = row.lang === 'zh';
+  // "×3", or line by line's "×3 +1" (three times, the English, once more).
+  const repeat = repeatLabel(row);
   const tapWord = ({ word, sentence }: TappedWord) => {
     const item = itemForText(word.text, { pinyin: word.pinyin || undefined, gloss: word.gloss || undefined, sentence });
     if (item) explorer.open(item, { source: 'audio_lesson' });
@@ -38,9 +40,9 @@ export const TranscriptLine = forwardRef<
         ) : (
           row.text
         )}
-        {row.repeat && (
-          <span className="al-line-repeat" aria-label={`said ${row.repeat} times`}>
-            ×{row.repeat}
+        {repeat.text && (
+          <span className="al-line-repeat" aria-label={repeat.aria} title={repeat.aria}>
+            {repeat.text}
           </span>
         )}
       </span>
