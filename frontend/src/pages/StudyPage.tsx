@@ -2333,9 +2333,12 @@ export function StudyCard({
       );
     }
 
-    // Voice first: the big 🎤 in the middle, ✏️ Type on the left (this card only), Show answer on the
-    // right. Offline (no live transcription) the box comes first, the 🎤 dimmed beside it.
+    // Voice first: one row of the app's own buttons at the bottom, like the read card's (Skip
+    // recording / Record): ✏️ Type (this card only) and 👁 Show answer small on the left, the wide
+    // orange 🎤 Say it on the right. While the answer is said the live transcript shows above and the
+    // row turns into ✕ Cancel + ⏹ Stop. Offline (no live transcription) the box comes first instead.
     if (aiAvailable && !typingMode) {
+      const finishing = spoken.phase === 'finishing';
       return (
         <div className="study-card-actions study-voice-first" data-testid="study-voice-first">
           {mcFallbackNote && (
@@ -2343,25 +2346,45 @@ export function StudyCard({
           )}
           {spoken.busy && renderSpokenLiveBox('Listening… say the answer')}
           <div className="study-voice-row">
+            {spoken.busy ? (
+              <button
+                type="button"
+                className="btn btn-secondary study-voice-side"
+                onClick={spoken.cancel}
+                data-testid="spoken-cancel"
+              >
+                ✕ Cancel
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-secondary study-voice-side"
+                  onClick={() => { setMicHint(false); setTypingMode(true); }}
+                  aria-label="Type the answer"
+                  data-testid="spoken-type"
+                >
+                  <span aria-hidden="true">✏️</span> Type
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary study-voice-side"
+                  onClick={handleFlip}
+                  aria-label="Show answer"
+                  data-testid="voice-show-answer"
+                >
+                  <span aria-hidden="true">👁</span> Show answer
+                </button>
+              </>
+            )}
             <button
               type="button"
-              className="study-voice-side"
-              onClick={() => { setMicHint(false); setTypingMode(true); }}
-              aria-label="Type the answer instead"
-              data-testid="spoken-type"
-              style={spoken.busy ? { visibility: 'hidden' } : undefined}
-            >
-              <span className="study-voice-side-icon" aria-hidden="true">✏️</span>
-              <span className="study-voice-side-label">Type</span>
-            </button>
-            <button
-              type="button"
-              className={`study-mic-big${spoken.listening ? ' is-listening' : ''}`}
-              aria-label={spoken.listening ? 'Stop and use what I said' : 'Say the answer'}
-              aria-disabled={spoken.phase === 'finishing'}
+              className={`btn ${spoken.listening ? 'btn-error' : 'btn-primary'} study-voice-say${spoken.listening ? ' is-listening' : ''}`}
+              aria-label={spoken.listening ? 'Stop and use what I said' : finishing ? 'Finishing' : 'Say it'}
+              aria-disabled={finishing}
               data-testid="spoken-mic"
               onClick={() => {
-                if (spoken.phase === 'finishing') return;
+                if (finishing) return;
                 if (spoken.listening) spoken.stop();
                 else {
                   stopAudio(); // a listen card's clip must not play into the microphone
@@ -2369,33 +2392,21 @@ export function StudyCard({
                 }
               }}
             >
-              {spoken.phase === 'finishing' ? <span className="spinner study-mic-big-spinner" aria-hidden="true" /> : (spoken.listening ? '⏹' : '🎤')}
-            </button>
-            <button
-              type="button"
-              className="study-voice-side"
-              onClick={handleFlip}
-              data-testid="voice-show-answer"
-              style={spoken.busy ? { visibility: 'hidden' } : undefined}
-            >
-              <span className="study-voice-side-icon" aria-hidden="true">👁</span>
-              <span className="study-voice-side-label">Show answer</span>
+              {finishing ? (
+                <><span className="spinner study-voice-say-spinner" aria-hidden="true" /> Finishing…</>
+              ) : spoken.listening ? (
+                <><span aria-hidden="true">⏹</span> Stop</>
+              ) : (
+                <><span aria-hidden="true">🎤</span> Say it</>
+              )}
             </button>
           </div>
-          <p className="study-mic-big-label" aria-hidden="true">
-            {spoken.listening ? 'Tap to stop' : spoken.phase === 'finishing' ? 'Finishing…' : 'Tap to say it'}
-          </p>
-          {spoken.busy && (
-            <button type="button" className="study-spoken-cancel" onClick={spoken.cancel} data-testid="spoken-cancel">
-              ✕ Cancel
-            </button>
-          )}
           {recorderError && !spoken.busy && (
             <p className="study-spoken-hint" data-testid="spoken-mic-error">{recorderError}</p>
           )}
           {spoken.phase === 'failed' && spoken.failure !== 'empty' && renderSpokenRetry('Or type your answer')}
           {spoken.phase === 'failed' && spoken.failure === 'empty' && (
-            <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap 🎤 to try again, or type it.</p>
+            <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap Say it to try again, or type it.</p>
           )}
         </div>
       );

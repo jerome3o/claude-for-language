@@ -713,16 +713,20 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
 `hooks/useSpokenAnswer.ts` + `services/spokenAnswer.ts`; Lab `StudyViewModel` "say the answer" +
 `CardStage` `SpokenMicButton`). It is the read cards' pronunciation take, not a fork:
 
-- **Voice first.** The question opens on a big round **🎤** (84 px / dp, centred, "Tap to say it")
-  — no answer box and no keyboard on card show. **✏️ Type** on the left switches THIS card to the
-  box (focused, keyboard up) with the small 🎤 beside it as before; the next card is voice first
-  again. **👁 Show answer** on the right reveals without answering. A resumed card with an answer in
+- **Voice first.** The question opens on ONE row of the app's own buttons where the read card's
+  Show answer / 🎤 Record row sits (same height, corners and type): **✏️ Type** and **👁 Show
+  answer** small on the left, the wide primary **🎤 Say it** on the right taking the rest — no
+  answer box and no keyboard on card show. ✏️ Type switches THIS card to the box (focused, keyboard
+  up) with the small 🎤 beside it as before; the next card is voice first again. 👁 Show answer
+  reveals without answering. While speaking the live transcript shows above the row and the row
+  turns into **✕ Cancel** + a red **⏹ Stop** (the read card's Stop recording), "Finishing…" until
+  the transcript is final; a listen card's floating 🔊 steps aside. A resumed card with an answer in
   the box, or a transcript only filled in (auto-submit off), shows the box. **Offline** (no live
-  transcription) the box comes first with the 🎤 dimmed, as before. While speaking the live
-  transcript shows above the 🎤 and a listen card's floating 🔊 steps aside. Web
-  `renderTypingActions` `typingMode` (`.study-voice-first`, `.study-mic-big`); Lab `CardStage`
-  `typingMode` / `VoiceFirstControls` / `BigMicButton`; e2e `study-speak-answer.spec.ts` "voice
-  first", Lab `SpokenAnswerUiTest`.
+  transcription) the box comes first with the 🎤 dimmed, as before. Accessibility labels "Say it" /
+  "Type the answer" / "Show answer". Web `renderTypingActions` `typingMode` (`.study-voice-first`,
+  `.study-voice-row`: `.btn .btn-secondary .study-voice-side` + `.btn .btn-primary .study-voice-say`);
+  Lab `CardStage` `typingMode` / `VoiceFirstControls` (the kit's `SecondaryPill` / `PrimaryPill`, 60dp
+  like `RecordControls`); e2e `study-speak-answer.spec.ts` "voice first", Lab `SpokenAnswerUiTest`.
 - **Tap 🎤** → the SAME recorder and live Soniox stream as a read card's take (web
   `useAudioRecorder` + `LiveTranscriber`, Lab `VoiceRecorder.startLive` + `SonioxStream`); the box
   turns into the live transcript — confirmed text in ink, the provisional tail grey (the
