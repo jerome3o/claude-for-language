@@ -4,7 +4,7 @@
  * every route is scoped to the caller's own lessons.
  *
  *   GET    /audio-lessons            { lessons: AudioLessonSummary[] } newest first (stuck builds marked failed)
- *   POST   /audio-lessons            { format, description?, dialogue?, text?, title?, target_minutes?, for_relationship_id? } → 202 { lesson }
+ *   POST   /audio-lessons            { format: dialogue|sleep|story, description?, dialogue?, text?, title?, target_minutes?, for_relationship_id? } → 202 { lesson, notice?, chunks? }
  *   GET    /audio-lessons/:id        { lesson: AudioLessonDetail } (chapters, transcript, words, usage)
  *   GET    /audio-lessons/:id/audio  the MP3 (owner only; Range → 206)
  *   POST   /audio-lessons/:id/retry  a failed lesson again, from what was already made → 202
@@ -82,7 +82,8 @@ routes.post('/audio-lessons', async (c) => {
   await startJob(c, id);
   await trackServer('server.content_created', { kind: 'audio_lesson', count: 1, via: 'api' }, { env: c.env, userId: uid });
   const row = await q.getAudioLesson(c.env.DB, id, uid);
-  return c.json({ lesson: q.lessonSummary(row!) }, 202);
+  // Story: `notice` says when the text is longer than one lesson holds (the first part is made).
+  return c.json({ lesson: q.lessonSummary(row!), ...(picked.notice ? { notice: picked.notice } : {}), ...(picked.chunks !== undefined ? { chunks: picked.chunks } : {}) }, 202);
 });
 
 routes.get('/audio-lessons/:id', async (c) => {

@@ -48,7 +48,7 @@ class AudioLessonParityTest {
     @Test
     fun lookupsOverRealLessonsMatchTypeScript() {
         val lessons = fixture["lessons"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(listOf("dialogue", "sleep"), lessons.map { it["name"]!!.jsonPrimitive.content })
+        assertEquals(listOf("dialogue", "sleep", "story"), lessons.map { it["name"]!!.jsonPrimitive.content })
         for (lesson in lessons) {
             val name = lesson["name"]!!.jsonPrimitive.content
             val chapters = json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonChapter.serializer()), lesson["chapters"]!!)
@@ -72,6 +72,44 @@ class AudioLessonParityTest {
             json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonTranscriptLine.serializer()), lessons[0]["transcript"]!!),
         )
         assertTrue(dialogueRows.any { it.last > it.first && it.text.contains("兰州拉面") })
+        // A story: one row per line, said three times, its English joined to it.
+        val storyRows = AudioLessonTimeline.transcriptRows(
+            json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonTranscriptLine.serializer()), lessons[2]["transcript"]!!),
+        )
+        assertEquals(25, storyRows.size)
+        assertTrue(storyRows.all { it.repeat == 3 && !it.english.isNullOrEmpty() })
+        assertEquals("明慧：你好！你今天想喝什么？", storyRows[0].text)
+    }
+
+    @Test
+    fun formatsAndTheStoryEstimateMatchTypeScript() {
+        val f = fixture["formats"]!!.jsonObject
+        assertEquals(f["all"]!!.jsonArray.map { it.jsonPrimitive.content }, AudioLessonFormats.ALL)
+        for (i in f["info"]!!.jsonArray.map { it.jsonObject }) {
+            val format = i["format"]?.jsonPrimitive?.contentOrNull
+            val want = i["info"]!!.jsonObject
+            assertEquals(
+                AudioLessonFormatInfo(want["icon"]!!.jsonPrimitive.content, want["label"]!!.jsonPrimitive.content, want["short"]!!.jsonPrimitive.content, want["kind"]!!.jsonPrimitive.content),
+                AudioLessonFormats.info(format),
+                "info $format",
+            )
+        }
+        for (d in f["defaultMinutes"]!!.jsonArray.map { it.jsonObject }) {
+            val format = d["format"]!!.jsonPrimitive.content
+            assertEquals(d["minutes"]!!.jsonPrimitive.int, AudioLessonTimeline.Limits.defaultMinutes(format), "defaultMinutes $format")
+        }
+        assertEquals(f["storyText"]!!.jsonPrimitive.int, AudioLessonTimeline.Limits.STORY_TEXT)
+        assertEquals(f["msPerHan"]!!.jsonPrimitive.int, AudioLessonFormats.STORY_MS_PER_HAN)
+        assertEquals(f["maxMinutes"]!!.jsonPrimitive.int, AudioLessonFormats.STORY_MAX_MINUTES)
+        for (e in f["estimates"]!!.jsonArray.map { it.jsonObject }) {
+            val text = e["text"]!!.jsonPrimitive.content
+            val got = AudioLessonFormats.storyMinutesForText(text)
+            val label = text.take(12)
+            assertEquals(e["minutes"]!!.jsonPrimitive.int, got.minutes, "minutes $label (${text.length})")
+            assertEquals(e["han"]!!.jsonPrimitive.int, got.han, "han $label")
+            assertEquals(e["capped"]!!.jsonPrimitive.boolean, got.capped, "capped $label")
+            assertEquals(e["line"]!!.jsonPrimitive.content, AudioLessonFormats.storyEstimateLine(text), "line $label")
+        }
     }
 
     @Test

@@ -14,7 +14,9 @@ import type {
   AudioLessonUsage,
   AudioLessonScript,
   LessonWord,
+  StoryPlan,
 } from '@shared/audio-lesson';
+import { storyCutNotice } from '@shared/audio-lesson/story';
 
 export interface AudioLessonRow {
   id: string;
@@ -92,6 +94,12 @@ export function lessonSummary(row: AudioLessonRow): AudioLessonSummary {
   };
 }
 
+/** A story lesson's "the text was cut" line, from its plan. */
+function storyNotice(planJson: string | null): string | null {
+  const cut = parse<StoryPlan | null>(planJson, null)?.cut;
+  return cut ? storyCutNotice(cut) : null;
+}
+
 export function lessonDetail(row: AudioLessonRow): AudioLessonDetail {
   const timeline = parse<{ chapters: AudioLessonChapter[]; transcript: AudioLessonTranscriptLine[] }>(row.timeline_json, { chapters: [], transcript: [] });
   const script = parse<AudioLessonScript | null>(row.script_json, null);
@@ -104,6 +112,7 @@ export function lessonDetail(row: AudioLessonRow): AudioLessonDetail {
     speakers: script?.speakers ?? [],
     usage: parse<AudioLessonUsage | null>(row.usage_json, null),
     for_relationship_id: row.for_relationship_id,
+    ...(row.format === 'story' ? { notice: storyNotice(row.plan_json) } : {}),
   };
 }
 

@@ -121,9 +121,44 @@ object SampleAudioLessons {
         ),
     )
 
+    /** A story lesson (format story): each line ×3 + its English, a chapter per heading. */
+    val story = AudioLessonDto(
+        id = "al6",
+        format = "story",
+        title = "在咖啡馆",
+        status = "ready",
+        duration_ms = 214_000,
+        size_bytes = 1_200_000,
+        word_count = 0,
+        audio_version = "v1",
+        chapters = listOf(AudioLessonChapter("在咖啡馆", 0), AudioLessonChapter("他们坐在窗边", 168_000)),
+        transcript = run {
+            val chunks = listOf(
+                Triple("明慧：你好！你今天想喝什么？", "nǐ hǎo! nǐ jīntiān xiǎng hē shénme?", "Hi! What would you like to drink today?") to "speaker_a",
+                Triple("杰罗姆：我要一杯热咖啡，不要糖。", "wǒ yào yì bēi rè kāfēi, bú yào táng.", "I'd like a hot coffee, no sugar.") to "speaker_b",
+                Triple("明慧：好的。你要大杯还是小杯？", "hǎo de. nǐ yào dà bēi háishi xiǎo bēi?", "Sure. Large or small?") to "speaker_a",
+                Triple("杰罗姆：小杯就好。谢谢！", "xiǎo bēi jiù hǎo. xièxie!", "A small one is fine. Thanks!") to "speaker_b",
+                Triple("他们坐在窗边，外面下着小雨。", "tāmen zuò zài chuāng biān, wàimiàn xià zhe xiǎo yǔ.", "They sit by the window; outside, a light rain is falling.") to "teacher",
+            )
+            var t = 1000L
+            chunks.flatMapIndexed { i, (c, voice) ->
+                val ch = if (i == 4) 1 else 0
+                val lines = mutableListOf(l(t, voice, c.first, ch, c.second, c.third))
+                t += 9_000
+                repeat(2) { lines += l(t, voice, c.first, ch); t += 9_000 }
+                lines += l(t, "recap", c.third, ch)
+                t += 6_000
+                lines
+            }
+        },
+        notice = null,
+    )
+
     private val summaries = listOf(
         AudioLessonDto(id = "al3", format = "dialogue", title = "Taking a taxi and giving directions", status = "speaking", progress_done = 23, progress_total = 64),
         AudioLessonDto(id = "al4", format = "sleep", title = "我家旁边有一个邮局", status = "writing", progress = "Checking the words you know…"),
+        AudioLessonDto(id = "al7", format = "story", title = "小王子 第一章", status = "writing", progress = "Translating — 30 of 74 lines…"),
+        story.copy(chapters = emptyList(), transcript = emptyList()),
         dialogue.copy(chapters = emptyList(), transcript = emptyList(), words = emptyList()),
         sleep.copy(chapters = emptyList(), transcript = emptyList(), words = emptyList()),
         AudioLessonDto(id = "al5", format = "dialogue", title = "Seeing a doctor about a cold", status = "failed", error = "The voices are busy — try again in a few minutes."),
@@ -242,6 +277,37 @@ class AudioLessonScreenshots : LabScreenshotTest() {
 
     @Test fun podcastFeedOff() = shoot("audio-lessons-16-podcast-feed-off") {
         androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.padding(16.dp)) { PodcastFeedSection(PodcastFeedUi(off = true), PodcastFeedActions()) }
+    }
+
+    /** The story format: paste a story / conversation, a title, the length it will be — no length slider. */
+    @Test fun storyForm() = shoot("audio-lessons-19-form-story") {
+        AudioLessonsScreen(
+            s.list.copy(format = "story", minutes = 0, storyText = "# 在咖啡馆\n明慧：你好！你今天想喝什么？\n杰罗姆：我要一杯热咖啡，不要糖。\n明慧：好的。你要大杯还是小杯？\n杰罗姆：小杯就好。谢谢！\n他们坐在窗边，外面下着小雨。"),
+            AudioLessonsActions(),
+        )
+    }
+
+    /** A long story: the server's notice after it was started. */
+    @Test fun storyFormNotice() = shoot("audio-lessons-20-form-story-notice") {
+        AudioLessonsScreen(
+            s.list.copy(format = "story", minutes = 0, notice = "The text is long: this lesson covers the first 1,480 of 3,912 characters (about 60 minutes). Paste the rest as another lesson."),
+            AudioLessonsActions(),
+        )
+    }
+
+    /** The story player: each line one row "×3" with its pinyin and English; 拼 / EN toggles; music on by default. */
+    @Test fun playerStory() = shoot("audio-lessons-21-player-story") {
+        AudioLessonPlayerScreen(
+            AudioLessonPlayerUi(lesson = s.story, savedOnPhone = true, canPlay = true, playing = true, positionMs = 40_000, musicOn = true),
+            AudioLessonPlayerActions(),
+        )
+    }
+
+    @Test fun playerStoryNoPinyin() = shoot("audio-lessons-22-player-story-no-pinyin") {
+        AudioLessonPlayerScreen(
+            AudioLessonPlayerUi(lesson = s.story, savedOnPhone = true, canPlay = true, positionMs = 40_000, musicOn = true, showPinyin = false),
+            AudioLessonPlayerActions(),
+        )
     }
 
     @Test fun listDark() = shoot("audio-lessons-12-list-dark", dark = true) { AudioLessonsScreen(s.list, AudioLessonsActions()) }

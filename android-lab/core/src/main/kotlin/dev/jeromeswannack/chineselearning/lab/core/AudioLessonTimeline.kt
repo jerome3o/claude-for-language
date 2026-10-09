@@ -239,8 +239,15 @@ object AudioLessonTimeline {
         const val DESCRIPTION = 1000
         const val DIALOGUE = 4000
         const val TEXT = 20_000
+        /** A story lesson's pasted text (storyText). */
+        const val STORY_TEXT = 6000
         const val MIN_MINUTES = 5
         const val MAX_MINUTES = 40
-        fun defaultMinutes(format: String): Int = if (format == "sleep") 20 else 12
+        /** A story has no target length (0): it is as long as its text. */
+        fun defaultMinutes(format: String): Int = when (format) {
+            "sleep" -> 20
+            "story" -> 0
+            else -> 12
+        }
     }
 }

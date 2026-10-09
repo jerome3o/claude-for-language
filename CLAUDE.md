@@ -99,7 +99,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── compute-state.ts    # Core FSRS logic, state computation from events
 │   │   ├── compute-state.test.ts # Tests for scheduler
 │   │   └── index.ts       # Re-exports
-│   ├── audio-lesson/      # Audio lessons (docs/AUDIO_LESSONS.md): plan types (DialoguePlan / SleepPlan), compile.ts (plan → speech/pause script, RATES / PAUSES), validate.ts, timeline.ts (chapters / transcript in ms, player helpers), input.ts
+│   ├── audio-lesson/      # Audio lessons (docs/AUDIO_LESSONS.md): plan types (DialoguePlan / SleepPlan / StoryPlan), compile.ts (plan → speech/pause script, RATES / PAUSES), story.ts (the story splitter, compileStoryLesson, the 60-min cap), validate.ts, timeline.ts (chapters / transcript in ms, player helpers), input.ts
 │   ├── idioms/            # 成语 Idioms (beta, docs/IDIOMS.md): the entry shape (types.ts), starter list (~46), cache key + explorer link rule (normalize.ts), validator (validate.ts), "+ Add as card" fields (card.ts), sample entry — parity-tested by the Lab app
 │   ├── picture-hunt/      # Picture hunt (看图找词): types (normalised boxes / outlines), answer matching (match.ts), hit-testing (geometry.ts), feedback copy, validation — parity-tested by the Lab app
 │   ├── quest/             # Quests: the tile-map mini-game framework
@@ -326,7 +326,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `char_explanations` - "More about 字" on the character sheet: Haiku's short card-independent explanation per character, shared by everyone (migration 0108). The dictionary itself is static (`worker/char-dict/`, see "Character sheet")
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at; migration 0116: `answer_lang` zh|en, word chips `answer_words` / `question_words`, `answer_translation` / `question_translation`, `question_check` = the auto-check JSON of the question). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
 - `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0104): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
-- `audio_lessons` - Audio lessons (migration 0046 reused + 0111; docs/AUDIO_LESSONS.md): format dialogue|sleep, status queued/writing/speaking/rendering/ready/failed, progress + clips done/total, input, the agent transcript, plan, script, timeline (chapters + transcript), words, `audio_key` (R2 `audio-lessons/`), usage, pinned `zh_provider`, `for_relationship_id` (a label only). Rows with `format` NULL are the removed first attempt
+- `audio_lessons` - Audio lessons (migration 0046 reused + 0111; docs/AUDIO_LESSONS.md): format dialogue|sleep|story (TEXT, no CHECK), status queued/writing/speaking/rendering/ready/failed, progress + clips done/total, input, the agent transcript, plan, script, timeline (chapters + transcript), words, `audio_key` (R2 `audio-lessons/`), usage, pinned `zh_provider`, `for_relationship_id` (a label only). Rows with `format` NULL are the removed first attempt
 - `podcast_feeds` - The private podcast feed of a user's audio lessons (migration 0112): one row per user, `token_hash` (SHA-256, how a feed request finds the user), `token_enc` (AES-GCM, so Settings can show the link again), created / rotated / last fetched, fetch count. Reset = new token; Turn off = row deleted
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
@@ -1122,11 +1122,21 @@ played three times, line by line, then the new words / structures; **sleep** = C
 the new words of a pasted text, per word: "这是一个新词。我说三遍。" + the word ×3 (short pauses), each character's tone
 (`char_tones`) + its characters (`characters_zh`), what it MEANS in 5–8 short comprehensible-input sentences
 (`meaning_zh`), ONE English recap line in a calm English voice ("The word was 银行: bank, as in …" — `recap_en`, voice
-role `recap`), then three sentences each ×3 followed by its English translation (recap voice). The sleep voice runs at
-each provider's slowest natural rate (`SLEEP_ZH_PROVIDER_RATE`: MiniMax 0.5, Azure 0.6, Google 0.6). Both players mix a
+role `recap`), then three sentences each ×3 followed by its English translation (recap voice); **story** ("Listen &
+repeat a story", `shared/audio-lesson/story.ts`, worker `services/audio-lessons/story.ts`) = a pasted longer story or
+conversation split BY CODE (`splitStoryText`: after 。！？!?…, at line breaks / speaker turns, never inside quotes; labels
+"A：" / "明慧：" off the spoken text and onto two voices `speaker_a` / `speaker_b`, narration in the app voice `teacher`;
+`# …` / 第一章 headings = chapters, else a chapter every 10 chunks; a short sentence merged into the next, ~8–40
+characters a chunk), each chunk said ×3 at the slowest rate with 2 s after each, then its English once (recap voice),
+2.5 s; Claude only TRANSLATES (`structuredCall`, Sonnet, forced tool, thinking off, 30 chunks a call, checkpointed in
+`agent_transcript`; pinyin through `applyYiBuToneChanges`) — the Chinese is never rewritten; ≤ 6,000 characters pasted,
+≤ 60 minutes / 120 chunks made (`fitStoryChunks`; the rest is left out and `notice` says so); no `target_minutes`. The sleep
+voice (and any Chinese at app rate 0.5, i.e. a story's chunks) runs at each provider's slowest natural rate
+(`SLEEP_ZH_PROVIDER_RATE`: MiniMax 0.5, Azure 0.6, Google 0.6). Both players mix a
 soft procedural music loop under the lesson (`shared/audio-lesson/music.ts`; CC0, made by
 `scripts/audio/generate-lesson-music.mjs` → `frontend/public/audio/lesson-music-v1.mp3` + Lab `res/raw/lesson_music.mp3`;
-🎵 toggle + volume, on for sleep / off for dialogue); the MP3 and the podcast feed stay speech-only.
+🎵 toggle + volume, on for sleep and story / off for dialogue); the MP3 and the podcast feed stay speech-only. The players'
+transcript has 拼 / EN toggles (remembered per device).
 Claude Opus 5.5 (`agent.ts`, tools `check_known_words` + `submit_lesson`, transcript checkpointed) writes a
 PLAN; `shared/audio-lesson/compile.ts` makes the speech/pause SCRIPT; each distinct clip goes through
 `callProviderTTS` (`synth.ts`; Chinese in the stored order with the first provider PINNED per lesson,
@@ -1134,7 +1144,7 @@ English Azure → Google; all clips 24 kHz mono MP3); `mp3.ts` joins frames + ge
 header in the Worker. Queue `audio-lesson-queue` (re-enqueues on rate limits / after 4 min). R2
 `audio-lessons/` (person-made). Web player: offline (Cache API), chapters, ±10 s, speed, transcript,
 sleep timer, Media Session. MCP `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` / `get_audio_lesson_feed`.
-- `GET|POST /api/audio-lessons`, `GET|DELETE /api/audio-lessons/:id`, `GET /api/audio-lessons/:id/audio`, `POST /api/audio-lessons/:id/retry`
+- `GET|POST /api/audio-lessons` (POST `{ format: dialogue|sleep|story, … }` → 202 `{ lesson, notice?, chunks? }`), `GET|DELETE /api/audio-lessons/:id` (a story's detail carries `notice`), `GET /api/audio-lessons/:id/audio`, `POST /api/audio-lessons/:id/retry`
 - **Private podcast feed** (`routes/podcast.ts`, `services/podcast-feed.ts`, docs/AUDIO_LESSONS.md "Podcast feed"): public,
   mounted BEFORE the auth middleware — `GET /api/podcast/:token/feed.xml` (RSS 2.0 + iTunes + `podcast:chapters`, one item
   per ready lesson), `GET /api/podcast/:token/lessons/:id/:version/audio.mp3` (Range → 206, HEAD, 416),
@@ -2003,7 +2013,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
-| `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` | Audio lessons (`tools/audio-lessons.ts`): start one (dialogue: `description` / `dialogue`; sleep: `text`; `target_minutes`; a tutor's `for_relationship_id` is only a label) / status, chapters, transcript, usage / the list |
+| `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` | Audio lessons (`tools/audio-lessons.ts`): start one — the description says when to use which: dialogue (practise a situation: `description` / `dialogue`), sleep (learn a text's new words: `text`), story (listen & repeat a whole pasted story / conversation: `text`, ≤ 6,000 characters, ≤ 60 min, `notice` when cut, no `target_minutes`); a tutor's `for_relationship_id` is only a label / status, chapters, transcript, usage / the list |
 | `get_audio_lesson_feed` | The signed-in user's private podcast feed URL of their audio lessons (`GET /api/me/podcast-feed`; made on first use) + podcast:// link; private — give it to the user only |
 | `get_idiom` / `list_idioms` | 成语 Idioms (`tools/idioms.ts`): one idiom's entry — meaning, 典故, usage, examples, quiz; generated when missing (waits up to 90 s), `caution` when not high confidence, `app_path` to point a learner at it / the starter list + looked-up idioms. Read / generate only, sends nothing |
 | `list_picture_hunts` / `create_picture_hunt` | The user's picture hunts (status, objects, best score) / start one from a scene description (`tools/picture-hunts.ts`) |
@@ -2477,7 +2487,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/homework/:jobId` - Review a homework draft made from lesson notes (tutor): load gauge, words / skipped, modes, split, Claude chat, Assign
 - `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
 - `/tutor-notes`, `/tutor-notes/practice?cards=&notes=` - Notes from your tutor (More → From your tutor, Home row) / practising those cards in the study card (immersive; a rating counts only when due)
-- `/audio-lessons`, `/audio-lessons/:id` - Audio lessons: list + New audio lesson (More → Practice), the player (immersive; offline once opened)
+- `/audio-lessons`, `/audio-lessons/:id` - Audio lessons: list + New audio lesson (Dialogue / Sleep / Story; More → Practice), the player (immersive; offline once opened)
 - `/idioms`, `/idioms/:hanzi` - 成语 Idioms (beta): look one up / browse the starter list, and one idiom's page (More → Practice; tutors More → Tools; the explorer's "📜 Story & usage")
 - `/picture-hunt`, `/picture-hunt/:id` - Picture hunt: list + make / upload, and the game (immersive; More → Practice)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md

@@ -192,7 +192,7 @@ export const ANALYTICS_EVENTS = {
   'idioms.generate': e('idioms', 'An idiom entry started generating (status after the request; retry = Retry after a failure).', ['status', 'retry'], { server: true }),
   'idioms.add_card': e('idioms', '"+ Add as card" from an idiom page.', []),
   'idioms.quiz': e('idioms', 'Finished the "Try it" check on an idiom page (practice only, nothing recorded).', ['correct', 'total']),
-  'audio_lesson.create': e('lessons', 'Asked for a new audio lesson (docs/AUDIO_LESSONS.md).', ['format', 'target_minutes']),
+  'audio_lesson.create': e('lessons', 'Asked for a new audio lesson (docs/AUDIO_LESSONS.md; format dialogue / sleep / story, chunks = a story lesson\'s lines).', ['format', 'target_minutes', 'chunks']),
   'audio_lesson.play': e('lessons', 'Started playing an audio lesson.', ['format', 'offline', 'resumed']),
   'audio_lesson.complete': e('lessons', 'Listened to an audio lesson to the end.', ['format', 'duration_ms']),
   'audio_lesson.sleep_timer': e('lessons', 'Set the sleep timer in the audio-lesson player (0 = off, -1 = end of chapter).', ['minutes', 'format']),

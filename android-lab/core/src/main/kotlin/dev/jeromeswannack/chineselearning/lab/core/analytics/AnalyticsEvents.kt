@@ -146,7 +146,7 @@ object AnalyticsEvents {
         ev("idioms.generate", "idioms", listOf("status", "retry"), server = true),
         ev("idioms.add_card", "idioms", emptyList()),
         ev("idioms.quiz", "idioms", listOf("correct", "total")),
-        ev("audio_lesson.create", "lessons", listOf("format", "target_minutes")),
+        ev("audio_lesson.create", "lessons", listOf("format", "target_minutes", "chunks")),
         ev("audio_lesson.play", "lessons", listOf("format", "offline", "resumed")),
         ev("audio_lesson.complete", "lessons", listOf("format", "duration_ms")),
         ev("audio_lesson.sleep_timer", "lessons", listOf("minutes", "format")),

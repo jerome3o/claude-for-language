@@ -44,7 +44,8 @@ export interface NewAudioLesson {
   target_minutes?: number;
 }
 
-export function createAudioLesson(body: NewAudioLesson): Promise<{ lesson: AudioLessonSummary }> {
+/** `notice` / `chunks`: a story lesson — "The text is long: …" when only its first part fits, and how many lines it has. */
+export function createAudioLesson(body: NewAudioLesson): Promise<{ lesson: AudioLessonSummary; notice?: string; chunks?: number }> {
   return json('/audio-lessons', { method: 'POST', body: JSON.stringify(body) });
 }
 

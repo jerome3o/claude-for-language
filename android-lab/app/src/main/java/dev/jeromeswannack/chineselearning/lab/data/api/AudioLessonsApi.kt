@@ -41,6 +41,8 @@ data class AudioLessonDto(
     val words: List<AudioLessonWord> = emptyList(),
     val chapters: List<AudioLessonChapter> = emptyList(),
     val transcript: List<AudioLessonTranscriptLine> = emptyList(),
+    /** Story: "The text is long: this lesson covers the first …" when part of the text was left out. */
+    val notice: String? = null,
 ) {
     val ready: Boolean get() = status == "ready"
     val building: Boolean get() = AudioLessonTimeline.isBuilding(status)
@@ -50,6 +52,9 @@ data class AudioLessonDto(
 
 @Serializable data class AudioLessonListDto(val lessons: List<AudioLessonDto> = emptyList())
 @Serializable data class AudioLessonEnvelopeDto(val lesson: AudioLessonDto)
+
+/** POST /api/audio-lessons → the lesson, and for a story: how many lines, and `notice` when only its first part fits. */
+@Serializable data class AudioLessonCreatedDto(val lesson: AudioLessonDto, val notice: String? = null, val chunks: Int? = null)
 
 /** NewAudioLesson (POST /api/audio-lessons). */
 @Serializable
@@ -71,7 +76,7 @@ object AudioLessonPaths {
 
 suspend fun Api.audioLessons(): List<AudioLessonDto> = get<AudioLessonListDto>(AudioLessonPaths.LIST).lessons
 suspend fun Api.audioLesson(id: String): AudioLessonDto = get<AudioLessonEnvelopeDto>(AudioLessonPaths.lesson(id)).lesson
-suspend fun Api.createAudioLesson(body: NewAudioLessonBody): AudioLessonDto = post<NewAudioLessonBody, AudioLessonEnvelopeDto>(AudioLessonPaths.LIST, body).lesson
+suspend fun Api.createAudioLesson(body: NewAudioLessonBody): AudioLessonCreatedDto = post<NewAudioLessonBody, AudioLessonCreatedDto>(AudioLessonPaths.LIST, body)
 suspend fun Api.retryAudioLesson(id: String): AudioLessonDto = post<AudioLessonEnvelopeDto>(AudioLessonPaths.retry(id)).lesson
 suspend fun Api.deleteAudioLesson(id: String) {
     val res = send("DELETE", AudioLessonPaths.lesson(id))

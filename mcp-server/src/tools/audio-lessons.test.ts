@@ -22,14 +22,26 @@ const FEED = { url: 'https://api.example/api/podcast/TOKEN/feed.xml', podcast_ur
 
 function fakeContext() {
   const tools = new Map<string, Handler>();
+  const schemas = new Map<string, Record<string, { safeParse: (v: unknown) => { success: boolean } }>>();
+  const descriptions = new Map<string, string>();
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   const api = {
     get: async (path: string) => { calls.push({ method: 'GET', path }); return path === '/api/me/podcast-feed' ? { feed: FEED } : path.endsWith('/a1') ? { lesson: DETAIL } : { lessons: [SUMMARY] }; },
-    post: async (path: string, body: unknown) => { calls.push({ method: 'POST', path, body }); return { lesson: { ...SUMMARY, status: 'queued' } }; },
+    post: async (path: string, body: unknown) => {
+      calls.push({ method: 'POST', path, body });
+      const story = (body as { format?: string }).format === 'story';
+      return { lesson: { ...SUMMARY, status: 'queued', ...(story ? { format: 'story', word_count: 0 } : {}) }, ...(story ? { chunks: 42, notice: 'The text is long: this lesson covers the first 1,500 of 4,000 characters (about 60 minutes). Paste the rest as another lesson.' } : {}) };
+    },
   };
-  const server = { tool: (name: string, _d: string, _s: unknown, handler: Handler) => { tools.set(name, handler); } };
+  const server = {
+    tool: (name: string, d: string, s: unknown, handler: Handler) => {
+      tools.set(name, handler);
+      descriptions.set(name, d);
+      schemas.set(name, s as never);
+    },
+  };
   registerAudioLessonTools({ server, api, env: {}, userId: 'u1' } as unknown as ToolContext);
-  return { tools, calls };
+  return { tools, calls, schemas, descriptions };
 }
 
 const text = (r: CallToolResult) => r.content.map((c) => (c.type === 'text' ? c.text : '')).join('');
@@ -41,6 +53,21 @@ describe('audio lesson tools', () => {
     expect(calls).toEqual([{ method: 'POST', path: '/api/audio-lessons', body: { format: 'sleep', text: '我家旁边有一个邮局。', for_relationship_id: 'rel-1' } }]);
     expect(out.sent).toBe(false);
     expect(out.lesson).toMatchObject({ id: 'a1', status: 'queued', listen_path: '/audio-lessons/a1' });
+  });
+
+  it('story: a pasted conversation → the API with format story; the chunk count and the cut notice come back', async () => {
+    const { tools, calls, schemas, descriptions } = fakeContext();
+    expect(schemas.get('create_audio_lesson')!.format.safeParse('story').success).toBe(true);
+    expect(schemas.get('create_audio_lesson')!.format.safeParse('podcast').success).toBe(false);
+    // The description says when to use which format.
+    const d = descriptions.get('create_audio_lesson')!;
+    for (const f of ['"dialogue"', '"sleep"', '"story"']) expect(d).toContain(f);
+    expect(d).toMatch(/LONGER STORY OR CONVERSATION/);
+    const text0 = 'A：你好！\nB：你好，你去哪儿？';
+    const out = JSON.parse(text(await tools.get('create_audio_lesson')!({ format: 'story', text: text0 })));
+    expect(calls).toEqual([{ method: 'POST', path: '/api/audio-lessons', body: { format: 'story', text: text0 } }]);
+    expect(out).toMatchObject({ chunks: 42, sent: false, lesson: { format: 'story', listen_path: '/audio-lessons/a1' } });
+    expect(out.notice).toMatch(/covers the first/);
   });
 
   it('lists with progress while being made', async () => {

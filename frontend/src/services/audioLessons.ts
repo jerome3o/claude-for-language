@@ -220,3 +220,22 @@ export function formatMb(bytes: number | null | undefined): string {
   if (!bytes) return '';
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/** The transcript's 拼 / EN toggles (both on until turned off; one choice for every lesson). */
+const TRANSCRIPT_SHOW_KEY = (what: 'pinyin' | 'english') => `audio-lesson-transcript-${what}-v1`;
+
+export function readTranscriptShow(what: 'pinyin' | 'english'): boolean {
+  try {
+    return localStorage.getItem(TRANSCRIPT_SHOW_KEY(what)) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+export function writeTranscriptShow(what: 'pinyin' | 'english', on: boolean): void {
+  try {
+    localStorage.setItem(TRANSCRIPT_SHOW_KEY(what), on ? '1' : '0');
+  } catch {
+    /* private mode: not remembered */
+  }
+}

@@ -5,6 +5,7 @@ import {
   MUSIC_MAX_VOLUME,
   MUSIC_MIN_VOLUME,
   SLEEP_TIMER_CHOICES,
+  audioLessonFormatInfo,
   chapterIndexAt,
   formatClock,
   musicOutputVolume,
@@ -20,7 +21,7 @@ import {
 import { useNetwork } from '../contexts/NetworkContext';
 import {
   cachedLessonDetail, downloadLessonFile, fetchLessonDetail, formatMb, lessonMusicBlob, readMusicOn, readMusicVolume,
-  savePosition, savedFile, savedPosition, writeMusicOn, writeMusicVolume,
+  readTranscriptShow, savePosition, savedFile, savedPosition, writeMusicOn, writeMusicVolume, writeTranscriptShow,
 } from '../services/audioLessons';
 import { track } from '../services/analytics';
 import './AudioLessonsPage.css';
@@ -54,6 +55,9 @@ export function AudioLessonPlayerPage() {
   const [showTimer, setShowTimer] = useState(false);
   const [showTranscript, setShowTranscript] = useState<boolean | null>(null);
   const [showChapters, setShowChapters] = useState(false);
+  // The transcript's 拼 / EN toggles (remembered on this device).
+  const [showPinyin, setShowPinyin] = useState(() => readTranscriptShow('pinyin'));
+  const [showEnglish, setShowEnglish] = useState(() => readTranscriptShow('english'));
   const audioRef = useRef<HTMLAudioElement>(null);
   // The music bed (docs/AUDIO_LESSONS.md "Music"): a second, looping track mixed under the lesson.
   const [musicChoice, setMusicChoice] = useState<boolean | null>(null);
@@ -254,7 +258,7 @@ export function AudioLessonPlayerPage() {
     if (!lesson || !src || !('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
     try {
-      ms.metadata = new MediaMetadata({ title: lesson.title, artist: lesson.format === 'sleep' ? 'Sleep lesson' : 'Audio lesson', album: chapters[chapterIdx]?.title ?? '' });
+      ms.metadata = new MediaMetadata({ title: lesson.title, artist: lesson.format === 'dialogue' ? 'Audio lesson' : audioLessonFormatInfo(lesson.format).kind, album: chapters[chapterIdx]?.title ?? '' });
       const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
         ['play', () => void audioRef.current?.play()],
         ['pause', () => audioRef.current?.pause()],
@@ -333,7 +337,7 @@ export function AudioLessonPlayerPage() {
       <header className="al-player-head">
         <button className="al-back" onClick={() => navigate('/audio-lessons')} aria-label="Back to audio lessons">←</button>
         <div className="al-player-titles">
-          <div className="al-player-kind">{lesson.format === 'sleep' ? '🌙 Sleep lesson' : '🎙️ Dialogue lesson'}</div>
+          <div className="al-player-kind">{audioLessonFormatInfo(lesson.format).icon} {audioLessonFormatInfo(lesson.format).kind}</div>
           <h1 className="al-player-title">{lesson.title}</h1>
         </div>
       </header>
@@ -378,6 +382,7 @@ export function AudioLessonPlayerPage() {
               fromDevice && <div className="al-fine">✓ Saved on this phone · plays offline</div>
             )}
             {loadError && <div className="al-error">{loadError}</div>}
+            {lesson.notice && <div className="al-fine" data-testid="al-player-notice">{lesson.notice}</div>}
           </div>
 
           <div className="al-scrub">
@@ -412,6 +417,32 @@ export function AudioLessonPlayerPage() {
             </button>
             <button className={`al-chip ${showChapters ? 'on' : ''}`} onClick={() => setShowChapters((v) => !v)}>☰ Chapters</button>
             <button className={`al-chip ${transcriptOn ? 'on' : ''}`} onClick={() => setShowTranscript(!transcriptOn)}>📝 Transcript</button>
+            {transcriptOn && (
+              <>
+                <button
+                  className={`al-chip ${showPinyin ? 'on' : ''}`}
+                  aria-pressed={showPinyin}
+                  aria-label="Pinyin in the transcript"
+                  onClick={() => {
+                    setShowPinyin(!showPinyin);
+                    writeTranscriptShow('pinyin', !showPinyin);
+                  }}
+                >
+                  拼
+                </button>
+                <button
+                  className={`al-chip ${showEnglish ? 'on' : ''}`}
+                  aria-pressed={showEnglish}
+                  aria-label="English in the transcript"
+                  onClick={() => {
+                    setShowEnglish(!showEnglish);
+                    writeTranscriptShow('english', !showEnglish);
+                  }}
+                >
+                  EN
+                </button>
+              </>
+            )}
             <button className={`al-chip ${musicOn ? 'on' : ''}`} onClick={toggleMusic} aria-pressed={musicOn} aria-label="Music">
               🎵 Music{musicOn ? '' : ' off'}
             </button>
@@ -475,8 +506,8 @@ export function AudioLessonPlayerPage() {
                       {row.text}
                       {row.repeat && <span className="al-line-repeat" aria-label={`said ${row.repeat} times`}>×{row.repeat}</span>}
                     </span>
-                    {row.pinyin && <span className="al-line-pinyin">{row.pinyin}</span>}
-                    {row.english && <span className="al-line-en">{row.english}</span>}
+                    {showPinyin && row.pinyin && <span className="al-line-pinyin">{row.pinyin}</span>}
+                    {showEnglish && row.english && <span className="al-line-en">{row.english}</span>}
                   </li>
                 );
               })}

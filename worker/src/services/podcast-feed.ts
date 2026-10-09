@@ -16,7 +16,7 @@
  *   module never prints it.
  */
 import type { Env } from '../types';
-import type { AudioLessonChapter, LessonWord, PodcastFeedInfo } from '@shared/audio-lesson';
+import type { AudioLessonChapter, AudioLessonFormat, LessonWord, PodcastFeedInfo } from '@shared/audio-lesson';
 
 export type { PodcastFeedInfo };
 import { formatClock } from '@shared/audio-lesson';
@@ -228,7 +228,7 @@ export function resetMemoryRateLimits(): void {
 
 export interface FeedLesson {
   id: string;
-  format: 'dialogue' | 'sleep';
+  format: AudioLessonFormat;
   title: string;
   version: string;
   size_bytes: number;
@@ -263,7 +263,13 @@ export function itunesDuration(ms: number): string {
 /** The episode notes: what it teaches, then the chapters as timestamps (podcast apps make them tappable). */
 export function episodeDescription(l: FeedLesson): string {
   const lines: string[] = [];
-  lines.push(l.format === 'sleep' ? 'Sleep lesson — slow Chinese to fall asleep to.' : 'Dialogue lesson — a Chinese conversation, explained in English.');
+  lines.push(
+    l.format === 'sleep'
+      ? 'Sleep lesson — slow Chinese to fall asleep to.'
+      : l.format === 'story'
+        ? 'Listen & repeat — a story or conversation, each line three times slowly, then its English.'
+        : 'Dialogue lesson — a Chinese conversation, explained in English.',
+  );
   if (l.words.length) {
     lines.push('');
     lines.push(`Words (${l.words.length}):`);
@@ -287,7 +293,7 @@ export function buildFeedXml(args: { origin: string; token: string; ownerName: s
   const self = feedUrl(origin, token);
   const link = `${APP_BASE_URL}/audio-lessons`;
   const title = `Chinese audio lessons${args.ownerName ? ` — ${args.ownerName}` : ''}`;
-  const summary = 'Your audio lessons from the Chinese learning app: dialogue lessons for the train and slow sleep lessons. Private to you — do not share this feed link.';
+  const summary = 'Your audio lessons from the Chinese learning app: dialogue lessons for the train, slow sleep lessons and stories to listen to and repeat. Private to you — do not share this feed link.';
   const lastBuild = lessons.length ? rfc822(lessons.reduce((a, l) => (l.published_at > a ? l.published_at : a), lessons[0].published_at)) : (args.now ?? new Date()).toUTCString();
   const image = `${APP_BASE_URL}/podcast-artwork.jpg`;
   const items = lessons.map((l) => {
