@@ -145,6 +145,11 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
     setAudioBlob(null);
   }, []);
 
+  /** Put a take back as the current one (a cancelled "Say it again"). */
+  const restoreRecording = useCallback((blob: Blob | null) => {
+    setAudioBlob(blob);
+  }, []);
+
   return {
     isRecording,
     audioBlob,
@@ -154,6 +159,7 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
     stopRecording,
     cancelRecording,
     clearRecording,
+    restoreRecording,
   };
 }
 

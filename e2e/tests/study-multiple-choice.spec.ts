@@ -63,14 +63,25 @@ async function openNextMultipleChoice(page: Page) {
   const skip = page.getByTestId('skip-recording');
   const mcButton = page.getByRole('button', { name: 'Multiple Choice' });
   const showOptions = page.getByRole('button', { name: 'Show Options' });
+  const nothingDue = page.getByText('Nothing due right now');
+  const studyUrl = page.url();
   for (let i = 0; i < 10; i++) {
-    await expect(skip.or(mcButton).or(showOptions).first()).toBeVisible({ timeout: 30000 });
+    await expect(skip.or(mcButton).or(showOptions).or(nothingDue).first()).toBeVisible({ timeout: 30000 });
+    // The session can be built before the first sync has every card of the note on the device:
+    // the other card types come up once Study is opened again.
+    if (await nothingDue.isVisible().catch(() => false)) {
+      await page.goto(studyUrl);
+      continue;
+    }
     if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
     if (await showOptions.isVisible().catch(() => false)) { await showOptions.click(); break; }
     if (await mcButton.isVisible().catch(() => false)) { await mcButton.click(); break; }
     // A new account gets the first-card explainer over the first card, a moment later.
     await page.waitForTimeout(500);
     if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+    // A listen card's "Show Options" can land a moment later (its options load in the background):
+    // look again rather than waiting for a read card's Skip that isn't coming.
+    if (!(await skip.isVisible().catch(() => false))) continue;
     await skip.click();
     await page.getByRole('button', { name: /^Good/ }).first().click();
   }

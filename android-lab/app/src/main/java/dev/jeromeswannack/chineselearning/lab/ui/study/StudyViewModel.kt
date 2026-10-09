@@ -523,6 +523,8 @@ class StudyViewModel(
         if (recorder.recording) recorder.stop()?.delete()
         take?.delete()
         take = null
+        takeBeforeSayAgain?.delete()
+        takeBeforeSayAgain = null
         dropLive()
         dropSpoken()
         recordingAgain = false
@@ -1000,6 +1002,11 @@ class StudyViewModel(
     private var spokenStartedAt = 0L
     private var spokenSpeechMs = 0L
     private var spokenSeq = 0
+    /**
+     * During a "Say it again": the take of the answer on screen, kept until the new take's answer
+     * lands (then deleted) — a cancel puts it back as [take], so the review keeps it.
+     */
+    private var takeBeforeSayAgain: java.io.File? = null
 
     private fun updateSpoken(view: CardView, change: (SpokenUi) -> SpokenUi) = updateExtras(view) { it.copy(spoken = change(it.spoken)) }
 
@@ -1011,18 +1018,39 @@ class StudyViewModel(
         spokenStream = null
     }
 
-    fun startSpokenAnswer() {
+    /**
+     * "🎤 Say it again" (answer side, docs/STUDY_SESSION.md): Record again for a spoken answer — the
+     * card turns to the question with the live transcript, the take before it is kept until the new
+     * answer lands, which is checked anew (whatever the auto-submit switch) and followed by the card's
+     * own clip once ([playWordAfterRecordAgain]); ✕ / back brings the previous answer and take back.
+     */
+    fun sayAgain() = startSpokenAnswer(again = true)
+
+    fun startSpokenAnswer(again: Boolean = false) {
         val v = currentView() ?: return
         if (v.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING) return
-        if (_ui.value.extras.spoken.busy) return
-        if (!aiAvailable) return updateSpoken(v) { it.copy(offlineHint = true) }
+        val sp = _ui.value.extras.spoken
+        if (sp.busy) return
+        // A 🎤 after a say-again that gave nothing keeps going as one.
+        val sayAgain = again || sp.again
+        if (sayAgain && !isRevealed(v)) return
+        if (!aiAvailable) {
+            return if (sayAgain) updateExtras(v) { it.copy(notice = "Saying it again needs a connection.") } else updateSpoken(v) { it.copy(offlineHint = true) }
+        }
         dropSpoken()
         val gen = spokenGeneration
         if (recorder.recording) recorder.stop()?.delete()
-        take?.delete()
-        take = null
+        if (sayAgain) {
+            if (sp.phase == SpokenPhase.IDLE) takeBeforeSayAgain = take
+            else if (take != takeBeforeSayAgain) take?.delete() // the failed say-again's take
+            take = takeBeforeSayAgain
+        } else {
+            take?.delete()
+            take = null
+        }
         app.audio.stop() // a listen card's clip must not play into the microphone
         recorder.stopPlayback()
+        replayJob?.cancel()
         val stream = spokenTranscription.open { t ->
             viewModelScope.launch {
                 if (gen == spokenGeneration && _ui.value.extras.spoken.listening && currentView()?.presentation == v.presentation) {
@@ -1035,13 +1063,15 @@ class StudyViewModel(
             else -> { stream?.abort(); recorder.start() }
         }
         if (!started) {
+            // The answer stays as it was (a say-again's take is the one from before it).
+            takeBeforeSayAgain = null
             updateExtras(v) { it.copy(notice = "Couldn't open the microphone.", spoken = SpokenUi()) }
             return
         }
         spokenStartedAt = System.currentTimeMillis()
         spokenSpeechMs = 0
         app.haptics.tick()
-        updateSpoken(v) { SpokenUi(phase = SpokenPhase.LISTENING) }
+        updateSpoken(v) { SpokenUi(phase = SpokenPhase.LISTENING, again = sayAgain, result = it.result) }
     }
 
     /** 🎤 again (⏹): stop; the transcript becomes the answer. */
@@ -1081,7 +1111,10 @@ class StudyViewModel(
         }
     }
 
-    /** ✕ while listening / finishing: nothing is filled in, the take is thrown away. */
+    /**
+     * ✕ while listening / finishing: nothing is filled in, the take is thrown away. A "Say it again"
+     * (also from its failed state) goes back to the answer with the previous take and answer.
+     */
     fun cancelSpokenAnswer() {
         val v = currentView() ?: return
         val sp = _ui.value.extras.spoken
@@ -1090,9 +1123,14 @@ class StudyViewModel(
         if (sp.listening) {
             spokenSpeechMs = System.currentTimeMillis() - spokenStartedAt
             recorder.stop()?.delete()
-        } else if (sp.phase == SpokenPhase.FINISHING) {
+        } else if (sp.phase == SpokenPhase.FINISHING && !sp.again) {
             take?.delete()
             take = null
+        }
+        if (sp.again) {
+            if (take != takeBeforeSayAgain) take?.delete()
+            take = takeBeforeSayAgain
+            takeBeforeSayAgain = null
         }
         dropSpoken()
         if (wasBusy) trackSpoken(v, "cancelled", null, 0, streamed = false)
@@ -1123,10 +1161,19 @@ class StudyViewModel(
 
     private fun landSpoken(v: CardView, outcome: TakeTranscription.Outcome?, ms: Long, streamed: Boolean, empty: Boolean = false) {
         val text = (outcome?.ui as? TranscriptionUi.Done)?.result?.transcribedHanzi?.trim().orEmpty()
+        val again = _ui.value.extras.spoken.again
         if (!empty && text.isNotEmpty()) {
-            val submit = studyPrefs.spokenAutoSubmit
+            // Say it again: the card is already revealed — the new answer is always checked.
+            val submit = again || studyPrefs.spokenAutoSubmit
             trackSpoken(v, if (submit) "submitted" else "filled", outcome, ms, streamed)
-            updateSpoken(v) { SpokenUi(result = SpokenResult(text, submit, ++spokenSeq)) }
+            if (again) {
+                // The new take replaces the one from before it (the review keeps the latest).
+                takeBeforeSayAgain?.takeIf { it != take }?.delete()
+                takeBeforeSayAgain = null
+            }
+            updateSpoken(v) { SpokenUi(result = SpokenResult(text, submit, ++spokenSeq, again)) }
+            // Then the card's own clip once, as the card turns back — like Record again.
+            if (again) playWordAfterRecordAgain(v)
             return
         }
         val failure = when {
@@ -1136,13 +1183,16 @@ class StudyViewModel(
         }
         trackSpoken(v, if (failure == SpokenFailure.EMPTY) "empty" else "failed", outcome, ms, streamed)
         app.haptics.wrong()
-        updateSpoken(v) { SpokenUi(phase = SpokenPhase.FAILED, failure = failure, result = it.result) }
+        updateSpoken(v) { SpokenUi(phase = SpokenPhase.FAILED, failure = failure, result = it.result, again = it.again) }
     }
 
-    /** A spoken answer was checked on the back (`study.spoken_answer_checked`; enums only — never the transcript). */
-    fun onSpokenAnswerChecked(verdict: AnswerKey.Verdict) {
+    /**
+     * A spoken answer was checked on the back (`study.spoken_answer_checked`; enums only — never the
+     * transcript). [retry] = the answer of a "Say it again".
+     */
+    fun onSpokenAnswerChecked(verdict: AnswerKey.Verdict, retry: Boolean) {
         val v = currentView() ?: return
-        app.analytics.track("study.spoken_answer_checked", mapOf("card_type" to v.card.cardType, "verdict" to AnswerKey.verdictName(verdict)))
+        app.analytics.track("study.spoken_answer_checked", mapOf("card_type" to v.card.cardType, "verdict" to AnswerKey.verdictName(verdict), "retry" to retry))
     }
 
     /** `study.answer_spoken`: enums, durations and a boolean only — never the transcript. */
@@ -1155,6 +1205,7 @@ class StudyViewModel(
             "speech_ms" to spokenSpeechMs.coerceAtLeast(0),
             "ms" to ms.coerceAtLeast(0),
             "auto_submit" to studyPrefs.spokenAutoSubmit,
+            "retry" to _ui.value.extras.spoken.again,
         ))
     }
 
@@ -1437,6 +1488,8 @@ class StudyViewModel(
     fun rate(rating: Int, timeSpentMs: Long, userAnswer: String?) {
         val showing = (_ui.value.phase as? StudyPhase.Showing)?.view ?: return
         if (busy) return
+        // Rated while a "Say it again" is under way: it is dropped, the answer and take before it are kept.
+        _ui.value.extras.spoken.let { if (it.again && it.phase != SpokenPhase.IDLE) cancelSpokenAnswer() }
         busy = true
         val card = showing.card
         val before = _ui.value.stats

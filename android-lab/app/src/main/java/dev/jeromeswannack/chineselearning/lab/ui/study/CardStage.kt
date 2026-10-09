@@ -34,6 +34,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -151,6 +153,11 @@ fun CardStage(
     var flipped by remember(view.presentation) { mutableStateOf(start.flipped && !start.peeking) }
     var answer by remember(view.presentation) { mutableStateOf(start.answer) }
     var mcSlots by remember(view.presentation) { mutableStateOf(start.mcSlots) }
+    // Voice first (docs/STUDY_SESSION.md): a typing card's question opens on the big 🎤 — no box, no
+    // keyboard; ✏️ Type switches THIS card to the box (focused). A resumed answer, or a transcript only
+    // filled in (auto-submit off), shows the box. Offline (no live transcription) the box comes first.
+    var typingMode by remember(view.presentation) { mutableStateOf(start.answer.isNotBlank()) }
+    val voiceFirst = ui.aiAvailable && !typingMode
     // Say the answer (🎤): the answer as spoken. While the box still holds exactly it, the back
     // checks it in spoken mode — a homophone (油 for 由) is right by sound (core AnswerKey.checkSpoken).
     var spokenText by remember(view.presentation) { mutableStateOf<String?>(null) }
@@ -191,9 +198,11 @@ fun CardStage(
         if (view.card.cardType == CardTypes.AUDIO_TO_HANZI && !revealed) {
             delay(250)
             actions.onPlayWord(false)
-        } else if (typing && !revealed) {
-            runCatching { focus.requestFocus() }
         }
+    }
+    // The box gets the focus (keyboard up) only once it shows: ✏️ Type, offline, or a resumed answer.
+    LaunchedEffect(view.presentation, voiceFirst) {
+        if (typing && !revealed && !voiceFirst && (autoplay || typingMode)) runCatching { focus.requestFocus() }
     }
 
     fun reveal() {
@@ -203,7 +212,7 @@ fun CardStage(
         revealed = true
         flipped = true
         actions.onReveal(v)
-        if (v != null && answerIsSpoken(answer)) actions.onSpokenChecked(v)
+        if (v != null && answerIsSpoken(answer)) actions.onSpokenChecked(v, false)
         if (v != null && AnswerKey.isAccepted(v)) burst++
         if (v != null && !AnswerKey.isAccepted(v)) scope.launch { shake.shake() }
         scope.launch {
@@ -212,15 +221,27 @@ fun CardStage(
         }
     }
 
-    // A spoken answer arrived: into the box, and checked at once when auto-submit is on.
+    // A spoken answer arrived: into the box, and checked at once when auto-submit is on. From a
+    // "Say it again" (already revealed): the NEW answer is checked in spoken mode as the card turns
+    // back to it (the ViewModel plays the card's clip once after it).
     val spoken = ui.extras.spoken
     LaunchedEffect(spoken.result?.seq) {
         val r = spoken.result ?: return@LaunchedEffect
-        if (r.seq <= consumedSpoken || revealed) return@LaunchedEffect
+        if (r.seq <= consumedSpoken || (revealed && !r.again)) return@LaunchedEffect
         consumedSpoken = r.seq
         answer = r.text
         spokenText = r.text
-        if (r.submit) reveal() else runCatching { focus.requestFocus() }
+        if (r.again && revealed) {
+            val v = AnswerKey.checkSpoken(r.text, note.hanzi, view.alternatives, note.pinyin)
+            verdict = v
+            actions.onReveal(v)
+            actions.onSpokenChecked(v, true)
+            if (AnswerKey.isAccepted(v)) burst++ else scope.launch { shake.shake() }
+        } else if (r.submit) reveal() else {
+            typingMode = true
+            delay(50)
+            runCatching { focus.requestFocus() }
+        }
     }
 
     /** Peek: turn a revealed card to [toBack] (the same flip + haptic) — nothing checked, played or recorded. */
@@ -247,6 +268,22 @@ fun CardStage(
         }
     }
     BackHandler(enabled = reRecording) { actions.onCancelRecording() }
+
+    // Say it again (a typing card answered by speaking): the same turn to the question while the new
+    // take is said — the live transcript there, the previous verdict out of sight — and back to the
+    // answer once it is checked or cancelled (✕ / back keeps the previous answer and take).
+    val sayingAgain = revealed && spoken.again && spoken.phase != SpokenPhase.IDLE
+    var sayFlip by remember(view.presentation) { mutableStateOf(false) }
+    LaunchedEffect(sayingAgain) {
+        if (sayingAgain) {
+            sayFlip = true
+            flipped = false
+        } else if (sayFlip) {
+            sayFlip = false
+            flipped = true
+        }
+    }
+    BackHandler(enabled = sayingAgain) { actions.onCancelSpoken() }
 
     val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
     val mc = ui.extras.mc
@@ -281,7 +318,13 @@ fun CardStage(
                     // Check / the grid — so a stray tap on the face never gives the answer away.
                     CardFront(
                         view, ui, playingKey, actions, start.showClue, revealed,
-                        onTapToAnswer = { if (reRecording) actions.onStopRecording(true) else peek(true) },
+                        onTapToAnswer = {
+                            when {
+                                reRecording -> actions.onStopRecording(true)
+                                sayingAgain -> if (spoken.listening) actions.onStopSpoken() // a tap anywhere stops the take
+                                else -> peek(true)
+                            }
+                        },
                     )
                 }
                 if (revealed) {
@@ -297,7 +340,7 @@ fun CardStage(
                     ) {
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
-                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, onCharacter = { ch ->
+                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer), onCharacter = { ch ->
                             if (explore != null) explore(dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem.Char(ch)) else sheet = CardSheet.Character(ch)
                         })
                     }
@@ -334,6 +377,9 @@ fun CardStage(
                     mc.fallbackNote?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), textAlign = TextAlign.Center)
                     }
+                    if (voiceFirst) {
+                        VoiceFirstControls(spoken, ui.aiAvailable, actions, onType = { typingMode = true }, onShow = { reveal() })
+                    } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (spoken.busy) {
                             SpokenLiveBox(spoken, Modifier.weight(1f))
@@ -359,6 +405,7 @@ fun CardStage(
                         }
                     }
                     SpokenStatus(spoken, ui.aiAvailable, actions)
+                    }
                 } else {
                     RecordControls(ui.extras.take, actions, onReveal = { reveal() })
                 }
@@ -372,6 +419,7 @@ fun CardStage(
                 Spacer(Modifier.height(10.dp))
                 RatingBar(view.previews, enabled = !rated) { rating ->
                     rated = true
+                    // Rated during a "Say it again": the ViewModel drops it; [answer] is still the one before it.
                     actions.onRate(rating, System.currentTimeMillis() - startedAt, answer.takeIf { typing && it.isNotEmpty() })
                 }
             }
@@ -475,6 +523,9 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
         if (revealed && ui.extras.take.recording) {
             // Record again: the question while the new take records — a tap anywhere stops it.
             RecordingAgainPanel(actions)
+        } else if (revealed && ui.extras.spoken.again && ui.extras.spoken.phase != SpokenPhase.IDLE) {
+            // Say it again: the question while the new answer is said — a tap anywhere stops it.
+            SayAgainPanel(ui.extras.spoken, ui.aiAvailable, actions)
         } else if (revealed) {
             // Peeking back at the question: the hints are spent, the answer is one tap away.
             Text("Tap to see the answer", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
@@ -558,6 +609,8 @@ private fun CardBack(
     playingKey: String?,
     actions: StudyActions,
     wide: Boolean,
+    /** The answer was spoken: "🎤 Say it again" sits beside Play (Record again's place on a read card). */
+    canSayAgain: Boolean = false,
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -611,6 +664,7 @@ private fun CardBack(
                 // The real clip is queued on the server: say so quietly; it plays itself when it lands.
                 if (voices.isEmpty() && ui.cardAudio.word == ClipState.COMING) AudioComingPill()
                 if (view.card.cardType == CardTypes.HANZI_TO_MEANING) RecordAgainPill(ui.extras.take, actions)
+                if (canSayAgain) SayAgainPill(ui.aiAvailable, actions)
             }
             OfflineAudioNote(view, ui)
             if (voices.isEmpty() && ui.cardAudio.word != ClipState.READY && ui.cardAudio.word != ClipState.COMING && !making) {
@@ -894,6 +948,50 @@ private fun RecordAgainPill(take: TakeUi, actions: StudyActions) {
     )
 }
 
+/** Test tags of "Say it again" (answer side pill / the panel on the question side). */
+const val SAY_AGAIN_TAG = "spoken-say-again"
+const val SAY_AGAIN_FRONT_TAG = "study-sayagain"
+
+/** 🎤 Say it again on the back of a typing card answered by speaking (the web's study-back-pills). Offline: dimmed, a tap says why. */
+@Composable
+private fun SayAgainPill(online: Boolean, actions: StudyActions) {
+    val start = rememberRecordPermission { actions.onSayAgain() }
+    Text(
+        "🎤 Say it again",
+        color = Lab.colors.ink,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier
+            .testTag(SAY_AGAIN_TAG)
+            .graphicsLayer { alpha = if (online) 1f else 0.45f }
+            .clip(CircleShape)
+            .background(Lab.colors.faint)
+            .clickable { if (online) start() else actions.onSayAgain() }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    )
+}
+
+/**
+ * Say it again, on the question side (the web's `.study-sayagain`): the live transcript in the answer
+ * box's place, ⏹ (🎤 to try again after a take that gave nothing), "Couldn't transcribe — tap to
+ * retry", and ✕ Cancel back to the answer as it was. The card's own tap stops the take too.
+ */
+@Composable
+private fun SayAgainPanel(spoken: SpokenUi, online: Boolean, actions: StudyActions) {
+    Column(Modifier.fillMaxWidth().testTag(SAY_AGAIN_FRONT_TAG), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SpokenLiveBox(spoken, Modifier.weight(1f), placeholder = if (spoken.phase == SpokenPhase.FAILED) "Say it again" else "Listening… say the answer")
+            Spacer(Modifier.width(8.dp))
+            SpokenMicButton(spoken, online, actions, onStart = actions.onSayAgain)
+        }
+        if (spoken.listening) {
+            Spacer(Modifier.height(8.dp))
+            Text("Tap anywhere to stop", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+        }
+        SpokenStatus(spoken, online, actions, again = true)
+        TextButton(onClick = actions.onCancelSpoken, modifier = Modifier.heightIn(min = 44.dp)) { Text("✕ Cancel", color = Lab.colors.muted) }
+    }
+}
+
 /** Asks for the microphone once, then runs [onGranted]. */
 @Composable
 private fun rememberRecordPermission(onGranted: () -> Unit): () -> Unit {
@@ -906,6 +1004,8 @@ private fun rememberRecordPermission(onGranted: () -> Unit): () -> Unit {
 }
 
 /** Test tags of the spoken answer (say the answer on a typing card). */
+const val SPOKEN_TYPE_TAG = "spoken-type"
+const val VOICE_FIRST_TAG = "study-voice-first"
 const val SPOKEN_MIC_TAG = "spoken-mic"
 const val SPOKEN_LIVE_TAG = "spoken-live"
 const val SPOKEN_RETRY_TAG = "spoken-retry"
@@ -916,8 +1016,8 @@ const val SPOKEN_SOUND_TAG = "spoken-answer-sound"
  * Offline it stays in place, dimmed; a tap says why ("needs a connection") — typing is never blocked.
  */
 @Composable
-private fun SpokenMicButton(spoken: SpokenUi, online: Boolean, actions: StudyActions) {
-    val start = rememberRecordPermission { actions.onStartSpoken() }
+private fun SpokenMicButton(spoken: SpokenUi, online: Boolean, actions: StudyActions, onStart: () -> Unit = actions.onStartSpoken) {
+    val start = rememberRecordPermission { onStart() }
     val pulse by rememberInfiniteTransition(label = "spoken-mic").animateFloat(
         1f, if (spoken.listening) 1.1f else 1f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "pulse",
     )
@@ -933,7 +1033,7 @@ private fun SpokenMicButton(spoken: SpokenUi, online: Boolean, actions: StudyAct
                 when {
                     finishing -> Unit
                     spoken.listening -> actions.onStopSpoken()
-                    !online -> actions.onStartSpoken() // the VM shows the offline hint
+                    !online -> onStart() // the VM shows the offline hint
                     else -> start()
                 }
             }
@@ -945,9 +1045,102 @@ private fun SpokenMicButton(spoken: SpokenUi, online: Boolean, actions: StudyAct
     }
 }
 
+/**
+ * Voice first (the web's `.study-voice-first`): the big 🎤 centred — the primary control, "Tap to say
+ * it" — with ✏️ Type (this card only) on the left and Show answer on the right; the live transcript
+ * shows above while speaking, ✕ Cancel / retry / nothing heard below.
+ */
+@Composable
+private fun VoiceFirstControls(spoken: SpokenUi, online: Boolean, actions: StudyActions, onType: () -> Unit, onShow: () -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag(VOICE_FIRST_TAG), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (spoken.busy) {
+            SpokenLiveBox(spoken, Modifier.fillMaxWidth())
+            Spacer(Modifier.height(10.dp))
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (!spoken.busy) VoiceSideButton("✏️", "Type", Modifier.testTag(SPOKEN_TYPE_TAG), onType)
+            }
+            BigMicButton(spoken, actions)
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                if (!spoken.busy) VoiceSideButton("👁", "Show answer", Modifier, onShow)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            when {
+                spoken.listening -> "Tap to stop"
+                spoken.phase == SpokenPhase.FINISHING -> "Finishing…"
+                else -> "Tap to say it"
+            },
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = Lab.colors.muted,
+        )
+        SpokenStatus(spoken, online, actions)
+    }
+}
+
+/** ✏️ Type / 👁 Show answer beside the big 🎤: quieter, 56dp tall. */
+@Composable
+private fun VoiceSideButton(icon: String, label: String, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier
+            .heightIn(min = 56.dp)
+            .widthIn(min = 64.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(14.dp))
+            .background(Lab.colors.card)
+            .bouncyClickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(icon, fontSize = 20.sp)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, maxLines = 1)
+    }
+}
+
+/** The big 🎤 of voice first (84dp, the web's `.study-mic-big`): ⏹ while listening, a spinner while finishing. */
+@Composable
+private fun BigMicButton(spoken: SpokenUi, actions: StudyActions) {
+    val start = rememberRecordPermission { actions.onStartSpoken() }
+    val pulse by rememberInfiniteTransition(label = "big-mic").animateFloat(
+        1f, if (spoken.listening) 1.08f else 1f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "pulse",
+    )
+    val finishing = spoken.phase == SpokenPhase.FINISHING
+    Box(
+        Modifier
+            .size(84.dp)
+            .scale(pulse)
+            .shadow(if (spoken.listening || finishing) 0.dp else 8.dp, CircleShape)
+            .clip(CircleShape)
+            .background(
+                when {
+                    spoken.listening -> Palette.Again.copy(alpha = 0.16f)
+                    finishing -> Lab.colors.faint
+                    else -> Lab.colors.accent
+                },
+            )
+            .border(2.dp, if (spoken.listening) Palette.Again.copy(alpha = 0.7f) else Color.Transparent, CircleShape)
+            .clickable {
+                when {
+                    finishing -> Unit
+                    spoken.listening -> actions.onStopSpoken()
+                    else -> start()
+                }
+            }
+            .testTag(SPOKEN_MIC_TAG),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (finishing) CircularProgressIndicator(Modifier.size(30.dp), color = Lab.colors.accent, strokeWidth = 3.dp)
+        else Text(if (spoken.listening) "⏹" else "🎤", fontSize = 34.sp)
+    }
+}
+
 /** What is being said, live (instead of the text field): confirmed text in ink, the provisional tail grey. */
 @Composable
-private fun SpokenLiveBox(spoken: SpokenUi, modifier: Modifier) {
+private fun SpokenLiveBox(spoken: SpokenUi, modifier: Modifier, placeholder: String = "Listening… say the answer") {
     Box(
         modifier
             .heightIn(min = 56.dp)
@@ -958,7 +1151,7 @@ private fun SpokenLiveBox(spoken: SpokenUi, modifier: Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         if (spoken.finalText.isEmpty() && spoken.partialText.isEmpty()) {
-            Text(if (spoken.phase == SpokenPhase.FINISHING) "Finishing…" else "Listening… say the answer", style = MaterialTheme.typography.bodyLarge, color = Lab.colors.muted)
+            Text(if (spoken.phase == SpokenPhase.FINISHING) "Finishing…" else placeholder, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.muted)
         } else {
             Text(
                 androidx.compose.ui.text.buildAnnotatedString {
@@ -975,17 +1168,21 @@ private fun SpokenLiveBox(spoken: SpokenUi, modifier: Modifier) {
     }
 }
 
-/** Under the typing row: ✕ Cancel while listening, "Couldn't transcribe — tap to retry", nothing heard, offline. */
+/**
+ * Under the typing row: ✕ Cancel while listening, "Couldn't transcribe — tap to retry", nothing heard,
+ * offline. [again] (the Say it again panel): no typing to fall back on, and the panel has its own ✕.
+ */
 @Composable
-private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyActions) {
+private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyActions, again: Boolean = false) {
     val hint: @Composable (String) -> Unit = { text ->
         Text(text, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
     }
     when {
-        spoken.busy -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        spoken.busy -> if (!again) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             TextButton(onClick = actions.onCancelSpoken, modifier = Modifier.heightIn(min = 44.dp)) { Text("✕ Cancel", color = Lab.colors.muted) }
         }
-        spoken.phase == SpokenPhase.FAILED && spoken.failure == SpokenFailure.EMPTY -> hint("Didn’t catch anything — tap 🎤 to try again, or type it.")
+        spoken.phase == SpokenPhase.FAILED && spoken.failure == SpokenFailure.EMPTY ->
+            hint(if (again) "Didn’t catch anything — tap 🎤 to try again." else "Didn’t catch anything — tap 🎤 to try again, or type it.")
         spoken.phase == SpokenPhase.FAILED -> Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
@@ -1000,7 +1197,7 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
                 .testTag(SPOKEN_RETRY_TAG),
         ) {
             Text("Couldn’t transcribe — tap to retry", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
-            Text("Or type your answer", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
+            Text(if (again) "Or keep your first answer" else "Or type your answer", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         spoken.offlineHint && !online -> hint("Saying the answer needs a connection — type it instead.")
     }

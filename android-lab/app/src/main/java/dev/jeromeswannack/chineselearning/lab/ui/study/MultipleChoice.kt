@@ -30,9 +30,9 @@ object MultipleChoice {
 
     enum class Fallback(val message: String) {
         OFFLINE("No connection — type your answer instead."),
-        TIMEOUT("Options took too long — type your answer instead."),
-        ERROR("Couldn't build options — type your answer instead."),
-        EMPTY("No options for this word — type your answer instead."),
+        TIMEOUT("Options took too long — say or type your answer instead."),
+        ERROR("Couldn't build options — say or type your answer instead."),
+        EMPTY("No options for this word — say or type your answer instead."),
     }
 
     sealed interface Load {

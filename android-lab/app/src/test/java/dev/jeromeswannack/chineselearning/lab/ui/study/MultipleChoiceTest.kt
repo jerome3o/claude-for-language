@@ -54,7 +54,7 @@ class MultipleChoiceTest {
         assertEquals(MultipleChoice.Load.Fallen(MultipleChoice.Fallback.EMPTY), MultipleChoice.load(null, true) { "[]" })
         assertEquals(MultipleChoice.Load.Fallen(MultipleChoice.Fallback.ERROR), MultipleChoice.load(null, true) { error("boom") })
         assertEquals(MultipleChoice.Load.Fallen(MultipleChoice.Fallback.TIMEOUT), MultipleChoice.load(null, true, timeoutMs = 50) { delay(1_000); raw })
-        assertEquals("Options took too long — type your answer instead.", MultipleChoice.Fallback.TIMEOUT.message)
+        assertEquals("Options took too long — say or type your answer instead.", MultipleChoice.Fallback.TIMEOUT.message)
     }
 
     // Same cases as multipleChoice.test.ts "one-tap submit with partial answers".

@@ -11,6 +11,11 @@
  * submitted. The take stays in the recorder, so the review carries it (recording_url) like a read
  * card's; the review's answer is the transcript.
  *
+ * "Say it again" (`start({ again: true })`, answer side, docs/STUDY_SESSION.md): the read cards' Record
+ * again for a spoken answer — the previous take stays in the recorder (`keepPrevious`) until the new
+ * one is saved, the new transcript is always checked (the card is already revealed, auto-submit or
+ * not), and ✕ / back / Esc brings the previous take back (`restorePrevious`) with its answer untouched.
+ *
  * Pure apart from the injected recorder / transcriber / upload, so every branch is unit-tested
  * (spokenAnswer.test.ts). Lab twin: StudyViewModel `startSpokenAnswer` / `stopSpokenAnswer`.
  */
@@ -29,9 +34,11 @@ export interface SpokenAnswerState {
   /** Still provisional (grey). */
   partialText: string;
   failure: SpokenFailure | null;
+  /** A "Say it again" from the answer side is under way (the card shows the question meanwhile). */
+  again: boolean;
 }
 
-export const IDLE_SPOKEN: SpokenAnswerState = { phase: 'idle', finalText: '', partialText: '', failure: null };
+export const IDLE_SPOKEN: SpokenAnswerState = { phase: 'idle', finalText: '', partialText: '', failure: null, again: false };
 
 /** The live stream of one take (a `LiveTranscriber`). */
 export interface LiveLike {
@@ -43,24 +50,29 @@ export interface LiveLike {
 export type SpokenResult = 'submitted' | 'filled' | 'failed' | 'empty' | 'cancelled';
 
 export interface SpokenAnswerDeps {
-  /** Opens the microphone; true once it records. `onStop` gets the whole take. */
-  startRecorder(hooks: { onChunk: (chunk: Blob) => void; onStop: (take: Blob) => void }): Promise<boolean>;
+  /**
+   * Opens the microphone; true once it records. `onStop` gets the whole take. `keepPrevious` (Say it
+   * again): the previous take stays in the recorder until the new one is saved.
+   */
+  startRecorder(hooks: { onChunk: (chunk: Blob) => void; onStop: (take: Blob) => void }, opts: { keepPrevious: boolean }): Promise<boolean>;
   stopRecorder(): void;
   /** Stop and throw the take away. */
   cancelRecorder(): void;
   /** Drop a finished take (Cancel while finishing). */
   discardTake(): void;
+  /** A cancelled "Say it again": the take from before it goes back in the recorder. */
+  restorePrevious?(): void;
   /** A live transcriber for this take, or null (no key / offline → upload only). */
   createLive(onUpdate: (finalText: string, partialText: string) => void): LiveLike | null;
   upload(take: Blob, liveError: string | null): Promise<TranscriptionResult>;
   isOnline(): boolean;
   autoSubmit(): boolean;
   onState(state: SpokenAnswerState): void;
-  /** The answer: put it in the box (and check it when `submit`). */
-  onResult(text: string, submit: boolean): void;
+  /** The answer: put it in the box (and check it when `submit`); `again` = from a "Say it again". */
+  onResult(text: string, submit: boolean, again: boolean): void;
   /** The live stream was refused (key etc.): reason as given, for the key cache. */
   onLiveError?(reason: string): void;
-  track(result: SpokenResult, props: { via: string; live_error: string; speech_ms: number; ms: number; auto_submit: boolean }): void;
+  track(result: SpokenResult, props: { via: string; live_error: string; speech_ms: number; ms: number; auto_submit: boolean; retry: boolean }): void;
   now?(): number;
 }
 
@@ -93,10 +105,14 @@ export class SpokenAnswerController {
     this.deps.onState(next);
   }
 
-  /** 🎤: start listening (online only — the button is disabled offline). */
-  async start(): Promise<void> {
+  /**
+   * 🎤: start listening (online only — the button is disabled offline). `again`: "Say it again" from
+   * the answer side (a 🎤 after a failed / empty say-again keeps going as one).
+   */
+  async start(opts: { again?: boolean } = {}): Promise<void> {
     if (this.state.phase === 'listening' || this.state.phase === 'finishing') return;
     if (!this.deps.isOnline()) return;
+    const again = !!opts.again || this.state.again;
     const gen = ++this.generation;
     this.take = null;
     this.stopWanted = false;
@@ -110,15 +126,16 @@ export class SpokenAnswerController {
     this.startedAt = this.now();
     this.stoppedAt = 0;
     this.speechMs = 0;
-    this.set({ phase: 'listening', finalText: '', partialText: '', failure: null });
+    this.set({ phase: 'listening', finalText: '', partialText: '', failure: null, again });
     const ok = await this.deps.startRecorder({
       onChunk: (chunk) => { if (gen === this.generation) live?.push(chunk); },
       onStop: (take) => { void this.stopped(gen, take); },
-    });
+    }, { keepPrevious: again });
     if (gen !== this.generation) return; // cancelled while the microphone was opening
     if (!ok) {
       live?.abort();
       this.live = null;
+      if (again) this.deps.restorePrevious?.();
       this.set(IDLE_SPOKEN); // the recorder's own error says why
       return;
     }
@@ -140,9 +157,12 @@ export class SpokenAnswerController {
     this.deps.stopRecorder();
   }
 
-  /** ✕ while listening / finishing: nothing is filled in, the take is thrown away. */
+  /**
+   * ✕ while listening / finishing: nothing is filled in, the take is thrown away. A "Say it again"
+   * (also from its failed state) goes back to the answer with the previous take and answer.
+   */
   cancel(): void {
-    const phase = this.state.phase;
+    const { phase, again } = this.state;
     if (phase === 'idle') return;
     this.generation++;
     this.live?.abort();
@@ -150,7 +170,8 @@ export class SpokenAnswerController {
     if (phase === 'listening') {
       this.speechMs = this.now() - this.startedAt;
       this.deps.cancelRecorder();
-    } else this.deps.discardTake();
+    } else if (!again) this.deps.discardTake();
+    if (again) this.deps.restorePrevious?.();
     this.take = null;
     this.recording = false;
     if (phase !== 'failed') this.report('cancelled', null, 0);
@@ -198,16 +219,18 @@ export class SpokenAnswerController {
 
   private land(outcome: TakeOutcome, streamed: boolean) {
     const ms = Math.max(0, this.now() - this.stoppedAt);
+    const again = this.state.again;
     if (outcome.kind === 'done' && outcome.text.trim()) {
-      const submit = this.deps.autoSubmit();
+      // Say it again: the card is already revealed — the new answer is always checked.
+      const submit = again || this.deps.autoSubmit();
       this.report(submit ? 'submitted' : 'filled', outcome, ms, streamed);
       this.set(IDLE_SPOKEN);
-      this.deps.onResult(outcome.text.trim(), submit);
+      this.deps.onResult(outcome.text.trim(), submit, again);
       return;
     }
     const failure: SpokenFailure = outcome.kind === 'done' ? 'empty' : outcome.kind === 'offline' ? 'offline' : 'failed';
     this.report(failure === 'empty' ? 'empty' : 'failed', outcome, ms, streamed);
-    this.set({ phase: 'failed', finalText: '', partialText: '', failure });
+    this.set({ phase: 'failed', finalText: '', partialText: '', failure, again });
   }
 
   private report(result: SpokenResult, outcome: TakeOutcome | null, ms: number, streamed = false) {
@@ -217,6 +240,7 @@ export class SpokenAnswerController {
       speech_ms: Math.max(0, this.speechMs),
       ms,
       auto_submit: this.deps.autoSubmit(),
+      retry: this.state.again,
     });
   }
 }
