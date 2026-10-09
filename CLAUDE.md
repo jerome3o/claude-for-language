@@ -664,7 +664,7 @@ word from the app's auto-pinyin on each run; gloss '' (the Word view looks the w
 (lists lazily imported + precached, preloaded at idle; `useSegmentedWords`; `ChatWordsText` / `ReaderWordsText` fall back to
 it), Lab `core/…/chinese/Segmenter.kt` + `data/text/DeviceWords.kt` (preloaded at app start; tests opt in with `setForTests`),
 parity-tested over `shared/chinese/__fixtures__/corpus.txt` (`parity/fixtures/segment.ts` → `SegmenterParityTest`, segments AND
-pinyin). **Ask Claude always uses it** (Claude's `/note-questions/:id/words` was slow — 2–31 s — and sometimes failed, leaving
+pinyin). **Ask Claude and the audio-lesson transcript always use it** (the transcript: web `components/audioLessons/TranscriptLine.tsx`, Lab `TranscriptRowView`; a word → the explorer, the rest of the row still seeks) (Claude's `/note-questions/:id/words` was slow — 2–31 s — and sometimes failed, leaving
 single characters); the chat and reader pages keep Claude's contextual words as primary and use it while those load / fail.
 ICU / `Intl.Segmenter` deliberately not used (dictionaries differ across Node, browsers and Android → parity drift). ~0.05 ms per
 line; the lists load in ~100–300 ms once.
@@ -1136,7 +1136,7 @@ voice (and any Chinese at app rate 0.5, i.e. a story's chunks) runs at each prov
 soft procedural music loop under the lesson (`shared/audio-lesson/music.ts`; CC0, made by
 `scripts/audio/generate-lesson-music.mjs` → `frontend/public/audio/lesson-music-v1.mp3` + Lab `res/raw/lesson_music.mp3`;
 🎵 toggle + volume, on for sleep and story / off for dialogue); the MP3 and the podcast feed stay speech-only. The players'
-transcript has 拼 / EN toggles (remembered per device).
+transcript has 拼 / EN toggles (remembered per device) and its Chinese is word chips from the device segmenter (a word → the language explorer; a tap elsewhere on the row seeks).
 Claude Opus 5.5 (`agent.ts`, tools `check_known_words` + `submit_lesson`, transcript checkpointed) writes a
 PLAN; `shared/audio-lesson/compile.ts` makes the speech/pause SCRIPT; each distinct clip goes through
 `callProviderTTS` (`synth.ts`; Chinese in the stored order with the first provider PINNED per lesson,

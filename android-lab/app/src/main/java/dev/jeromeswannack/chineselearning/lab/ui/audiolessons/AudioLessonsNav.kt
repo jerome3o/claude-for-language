@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -20,6 +21,10 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import dev.jeromeswannack.chineselearning.lab.data.api.AudioLessonDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NewAudioLessonBody
 import dev.jeromeswannack.chineselearning.lab.data.api.audioLessons
@@ -87,8 +92,13 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
         val vm: AudioLessonPlayerViewModel = viewModel(key = "audio-lesson-$id", factory = AudioLessonPlayerViewModel.Factory(app, id))
         val ui by vm.ui.collectAsStateWithLifecycle()
         BindPlaybackService()
+        // The transcript's word chips: a word → the language explorer; words in a deck are quieter.
+        val explore = rememberExplorerTap("audio_lesson")
+        val known by produceState(emptySet<String>()) {
+            value = withContext(Dispatchers.IO) { runCatching { app.repo.dao.allNotes().mapTo(HashSet()) { it.hanzi.trim() } }.getOrDefault(emptySet()) }
+        }
         AudioLessonPlayerScreen(
-            ui,
+            ui.copy(known = known),
             AudioLessonPlayerActions(
                 onBack = nav::back,
                 onToggle = { app.haptics.tick(); vm.toggle() },
@@ -106,6 +116,12 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
                 onWords = vm::toggleWords,
                 onMusic = { app.haptics.tick(); vm.toggleMusic() },
                 onMusicVolume = vm::setMusicVolume,
+                onWord = { w, sentence ->
+                    ExplorerStack.itemForText(w.text, w.pinyin.ifEmpty { null }, w.gloss.ifEmpty { null }, sentence)?.let { item ->
+                        app.haptics.tick()
+                        explore?.invoke(item)
+                    }
+                },
             ),
         )
     }

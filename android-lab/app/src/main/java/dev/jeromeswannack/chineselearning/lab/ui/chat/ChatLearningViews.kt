@@ -146,8 +146,10 @@ fun ChineseWords(
     reserve: Dp = 0.dp,
     onLongPress: (() -> Unit)? = null,
     plain: (@Composable (reserve: Dp) -> Unit)? = null,
+    /** The chips' colours on a screen with its own palette (the audio-lesson player); null = the chat's. */
+    chipColors: WordChipColors? = null,
 ) {
-    val pinyinColor = if (isMe) Color.White.copy(alpha = 0.82f) else Lab.colors.accent
+    val pinyinColor = chipColors?.pinyin ?: if (isMe) Color.White.copy(alpha = 0.82f) else Lab.colors.accent
     if (words == null) {
         val line = if (showPinyin) ChatPinyin.line(text) else null
         val plainReserve = if (line == null) reserve else 0.dp
@@ -160,14 +162,64 @@ fun ChineseWords(
         horizontalArrangement = Arrangement.spacedBy(1.dp),
         verticalArrangement = Arrangement.spacedBy(if (showPinyin) 4.dp else 3.dp),
     ) {
-        words.forEachIndexed { i, w ->
-            when {
-                w.text.contains('\n') -> Spacer(Modifier.fillMaxWidth())
-                else -> Segment(w, chip = MessageTools.looksLikeChinese(w.text) && ReaderWords.isTappable(w.text), known = w.text.trim() in known, showPinyin, isMe, color, pinyinColor, fontSize, onLongPress) { onChip(i) }
+        // Punctuation wraps with its word (never a "。" alone at the start of a line): one FlowRow item per group.
+        for (group in wrapGroups(words.map { it.text })) {
+            val first = words[group.first()]
+            if (first.text.contains('\n')) {
+                Spacer(Modifier.fillMaxWidth())
+                continue
+            }
+            Row {
+                // A chip on its own; the plain text around it (punctuation, a space, an English word) as ONE run.
+                var k = 0
+                while (k < group.size) {
+                    val i = group[k]
+                    val w = words[i]
+                    if (MessageTools.looksLikeChinese(w.text) && ReaderWords.isTappable(w.text)) {
+                        Segment(w, chip = true, known = w.text.trim() in known, showPinyin, isMe, color, pinyinColor, fontSize, onLongPress, chipColors) { onChip(i) }
+                        k++
+                        continue
+                    }
+                    val run = StringBuilder()
+                    while (k < group.size && words[group[k]].let { !(MessageTools.looksLikeChinese(it.text) && ReaderWords.isTappable(it.text)) }) run.append(words[group[k++]].text)
+                    Segment(ReaderWordDto(run.toString(), "", ""), chip = false, known = false, showPinyin, isMe, color, pinyinColor, fontSize, onLongPress, chipColors) {}
+                }
             }
         }
         if (reserve > 0.dp) Spacer(Modifier.width(reserve).height(16.dp))
     }
+}
+
+/** Opening brackets / quotes: they wrap with the word AFTER them. */
+private const val OPENING_PUNCT = "（(《〈「『【〔［[{“‘"
+
+/**
+ * The segments of [ChineseWords] grouped for wrapping (indices into [texts], in order): a closing
+ * punctuation mark (，。！？：」…) and a space stay with the segment before them and an opening mark
+ * (“ 《 （) with the one after it, so a line never starts with "。" or a space or ends with "“"; a line
+ * break is a group of its own.
+ */
+internal fun wrapGroups(texts: List<String>): List<List<Int>> {
+    val groups = mutableListOf<MutableList<Int>>()
+    var pending = mutableListOf<Int>()
+    fun isPunct(t: String) = t.isNotEmpty() && t.isNotBlank() && !t.contains('\n') && !ReaderWords.isTappable(t)
+    fun isOpening(t: String) = isPunct(t) && t.all { it in OPENING_PUNCT }
+    texts.forEachIndexed { i, t ->
+        when {
+            t.contains('\n') -> {
+                if (pending.isNotEmpty()) { groups += pending; pending = mutableListOf() }
+                groups += mutableListOf(i)
+            }
+            isOpening(t) -> pending += i
+            (isPunct(t) || (t.isNotEmpty() && t.isBlank())) && pending.isEmpty() && groups.isNotEmpty() && !texts[groups.last().first()].contains('\n') -> groups.last() += i
+            else -> {
+                groups += (pending + i).toMutableList()
+                pending = mutableListOf()
+            }
+        }
+    }
+    if (pending.isNotEmpty()) groups += pending
+    return groups
 }
 
 /**
@@ -204,15 +256,15 @@ private const val RESERVE_ID = "meta-reserve"
 
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun Segment(w: ReaderWordDto, chip: Boolean, known: Boolean, showPinyin: Boolean, isMe: Boolean, color: Color, pinyinColor: Color, fontSize: TextUnit, onLongPress: (() -> Unit)?, onClick: () -> Unit) {
+private fun Segment(w: ReaderWordDto, chip: Boolean, known: Boolean, showPinyin: Boolean, isMe: Boolean, color: Color, pinyinColor: Color, fontSize: TextUnit, onLongPress: (() -> Unit)?, chipColors: WordChipColors?, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         if (showPinyin) Text(if (chip) w.pinyin else " ", color = pinyinColor, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1)
         if (!chip) {
             Text(w.text, color = color, fontSize = fontSize, lineHeight = fontSize * 1.42f)
             return@Column
         }
-        val tint = if (isMe) Color.White.copy(alpha = 0.12f) else Lab.colors.accentSoft.copy(alpha = 0.42f)
-        val line = if (isMe) Color.White.copy(alpha = 0.75f) else Palette.Good.copy(alpha = 0.75f)
+        val tint = chipColors?.tint ?: if (isMe) Color.White.copy(alpha = 0.12f) else Lab.colors.accentSoft.copy(alpha = 0.42f)
+        val line = chipColors?.knownLine ?: if (isMe) Color.White.copy(alpha = 0.75f) else Palette.Good.copy(alpha = 0.75f)
         Text(
             w.text,
             color = color,
@@ -233,6 +285,9 @@ private fun Segment(w: ReaderWordDto, chip: Boolean, known: Boolean, showPinyin:
         )
     }
 }
+
+/** [ChineseWords]' colours on a screen with its own palette: chip background, a known word's underline, pinyin. */
+data class WordChipColors(val tint: Color, val knownLine: Color, val pinyin: Color)
 
 /** The translation under a message (when its EN toggle is on). */
 @Composable

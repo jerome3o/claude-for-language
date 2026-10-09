@@ -24,6 +24,8 @@ import {
   readTranscriptShow, savePosition, savedFile, savedPosition, writeMusicOn, writeMusicVolume, writeTranscriptShow,
 } from '../services/audioLessons';
 import { track } from '../services/analytics';
+import { TranscriptLine } from '../components/audioLessons/TranscriptLine';
+import { useKnownHanzi } from '../components/reader/ReaderWords';
 import './AudioLessonsPage.css';
 
 const SPEED_KEY = 'audio-lesson-speed-v1';
@@ -58,6 +60,8 @@ export function AudioLessonPlayerPage() {
   // The transcript's 拼 / EN toggles (remembered on this device).
   const [showPinyin, setShowPinyin] = useState(() => readTranscriptShow('pinyin'));
   const [showEnglish, setShowEnglish] = useState(() => readTranscriptShow('english'));
+  // Words already in a deck: quieter chips in the transcript.
+  const known = useKnownHanzi();
   const audioRef = useRef<HTMLAudioElement>(null);
   // The music bed (docs/AUDIO_LESSONS.md "Music"): a second, looping track mixed under the lesson.
   const [musicChoice, setMusicChoice] = useState<boolean | null>(null);
@@ -496,19 +500,16 @@ export function AudioLessonPlayerPage() {
               {rows.map((row) => {
                 const current = lineIdx >= row.first && lineIdx <= row.last;
                 return (
-                  <li
+                  <TranscriptLine
                     key={row.first}
                     ref={current ? lineRef : undefined}
-                    className={`al-line al-line-${row.lang} ${current ? 'current' : ''}`}
-                    onClick={() => seekTo(row.start_ms)}
-                  >
-                    <span className="al-line-text" lang={row.lang === 'zh' ? 'zh-CN' : 'en'}>
-                      {row.text}
-                      {row.repeat && <span className="al-line-repeat" aria-label={`said ${row.repeat} times`}>×{row.repeat}</span>}
-                    </span>
-                    {showPinyin && row.pinyin && <span className="al-line-pinyin">{row.pinyin}</span>}
-                    {showEnglish && row.english && <span className="al-line-en">{row.english}</span>}
-                  </li>
+                    row={row}
+                    current={current}
+                    showPinyin={showPinyin}
+                    showEnglish={showEnglish}
+                    known={known}
+                    onSeek={seekTo}
+                  />
                 );
               })}
             </ol>

@@ -51,6 +51,12 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
+import dev.jeromeswannack.chineselearning.lab.core.ReaderWords
+import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto
+import dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords
+import dev.jeromeswannack.chineselearning.lab.ui.chat.ChineseWords
+import dev.jeromeswannack.chineselearning.lab.ui.chat.WordChipColors
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -87,6 +93,8 @@ data class AudioLessonPlayerUi(
     /** The soft music bed (docs/AUDIO_LESSONS.md "Music"): on by default for sleep, off for dialogue. */
     val musicOn: Boolean = false,
     val musicVolume: Double = AudioLessonMusic.DEFAULT_VOLUME,
+    /** Hanzi already in a deck: quieter word chips in the transcript. */
+    val known: Set<String> = emptySet(),
 ) {
     val transcriptOn: Boolean get() = showTranscript ?: (lesson?.format != "sleep")
 }
@@ -109,6 +117,8 @@ data class AudioLessonPlayerActions(
     val onMusic: () -> Unit = {},
     /** The music volume slider: (volume, the finger lifted). */
     val onMusicVolume: (Double, Boolean) -> Unit = { _, _ -> },
+    /** A word chip in the transcript: (the word, the sentence it was tapped in) → the language explorer. */
+    val onWord: (ReaderWordDto, String) -> Unit = { _, _ -> },
 )
 
 /**
@@ -145,7 +155,7 @@ fun AudioLessonPlayerScreen(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerA
                     }
                     LazyColumn(Modifier.weight(1f).fillMaxSize(), state = transcriptState, contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         item { Text("📝 Transcript", color = AlColors.muted, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp)) }
-                        transcript(rows, currentRow, actions, ui.showPinyin, ui.showEnglish)
+                        transcript(rows, currentRow, actions, ui)
                     }
                     Follow(transcriptState, currentRow, offset = 1, enabled = ui.playing)
                 }
@@ -162,7 +172,7 @@ fun AudioLessonPlayerScreen(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerA
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             playerPanels(ui, actions)
-                            if (ui.transcriptOn) transcript(rows, currentRow, actions, ui.showPinyin, ui.showEnglish)
+                            if (ui.transcriptOn) transcript(rows, currentRow, actions, ui)
                             words(ui, actions)
                         }
                     }
@@ -393,28 +403,63 @@ private fun LazyListScope.playerPanels(ui: AudioLessonPlayerUi, actions: AudioLe
     }
 }
 
-private fun LazyListScope.transcript(rows: List<AudioLessonTranscriptRow>, current: Int, actions: AudioLessonPlayerActions, showPinyin: Boolean, showEnglish: Boolean) {
+private fun LazyListScope.transcript(rows: List<AudioLessonTranscriptRow>, current: Int, actions: AudioLessonPlayerActions, ui: AudioLessonPlayerUi) {
     rows.forEachIndexed { i, row ->
-        item(key = "t${row.first}") { TranscriptRowView(row, i == current, showPinyin, showEnglish) { actions.onSeek(row.startMs) } }
+        item(key = "t${row.first}") { TranscriptRowView(row, i == current, ui.showPinyin, ui.showEnglish, ui.known, actions.onWord) { actions.onSeek(row.startMs) } }
     }
 }
 
+/** The transcript's word chips on the dark player (the web's .al-line .chat-word). */
+private val TranscriptChips = WordChipColors(
+    tint = AlColors.periwinkle.copy(alpha = 0.10f),
+    knownLine = Color(0xFF86EFAC).copy(alpha = 0.8f),
+    pinyin = AlColors.periwinkle,
+)
+
+/**
+ * One transcript row (dialogue, sleep and story alike). Its Chinese is word chips made on the
+ * phone (data/text/DeviceWords: the deterministic segmenter, the chat / Ask Claude's
+ * [ChineseWords]) — a word opens the language explorer; a tap anywhere else on the row seeks the
+ * audio to it. Until the word lists load (or for a line with no Chinese) it is the plain text.
+ */
 @Composable
-private fun TranscriptRowView(row: AudioLessonTranscriptRow, current: Boolean, showPinyin: Boolean, showEnglish: Boolean, onClick: () -> Unit) {
+private fun TranscriptRowView(
+    row: AudioLessonTranscriptRow,
+    current: Boolean,
+    showPinyin: Boolean,
+    showEnglish: Boolean,
+    known: Set<String>,
+    onWord: (ReaderWordDto, String) -> Unit,
+    onClick: () -> Unit,
+) {
     val bg by animateColorAsState(if (current) AlColors.periwinkle.copy(alpha = 0.16f) else Color.Transparent, label = "row")
     val scale by animateFloatAsState(if (current) 1f else 0.985f, spring(dampingRatio = 0.6f), label = "rowScale")
-    Row(Modifier.fillMaxWidth().scale(scale).clip(RoundedCornerShape(12.dp)).background(bg).clickable(onClick = onClick)) {
+    Row(Modifier.fillMaxWidth().scale(scale).clip(RoundedCornerShape(12.dp)).background(bg).clickable(onClick = onClick).testTag("al-transcript-row")) {
         Box(Modifier.width(3.dp).heightIn(min = 44.dp).background(if (current) AlColors.periwinkle else Color.Transparent))
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             val zh = row.lang == "zh"
+            val color = if (current) AlColors.bright else if (zh) AlColors.text else AlColors.muted
+            val fontSize = if (zh) 19.sp else 15.sp
+            val words = DeviceWords.of(row.text)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    row.text,
-                    color = if (current) AlColors.bright else if (zh) AlColors.text else AlColors.muted,
-                    fontSize = if (zh) 19.sp else 15.sp,
-                    lineHeight = if (zh) 26.sp else 21.sp,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
+                Box(Modifier.weight(1f, fill = false)) {
+                    ChineseWords(
+                        text = row.text,
+                        words = words,
+                        isMe = false,
+                        color = color,
+                        showPinyin = false,
+                        known = known,
+                        onChip = { i ->
+                            val ws = words ?: return@ChineseWords
+                            val offsets = ReaderWords.offsets(ws.map { it.text })
+                            onWord(ws[i], ReaderWords.sentenceAround(row.text, offsets[i], offsets[i] + ws[i].text.length))
+                        },
+                        fontSize = fontSize,
+                        plain = { Text(row.text, color = color, fontSize = fontSize, lineHeight = if (zh) 26.sp else 21.sp) },
+                        chipColors = TranscriptChips,
+                    )
+                }
                 // Said several times in a row: "×3" (the web's .al-line-repeat).
                 row.repeat?.let {
                     Text("×$it", color = AlColors.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp).semantics { contentDescription = "said $it times" })
