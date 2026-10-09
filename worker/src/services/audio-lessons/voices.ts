@@ -28,7 +28,10 @@ const SPEAKER_VOICES: Record<TtsProviderId, Record<Gender, [string, string]>> = 
   },
   azure: {
     female: ['zh-CN-XiaoxiaoNeural', 'zh-CN-XiaochenNeural'],
-    male: ['zh-CN-YunxiNeural', 'zh-CN-YunjianNeural'],
+    // Yunyang (the newsreader: steady, full, every syllable articulated) since Oct 2026 — the young
+    // Yunxi "was kind of hard to hear" next to Xiaoxiao (Jerome, 去朋友家吃饭). Yunxi stays as the
+    // second male voice when both speakers are men (distinct from Yunyang).
+    male: ['zh-CN-YunyangNeural', 'zh-CN-YunxiNeural'],
   },
   google: {
     female: ['cmn-CN-Wavenet-A', 'cmn-CN-Wavenet-C'],

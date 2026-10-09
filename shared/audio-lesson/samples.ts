@@ -50,6 +50,16 @@ export const SAMPLE_DIALOGUE_PLAN: DialoguePlan = {
       explanation_en: 'You already know this from 加油. Here it simply means add.',
       line: 4,
     },
+    {
+      // Its tone lines show the 一 change: "一, first tone." "个, fourth tone." "In 一个, 一 is said with a second tone, before a fourth tone."
+      kind: 'word',
+      status: 'learning',
+      hanzi: '一个',
+      pinyin: 'yí gè',
+      english: 'one (of something)',
+      explanation_en: '个 is the everyday measure word. Say 一个 for one of almost anything.',
+      line: 5,
+    },
   ],
   outro_en: "That's it. Next time you're in a noodle shop, ask for 细的.",
 };

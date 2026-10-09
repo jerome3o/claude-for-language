@@ -110,6 +110,8 @@ test('a dialogue lesson lists its chapters and shows the transcript', async ({ a
   await expect(page.getByText('🎙️ Dialogue lesson')).toBeVisible();
   // Transcript on by default, with the English under the Chinese.
   await expect(page.getByLabel('Transcript').getByText('我要一碗牛肉面。').first()).toBeVisible({ timeout: 30000 });
+  // Each word section says its tones after the word (the pinyin shown, not spoken).
+  await expect(page.getByLabel('Transcript').getByText(/^粗, cū, first tone\.$/)).toBeVisible();
   // No music under a dialogue lesson unless asked for.
   await expect(page.getByRole('button', { name: 'Music' })).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTestId('lesson-music')).toHaveCount(0);
