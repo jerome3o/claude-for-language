@@ -473,6 +473,28 @@
   font-weight: 600;
 }
 
+.al-chapter-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.al-now-chapter .al-chapter-title {
+  align-items: center;
+}
+
+.al-chapter-pinyin {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #a5b4fc;
+  opacity: 0.85;
+}
+
+.al-now-chapter .al-chapter-pinyin {
+  font-size: 0.9rem;
+}
+
 .al-chapter-time {
   color: #94a3b8;
   font-variant-numeric: tabular-nums;

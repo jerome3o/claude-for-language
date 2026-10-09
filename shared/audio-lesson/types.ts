@@ -261,6 +261,12 @@ export type AudioLessonPlan =
 export interface AudioLessonChapter {
   title: string;
   start_ms: number;
+  /**
+   * Added when a lesson is served (`chapterTitleParts`, chapter-pinyin.ts), never stored: the
+   * title without its pinyin ("自驾游") and the pinyin of its Chinese part ("zìjiàyóu"), or null.
+   */
+  label?: string;
+  pinyin?: string | null;
 }
 
 export interface AudioLessonTranscriptLine {
