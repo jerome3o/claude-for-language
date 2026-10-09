@@ -28,6 +28,11 @@ import java.time.Instant
  * Port of shared/transcription/soniox.ts: the Soniox real-time protocol the take is
  * streamed over, so "You said: …" is ready right after Stop instead of after an upload to
  * Whisper. The phone streams raw 16 kHz mono PCM (AudioRecord) → `pcm_s16le`.
+ *
+ * Authentication: the temporary key goes WITH THE CONNECTION as `Authorization: Bearer <key>`
+ * on the WebSocket request ([authorizationHeader]; soniox.com/docs/guides/websocket-authentication)
+ * — never in the config frame (deprecated, refused with 401 from 15 January 2027). The web app,
+ * which can't set headers, uses the subprotocols `soniox-api-key` + key instead.
  */
 object SonioxProtocol {
     const val SAMPLE_RATE = 16_000
@@ -56,10 +61,15 @@ object SonioxProtocol {
         }
     }
 
-    /** `buildSonioxConfig` — no `context`: biasing towards the answer would hide mistakes. */
-    fun config(apiKey: String, model: String, languageHints: List<String>, sampleRate: Int = SAMPLE_RATE, channels: Int = 1): String =
+    /** `sonioxAuthorizationHeader`: the handshake header (works for `snx_temp_` and old `temp:` keys). */
+    fun authorizationHeader(apiKey: String): String = "Bearer $apiKey"
+
+    /**
+     * `buildSonioxConfig` — no `api_key` (it goes with the connection, [authorizationHeader]) and
+     * no `context`: biasing towards the answer would hide mistakes.
+     */
+    fun config(model: String, languageHints: List<String>, sampleRate: Int = SAMPLE_RATE, channels: Int = 1): String =
         buildJsonObject {
-            put("api_key", apiKey)
             put("model", model)
             put("language_hints", buildJsonArray { languageHints.forEach { add(JsonPrimitive(it)) } })
             put("audio_format", "pcm_s16le")
@@ -177,10 +187,14 @@ class SonioxStream(
     private val socket: WebSocket
 
     init {
-        socket = http.newWebSocket(Request.Builder().url(session.websocket_url!!).build(), object : WebSocketListener() {
+        val request = Request.Builder()
+            .url(session.websocket_url!!)
+            .header("Authorization", SonioxProtocol.authorizationHeader(session.api_key!!))
+            .build()
+        socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 synchronized(lock) {
-                    webSocket.send(SonioxProtocol.config(session.api_key!!, session.model ?: "stt-rt-v5", session.language_hints.ifEmpty { listOf("zh", "en") }))
+                    webSocket.send(SonioxProtocol.config(session.model ?: "stt-rt-v5", session.language_hints.ifEmpty { listOf("zh", "en") }))
                     queue.forEach { webSocket.send(it) }
                     queue.clear()
                     open = true

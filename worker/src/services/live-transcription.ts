@@ -6,7 +6,9 @@
  * the protocol). The permanent SONIOX_API_KEY stays here: we mint a short-lived
  * TEMPORARY key (POST https://api.soniox.com/v1/auth/temporary-api-key,
  * usage_type `transcribe_websocket`) tagged with the user's id, and the client reuses it
- * for every take until a minute before it expires. No key configured → `{ provider:
+ * for every take until a minute before it expires. The client sends that key WITH the
+ * WebSocket connection (web: subprotocols `soniox-api-key` + key; Lab: `Authorization: Bearer`),
+ * not in the config frame. No key configured → `{ provider:
  * 'upload' }` and the client keeps the old path (upload the take to POST /api/transcribe,
  * Workers AI Whisper).
  */
