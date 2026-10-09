@@ -21,6 +21,8 @@ data class ForwardUi(
     /** Null while loading with nothing cached. */
     val targets: List<ForwardTarget>? = null,
     val error: String? = null,
+    /** "Forward all" of a photo album: the photos go with one new album id, so they stay one album there. */
+    val album: Boolean = false,
 )
 
 /** Round 2 PR 3 (docs/CHAT.md): forward, message info, the queue line — pure, unit-tested in ChatRound3Test. */

@@ -138,7 +138,22 @@ export function EditMessageSheet({
 }
 
 /** "Delete this message?" — for everyone. */
-export function ConfirmDeleteSheet({ busy, onConfirm, onCancel }: { busy: boolean; onConfirm: () => void; onCancel: () => void }) {
+export function ConfirmDeleteSheet({
+  busy,
+  onConfirm,
+  onCancel,
+  count = 1,
+  photos = false,
+}: {
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  /** Several at once: every photo of an album ("Delete all"). */
+  count?: number;
+  photos?: boolean;
+}) {
+  const many = count > 1;
+  const title = many ? `Delete these ${count} ${photos ? 'photos' : 'messages'}?` : photos ? 'Delete this photo?' : 'Delete this message?';
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
@@ -149,8 +164,8 @@ export function ConfirmDeleteSheet({ busy, onConfirm, onCancel }: { busy: boolea
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal idk-dialog-modal" role="alertdialog" aria-label="Delete message" onClick={(e) => e.stopPropagation()}>
-        <h3>Delete this message?</h3>
-        <p className="modal-subtitle">It will be removed for both of you.</p>
+        <h3>{title}</h3>
+        <p className="modal-subtitle">{many ? 'They will be removed for both of you.' : 'It will be removed for both of you.'}</p>
         <div className="modal-actions">
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
             Cancel

@@ -19,9 +19,14 @@ data class IncomingChat(
     val senderPicture: String? = null,
     val content: String,
     val createdAt: String,
+    /** A photo of an album (docs/CHAT.md "Photo albums"): the whole album is ONE notification line. */
+    val albumId: String? = null,
 ) {
     /** The web route the notification opens (`/connections/<rel>/chat/<conv>`). */
     val route: String get() = Routes.chat(relationshipId, conversationId)
+
+    /** The notification line's dedupe key: the message, or its album (every photo of it, however it arrived). */
+    val lineKey: String get() = albumId?.takeIf { it.isNotEmpty() }?.let { "album:$conversationId:$it" } ?: messageId
 
     companion object {
         fun fromInbox(m: InboxMessageDto) = IncomingChat(
@@ -33,6 +38,7 @@ data class IncomingChat(
             senderPicture = m.sender.picture_url,
             content = m.preview?.takeIf { it.isNotBlank() } ?: previewText(m.content, m.attachment_kind),
             createdAt = m.created_at,
+            albumId = m.album_id,
         )
 
         /**
@@ -42,15 +48,19 @@ data class IncomingChat(
         fun previewText(content: String, attachmentKind: String?, fileName: String? = null): String =
             dev.jeromeswannack.chineselearning.lab.core.ChatFiles.previewText(content, attachmentKind, fileName)
 
-        fun fromMessage(m: ChatMessageDto, relationshipId: String) = IncomingChat(
+        /** A live `message` event; [albumCount] = the event's `album_count` (a photo of an album: "📷 3 photos"). */
+        fun fromMessage(m: ChatMessageDto, relationshipId: String, albumCount: Int? = null) = IncomingChat(
             messageId = m.id,
             conversationId = m.conversation_id,
             relationshipId = relationshipId,
             senderId = m.sender_id.ifEmpty { m.sender.id },
             senderName = m.sender.name?.takeIf { it.isNotBlank() } ?: "New message",
             senderPicture = m.sender.picture_url,
-            content = previewText(m.content, m.attachment?.kind, m.attachment?.name),
+            content = if (!m.album_id.isNullOrEmpty() && albumCount != null && albumCount > 1)
+                dev.jeromeswannack.chineselearning.lab.core.chat.ChatInbox.messagePreview(m.content, m.attachment?.kind, !m.deleted_at.isNullOrEmpty(), m.attachment?.name, albumCount.toDouble())
+            else previewText(m.content, m.attachment?.kind, m.attachment?.name),
             createdAt = m.created_at,
+            albumId = m.album_id,
         )
     }
 }
@@ -84,9 +94,10 @@ object ChatPushData {
                     senderId = data["sender_id"].orEmpty(),
                     senderName = data["sender_name"]?.takeIf { it.isNotBlank() } ?: "New message",
                     senderPicture = data["sender_picture_url"]?.takeIf { it.isNotBlank() },
-                    // Already the preview for photos / voice ("📷 Photo", "🎤 Voice message").
+                    // Already the preview for photos / voice ("📷 Photo", "🎤 Voice message", "📷 3 photos").
                     content = data["content"].orEmpty(),
                     createdAt = data["created_at"].orEmpty(),
+                    albumId = data["album_id"]?.takeIf { it.isNotEmpty() },
                 ),
             )
         }

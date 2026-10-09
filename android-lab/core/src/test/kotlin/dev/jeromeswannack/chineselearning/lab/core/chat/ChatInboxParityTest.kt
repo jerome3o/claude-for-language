@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -34,7 +35,8 @@ class ChatInboxParityTest {
         for (c in cases) {
             val input = c.jsonObject["input"]!!.jsonObject
             val deleted = input["deleted"]?.jsonPrimitive?.boolean ?: false
-            val got = ChatInbox.messagePreview(input.str("content")!!, input.str("attachment_kind"), deleted, input.str("attachment_name"))
+            val albumCount = input["album_count"]?.let { if (it is JsonNull) null else it.jsonPrimitive.double }
+            val got = ChatInbox.messagePreview(input.str("content")!!, input.str("attachment_kind"), deleted, input.str("attachment_name"), albumCount)
             assertEquals(c.jsonObject.str("result"), got, input.toString())
         }
     }

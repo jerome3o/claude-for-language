@@ -69,9 +69,16 @@ export function sendChatMedia(
     name?: string | null;
     width?: number | null;
     height?: number | null;
+    /** Photos picked together (docs/CHAT.md "Photo albums"). */
+    album?: ChatAlbumRef | null;
   },
 ): Promise<MessageWithSender> {
   const q = new URLSearchParams({ kind: input.kind, client_id: input.client_id });
+  if (input.album) {
+    q.set('album_id', input.album.id);
+    q.set('album_index', String(input.album.index));
+    q.set('album_count', String(input.album.count));
+  }
   if (input.caption) q.set('caption', input.caption);
   if (input.reply_to_message_id) q.set('reply_to_message_id', input.reply_to_message_id);
   if (input.duration_ms != null) q.set('duration_ms', String(Math.round(input.duration_ms)));
@@ -86,9 +93,26 @@ export function sendChatMedia(
   });
 }
 
-/** Forward a message into another of my conversations (round 2 PR 3); idempotent by client_id. */
-export function forwardChatMessage(messageId: string, conversationId: string, clientId: string): Promise<MessageWithSender> {
-  return request(`/messages/${messageId}/forward`, { method: 'POST', body: JSON.stringify({ conversation_id: conversationId, client_id: clientId }) });
+/** A photo's place in an album: the album id, its 0-based index and the album's size. */
+export interface ChatAlbumRef {
+  id: string;
+  index: number;
+  count: number;
+}
+
+/**
+ * Forward a message into another of my conversations (round 2 PR 3); idempotent by client_id.
+ * `album`: "Forward all" of a photo album — every photo with one new album id stays one album there.
+ */
+export function forwardChatMessage(messageId: string, conversationId: string, clientId: string, album?: ChatAlbumRef | null): Promise<MessageWithSender> {
+  return request(`/messages/${messageId}/forward`, {
+    method: 'POST',
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      client_id: clientId,
+      ...(album ? { album_id: album.id, album_index: album.index, album_count: album.count } : {}),
+    }),
+  });
 }
 
 export function editChatMessage(messageId: string, content: string): Promise<MessageWithSender> {

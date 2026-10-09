@@ -393,6 +393,10 @@ export interface Message {
   pinned_by?: string | null;
   /** The message this one was forwarded from (round 2 PR 3); shown as "↪ Forwarded". */
   forwarded_from?: string | null;
+  /** Photos picked together share it (docs/CHAT.md "Photo albums"); drawn as one album bubble. */
+  album_id?: string | null;
+  /** 0-based position in the album as picked. */
+  album_index?: number | null;
   // Learning tools (docs/CHAT.md PR 3).
   /** Word chips; they concatenate to `content` ('content') or to the voice transcript ('transcript'). */
   words?: ChatWord[] | null;

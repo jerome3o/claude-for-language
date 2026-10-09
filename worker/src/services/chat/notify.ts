@@ -24,6 +24,7 @@ import { broadcastToUsers, broadcastToUser } from './hub';
 import { messagePreviewText } from './media';
 import { getConversationParticipants, otherParticipant, type ChatParticipants } from './reads';
 import { notificationPreviewFor } from './listening';
+import { albumSummary, claimAlbumNotification, type AlbumParams } from './albums';
 
 /** FCM data values are capped well below FCM's 4 KB payload limit. */
 export const FCM_CONTENT_MAX = 1000;
@@ -45,8 +46,15 @@ export function chatUrl(relationshipId: string, conversationId: string): string 
 }
 
 /** The FCM data payload for a new message (all values strings once sent). */
-export function chatMessageFcmData(message: MessageWithSender, relationshipId: string, preview: string = previewOf(message)): Record<string, string> {
+export function chatMessageFcmData(
+  message: MessageWithSender,
+  relationshipId: string,
+  preview: string = previewOf(message),
+  album: { id: string; count: number } | null = null,
+): Record<string, string> {
   return {
+    // A photo album's ONE notification (docs/CHAT.md "Photo albums"): the app keys its line by album.
+    ...(album ? { album_id: album.id, album_count: String(album.count) } : {}),
     type: 'chat_message',
     conversation_id: message.conversation_id,
     relationship_id: relationshipId,
@@ -88,12 +96,20 @@ async function step(label: string, fn: () => Promise<unknown>): Promise<void> {
   }
 }
 
-/** Everything that happens when `message` has been stored. Never throws. */
+/**
+ * Everything that happens when `message` has been stored. Never throws.
+ *
+ * A photo of an album (`opts.album`, docs/CHAT.md "Photo albums"): the live
+ * event goes out for every photo, everything else (FCM, Web Push, e-mail, the
+ * bell, ntfy) ONCE per album — on the first photo to arrive, which claims it —
+ * saying "📷 <album_count> photos".
+ */
 export async function notifyNewChatMessage(
   env: Env,
   message: MessageWithSender,
   conversation: { id: string; relationship_id: string },
   deps: ChatNotifyDeps = {},
+  opts: { album?: AlbumParams | null } = {},
 ): Promise<void> {
   let participants: ChatParticipants | null = null;
   try {
@@ -107,7 +123,44 @@ export async function notifyNewChatMessage(
   const relationshipId = participants.relationship_id;
   const recipientIsHuman = !!recipientId && recipientId !== CLAUDE_AI_USER_ID && recipientId !== senderId;
   const senderName = message.sender.name || 'Someone';
-  const raw = previewOf(message);
+  const album = opts.album && message.album_id === opts.album.id ? opts.album : null;
+
+  // 1. Live: the recipient's sockets and the sender's other devices — every photo of an album too.
+  const live = step('live', () =>
+    broadcastToUsers(env, recipientIsHuman ? [recipientId, senderId] : [senderId], {
+      type: 'message',
+      message,
+      relationship_id: relationshipId,
+      ...(album ? { album_count: album.count } : {}),
+    }),
+  );
+
+  let raw = previewOf(message);
+  let albumNote: { id: string; count: number } | null = null;
+  if (album) {
+    let claimed = false;
+    try {
+      claimed = await claimAlbumNotification(env.DB, message, album.id);
+    } catch (err) {
+      console.error('[chat-notify] album claim failed:', err);
+    }
+    // Another photo of this album already notified: live only.
+    if (!claimed) {
+      await live;
+      return;
+    }
+    let caption = message.content;
+    let stored = 1;
+    try {
+      const summary = await albumSummary(env.DB, message.conversation_id, senderId, album.id);
+      stored = summary.count;
+      if (!caption.trim()) caption = summary.caption;
+    } catch (err) {
+      console.error('[chat-notify] album summary failed:', err);
+    }
+    albumNote = { id: album.id, count: Math.max(album.count, stored) };
+    raw = messagePreviewText({ ...message, content: caption }, albumNote.count);
+  }
   // What the recipient may see before opening the chat: their listening mode hides Chinese text.
   let content = raw;
   if (recipientIsHuman) {
@@ -120,13 +173,10 @@ export async function notifyNewChatMessage(
   const truncated = content.length > PREVIEW_MAX ? content.slice(0, PREVIEW_MAX) + '...' : content;
 
   await Promise.all([
-    // 1. Live: the recipient's sockets and the sender's other devices.
-    step('live', () =>
-      broadcastToUsers(env, recipientIsHuman ? [recipientId, senderId] : [senderId], { type: 'message', message, relationship_id: relationshipId }),
-    ),
+    live,
     // 2. FCM to the recipient's native apps (never the sender's).
     recipientIsHuman
-      ? step('fcm', () => pushToDevices(env, [recipientId], chatMessageFcmData(message, relationshipId, content), { collapseKey: message.conversation_id, ttlSeconds: 86400 }, deps.fetcher))
+      ? step('fcm', () => pushToDevices(env, [recipientId], chatMessageFcmData(message, relationshipId, content, albumNote), { collapseKey: message.conversation_id, ttlSeconds: 86400 }, deps.fetcher))
       : Promise.resolve(),
     // 3. Web Push to the recipient's browsers.
     recipientIsHuman

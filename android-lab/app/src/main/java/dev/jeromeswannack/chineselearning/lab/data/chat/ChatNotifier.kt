@@ -58,13 +58,15 @@ object ChatNotifier {
     ): Boolean {
         if (myId != null && chat.senderId == myId) return false
         val store = ChatNotificationStore(ctx)
+        // A photo album is one line, whichever photo / channel (FCM, live, inbox check) brings it first.
+        val key = chat.lineKey
         if (ChatPresence.isShowing(chat.conversationId)) {
-            store.markNotified(chat.messageId)
+            store.markNotified(key)
             return false
         }
-        if (!store.markNotified(chat.messageId)) return false
+        if (!store.markNotified(key)) return false
         val prev = store.get(chat.conversationId)
-        val line = ChatNotificationStore.Line(chat.messageId, chat.content, chat.createdAt, timeMs(chat.createdAt))
+        val line = ChatNotificationStore.Line(key, chat.content, chat.createdAt, timeMs(chat.createdAt))
         val c = ChatNotificationStore.Conversation(
             conversationId = chat.conversationId,
             relationshipId = chat.relationshipId.ifEmpty { prev?.relationshipId.orEmpty() },

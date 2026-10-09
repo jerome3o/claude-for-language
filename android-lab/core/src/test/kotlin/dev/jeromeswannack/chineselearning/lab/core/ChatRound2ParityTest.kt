@@ -89,7 +89,13 @@ class ChatRound2ParityTest {
             val got = ChatBubbles.layoutBubbles(msgs, o.str("viewer")!!, o.str("readAt"), o["offset"]!!.jsonPrimitive.int)
             val want = o["result"]!!.jsonArray.map { e ->
                 val r = e.jsonObject
-                ChatBubbles.Layout(r.str("id")!!, r.bool("mine"), r.bool("firstInGroup"), r.bool("lastInGroup"), r.bool("newDay"), r.str("day")!!, ChatBubbles.Tick.entries.first { it.id == r.str("tick") })
+                ChatBubbles.Layout(
+                    r.str("id")!!, r.bool("mine"), r.bool("firstInGroup"), r.bool("lastInGroup"), r.bool("newDay"), r.str("day")!!,
+                    ChatBubbles.Tick.entries.first { it.id == r.str("tick") },
+                    album = r.str("kind") == "album",
+                    messageIds = r["messageIds"]!!.jsonArray.map { it.jsonPrimitive.content },
+                    captionId = r.str("captionId"),
+                )
             }
             assertEquals(want, got, "layout ${o["messages"]} readAt=${o.str("readAt")} offset=${o["offset"]}")
         }

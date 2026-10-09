@@ -80,6 +80,8 @@ fun MessageMenuContent(
     mine: Boolean,
     onReact: (String) -> Unit,
     onAction: (String) -> Unit,
+    /** The lifted bubble's text (an album: "📷 3 photos: caption"); null = the message's own preview. */
+    preview: String? = null,
 ) {
     var all by remember { mutableStateOf(false) }
     val c = chatColors()
@@ -108,7 +110,7 @@ fun MessageMenuContent(
         // The message itself, lifted (Signal shows the bubble above the list).
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
             Text(
-                previewOf(m), maxLines = 3, overflow = TextOverflow.Ellipsis, fontSize = 16.sp, lineHeight = 22.sp,
+                preview ?: previewOf(m), maxLines = 3, overflow = TextOverflow.Ellipsis, fontSize = 16.sp, lineHeight = 22.sp,
                 color = if (mine) c.onMine else c.onTheirs,
                 modifier = Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(18.dp)).background(if (mine) c.mine else c.theirs).padding(horizontal = 14.dp, vertical = 9.dp),
             )

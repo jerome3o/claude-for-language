@@ -48,6 +48,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.startCall
 import dev.jeromeswannack.chineselearning.lab.core.ChatSearch
 import dev.jeromeswannack.chineselearning.lab.data.api.SendMessageBody
 import dev.jeromeswannack.chineselearning.lab.data.api.chatMediaUploadPath
+import dev.jeromeswannack.chineselearning.lab.data.api.AlbumRef
+import dev.jeromeswannack.chineselearning.lab.core.ChatBubbles
 import dev.jeromeswannack.chineselearning.lab.data.api.chatForwardPath
 import dev.jeromeswannack.chineselearning.lab.data.api.ForwardBody
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
@@ -149,6 +151,11 @@ sealed interface ChatSheet {
     // ---- auto-check ----
     /** ✨ How to say it better: the tutor's correction, else the background check (docs/CHAT.md "Auto-check"). */
     data class SayBetter(val message: ChatMessageDto) : ChatSheet
+    // ---- photo albums (docs/CHAT.md "Photo albums") ----
+    /** A long press on an album: the album's menu (its photos' message ids, oldest first). */
+    data class AlbumActions(val photoIds: List<String>) : ChatSheet
+    /** "Delete all N": every photo of my album. */
+    data class ConfirmDeleteAll(val messages: List<ChatMessageDto>) : ChatSheet
 }
 
 /** A photo shrunk on the phone, waiting in the compose sheet. */
@@ -969,10 +976,17 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         _ui.update { it.copy(sheet = if (rest.isEmpty()) null else ChatSheet.Photos(rest)) }
     }
 
-    /** Send: one message per photo (own client id, own outbox row), the caption and the reply with the first. */
+    /**
+     * Send: one message per photo (own client id, own outbox row), the caption and the reply with the
+     * first. Several photos are ONE album (docs/CHAT.md "Photo albums"): they share an album id and
+     * their index, and the outbox sends them in order, so they stay together offline too.
+     */
     fun sendPhoto(caption: String) {
         val sheet = _ui.value.sheet as? ChatSheet.Photos ?: return
         app.analytics.track("chat.send", mapOf("kind" to "photo", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
+        val count = sheet.photos.size
+        val albumId = if (count > 1) java.util.UUID.randomUUID().toString() else null
+        if (albumId != null) app.analytics.track("chat.album_sent", mapOf("count" to count, "offline" to !_ui.value.online))
         val replyTo = _ui.value.replyingTo?.id
         _ui.update { it.copy(sheet = null, replyingTo = null) }
         app.sounds.play(Sounds.Sfx.POP, 0.5f)
@@ -983,7 +997,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 val file = java.io.File(p.path)
                 media.adopt(clientId, file, "jpg")
                 val cap = if (i == 0) caption.trim().ifEmpty { null } else null
-                app.outbox.enqueueRaw(ChatWrites.KIND_MEDIA, "POST", chatMediaUploadPath(convId, "image", clientId, cap, if (i == 0) replyTo else null), file, "image/jpeg", id = clientId)
+                val album = albumId?.let { AlbumRef(it, i, count) }
+                app.outbox.enqueueRaw(ChatWrites.KIND_MEDIA, "POST", chatMediaUploadPath(convId, "image", clientId, cap, if (i == 0) replyTo else null, album = album), file, "image/jpeg", id = clientId)
             }
             flushOutbox()
         }
@@ -1099,11 +1114,11 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     // ---------------- forward / info ----------------
 
     /** Menu → Forward, or the selection bar's Forward: "Forward to…" for these messages (oldest first). */
-    fun startForward(ids: List<String>) {
+    fun startForward(ids: List<String>, album: Boolean = false) {
         val order = _ui.value.messages.map { it.id }
         val sorted = ids.distinct().sortedBy { order.indexOf(it) }
         if (sorted.isEmpty()) return
-        _ui.update { it.copy(sheet = ChatSheet.Forward, forward = ForwardUi(sorted)) }
+        _ui.update { it.copy(sheet = ChatSheet.Forward, forward = ForwardUi(sorted, album = album && sorted.size > 1)) }
         viewModelScope.launch { loadForwardTargets() }
     }
 
@@ -1153,11 +1168,14 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         app.sounds.play(Sounds.Sfx.POP, 0.5f)
         val ids = f.messageIds
         app.analytics.track("chat.forward", mapOf("kind" to if (ids.size == 1) "single" else "multiple"))
+        // "Forward all" of an album: one new album id there (docs/CHAT.md "Photo albums").
+        val albumId = if (f.album && ids.size in 2..ChatBubbles.ALBUM_MAX_PHOTOS) java.util.UUID.randomUUID().toString() else null
         app.scope.launch {
-            for (id in ids) {
+            for ((i, id) in ids.withIndex()) {
                 val clientId = java.util.UUID.randomUUID().toString()
                 forwards += clientId
-                app.outbox.enqueueJson(ChatWrites.KIND_FORWARD, "POST", chatForwardPath(id), ForwardBody(target.conversationId, clientId), id = clientId)
+                val body = ForwardBody(target.conversationId, clientId, album_id = albumId, album_index = albumId?.let { i }, album_count = albumId?.let { ids.size })
+                app.outbox.enqueueJson(ChatWrites.KIND_FORWARD, "POST", chatForwardPath(id), body, id = clientId)
             }
             flushOutbox()
         }
@@ -1348,6 +1366,78 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             MessageMenu.INFO -> openSheet(ChatSheet.Info(m))
             MessageMenu.EDIT -> startEdit(m)
             MessageMenu.DELETE -> askDelete(m)
+        }
+    }
+
+    // ---------------- photo albums (docs/CHAT.md "Photo albums") ----------------
+
+    /** The album's photos as they are now (deleted ones dropped), oldest first. */
+    fun albumPhotos(ids: List<String>): List<ChatMessageDto> {
+        val set = ids.toSet()
+        return _ui.value.messages.filter { it.id in set && !it.isDeleted }
+    }
+
+    /** The photo that stands for the album in the menu: its caption's (the last with one), else its last. */
+    fun albumHead(photos: List<ChatMessageDto>): ChatMessageDto? = photos.lastOrNull { it.content.isNotBlank() } ?: photos.lastOrNull()
+
+    fun openAlbumMenu(ids: List<String>) {
+        if (albumPhotos(ids).isEmpty()) return
+        openSheet(ChatSheet.AlbumActions(ids))
+    }
+
+    /**
+     * The album menu: Forward all / Delete all act on every photo; the rest on the photo that stands
+     * for the album (Reply, Copy, Explain, Save as flashcard, Pin, Info, Edit caption).
+     */
+    fun onAlbumMenuAction(id: String, ids: List<String>) {
+        val photos = albumPhotos(ids)
+        val head = albumHead(photos) ?: return
+        when (id) {
+            MessageMenu.FORWARD -> {
+                _ui.update { it.copy(sheet = null) }
+                app.analytics.track("chat.menu_action", mapOf("action" to id, "kind" to "album"))
+                startForward(photos.map { it.id }, album = true)
+            }
+            MessageMenu.DELETE -> {
+                app.analytics.track("chat.menu_action", mapOf("action" to id, "kind" to "album"))
+                val mine = photos.filter { it.sender_id == _ui.value.myId }
+                _ui.update { it.copy(sheet = if (mine.isEmpty()) null else ChatSheet.ConfirmDeleteAll(mine)) }
+            }
+            else -> onMenuAction(id, head)
+        }
+    }
+
+    /** "Delete all N": each photo deleted on the server (removed for both), oldest first. */
+    fun deleteAll(ms: List<ChatMessageDto>) {
+        _ui.update { it.copy(sheet = null) }
+        if (!_ui.value.online) { error("You're offline — deleting needs a connection."); return }
+        val now = java.time.Instant.now().toString()
+        ms.forEach { m -> replaceLocal(m.id) { it.copy(deleted_at = now, content = "", attachment = null, media_url = null, pinned_at = null) } }
+        app.haptics.tick()
+        viewModelScope.launch {
+            for (m in ms) {
+                runCatching { api.deleteChatMessage(m.id) }.onSuccess { addMessages(listOf(it)) }
+                    .onFailure { e -> replaceLocal(m.id) { m }; error("Couldn't delete every photo. ${e.userMessage()}") }
+            }
+        }
+    }
+
+    fun albumViewerOpened(count: Int, index: Int) = app.analytics.track("chat.album_viewer_open", mapOf("count" to count, "index" to index))
+
+    /** The viewer's Share: the photo's bytes (cached or downloaded) handed to another app. */
+    fun sharePhoto(m: ChatMessageDto) {
+        viewModelScope.launch {
+            val f = media.file(m)
+            if (f == null) { error(if (_ui.value.online) "Couldn't get that photo." else "That photo isn't on the phone yet — share it once you're online."); return@launch }
+            runCatching {
+                val dir = java.io.File(app.cacheDir, "shared").apply { mkdirs() }
+                val out = java.io.File(dir, "photo-${m.created_at.take(10)}-${m.id.take(8)}.${f.extension.ifEmpty { "jpg" }}")
+                withContext(Dispatchers.IO) { f.copyTo(out, overwrite = true) }
+                val uri = androidx.core.content.FileProvider.getUriForFile(app, "${app.packageName}.files", out)
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType(m.attachment?.mime ?: "image/jpeg")
+                    .putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                app.startActivity(android.content.Intent.createChooser(send, "Share photo").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            }.onFailure { error("Couldn't share that photo.") }
         }
     }
 

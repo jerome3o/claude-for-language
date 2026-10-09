@@ -183,6 +183,32 @@ export function messageMenu(
   return { reactions: true, items };
 }
 
+// ---------- Photo albums (docs/CHAT.md "Photo albums") ----------
+
+/** What the album bubble's menu keeps; everything per photo is in the viewer. */
+const ALBUM_KEEPS: readonly MenuActionId[] = ['reply', 'copy', 'forward', 'explain', 'save_card', 'pin', 'unpin', 'info', 'edit', 'delete'];
+
+/**
+ * The long-press menu of a photo album: the menu of the message that stands for
+ * the album (its caption's photo, else its last) with only the parts that make
+ * sense for the whole album — Reply, Copy / Explain / Save as flashcard (the
+ * caption), Forward all, Pin, Info, Edit caption, Delete all — relabelled.
+ * Reactions stay (they go on the album's LAST photo).
+ * Lab port: core `MessageMenu.albumMenu`, parity-tested.
+ */
+export function albumMenu(menu: MessageMenu, photoCount: number): MessageMenu {
+  const n = Math.max(0, Math.floor(photoCount));
+  const items = menu.items
+    .filter((it) => ALBUM_KEEPS.includes(it.id))
+    .map((it): MenuItem => {
+      if (it.id === 'forward') return { ...it, label: `Forward all ${n}` };
+      if (it.id === 'delete') return { ...it, label: `Delete all ${n}` };
+      if (it.id === 'edit') return { ...it, label: 'Edit caption' };
+      return it;
+    });
+  return { reactions: menu.reactions, items };
+}
+
 // ---------- Ask Claude on the study card (docs/STUDY_SESSION.md "Ask Claude") ----------
 
 /** One message of the Ask Claude conversation: the learner's question, or Claude's answer. */

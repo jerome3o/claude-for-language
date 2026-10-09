@@ -608,6 +608,10 @@ export interface Message {
   pinned_by?: string | null;
   /** The message this one was forwarded from (round 2 PR 3); shown as "↪ Forwarded". */
   forwarded_from?: string | null;
+  /** Photos picked together share it (docs/CHAT.md "Photo albums"); the apps draw them as one bubble. */
+  album_id?: string | null;
+  /** 0-based position in the album as picked. */
+  album_index?: number | null;
   /**
    * Learning tools (docs/CHAT.md PR 3): the text split into word chips
    * (shared/reader/words.ts), concatenating exactly to `content` — or, for a

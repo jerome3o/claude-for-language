@@ -3,6 +3,7 @@
  * middleware.
  *
  *   POST   /conversations/:id/media?kind=image|voice&client_id=&caption=&reply_to_message_id=&duration_ms=
+ *          &album_id=&album_index=&album_count=   (photos picked together, docs/CHAT.md "Photo albums")
  *          raw body → 201 MessageWithSender (200 for a repeated client_id)
  *   GET    /chat-media/:messageId          the bytes (participants only), private immutable cache
  *   PATCH  /messages/:id                   { content } — sender only: text, or a photo's caption
@@ -43,6 +44,7 @@ import {
 import { background, deliverSentMessage } from './chat-live';
 import { pregenerateMessageClip } from '../services/chat/message-audio';
 import { stripJpegMetadata } from './picture-hunts';
+import { AlbumParamError, parseAlbumParams, type AlbumParams } from '../services/chat/albums';
 
 const chatMessages = new Hono<{ Bindings: Env }>();
 
@@ -74,6 +76,14 @@ chatMessages.post('/conversations/:id/media', async (c) => {
   const width = Number(c.req.query('width')) || null;
   const height = Number(c.req.query('height')) || null;
   if (kind === 'voice' && !durationMs) return c.json({ error: 'duration_ms is required for a voice message (1 ms to 5 minutes)' }, 400);
+  // Photos picked together (docs/CHAT.md "Photo albums"): only photos join an album.
+  let album: AlbumParams | null = null;
+  try {
+    album = kind === 'image' ? parseAlbumParams({ album_id: c.req.query('album_id'), album_index: c.req.query('album_index'), album_count: c.req.query('album_count') }) : null;
+  } catch (err) {
+    if (err instanceof AlbumParamError) return c.json({ error: err.message }, 400);
+    throw err;
+  }
 
   const participants = await getConversationParticipants(c.env.DB, convId);
   if (!participants) return c.json({ error: 'Conversation not found' }, 404);
@@ -113,7 +123,12 @@ chatMessages.post('/conversations/:id/media', async (c) => {
 
   let sent;
   try {
-    sent = await sendMessage(c.env.DB, convId, userId, caption, replyTo, { clientId, id, attachment: { ...attachment, key } });
+    sent = await sendMessage(c.env.DB, convId, userId, caption, replyTo, {
+      clientId,
+      id,
+      attachment: { ...attachment, key },
+      album: album ? { id: album.id, index: album.index } : null,
+    });
   } catch (err) {
     await c.env.AUDIO_BUCKET.delete(key).catch(() => undefined);
     const message = err instanceof Error ? err.message : 'Failed to send message';
@@ -127,7 +142,7 @@ chatMessages.post('/conversations/:id/media', async (c) => {
   }
 
   const env = c.env;
-  await background(c, deliverSentMessage(env, convId, userId, message));
+  await background(c, deliverSentMessage(env, convId, userId, message, { album }));
   if (attachment.kind === 'voice') {
     const audio = bytes;
     // Transcript → translation + the transcript's word chips.
@@ -146,13 +161,23 @@ chatMessages.post('/conversations/:id/media', async (c) => {
 // ---------- Forward (round 2 PR 3) ----------
 
 /**
- * POST /messages/:id/forward { conversation_id, client_id? } — a copy of the message (text, caption,
- * photo, voice with its transcript, file, video) sent by me into another conversation I am in,
- * marked as forwarded. The media is copied to the new message's own R2 key. Idempotent by client_id.
+ * POST /messages/:id/forward { conversation_id, client_id?, album_id?, album_index?, album_count? } — a copy
+ * of the message (text, caption, photo, voice with its transcript, file, video) sent by me into another
+ * conversation I am in, marked as forwarded. The media is copied to the new message's own R2 key.
+ * Idempotent by client_id. "Forward all" of a photo album sends each photo with one new album id, so it
+ * arrives as one album there too (docs/CHAT.md "Photo albums").
  */
 chatMessages.post('/messages/:id/forward', async (c) => {
   const userId = c.get('user').id;
-  const body = await c.req.json<{ conversation_id?: unknown; client_id?: unknown }>().catch(() => ({} as { conversation_id?: unknown; client_id?: unknown }));
+  type ForwardBody = { conversation_id?: unknown; client_id?: unknown; album_id?: unknown; album_index?: unknown; album_count?: unknown };
+  const body = await c.req.json<ForwardBody>().catch(() => ({} as ForwardBody));
+  let album: AlbumParams | null = null;
+  try {
+    album = parseAlbumParams(body);
+  } catch (err) {
+    if (err instanceof AlbumParamError) return c.json({ error: err.message }, 400);
+    throw err;
+  }
   const askedId = typeof body.conversation_id === 'string' ? body.conversation_id : '';
   if (!askedId) return c.json({ error: 'conversation_id is required' }, 400);
   // A merged-away id (one chat per pair, migration 0102) forwards into the chat it became.
@@ -192,7 +217,13 @@ chatMessages.post('/messages/:id/forward', async (c) => {
   }
   let sent;
   try {
-    sent = await sendMessage(c.env.DB, targetId, userId, src.content, undefined, { clientId, id, attachment, forwardedFrom: src.id });
+    sent = await sendMessage(c.env.DB, targetId, userId, src.content, undefined, {
+      clientId,
+      id,
+      attachment,
+      forwardedFrom: src.id,
+      album: album && attachment?.kind === 'image' ? { id: album.id, index: album.index } : null,
+    });
   } catch (err) {
     if (attachment) await c.env.AUDIO_BUCKET.delete(attachment.key).catch(() => undefined);
     return c.json({ error: err instanceof Error ? err.message : 'Failed to forward the message' }, 400);
@@ -203,7 +234,7 @@ chatMessages.post('/messages/:id/forward', async (c) => {
     return c.json(message, 200);
   }
   const env = c.env;
-  await background(c, deliverSentMessage(env, targetId, userId, message));
+  await background(c, deliverSentMessage(env, targetId, userId, message, { album: message.album_id ? album : null }));
   if (src.content.trim() && attachment?.kind !== 'voice') await background(c, enrichMessageInBackground(env, id, src.content));
   await background(c, pregenerateMessageClip(env, message));
   return c.json(message, 201);
