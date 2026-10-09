@@ -235,6 +235,19 @@ export interface LocalRevisitEvent {
   _synced: number;
 }
 
+/**
+ * "Unlock" of a locked mini lesson on this device (shared/lesson/unlock.ts): written at once,
+ * uploaded to POST /api/custom-lessons/unlock (idempotent; the earliest time wins) and kept until
+ * the server's lesson list carries an unlocked_at.
+ */
+export interface LocalLessonUnlock {
+  lesson_id: string;
+  unlocked_at: string;
+  via: import('@shared/lesson').LessonUnlockVia;
+  // 0 = waiting to upload, 1 = on the server
+  _synced: number;
+}
+
 export interface LocalReaderReviewEvent {
   id: string;
   reader_id: string;
@@ -331,6 +344,12 @@ export interface LocalCustomLesson {
   last_reviewed_at: string | null;
   /** Done for good: never offered again (Mini Lessons / Readers page → Bring back). */
   retired?: boolean;
+  /** Unlockable lessons (shared/lesson/unlock.ts): the condition, null = none. */
+  unlock?: import('@shared/lesson').LessonUnlock | null;
+  /** When it was unlocked (the server's, or this device's pending unlock); null = still locked. */
+  unlocked_at?: string | null;
+  /** The audio lesson it was written for (its companion mini lesson). */
+  companion_of?: string | null;
   _synced_at: number | null;
 }
 
@@ -694,6 +713,7 @@ export class ChineseLearningDB extends Dexie {
   folders!: Table<Folder, string>;
   studyBumps!: Table<LocalStudyBump, string>;
   revisitEvents!: Table<LocalRevisitEvent, string>;
+  lessonUnlocks!: Table<LocalLessonUnlock, string>;
   // The character dictionary (services/charDict.ts): records + "More about 字" per character
   charDict!: Table<LocalCharDictEntry, string>;
   charExplanations!: Table<LocalCharExplanation, string>;
@@ -1166,6 +1186,12 @@ export class ChineseLearningDB extends Dexie {
     // offline afterwards (the list shows them when the network is down).
     this.version(31).stores({
       idioms: 'hanzi, opened_at',
+    });
+
+    // Version 32: unlockable mini lessons (shared/lesson/unlock.ts) — this device's unlocks of
+    // locked lessons, kept until the server's lesson list carries them (services/lessonUnlock.ts).
+    this.version(32).stores({
+      lessonUnlocks: 'lesson_id, _synced',
     });
   }
 }

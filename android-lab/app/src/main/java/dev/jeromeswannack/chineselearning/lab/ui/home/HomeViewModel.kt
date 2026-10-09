@@ -97,7 +97,7 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
             due = due,
             decks = ordered,
             reviewedToday = reviewedToday,
-            today = dev.jeromeswannack.chineselearning.lab.ui.today.TodayHome.from(snapshot, due.total, reviewedToday) { progress.has(it) }
+            today = dev.jeromeswannack.chineselearning.lab.ui.today.TodayHome.from(snapshot, due.total, reviewedToday, inProgress = { progress.has(it) })
                 .also { dev.jeromeswannack.chineselearning.lab.ui.today.TodayHomeLoader.last.value = it },
             bumped = all.bumpedNoteIds.size,
         )

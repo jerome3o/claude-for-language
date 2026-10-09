@@ -335,6 +335,20 @@ export interface AudioLessonSummary {
   audio_version: string | null;
   created_at: string;
   finished_at: string | null;
+  /** When a listen first reached the end (≥ 85 % or the last chapter, any device); null = not yet. */
+  listened_at?: string | null;
+  /** Its companion mini lesson (shared/lesson/unlock.ts), if one was asked for. */
+  companion?: AudioLessonCompanion | null;
+}
+
+/** An audio lesson's companion mini lesson: being written / failed, or made (locked or unlocked). */
+export interface AudioLessonCompanion {
+  status: import('../lesson/unlock').CompanionStatus;
+  lesson_id: string | null;
+  title: string | null;
+  error?: string | null;
+  /** The lesson was started (finished at least once): regenerating it is refused. */
+  started?: boolean;
 }
 
 export interface AudioLessonDetail extends AudioLessonSummary {

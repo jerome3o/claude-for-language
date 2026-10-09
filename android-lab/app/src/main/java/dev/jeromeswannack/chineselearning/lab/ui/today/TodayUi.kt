@@ -39,6 +39,18 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 /** One of today's mini lessons as a row. [status]: New / Review / Again today; [done] = finished today. */
 data class TodayLessonRow(val id: String, val title: String, val icon: String?, val status: String, val done: Boolean = false, val inProgress: Boolean = false)
 
+/** A locked lesson in "Ready to unlock": what unlocks it and whether its podcast was heard already. */
+data class TodayLockedRow(
+    val id: String,
+    val title: String,
+    val unlock: dev.jeromeswannack.chineselearning.lab.core.LessonUnlock,
+    val audioTitle: String? = null,
+    val listened: Boolean = false,
+) {
+    val line: String get() = dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks.lockedLine(unlock, audioTitle)
+    val button: String get() = dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks.buttonLabel(unlock)
+}
+
 /** Today's reader row. */
 data class TodayReaderRow(val state: State, val title: String? = null, val pages: Int = 0) {
     enum class State { TO_READ, READ, WRITING, NONE }
@@ -51,6 +63,8 @@ data class TodayHome(
     val lessonsToDo: List<TodayLessonRow> = emptyList(),
     val lessonsDone: List<TodayLessonRow> = emptyList(),
     val reader: TodayReaderRow = TodayReaderRow(TodayReaderRow.State.NONE),
+    /** "Ready to unlock" (locked lessons; never counted as today's work). */
+    val locked: List<TodayLockedRow> = emptyList(),
 ) {
     val cardsDone: Boolean get() = cardsDue == 0
     val lessonsTotal: Int get() = lessonsToDo.size + lessonsDone.size
@@ -62,7 +76,14 @@ data class TodayHome(
 
     companion object {
         /** From the plan: lesson titles in session order, the story, the card numbers. */
-        fun from(snapshot: TodaySnapshot, cardsDue: Int, cardsReviewed: Int, inProgress: (String) -> Boolean = { false }): TodayHome {
+        fun from(
+            snapshot: TodaySnapshot,
+            cardsDue: Int,
+            cardsReviewed: Int,
+            inProgress: (String) -> Boolean = { false },
+            /** An audio lesson's title and whether it was heard to the end (for the locked rows). */
+            audio: (String) -> Pair<String?, Boolean> = { null to false },
+        ): TodayHome {
             fun row(e: dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry, done: Boolean) = TodayLessonRow(
                 e.id, e.lesson.title.ifBlank { e.lesson.spec.title }, e.lesson.icon,
                 when {
@@ -79,7 +100,12 @@ data class TodayHome(
                 snapshot.writing -> TodayReaderRow(TodayReaderRow.State.WRITING)
                 else -> TodayReaderRow(TodayReaderRow.State.NONE)
             }
-            return TodayHome(cardsDue, cardsReviewed, snapshot.toDo.map { row(it, false) }, snapshot.done.map { row(it, true) }, reader)
+            val locked = snapshot.locked.mapNotNull { e ->
+                val unlock = e.unlock ?: return@mapNotNull null
+                val (audioTitle, heard) = if (unlock.isAudio) audio(unlock.audioLessonId.orEmpty()) else (null to false)
+                TodayLockedRow(e.id, e.lesson.title.ifBlank { e.lesson.spec.title }, unlock, audioTitle, heard)
+            }
+            return TodayHome(cardsDue, cardsReviewed, snapshot.toDo.map { row(it, false) }, snapshot.done.map { row(it, true) }, reader, locked)
         }
     }
 }
@@ -206,7 +232,16 @@ const val TAG_READER = "today-reader"
  * the ones finished today (✓). Starting one here counts exactly as in the session.
  */
 @Composable
-fun TodayLessonsScreen(today: TodayHome?, onBack: () -> Unit, onOpen: (String) -> Unit, onAllLessons: () -> Unit, onAgain: (String) -> Unit = {}) {
+fun TodayLessonsScreen(
+    today: TodayHome?,
+    onBack: () -> Unit,
+    onOpen: (String) -> Unit,
+    onAllLessons: () -> Unit,
+    onAgain: (String) -> Unit = {},
+    /** "Ready to unlock": unlock a locked lesson / open its podcast. */
+    onUnlock: (String) -> Unit = {},
+    onListen: (String) -> Unit = {},
+) {
     val left = today?.lessonsToDo.orEmpty()
     val done = today?.lessonsDone.orEmpty()
     dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen(
@@ -250,12 +285,66 @@ fun TodayLessonsScreen(today: TodayHome?, onBack: () -> Unit, onOpen: (String) -
                 }
             }
         }
+        // Locked lessons wait here until the real-world thing is done (shared/lesson/unlock.ts).
+        val locked = today?.locked.orEmpty()
+        if (locked.isNotEmpty()) {
+            item(key = "locked-h") {
+                Column(Modifier.padding(top = 8.dp)) {
+                    Text("🔒 Ready to unlock", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink, fontWeight = FontWeight.SemiBold)
+                    Text("These wait until you've done the real thing — then they come today.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+                }
+            }
+            item(key = "locked") {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card)) {
+                    locked.forEachIndexed { i, l ->
+                        if (i > 0) HorizontalDivider(Modifier.padding(start = 64.dp, end = 16.dp), color = Lab.colors.faint)
+                        LockedLessonRow(l, onUnlock = { onUnlock(l.id) }, onListen = l.unlock.audioLessonId?.takeIf { l.unlock.isAudio }?.let { id -> { onListen(id) } })
+                    }
+                }
+            }
+        }
         item(key = "all") {
             Text(
                 "All mini lessons ›",
-                color = Lab.colors.accent, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 4.dp).heightIn(min = 44.dp).clickable(onClick = onAllLessons).padding(vertical = 12.dp),
+                color = Lab.colors.accent, fontWeight = if (locked.isEmpty()) FontWeight.SemiBold else FontWeight.Normal,
+                style = if (locked.isEmpty()) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp).heightIn(min = 44.dp).clickable(onClick = onAllLessons).testTag("today-all-lessons").padding(vertical = 12.dp),
             )
+        }
+    }
+}
+
+/** A locked lesson: 🔒, its title, what unlocks it, ▶ Listen (its podcast) and the unlock button. */
+@Composable
+fun LockedLessonRow(l: TodayLockedRow, onUnlock: () -> Unit, onListen: (() -> Unit)?) {
+    Row(
+        Modifier.fillMaxWidth().testTag("locked-lesson-${l.id}").padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(Modifier.size(38.dp).clip(CircleShape).background(LessonViolet.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+            Text("🔒", fontSize = 17.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(l.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                l.line + if (l.listened) " · listened ✓" else "",
+                style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 3, overflow = TextOverflow.Ellipsis,
+            )
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (onListen != null) {
+                    Box(
+                        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).background(Lab.colors.faint).clickable(onClick = onListen)
+                            .testTag("locked-listen-${l.id}").padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("▶ Listen", color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge) }
+                }
+                Box(
+                    Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).background(LessonViolet).clickable(onClick = onUnlock)
+                        .testTag("unlock-${l.id}").padding(horizontal = 14.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(l.button, color = Color.White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge) }
+            }
         }
     }
 }

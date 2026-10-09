@@ -1,0 +1,103 @@
+.ready-unlock {
+  margin: 1rem 0 0.5rem;
+}
+
+.ready-unlock-heading {
+  font-size: 1rem;
+  margin: 0 0 0.15rem;
+}
+
+.ready-unlock-sub {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  margin: 0 0 0.5rem;
+}
+
+.ready-unlock-list {
+  background: var(--color-surface);
+  border: 1px dashed #c4b5fd;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ready-unlock-row {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem;
+}
+
+.ready-unlock-row + .ready-unlock-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.ready-unlock-icon {
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  background: #ede9fe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+}
+
+.ready-unlock-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ready-unlock-title {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ready-unlock-line {
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+  margin-top: 0.15rem;
+}
+
+.ready-unlock-listened {
+  color: #15803d;
+}
+
+.ready-unlock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.ready-unlock-btn {
+  min-height: 44px;
+}
+
+.ready-unlock-all {
+  display: inline-block;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0;
+  min-height: 44px;
+}
+
+/* Audio lessons: a podcast with a companion mini lesson. */
+.companion-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.companion-badge.unlocked {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.companion-badge.failed {
+  background: #fee2e2;
+  color: #991b1b;
+}

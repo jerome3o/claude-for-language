@@ -20,10 +20,12 @@ import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
 import { rowRevisitState } from '../services/revisit';
 import { track } from '../services/analytics';
+import { lockedLessonLine, unlockButtonLabel } from '@shared/lesson';
+import { lockStatusOf, unlockLesson } from '../services/lessonUnlock';
 import { Confetti } from '../components/Confetti';
 import './StudyPage.css';
 
-const FROM = new Set(['lessons_page', 'homework', 'today']);
+const FROM = new Set(['lessons_page', 'homework', 'today', 'player']);
 
 export function LessonReplayPage() {
   const { id = '' } = useParams();
@@ -58,6 +60,28 @@ export function LessonReplayPage() {
         <div className="study-card-content" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
           <p>This lesson isn&rsquo;t on this device yet — it comes with the next sync.</p>
           <button className="btn btn-primary" onClick={exit}>Back</button>
+        </div>
+      </div>
+    );
+  }
+
+  // A LOCKED lesson (shared/lesson/unlock.ts): what unlocks it, and the button.
+  if (lesson.unlock && lockStatusOf(lesson) === 'locked') {
+    return (
+      <div className="study-fullscreen" data-testid="lesson-locked-gate">
+        <div className="study-topbar">
+          <span className="study-topbar-label">Mini lesson</span>
+          <div className="study-topbar-controls">
+            <button className="study-close-btn" onClick={exit} aria-label="Close">✕</button>
+          </div>
+        </div>
+        <div className="study-card-content" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+          <div style={{ fontSize: '3.5rem' }}>🔒</div>
+          <h2>{lesson.title}</h2>
+          <p className="text-light">{lockedLessonLine(lesson.unlock)}</p>
+          <button className="btn btn-primary" style={{ minHeight: 44 }} onClick={() => void unlockLesson(lesson.id, 'manual')} data-testid="lesson-gate-unlock">
+            {unlockButtonLabel(lesson.unlock)}
+          </button>
         </div>
       </div>
     );

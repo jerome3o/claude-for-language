@@ -2129,6 +2129,11 @@ export interface CustomLessonListItem {
   spec: import('@shared/lesson').CustomLessonSpec;
   /** The lesson's FSRS review events (absent on locally cached fallbacks). */
   completions?: CustomLessonCompletion[];
+  /** Unlockable lessons (shared/lesson/unlock.ts): the condition (null = none) and when it was met. */
+  unlock?: import('@shared/lesson').LessonUnlock | null;
+  unlocked_at?: string | null;
+  /** The audio lesson this lesson was written for. */
+  companion_of?: string | null;
 }
 
 export async function getCustomLessons(

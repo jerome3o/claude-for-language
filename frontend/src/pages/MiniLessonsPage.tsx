@@ -9,7 +9,7 @@
  * offline it falls back to the locally cached pending lessons.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -19,6 +19,10 @@ import { getCustomLessons, deleteCustomLessonById, CustomLessonListItem } from '
 import { db, getStudyCutoff, type LocalRevisitEvent } from '../db/database';
 import { markRevisit, readRevisitSettings, revisitChip } from '../services/revisit';
 import { Loading } from '../components/Loading';
+import { ReadyToUnlock, type LockedLessonItem } from '../components/lesson/ReadyToUnlock';
+import { earlierUnlock, lessonLockStatus } from '@shared/lesson';
+import { LESSON_UNLOCKED_EVENT, listenedHere, unlockLesson } from '../services/lessonUnlock';
+import { cachedLessonList } from '../services/audioLessons';
 import './MiniLessonsPage.css';
 
 /** The lesson's "revisit later" schedule (shared/study/revisit.ts) from its
@@ -178,6 +182,14 @@ export function MiniLessonsPage() {
 
   // Done for good / Bring back (this device's events, pending ones included) and the gaps.
   const marks = useLiveQuery(() => db.revisitEvents.toArray(), []) ?? [];
+  // This device's unlocks (pending ones count at once, before the server list has them).
+  const localUnlocks = useLiveQuery(() => db.lessonUnlocks.toArray(), []) ?? [];
+  const [unlocking, setUnlocking] = useState<string | null>(null);
+  useEffect(() => {
+    const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['custom-lessons-all'] }); };
+    window.addEventListener(LESSON_UNLOCKED_EVENT, refresh);
+    return () => window.removeEventListener(LESSON_UNLOCKED_EVENT, refresh);
+  }, [queryClient]);
   const settings = readRevisitSettings();
 
   const deleteMutation = useMutation({
@@ -207,12 +219,39 @@ export function MiniLessonsPage() {
       created_at: lesson.created_at,
       spec: lesson.spec,
       completions,
+      unlock: lesson.unlock ?? null,
+      unlocked_at: lesson.unlocked_at ?? null,
+      companion_of: lesson.companion_of ?? null,
     }));
+
+  // Locked lessons (shared/lesson/unlock.ts) wait in "Ready to unlock" and nowhere else.
+  const unlockedAt = (l: CustomLessonListItem) =>
+    earlierUnlock(l.unlocked_at ?? null, localUnlocks.find(u => u.lesson_id === l.id)?.unlocked_at ?? null);
+  const audioTitles = new Map(cachedLessonList().map(a => [a.id, a]));
+  const locked: LockedLessonItem[] = lessons
+    .filter(l => l.unlock && lessonLockStatus(l.unlock, unlockedAt(l)) === 'locked')
+    .map(l => {
+      const audio = l.unlock!.kind === 'audio_lesson' ? audioTitles.get(l.unlock!.audio_lesson_id) : undefined;
+      return {
+        id: l.id, title: l.title, icon: l.icon, unlock: l.unlock!,
+        audioTitle: audio?.title ?? null,
+        listened: l.unlock!.kind === 'audio_lesson' && !!(audio?.listened_at || listenedHere(l.unlock!.audio_lesson_id)),
+      };
+    });
+  const lockedIds = new Set(locked.map(l => l.id));
+  const handleUnlock = async (item: LockedLessonItem) => {
+    setUnlocking(item.id);
+    try {
+      await unlockLesson(item.id, 'manual', item.unlock.kind);
+    } finally {
+      setUnlocking(null);
+    }
+  };
 
   // Lessons come back on the "revisit later" schedule: split into up next
   // (new / due today), scheduled out, and done for good.
   const cutoff = getStudyCutoff();
-  const withSchedule = lessons.map(lesson => ({ lesson, schedule: scheduleFor(lesson, marks, settings) }));
+  const withSchedule = lessons.filter(l => !lockedIds.has(l.id)).map(lesson => ({ lesson, schedule: scheduleFor(lesson, marks, settings) }));
   const upNext = withSchedule.filter(x => x.schedule.status === 'new' || (x.schedule.status === 'scheduled' && (x.schedule.due_ms ?? 0) <= cutoff.ts));
   const scheduled = withSchedule.filter(x => x.schedule.status === 'scheduled' && (x.schedule.due_ms ?? 0) > cutoff.ts)
     .sort((a, b) => (a.schedule.due_ms ?? 0) - (b.schedule.due_ms ?? 0));
@@ -241,6 +280,8 @@ export function MiniLessonsPage() {
             Offline — showing the lessons cached on this device.
           </p>
         )}
+
+        <ReadyToUnlock items={locked} onUnlock={item => void handleUnlock(item)} busyId={unlocking} />
 
         <h2 className="mini-lessons-heading">Up next ({upNext.length})</h2>
         {upNext.length === 0 && (

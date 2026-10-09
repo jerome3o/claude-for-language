@@ -7,7 +7,7 @@
  * `for_relationship_id` is only a label on the tutor's own lesson.
  */
 import { z } from 'zod';
-import type { AudioLessonDetail, AudioLessonSummary, PodcastFeedInfo } from '../../../shared/audio-lesson/types';
+import type { AudioLessonCompanion, AudioLessonDetail, AudioLessonSummary, PodcastFeedInfo } from '../../../shared/audio-lesson/types';
 import type { ToolContext } from './context.js';
 import { guard, jsonResult } from './context.js';
 
@@ -23,8 +23,23 @@ export function trimLesson(l: AudioLessonSummary) {
     word_count: l.word_count,
     created_at: l.created_at,
     listen_path: `/audio-lessons/${l.id}`,
+    ...(l.listened_at ? { listened_at: l.listened_at } : {}),
+    ...(l.companion ? { companion: companionForChat(l.companion) } : {}),
   };
 }
+
+/** The companion mini lesson as a chat needs it. */
+export function companionForChat(c: AudioLessonCompanion) {
+  return {
+    status: c.status,
+    ...(c.lesson_id ? { lesson_id: c.lesson_id, lesson_path: `/lessons/${c.lesson_id}/play` } : {}),
+    ...(c.title ? { title: c.title } : {}),
+    ...(c.error ? { error: c.error } : {}),
+    ...(c.started ? { started: true } : {}),
+  };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function lessonForChat(l: AudioLessonDetail, transcript: 'none' | 'chinese' | 'full') {
   return {
@@ -103,6 +118,38 @@ export function registerAudioLessonTools(ctx: ToolContext): void {
       guard(async () => {
         const { lesson } = await api.get<{ lesson: AudioLessonDetail }>(`/api/audio-lessons/${encodeURIComponent(id)}`);
         return jsonResult({ lesson: lessonForChat(lesson, transcript ?? 'chinese') });
+      }),
+  );
+
+  server.tool(
+    'create_companion_lesson',
+    "Write the COMPANION MINI LESSON of one of the signed-in user's READY audio lessons: Claude writes a ~10–15 minute mini lesson that drills the podcast's own characters, sentences and meanings (a note per new word with each character's tone and meaning, match / listen_choice / choice on the words and tones, scramble / translate / dictation / speak on the dialogue's lines, the dialogue replayed as a conversation exercise with comprehension questions). It is created LOCKED: with unlock \"audio\" (default) it unlocks by itself when the user has listened to the podcast (≥ 85 % or its final chapter) — or with \"✓ I've listened — unlock\" on the Mini lessons page; with unlock \"manual\" it waits for \"✓ Done — unlock\" next to `prompt` (default \"Listen to “<title>”\"). Once unlocked it is offered today, on top of the daily new-lesson place. Titled \"<podcast title> — mini lesson\". One companion per audio lesson: asking again REPLACES its content while nobody has started it (a started one is kept, `started: true`). Takes about 1–3 minutes; this tool waits up to ~50 s, then returns status \"generating\" — check get_audio_lesson (its `companion`) or list_audio_lessons. Stays in the signed-in account; nothing is sent to anyone.",
+    {
+      audio_lesson_id: z.string().describe('The audio lesson (from list_audio_lessons); it must be ready.'),
+      unlock: z.enum(['audio', 'manual']).optional().describe('"audio" (default): unlocks when the podcast has been listened to. "manual": unlocks when the user taps Done next to `prompt`.'),
+      prompt: z.string().max(200).optional().describe('unlock "manual" only: what the user does to unlock it, e.g. "Go to a restaurant and order 打包".'),
+    },
+    async ({ audio_lesson_id, unlock, prompt }) =>
+      guard(async () => {
+        const path = `/api/audio-lessons/${encodeURIComponent(audio_lesson_id)}`;
+        const res = await api.post<{ companion: AudioLessonCompanion | null; existing: boolean; started: boolean }>(`${path}/companion-lesson`, {
+          ...(unlock ? { unlock } : {}),
+          ...(prompt ? { prompt } : {}),
+        });
+        let companion = res.companion;
+        if (!res.started) {
+          for (let i = 0; i < 10 && companion?.status === 'generating'; i++) {
+            await sleep(5000);
+            companion = (await api.get<{ lesson: AudioLessonDetail }>(path)).lesson.companion ?? null;
+          }
+        }
+        return jsonResult({
+          audio_lesson_id,
+          companion: companion ? companionForChat(companion) : null,
+          ...(res.started ? { note: 'Its companion was already started, so it was kept as it is.' } : {}),
+          ...(companion?.status === 'generating' ? { note: 'Still being written — check get_audio_lesson in a minute or two.' } : {}),
+          sent: false,
+        });
       }),
   );
 

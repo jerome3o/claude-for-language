@@ -138,6 +138,7 @@ class RevisitParityTest {
             val got = LessonSchedule.todaysLessons(
                 lessons, events, c["day_start"]!!.jsonPrimitive.long, cutoff, set("one_off_only"), set("homework_pass"), set("started"),
                 c["revisited_today"]!!.jsonPrimitive.int, intOrNull(c["per_day"]) ?: Revisit.DEFAULT.newLessonsPerDayInt,
+                set("locked"), set("unlocked"),
             ).map { it.id }
             assertEquals(c["picked"]!!.jsonArray.map { it.jsonPrimitive.content }, got, "todays #$i $c")
             val practice = c["practice"]!!.jsonArray.map { it.jsonPrimitive.boolean }

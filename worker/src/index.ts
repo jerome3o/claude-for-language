@@ -146,6 +146,8 @@ import { trackServer } from './services/analytics/server-events';
 import { pruneUsageEvents } from './services/analytics/usage';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { runAudioLessonJob, type AudioLessonJobMessage } from './services/audio-lessons/job';
+import { runCompanionJob } from './services/companion-lesson';
+import { applyLessonUnlocks, lessonUnlockFields, validateUnlockForUser, MAX_UNLOCK_EVENTS } from './services/lesson-unlock';
 import { deleteReaderWithImages } from './services/shared-readers';
 import {
   createRelationship,
@@ -5933,6 +5935,8 @@ app.get('/api/custom-lessons', async (c) => {
       created_at: row.created_at,
       assigned_by: row.assigned_by ?? null,
       assigned_relationship_id: row.assigned_relationship_id ?? null,
+      // Unlockable lessons (shared/lesson/unlock.ts): the condition, when it was met, the podcast it goes with.
+      ...lessonUnlockFields(row),
       spec: JSON.parse(row.spec),
       completions: completionsByLesson.get(row.id) ?? [],
     })),
@@ -5941,14 +5945,30 @@ app.get('/api/custom-lessons', async (c) => {
 
 // Create a lesson from a spec (validated). Used directly by scripts/agents
 // with a session; the MCP server and in-app chat have their own tool paths.
+// `unlock` (optional): the lesson waits, locked, until it is met (shared/lesson/unlock.ts).
 app.post('/api/custom-lessons', async (c) => {
   const userId = c.get('user').id;
-  const body = await c.req.json<{ spec?: unknown }>().catch(() => ({} as { spec?: unknown }));
-  const result = await createCustomLessonFromSpec(c.env, userId, body.spec, 'api');
+  const body = await c.req.json<{ spec?: unknown; unlock?: unknown }>().catch(() => ({} as { spec?: unknown; unlock?: unknown }));
+  const unlock = await validateUnlockForUser(c.env.DB, userId, body.unlock);
+  if (unlock.problems.length) return c.json({ error: unlock.problems[0], problems: unlock.problems }, 400);
+  const result = await createCustomLessonFromSpec(c.env, userId, body.spec, 'api', {
+    unlock: unlock.unlock,
+    companionOf: unlock.unlock?.kind === 'audio_lesson' ? unlock.unlock.audio_lesson_id : null,
+  });
   if (!result.ok) {
     return c.json({ error: 'Invalid lesson spec', problems: result.errors }, 400);
   }
-  return c.json({ ...result.lesson, spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs }, 201);
+  return c.json({ ...result.lesson, ...lessonUnlockFields(result.lesson), spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs }, 201);
+});
+
+// Unlock events from the devices (offline-first, idempotent; the earliest time wins).
+app.post('/api/custom-lessons/unlock', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ events?: unknown }>().catch(() => null);
+  if (!body || !Array.isArray(body.events)) return c.json({ error: 'events array is required' }, 400);
+  if (body.events.length > MAX_UNLOCK_EVENTS) return c.json({ error: `At most ${MAX_UNLOCK_EVENTS} events at a time` }, 400);
+  const result = await applyLessonUnlocks(c.env.DB, userId, body.events as Array<Record<string, unknown>>);
+  return c.json(result);
 });
 
 // Replace a lesson's content in place (validated). Same id, so completion
@@ -6700,8 +6720,14 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
       // Audio lessons: write → speak → render (services/audio-lessons/job.ts). The job
       // checkpoints in D1 and re-enqueues itself, so every message is acked.
       for (const message of batch.messages) {
-        const { lessonId } = message.body as AudioLessonJobMessage;
+        const { lessonId, companion } = message.body as AudioLessonJobMessage & { companion?: boolean };
         try {
+          // Its companion mini lesson (services/companion-lesson.ts): one Claude call + repairs; failures land on the row.
+          if (companion) {
+            console.log('[Queue] companion lesson', lessonId, await runCompanionJob(env, lessonId));
+            message.ack();
+            continue;
+          }
           console.log('[Queue] audio lesson', lessonId, await runAudioLessonJob(env, lessonId));
           message.ack();
         } catch (err) {

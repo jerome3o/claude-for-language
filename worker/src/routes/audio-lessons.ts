@@ -9,6 +9,11 @@
  *   GET    /audio-lessons/:id/audio  the MP3 (owner only; Range → 206)
  *   POST   /audio-lessons/:id/retry  a failed lesson again, from what was already made → 202
  *   DELETE /audio-lessons/:id        the lesson, its file and any clips
+ *   POST   /audio-lessons/:id/companion-lesson  { unlock?: 'audio' | 'manual', prompt? } → 202 { companion }
+ *          (its companion mini lesson, written on audio-lesson-queue; 200 + existing when it was already started)
+ *   POST   /audio-lessons/listened   { events: [{ audio_lesson_id, listened_at }] } → { listened, unlocked_lessons }
+ *
+ * Every summary carries `listened_at` and `companion` (services/lesson-unlock.ts).
  */
 import { Hono } from 'hono';
 import { pickAudioLessonInput } from '@shared/audio-lesson/input';
@@ -17,6 +22,8 @@ import * as q from '../db/audio-lesson-queries';
 import { parseByteRange, resolveServedRange } from '../services/audio';
 import { deleteLessonObjects, runAudioLessonJob } from '../services/audio-lessons/job';
 import { trackServer } from '../services/analytics/server-events';
+import { audioLessonUnlockInfo, recordAudioListened, MAX_UNLOCK_EVENTS } from '../services/lesson-unlock';
+import { requestCompanionLesson, runCompanionJob, type CompanionJobMessage } from '../services/companion-lesson';
 
 /** Lessons being made at once per account. */
 export const MAX_ACTIVE_AUDIO_LESSONS = 3;
@@ -55,7 +62,8 @@ routes.get('/audio-lessons', async (c) => {
   if (!uid) return c.json({ error: 'Unauthorized' }, 401);
   await q.markStaleAudioLessons(c.env.DB, uid);
   const rows = await q.listAudioLessons(c.env.DB, uid);
-  return c.json({ lessons: rows.map(q.lessonSummary) });
+  const info = await audioLessonUnlockInfo(c.env.DB, uid);
+  return c.json({ lessons: rows.map(r => ({ ...q.lessonSummary(r), ...(info.get(r.id) ?? { listened_at: null, companion: null }) })) });
 });
 
 routes.post('/audio-lessons', async (c) => {
@@ -92,7 +100,38 @@ routes.get('/audio-lessons/:id', async (c) => {
   await q.markStaleAudioLessons(c.env.DB, uid);
   const row = await q.getAudioLesson(c.env.DB, c.req.param('id'), uid);
   if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json({ lesson: q.lessonDetail(row) });
+  const info = (await audioLessonUnlockInfo(c.env.DB, uid, [row.id])).get(row.id);
+  return c.json({ lesson: { ...q.lessonDetail(row), listened_at: info?.listened_at ?? null, companion: info?.companion ?? null } });
+});
+
+// A listen reached the end on some device: listened_at + the locked companion lessons unlocked.
+routes.post('/audio-lessons/listened', async (c) => {
+  const uid = userId(c);
+  if (!uid) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json<{ events?: unknown }>().catch(() => null);
+  if (!body || !Array.isArray(body.events)) return c.json({ error: 'events array is required' }, 400);
+  if (body.events.length > MAX_UNLOCK_EVENTS) return c.json({ error: `At most ${MAX_UNLOCK_EVENTS} events at a time` }, 400);
+  return c.json(await recordAudioListened(c.env.DB, uid, body.events as Array<Record<string, unknown>>));
+});
+
+/** Queue the companion job (E2E_TEST_MODE: run it right here, fake model). */
+async function startCompanion(c: { env: Env; executionCtx: ExecutionContext }, msg: CompanionJobMessage): Promise<void> {
+  if (testMode(c.env)) {
+    c.executionCtx.waitUntil(runCompanionJob(c.env, msg.lessonId).then(() => undefined));
+    return;
+  }
+  await c.env.AUDIO_LESSON_QUEUE.send(msg);
+}
+
+routes.post('/audio-lessons/:id/companion-lesson', async (c) => {
+  const uid = userId(c);
+  if (!uid) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json<{ unlock?: unknown; prompt?: unknown }>().catch(() => ({}));
+  const id = c.req.param('id');
+  const res = await requestCompanionLesson(c.env, uid, id, body, msg => startCompanion(c, msg));
+  if ('error' in res) return c.json({ error: res.error }, res.status);
+  const info = (await audioLessonUnlockInfo(c.env.DB, uid, [id])).get(id);
+  return c.json({ companion: info?.companion ?? null, existing: res.existing, started: res.started }, res.status);
 });
 
 routes.get('/audio-lessons/:id/audio', async (c) => {

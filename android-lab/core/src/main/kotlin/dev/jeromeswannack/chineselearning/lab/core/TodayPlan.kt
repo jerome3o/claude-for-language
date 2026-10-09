@@ -71,6 +71,9 @@ object TodayPlan {
         newPerDay: Int = Revisit.DEFAULT.newLessonsPerDayInt,
         homeworkPass: Set<String> = emptySet(),
         startedToday: Set<String> = emptySet(),
+        /** Unlockable lessons ([LessonUnlock.lockSets]): locked ones wait, unlocked new ones come on top. */
+        locked: Set<String> = emptySet(),
+        unlocked: Set<String> = emptySet(),
     ): Lessons {
         val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
         val regular = all.mapTo(HashSet()) { it.id }.apply { removeAll(oneOffOnly) }
@@ -79,7 +82,7 @@ object TodayPlan {
         // Revisits are capped per day (`lessonRevisitsToday`, every lesson's completions).
         val revisited = LessonSchedule.revisitsToday(events, nowMs, zone)
         val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
-        val toDo = LessonSchedule.todaysLessons(all, events, dayStart, cutoff, oneOffOnly, homeworkPass, startedToday, revisited, newPerDay)
+        val toDo = LessonSchedule.todaysLessons(all, events, dayStart, cutoff, oneOffOnly, homeworkPass, startedToday, revisited, newPerDay, locked, unlocked)
         val toDoIds = toDo.mapTo(HashSet()) { it.id }
         val done = all.filter { it.id in completedToday && it.id !in toDoIds }.map { it.id }
         return Lessons(toDo, done)

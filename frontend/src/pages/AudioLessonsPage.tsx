@@ -11,6 +11,8 @@ import {
 } from '../services/audioLessons';
 import { track, trackError } from '../services/analytics';
 import './AudioLessonsPage.css';
+import { companionBadge } from '@shared/lesson';
+import '../components/lesson/ReadyToUnlock.css';
 
 /** One tap instead of thinking a situation up. */
 const SITUATIONS: Array<{ zh: string; en: string }> = [
@@ -298,6 +300,9 @@ export function AudioLessonsPage() {
                     {statusLine(l)}
                     {l.status === 'ready' && saved.has(l.id) && <span className="al-saved"> · ✓ On this phone</span>}
                   </span>
+                  {l.companion && (
+                    <span className={`companion-badge ${l.companion.status}`} data-testid={`companion-badge-${l.id}`}>{companionBadge(l.companion.status)}</span>
+                  )}
                   {(l.status === 'speaking' && l.progress_total) ? (
                     <span className="al-progress" aria-hidden><span style={{ width: `${Math.round(((l.progress_done ?? 0) / l.progress_total) * 100)}%` }} /></span>
                   ) : null}
