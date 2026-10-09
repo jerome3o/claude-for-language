@@ -19,7 +19,7 @@ import type { Env } from '../types';
 import type { AudioLessonChapter, AudioLessonFormat, LessonWord, PodcastFeedInfo } from '@shared/audio-lesson';
 
 export type { PodcastFeedInfo };
-import { formatClock } from '@shared/audio-lesson';
+import { chapterTitleWithPinyin, formatClock } from '@shared/audio-lesson';
 import { APP_BASE_URL } from './email';
 
 export interface PodcastFeedRow {
@@ -260,7 +260,10 @@ export function itunesDuration(ms: number): string {
   return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
 }
 
-/** The episode notes: what it teaches, then the chapters as timestamps (podcast apps make them tappable). */
+/**
+ * The episode notes: what it teaches, then the chapters as timestamps (podcast apps make them
+ * tappable). Chapter titles carry their pinyin ("打扰了 dǎrǎo le — sorry to bother you").
+ */
 export function episodeDescription(l: FeedLesson): string {
   const lines: string[] = [];
   lines.push(
@@ -278,14 +281,18 @@ export function episodeDescription(l: FeedLesson): string {
   if (l.chapters.length) {
     lines.push('');
     lines.push('Chapters:');
-    for (const c of l.chapters) lines.push(`${formatClock(c.start_ms)} ${c.title}`);
+    for (const c of l.chapters) lines.push(`${formatClock(c.start_ms)} ${chapterTitleWithPinyin(c.title, l.words)}`);
   }
   return lines.join('\n');
 }
 
-/** Podcasting 2.0 JSON chapters (https://github.com/Podcastindex-org/podcast-namespace/blob/main/chapters/jsonChapters.md). */
-export function chaptersJson(l: Pick<FeedLesson, 'title' | 'chapters'>): { version: string; title: string; chapters: Array<{ startTime: number; title: string }> } {
-  return { version: '1.2.0', title: l.title, chapters: l.chapters.map((c) => ({ startTime: Math.round(c.start_ms) / 1000, title: c.title })) };
+/**
+ * Podcasting 2.0 JSON chapters (https://github.com/Podcastindex-org/podcast-namespace/blob/main/chapters/jsonChapters.md).
+ * Titles with their pinyin, from the lesson's words (else automatic) — made on request, so older
+ * episodes get it too (the MP3 itself carries no ID3 chapters).
+ */
+export function chaptersJson(l: Pick<FeedLesson, 'title' | 'chapters'> & { words?: LessonWord[] }): { version: string; title: string; chapters: Array<{ startTime: number; title: string }> } {
+  return { version: '1.2.0', title: l.title, chapters: l.chapters.map((c) => ({ startTime: Math.round(c.start_ms) / 1000, title: chapterTitleWithPinyin(c.title, l.words ?? []) })) };
 }
 
 export function buildFeedXml(args: { origin: string; token: string; ownerName: string; lessons: FeedLesson[]; now?: Date }): string {

@@ -237,7 +237,11 @@ private fun PlayerTop(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions
     val chapterIdx = AudioLessonTimeline.chapterIndexAt(chapters, ui.positionMs.toDouble())
     run {
         Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(chapters.getOrNull(chapterIdx)?.title.orEmpty(), color = AlColors.periwinkle, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            val chapter = chapters.getOrNull(chapterIdx)
+            Text(chapter?.shownTitle.orEmpty(), color = AlColors.periwinkle, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            if (ui.showPinyin) chapter?.pinyin?.takeIf { it.isNotBlank() }?.let {
+                Text(it, color = AlColors.periwinkle.copy(alpha = 0.75f), fontSize = 14.sp, modifier = Modifier.testTag("al-now-chapter-pinyin"))
+            }
             val dl = ui.download
             when {
                 dl != null -> {
@@ -395,7 +399,12 @@ private fun LazyListScope.playerPanels(ui: AudioLessonPlayerUi, actions: AudioLe
                         .clickable { actions.onSeek(c.startMs) }.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("${i + 1}. ${c.title}", color = if (on) AlColors.bright else AlColors.text, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                    Column(Modifier.weight(1f)) {
+                        Text("${i + 1}. ${c.shownTitle}", color = if (on) AlColors.bright else AlColors.text, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, fontSize = 15.sp)
+                        if (ui.showPinyin) c.pinyin?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, color = AlColors.periwinkle.copy(alpha = 0.85f), fontSize = 13.sp, modifier = Modifier.testTag("al-chapter-pinyin-$i"))
+                        }
+                    }
                     Text(AudioLessonTimeline.formatClock(c.startMs.toDouble()), color = AlColors.muted, fontSize = 13.sp)
                 }
             }

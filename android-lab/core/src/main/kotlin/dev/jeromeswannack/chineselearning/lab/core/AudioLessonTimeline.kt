@@ -13,9 +13,21 @@ import kotlin.math.max
  * against the TypeScript (parity/fixtures/audio-lesson.ts → AudioLessonParityTest).
  */
 
-/** AudioLessonChapter — where a chapter starts in the rendered file. */
+/**
+ * AudioLessonChapter — where a chapter starts in the rendered file. The server adds `label` (the
+ * title without its pinyin) and `pinyin` (of its Chinese part — the lesson's own for a taught word,
+ * else automatic: `chapterTitleParts`, shared/audio-lesson/chapter-pinyin.ts) when it serves a lesson.
+ */
 @Serializable
-data class AudioLessonChapter(val title: String, @SerialName("start_ms") val startMs: Long)
+data class AudioLessonChapter(
+    val title: String,
+    @SerialName("start_ms") val startMs: Long,
+    val label: String? = null,
+    val pinyin: String? = null,
+) {
+    /** What the player shows as the title (the stored title when the server didn't split it). */
+    val shownTitle: String get() = label?.takeIf { it.isNotBlank() } ?: title
+}
 
 /** AudioLessonTranscriptLine — one spoken clip, timed in the rendered file. */
 @Serializable

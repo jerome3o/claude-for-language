@@ -31,9 +31,9 @@ object SampleAudioLessons {
             AudioLessonChapter("Second listen", 61_000),
             AudioLessonChapter("Third listen, a little slower", 98_000),
             AudioLessonChapter("Line by line", 142_000),
-            AudioLessonChapter("粗 — thick", 260_000),
-            AudioLessonChapter("少放点 — put in a bit less", 380_000),
-            AudioLessonChapter("加 — to add", 490_000),
+            AudioLessonChapter("粗 — thick", 260_000, "粗 — thick", "cū"),
+            AudioLessonChapter("少放点 — put in a bit less", 380_000, "少放点 — put in a bit less", "shǎo fàng diǎn"),
+            AudioLessonChapter("加 — to add", 490_000, "加 — to add", "jiā"),
             AudioLessonChapter("Final listen", 640_000),
         ),
         transcript = listOf(
@@ -78,11 +78,11 @@ object SampleAudioLessons {
         word_count = 3,
         audio_version = "v1",
         chapters = listOf(
-            AudioLessonChapter("开始", 0),
-            AudioLessonChapter("银行", 9_000),
-            AudioLessonChapter("邮局", 420_000),
-            AudioLessonChapter("寄", 830_000),
-            AudioLessonChapter("原文", 1_200_000),
+            AudioLessonChapter("开始", 0, "开始", "kāi shǐ"),
+            AudioLessonChapter("银行 yínháng", 9_000, "银行", "yínháng"),
+            AudioLessonChapter("邮局 yóujú", 420_000, "邮局", "yóujú"),
+            AudioLessonChapter("寄 jì", 830_000, "寄", "jì"),
+            AudioLessonChapter("原文", 1_200_000, "原文", "yuán wén"),
         ),
         transcript = listOf(
             l(1000, "sleep", "你好。今天我们慢慢地学三个新词。", 0, "nǐ hǎo. jīntiān wǒmen mànmàn de xué sān gè xīn cí."),
@@ -131,7 +131,7 @@ object SampleAudioLessons {
         size_bytes = 1_200_000,
         word_count = 0,
         audio_version = "v1",
-        chapters = listOf(AudioLessonChapter("在咖啡馆", 0), AudioLessonChapter("他们坐在窗边", 168_000)),
+        chapters = listOf(AudioLessonChapter("在咖啡馆", 0, "在咖啡馆", "zài kā fēi guǎn"), AudioLessonChapter("他们坐在窗边", 168_000, "他们坐在窗边", "tā men zuò zài chuāng biān")),
         transcript = run {
             val chunks = listOf(
                 Triple("明慧：你好！你今天想喝什么？", "nǐ hǎo! nǐ jīntiān xiǎng hē shénme?", "Hi! What would you like to drink today?") to "speaker_a",
@@ -311,4 +311,26 @@ class AudioLessonScreenshots : LabScreenshotTest() {
     }
 
     @Test fun listDark() = shoot("audio-lessons-12-list-dark", dark = true) { AudioLessonsScreen(s.list, AudioLessonsActions()) }
+
+    /** Chapter titles with the pinyin of their Chinese part under them (podcast-section-pinyin). */
+    @Test fun playerChaptersPinyin() = shoot("audio-lessons-23-chapters-pinyin") {
+        AudioLessonPlayerScreen(
+            AudioLessonPlayerUi(lesson = s.dialogue, savedOnPhone = true, canPlay = true, positionMs = 390_000, showChapters = true, showTranscript = false),
+            AudioLessonPlayerActions(),
+        )
+    }
+
+    @Test fun playerChaptersPinyinDark() = shoot("audio-lessons-24-chapters-pinyin-dark", dark = true) {
+        AudioLessonPlayerScreen(
+            AudioLessonPlayerUi(lesson = s.sleep, savedOnPhone = true, canPlay = true, positionMs = 430_000, showChapters = true, showTranscript = false),
+            AudioLessonPlayerActions(),
+        )
+    }
+
+    @Test fun playerChaptersNoPinyin() = shoot("audio-lessons-25-chapters-pinyin-off") {
+        AudioLessonPlayerScreen(
+            AudioLessonPlayerUi(lesson = s.sleep, savedOnPhone = true, canPlay = true, positionMs = 430_000, showChapters = true, showTranscript = false, showPinyin = false),
+            AudioLessonPlayerActions(),
+        )
+    }
 }

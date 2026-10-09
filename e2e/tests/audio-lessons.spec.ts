@@ -38,8 +38,12 @@ test('make a sleep lesson, then play it from the device', async ({ authenticated
   // Transcript hidden by default for a sleep lesson; chapters jump.
   await expect(page.getByLabel('Transcript')).toHaveCount(0);
   await page.getByRole('button', { name: '☰ Chapters' }).click();
-  await page.getByRole('button', { name: /寄 jì/ }).click();
-  await expect(page.locator('.al-now-chapter')).toHaveText('寄 jì');
+  // Each chapter's pinyin on its own line under the hanzi (a sleep title's own pinyin, not doubled).
+  await page.locator('.al-chapters button', { hasText: '寄' }).click();
+  await expect(page.locator('.al-now-chapter .al-chapter-label')).toHaveText('寄');
+  await expect(page.locator('.al-now-chapter .al-chapter-pinyin')).toHaveText('jì');
+  await expect(page.locator('.al-chapters .al-chapter-label', { hasText: '开始' })).toHaveText('开始');
+  await expect(page.locator('.al-chapters li', { hasText: '开始' }).locator('.al-chapter-pinyin')).toHaveText('kāi shǐ');
   await page.getByRole('button', { name: '📝 Transcript' }).click();
   // Each example sentence ×3 and its spoken English translation: ONE row, "×3".
   const sentenceRow = page.getByLabel('Transcript').locator('li', { hasText: '我想寄一封信。' });
@@ -119,6 +123,10 @@ test('a dialogue lesson lists its chapters and shows the transcript', async ({ a
   for (const title of ['Introduction', 'First listen', 'Second listen', 'Third listen, a little slower', 'Line by line', 'Final listen']) {
     await expect(page.locator('.al-chapters').getByText(title, { exact: true })).toBeVisible();
   }
+  // A taught point's chapter carries the point's pinyin under it; the English ones carry none.
+  const cu = page.locator('.al-chapters li', { hasText: '粗 — ' });
+  await expect(cu.locator('.al-chapter-pinyin')).toHaveText('cū');
+  await expect(page.locator('.al-chapters li', { hasText: 'First listen' }).locator('.al-chapter-pinyin')).toHaveCount(0);
 });
 
 test('a story lesson: paste a conversation → each line three times with its English, in the list and the player', async ({ authenticatedPage: page }) => {

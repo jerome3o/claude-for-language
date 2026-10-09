@@ -106,8 +106,18 @@ describe('podcast feed', () => {
         status === 'ready' ? key : null,
         MP3.length,
         754_000,
-        JSON.stringify([{ hanzi: '银行', pinyin: 'yínháng', english: 'bank & money' }]),
-        JSON.stringify({ chapters: [{ title: '开始', start_ms: 24 }, { title: '银行 yínháng', start_ms: 65_000 }], transcript: [] }),
+        JSON.stringify([
+          { hanzi: '银行', pinyin: 'yínháng', english: 'bank & money' },
+          { hanzi: '打扰了', pinyin: 'dǎrǎo le', english: 'sorry to bother you' },
+        ]),
+        JSON.stringify({
+          chapters: [
+            { title: '开始', start_ms: 24 },
+            { title: '银行 yínháng', start_ms: 65_000 },
+            { title: '打扰了 — sorry to bother you', start_ms: 120_000 },
+          ],
+          transcript: [],
+        }),
         '2026-10-01T10:00:00.000Z',
         opts.finished ?? '2026-10-02T21:30:00.000Z',
       ],
@@ -171,7 +181,11 @@ describe('podcast feed', () => {
     expect(xml).toContain('<guid isPermaLink="false">audio-lesson-a1-va1</guid>');
     expect(xml).toMatch(/<enclosure url="http:\/\/localhost\/api\/podcast\/[A-Za-z0-9_-]{43}\/lessons\/a1\/va1\/audio\.mp3" length="5000" type="audio\/mpeg"\/>/);
     expect(xml).toContain('type="application/json+chapters"');
-    expect(xml).toContain('1:05 银行 yínháng');
+    // Chapter titles with their pinyin: the lesson's own for a taught word, never doubled, automatic otherwise.
+    expect(xml).toContain('0:00 开始 kāi shǐ');
+    expect(xml).toContain('1:05 银行 yínháng\n');
+    expect(xml).toContain('2:00 打扰了 dǎrǎo le — sorry to bother you');
+    expect(xml).not.toContain('yínháng yínháng');
     expect(xml).toContain('<itunes:author>Jerome &lt;J&amp;S&gt;</itunes:author>');
     expect(xml).toContain('<itunes:block>Yes</itunes:block>');
   });
@@ -240,7 +254,12 @@ describe('podcast feed', () => {
     expect((await head.arrayBuffer()).byteLength).toBe(0);
 
     const chapters = await call(null, 'GET', `/api/podcast/${token}/lessons/a1/chapters.json`);
-    expect(await chapters.json()).toEqual({ version: '1.2.0', title: '银行和邮局 <sleep> & "dreams"', chapters: [{ startTime: 0.024, title: '开始' }, { startTime: 65, title: '银行 yínháng' }] });
+    expect(await chapters.json()).toEqual({ version: '1.2.0', title: '银行和邮局 <sleep> & "dreams"', chapters: [
+        { startTime: 0.024, title: '开始 kāi shǐ' },
+        { startTime: 65, title: '银行 yínháng' },
+        { startTime: 120, title: '打扰了 dǎrǎo le — sorry to bother you' },
+      ],
+    });
   });
 
   it('never writes the token into a log line', async () => {

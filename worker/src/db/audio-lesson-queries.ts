@@ -17,6 +17,7 @@ import type {
   StoryPlan,
 } from '@shared/audio-lesson';
 import { storyCutNotice } from '@shared/audio-lesson/story';
+import { chapterTitleParts } from '@shared/audio-lesson/chapter-pinyin';
 
 export interface AudioLessonRow {
   id: string;
@@ -103,11 +104,13 @@ function storyNotice(planJson: string | null): string | null {
 export function lessonDetail(row: AudioLessonRow): AudioLessonDetail {
   const timeline = parse<{ chapters: AudioLessonChapter[]; transcript: AudioLessonTranscriptLine[] }>(row.timeline_json, { chapters: [], transcript: [] });
   const script = parse<AudioLessonScript | null>(row.script_json, null);
+  const words = parse<LessonWord[]>(row.words_json, []);
   return {
     ...lessonSummary(row),
     input: parse<AudioLessonInput>(row.input_json, {}),
-    words: parse<LessonWord[]>(row.words_json, []),
-    chapters: timeline.chapters,
+    words,
+    // Each chapter with the pinyin of its Chinese part (the player shows it under the title).
+    chapters: (timeline.chapters ?? []).map((c) => ({ ...c, ...chapterTitleParts(c.title, words) })),
     transcript: timeline.transcript,
     speakers: script?.speakers ?? [],
     usage: parse<AudioLessonUsage | null>(row.usage_json, null),
