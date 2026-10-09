@@ -17,7 +17,7 @@ dialogue). Chapters:
 1. *Introduction* — the English host sets the scene (Claude's `intro_en`).
 2. *First / Second listen* — the dialogue a little under natural speed (0.75), two Chinese voices.
 3. *Third listen, a little slower* (0.6).
-4. *Line by line* — each line (0.7), then its English.
+4. *Line by line* — each line three times (0.7), then its English, then the line once more (below).
 5. One chapter per point (word or structure), most important first: the word slowly twice (0.6), **its tones**
    (below), Claude's English explanation (Chinese inside it is spoken by the Chinese teacher voice), the
    dialogue line that uses it (0.6), an extra example (Chinese 0.7, English, Chinese), the word once more.
@@ -43,6 +43,43 @@ speakers: the Worker can't decode MP3 cheaply to measure it (an mp3gain-style `g
 without decoding, but needs a measurement first) — the providers' voices are mastered to similar levels, and the
 problem was the voice and the pace. Not compared by ear in the build container (no TTS keys there): the voice was
 chosen from Microsoft's descriptions and confirmed available in the uksouth region.
+
+**Line by line ×3 + 1 (Oct 2026).** Jerome: more time to process each line, and after hearing the English he hears
+the Chinese again and fills in the words he missed. Per line (`compileDialogueLesson`, `LINE_BY_LINE_REPEATS` = 3), all
+at `RATES.line` (0.7) and all ONE clip (the four plays share it):
+```
+我要一碗牛肉面。 (0.6 s) 我要一碗牛肉面。 (0.6 s) 我要一碗牛肉面。 (0.7 s)
+I'd like a bowl of beef noodles. (0.7 s)
+我要一碗牛肉面。 (1.1 s) → the next line
+```
+Pauses: `PAUSES.lineRepeat` 0.6 s (the dialogue's own line gap) between the three plays, `lineThenEnglish` 0.7 s,
+`englishThenLine` 0.7 s, `afterLineByLine` 1.1 s (was 1.3 s after the English — trimmed a little). The host's lead-in
+says so: "Now line by line: each line three times, then the English, then the line once more." **Length**: a line goes
+from ~10.5 s (measured on lessons A / B: 12 lines, ~2 min) to ~20 s, so a 12-line lesson grows by ~2 minutes (13 → ~15
+min at a 12-minute target; the cap, `maxLessonMinutes` 1.8 × target + 3, is far off). The prompt's sizing line now says a
+line takes ~20 s in this part, so the plan writer leans to 8–10 lines for a 12-minute lesson; no content is cut.
+**Transcript**: ONE row per line, "我要一碗牛肉面。 ×3 +1" with its pinyin and English (`transcriptRows`: the host's
+English joins the row as before, and the same line by the same voice right after it joins too — `TranscriptRow.again`,
+only after the `narrator` voice, once; the chip text is `repeatLabel`: "×3 +1", read as "said 3 times, then once more
+after the English"; Lab `AudioLessonTimeline.transcriptRows` / `repeatLabel`, parity-tested). A point's example (Chinese,
+English, Chinese again) is now one row too, "+1".
+
+**The learner's voice (Oct 2026).** In lessons A and B (滴滴司机打电话, 面馆排队) the traveller / customer — the learner's
+own part, "我" — got a woman's voice though Jerome is a man; D only got a man because its description said so. Now the
+learner's part follows the account's `users.voice_gender` (Profile → "Your voice when your messages are read aloud",
+the chat's read-aloud setting, CLAUDE.md "Chat read-aloud voice"):
+- The plan's speakers carry `learner: true` on the ONE speaker whose part the learner plays (the traveller / customer /
+  guest / patient who says 我); `validateDialoguePlan` allows at most one, a boolean.
+- The briefing (`learnerPartLine`): "The learner is a man: their own part in the dialogue … is spoken in a male voice.
+  Mark that speaker learner: true with gender "male", and make the other speaker female so the two voices contrast." The
+  system prompt says the same rule.
+- At `submit_lesson` (`acceptPlan` with `learnerGender`, read by `learnerVoiceGender` in `db/audio-lesson-queries.ts`
+  from the lesson's owner): with male / female set, a plan that marks no learner is sent back once ("mark the speaker
+  whose part the learner plays…"); then `applyLearnerGender` gives the learner's speaker that gender, and when the other
+  speaker had it (the plan meant the two to contrast) the other takes the learner's old one. `voices.ts` then picks the
+  voices by gender as before (Azure: Yunyang for the man, Xiaoxiao for the woman).
+- `other` / not set: as before — the plan's genders as written, no learner required.
+Lessons already made keep their audio (the script is compiled once).
 
 **Tones** (`shared/audio-lesson/dialogue-tones.ts`, Oct 2026 — "when we go over the individual words, also explain
 what the tones are"). Right after the word ×2, the host says each character's tone, then where the word says one
@@ -495,7 +532,7 @@ with the audio backfill → roughly 5–15 minutes per lesson.
   看一看), a polyphone (银行, 暖和), tone numbers → pinyin-pro, erhua → none; the spoken vs shown lines, English pieces
   without Chinese or pinyin, the lesson-wide skip and the per-point cap; the compile order (word ×2 → tones →
   explanation), the clip reuse and pauses, the sample's 一个, the slower rates; the transcript rows (the word row
-  stays the word). Worker `audio-lesson-job.test.ts`: the dialogue rates per provider and the Azure voices.
+  stays the word). Worker `audio-lesson-job.test.ts`: the dialogue rates per provider and the Azure voices; the learner's part in their voice gender (male → the traveller marked `learner` is the man, Yunyang, the driver the woman; no learner marked → sent back once; female; other / not set → unchanged; `applyLearnerGender` swaps; at most one learner).
 
 - `shared/audio-lesson/story.test.ts`: the splitter (sentence ends and their runs, closing quotes, never inside quotes, unclosed
   quotes, long sentences at commas / hard, speaker labels Latin / Han / "他说：", a lone label line, no merging across turns,
@@ -514,7 +551,7 @@ with the audio backfill → roughly 5–15 minutes per lesson.
   words, "学过" for common words, "新字" for a known one, a new character naming words), `stampCharNotes`, the compile
   order (tone → its line → next character → meaning; the app's new-character line), and the wordings (4–6 per pool,
   every one Chinese-only / short / closed, deterministic, never the same twice in a row in a compiled lesson).
-- `shared/audio-lesson/audio-lesson.test.ts`: compile (three plays, ×3 repeats, the sleep word order a–e, the short
+- `shared/audio-lesson/audio-lesson.test.ts`: compile (three plays, line by line ×3 + the English + once more with its pauses and one clip per line, ×3 repeats, the sleep word order a–e, the short
   intro pauses, the translations after each triplet, voices and rates, source text), plan validation (5–8 meaning
   sentences, no repeats / origins, a spoken English translation per sentence), timeline, transcript rows (×3, the
   translation joined), the music rules, player helpers; character tones (导航 / 任务 /

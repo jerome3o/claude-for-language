@@ -17,6 +17,7 @@ import type {
   StoryPlan,
 } from '@shared/audio-lesson';
 import { storyCutNotice } from '@shared/audio-lesson/story';
+import { parseVoiceGender } from '@shared/chats/voice';
 import { chapterTitleParts } from '@shared/audio-lesson/chapter-pinyin';
 
 export interface AudioLessonRow {
@@ -263,6 +264,16 @@ export interface VocabRow {
   english: string;
   /** 2 = known (a mature card: Review, stability > 21 d), 1 = learning (reviewed), 0 = in a deck, never reviewed. */
   tier: number;
+}
+
+/**
+ * The learner's voice gender for a dialogue lesson's own part (Profile → "Your voice when your
+ * messages are read aloud", users.voice_gender): male / female; null for other / not set.
+ */
+export async function learnerVoiceGender(db: D1Database, userId: string): Promise<'male' | 'female' | null> {
+  const row = await db.prepare('SELECT voice_gender FROM users WHERE id = ?').bind(userId).first<{ voice_gender: string | null }>();
+  const g = parseVoiceGender(row?.voice_gender);
+  return g === 'male' || g === 'female' ? g : null;
 }
 
 /**

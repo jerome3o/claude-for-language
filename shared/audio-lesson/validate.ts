@@ -90,7 +90,9 @@ export function validateDialoguePlan(raw: unknown): string[] {
   speakers.forEach((s, i) => {
     if (!s || !str(s.name)) problems.push(`speakers[${i}].name: required`);
     if (!s || (s.gender !== 'female' && s.gender !== 'male')) problems.push(`speakers[${i}].gender: "female" or "male"`);
+    if (s && s.learner !== undefined && typeof s.learner !== 'boolean') problems.push(`speakers[${i}].learner: true or false`);
   });
+  if (speakers.filter((s) => s?.learner === true).length > 1) problems.push('speakers: at most one is the learner (learner: true)');
   const lines = Array.isArray(p.dialogue) ? p.dialogue : [];
   const { min, max } = PLAN_LIMITS.dialogueLines;
   if (lines.length < min || lines.length > max) problems.push(`dialogue: ${min}–${max} lines (got ${lines.length})`);

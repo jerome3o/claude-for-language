@@ -55,6 +55,9 @@ export const RATES = {
  */
 export const SLEEP_ZH_PROVIDER_RATE = { minimax: 0.5, azure: 0.6, google: 0.6 } as const;
 
+/** Line by line (dialogue): how many times each line is said before its English (then once more after it). */
+export const LINE_BY_LINE_REPEATS = 3;
+
 /** Pauses in ms. */
 export const PAUSES = {
   // Format A
@@ -63,7 +66,12 @@ export const PAUSES = {
   dialogueSlowLine: 900,
   betweenPlays: 2000,
   lineThenEnglish: 700,
-  afterTranslation: 1300,
+  /** Line by line: between a line's three plays — the dialogue's own line gap. */
+  lineRepeat: 600,
+  /** Line by line: after the English, before the line once more. */
+  englishThenLine: 700,
+  /** Line by line: after that last play, before the next line (1.3 s before the repeats; trimmed a little). */
+  afterLineByLine: 1100,
   wordRepeat: 900,
   afterPoint: 2000,
   short: 500,
@@ -237,14 +245,23 @@ export function compileDialogueLesson(plan: DialoguePlan): AudioLessonScript {
   playDialogue(RATES.dialogueSlow, PAUSES.dialogueSlowLine);
   b.pause(PAUSES.betweenPlays);
 
+  // Each line three times (time to process it), its English once, then the line ONE more time —
+  // having heard the English he fills in the words he missed (Jerome, Oct 2026). All at the line rate,
+  // one clip per line (the four plays reuse it).
   b.chapter('Line by line');
-  b.en("Now line by line, with the English.");
+  b.en("Now line by line: each line three times, then the English, then the line once more.");
   b.pause(PAUSES.afterIntro);
   for (const line of plan.dialogue) {
-    b.zh(speakerRole(line.speaker), line, RATES.line);
-    b.pause(PAUSES.lineThenEnglish);
+    const role = speakerRole(line.speaker);
+    for (let i = 0; i < LINE_BY_LINE_REPEATS; i++) {
+      if (i === 0) b.zh(role, line, RATES.line);
+      else b.zh(role, line.hanzi, RATES.line);
+      b.pause(i < LINE_BY_LINE_REPEATS - 1 ? PAUSES.lineRepeat : PAUSES.lineThenEnglish);
+    }
     b.en(line.english);
-    b.pause(PAUSES.afterTranslation);
+    b.pause(PAUSES.englishThenLine);
+    b.zh(role, line.hanzi, RATES.line);
+    b.pause(PAUSES.afterLineByLine);
   }
   b.pause(PAUSES.short);
 

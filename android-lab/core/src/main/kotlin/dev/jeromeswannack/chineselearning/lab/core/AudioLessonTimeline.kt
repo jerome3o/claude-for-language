@@ -56,6 +56,8 @@ data class AudioLessonTranscriptRow(
     val english: String? = null,
     /** How many times the line is said in a row (a sleep word ×3, an example sentence ×3); null = once. */
     val repeat: Int? = null,
+    /** Said once more after its English (a dialogue's line by line: "×3 +1"); null = not. */
+    val again: Int? = null,
 )
 
 object AudioLessonTimeline {
@@ -173,7 +175,8 @@ object AudioLessonTimeline {
      * Port of transcriptRows: an English sentence with Chinese inside ("a 兰州拉面 place") is
      * spoken as several clips, shown as ONE row; a Chinese line said several times in a row is
      * ONE row with [AudioLessonTranscriptRow.repeat] ("邮局 ×3"); a translation read right after
-     * the line it translates joins that line's row.
+     * the line it translates joins that line's row, and so does the line said once more after the
+     * host's translation (line by line: [AudioLessonTranscriptRow.again], "×3 +1").
      */
     fun transcriptRows(lines: List<AudioLessonTranscriptLine>): List<AudioLessonTranscriptRow> {
         val rows = ArrayList<AudioLessonTranscriptRow>()
@@ -186,8 +189,17 @@ object AudioLessonTimeline {
                 rows[rows.size - 1] = prev.copy(last = i)
                 return@forEachIndexed
             }
+            // Line by line: the line once more right after the host read its English: the same row, "+1".
+            val head = prev?.let { lines[it.first] }
+            if (prev != null && prevLine != null && head != null && prev.again == null && prev.last == i - 1 && prev.last > prev.first &&
+                prev.lang == "zh" && l.lang == "zh" && prevLine.voice == "narrator" && !prev.english.isNullOrEmpty() &&
+                sameEnglish(prev.english, prevLine.text) && head.voice == l.voice && head.chapter == l.chapter && head.text == l.text
+            ) {
+                rows[rows.size - 1] = prev.copy(last = i, again = 1)
+                return@forEachIndexed
+            }
             // The same Chinese line again, right after itself (same voice, same chapter): one row, "×N".
-            if (prev != null && prevLine != null && prev.last == i - 1 && prev.lang == "zh" && l.lang == "zh" &&
+            if (prev != null && prevLine != null && prev.again == null && prev.last == i - 1 && prev.lang == "zh" && l.lang == "zh" &&
                 prevLine.voice == l.voice && prevLine.chapter == l.chapter && prevLine.text == l.text
             ) {
                 rows[rows.size - 1] = prev.copy(last = i, repeat = (prev.repeat ?: 1) + 1)
@@ -212,6 +224,18 @@ object AudioLessonTimeline {
             )
         }
         return rows
+    }
+
+    /**
+     * Port of repeatLabel: the repeat chip after a row's text — "×3", "×3 +1" (line by line: three
+     * times, the English, once more), "" for a line said once; [second] = what a screen reader says.
+     */
+    fun repeatLabel(repeat: Int?, again: Int?): Pair<String, String> {
+        val n = repeat ?: 1
+        if (again == null || again == 0) return if (n > 1) "×$n" to "said $n times" else "" to ""
+        val times = if (n == 1) "once" else "$n times"
+        val more = if (again == 1) "once" else "$again times"
+        return "${if (n > 1) "×$n " else ""}+$again" to "said $times, then $more more after the English"
     }
 
     /** Port of formatMb (services/audioLessons.ts): "4.2 MB", "" for none. */

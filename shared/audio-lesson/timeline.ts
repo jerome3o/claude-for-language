@@ -121,13 +121,29 @@ export interface TranscriptRow {
   english?: string;
   /** How many times the line is said in a row (a sleep word ×3, an example sentence ×3); absent = once. */
   repeat?: number;
+  /** Said once more after its English (a dialogue's line by line: "×3 +1"); absent = not. */
+  again?: number;
+}
+
+/**
+ * The repeat chip after a row's text: "×3", "×3 +1" (line by line: three times, the English, once
+ * more), "" for a line said once. `aria` is what a screen reader says.
+ */
+export function repeatLabel(row: Pick<TranscriptRow, 'repeat' | 'again'>): { text: string; aria: string } {
+  const n = row.repeat ?? 1;
+  if (!row.again) return n > 1 ? { text: `×${n}`, aria: `said ${n} times` } : { text: '', aria: '' };
+  return {
+    text: `${n > 1 ? `×${n} ` : ''}+${row.again}`,
+    aria: `said ${n === 1 ? 'once' : `${n} times`}, then ${row.again === 1 ? 'once' : `${row.again} times`} more after the English`,
+  };
 }
 
 /**
  * The transcript as the player shows it: an English sentence with Chinese inside
  * ("a 兰州拉面 place") is spoken as several clips, shown as ONE row; a Chinese line said
  * several times in a row is ONE row with `repeat` ("邮局 ×3"); a translation read right
- * after the line it translates joins that line's row.
+ * after the line it translates joins that line's row, and so does the line said once more after
+ * the host's translation (line by line: `again`, "×3 +1").
  */
 /** "Thin, please" and "Thin, please." are the same translation (a spoken one gets a full stop). */
 function sameEnglish(a: string, b: string): boolean {
@@ -157,8 +173,19 @@ export function transcriptRows(lines: AudioLessonTranscriptLine[]): TranscriptRo
       prev.last = i;
       return;
     }
+    // Line by line: the line once more right after the host read its English: the same row, "+1".
+    const head = prev ? lines[prev.first] : undefined;
+    if (
+      prev && prevLine && head && !prev.again && prev.last === i - 1 && prev.last > prev.first && prev.lang === 'zh' && l.lang === 'zh' &&
+      prevLine.voice === 'narrator' && !!prev.english && sameEnglish(prev.english, prevLine.text) &&
+      head.voice === l.voice && head.chapter === l.chapter && head.text === l.text
+    ) {
+      prev.last = i;
+      prev.again = 1;
+      return;
+    }
     // The same Chinese line again, right after itself (same voice, same chapter): one row, "×N".
-    if (prev && prevLine && prev.last === i - 1 && prev.lang === 'zh' && l.lang === 'zh' && prevLine.voice === l.voice && prevLine.chapter === l.chapter && prevLine.text === l.text) {
+    if (prev && prevLine && !prev.again && prev.last === i - 1 && prev.lang === 'zh' && l.lang === 'zh' && prevLine.voice === l.voice && prevLine.chapter === l.chapter && prevLine.text === l.text) {
       prev.last = i;
       prev.repeat = (prev.repeat ?? 1) + 1;
       return;

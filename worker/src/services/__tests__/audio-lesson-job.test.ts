@@ -14,7 +14,7 @@ import { runAudioLessonJob } from '../audio-lessons/job';
 import { fakeClip } from '../audio-lessons/fake';
 import { parseMp3Frames } from '../audio-lessons/mp3';
 import { analyseText, buildVocabIndex, checkWords } from '../audio-lessons/vocab';
-import { acceptPlan, buildBriefing, maxLessonMinutes, runAuthor, sleepWordTarget, systemPrompt, type ModelCall } from '../audio-lessons/agent';
+import { acceptPlan, applyLearnerGender, buildBriefing, maxLessonMinutes, runAuthor, sleepWordTarget, systemPrompt, type ModelCall } from '../audio-lessons/agent';
 import { lessonClipRate, type ClipOutcome, type ClipRequest } from '../audio-lessons/synth';
 import { DEFAULT_TTS_CONFIG } from '@shared/tts';
 import { charShard, charShardFile, wordShard, wordShardFile, type CharRecord, type WordRecord } from '@shared/chars/types';
@@ -234,6 +234,106 @@ describe('runAudioLessonJob', () => {
     const word = detail.words.find((w) => point?.title.startsWith(`${w.hanzi} — `));
     expect(word).toBeTruthy();
     expect(point?.pinyin).toBe(word!.pinyin);
+  });
+
+  describe("the learner's own part speaks in their voice gender (users.voice_gender)", () => {
+    // Lesson A's shape: the driver a man, the traveller ("我", the learner's part) a woman.
+    const traveller = (learner: boolean | undefined) => ({
+      ...SAMPLE_DIALOGUE_PLAN,
+      speakers: [
+        { id: 'A' as const, name: 'Traveller', gender: 'female' as const, ...(learner === undefined ? {} : { learner }) },
+        { id: 'B' as const, name: 'Driver', gender: 'male' as const },
+      ],
+    });
+    /** A model that hands in `plans` one after the other, keeping every request it was sent. */
+    const handIn = (...plans: unknown[]) => {
+      const seen: Array<Parameters<ModelCall>[0]> = [];
+      let i = 0;
+      const call: ModelCall = async (req) => {
+        seen.push(JSON.parse(JSON.stringify(req)));
+        const plan = plans[Math.min(i, plans.length - 1)];
+        i++;
+        return { content: [{ type: 'tool_use', id: `t${i}`, name: 'submit_lesson', input: { plan } }], usage: { input_tokens: 10, output_tokens: 10 }, stop_reason: 'tool_use' };
+      };
+      return { call, seen };
+    };
+    const speak = async (clip: ClipRequest): Promise<ClipOutcome> => ({ ok: true, bytes: fakeClip(clip.text, clip.rate), provider: 'azure', voice: 'v' });
+
+    it('male: the traveller marked as the learner gets the male voice, the driver the female one', async () => {
+      exec("UPDATE users SET voice_gender = 'male' WHERE id = 'u1'");
+      const id = await newLesson('dialogue');
+      const model = handIn(traveller(true));
+      expect(await runAudioLessonJob(env, id, { call: model.call, speak, requeue: async () => {} })).toBe('done');
+      // The plan writer is told who the learner is and their gender.
+      const briefing = model.seen[0].messages[0].content as string;
+      expect(briefing).toContain('The learner is a man');
+      expect(briefing).toContain('learner: true with gender "male"');
+      expect(model.seen[0].system).toContain('learner: true');
+      const row = (await q.getAudioLesson(db, id))!;
+      const plan = JSON.parse(row.plan_json!) as typeof SAMPLE_DIALOGUE_PLAN;
+      expect(plan.speakers).toEqual([
+        { id: 'A', name: 'Traveller', gender: 'male', learner: true },
+        { id: 'B', name: 'Driver', gender: 'female' },
+      ]);
+      const speakers = q.lessonDetail(row).speakers;
+      expect(speakers).toEqual([
+        { role: 'speaker_a', name: 'Traveller', gender: 'male' },
+        { role: 'speaker_b', name: 'Driver', gender: 'female' },
+      ]);
+      // Azure: Yunyang for the traveller, Xiaoxiao for the driver.
+      expect(roleVoice('azure', 'speaker_a', speakers, DEFAULT_TTS_CONFIG)?.voice).toBe('zh-CN-YunyangNeural');
+      expect(roleVoice('azure', 'speaker_b', speakers, DEFAULT_TTS_CONFIG)?.voice).toBe('zh-CN-XiaoxiaoNeural');
+    });
+
+    it('male: a plan that marks no learner is sent back once to mark one', async () => {
+      exec("UPDATE users SET voice_gender = 'male' WHERE id = 'u1'");
+      const id = await newLesson('dialogue');
+      const model = handIn(traveller(undefined), traveller(true));
+      expect(await runAudioLessonJob(env, id, { call: model.call, speak, requeue: async () => {} })).toBe('done');
+      expect(model.seen).toHaveLength(2);
+      const refusal = JSON.stringify(model.seen[1].messages[model.seen[1].messages.length - 1].content);
+      expect(refusal).toContain('learner: true');
+      expect(refusal).toContain("learner's male voice");
+      const plan = JSON.parse((await q.getAudioLesson(db, id))!.plan_json!) as typeof SAMPLE_DIALOGUE_PLAN;
+      expect(plan.speakers.map((sp) => sp.gender)).toEqual(['male', 'female']);
+    });
+
+    it('female: the learner keeps a female voice; a male other speaker is left as he is', async () => {
+      exec("UPDATE users SET voice_gender = 'female' WHERE id = 'u1'");
+      const id = await newLesson('dialogue');
+      const model = handIn(traveller(true));
+      expect(await runAudioLessonJob(env, id, { call: model.call, speak, requeue: async () => {} })).toBe('done');
+      expect(model.seen[0].messages[0].content as string).toContain('The learner is a woman');
+      const plan = JSON.parse((await q.getAudioLesson(db, id))!.plan_json!) as typeof SAMPLE_DIALOGUE_PLAN;
+      expect(plan.speakers.map((sp) => sp.gender)).toEqual(['female', 'male']);
+    });
+
+    it('other / not set: the plan\'s genders as written, no learner required', async () => {
+      for (const g of ['other', null]) {
+        exec('UPDATE users SET voice_gender = ? WHERE id = ?', g, 'u1');
+        const id = await newLesson('dialogue');
+        const model = handIn(traveller(undefined));
+        expect(await runAudioLessonJob(env, id, { call: model.call, speak, requeue: async () => {} })).toBe('done');
+        expect(model.seen).toHaveLength(1);
+        expect(model.seen[0].messages[0].content as string).not.toContain('The learner is a');
+        const plan = JSON.parse((await q.getAudioLesson(db, id))!.plan_json!) as typeof SAMPLE_DIALOGUE_PLAN;
+        expect(plan.speakers.map((sp) => sp.gender)).toEqual(['female', 'male']);
+      }
+    });
+
+    it('applyLearnerGender: swaps only when the other speaker had the learner\'s gender', () => {
+      const both = { ...traveller(true), speakers: [{ id: 'A' as const, name: 'Guest', gender: 'female' as const, learner: true }, { id: 'B' as const, name: 'Auntie', gender: 'female' as const }] };
+      expect(applyLearnerGender(both, 'male').speakers.map((sp) => sp.gender)).toEqual(['male', 'female']);
+      expect(applyLearnerGender(traveller(true), 'female')).toEqual(traveller(true));
+      expect(applyLearnerGender(traveller(true), null)).toEqual(traveller(true));
+      expect(applyLearnerGender(traveller(undefined), 'male')).toEqual(traveller(undefined));
+    });
+
+    it('validateDialoguePlan: at most one learner, a boolean', () => {
+      const two = { ...traveller(true), speakers: traveller(true).speakers.map((sp) => ({ ...sp, learner: true })) };
+      expect(acceptPlan('dialogue', { plan: two }, { description: 'x' })).toMatchObject({ ok: false, problems: ['speakers: at most one is the learner (learner: true)'] });
+      expect(acceptPlan('dialogue', { plan: { ...traveller(true), speakers: [{ ...traveller(true).speakers[0], learner: 'yes' }, traveller(true).speakers[1]] } }, { description: 'x' }).ok).toBe(false);
+    });
   });
 
   it('a clip that keeps failing fails the lesson with the reason; Retry resumes without rewriting', async () => {

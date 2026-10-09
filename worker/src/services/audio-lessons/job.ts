@@ -166,6 +166,8 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
     // ---------- 1. writing ----------
     if (!row.script_json) {
       const index = buildVocabIndex(await q.learnerVocabulary(env.DB, row.user_id));
+      // Dialogue: the learner's own part speaks in their voice gender (Profile; null = as the plan says).
+      const learnerGender = row.format === 'dialogue' ? await q.learnerVoiceGender(env.DB, row.user_id) : null;
       const charLinks = makeCharLinks(index, env.CHAR_DICT ? assetsShardLoader(env.CHAR_DICT) : null);
       const call = deps.call ?? (env.E2E_TEST_MODE === 'true' ? fakeCall(row.format, charLinks) : env.ANTHROPIC_API_KEY ? anthropicModelCall(env.ANTHROPIC_API_KEY) : null);
       if (!call) return fail('Audio lessons need the Claude key, which is not configured on the server');
@@ -176,7 +178,7 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
         usage: (!Array.isArray(saved) && saved?.usage) || emptyUsage(),
       };
       if (state.messages.length === 0) {
-        state.messages.push({ role: 'user', content: buildBriefing(row.format, input, index, input.title ?? null) });
+        state.messages.push({ role: 'user', content: buildBriefing(row.format, input, index, input.title ?? null, learnerGender) });
       }
       await q.patchAudioLesson(env.DB, lessonId, {
         status: 'writing',
@@ -192,6 +194,7 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
         call,
         deadline,
         charLinks,
+        learnerGender,
         checkpoint: (s, progress) => q.patchAudioLesson(env.DB, lessonId, { agent_transcript: { messages: s.messages, usage: s.usage } as unknown as unknown[], rounds: s.rounds, progress }),
       });
       const usage = usageFor(out.state.usage, out.state.rounds, null, null, null);

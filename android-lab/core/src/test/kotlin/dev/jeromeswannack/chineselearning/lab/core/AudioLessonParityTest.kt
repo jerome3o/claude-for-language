@@ -42,6 +42,7 @@ class AudioLessonParityTest {
             pinyin = x["pinyin"]?.jsonPrimitive?.content,
             english = x["english"]?.jsonPrimitive?.content,
             repeat = x["repeat"]?.jsonPrimitive?.int,
+            again = x["again"]?.jsonPrimitive?.int,
         )
     }
 
@@ -65,7 +66,11 @@ class AudioLessonParityTest {
                 if (prev < chapters[AudioLessonTimeline.chapterIndexAt(chapters, ms)].startMs) backs++
             }
             assertTrue(backs > 0, "$name exercises the 3 s grace")
-            assertEquals(rowsOf(lesson["rows"]!!), AudioLessonTimeline.transcriptRows(lines), "$name transcriptRows")
+            val rows = AudioLessonTimeline.transcriptRows(lines)
+            assertEquals(rowsOf(lesson["rows"]!!), rows, "$name transcriptRows")
+            // The repeat chip's words ("×3", "×3 +1") and what a screen reader says.
+            val labels = lesson["labels"]!!.jsonArray.map { it.jsonArray.let { a -> a[0].jsonPrimitive.content to a[1].jsonPrimitive.content } }
+            assertEquals(labels, rows.map { AudioLessonTimeline.repeatLabel(it.repeat, it.again) }, "$name repeatLabel")
         }
         // The dialogue's intro is narration around Chinese: one row of several lines.
         val dialogueRows = AudioLessonTimeline.transcriptRows(
