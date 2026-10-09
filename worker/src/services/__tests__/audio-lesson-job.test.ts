@@ -5,7 +5,8 @@
  * clips), rendering (one MP3, chapters timed, parts deleted).
  */
 import { describe, expect, it, beforeEach } from 'vitest';
-import { SAMPLE_DIALOGUE_PLAN, SAMPLE_SLEEP_PLAN, uniqueSpeech, type AudioLessonScript } from '@shared/audio-lesson';
+import { RATES, SAMPLE_DIALOGUE_PLAN, SAMPLE_SLEEP_PLAN, uniqueSpeech, type AudioLessonScript } from '@shared/audio-lesson';
+import { roleVoice } from '../audio-lessons/voices';
 import type { Env } from '../../types';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import * as q from '../../db/audio-lesson-queries';
@@ -351,6 +352,22 @@ describe('vocabulary for the agent', () => {
     const teacher = { lang: 'zh' as const, voice: 'teacher' as const, rate: 0.7 };
     expect(lessonClipRate('minimax', teacher, DEFAULT_TTS_CONFIG)).toBe(0.7);
     expect(lessonClipRate('azure', teacher, DEFAULT_TTS_CONFIG)).toBe(0.77);
+  });
+
+  it('dialogue lessons: a little slower than natural (Oct 2026), and the clear newsreader as the Azure man', () => {
+    const at = (rate: number) => ({ lang: 'zh' as const, voice: 'speaker_b' as const, rate });
+    // The plays, the third play, line by line — on Azure (speed_factor 0.75): 0.81 / 0.7 / 0.77 (were 0.93 / 0.81 / 0.85).
+    expect([RATES.dialogue, RATES.dialogueSlow, RATES.line]).toEqual([0.75, 0.6, 0.7]);
+    expect([RATES.dialogue, RATES.dialogueSlow, RATES.line].map((r) => lessonClipRate('azure', at(r), DEFAULT_TTS_CONFIG))).toEqual([0.81, 0.7, 0.77]);
+    expect(lessonClipRate('minimax', at(RATES.dialogue), DEFAULT_TTS_CONFIG)).toBe(0.75);
+    const mixed = [
+      { role: 'speaker_a' as const, name: 'Auntie', gender: 'female' as const },
+      { role: 'speaker_b' as const, name: 'Guest', gender: 'male' as const },
+    ];
+    expect(roleVoice('azure', 'speaker_b', mixed, DEFAULT_TTS_CONFIG)!.voice).toBe('zh-CN-YunyangNeural');
+    expect(roleVoice('azure', 'speaker_a', mixed, DEFAULT_TTS_CONFIG)!.voice).toBe('zh-CN-XiaoxiaoNeural');
+    const men = mixed.map((s) => ({ ...s, gender: 'male' as const }));
+    expect([roleVoice('azure', 'speaker_a', men, DEFAULT_TTS_CONFIG)!.voice, roleVoice('azure', 'speaker_b', men, DEFAULT_TTS_CONFIG)!.voice]).toEqual(['zh-CN-YunyangNeural', 'zh-CN-YunxiNeural']);
   });
 
   it('sleep lessons: fewer, longer words — the briefing number fits the target', () => {

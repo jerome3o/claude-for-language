@@ -5,6 +5,7 @@ export * from './timeline';
 export * from './input';
 export * from './samples';
 export * from './tones';
+export * from './dialogue-tones';
 export * from './music';
 export * from './characters';
 export * from './phrases';

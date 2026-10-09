@@ -13,18 +13,23 @@ import type {
   VoiceRole,
 } from './types';
 import { charToneLines } from './tones';
+import { dialogueToneLines } from './dialogue-tones';
 import { fillPhrase, NEW_CHARACTER_LINES, NEW_WORD_INTROS, pickVariant, RECAP_OPENINGS, SENTENCES_INTROS } from './phrases';
 
 /** Speeds on the app's scale (MiniMax: 1 = normal; cards are 0.6). */
 export const RATES = {
   /** English host. */
   en: 1.0,
-  /** The dialogue at natural (lesson) speed — the conversation exercises' 0.9. */
-  dialogue: 0.9,
-  /** The third play, "a little slower". */
-  dialogueSlow: 0.75,
-  /** A line said on its own while explaining. */
-  line: 0.8,
+  /**
+   * The dialogue's first, second and final plays: a little under natural speed (0.9 until Oct 2026 —
+   * Jerome: "the guy's voice was kind of hard to hear — maybe slow the audio a little"). Azure (the
+   * provider while MiniMax is out of credit) maps it with its speed_factor: 0.75 → 0.81 (was 0.93).
+   */
+  dialogue: 0.75,
+  /** The third play, "a little slower" (0.75 until Oct 2026; Azure 0.7, was 0.81). */
+  dialogueSlow: 0.6,
+  /** A line said on its own: line by line and the examples (0.8 until Oct 2026; Azure 0.77, was 0.85). */
+  line: 0.7,
   /** A new word on its own. */
   word: 0.6,
   /** Chinese inside the English explanations. */
@@ -62,6 +67,10 @@ export const PAUSES = {
   wordRepeat: 900,
   afterPoint: 2000,
   short: 500,
+  /** Between the Chinese and the English of a tone line ("打 … third tone."). */
+  toneInner: 200,
+  /** After each tone line — brisk: they come one after another, the word section stays ~1 minute. */
+  toneLine: 450,
   // Format B (docs/AUDIO_LESSONS.md "Pacing")
   /** Between "这是一个新词。" and "我说三遍。" — heard every word, so short. */
   sleepIntroPhrase: 500,
@@ -239,6 +248,8 @@ export function compileDialogueLesson(plan: DialoguePlan): AudioLessonScript {
   }
   b.pause(PAUSES.short);
 
+  // A character whose tone line an earlier point already said (same syllable) is not said again.
+  const toneSaid = new Set<string>();
   plan.points.forEach((point, i) => {
     b.chapter(`${point.hanzi} — ${point.english}`);
     if (i === 0) {
@@ -249,6 +260,19 @@ export function compileDialogueLesson(plan: DialoguePlan): AudioLessonScript {
     b.pause(PAUSES.wordRepeat);
     b.zh('teacher', point.hanzi, RATES.word);
     b.pause(PAUSES.wordRepeat);
+    // The tones, from the point's own pinyin (dialogue-tones.ts): "打, third tone." per character,
+    // then "In 打扰了, 打 is said with a second tone, before another third tone." The Chinese is the
+    // teacher voice at the word's rate (a one-character word reuses the word's own clip).
+    const toneLines = dialogueToneLines(point, toneSaid);
+    for (const line of toneLines) {
+      line.parts.forEach((part, j) => {
+        if (j > 0) b.pause(PAUSES.toneInner);
+        if (part.lang === 'zh') b.say('zh', 'teacher', part.text, RATES.word, { display: part.display });
+        else b.say('en', 'narrator', part.text, RATES.en);
+      });
+      b.pause(PAUSES.toneLine);
+    }
+    if (toneLines.length) b.pause(PAUSES.wordRepeat - PAUSES.toneLine);
     b.mixed(point.explanation_en);
     b.pause(PAUSES.wordRepeat);
     const line = plan.dialogue[point.line];

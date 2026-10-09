@@ -15,13 +15,70 @@ conversation they already have, in the background.
 **Dialogue (format A, "ChinesePod style").** Input: a situation to practise (+ optionally a pasted
 dialogue). Chapters:
 1. *Introduction* — the English host sets the scene (Claude's `intro_en`).
-2. *First / Second listen* — the dialogue at natural speed (0.9), two Chinese voices.
-3. *Third listen, a little slower* (0.75).
-4. *Line by line* — each line (0.8), then its English.
-5. One chapter per point (word or structure), most important first: the word slowly twice (0.6),
-   Claude's English explanation (Chinese inside it is spoken by the Chinese teacher voice), the
-   dialogue line that uses it, an extra example (Chinese, English, Chinese), the word once more.
-6. *Final listen* — the whole dialogue again, then the outro.
+2. *First / Second listen* — the dialogue a little under natural speed (0.75), two Chinese voices.
+3. *Third listen, a little slower* (0.6).
+4. *Line by line* — each line (0.7), then its English.
+5. One chapter per point (word or structure), most important first: the word slowly twice (0.6), **its tones**
+   (below), Claude's English explanation (Chinese inside it is spoken by the Chinese teacher voice), the
+   dialogue line that uses it (0.6), an extra example (Chinese 0.7, English, Chinese), the word once more.
+6. *Final listen* — the whole dialogue again (0.75), then the outro.
+
+**Speeds and voices (dialogue, Oct 2026).** Jerome on 去朋友家吃饭 (Azure, MiniMax out of credit): "the guy's voice
+was kind of hard to hear — maybe slow the audio a little." On the app's scale (MiniMax's; Azure maps it with its
+`speed_factor` 0.75 → `1 + (rate − 1) × 0.75`, Google takes it as is):
+
+| Part | Before | Now | Azure before → now |
+|---|---|---|---|
+| First / second / final listen (`RATES.dialogue`) | 0.9 | 0.75 | 0.93 → 0.81 |
+| Third listen, "a little slower" (`dialogueSlow`; also the line inside a word section) | 0.75 | 0.6 | 0.81 → 0.7 |
+| Line by line, the examples (`line`) | 0.8 | 0.7 | 0.85 → 0.77 |
+| The word, the tone lines' Chinese (`word`) | 0.6 | 0.6 | 0.7 |
+| Chinese inside the English explanations (`teacher`) | 0.7 | 0.7 | 0.77 |
+
+The Azure male speaker is now **Yunyang** (`zh-CN-YunyangNeural`, the newsreader — steady, full voice, every
+syllable articulated) instead of Yunxi (a young, lighter, quicker voice that was the one hard to hear next to
+Xiaoxiao); Yunxi stays the second male voice when both speakers are men (`voices.ts`; story lessons' speakers use the
+same table). MiniMax keeps Male Announcer / News Anchor, Google Wavenet B / A. Loudness is NOT normalised between
+speakers: the Worker can't decode MP3 cheaply to measure it (an mp3gain-style `global_gain` shift would be possible
+without decoding, but needs a measurement first) — the providers' voices are mastered to similar levels, and the
+problem was the voice and the pace. Not compared by ear in the build container (no TTS keys there): the voice was
+chosen from Microsoft's descriptions and confirmed available in the uksouth region.
+
+**Tones** (`shared/audio-lesson/dialogue-tones.ts`, Oct 2026 — "when we go over the individual words, also explain
+what the tones are"). Right after the word ×2, the host says each character's tone, then where the word says one
+differently — the same facts as a sleep lesson's tone lines, in English, built by code from the point's own pinyin
+(never written by Claude):
+```
+打扰了 ×2
+打, dǎ, third tone.                ← spoken: <打> "third tone." (the pinyin is only shown)
+扰, rǎo, third tone.
+了 (as in 打扰了), le, neutral tone. ← spoken <打扰了的了>: 了 alone would be read liǎo
+In 打扰了, 打 is said with a second tone, before another third tone.
+```
+- `wordCharTones`: the point's pinyin split into one syllable per character where the characters' readings say
+  ("dǎrǎo" = dǎ + rǎo, not dǎr + ǎo; pinyin-pro readings, tones ignored), else the pinyin segmenter, else pinyin-pro on
+  the characters (tone numbers, a typo); 一 / 不 changes applied with `applyYiBuToneChanges`. Citation tone = the
+  written one; a syllable written unmarked takes the character's own reading with those letters (任务 rènwu → 务 wù 4,
+  said neutral; 了 le / 的 de are neutral themselves); 一 yī, 不 bù. Said = written + third-tone sandhi within each
+  stretch of characters (a comma ends one). Erhua (一点儿) → no tone lines.
+- `dialogueToneLines`: one line per distinct character, "打, third tone." — the character by the teacher voice at the
+  word rate (a one-character word reuses its own clip), "third tone." by the host (five shared clips); a polyphone the
+  voice would read differently alone is said inside the word ("银行的行"). Then per changed character: "In 任务, 务 is
+  neutral tone here." / "In 你好, 你 is said with a second tone, before another third tone." / "In 一杯, 一 is said
+  with a fourth tone, before a first tone." / "In 姐姐, the second 姐 is neutral tone here." / "In 暖和, the second
+  character is neutral tone here." (a polyphone by place).
+- Pacing: a character said in an earlier point of the lesson (same syllable) is not said again; at most 4 character
+  lines (`DIALOGUE_TONE_MAX_CHARS`) and 2 change lines per point; 0.2 s inside a line, 0.45 s after it
+  (`PAUSES.toneInner` / `toneLine`), the usual 0.9 s before the explanation. A 3-character word adds ~12 s; the prompt
+  now asks for 2–3-sentence explanations (~40 words) so a word section stays around a minute (~1:15 at most).
+  Claude's prompt says the app says the tones (so the point's pinyin must be as said, neutral syllables unmarked) and
+  never to describe tones itself. No per-character "you know it from 打开" line: Claude's explanation already relates
+  characters to the learner's known words (check_known_words).
+- Transcript: each tone line is one row ("打, dǎ, third tone.", the Chinese segment's `display`); a word row
+  ("打扰了 ×2" with its pinyin) no longer swallows the narration after it (`transcriptRows`: only a row that started
+  as narration takes more narration in — Lab `AudioLessonTimeline.kt` the same).
+- Lessons already made keep their audio: the script is compiled once, when the plan is accepted. A new lesson
+  gets the tones and the new speeds (there is no re-render-from-plan path; Retry only resumes a failed build).
 
 **Sleep (format B, slow immersion, comprehensible input).** Input: any Chinese text. Chinese throughout —
 no pinyin is ever spoken; the only English is one recap line per word and one translation per example sentence,
@@ -411,6 +468,13 @@ with adaptive thinking) ≈ $0.10–0.40. Time is bound by the TTS rate: Azure F
 with the audio backfill → roughly 5–15 minutes per lesson.
 
 ## Tests
+
+- `shared/audio-lesson/dialogue-tones.test.ts`: the dialogue tones — joined pinyin split by the characters' readings
+  (dǎrǎo), neutral syllables (任务 / 觉得 / 姐姐), sandhi within a stretch (你好, 少放点, a comma), 一 / 不 (written or not,
+  看一看), a polyphone (银行, 暖和), tone numbers → pinyin-pro, erhua → none; the spoken vs shown lines, English pieces
+  without Chinese or pinyin, the lesson-wide skip and the per-point cap; the compile order (word ×2 → tones →
+  explanation), the clip reuse and pauses, the sample's 一个, the slower rates; the transcript rows (the word row
+  stays the word). Worker `audio-lesson-job.test.ts`: the dialogue rates per provider and the Azure voices.
 
 - `shared/audio-lesson/story.test.ts`: the splitter (sentence ends and their runs, closing quotes, never inside quotes, unclosed
   quotes, long sentences at commas / hard, speaker labels Latin / Han / "他说：", a lone label line, no merging across turns,

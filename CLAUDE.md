@@ -99,7 +99,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── compute-state.ts    # Core FSRS logic, state computation from events
 │   │   ├── compute-state.test.ts # Tests for scheduler
 │   │   └── index.ts       # Re-exports
-│   ├── audio-lesson/      # Audio lessons (docs/AUDIO_LESSONS.md): plan types (DialoguePlan / SleepPlan / StoryPlan), compile.ts (plan → speech/pause script, RATES / PAUSES), story.ts (the story splitter, compileStoryLesson, the 60-min cap), validate.ts, timeline.ts (chapters / transcript in ms, player helpers), input.ts
+│   ├── audio-lesson/      # Audio lessons (docs/AUDIO_LESSONS.md): plan types (DialoguePlan / SleepPlan / StoryPlan), compile.ts (plan → speech/pause script, RATES / PAUSES), dialogue-tones.ts (a dialogue word's tone lines from its pinyin: "打, dǎ, third tone."), story.ts (the story splitter, compileStoryLesson, the 60-min cap), validate.ts, timeline.ts (chapters / transcript in ms, player helpers), input.ts
 │   ├── idioms/            # 成语 Idioms (beta, docs/IDIOMS.md): the entry shape (types.ts), starter list (~46), cache key + explorer link rule (normalize.ts), validator (validate.ts), "+ Add as card" fields (card.ts), sample entry — parity-tested by the Lab app
 │   ├── picture-hunt/      # Picture hunt (看图找词): types (normalised boxes / outlines), answer matching (match.ts), hit-testing (geometry.ts), feedback copy, validation — parity-tested by the Lab app
 │   ├── quest/             # Quests: the tile-map mini-game framework

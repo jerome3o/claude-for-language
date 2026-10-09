@@ -181,7 +181,8 @@ object AudioLessonTimeline {
                 rows[rows.size - 1] = prev.copy(last = i, repeat = (prev.repeat ?: 1) + 1)
                 return@forEachIndexed
             }
-            val open = prev != null && prevLine != null && isNarration(lines, i - 1) && isNarration(lines, i) &&
+            // Only a row that started as narration takes more narration in (a word row stays the word).
+            val open = prev != null && prevLine != null && isNarration(lines, prev.first) && isNarration(lines, i - 1) && isNarration(lines, i) &&
                 prevLine.chapter == l.chapter && !SENTENCE_END.containsMatchIn(jsTrim(prevLine.text))
             if (open) {
                 val glue = if (l.lang == "zh" || prevLine!!.lang == "zh") (if (LEADING_PUNCT.containsMatchIn(l.text)) "" else " ") else " "
