@@ -10,3 +10,4 @@ export * from './music';
 export * from './characters';
 export * from './phrases';
 export * from './story';
+export * from './chapter-pinyin';

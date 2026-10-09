@@ -198,6 +198,14 @@ describe('runAudioLessonJob', () => {
 
     const detail = q.lessonDetail(row);
     expect(detail.chapters.map((c) => c.title)).toEqual(['开始', '邮局 yóujú', '寄 jì', '结束', '原文']);
+    // Served with the pinyin split off (sleep titles already carry it) or added (automatic).
+    expect(detail.chapters.map((c) => [c.label, c.pinyin])).toEqual([
+      ['开始', 'kāi shǐ'],
+      ['邮局', 'yóujú'],
+      ['寄', 'jì'],
+      ['结束', 'jié shù'],
+      ['原文', 'yuán wén'],
+    ]);
     for (let i = 1; i < detail.chapters.length; i++) expect(detail.chapters[i].start_ms).toBeGreaterThan(detail.chapters[i - 1].start_ms);
     expect(detail.transcript.find((l) => l.text === '邮局在银行旁边。')?.english).toBe('The post office is next to the bank.');
     expect(detail.words.map((w) => w.hanzi)).toEqual(['邮局', '寄']);
@@ -220,6 +228,12 @@ describe('runAudioLessonJob', () => {
     expect(detail.usage).toMatchObject({ zh_provider: 'minimax', en_provider: 'azure' });
     expect(detail.speakers.map((s) => s.role)).toEqual(['speaker_a', 'speaker_b']);
     expect(detail.chapters[1].title).toBe('First listen');
+    expect(detail.chapters[1].pinyin).toBeNull();
+    // A taught point's chapter takes the point's own pinyin.
+    const point = detail.chapters.find((c) => c.title.includes(' — '));
+    const word = detail.words.find((w) => point?.title.startsWith(`${w.hanzi} — `));
+    expect(word).toBeTruthy();
+    expect(point?.pinyin).toBe(word!.pinyin);
   });
 
   it('a clip that keeps failing fails the lesson with the reason; Retry resumes without rewriting', async () => {

@@ -25,6 +25,7 @@ import {
 } from '../services/audioLessons';
 import { track } from '../services/analytics';
 import { TranscriptLine } from '../components/audioLessons/TranscriptLine';
+import { ChapterTitle } from '../components/audioLessons/ChapterTitle';
 import { useKnownHanzi } from '../components/reader/ReaderWords';
 import { CompanionCard, type CompanionView } from '../components/audioLessons/CompanionCard';
 import { audioLessonListened, lessonLockStatus } from '@shared/lesson';
@@ -456,7 +457,9 @@ export function AudioLessonPlayerPage() {
           )}
 
           <div className="al-now">
-            <div className="al-now-chapter">{chapters[chapterIdx]?.title}</div>
+            <div className="al-now-chapter">
+              <ChapterTitle chapter={chapters[chapterIdx]} words={words} showPinyin={showPinyin} />
+            </div>
             {download ? (
               <div className="al-download">
                 Saving to this phone… {download.fraction ? `${Math.round(download.fraction * 100)}%` : formatMb(download.bytes)}
@@ -576,7 +579,7 @@ export function AudioLessonPlayerPage() {
               {chapters.map((c, i) => (
                 <li key={i}>
                   <button className={i === chapterIdx ? 'current' : ''} onClick={() => seekTo(c.start_ms)}>
-                    <span>{c.title}</span>
+                    <ChapterTitle chapter={c} words={words} showPinyin={showPinyin} />
                     <span className="al-chapter-time">{formatClock(c.start_ms)}</span>
                   </button>
                 </li>

@@ -419,6 +419,27 @@ Podcasts) — downloads, chapters, the app's own sleep timer. `worker/src/routes
   (`ui/audiolessons/PodcastFeed.kt`). MCP `get_audio_lesson_feed`. Analytics `audio_lesson.podcast_feed`
   (action), `server.podcast_feed_fetched` (items).
 
+## Chapter titles with pinyin
+
+`shared/audio-lesson/chapter-pinyin.ts` (`splitChapterTitle` / `chapterTitleParts` / `chapterTitleWithPinyin`, unit-tested in
+`chapter-pinyin.test.ts`) gives every chapter title the pinyin of its Chinese part, **when the title is shown** — the stored
+titles are unchanged, so every lesson made before gets it too:
+
+- a taught word's chapter ("打扰了 — sorry to bother you") takes the lesson's own pinyin from `words` ("dǎrǎo le", as said);
+- anything else with Chinese ("开始", a story's "小明每天早上七点起床…" — its pinyin cut short too, a heading) gets the
+  automatic pinyin: pinyin-pro, then `applyYiBuToneChanges`;
+- a title that already carries its pinyin (sleep: "自驾游 zìjiàyóu") is split, never doubled; an English title
+  ("Introduction", "First listen") is left alone.
+
+Where: the **podcast feed** — `chapters.json` titles and the episode notes' `0:00 …` chapter lines read
+"打扰了 dǎrǎo le — sorry to bother you" (`chaptersJson` / `episodeDescription`, `services/podcast-feed.ts`; the MP3 carries no
+ID3 tags or chapters at all, the feed and the JSON are built on request, so old episodes change as soon as a podcast app
+re-reads them — `chapters.json` is `max-age=3600`); `GET /api/audio-lessons/:id` adds `label` (the title without its pinyin)
+and `pinyin` to each chapter (`lessonDetail`); the players show the pinyin on a small muted line under the title in the
+chapter list and the now-playing header, hidden with 拼 (web `components/audioLessons/ChapterTitle.tsx` runs the same
+function on the device, so a lesson saved offline before this has it too; Lab `AudioLessonChapter.label` / `pinyin` from the
+API, `AudioLessonChapterPinyinTest`). The episode title and the lock-screen chapter line are unchanged.
+
 ## Offline (web)
 
 `frontend/src/services/audioLessons.ts`: the list + each ready lesson's details in localStorage, the
