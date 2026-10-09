@@ -346,8 +346,13 @@ Full screen and dark: chapter name, scrubber, ⏮ ↺10 ▶ 10↻ ⏭, speed (0.
 remembered), 🎵 music (see "Music"), 🌙 sleep timer (10–60 min or end of chapter; the last 30 s fade out), ☰ chapters, 📝
 transcript (on for dialogue and story, off for sleep; the current line highlighted and followed, tap a line to
 jump; an English sentence with Chinese inside shows as one row, `transcriptRows`; 拼 / EN chips hide the pinyin / English
-lines, remembered per device — `audio-lesson-transcript-pinyin-v1` / `-english-v1`, Lab `AudioLessonPrefs`; word chips in the
-transcript are not done — there is no client-side segmenter), the word list,
+lines, remembered per device — `audio-lesson-transcript-pinyin-v1` / `-english-v1`, Lab `AudioLessonPrefs`), **word chips** in
+the transcript (every format: the Chinese of each row — and the Chinese inside an English narration row — is word chips made on
+the device by the deterministic segmenter, CLAUDE.md "Word chips without an LLM": web `components/audioLessons/TranscriptLine.tsx`
+over the chat's `ChatWordsText`, Lab `TranscriptRowView` over `ChineseWords` + `DeviceWords`; a word opens the language
+explorer's Word view (source `audio_lesson`), a word already in a deck has the quieter underline; a tap anywhere else on the row
+still seeks, a word tap never does; layout unchanged — no per-word pinyin, the row's own pinyin line follows 拼; until the word
+lists load the row is its plain text), the word list,
 Media Session (lock screen / headphones: play, pause, ±10 s, chapter back / next, seek). The page must
 stay open: the web player stops when you navigate away.
 
@@ -420,7 +425,9 @@ volume, off remembered, off for dialogue → sleep timer → offline, music incl
 starts / stops with playback, the fade, the toggle), `AudioLessonParityTest` (rows + music rules), screenshots
 `audio-lessons-17-player-sleep-music` / `18-player-dialogue-music-off`, `AudioLessonStoryTest` (the create screen offers Story with
 its paste box and estimate and no length slider; the player's header, ×3 rows, 拼 / EN), screenshots `audio-lessons-19…22` (story
-form, cut notice, player, no pinyin).
+form, cut notice, player, no pinyin); transcript word chips: `frontend/src/components/audioLessons/TranscriptLine.test.tsx` (chips render with
+the row's pinyin / English / ×N unchanged, a word tap opens the explorer and does not seek, a tap elsewhere seeks, an English row
+chips only its Chinese), Lab `AudioLessonTranscriptWordsTest` + screenshots `audio-transcript-words-*`.
 
 ## Lessons from the first attempt (June 2026, removed in #321)
 
@@ -437,4 +444,4 @@ chapters, no offline player and no notion of what the learner already knew.
 - `analyseText` is a greedy match, not a word segmenter; Claude makes the final call.
 - No URL input yet (paste the text).
 - Story: a lesson is at most ~60 minutes (~1,500 characters); a longer text needs several lessons (the first part is made, the
-  notice says so). The transcript has no word chips (no deterministic segmenter on the device).
+  notice says so).

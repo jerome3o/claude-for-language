@@ -515,6 +515,26 @@
   color: #a5b4fc;
 }
 
+/* The transcript's word chips (ChatWordsText): the row's own line height, a faint periwinkle
+   underline on the dark player, a soft tint when pressed; a word already in a deck keeps the
+   green underline. */
+.al-line .chat-words {
+  line-height: inherit;
+}
+
+.al-line .chat-word {
+  text-decoration-color: rgba(165, 180, 252, 0.4);
+}
+
+.al-line .chat-word:hover,
+.al-line .chat-word:active {
+  background: rgba(165, 180, 252, 0.22);
+}
+
+.al-line .chat-word.known {
+  text-decoration-color: rgba(134, 239, 172, 0.8);
+}
+
 .al-line-en {
   font-size: 0.8rem;
   color: #94a3b8;

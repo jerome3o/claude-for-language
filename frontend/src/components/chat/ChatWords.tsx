@@ -39,6 +39,7 @@ export function ChatWordsText({
   known,
   onTapWord,
   suppressTap,
+  lang = 'zh',
 }: {
   text: string;
   words: ChatWord[] | null;
@@ -47,6 +48,8 @@ export function ChatWordsText({
   onTapWord: (tapped: TappedWord) => void;
   /** True while picking messages, or right after a long-press opened the ⋯ sheet (the tap is not a word tap). */
   suppressTap?: () => boolean;
+  /** The words' language tag (an English line with Chinese inside keeps 'en' for its Latin glyphs). */
+  lang?: string;
 }) {
   const local = useSegmentedWords(text, !given && looksLikeChinese(text));
   const words = given ?? local;
@@ -64,9 +67,11 @@ export function ChatWordsText({
 
   const offsets = wordOffsets(words);
   return (
-    <span className={`chat-words${showPinyin ? ' with-pinyin' : ''}`} lang="zh" data-testid="chat-words">
+    <span className={`chat-words${showPinyin ? ' with-pinyin' : ''}`} lang={lang} data-testid="chat-words">
       {words.map((w, i) => {
-        if (isTappableWord(w.text)) {
+        // A chip only for Chinese (as the Lab app's ChineseWords): an English word inside a Chinese
+        // line stays plain — the explorer has nothing to show for it.
+        if (isTappableWord(w.text) && looksLikeChinese(w.text)) {
           const isKnown = known.has(w.text.trim());
           const py = showPinyin ? wordPinyin(w) : '';
           return (

@@ -155,9 +155,13 @@ test('a story lesson: paste a conversation → each line three times with its En
   expect(await page.evaluate(() => localStorage.getItem('audio-lesson-transcript-pinyin-v1'))).toBe('0');
   await page.getByRole('button', { name: 'Pinyin in the transcript' }).click();
   await page.getByRole('button', { name: 'English in the transcript' }).click();
-  // Tap a line → it plays from there.
-  await transcript.locator('li', { hasText: '他们坐在窗边' }).click();
+  // Tap a line (not one of its words) → it plays from there.
+  await transcript.locator('li', { hasText: '他们坐在窗边' }).locator('.al-line-pinyin').click();
   await expect(transcript.locator('li.current')).toContainText('他们坐在窗边');
+  // The Chinese is word chips (the device segmenter): a word opens the language explorer.
+  await first.locator('.chat-word', { hasText: '今天' }).click({ timeout: 15000 });
+  await expect(page.getByRole('dialog').getByText('今天').first()).toBeVisible();
+  await page.keyboard.press('Escape');
   // The heading is the chapter; music on by default, like a sleep lesson.
   await page.getByRole('button', { name: '☰ Chapters' }).click();
   await expect(page.locator('.al-chapters').getByText('在咖啡馆', { exact: true })).toBeVisible();
