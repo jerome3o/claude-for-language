@@ -24,8 +24,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 class LiveTranscriptionTest {
     private val t0 = SonioxProtocol.Transcript()
 
-    @Test fun configIsRawPcmWithHintsAndNoContext() {
-        val c = Json.parseToJsonElement(SonioxProtocol.config("temp:1", "stt-rt-v5", listOf("zh", "en"))).jsonObject
+    @Test fun configIsRawPcmWithHintsAndNoContextOrKey() {
+        val c = Json.parseToJsonElement(SonioxProtocol.config("stt-rt-v5", listOf("zh", "en"))).jsonObject
+        assertFalse(c.containsKey("api_key")) // the key goes with the connection
+        assertEquals("Bearer snx_temp_1", SonioxProtocol.authorizationHeader("snx_temp_1"))
         assertEquals("pcm_s16le", c["audio_format"]!!.jsonPrimitive.content)
         assertEquals("16000", c["sample_rate"]!!.jsonPrimitive.content)
         assertEquals("1", c["num_channels"]!!.jsonPrimitive.content)
@@ -195,6 +197,13 @@ class LiveTranscriptionTest {
             // the slow upload way instead ("live stream failed on lab: Timed out waiting for 4000 ms").
             override fun onMessage(webSocket: WebSocket, text: String) {
                 got.add(text)
+                // Like Soniox since Oct 2026: the key comes WITH the connection; a config frame
+                // carrying `api_key` is the deprecated way, refused here.
+                if (got.size == 1 && text.contains("\"api_key\"")) {
+                    webSocket.send("""{"tokens":[],"error_code":401,"error_message":"key not sent with the connection"}""")
+                    webSocket.close(1000, null)
+                    return
+                }
                 if (text.isEmpty() && answer) {
                     webSocket.send("""{"tokens":[{"text":"是","is_final":true},{"text":"<fin>","is_final":true}]}""")
                     webSocket.send("""{"tokens":[],"finished":true}""")
@@ -209,7 +218,7 @@ class LiveTranscriptionTest {
     }
 
     private fun session(server: MockWebServer) = LiveTranscriptionSessionDto(
-        "soniox", "temp:1", "2099-01-01T00:00:00Z", server.url("/").toString().replace("http", "ws"), "stt-rt-v5", listOf("zh", "en"),
+        "soniox", "snx_temp_1", "2099-01-01T00:00:00Z", server.url("/").toString().replace("http", "ws"), "stt-rt-v5", listOf("zh", "en"),
     )
 
     @Test fun streamSendsConfigThenAudioThenEndAndReturnsTheText() = runBlocking {
@@ -219,7 +228,10 @@ class LiveTranscriptionTest {
         stream.send(ByteArray(3200), 1600)
         assertEquals("是", stream.finish())
         val config = Json.parseToJsonElement(got[0] as String).jsonObject
-        assertEquals("temp:1", config["api_key"]!!.jsonPrimitive.content)
+        assertFalse(config.containsKey("api_key"))
+        assertEquals("pcm_s16le", config["audio_format"]!!.jsonPrimitive.content)
+        // The key rode on the WebSocket handshake as a Bearer header.
+        assertEquals("Bearer snx_temp_1", server.takeRequest().getHeader("Authorization"))
         // Audio as binary frames, then the end of audio as an EMPTY TEXT frame.
         assertEquals(listOf<Any>(3200, 1600, ""), got.drop(1))
         server.shutdown()

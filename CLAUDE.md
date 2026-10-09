@@ -1055,7 +1055,13 @@ to retry"** (web `services/takeTranscription.ts` `transcribeTakeOutcome` + `useT
 kept either way. A take Soniox refuses for its key (401 / 403, `liveFailureInvalidatesKey`) drops the cached key.
 **End of audio is an EMPTY TEXT frame** (`SONIOX_END_OF_AUDIO` / Lab `SonioxProtocol.END_OF_AUDIO`): an empty
 *binary* frame is just an empty audio chunk to Soniox — the Lab app sent that until Oct 2026, so every take timed out
-after 4 s and went the upload way. Every take emits `study.take_transcribed { via, live_error, ms }` (analytics), so a
+after 4 s and went the upload way. **The key goes WITH THE CONNECTION, never in the config frame** (Soniox, Oct 2026:
+the key in the first message is deprecated and refused with 401 from 15 Jan 2027; soniox.com/docs/guides/websocket-authentication):
+the web opens `new WebSocket(url, ['soniox-api-key', key])` (`sonioxBrowserAuth`, `SONIOX_API_KEY_PROTOCOL`; browsers
+can't set headers, Soniox echoes the protocol), the Lab sends `Authorization: Bearer <key>` on the OkHttp request
+(`SonioxProtocol.authorizationHeader`); never both (400). `buildSonioxConfig` carries no `api_key` — only a legacy
+`temp:` key (a colon is not a valid subprotocol) still rides in the web's frame until the deadline; current temporary keys
+are `snx_temp_…`. The worker has no Soniox WebSocket of its own (calls and the upload use the REST async API). Every take emits `study.take_transcribed { via, live_error, ms }` (analytics), so a
 broken live path shows in `event_counts` without reading logs.
 **Say the answer** on the typing cards (meaning → hanzi, audio → hanzi; docs/STUDY_SESSION.md "Say the answer"): a 🎤
 beside the answer box runs the SAME take (recorder + live stream, upload fallback, "tap to retry") with the transcript shown

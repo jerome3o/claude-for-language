@@ -3,7 +3,7 @@ import { getLiveSession, LiveTranscriber, resetLiveSessionCache } from './liveTr
 
 const session = {
   provider: 'soniox' as const,
-  api_key: 'temp:1',
+  api_key: 'snx_temp_1',
   expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   websocket_url: 'wss://stt-rt.soniox.com/transcribe-websocket',
   model: 'stt-rt-v5',
@@ -11,6 +11,7 @@ const session = {
 };
 
 class FakeSocket {
+  constructor(readonly protocols?: string[]) {}
   readyState = 0;
   sent: unknown[] = [];
   closed = false;
@@ -29,8 +30,10 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 describe('LiveTranscriber', () => {
   it('queues audio until open, sends config first, ends with an empty frame, resolves on finished', async () => {
     let sock!: FakeSocket;
-    const t = new LiveTranscriber(Promise.resolve(session), { createSocket: () => (sock = new FakeSocket()) });
+    const t = new LiveTranscriber(Promise.resolve(session), { createSocket: (_url, protocols) => (sock = new FakeSocket(protocols)) });
     await tick();
+    // The key goes with the connection (Soniox's browser auth), never in the first frame.
+    expect(sock.protocols).toEqual(['soniox-api-key', 'snx_temp_1']);
     const a = new Blob(['a']);
     const b = new Blob(['b']);
     t.push(a);
@@ -38,12 +41,27 @@ describe('LiveTranscriber', () => {
     t.push(b);
     sock.reply({ tokens: [{ text: '我', is_final: true }, { text: '打', is_final: false }] });
     const done = t.finish();
-    expect(JSON.parse(sock.sent[0] as string)).toMatchObject({ api_key: 'temp:1', model: 'stt-rt-v5', audio_format: 'auto', language_hints: ['zh', 'en'] });
+    const config = JSON.parse(sock.sent[0] as string);
+    expect(config).toMatchObject({ model: 'stt-rt-v5', audio_format: 'auto', language_hints: ['zh', 'en'] });
+    expect(config).not.toHaveProperty('api_key');
     expect(sock.sent.slice(1)).toEqual([a, b, '']);
     sock.reply({ tokens: [{ text: '打算', is_final: true }, { text: '<fin>', is_final: true }] });
     sock.reply({ tokens: [], finished: true });
     await expect(done).resolves.toBe('我打算');
     expect(sock.closed).toBe(true);
+  });
+
+  it('a legacy temp: key (not a valid subprotocol) opens without protocols and stays in the config frame', async () => {
+    let sock!: FakeSocket;
+    let protocolsArg: string[] | undefined = ['unset'];
+    const t = new LiveTranscriber(Promise.resolve({ ...session, api_key: 'temp:old' }), {
+      createSocket: (_url, protocols) => { protocolsArg = protocols; return (sock = new FakeSocket(protocols)); },
+    });
+    await tick();
+    expect(protocolsArg).toBeUndefined();
+    sock.open();
+    expect(JSON.parse(sock.sent[0] as string)).toMatchObject({ api_key: 'temp:old' });
+    t.abort();
   });
 
   it('onUpdate reports the confirmed text and the provisional tail as they arrive (the spoken answer box)', async () => {

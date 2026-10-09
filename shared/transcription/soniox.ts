@@ -8,8 +8,14 @@
  * WHILE the learner speaks means the transcript is final a few hundred ms after Stop.
  *
  * Protocol (soniox.com/docs/stt/api-reference/websocket-api):
- *   1. open `wss://stt-rt.soniox.com/transcribe-websocket`
- *   2. send the config JSON (`buildSonioxConfig`) as the first text frame
+ *   1. open `wss://stt-rt.soniox.com/transcribe-websocket` WITH THE KEY ON THE CONNECTION
+ *      (soniox.com/docs/guides/websocket-authentication): a browser passes the subprotocols
+ *      `['soniox-api-key', <key>]` (`sonioxBrowserAuth`; browsers can't set headers on a
+ *      WebSocket, the server echoes `soniox-api-key`), the Lab app / any server sends
+ *      `Authorization: Bearer <key>` (`sonioxAuthorizationHeader`). ONE of the two, never both
+ *      (Soniox answers 400). The key in the first message is deprecated and refused (401)
+ *      from 15 January 2027.
+ *   2. send the config JSON (`buildSonioxConfig`, no `api_key`) as the first text frame
  *   3. send audio as binary frames (webm/Opus chunks from MediaRecorder → `audio_format:
  *      'auto'`; raw 16 kHz mono PCM from Android's AudioRecord → `pcm_s16le`)
  *   4. send an EMPTY TEXT frame (`SONIOX_END_OF_AUDIO`; an empty BINARY frame is just an
@@ -43,14 +49,49 @@ export type LiveTranscriptionSession =
 
 export type SonioxAudio = { kind: 'auto' } | { kind: 'pcm_s16le'; sampleRate: number; channels: number };
 
+/** The first entry of a browser's subprotocol list; the key is the second. */
+export const SONIOX_API_KEY_PROTOCOL = 'soniox-api-key';
+
 /**
- * The first frame. Deliberately NO `context` with the expected word: biasing the
- * recogniser towards the answer would hide exactly the mistakes a pronunciation check
- * is for.
+ * A WebSocket subprotocol must be an HTTP token (RFC 6455 §4.1 → RFC 7230 `tchar`), else the
+ * browser's constructor throws. Temporary keys in the current `snx_temp_…` form are; the older
+ * `temp:…` form (a colon) is not — Soniox: "send it in the Authorization header", which a
+ * browser can't.
  */
-export function buildSonioxConfig(apiKey: string, audio: SonioxAudio, model: string = SONIOX_RT_MODEL, languageHints: readonly string[] = SONIOX_LANGUAGE_HINTS): Record<string, unknown> {
+export function isWebSocketProtocolToken(value: string): boolean {
+  return /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value);
+}
+
+/**
+ * How the browser authenticates the socket: normally the subprotocols
+ * `['soniox-api-key', key]` and NO key in the config frame. A legacy `temp:` key can't be a
+ * subprotocol, so it rides in the config frame as before (accepted until 15 Jan 2027).
+ */
+export function sonioxBrowserAuth(apiKey: string): { protocols: string[] | null; configApiKey: string | null } {
+  return isWebSocketProtocolToken(apiKey)
+    ? { protocols: [SONIOX_API_KEY_PROTOCOL, apiKey], configApiKey: null }
+    : { protocols: null, configApiKey: apiKey };
+}
+
+/** The handshake header for a non-browser client (the Lab app's OkHttp, a server). */
+export function sonioxAuthorizationHeader(apiKey: string): string {
+  return `Bearer ${apiKey}`;
+}
+
+/**
+ * The first frame. No `api_key`: the key goes with the connection (see above) — pass
+ * `legacyApiKey` only for a key that can't (`sonioxBrowserAuth().configApiKey`).
+ * Deliberately NO `context` with the expected word: biasing the recogniser towards the
+ * answer would hide exactly the mistakes a pronunciation check is for.
+ */
+export function buildSonioxConfig(
+  audio: SonioxAudio,
+  model: string = SONIOX_RT_MODEL,
+  languageHints: readonly string[] = SONIOX_LANGUAGE_HINTS,
+  legacyApiKey: string | null = null,
+): Record<string, unknown> {
   const config: Record<string, unknown> = {
-    api_key: apiKey,
+    ...(legacyApiKey ? { api_key: legacyApiKey } : {}),
     model,
     language_hints: [...languageHints],
     audio_format: audio.kind,

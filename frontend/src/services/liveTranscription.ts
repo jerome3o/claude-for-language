@@ -18,6 +18,7 @@ import {
   EMPTY_TRANSCRIPT,
   liveKeyUsable,
   SONIOX_END_OF_AUDIO,
+  sonioxBrowserAuth,
   transcriptText,
   type LiveTranscriptionSession,
   type SonioxTranscript,
@@ -75,7 +76,8 @@ type SocketLike = Pick<WebSocket, 'send' | 'close' | 'readyState'> & {
 export interface LiveTranscriberOptions {
   /** How long finish() waits for the server's final answer before giving up. */
   finishTimeoutMs?: number;
-  createSocket?: (url: string) => SocketLike;
+  /** `protocols` carries the key (`['soniox-api-key', key]`, Soniox's browser auth). */
+  createSocket?: (url: string, protocols?: string[]) => SocketLike;
   /**
    * Every server response folded in: the confirmed text and the provisional tail, as the
    * learner speaks — a typing card's 🎤 shows them in the answer box (final black, tail grey).
@@ -102,15 +104,20 @@ export class LiveTranscriber {
 
   private connect(s: SonioxSession) {
     if (this.failed) return;
+    // The key goes WITH the connection (Soniox, from 15 Jan 2027 the only way): browsers can't
+    // set headers on a WebSocket, so it is the second subprotocol after 'soniox-api-key'. Only a
+    // legacy `temp:` key (not a valid subprotocol) still rides in the config frame.
+    const auth = sonioxBrowserAuth(s.api_key);
     let socket: SocketLike;
     try {
-      socket = (this.opts.createSocket ?? ((url) => new WebSocket(url) as SocketLike))(s.websocket_url);
+      const create = this.opts.createSocket ?? ((url: string, protocols?: string[]) => new WebSocket(url, protocols) as SocketLike);
+      socket = auth.protocols ? create(s.websocket_url, auth.protocols) : create(s.websocket_url);
     } catch {
       return this.fail('socket');
     }
     this.socket = socket;
     socket.onopen = () => {
-      socket.send(JSON.stringify(buildSonioxConfig(s.api_key, { kind: 'auto' }, s.model, s.language_hints)));
+      socket.send(JSON.stringify(buildSonioxConfig({ kind: 'auto' }, s.model, s.language_hints, auth.configApiKey)));
       for (const chunk of this.queue) socket.send(chunk);
       this.queue = [];
       if (this.ended) socket.send(SONIOX_END_OF_AUDIO);

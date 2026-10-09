@@ -21,7 +21,7 @@ const FAKE_WS = 'wss://fake-soniox.test/transcribe-websocket';
 async function fakeSoniox(page: import('@playwright/test').Page, mode: 'ok' | 'refuse' = 'ok') {
   await page.addInitScript(([fakeUrl, fakeMode]) => {
     const Real = window.WebSocket;
-    const stats = { config: null as null | Record<string, unknown>, chunks: 0, ended: false };
+    const stats = { config: null as null | Record<string, unknown>, chunks: 0, ended: false, protocols: null as null | string[] };
     (window as unknown as { __soniox: typeof stats }).__soniox = stats;
     class FakeSoniox extends EventTarget {
       readyState = 0;
@@ -29,13 +29,25 @@ async function fakeSoniox(page: import('@playwright/test').Page, mode: 'ok' | 'r
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: Event) => void) | null = null;
       onclose: ((e: CloseEvent) => void) | null = null;
-      constructor(public url: string) {
+      constructor(public url: string, protocols?: string | string[]) {
         super();
+        // Like Soniox since Oct 2026: the key comes WITH the connection (subprotocols
+        // 'soniox-api-key' + key), never in the config frame.
+        stats.protocols = protocols === undefined ? null : ([] as string[]).concat(protocols);
         setTimeout(() => { this.readyState = 1; this.onopen?.(new Event('open')); }, 20);
       }
       send(data: unknown) {
         if (!stats.config) {
           stats.config = JSON.parse(String(data));
+          const authed = stats.protocols?.[0] === 'soniox-api-key' && !!stats.protocols[1];
+          if (!authed || 'api_key' in stats.config!) {
+            setTimeout(() => {
+              this.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ tokens: [], error_code: 401, error_message: 'key not sent with the connection' }) }));
+              this.readyState = 3;
+              this.onclose?.(new CloseEvent('close'));
+            }, 20);
+            return;
+          }
           if (fakeMode === 'refuse') {
             setTimeout(() => {
               this.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ tokens: [], error_code: 402, error_type: 'organization_balance_exhausted', error_message: 'Balance exhausted' }) }));
@@ -57,7 +69,7 @@ async function fakeSoniox(page: import('@playwright/test').Page, mode: 'ok' | 'r
       close() { this.readyState = 3; }
     }
     window.WebSocket = function (url: string | URL, protocols?: string | string[]) {
-      return String(url) === fakeUrl ? new FakeSoniox(String(url)) : new Real(url, protocols);
+      return String(url) === fakeUrl ? new FakeSoniox(String(url), protocols) : new Real(url, protocols);
     } as unknown as typeof WebSocket;
   }, [FAKE_WS, mode] as const);
 }
@@ -66,7 +78,7 @@ async function routeLiveKey(page: import('@playwright/test').Page) {
   await page.route('**/api/transcribe/live', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      provider: 'soniox', api_key: 'temp:e2e', expires_at: new Date(Date.now() + 1800e3).toISOString(),
+      provider: 'soniox', api_key: 'snx_temp_e2e', expires_at: new Date(Date.now() + 1800e3).toISOString(),
       websocket_url: FAKE_WS, model: 'stt-rt-v5', language_hints: ['zh', 'en'],
     }),
   }));
@@ -95,7 +107,7 @@ test.describe('Live pronunciation transcription', () => {
     await page.route('**/api/transcribe/live', (route) => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        provider: 'soniox', api_key: 'temp:e2e', expires_at: new Date(Date.now() + 1800e3).toISOString(),
+        provider: 'soniox', api_key: 'snx_temp_e2e', expires_at: new Date(Date.now() + 1800e3).toISOString(),
         websocket_url: FAKE_WS, model: 'stt-rt-v5', language_hints: ['zh', 'en'],
       }),
     }));
@@ -107,7 +119,7 @@ test.describe('Live pronunciation transcription', () => {
 
     await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible({ timeout: 5000 });
     const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; chunks: number; ended: boolean } }).__soniox);
-    expect(stats.config).toMatchObject({ api_key: 'temp:e2e', model: 'stt-rt-v5', audio_format: 'auto' });
+    expect(stats.config).toMatchObject({ api_key: 'snx_temp_e2e', model: 'stt-rt-v5', audio_format: 'auto' });
     expect(stats.chunks).toBeGreaterThan(1); // streamed while recording, not one blob at the end
     expect(stats.ended).toBe(true);
     expect(uploads).toBe(0);

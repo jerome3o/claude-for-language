@@ -50,7 +50,7 @@ describe('transcribeTakeOutcome', () => {
   it('with the real LiveTranscriber: Soniox refuses the take (402), the upload fails → failed with the Soniox reason', async () => {
     type Sock = { readyState: number; onopen: ((e: Event) => unknown) | null; onmessage: ((e: MessageEvent) => unknown) | null; onerror: ((e: Event) => unknown) | null; onclose: ((e: CloseEvent) => unknown) | null; send: (d: unknown) => void; close: () => void };
     let sock!: Sock;
-    const session = { provider: 'soniox' as const, api_key: 'temp:1', expires_at: new Date(Date.now() + 60 * 60_000).toISOString(), websocket_url: 'wss://x', model: 'stt-rt-v5', language_hints: ['zh', 'en'] };
+    const session = { provider: 'soniox' as const, api_key: 'snx_temp_1', expires_at: new Date(Date.now() + 60 * 60_000).toISOString(), websocket_url: 'wss://x', model: 'stt-rt-v5', language_hints: ['zh', 'en'] };
     const t = new LiveTranscriber(Promise.resolve(session), {
       createSocket: () => (sock = { readyState: 0, onopen: null, onmessage: null, onerror: null, onclose: null, send: () => {}, close: () => {} }),
     });

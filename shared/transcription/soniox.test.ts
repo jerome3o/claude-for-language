@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySonioxMessage, buildSonioxConfig, EMPTY_TRANSCRIPT, liveErrorKind, liveFailureInvalidatesKey, liveKeyUsable, SONIOX_END_OF_AUDIO, transcriptText } from './soniox';
+import { applySonioxMessage, buildSonioxConfig, EMPTY_TRANSCRIPT, isWebSocketProtocolToken, liveErrorKind, liveFailureInvalidatesKey, liveKeyUsable, SONIOX_API_KEY_PROTOCOL, SONIOX_END_OF_AUDIO, sonioxAuthorizationHeader, sonioxBrowserAuth, transcriptText } from './soniox';
 
 describe('SONIOX_END_OF_AUDIO', () => {
   // Soniox ends the stream only on an EMPTY TEXT frame; an empty binary frame is an empty audio
@@ -28,23 +28,44 @@ describe('liveErrorKind', () => {
 });
 
 describe('buildSonioxConfig', () => {
-  it('streams webm with auto-detection and zh + en hints', () => {
-    expect(buildSonioxConfig('tmp-key', { kind: 'auto' })).toEqual({
-      api_key: 'tmp-key',
+  it('streams webm with auto-detection and zh + en hints — and no key (it goes with the connection)', () => {
+    expect(buildSonioxConfig({ kind: 'auto' })).toEqual({
       model: 'stt-rt-v5',
       language_hints: ['zh', 'en'],
       audio_format: 'auto',
     });
   });
 
+  it('a legacy key that cannot be a subprotocol still rides in the frame', () => {
+    expect(buildSonioxConfig({ kind: 'auto' }, 'stt-rt-v5', ['zh'], 'temp:abc')).toMatchObject({ api_key: 'temp:abc' });
+  });
+
   it('declares rate and channels for raw PCM (the Lab app)', () => {
-    expect(buildSonioxConfig('k', { kind: 'pcm_s16le', sampleRate: 16000, channels: 1 })).toMatchObject({
+    expect(buildSonioxConfig({ kind: 'pcm_s16le', sampleRate: 16000, channels: 1 })).toMatchObject({
       audio_format: 'pcm_s16le', sample_rate: 16000, num_channels: 1,
     });
   });
 
   it('never passes the expected word as context', () => {
-    expect(buildSonioxConfig('k', { kind: 'auto' })).not.toHaveProperty('context');
+    expect(buildSonioxConfig({ kind: 'auto' })).not.toHaveProperty('context');
+  });
+});
+
+describe('WebSocket authentication (key with the connection)', () => {
+  it('browser: subprotocols soniox-api-key + the key, nothing in the config frame', () => {
+    expect(SONIOX_API_KEY_PROTOCOL).toBe('soniox-api-key');
+    expect(sonioxBrowserAuth('snx_temp_AbC-1.2')).toEqual({ protocols: ['soniox-api-key', 'snx_temp_AbC-1.2'], configApiKey: null });
+  });
+
+  it('browser: an old temp: key is not a valid subprotocol, so it stays in the config frame', () => {
+    expect(isWebSocketProtocolToken('temp:abc')).toBe(false);
+    expect(isWebSocketProtocolToken('')).toBe(false);
+    expect(isWebSocketProtocolToken('a b')).toBe(false);
+    expect(sonioxBrowserAuth('temp:abc')).toEqual({ protocols: null, configApiKey: 'temp:abc' });
+  });
+
+  it('server / native: a Bearer header', () => {
+    expect(sonioxAuthorizationHeader('snx_temp_x')).toBe('Bearer snx_temp_x');
   });
 });
 
