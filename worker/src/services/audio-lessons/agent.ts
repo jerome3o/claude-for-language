@@ -64,7 +64,7 @@ The learner describes a situation to practise (and may paste a dialogue). The ap
 1. Your intro_en (English, 2–5 sentences): set the scene and say what to listen for.
 2. The dialogue three times: twice at natural speed, once a little slower, two different Chinese voices.
 3. Line by line: each Chinese line, then its English translation.
-4. For each point, in its own chapter: the word said slowly twice, your explanation_en, the dialogue line that uses it, your example (Chinese, English, Chinese again), the word once more.
+4. For each point, in its own chapter: the word said slowly twice, its tones (the app's own lines, built from your pinyin: "打, third tone." for each character, then "In 打扰了, 打 is said with a second tone, before another third tone." / "In 任务, 务 is neutral tone here." where the word says one differently), your explanation_en, the dialogue line that uses it, your example (Chinese, English, Chinese again), the word once more.
 5. The whole dialogue once more, then your outro_en.
 
 The dialogue
@@ -74,10 +74,11 @@ The dialogue
 The points (the teaching part)
 - 3–7 points, most important first. Prioritise words and structures the learner does NOT know yet (status new / in_deck), then ones they are still learning. A known word only when it is used in a new way here.
 - For each point: hanzi exactly as it appears in its dialogue line (kind "word"), or the structure as a short chunk ("structure", e.g. 粗的还是细的, 少放点) — still exactly a stretch of that line.
-- explanation_en: 2–4 short spoken English sentences. Relate the new word to words the learner already KNOWS (use check_known_words: "You know 银行, the bank — 银 is the 银 there, silver"). Break a word into its characters when that helps. Mention a common mistake or contrast when there is one. Write Chinese words IN CHARACTERS inside the English (they are spoken by a Chinese voice); NEVER write pinyin or tone descriptions like "third tone" spelled in pinyin in the narration — an English voice would mangle it.
+- pinyin: as the point is really said — neutral syllables unmarked (dǎrǎo le, rènwu), 一 / 不 with their changes; the app reads each character's tone from it, so it must be right. Never describe tones yourself (the app does).
+- explanation_en: 2–3 short spoken English sentences (about 40 words; the tones already take a few seconds). Relate the new word to words the learner already KNOWS (use check_known_words: "You know 银行, the bank — 银 is the 银 there, silver"). Break a word into its characters when that helps. Mention a common mistake or contrast when there is one. Write Chinese words IN CHARACTERS inside the English (they are spoken by a Chinese voice); NEVER write pinyin or tone descriptions like "third tone" spelled in pinyin in the narration — an English voice would mangle it.
 - example: one more short, simple sentence using the point (not from the dialogue), when it helps.
 
-Length: aim for the target minutes in the briefing. A typical 12-minute lesson = 8–10 dialogue lines and 4–5 points.`;
+Length: aim for the target minutes in the briefing. A typical 12-minute lesson = 8–10 dialogue lines and 4–5 points (each point's chapter runs about a minute).`;
 
 const SLEEP_PROMPT = `${COMMON}
 

@@ -163,7 +163,9 @@ export function transcriptRows(lines: AudioLessonTranscriptLine[]): TranscriptRo
       prev.repeat = (prev.repeat ?? 1) + 1;
       return;
     }
-    const open = prev && prevLine && isNarration(i - 1) && isNarration(i) && prevLine.chapter === l.chapter && !/[.!?:]["”’)]?$/.test(prevLine.text.trim());
+    // Only a row that started as narration takes more narration in: a word row ("粗" with its
+    // pinyin, ×2) stays the word even when the teacher's repeat of it has no pinyin.
+    const open = prev && prevLine && isNarration(prev.first) && isNarration(i - 1) && isNarration(i) && prevLine.chapter === l.chapter && !/[.!?:]["”’)]?$/.test(prevLine.text.trim());
     if (open) {
       const glue = l.lang === 'zh' || prevLine.lang === 'zh' ? (/^[,.;:!?]/.test(l.text) ? '' : ' ') : ' ';
       prev.text = `${prev.text}${glue}${l.text}`;
