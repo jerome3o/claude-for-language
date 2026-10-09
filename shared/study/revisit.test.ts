@@ -257,6 +257,33 @@ describe("today's lessons: one rule for the session, Home and today's list", () 
     expect(pickTodaysLessons({ ...base, lessons, events: [] }).map(l => l.id)).toEqual(['r', 'a']);
     expect(pickTodaysLessons({ ...base, lessons, events: [], revisitedToday: MAX_LESSON_REVISITS_PER_DAY }).map(l => l.id)).toEqual(['a']);
   });
+
+  it('a LOCKED lesson is never offered and never takes the daily place', () => {
+    // The companion of a podcast is the oldest new lesson, but it waits until the podcast is heard.
+    const lessons = [lesson('companion', '2026-09-30'), lesson('a', '2026-10-01'), lesson('b', '2026-10-02')];
+    expect(pickTodaysLessons({ ...base, lessons, events: [], locked: new Set(['companion']) }).map(l => l.id)).toEqual(['a']);
+    // Even a homework lesson that is locked stays out.
+    expect(pickTodaysLessons({ ...base, lessons, events: [], locked: new Set(['companion']), homeworkPass: new Set(['companion']) }).map(l => l.id)).toEqual(['a']);
+  });
+
+  it('an UNLOCKED new lesson comes today on top of the daily place, before homework', () => {
+    const lessons = [lesson('hw', '2026-09-29'), lesson('companion', '2026-10-05'), lesson('a', '2026-10-01')];
+    const picked = pickTodaysLessons({ ...base, lessons, events: [], homeworkPass: new Set(['hw']), unlocked: new Set(['companion']) });
+    expect(picked.map(l => l.id)).toEqual(['companion', 'hw', 'a']);
+  });
+
+  it('finishing an unlocked lesson does not use up the daily place', () => {
+    const lessons = [lesson('companion', '2026-10-05', done()), lesson('a', '2026-10-01')];
+    const events = [{ lesson_id: 'companion', completed_at: '2026-10-08T10:00:00.000Z' }];
+    expect(pickTodaysLessons({ ...base, lessons, events }).map(l => l.id)).toEqual([]);
+    expect(pickTodaysLessons({ ...base, lessons, events, unlocked: new Set(['companion']) }).map(l => l.id)).toEqual(['a']);
+  });
+
+  it('an unlocked lesson once finished is a normal revisit', () => {
+    const due: RevisitState = { status: 'scheduled', due_ms: dayStart - DAY, gap_days: 14, last_ms: dayStart - 15 * DAY, finishes: 1 };
+    const lessons = [lesson('companion', '2026-09-01', due)];
+    expect(pickTodaysLessons({ ...base, lessons, events: [], unlocked: new Set(['companion']) }).map(l => l.id)).toEqual(['companion']);
+  });
 });
 
 describe('pickNewLessonsForToday: started today', () => {

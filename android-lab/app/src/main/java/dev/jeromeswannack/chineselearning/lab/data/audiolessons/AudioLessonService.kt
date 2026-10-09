@@ -31,6 +31,8 @@ import dev.jeromeswannack.chineselearning.lab.MainActivity
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonChapter
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonMusic
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
+import dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks
+import kotlinx.coroutines.launch
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.data.api.AudioLessonDto
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,6 +72,8 @@ data class AudioLessonPlaybackState(
     /** The music bed under the lesson (docs/AUDIO_LESSONS.md "Music"): on / off for this lesson's format, and its volume. */
     val musicOn: Boolean = false,
     val musicVolume: Double = AudioLessonMusic.DEFAULT_VOLUME,
+    /** A listen reached the end in this load (≥ 85 % or the last chapter): its companion lesson unlocks. */
+    val listened: Boolean = false,
 ) {
     fun timerLeftMs(now: Long = SystemClock.elapsedRealtime()): Long = timerEndsAt?.let { (it - now).coerceAtLeast(0) } ?: 0
 }
@@ -142,6 +146,18 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
     private var chapterShown = -1
     private var startedTracked = false
     private var lastSave = 0L
+    private var listenedMarked = false
+
+    /**
+     * A listen reached the end (`audioLessonListened`): its locked companion lessons unlock
+     * (LessonStore.markAudioListened, also uploaded). Set by default to the app's lesson store;
+     * tests replace it.
+     */
+    var onListened: (AudioLessonDto) -> Unit = { l ->
+        (context.applicationContext as? dev.jeromeswannack.chineselearning.lab.LabApp)?.let { app ->
+            app.scope.launch { runCatching { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store.markAudioListened(l.id) } }
+        }
+    }
 
     val sessionPlayer = ChapterPlayer(exo) { lesson?.chapters.orEmpty() }
 
@@ -177,6 +193,7 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
                 Player.STATE_READY -> _state.update { it.copy(loaded = true, durationMs = durationMs(), ended = false) }
                 Player.STATE_ENDED -> {
                     val l = lesson ?: return
+                    markListened(l)
                     prefs.savePosition(l.id, 0)
                     _state.update { it.copy(playing = false, ended = true, timerMinutes = 0, timerEndsAt = null, positionMs = durationMs()) }
                     exo.volume = 1f
@@ -216,6 +233,7 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
         file = f
         chapterShown = -1
         startedTracked = false
+        listenedMarked = false
         exo.setMediaItem(mediaItem(l, f, 0))
         exo.prepare()
         val duration = l.duration_ms ?: 0L
@@ -322,6 +340,7 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
         val ms = exo.currentPosition
         val s = _state.value
         if (s.positionMs != ms || (s.durationMs == 0L && durationMs() > 0)) _state.update { it.copy(positionMs = ms, durationMs = durationMs()) }
+        if (exo.isPlaying && !listenedMarked && LessonUnlocks.listened(ms.toDouble(), durationMs().toDouble(), l.chapters.map { it.startMs.toDouble() })) markListened(l)
         if (exo.isPlaying) {
             val now = SystemClock.elapsedRealtime()
             if (now - lastSave > SAVE_EVERY_MS) {
@@ -358,6 +377,14 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
                 music.update(lessonPlaying = false)
             }
         }
+    }
+
+    /** Once per load: the companion unlocks, the screen shows "Mini lesson ready". */
+    private fun markListened(l: AudioLessonDto) {
+        if (listenedMarked) return
+        listenedMarked = true
+        _state.update { it.copy(listened = true) }
+        onListened(l)
     }
 
     fun savePosition() {

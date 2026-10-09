@@ -32,6 +32,8 @@ beforeEach(async () => {
   await db.homeworkEvents.clear();
   await db.pendingNotePrefs.clear();
   await db.revisitEvents.clear();
+  await db.lessonUnlocks.clear();
+  try { localStorage.removeItem('audio-lessons-listened-v1'); } catch { /* no storage */ }
   try { localStorage.removeItem('revisitSettings'); } catch { /* no storage */ }
 });
 

@@ -361,6 +361,10 @@ export interface TodaysLessonsInput<T extends TodayLessonCandidate> {
   revisitedToday: number;
   /** "New lessons a day". */
   perDay?: number;
+  /** Lessons waiting on an unlock condition (shared/lesson/unlock.ts `lockSets`): never offered. */
+  locked?: ReadonlySet<string>;
+  /** Lessons whose unlock condition is met: while NEW they come today on top of the daily place. */
+  unlocked?: ReadonlySet<string>;
 }
 
 /**
@@ -376,14 +380,21 @@ export interface TodaysLessonsInput<T extends TodayLessonCandidate> {
  *   lessons introduced today. A lesson opened today and not finished keeps its place
  *   (`pickNewLessonsForToday`'s startedToday).
  * Done-for-good lessons and one-off-only homework never appear.
+ *
+ * Unlockable lessons (shared/lesson/unlock.ts): a `locked` one never appears (nor takes the
+ * daily place); an `unlocked` NEW one comes right after the revisits — before homework and the
+ * daily place, which it neither takes nor uses up when finished ("I want this now").
  */
 export function pickTodaysLessons<T extends TodayLessonCandidate>(input: TodaysLessonsInput<T>): T[] {
-  const pool = input.lessons.filter(l => !input.oneOffOnly.has(l.id) && l.state.status !== 'retired');
-  const notCounted = new Set([...input.oneOffOnly, ...input.homeworkPass]);
+  const locked = input.locked ?? new Set<string>();
+  const unlockedSet = input.unlocked ?? new Set<string>();
+  const pool = input.lessons.filter(l => !input.oneOffOnly.has(l.id) && l.state.status !== 'retired' && !locked.has(l.id));
+  const notCounted = new Set([...input.oneOffOnly, ...input.homeworkPass, ...unlockedSet, ...locked]);
   const introduced = newLessonsIntroducedToday(input.events, input.dayStartMs, notCounted);
-  const homework = sortByCreated(pool.filter(l => l.state.status === 'new' && input.homeworkPass.has(l.id)));
+  const unlocked = sortByCreated(pool.filter(l => l.state.status === 'new' && unlockedSet.has(l.id)));
+  const homework = sortByCreated(pool.filter(l => l.state.status === 'new' && input.homeworkPass.has(l.id) && !unlockedSet.has(l.id)));
   const fresh = pickNewLessonsForToday(
-    pool.filter(l => l.state.status === 'new' && !input.homeworkPass.has(l.id)),
+    pool.filter(l => l.state.status === 'new' && !input.homeworkPass.has(l.id) && !unlockedSet.has(l.id)),
     introduced,
     input.perDay ?? DEFAULT_REVISIT_SETTINGS.new_lessons_per_day,
     input.startedToday ?? new Set(),
@@ -394,7 +405,7 @@ export function pickTodaysLessons<T extends TodayLessonCandidate>(input: TodaysL
     input.revisitedToday,
     MAX_LESSON_REVISITS_PER_DAY,
   );
-  return [...due, ...homework, ...fresh];
+  return [...due, ...unlocked, ...homework, ...fresh];
 }
 
 /**

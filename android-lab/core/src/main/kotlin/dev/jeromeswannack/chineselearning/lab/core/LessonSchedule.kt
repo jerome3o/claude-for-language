@@ -83,6 +83,8 @@ object LessonSchedule {
      * then NEW homework lessons with a pass ([homeworkPass], `both`) on top of the daily place,
      * then the queue's NEW lessons ("New lessons a day" minus those introduced today, homework
      * finishes not counted; [startedToday] keep their place). One-off-only and Done-for-good out.
+     * Unlockable lessons ([LessonUnlock]): [locked] never appear; [unlocked] NEW ones come right
+     * after the revisits, on top of the daily place (finishing one doesn't use it up).
      */
     fun todaysLessons(
         lessons: List<ScheduledItem>,
@@ -94,14 +96,17 @@ object LessonSchedule {
         startedToday: Set<String> = emptySet(),
         revisitedToday: Int = 0,
         newPerDay: Int = Revisit.DEFAULT.newLessonsPerDayInt,
+        locked: Set<String> = emptySet(),
+        unlocked: Set<String> = emptySet(),
     ): List<ScheduledItem> {
-        val pool = lessons.filter { it.id !in oneOffOnly && !it.retired }
-        val introduced = Revisit.newLessonsIntroducedToday(events.map { it.itemId to it.at }, dayStartMs, oneOffOnly + homeworkPass)
+        val pool = lessons.filter { it.id !in oneOffOnly && !it.retired && it.id !in locked }
+        val introduced = Revisit.newLessonsIntroducedToday(events.map { it.itemId to it.at }, dayStartMs, oneOffOnly + homeworkPass + unlocked + locked)
         val byCreated = compareBy<ScheduledItem>({ it.createdAt }, { it.id })
-        val homework = pool.filter { it.queue == CardQueue.NEW && it.id in homeworkPass }.sortedWith(byCreated)
-        val fresh = Revisit.pickNewForToday(pool.filter { it.queue == CardQueue.NEW && it.id !in homeworkPass }, { it.id }, { it.createdAt }, introduced, newPerDay, startedToday)
+        val wanted = pool.filter { it.queue == CardQueue.NEW && it.id in unlocked }.sortedWith(byCreated)
+        val homework = pool.filter { it.queue == CardQueue.NEW && it.id in homeworkPass && it.id !in unlocked }.sortedWith(byCreated)
+        val fresh = Revisit.pickNewForToday(pool.filter { it.queue == CardQueue.NEW && it.id !in homeworkPass && it.id !in unlocked }, { it.id }, { it.createdAt }, introduced, newPerDay, startedToday)
         val due = Revisit.pickForToday(pool.filter { it.queue != CardQueue.NEW }.map { it to it.state }, cutoff.ts, revisitedToday)
-        return due + homework + fresh
+        return due + wanted + homework + fresh
     }
 
     /** `newLessonsToday`: lessons first finished on today's LOCAL date (one-off homework left out). */

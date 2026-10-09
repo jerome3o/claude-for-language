@@ -5,6 +5,13 @@ import dev.jeromeswannack.chineselearning.lab.core.ItemSchedule
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
 import dev.jeromeswannack.chineselearning.lab.core.LessonSchedule
+import dev.jeromeswannack.chineselearning.lab.core.LessonUnlock
+import dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks
+import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
+import dev.jeromeswannack.chineselearning.lab.data.api.LessonUnlockUpload
+import dev.jeromeswannack.chineselearning.lab.data.api.LessonUnlockUploadBody
+import dev.jeromeswannack.chineselearning.lab.data.api.ListenedBody
+import dev.jeromeswannack.chineselearning.lab.data.api.ListenedEvent
 import dev.jeromeswannack.chineselearning.lab.core.Lessons
 import dev.jeromeswannack.chineselearning.lab.core.RevisitMark
 import dev.jeromeswannack.chineselearning.lab.core.RevisitSettings
@@ -25,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -44,6 +52,14 @@ data class LocalCompletion(
     val completedAt: String,
     val rating: Int?,
 )
+
+/** An unlock of a locked lesson made on this phone (web: IndexedDB `lessonUnlocks`), kept until the server's list carries it. */
+@Serializable
+data class LocalUnlock(val lessonId: String, val unlockedAt: String, val via: String)
+
+/** A listen that reached the end of an audio lesson on this phone (web: localStorage `audio-lessons-listened-v1`). */
+@Serializable
+data class LocalListen(val audioLessonId: String, val at: String)
 
 /** A recording made in a lesson attempt, waiting to go up after its attempt (web: lessonAttemptMedia). */
 @Serializable
@@ -68,11 +84,19 @@ data class LessonEntry(
     val state: RevisitState,
     /** The account's gaps the state was replayed with (for the rating buttons' labels). */
     val settings: RevisitSettings = dev.jeromeswannack.chineselearning.lab.core.Revisit.DEFAULT,
+    /** When it was unlocked: the server's, or this phone's pending unlock (the earliest). */
+    val unlockedAt: String? = lesson.unlockedAt,
 ) {
     val id: String get() = lesson.id
     val item: ScheduledItem get() = ScheduledItem(lesson.id, lesson.createdAt, state)
     val reps: Int get() = state.finishes
     val retired: Boolean get() = state.isRetired
+    /** Unlockable lessons (core LessonUnlocks): the condition, null = none. */
+    val unlock: LessonUnlock? get() = lesson.unlockCondition
+    /** "none" | "locked" | "unlocked". */
+    val lockStatus: String get() = LessonUnlocks.status(unlock, unlockedAt)
+    val locked: Boolean get() = lockStatus == "locked"
+    val unlockItem: LessonUnlocks.Item get() = LessonUnlocks.Item(id, unlock, unlockedAt)
 }
 
 /**
@@ -104,13 +128,16 @@ class LessonStore(
     /** Done for good / Bring back and the account's gaps ("revisit later"). */
     val revisit = RevisitStore(cache, outbox, api)
 
+    private val unlocksSerializer = ListSerializer(LocalUnlock.serializer())
+    private val listensSerializer = ListSerializer(LocalListen.serializer())
+
     fun observe(): Flow<List<LessonEntry>> =
-        combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer), revisit.observeMarks(), revisit.observeSettings()) { list, local, marks, settings ->
-            merge(list.orEmpty(), local.orEmpty(), marks, settings)
+        combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer), revisit.observeMarks(), revisit.observeSettings(), cache.observe(UNLOCKS, unlocksSerializer)) { list, local, marks, settings, unlocks ->
+            merge(list.orEmpty(), local.orEmpty(), marks, settings, unlocks.orEmpty())
         }.flowOn(Dispatchers.Default)
 
     suspend fun entries(): List<LessonEntry> =
-        merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty(), revisit.marks(), revisit.settings())
+        merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty(), revisit.marks(), revisit.settings(), cache.get(UNLOCKS, unlocksSerializer).orEmpty())
 
     suspend fun hasCache(): Boolean = cache.entry(LIST) != null
 
@@ -134,21 +161,63 @@ class LessonStore(
         val revisited = LessonSchedule.revisitsToday(events, nowMs, zone)
         val dayStart = java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
         val perDay = revisit.settings().newLessonsPerDayInt
-        return LessonSchedule.todaysLessons(all.map { it.item }, events, dayStart, cutoff, oneOff, homework.homeworkPass(), startedToday, revisited, perDay)
+        // Locked lessons wait; unlocked new ones come today on top of the daily place.
+        val (locked, unlocked) = LessonUnlocks.lockSets(all.map { it.unlockItem })
+        return LessonSchedule.todaysLessons(all.map { it.item }, events, dayStart, cutoff, oneOff, homework.homeworkPass(), startedToday, revisited, perDay, locked, unlocked)
             .mapNotNull { byId[it.id] }
     }
 
-    private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>, marks: List<RevisitMark>, settings: RevisitSettings): List<LessonEntry> {
+    private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>, marks: List<RevisitMark>, settings: RevisitSettings, unlocks: List<LocalUnlock> = emptyList()): List<LessonEntry> {
         val localByLesson = local.groupBy { it.lessonId }
         val marksByLesson = marks.filter { it.itemKind == "lesson" }.groupBy { it.itemId }
+        val unlockByLesson = unlocks.associateBy { it.lessonId }
         return list.map { lesson ->
             val server = lesson.completions.map { ItemEvent(it.id, it.lessonId, it.rating, it.completedAt) }
             val seen = server.mapTo(HashSet()) { it.id }
             val mine = localByLesson[lesson.id].orEmpty().filter { it.id !in seen }.map { ItemEvent(it.id, it.lessonId, it.rating, it.completedAt) }
             val events = server + mine
-            LessonEntry(lesson, events, ItemSchedule.state(events, marksByLesson[lesson.id].orEmpty(), settings), settings)
+            val unlockedAt = if (lesson.unlock == null) null else LessonUnlocks.earlier(lesson.unlockedAt, unlockByLesson[lesson.id]?.unlockedAt)
+            LessonEntry(lesson, events, ItemSchedule.state(events, marksByLesson[lesson.id].orEmpty(), settings), settings, unlockedAt)
         }
     }
+
+    // ============ Unlockable lessons (core LessonUnlocks; web services/lessonUnlock.ts) ============
+
+    /**
+     * `unlockLesson`: unlock a locked lesson here at once (today's lessons include it straight
+     * away) and send it through the Outbox (`POST /api/custom-lessons/unlock`, idempotent). False
+     * when it has no condition or is already unlocked.
+     */
+    suspend fun unlock(lessonId: String, via: String, nowMs: Long = System.currentTimeMillis()): Boolean = lock.withLock { unlockLocked(lessonId, via, nowMs) }
+
+    private suspend fun unlockLocked(lessonId: String, via: String, nowMs: Long): Boolean {
+        val entry = entries().firstOrNull { it.id == lessonId } ?: return false
+        if (!entry.locked) return false
+        val at = Js.toIsoString(nowMs)
+        cache.put(UNLOCKS, KIND, cache.get(UNLOCKS, unlocksSerializer).orEmpty().filter { it.lessonId != lessonId } + LocalUnlock(lessonId, at, via), unlocksSerializer)
+        outbox.enqueueJson(UNLOCK_KIND, "POST", "/api/custom-lessons/unlock", LessonUnlockUploadBody(listOf(LessonUnlockUpload(lessonId, at, via))), id = "unlock-$lessonId-$nowMs")
+        Analytics.track("lesson.unlock", mapOf("via" to via, "kind" to (entry.unlock?.kind ?: LessonUnlock.MANUAL)))
+        return true
+    }
+
+    /**
+     * A listen reached the end of an audio lesson (`markAudioLessonListened`): remembered, the
+     * lessons waiting on it unlocked here (`auto`), and uploaded (`POST /api/audio-lessons/listened`
+     * — the server unlocks its copies too). Returns the lessons it unlocked.
+     */
+    suspend fun markAudioListened(audioLessonId: String, nowMs: Long = System.currentTimeMillis()): List<String> = lock.withLock {
+        val at = Js.toIsoString(nowMs)
+        val listens = cache.get(LISTENS, listensSerializer).orEmpty()
+        if (listens.none { it.audioLessonId == audioLessonId }) cache.put(LISTENS, KIND, listens + LocalListen(audioLessonId, at), listensSerializer)
+        outbox.enqueueJson(UNLOCK_KIND, "POST", "/api/audio-lessons/listened", ListenedBody(listOf(ListenedEvent(audioLessonId, at))), id = "listened-$audioLessonId-$nowMs")
+        val ids = LessonUnlocks.unlockedByListen(entries().map { it.unlockItem }, audioLessonId)
+        ids.filter { unlockLocked(it, "auto", nowMs) }
+    }
+
+    /** When this phone first heard [audioLessonId] to the end (null = not yet). */
+    suspend fun listenedHere(audioLessonId: String): String? = cache.get(LISTENS, listensSerializer).orEmpty().firstOrNull { it.audioLessonId == audioLessonId }?.at
+
+    fun observeListens(): Flow<List<LocalListen>> = cache.observe(LISTENS, listensSerializer).map { it.orEmpty() }
 
     /** "✓ Done for good" / "↩ Bring back" from the Mini Lessons list (`markRevisit`). */
     suspend fun markRevisit(lessonId: String, action: String, source: String = "list") {
@@ -222,6 +291,12 @@ class LessonStore(
         val local = cache.get(LOCAL, localSerializer).orEmpty()
         val kept = local.filter { it.id !in onServer && (it.lessonId in ids || it.id in pending) }
         if (kept.size != local.size) cache.put(LOCAL, KIND, kept, localSerializer)
+        // Unlocks: forget the ones the server's list carries now (and those of lessons gone), unless still queued.
+        val unlocksPending = outbox.all().any { it.kind == UNLOCK_KIND && it.state == Outbox.PENDING }
+        val unlockedOnServer = list.filter { !it.unlockedAt.isNullOrEmpty() }.mapTo(HashSet()) { it.id }
+        val unlocks = cache.get(UNLOCKS, unlocksSerializer).orEmpty()
+        val keptUnlocks = unlocks.filter { it.lessonId in ids && (it.lessonId !in unlockedOnServer || unlocksPending) }
+        if (keptUnlocks.size != unlocks.size) cache.put(UNLOCKS, KIND, keptUnlocks, unlocksSerializer)
     }
 
     /** `uploadLessonAttemptMedia`: PUT each recording by media key; 404 waits, 400/413 give up. */
@@ -260,7 +335,8 @@ class LessonStore(
     suspend fun prefetchMedia(online: Boolean) {
         if (!online) return
         val cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault())
-        val due = dueLessons(cutoff)
+        // Locked lessons too: one is often unlocked on the train, right after its podcast.
+        val due = dueLessons(cutoff).let { d -> d + entries().filter { e -> e.locked && d.none { it.id == e.id } } }
         // Stroke-order data for handwriting, so the writing pad checks strokes offline.
         val handwritten = due.flatMap { dev.jeromeswannack.chineselearning.lab.core.StrokeQuiz.writableCharacters(Lessons.handwritingText(it.lesson.spec)) }.distinct()
         if (handwritten.isNotEmpty()) runCatching { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore(File(filesDir, "strokes")).prefetch(handwritten) }
@@ -291,6 +367,10 @@ class LessonStore(
         const val LIST = "lessons/list"
         const val LOCAL = "lessons/local-completions"
         const val MEDIA = "lessons/media-queue"
+        const val UNLOCKS = "lessons/local-unlocks"
+        const val LISTENS = "audio-lessons/listened"
+        /** Outbox kind of unlocks and listens (`POST /api/custom-lessons/unlock`, `/api/audio-lessons/listened`). */
+        const val UNLOCK_KIND = "lesson-unlocks"
         private const val UPLOADED_TTL_MS = 14L * 24 * 60 * 60 * 1000
         private val lock = Mutex()
     }

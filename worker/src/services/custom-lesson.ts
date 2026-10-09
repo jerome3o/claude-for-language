@@ -9,7 +9,7 @@
  */
 
 import { trackServer } from './analytics/server-events';
-import { CustomLessonSpec, validateLessonSpec, LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '@shared/lesson';
+import { CustomLessonSpec, validateLessonSpec, LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, lessonUnlockColumns, type LessonUnlock } from '@shared/lesson';
 import { Env } from '../types';
 import * as db from '../db/queries';
 import { queueLessonImages } from './lesson-images';
@@ -55,7 +55,9 @@ export async function createCustomLessonFromSpec(
   env: Env,
   userId: string,
   rawSpec: unknown,
-  source: 'mcp' | 'chat' | 'api',
+  source: 'mcp' | 'chat' | 'api' | 'companion',
+  /** Unlockable lessons (shared/lesson/unlock.ts): the condition, already validated + owned. */
+  opts: { unlock?: LessonUnlock | null; companionOf?: string | null } = {},
 ): Promise<CreateCustomLessonResult> {
   const errors = validateLessonSpec(rawSpec);
   if (errors.length > 0) return { ok: false, errors };
@@ -67,6 +69,8 @@ export async function createCustomLessonFromSpec(
     icon: spec.icon ?? null,
     spec: JSON.stringify(spec),
     source,
+    ...lessonUnlockColumns(opts.unlock ?? null),
+    companion_of: opts.companionOf ?? null,
   });
 
   const imageJobs = await queueLessonImages(env, lesson.id, spec);

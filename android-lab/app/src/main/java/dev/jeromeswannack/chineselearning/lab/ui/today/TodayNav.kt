@@ -74,6 +74,8 @@ fun NavGraphBuilder.todayGraph(nav: LabNav) {
         TodayLessonsScreen(
             today, onBack = nav::back, onOpen = { nav.open(Routes.todayLesson(it)) }, onAllLessons = { nav.open(Routes.lessons()) },
             onAgain = { nav.open(Routes.lessonPlay(it, "today")) },
+            onUnlock = vm::unlock,
+            onListen = { nav.open(Routes.audioLesson(it)) },
         )
     }
     composable(Routes.route("/today/lessons/{id}")) { entry ->
@@ -101,7 +103,11 @@ object TodayHomeLoader {
         val reviewed = app.repo.dao.reviewsSince(Js.toIsoString(StudyQueue.startOfDay(nowMs, zone)))
         val snapshot = runCatching { TodayData(app).snapshot(nowMs, zone) }.getOrDefault(TodaySnapshot.EMPTY)
         val progress = LessonProgressStore.get(app)
-        TodayHome.from(snapshot, counts.total, reviewed) { progress.has(it) }.also { last.value = it }
+        // Locked lessons' podcasts: their titles, and whether they were heard to the end (here or anywhere).
+        val audio = runCatching { dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonStore(app.cache, app.repo.api, app.filesDir).cachedList() }.getOrDefault(emptyList()).associateBy { it.id }
+        val store = LessonRuntime.of(app).store
+        val heardHere = snapshot.locked.mapNotNull { it.unlock?.audioLessonId }.associateWith { store.listenedHere(it) != null }
+        TodayHome.from(snapshot, counts.total, reviewed, { progress.has(it) }) { id -> audio[id]?.title to (heardHere[id] == true || audio[id]?.listened_at != null) }.also { last.value = it }
     }
 
     /**
@@ -140,6 +146,15 @@ class TodayViewModel(private val app: LabApp) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch { app.safely("today load") { TodayHomeLoader.load(app) }?.let { _ui.value = it } }
+    }
+
+    /** "✓ I've listened — unlock" / "✓ Done — unlock": it joins today at once (the store's flow refreshes the list). */
+    fun unlock(lessonId: String) {
+        viewModelScope.launch {
+            app.safely("unlock lesson") { LessonRuntime.of(app).store.unlock(lessonId, "manual") }
+            app.haptics.rated(dev.jeromeswannack.chineselearning.lab.core.Rating.GOOD)
+            LessonRuntime.of(app).uploadSoon()
+        }
     }
 }
 

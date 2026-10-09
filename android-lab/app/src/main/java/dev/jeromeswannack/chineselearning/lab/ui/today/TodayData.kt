@@ -24,6 +24,8 @@ data class TodaySnapshot(
     val readerDone: ReaderEntry?,
     /** A story is being written (the daily reader or a generate request). */
     val writing: Boolean,
+    /** Locked lessons (core LessonUnlocks): "Ready to unlock" on today's lesson list. */
+    val locked: List<LessonEntry> = emptyList(),
 ) {
     val toDo: List<LessonEntry> get() = lessons.toDo.mapNotNull { lessonEntries[it.id] }
     val done: List<LessonEntry> get() = lessons.done.mapNotNull { lessonEntries[it] }
@@ -57,7 +59,9 @@ class TodayData(private val app: LabApp) {
         val perDay = runtime.store.revisit.settings().newLessonsPerDayInt
         // A lesson opened today and left half-way stays today's (LessonProgressStore.startedToday).
         val started = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app).startedToday(nowMs)
-        val plan = TodayPlan.lessons(entries.map { it.item }, entries.flatMap { it.events }, oneOff, cutoff, nowMs, zone, perDay, homeworkPass, started)
+        // Locked lessons wait; an unlocked new one comes on top of the daily place (shared/lesson/unlock.ts).
+        val (locked, unlocked) = dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks.lockSets(entries.map { it.unlockItem })
+        val plan = TodayPlan.lessons(entries.map { it.item }, entries.flatMap { it.events }, oneOff, cutoff, nowMs, zone, perDay, homeworkPass, started, locked, unlocked)
         val readers = runtime.readers.entries()
         val readerOneOff = runtime.readers.oneOffOnly()
         val readToday = ReaderSchedule.readToday(readers.filter { it.id !in readerOneOff }.flatMap { it.events }, nowMs, zone)
@@ -70,6 +74,7 @@ class TodayData(private val app: LabApp) {
             readerEntry = picked,
             readerDone = readerDone,
             writing = readers.any { it.reader.status == "generating" },
+            locked = entries.filter { it.locked }.sortedWith(compareBy({ it.lesson.createdAt }, { it.id })),
         )
     }
 

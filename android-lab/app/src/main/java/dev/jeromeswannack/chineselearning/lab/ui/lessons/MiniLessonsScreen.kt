@@ -66,6 +66,8 @@ data class MiniLessonsUi(
     val error: String? = null,
     val refreshing: Boolean = false,
     val deleting: String? = null,
+    /** Audio lessons by id (title + heard to the end) for the locked rows. */
+    val audio: Map<String, Pair<String?, Boolean>> = emptyMap(),
 )
 
 class MiniLessonsActions(
@@ -80,6 +82,9 @@ class MiniLessonsActions(
     val onBringBack: (id: String) -> Unit = {},
     /** "▶ Start" / "▶ Do it again": the real player outside the session (`/lessons/:id/play`). */
     val onPlay: (id: String) -> Unit = {},
+    /** "Ready to unlock": unlock a locked lesson / open its podcast. */
+    val onUnlock: (id: String) -> Unit = {},
+    val onListen: (audioLessonId: String) -> Unit = {},
 )
 
 private val DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
@@ -114,7 +119,9 @@ fun revisitChip(s: RevisitState, cutoff: StudyCutoff): Pair<String, androidx.com
 @Composable
 fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
     var confirm by rememberSaveable { mutableStateOf<String?>(null) }
-    val lessons = ui.lessons
+    // Locked lessons (shared/lesson/unlock.ts) wait in "Ready to unlock" and nowhere else.
+    val locked = ui.lessons.orEmpty().filter { it.locked }
+    val lessons = ui.lessons?.filter { !it.locked }
     val upNext = lessons.orEmpty().filter { LessonSchedule.isUpNext(it.state, ui.cutoff) }
     val scheduled = lessons.orEmpty().filter { it.state.isScheduled && !LessonSchedule.isUpNext(it.state, ui.cutoff) }.sortedBy { it.state.dueMs ?: 0L }
     val retired = lessons.orEmpty().filter { it.retired }
@@ -130,6 +137,24 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
         if (lessons == null) {
             item { LoadingState() }
             return@LabScreen
+        }
+        if (locked.isNotEmpty()) {
+            item { SectionHeader("🔒 Ready to unlock (${locked.size})") }
+            item { Text("These wait until you've done the real thing — then they come today.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
+            item(key = "locked") {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp))) {
+                    locked.forEachIndexed { i, e ->
+                        val unlock = e.unlock ?: return@forEachIndexed
+                        val (audioTitle, heard) = if (unlock.isAudio) ui.audio[unlock.audioLessonId.orEmpty()] ?: (null to false) else (null to false)
+                        if (i > 0) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = 64.dp, end = 16.dp), color = Lab.colors.faint)
+                        dev.jeromeswannack.chineselearning.lab.ui.today.LockedLessonRow(
+                            dev.jeromeswannack.chineselearning.lab.ui.today.TodayLockedRow(e.id, e.lesson.title.ifBlank { e.lesson.spec.title }, unlock, audioTitle, heard),
+                            onUnlock = { actions.onUnlock(e.id) },
+                            onListen = unlock.audioLessonId?.takeIf { unlock.isAudio }?.let { id -> { actions.onListen(id) } },
+                        )
+                    }
+                }
+            }
         }
         item { SectionHeader("Up next (${upNext.size})") }
         if (upNext.isEmpty()) {
