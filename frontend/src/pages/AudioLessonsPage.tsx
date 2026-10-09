@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useNetwork } from '../contexts/NetworkContext';
-import { AUDIO_LESSON_INPUT_LIMITS, durationLabel, type AudioLessonFormat, type AudioLessonSummary } from '@shared/audio-lesson';
+import {
+  AUDIO_LESSON_FORMAT_INFO, AUDIO_LESSON_INPUT_LIMITS, audioLessonFormatInfo, durationLabel, storyEstimateLine,
+  type AudioLessonFormat, type AudioLessonSummary,
+} from '@shared/audio-lesson';
 import { createAudioLesson, retryAudioLesson } from '../api/audioLessons';
 import {
   cachedLessonList, deleteLessonEverywhere, formatMb, refreshLessonList, rememberLessonInList, savedLessonIds,
@@ -19,10 +22,12 @@ const SITUATIONS: Array<{ zh: string; en: string }> = [
   { zh: '寄快递', en: 'Sending a parcel at the courier counter' },
 ];
 
-const FORMATS: Array<{ id: AudioLessonFormat; icon: string; label: string; blurb: string }> = [
-  { id: 'dialogue', icon: '🎙️', label: 'Dialogue', blurb: 'An English host, a short Chinese dialogue played three times, then the new words explained.' },
-  { id: 'sleep', icon: '🌙', label: 'Sleep', blurb: 'Very slow and calm Chinese over soft music: the new words from a text, each said three times, its tones, its meaning told again and again in simple Chinese, one English line to check — then simple sentences, each with its English.' },
+const FORMATS: Array<{ id: AudioLessonFormat; blurb: string }> = [
+  { id: 'dialogue', blurb: 'An English host, a short Chinese dialogue played three times, then the new words explained.' },
+  { id: 'sleep', blurb: 'Very slow and calm Chinese over soft music: the new words from a text, each said three times, its tones, its meaning told again and again in simple Chinese, one English line to check — then simple sentences, each with its English.' },
+  { id: 'story', blurb: 'Paste a longer story or conversation: each line or two is said three times, slowly, with a pause after each, then its English — over soft music, for background listening. As long as your text.' },
 ];
+
 
 export function statusLine(l: AudioLessonSummary): string {
   switch (l.status) {
@@ -51,6 +56,9 @@ export function AudioLessonsPage() {
   const [dialogue, setDialogue] = useState('');
   const [showDialogue, setShowDialogue] = useState(false);
   const [text, setText] = useState('');
+  const [storyText, setStoryText] = useState('');
+  const [storyTitle, setStoryTitle] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
   const [minutes, setMinutes] = useState<number>(AUDIO_LESSON_INPUT_LIMITS.defaultMinutes.dialogue);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,23 +89,32 @@ export function AudioLessonsPage() {
     setFormat(f);
     setMinutes(AUDIO_LESSON_INPUT_LIMITS.defaultMinutes[f]);
     setError(null);
+    setNotice(null);
   }
 
   async function start() {
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
-      const { lesson } = await createAudioLesson(
+      const res = await createAudioLesson(
         format === 'dialogue'
           ? { format, description: description.trim(), dialogue: dialogue.trim() || undefined, target_minutes: minutes }
-          : { format, text: text.trim(), target_minutes: minutes },
+          : format === 'sleep'
+            ? { format, text: text.trim(), target_minutes: minutes }
+            // A story is as long as its text: no target length.
+            : { format, text: storyText.trim(), title: storyTitle.trim() || undefined },
       );
-      track('audio_lesson.create', { format, target_minutes: minutes });
+      const { lesson } = res;
+      track('audio_lesson.create', format === 'story' ? { format, chunks: res.chunks ?? 0 } : { format, target_minutes: minutes });
       rememberLessonInList(lesson);
       setLessons(cachedLessonList());
+      setNotice(res.notice ?? null);
       setDescription('');
       setDialogue('');
       setText('');
+      setStoryText('');
+      setStoryTitle('');
     } catch (err) {
       trackError('audio_lesson_create', err);
       setError(err instanceof Error ? err.message : "Couldn't start it — check your connection and try again.");
@@ -126,7 +143,8 @@ export function AudioLessonsPage() {
     }
   }
 
-  const ready = format === 'dialogue' ? description.trim().length > 0 || dialogue.trim().length > 0 : text.trim().length > 0;
+  const ready =
+    format === 'dialogue' ? description.trim().length > 0 || dialogue.trim().length > 0 : format === 'sleep' ? text.trim().length > 0 : storyText.trim().length > 0;
   const canStart = isOnline && !busy && ready;
   const L = AUDIO_LESSON_INPUT_LIMITS;
 
@@ -134,7 +152,7 @@ export function AudioLessonsPage() {
     <div className="container al-page">
       <h1 className="al-title">🎧 Audio lessons</h1>
       <p className="al-blurb">
-        Lessons to listen to — on the train, or to fall asleep to. Claude writes each one for you, checking it against
+        Lessons to listen to — on the train, in the background, or to fall asleep to. Claude writes each one for you, checking it against
         your cards, and the app records it as one audio file you can keep offline.{' '}
         <Link to="/settings#podcast-feed" className="al-podcast-link" data-testid="al-podcast-link">Listen in a podcast app →</Link>
       </p>
@@ -148,12 +166,15 @@ export function AudioLessonsPage() {
               aria-checked={format === f.id}
               className={`al-format ${format === f.id ? 'active' : ''}`}
               onClick={() => pickFormat(f.id)}
+              data-testid={`al-format-${f.id}`}
             >
-              <span className="al-format-label">{f.icon} {f.label}</span>
-              <span className="al-format-blurb">{f.blurb}</span>
+              <span className="al-format-icon" aria-hidden>{AUDIO_LESSON_FORMAT_INFO[f.id].icon}</span>
+              <span className="al-format-label">{AUDIO_LESSON_FORMAT_INFO[f.id].label}</span>
+              <span className="al-format-short">{AUDIO_LESSON_FORMAT_INFO[f.id].short}</span>
             </button>
           ))}
         </div>
+        <p className="al-format-blurb" aria-live="polite">{FORMATS.find((f) => f.id === format)?.blurb}</p>
 
         {format === 'dialogue' ? (
           <>
@@ -189,6 +210,32 @@ export function AudioLessonsPage() {
               <button type="button" className="al-link" onClick={() => setShowDialogue(true)}>+ Paste a dialogue</button>
             )}
           </>
+        ) : format === 'story' ? (
+          <>
+            <label className="form-label" htmlFor="al-story-text">Paste a story or a conversation</label>
+            <textarea
+              id="al-story-text"
+              className="form-input al-textarea"
+              rows={8}
+              value={storyText}
+              onChange={(e) => setStoryText(e.target.value)}
+              placeholder={'明慧：你好！你今天想喝什么？\n杰罗姆：我要一杯热咖啡，不要糖。\n…\n\nSpeaker labels (A：, 明慧：) get their own voices; headings (# …) become chapters.'}
+              maxLength={L.storyText}
+              lang="zh-CN"
+            />
+            <div className="al-fine">
+              {storyText.length.toLocaleString()} / {L.storyText.toLocaleString()} characters · <span data-testid="al-story-estimate">{storyEstimateLine(storyText)}</span>
+            </div>
+            <label className="form-label" htmlFor="al-story-title">Title (optional)</label>
+            <input
+              id="al-story-title"
+              className="form-input"
+              value={storyTitle}
+              onChange={(e) => setStoryTitle(e.target.value)}
+              placeholder="From the first heading or line if empty"
+              maxLength={120}
+            />
+          </>
         ) : (
           <>
             <label className="form-label" htmlFor="al-text">Paste some Chinese — an article, a story, a chat</label>
@@ -206,17 +253,21 @@ export function AudioLessonsPage() {
           </>
         )}
 
-        <label className="form-label" htmlFor="al-minutes">Length: about {minutes} minutes</label>
-        <input
-          id="al-minutes"
-          type="range"
-          className="al-range"
-          min={L.minMinutes}
-          max={L.maxMinutes}
-          step={1}
-          value={minutes}
-          onChange={(e) => setMinutes(Number(e.target.value))}
-        />
+        {format !== 'story' && (
+          <>
+            <label className="form-label" htmlFor="al-minutes">Length: about {minutes} minutes</label>
+            <input
+              id="al-minutes"
+              type="range"
+              className="al-range"
+              min={L.minMinutes}
+              max={L.maxMinutes}
+              step={1}
+              value={minutes}
+              onChange={(e) => setMinutes(Number(e.target.value))}
+            />
+          </>
+        )}
 
         <div className="al-footer">
           <button className="btn al-start" onClick={() => void start()} disabled={!canStart}>
@@ -224,6 +275,7 @@ export function AudioLessonsPage() {
           </button>
         </div>
         {!isOnline && <div className="al-note">You're offline — making a lesson needs a connection. Saved lessons still play.</div>}
+        {notice && <div className="al-note" role="status" data-testid="al-notice">{notice}</div>}
         {error && <div className="al-error" role="alert">{error}</div>}
       </div>
 
@@ -239,7 +291,7 @@ export function AudioLessonsPage() {
                 disabled={l.status !== 'ready'}
                 aria-label={l.status === 'ready' ? `Play ${l.title}` : l.title}
               >
-                <span className="al-row-icon" aria-hidden>{l.format === 'sleep' ? '🌙' : '🎙️'}</span>
+                <span className="al-row-icon" aria-hidden>{audioLessonFormatInfo(l.format).icon}</span>
                 <span className="al-row-text">
                   <span className="al-row-title">{l.title}</span>
                   <span className="al-row-sub">

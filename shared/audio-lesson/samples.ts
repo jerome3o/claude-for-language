@@ -3,7 +3,7 @@
  * answer in E2E_TEST_MODE (worker services/audio-lessons/fake.ts).
  */
 import type { CharLink } from './characters';
-import type { DialoguePlan, SleepPlan } from './types';
+import type { DialoguePlan, SleepPlan, StoryPlan } from './types';
 
 export const SAMPLE_DIALOGUE_PLAN: DialoguePlan = {
   title: 'Ordering at a Lanzhou noodle shop',
@@ -130,4 +130,28 @@ export const SAMPLE_SLEEP_CHAR_LINKS: Record<string, CharLink[]> = {
     { char: '局', kind: 'common', words: [{ hanzi: '结局', pinyin: 'jiéjú', english: 'ending' }, { hanzi: '局长', pinyin: 'júzhǎng', english: 'bureau chief' }] },
   ],
   寄: [{ char: '寄', kind: 'new', words: [] }],
+};
+
+/** A story lesson's pasted text: a heading, a conversation with labels, a line of narration. */
+export const SAMPLE_STORY_TEXT = `# 在咖啡馆
+明慧：你好！你今天想喝什么？
+杰罗姆：我要一杯热咖啡，不要糖。
+明慧：好的。你要大杯还是小杯？
+杰罗姆：小杯就好。谢谢！
+他们坐在窗边，外面下着小雨。`;
+
+/** SAMPLE_STORY_TEXT split (splitStoryText) and translated. */
+export const SAMPLE_STORY_PLAN: StoryPlan = {
+  title: '在咖啡馆',
+  speakers: [
+    { label: '明慧', gender: 'female' },
+    { label: '杰罗姆', gender: 'male' },
+  ],
+  chunks: [
+    { hanzi: '你好！你今天想喝什么？', pinyin: 'nǐ hǎo! nǐ jīntiān xiǎng hē shénme?', english: 'Hi! What would you like to drink today?', speaker: '明慧', section: '在咖啡馆' },
+    { hanzi: '我要一杯热咖啡，不要糖。', pinyin: 'wǒ yào yì bēi rè kāfēi, bú yào táng.', english: "I'd like a hot coffee, no sugar.", speaker: '杰罗姆', section: '在咖啡馆' },
+    { hanzi: '好的。你要大杯还是小杯？', pinyin: 'hǎo de. nǐ yào dà bēi háishi xiǎo bēi?', english: 'Sure. Large or small?', speaker: '明慧', section: '在咖啡馆' },
+    { hanzi: '小杯就好。谢谢！', pinyin: 'xiǎo bēi jiù hǎo. xièxie!', english: 'A small one is fine. Thanks!', speaker: '杰罗姆', section: '在咖啡馆' },
+    { hanzi: '他们坐在窗边，外面下着小雨。', pinyin: 'tāmen zuò zài chuāng biān, wàimiàn xià zhe xiǎo yǔ.', english: 'They sit by the window; outside, a light rain is falling.', speaker: null, section: '在咖啡馆' },
+  ],
 };

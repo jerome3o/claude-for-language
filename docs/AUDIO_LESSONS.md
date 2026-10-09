@@ -6,7 +6,11 @@ asleep. A prototype (Oct 2026). Web: More → 🎧 Audio lessons (`/audio-lesson
 `get_audio_lesson_feed`. Every ready lesson is also an episode of the user's private podcast feed
 (see "Podcast feed").
 
-## The two formats
+## The three formats
+
+Pick by what the learner has and wants (the MCP `create_audio_lesson` description says the same): **dialogue** — practise a
+situation; **sleep** — learn the new words of a text, slowly; **story** — listen to (and repeat) a whole story or
+conversation they already have, in the background.
 
 **Dialogue (format A, "ChinesePod style").** Input: a situation to practise (+ optionally a pasted
 dialogue). Chapters:
@@ -98,6 +102,52 @@ disagrees with the tone, 一 / 不 not at yī 1 / bù 4, a syllable that isn't t
 split where the characters' syllables say ("fāngàn" → fāng + àn). Plans written before `char_tones` compile without
 these lines.
 
+**Story (format C, "Listen & repeat a story", Oct 2026).** Input: a longer Chinese story or conversation as pasted — a
+transcript, a dialogue with speaker labels, an article (≤ 6,000 characters). Nothing is taught and the Chinese is never
+rewritten: the app splits it, Claude only translates, and the lesson is the whole text, chunk by chunk:
+1. the chunk (one or two sentences) in Chinese at the slowest rate, 2 s;
+2. the same again, 2 s; a third time, 2 s;
+3. its English translation once (the calm English voice, role `recap`, app rate 0.9), 2.5 s; the next chunk.
+
+The music bed is on by default (background listening, like sleep); the transcript is on by default.
+
+- **The splitter** (`splitStoryText`, `shared/audio-lesson/story.ts`, deterministic, unit-tested in `story.test.ts`): breaks
+  after 。！？!?… (a run of them — "真的吗？！", "……" — and the closing quotes / brackets right after), at line breaks and at
+  speaker turns; never inside quotes (“” 「」 『』 ‘’ 《》 and ASCII ", tracked as a stack; an unclosed quote keeps the rest of
+  its line together). A chunk shorter than 8 letters / characters (`minChunkChars`; punctuation doesn't count) takes the next
+  sentence in while it stays ≤ 40 (`maxChunkChars`) — within one speaker's turn or a run of narration lines, never across a
+  turn or a heading; a short tail that can't joins the chunk before it. A sentence over 40 is cut at its commas (，；：、) about
+  evenly (41 → 21 + 20); a piece still over 80 at sentence ends inside its quotes, then by count.
+- **Speaker labels** ("A：", "B:", "明慧：", "Speaker 1:", or a lone "A：" line whose turn is the next line) come off the spoken
+  text and pick the voice: a Latin label always counts; a Han label (≤ 8 characters) only when it starts 2+ lines and doesn't
+  end in a speech verb ("他说：" / "老师问：" are narration). The first label gets `speaker_a`, the second `speaker_b`, a third
+  `speaker_a` again (two voices only); genders from the translation pass (a plain A / B alternates, A female); narration
+  is the app's own voice (`teacher` = the provider's default card voice). The transcript shows "明慧：你好！…" (`display`).
+- **Headings** — `# …`, a line starting 第一章 / 第二幕 / 第三回 … (followed by a space, a colon or nothing), or 【…】 on a line
+  of its own — become chapters and are not spoken. Without headings a chapter starts every 10 chunks, titled with the first
+  words of its first chunk (its first clause when that is 4–12 characters, "小明每天早上七点起床…"); ≤ 40 chapters.
+- **Cleaned out of the spoken text**: short asides in brackets ("（笑）", "[laughs]", ≤ 12 characters — stage directions), list
+  markers ("- ", "1. "), and symbols a voice reads out (/ | \\ _ * # ~ brackets). Lines without Chinese are dropped.
+- **Length**: as long as the text — about 2.35 s of audio per Han character (`STORY_MS_PER_HAN`, the forms' "About 5 minutes
+  of audio." — `storyEstimateLine`, Lab `AudioLessonFormats`, parity-tested). A lesson holds at most 60 minutes
+  (`STORY_LIMITS.maxMinutes`, estimated per chunk the way `estimateScriptMs` measures a script) and 120 chunks (two distinct clips
+  each, under the 260-clip limit): `fitStoryChunks` keeps the first chunks that fit and the rest is LEFT OUT — the POST answers
+  `notice: "The text is long: this lesson covers the first 1,480 of 3,900 characters (about 60 minutes). Paste the rest as
+  another lesson."` (`storyCutNotice`; also on the lesson's detail and the player), the forms say so while typing. That is
+  roughly 1,500 Han characters a lesson. No `target_minutes`.
+- **Translation** (`worker/src/services/audio-lessons/story.ts`): one Claude pass, `structuredCall` with Sonnet (Haiku on the
+  last attempt), forced tool `submit_translations`, thinking off, 30 chunks a call (`translateBatch`) with the 3 chunks before
+  as context; per chunk natural, faithful English (no additions, no corrections) + pinyin (through `applyYiBuToneChanges`);
+  per speaker label a voice gender. Every asked chunk must come back (else the call is retried). The translations are
+  checkpointed in `agent_transcript` (`{ story: StoryState, usage }`) after every batch, so a delivery past the 4-minute deadline
+  resumes with the next batch; a failure fails the lesson with the reason and Retry translates again. Usage: Sonnet's
+  $2 / $10 per M tokens. The plan (`StoryPlan`: title, speakers, chunks with pinyin / english / speaker / section, `cut`) is
+  validated (`validateStoryPlan`) and compiled (`compileStoryLesson`); then speaking and rendering are the same as the other
+  formats. A story of 75 chunks ≈ 150 distinct clips.
+- **Rates**: the chunks are app rate 0.5 (`STORY_RATE`); any Chinese clip at 0.5 is spoken at the provider's slowest natural
+  rate, like the sleep voice (`lessonClipRate`: MiniMax 0.5, Azure 0.6, Google 0.6).
+- E2E_TEST_MODE: `fakeStoryTranslate` ("Line 3 of the story." + pinyin-pro's pinyin).
+
 Speeds are on the app's scale (MiniMax's: 1 = normal, cards 0.6); Azure maps them with its
 `speed_factor` (0.75 → cards 0.7). Pauses: `PAUSES` in `shared/audio-lesson/compile.ts`.
 
@@ -152,7 +202,7 @@ cheaply), so the lesson MP3 and the **podcast feed stay speech-only** for now.
   RMS. Rebuild: `FFMPEG=/path/to/ffmpeg node scripts/audio/generate-lesson-music.mjs` (needs libmp3lame); bump the
   file name (`LESSON_MUSIC` in `shared/audio-lesson/music.ts`) when the track changes.
 - **Rules** (`shared/audio-lesson/music.ts`, Lab `core/…/AudioLessonMusic.kt`, parity-tested): on by default for
-  sleep lessons, off for dialogue lessons, the learner's choice remembered per format; it plays only while the lesson
+  sleep and story lessons, off for dialogue lessons, the learner's choice remembered per format; it plays only while the lesson
   plays (pause, the end, headphones out and the sleep timer stop it); volume 0.05–1, default 0.35, × the sleep timer's
   fade (`musicOutputVolume`), so it fades out with the voice.
 - **Web** (`AudioLessonPlayerPage.tsx`): a second `<audio loop>` from an object URL of the track (Cache API
@@ -173,6 +223,7 @@ cheaply), so the lesson MP3 and the **podcast feed stay speech-only** for now.
 ```
 POST /api/audio-lessons → audio_lessons row (queued) → audio-lesson-queue
   1. writing    Claude Opus 5.5 (services/audio-lessons/agent.ts): briefing → check_known_words → submit_lesson
+                (story: splitStoryText → fitStoryChunks → translations in batches, services/audio-lessons/story.ts)
   2. speaking   each DISTINCT clip through the TTS providers → R2 audio-lessons/<user>/<id>/parts/<hash>.mp3
   3. rendering  clips + generated silence → ONE MP3 (Xing header) → audio-lessons/<user>/<id>-<version>.mp3
 ```
@@ -243,7 +294,8 @@ from the same clip lengths, so the chapter list lines up with the audio.
 ## API
 
 - `GET /api/audio-lessons` → `{ lessons }` · `GET /api/audio-lessons/:id` → `{ lesson }` (chapters, transcript, words, speakers, usage)
-- `POST /api/audio-lessons` `{ format: dialogue|sleep, description?, dialogue?, text?, title?, target_minutes? (5–40), for_relationship_id? }` → 202 (400 + `problems`; 409 at 3 lessons being made; 503 without the Claude key)
+- `POST /api/audio-lessons` `{ format: dialogue|sleep|story, description?, dialogue?, text?, title?, target_minutes? (5–40; ignored for story), for_relationship_id? }` → 202 `{ lesson, notice?, chunks? }` (story: how many chunks, and the cut notice; 400 + `problems`; 409 at 3 lessons being made; 503 without the Claude key)
+- `audio_lessons.format` is a TEXT column without a CHECK, so the story format needed no migration.
 - `GET /api/audio-lessons/:id/audio` · `POST /api/audio-lessons/:id/retry` · `DELETE /api/audio-lessons/:id`
 
 ## Podcast feed
@@ -292,8 +344,10 @@ afterwards it plays with no connection.
 
 Full screen and dark: chapter name, scrubber, ⏮ ↺10 ▶ 10↻ ⏭, speed (0.75 / 0.9 / 1 / 1.25×, pitch kept,
 remembered), 🎵 music (see "Music"), 🌙 sleep timer (10–60 min or end of chapter; the last 30 s fade out), ☰ chapters, 📝
-transcript (on for dialogue, off for sleep; the current line highlighted and followed, tap a line to
-jump; an English sentence with Chinese inside shows as one row, `transcriptRows`), the word list,
+transcript (on for dialogue and story, off for sleep; the current line highlighted and followed, tap a line to
+jump; an English sentence with Chinese inside shows as one row, `transcriptRows`; 拼 / EN chips hide the pinyin / English
+lines, remembered per device — `audio-lesson-transcript-pinyin-v1` / `-english-v1`, Lab `AudioLessonPrefs`; word chips in the
+transcript are not done — there is no client-side segmenter), the word list,
 Media Session (lock screen / headphones: play, pause, ±10 s, chapter back / next, seek). The page must
 stay open: the web player stops when you navigate away.
 
@@ -324,6 +378,17 @@ with the audio backfill → roughly 5–15 minutes per lesson.
 
 ## Tests
 
+- `shared/audio-lesson/story.test.ts`: the splitter (sentence ends and their runs, closing quotes, never inside quotes, unclosed
+  quotes, long sentences at commas / hard, speaker labels Latin / Han / "他说：", a lone label line, no merging across turns,
+  short sentences merged — also across narration lines, headings, asides / list markers / symbols / English lines dropped,
+  CRLF), the compile order (×3 at 0.5 with 2 s, the English, 2.5 s; the pinyin / English on the first only; voices; a third
+  speaker; chapters per heading / every 10; the transcript rows ×3 with the English joined), the 60-minute cut + notice, the
+  forms' estimate (calibrated within 20 % of the compiled script), `validateStoryPlan`, `pickAudioLessonInput` (story), format
+  info + music default.
+- `worker/…/__tests__/audio-lesson-story.test.ts`: the job on real SQLite with a mocked translation and voices — one batch, the
+  一 / 不 rule over Claude's pinyin, 10 distinct clips for 5 chunks, the chapters / transcript / usage; a long text in batches of 30
+  with a deadline in the middle → re-enqueue → resume without translating again, the cut noted; no Chinese → failed; a throwing
+  translation → failed, Retry translates again; the slowest provider rates; the translation call's shape and its check.
 - `shared/audio-lesson/characters.test.ts`: the picker (known words first — mature, then frequent; common words within
   the rank limit and with the word's reading; other reading; new vs met-only-in-a-sentence; never the word itself;
   one step for a one-character word / 姐姐), `char_notes` validation against the facts (invented / unquoted-in-facts
@@ -345,12 +410,17 @@ with the audio backfill → roughly 5–15 minutes per lesson.
 - `worker/src/routes/__tests__/podcast-feed.test.ts`: feed XML well-formed with one item per ready lesson,
   token scope (wrong / malformed / other user's lesson → 404), reset and turn off invalidate feed + files,
   Range / HEAD / 416, the token never in a log line, rate limit.
-- `mcp-server/src/tools/audio-lessons.test.ts`; `e2e/tests/audio-lessons.spec.ts` (E2E_TEST_MODE: fake
+- `mcp-server/src/tools/audio-lessons.test.ts` (incl. format story: the enum, the when-to-use description, chunks + notice
+  passed back); `e2e/tests/audio-lessons.spec.ts` (a story lesson from a pasted conversation: no length slider, the estimate,
+  in the list with 📖, the player's header, one row ×3 per line with the speaker, pinyin and English, 拼 / EN, tap to seek, the
+  heading as chapter, music on; E2E_TEST_MODE: fake
   model = the sample plans, fake voices = silent lesson-format clips; make → play → chapters →
   transcript (×3 rows with the translation) → music on by default for sleep, plays / pauses with the lesson,
 volume, off remembered, off for dialogue → sleep timer → offline, music included). Lab: `LessonMusicTest` (the music
 starts / stops with playback, the fade, the toggle), `AudioLessonParityTest` (rows + music rules), screenshots
-`audio-lessons-17-player-sleep-music` / `18-player-dialogue-music-off`.
+`audio-lessons-17-player-sleep-music` / `18-player-dialogue-music-off`, `AudioLessonStoryTest` (the create screen offers Story with
+its paste box and estimate and no length slider; the player's header, ×3 rows, 拼 / EN), screenshots `audio-lessons-19…22` (story
+form, cut notice, player, no pinyin).
 
 ## Lessons from the first attempt (June 2026, removed in #321)
 
@@ -366,3 +436,5 @@ chapters, no offline player and no notion of what the learner already knew.
   lesson takes minutes.
 - `analyseText` is a greedy match, not a word segmenter; Claude makes the final call.
 - No URL input yet (paste the text).
+- Story: a lesson is at most ~60 minutes (~1,500 characters); a longer text needs several lessons (the first part is made, the
+  notice says so). The transcript has no word chips (no deterministic segmenter on the device).

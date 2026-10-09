@@ -20,9 +20,12 @@ export const LESSON_MUSIC = {
   licence: 'CC0-1.0',
 } as const;
 
-/** Music on by default: under a sleep lesson yes, under a dialogue lesson no (the learner's choice is remembered per format). */
+/**
+ * Music on by default: under a sleep or a story lesson (background listening) yes, under a dialogue
+ * lesson no (the learner's choice is remembered per format).
+ */
 export function musicDefaultOn(format: AudioLessonFormat | string | null | undefined): boolean {
-  return format === 'sleep';
+  return format === 'sleep' || format === 'story';
 }
 
 /** The music's own volume (0–1, the slider), when the learner hasn't chosen one. Quiet: it sits under the voice. */

@@ -17,8 +17,8 @@ object AudioLessonMusic {
     const val MIN_VOLUME = 0.05
     const val MAX_VOLUME = 1.0
 
-    /** Port of musicDefaultOn: on under a sleep lesson, off under a dialogue lesson. */
-    fun defaultOn(format: String?): Boolean = format == "sleep"
+    /** Port of musicDefaultOn: on under a sleep or a story lesson, off under a dialogue lesson. */
+    fun defaultOn(format: String?): Boolean = format == "sleep" || format == "story"
 
     /** Port of parseMusicVolume: a stored / dragged volume → one the player uses. */
     fun parseVolume(raw: Double?): Double {

@@ -65,6 +65,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonFormats
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -94,11 +95,13 @@ val AUDIO_LESSON_SITUATIONS = listOf(
     "寄快递" to "Sending a parcel at the courier counter",
 )
 
-private data class FormatChoice(val id: String, val icon: String, val label: String, val blurb: String)
+/** The picker's choices: name / icon / few words from core AudioLessonFormats (the web's AUDIO_LESSON_FORMAT_INFO), the full blurb under them. */
+private data class FormatChoice(val id: String, val blurb: String)
 
 private val FORMATS = listOf(
-    FormatChoice("dialogue", "🎙️", "Dialogue", "An English host, a short Chinese dialogue played three times, then the new words explained."),
-    FormatChoice("sleep", "🌙", "Sleep", "Very slow and calm Chinese: the new words from a text, each said three times, explained in simple Chinese, with simple sentences — then one English line to check."),
+    FormatChoice("dialogue", "An English host, a short Chinese dialogue played three times, then the new words explained."),
+    FormatChoice("sleep", "Very slow and calm Chinese over soft music: the new words from a text, each said three times, its tones, its meaning told again and again in simple Chinese, one English line to check — then simple sentences, each with its English."),
+    FormatChoice("story", "Paste a longer story or conversation: each line or two is said three times, slowly, with a pause after each, then its English — over soft music, for background listening. As long as your text."),
 )
 
 data class AudioLessonsUi(
@@ -112,13 +115,22 @@ data class AudioLessonsUi(
     val dialogue: String = "",
     val showDialogue: Boolean = false,
     val text: String = "",
+    /** Story: the pasted story / conversation and an optional title. */
+    val storyText: String = "",
+    val storyTitle: String = "",
+    /** Story: the server's "The text is long: …" after a lesson was started. */
+    val notice: String? = null,
     val minutes: Int = AudioLessonTimeline.Limits.defaultMinutes("dialogue"),
     val busy: Boolean = false,
     val error: String? = null,
     val online: Boolean = true,
     val busyId: String? = null,
 ) {
-    private val filled: Boolean get() = if (format == "dialogue") description.isNotBlank() || dialogue.isNotBlank() else text.isNotBlank()
+    private val filled: Boolean get() = when (format) {
+        "dialogue" -> description.isNotBlank() || dialogue.isNotBlank()
+        "story" -> storyText.isNotBlank()
+        else -> text.isNotBlank()
+    }
     val canStart: Boolean get() = online && !busy && filled
 }
 
@@ -129,6 +141,8 @@ data class AudioLessonsActions(
     val onDialogue: (String) -> Unit = {},
     val onShowDialogue: () -> Unit = {},
     val onText: (String) -> Unit = {},
+    val onStoryText: (String) -> Unit = {},
+    val onStoryTitle: (String) -> Unit = {},
     val onMinutes: (Int) -> Unit = {},
     val onStart: () -> Unit = {},
     val onOpen: (String) -> Unit = {},
@@ -147,7 +161,7 @@ fun AudioLessonsScreen(ui: AudioLessonsUi, actions: AudioLessonsActions) {
     LabScreen("🎧 Audio lessons", onBack = actions.onBack) {
         item { Column {
             Text(
-                "Lessons to listen to — on the train, or to fall asleep to. Claude writes each one for you, checking it against your cards, and the app records it as one audio file you can keep offline.",
+                "Lessons to listen to — on the train, in the background, or to fall asleep to. Claude writes each one for you, checking it against your cards, and the app records it as one audio file you can keep offline.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Lab.colors.muted,
             )
@@ -209,14 +223,18 @@ private fun NewLessonCard(ui: AudioLessonsUi, actions: AudioLessonsActions) {
                         .background(if (on) AlColors.periwinkle.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f))
                         .border(1.5.dp, if (on) AlColors.periwinkle else Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
                         .clickable { actions.onFormat(f.id) }
-                        .heightIn(min = 44.dp).padding(horizontal = 11.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                        .heightIn(min = 44.dp).padding(horizontal = 10.dp, vertical = 10.dp)
+                        .testTag("al-format-${f.id}"),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text("${f.icon} ${f.label}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(f.blurb, color = AlColors.lavender, fontSize = 12.sp, lineHeight = 16.sp)
+                    val info = AudioLessonFormats.info(f.id)
+                    Text(info.icon, fontSize = 20.sp)
+                    Text(info.label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                    Text(info.short, color = AlColors.lavender, fontSize = 12.sp, lineHeight = 15.sp)
                 }
             }
         }
+        FORMATS.firstOrNull { it.id == ui.format }?.let { Text(it.blurb, color = AlColors.lavender, fontSize = 13.sp, lineHeight = 18.sp) }
         val fieldColors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = Color.White.copy(alpha = 0.1f),
             unfocusedContainerColor = Color.White.copy(alpha = 0.1f),
@@ -262,6 +280,35 @@ private fun NewLessonCard(ui: AudioLessonsUi, actions: AudioLessonsActions) {
                     modifier = Modifier.heightIn(min = 44.dp).clickable(onClick = actions.onShowDialogue).padding(vertical = 12.dp),
                 )
             }
+        } else if (ui.format == "story") {
+            Label("Paste a story or a conversation")
+            OutlinedTextField(
+                value = ui.storyText,
+                onValueChange = { actions.onStoryText(it.take(L.STORY_TEXT)) },
+                placeholder = { Text("明慧：你好！你今天想喝什么？\n杰罗姆：我要一杯热咖啡，不要糖。\n…\n\nSpeaker labels (A：, 明慧：) get their own voices; headings (# …) become chapters.") },
+                minLines = 8,
+                maxLines = 14,
+                shape = RoundedCornerShape(12.dp),
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth().testTag("al-story-text"),
+            )
+            val nf = NumberFormat.getIntegerInstance(Locale.US)
+            Text(
+                "${nf.format(ui.storyText.length)} / ${nf.format(L.STORY_TEXT)} characters · ${AudioLessonFormats.storyEstimateLine(ui.storyText)}",
+                color = AlColors.lavender,
+                fontSize = 13.sp,
+                modifier = Modifier.testTag("al-story-estimate"),
+            )
+            Label("Title (optional)")
+            OutlinedTextField(
+                value = ui.storyTitle,
+                onValueChange = { actions.onStoryTitle(it.take(120)) },
+                placeholder = { Text("From the first heading or line if empty") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth(),
+            )
         } else {
             Label("Paste some Chinese — an article, a story, a chat")
             OutlinedTextField(
@@ -277,8 +324,8 @@ private fun NewLessonCard(ui: AudioLessonsUi, actions: AudioLessonsActions) {
             val nf = NumberFormat.getIntegerInstance(Locale.US)
             Text("${nf.format(ui.text.length)} / ${nf.format(L.TEXT)} characters", color = AlColors.lavender, fontSize = 13.sp)
         }
-        Label("Length: about ${ui.minutes} minutes")
-        Slider(
+        if (ui.format != "story") Label("Length: about ${ui.minutes} minutes")
+        if (ui.format != "story") Slider(
             value = ui.minutes.toFloat(),
             onValueChange = { actions.onMinutes(Math.round(it)) },
             valueRange = L.MIN_MINUTES.toFloat()..L.MAX_MINUTES.toFloat(),
@@ -300,6 +347,7 @@ private fun NewLessonCard(ui: AudioLessonsUi, actions: AudioLessonsActions) {
             Text(if (ui.busy) "Sending…" else "🎧 Make the lesson", color = AlColors.onPeriwinkle, fontWeight = FontWeight.Bold, fontSize = 17.sp)
         }
         if (!ui.online) InlineNotice("You're offline — making a lesson needs a connection. Saved lessons still play.", kind = NoticeKind.Offline)
+        ui.notice?.let { InlineNotice(it, kind = NoticeKind.Info) }
         ui.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
     }
 }
@@ -332,8 +380,9 @@ private fun LessonRow(l: AudioLessonDto, saved: Boolean, downloading: Double?, o
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint), contentAlignment = Alignment.Center) {
-            if (l.building) BuildingIcon(if (l.format == "sleep") "🌙" else "🎙️")
-            else Text(if (l.format == "sleep") "🌙" else "🎙️", fontSize = 24.sp)
+            val icon = AudioLessonFormats.info(l.format).icon
+            if (l.building) BuildingIcon(icon)
+            else Text(icon, fontSize = 24.sp)
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {

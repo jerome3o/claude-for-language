@@ -20,6 +20,7 @@ import {
   speechChars,
   speechKey,
   uniqueSpeech,
+  type AudioLessonFormat,
   type AudioLessonInput,
   type AudioLessonScript,
   type AudioLessonUsage,
@@ -37,6 +38,7 @@ import { buildVocabIndex } from './vocab';
 import { makeCharLinks, type CharLinksFn } from './char-links';
 import { assetsShardLoader } from '../char-dict';
 import { fakeModelResponse } from './fake';
+import { anthropicStoryTranslate, fakeStoryTranslate, startStory, storyCostUsd, STORY_TRANSLATE_MODEL, writeStory, type StoryState, type StoryTranslate } from './story';
 
 export interface AudioLessonJobMessage {
   lessonId: string;
@@ -53,6 +55,8 @@ export type JobOutcome = 'done' | 'continue' | 'waiting' | 'failed' | 'skipped';
 
 export interface JobDeps {
   call?: ModelCall;
+  /** Story lessons: the translation call (default: Claude through structuredCall). */
+  translate?: StoryTranslate;
   speak?: (clip: ClipRequest, pinned: TtsProviderId | null) => Promise<ClipOutcome>;
   /** Re-enqueue (default: the queue). */
   requeue?: (lessonId: string, delaySeconds: number) => Promise<void>;
@@ -123,6 +127,42 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
   };
 
   try {
+    // ---------- 1. writing (story: splitting + translating) ----------
+    if (!row.script_json && row.format === 'story') {
+      const translate = deps.translate ?? (env.E2E_TEST_MODE === 'true' ? fakeStoryTranslate() : env.ANTHROPIC_API_KEY ? anthropicStoryTranslate(env.ANTHROPIC_API_KEY) : null);
+      if (!translate) return fail('Audio lessons need the Claude key, which is not configured on the server');
+      const saved = parseJson<{ story?: StoryState; usage?: AuthorState['usage'] } | null>(row.agent_transcript, null);
+      const usage = saved?.usage ?? emptyUsage();
+      const state = saved?.story ?? startStory(input);
+      if (!state) return fail('No Chinese sentences found in the text');
+      const save = (s: StoryState, progress: string) => q.patchAudioLesson(env.DB, lessonId, { agent_transcript: { story: s, usage } as unknown as unknown[], progress });
+      await q.patchAudioLesson(env.DB, lessonId, { status: 'writing', started_at: row.started_at ?? new Date(now()).toISOString(), title: state.title });
+      await save(state, `Translating — ${state.translations.filter(Boolean).length} of ${state.chunks.length} lines…`);
+      const out = await writeStory({ state, translate, usage, deadline, now, checkpoint: save });
+      if (out.kind === 'continue') {
+        await requeue(lessonId, 0);
+        return 'continue';
+      }
+      const storyUsage = usageFor(usage, 0, null, null, null, 'story');
+      if (out.kind === 'failed') {
+        await q.patchAudioLesson(env.DB, lessonId, { usage_json: storyUsage });
+        return fail(out.reason);
+      }
+      const clips = uniqueSpeech(out.script).length;
+      await q.patchAudioLesson(env.DB, lessonId, {
+        title: out.script.title.slice(0, 120),
+        plan_json: out.plan,
+        script_json: out.script,
+        words_json: out.script.words,
+        status: 'speaking',
+        progress: `Recording 0 of ${clips} clips…`,
+        progress_done: 0,
+        progress_total: clips,
+        usage_json: storyUsage,
+      });
+      row = (await q.getAudioLesson(env.DB, lessonId))!;
+    }
+
     // ---------- 1. writing ----------
     if (!row.script_json) {
       const index = buildVocabIndex(await q.learnerVocabulary(env.DB, row.user_id));
@@ -252,7 +292,7 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
     if (row.audio_key && row.audio_key !== fileKey) await env.AUDIO_BUCKET.delete(row.audio_key).catch(() => {});
 
     const authorUsage = parseJson<{ usage?: AuthorState['usage'] }>(row.agent_transcript, {}).usage ?? emptyUsage();
-    const usage = usageFor(authorUsage, row.rounds, script, pinned, enProvider ?? priorUsage?.en_provider ?? null);
+    const usage = usageFor(authorUsage, row.rounds, script, pinned, enProvider ?? priorUsage?.en_provider ?? null, row.format);
     await q.patchAudioLesson(env.DB, lessonId, {
       status: 'ready',
       progress: 'Ready',
@@ -275,10 +315,19 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
   }
 }
 
-export function usageFor(author: AuthorState['usage'], rounds: number, script: AudioLessonScript | null, zh: string | null, en: string | null): AudioLessonUsage {
+export function usageFor(
+  author: AuthorState['usage'],
+  rounds: number,
+  script: AudioLessonScript | null,
+  zh: string | null,
+  en: string | null,
+  /** A story lesson's Claude part is the translation (another model and price). */
+  format: AudioLessonFormat = 'dialogue',
+): AudioLessonUsage {
   const chars = script ? speechChars(script) : { zh: 0, en: 0, clips: 0 };
+  const story = format === 'story';
   return {
-    model: AUDIO_LESSON_MODEL,
+    model: story ? STORY_TRANSLATE_MODEL : AUDIO_LESSON_MODEL,
     input_tokens: author.input_tokens + author.cache_creation_input_tokens,
     output_tokens: author.output_tokens,
     cache_read_input_tokens: author.cache_read_input_tokens,
@@ -288,12 +337,12 @@ export function usageFor(author: AuthorState['usage'], rounds: number, script: A
     tts_clips: chars.clips,
     zh_provider: zh,
     en_provider: en,
-    claude_usd: claudeCostUsd(author),
+    claude_usd: story ? storyCostUsd(author) : claudeCostUsd(author),
   };
 }
 
 /** E2E: the fake model answers with the sample plan at once. */
-function fakeCall(format: 'dialogue' | 'sleep', charLinks: CharLinksFn): ModelCall {
+function fakeCall(format: AudioLessonFormat, charLinks: CharLinksFn): ModelCall {
   return async () => (await fakeModelResponse(format, undefined, charLinks)) as unknown as Awaited<ReturnType<ModelCall>>;
 }
 

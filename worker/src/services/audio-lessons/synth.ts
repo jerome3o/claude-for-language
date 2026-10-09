@@ -6,7 +6,7 @@
  * be joined into the lesson file.
  */
 import type { Env } from '../../types';
-import { SLEEP_ZH_PROVIDER_RATE, type ScriptSpeaker, type VoiceRole } from '@shared/audio-lesson';
+import { RATES, SLEEP_ZH_PROVIDER_RATE, type ScriptSpeaker, type VoiceRole } from '@shared/audio-lesson';
 import { providerRate, usableOrder, type TtsConfig, type TtsProviderId } from '@shared/tts';
 import { callProviderTTS, combineProviderFailures, shouldTryNextProvider, type ProviderCallOutcome } from '../audio';
 import { configuredProviders } from '../tts/providers';
@@ -30,12 +30,13 @@ export type ClipOutcome =
   | { ok: false; wait: false; permanent: boolean; reason: string };
 
 /**
- * The rate a provider is asked for. The sleep voice's Chinese goes at that provider's own slowest
+ * The rate a provider is asked for. The sleep voice's Chinese — and any Chinese at the app's
+ * slowest rate (`RATES.sleep`, 0.5: a story lesson's chunks) — goes at that provider's own slowest
  * natural rate (`SLEEP_ZH_PROVIDER_RATE`: MiniMax 0.5, Azure 0.6, Google 0.6); everything else is
  * the app-scale rate mapped per provider (`providerRate`; MiniMax's scale IS the app's).
  */
 export function lessonClipRate(provider: TtsProviderId, clip: Pick<ClipRequest, 'lang' | 'voice' | 'rate'>, config: TtsConfig): number {
-  if (clip.voice === 'sleep' && clip.lang === 'zh') return SLEEP_ZH_PROVIDER_RATE[provider];
+  if (clip.lang === 'zh' && (clip.voice === 'sleep' || clip.rate <= RATES.sleep)) return SLEEP_ZH_PROVIDER_RATE[provider];
   return provider === 'minimax' ? clip.rate : providerRate(config.providers[provider], clip.rate);
 }
 

@@ -23,6 +23,15 @@ import {
   SAMPLE_DIALOGUE_PLAN,
   SAMPLE_SLEEP_PLAN,
   SAMPLE_SLEEP_SOURCE,
+  SAMPLE_STORY_PLAN,
+  AUDIO_LESSON_FORMATS,
+  AUDIO_LESSON_INPUT_LIMITS,
+  STORY_MS_PER_HAN,
+  STORY_LIMITS,
+  audioLessonFormatInfo,
+  compileStoryLesson,
+  storyEstimateLine,
+  storyMinutesForText,
   buildTimeline,
   chapterIndexAt,
   compileDialogueLesson,
@@ -71,6 +80,14 @@ function clipFrames(script: AudioLessonScript): Map<string, number> {
 const lessons = [
   { name: 'dialogue', script: compileDialogueLesson(SAMPLE_DIALOGUE_PLAN) },
   { name: 'sleep', script: compileSleepLesson(SAMPLE_SLEEP_PLAN, { sourceText: SAMPLE_SLEEP_SOURCE }) },
+  // A story: five scenes of the sample conversation — a chapter per heading, each line ×3 + its English.
+  {
+    name: 'story',
+    script: compileStoryLesson({
+      ...SAMPLE_STORY_PLAN,
+      chunks: ['第一幕', '第二幕', '第三幕', '第四幕', '第五幕'].flatMap((section) => SAMPLE_STORY_PLAN.chunks.map((c) => ({ ...c, section }))),
+    }),
+  },
 ].map(({ name, script }) => {
   const timeline = buildTimeline(script, clipFrames(script), 24, 1);
   const end = timeline.duration_ms;
@@ -135,12 +152,23 @@ writeFileSync(
     speeds: AUDIO_LESSON_SPEEDS,
     timer: SLEEP_TIMER_CHOICES.map((m) => ({ minutes: m, label: sleepTimerLabel(m) })),
     fadeMs: SLEEP_FADE_MS,
+    formats: {
+      all: AUDIO_LESSON_FORMATS,
+      info: [...AUDIO_LESSON_FORMATS, 'podcast', null, 'toString'].map((format) => ({ format, info: audioLessonFormatInfo(format) })),
+      defaultMinutes: AUDIO_LESSON_FORMATS.map((format) => ({ format, minutes: AUDIO_LESSON_INPUT_LIMITS.defaultMinutes[format] })),
+      storyText: AUDIO_LESSON_INPUT_LIMITS.storyText,
+      msPerHan: STORY_MS_PER_HAN,
+      maxMinutes: STORY_LIMITS.maxMinutes,
+      estimates: ['', 'Hello', '你好', '你好！我叫明慧。', SAMPLE_STORY_PLAN.chunks.map((c) => c.hanzi).join('\n'), '好'.repeat(12), '好'.repeat(13), '好'.repeat(500), '好'.repeat(600), '好'.repeat(1531), '好'.repeat(1532), '好'.repeat(3000), '𠀀𠀁好']
+        .concat(Array.from({ length: 30 }, () => '好'.repeat(int(0, 2000))))
+        .map((text) => ({ text, ...storyMinutesForText(text), line: storyEstimateLine(text) })),
+    },
     music: {
       defaultVolume: MUSIC_DEFAULT_VOLUME,
       minVolume: MUSIC_MIN_VOLUME,
       maxVolume: MUSIC_MAX_VOLUME,
-      defaults: ['sleep', 'dialogue', null, 'other'].map((format) => ({ format, on: musicDefaultOn(format) })),
-      on: [null, '1', '0', 'yes', ''].flatMap((raw) => ['sleep', 'dialogue', null].map((format) => ({ raw, format, on: parseMusicOn(raw, format) }))),
+      defaults: ['sleep', 'dialogue', 'story', null, 'other'].map((format) => ({ format, on: musicDefaultOn(format) })),
+      on: [null, '1', '0', 'yes', ''].flatMap((raw) => ['sleep', 'dialogue', 'story', null].map((format) => ({ raw, format, on: parseMusicOn(raw, format) }))),
       volumes: [null, 0, 0.01, 0.05, 0.333, 0.335, 0.35, 0.5, 0.999, 1, 1.5, -2]
         .concat(Array.from({ length: 30 }, () => Math.round(r() * 120) / 100))
         .map((raw) => ({ raw, volume: parseMusicVolume(raw), label: musicVolumeLabel(raw ?? Number.NaN) })),

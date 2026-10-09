@@ -12,8 +12,36 @@
  *   decides what is said.
  */
 
-export type AudioLessonFormat = 'dialogue' | 'sleep';
-export const AUDIO_LESSON_FORMATS: readonly AudioLessonFormat[] = ['dialogue', 'sleep'];
+/**
+ * - dialogue: an English host + a Chinese dialogue played three times, then the words;
+ * - sleep: slow all-Chinese immersion teaching the new words of a text;
+ * - story: "Listen & repeat" — a pasted story or conversation, chunk by chunk, each chunk said
+ *   three times slowly and then its English (story.ts). No words are taught; Claude only translates.
+ */
+export type AudioLessonFormat = 'dialogue' | 'sleep' | 'story';
+export const AUDIO_LESSON_FORMATS: readonly AudioLessonFormat[] = ['dialogue', 'sleep', 'story'];
+
+/** How each format is named and shown (both apps: the picker, the list's icon, the player's header). */
+export interface AudioLessonFormatInfo {
+  icon: string;
+  /** The picker's name. */
+  label: string;
+  /** Under the name in the picker: what it is for, in a few words. */
+  short: string;
+  /** The player's header. */
+  kind: string;
+}
+
+export const AUDIO_LESSON_FORMAT_INFO: Record<AudioLessonFormat, AudioLessonFormatInfo> = {
+  dialogue: { icon: '🎙️', label: 'Dialogue', short: 'Practise a situation', kind: 'Dialogue lesson' },
+  sleep: { icon: '🌙', label: 'Sleep', short: 'New words, slowly', kind: 'Sleep lesson' },
+  story: { icon: '📖', label: 'Story', short: 'Listen & repeat', kind: 'Listen & repeat a story' },
+};
+
+/** The format's info; an unknown format is shown as a dialogue lesson. */
+export function audioLessonFormatInfo(format: string | null | undefined): AudioLessonFormatInfo {
+  return format && Object.prototype.hasOwnProperty.call(AUDIO_LESSON_FORMAT_INFO, format) ? AUDIO_LESSON_FORMAT_INFO[format as AudioLessonFormat] : AUDIO_LESSON_FORMAT_INFO.dialogue;
+}
 
 export type ScriptLang = 'zh' | 'en';
 
@@ -198,7 +226,30 @@ export interface SleepPlan {
   outro_zh: string;
 }
 
-export type AudioLessonPlan = { format: 'dialogue'; plan: DialoguePlan } | { format: 'sleep'; plan: SleepPlan };
+/**
+ * A story lesson (story.ts): the pasted text split into chunks by code (`splitStoryText`), each
+ * translated by Claude (english + pinyin) — the Chinese is never rewritten.
+ */
+export interface StoryPlan {
+  title: string;
+  /** The speaker labels of a conversation, in order of first appearance, with the voice gender to use. */
+  speakers: Array<{ label: string; gender: Gender }>;
+  chunks: Array<
+    PlanLine & {
+      /** The speaker label as written ("A", "明慧"); null = narration. */
+      speaker: string | null;
+      /** The heading this chunk is under (a chapter), if the text has headings. */
+      section: string | null;
+    }
+  >;
+  /** Set when the text was longer than one lesson holds: what was kept of how much. */
+  cut?: { chunks: number; total_chunks: number; chars: number; total_chars: number };
+}
+
+export type AudioLessonPlan =
+  | { format: 'dialogue'; plan: DialoguePlan }
+  | { format: 'sleep'; plan: SleepPlan }
+  | { format: 'story'; plan: StoryPlan };
 
 // ---------- What the player shows ----------
 
@@ -227,7 +278,7 @@ export interface AudioLessonInput {
   description?: string;
   /** Format A: a dialogue to build the lesson on (optional). */
   dialogue?: string;
-  /** Format B: the Chinese text to mine for new words. */
+  /** Format B: the Chinese text to mine for new words. Story: the story / conversation to listen to. */
   text?: string;
   target_minutes?: number;
   /** A title the learner chose (else Claude names the lesson). */
@@ -239,9 +290,12 @@ export const AUDIO_LESSON_INPUT_LIMITS = {
   dialogue: 4000,
   /** Format B's raw text (a long article is fine; the agent picks the words). */
   text: 20_000,
+  /** A story lesson's pasted text (its length decides the lesson's; see STORY_LIMITS). */
+  storyText: 6000,
   minMinutes: 5,
   maxMinutes: 40,
-  defaultMinutes: { dialogue: 12, sleep: 20 } as Record<AudioLessonFormat, number>,
+  /** Story: not a target — the lesson is as long as the text (STORY_LIMITS.maxMinutes at most). */
+  defaultMinutes: { dialogue: 12, sleep: 20, story: 0 } as Record<AudioLessonFormat, number>,
 } as const;
 
 export interface AudioLessonUsage {
@@ -286,6 +340,8 @@ export interface AudioLessonDetail extends AudioLessonSummary {
   speakers: ScriptSpeaker[];
   usage: AudioLessonUsage | null;
   for_relationship_id: string | null;
+  /** Story: "The text is long: this lesson covers the first …" when part of the text was left out. */
+  notice?: string | null;
 }
 
 /**

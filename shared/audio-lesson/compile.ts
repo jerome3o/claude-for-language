@@ -131,7 +131,8 @@ export function splitChineseSentences(text: string): string[] {
   return (text.match(/[^。！？!?]+[。！？!?]*/gu) ?? []).map((s) => s.trim()).filter((s) => hasHan(s));
 }
 
-class ScriptBuilder {
+/** Builds a script segment by segment (also used by story.ts). */
+export class ScriptBuilder {
   segments: ScriptSegment[] = [];
   chapters: Array<{ title: string }> = [];
 
@@ -139,7 +140,7 @@ class ScriptBuilder {
     this.chapters.push({ title });
   }
 
-  private get ch(): number {
+  get ch(): number {
     return Math.max(0, this.chapters.length - 1);
   }
 

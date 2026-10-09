@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonMusic
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonFormats
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTranscriptRow
 import dev.jeromeswannack.chineselearning.lab.data.api.AudioLessonDto
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
@@ -80,6 +81,9 @@ data class AudioLessonPlayerUi(
     /** null = the format's default (on for dialogue, off for sleep). */
     val showTranscript: Boolean? = null,
     val showWords: Boolean = false,
+    /** The transcript's 拼 / EN toggles (remembered on this phone). */
+    val showPinyin: Boolean = true,
+    val showEnglish: Boolean = true,
     /** The soft music bed (docs/AUDIO_LESSONS.md "Music"): on by default for sleep, off for dialogue. */
     val musicOn: Boolean = false,
     val musicVolume: Double = AudioLessonMusic.DEFAULT_VOLUME,
@@ -99,6 +103,8 @@ data class AudioLessonPlayerActions(
     val onTimer: (Int) -> Unit = {},
     val onChapters: () -> Unit = {},
     val onTranscript: () -> Unit = {},
+    val onPinyin: () -> Unit = {},
+    val onEnglish: () -> Unit = {},
     val onWords: () -> Unit = {},
     val onMusic: () -> Unit = {},
     /** The music volume slider: (volume, the finger lifted). */
@@ -139,7 +145,7 @@ fun AudioLessonPlayerScreen(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerA
                     }
                     LazyColumn(Modifier.weight(1f).fillMaxSize(), state = transcriptState, contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         item { Text("📝 Transcript", color = AlColors.muted, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp)) }
-                        transcript(rows, currentRow, actions)
+                        transcript(rows, currentRow, actions, ui.showPinyin, ui.showEnglish)
                     }
                     Follow(transcriptState, currentRow, offset = 1, enabled = ui.playing)
                 }
@@ -156,7 +162,7 @@ fun AudioLessonPlayerScreen(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerA
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             playerPanels(ui, actions)
-                            if (ui.transcriptOn) transcript(rows, currentRow, actions)
+                            if (ui.transcriptOn) transcript(rows, currentRow, actions, ui.showPinyin, ui.showEnglish)
                             words(ui, actions)
                         }
                     }
@@ -199,7 +205,8 @@ private fun PlayerTop(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions
             BackButton(actions.onBack)
             Spacer(Modifier.width(4.dp))
             Column(Modifier.weight(1f)) {
-                Text(if (lesson.format == "sleep") "🌙 Sleep lesson" else "🎙️ Dialogue lesson", color = AlColors.muted, fontSize = 13.sp)
+                val info = AudioLessonFormats.info(lesson.format)
+                Text("${info.icon} ${info.kind}", color = AlColors.muted, fontSize = 13.sp)
                 Text(lesson.title, color = AlColors.bright, fontSize = 21.sp, fontWeight = FontWeight.Bold, lineHeight = 26.sp)
             }
         }
@@ -234,6 +241,7 @@ private fun PlayerTop(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions
                 ui.savedOnPhone -> Text("✓ Saved on this phone · plays offline", color = AlColors.muted, fontSize = 13.sp)
             }
             ui.loadError?.let { Text(it, color = Color(0xFFFCA5A5), fontSize = 14.sp) }
+            lesson.notice?.let { Text(it, color = AlColors.muted, fontSize = 13.sp) }
         }
     }
     Scrubber(ui.positionMs, duration, ui.canPlay, actions.onSeek)
@@ -253,6 +261,10 @@ private fun PlayerTop(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions
             )
             NightChip("☰ Chapters", selected = ui.showChapters, compact = true, onClick = actions.onChapters)
             NightChip("📝 Transcript", selected = ui.transcriptOn, compact = true, onClick = actions.onTranscript)
+            if (ui.transcriptOn) {
+                Box(Modifier.semantics { contentDescription = "Pinyin in the transcript" }) { NightChip("拼", selected = ui.showPinyin, compact = true, onClick = actions.onPinyin) }
+                Box(Modifier.semantics { contentDescription = "English in the transcript" }) { NightChip("EN", selected = ui.showEnglish, compact = true, onClick = actions.onEnglish) }
+            }
             Box(Modifier.semantics { contentDescription = if (ui.musicOn) "Music on" else "Music off" }) {
                 NightChip(if (ui.musicOn) "🎵 Music" else "🎵 Music off", selected = ui.musicOn, compact = true, onClick = actions.onMusic)
             }
@@ -381,14 +393,14 @@ private fun LazyListScope.playerPanels(ui: AudioLessonPlayerUi, actions: AudioLe
     }
 }
 
-private fun LazyListScope.transcript(rows: List<AudioLessonTranscriptRow>, current: Int, actions: AudioLessonPlayerActions) {
+private fun LazyListScope.transcript(rows: List<AudioLessonTranscriptRow>, current: Int, actions: AudioLessonPlayerActions, showPinyin: Boolean, showEnglish: Boolean) {
     rows.forEachIndexed { i, row ->
-        item(key = "t${row.first}") { TranscriptRowView(row, i == current) { actions.onSeek(row.startMs) } }
+        item(key = "t${row.first}") { TranscriptRowView(row, i == current, showPinyin, showEnglish) { actions.onSeek(row.startMs) } }
     }
 }
 
 @Composable
-private fun TranscriptRowView(row: AudioLessonTranscriptRow, current: Boolean, onClick: () -> Unit) {
+private fun TranscriptRowView(row: AudioLessonTranscriptRow, current: Boolean, showPinyin: Boolean, showEnglish: Boolean, onClick: () -> Unit) {
     val bg by animateColorAsState(if (current) AlColors.periwinkle.copy(alpha = 0.16f) else Color.Transparent, label = "row")
     val scale by animateFloatAsState(if (current) 1f else 0.985f, spring(dampingRatio = 0.6f), label = "rowScale")
     Row(Modifier.fillMaxWidth().scale(scale).clip(RoundedCornerShape(12.dp)).background(bg).clickable(onClick = onClick)) {
@@ -408,8 +420,8 @@ private fun TranscriptRowView(row: AudioLessonTranscriptRow, current: Boolean, o
                     Text("×$it", color = AlColors.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp).semantics { contentDescription = "said $it times" })
                 }
             }
-            row.pinyin?.let { Text(it, color = AlColors.periwinkle.copy(alpha = 0.85f), fontSize = 13.sp) }
-            row.english?.let { Text(it, color = AlColors.muted, fontSize = 13.sp) }
+            if (showPinyin) row.pinyin?.let { Text(it, color = AlColors.periwinkle.copy(alpha = 0.85f), fontSize = 13.sp) }
+            if (showEnglish) row.english?.let { Text(it, color = AlColors.muted, fontSize = 13.sp) }
         }
     }
 }

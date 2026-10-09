@@ -61,7 +61,7 @@
 
 .al-formats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
 }
 
@@ -71,7 +71,7 @@
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
   border-radius: var(--radius-md, 10px);
-  padding: 0.6rem 0.7rem;
+  padding: 0.55rem 0.6rem;
   min-height: 44px;
   display: flex;
   flex-direction: column;
@@ -84,14 +84,27 @@
   background: rgba(165, 180, 252, 0.2);
 }
 
+.al-format-icon {
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+
 .al-format-label {
   font-weight: 700;
   font-size: 0.95rem;
 }
 
-.al-format-blurb {
+.al-format-short {
   font-size: 0.75rem;
-  line-height: 1.35;
+  line-height: 1.3;
+  color: #c7d2fe;
+}
+
+/* The chosen format's full description, under the three choices. */
+.al-format-blurb {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
   color: #c7d2fe;
 }
 

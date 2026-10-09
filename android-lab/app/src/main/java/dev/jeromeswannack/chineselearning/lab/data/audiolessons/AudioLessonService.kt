@@ -240,7 +240,7 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(l.title)
-                .setArtist(if (l.format == "sleep") "Sleep lesson" else "Audio lesson")
+                .setArtist(if (l.format == "dialogue") "Audio lesson" else dev.jeromeswannack.chineselearning.lab.core.AudioLessonFormats.info(l.format).kind)
                 .setAlbumTitle(l.chapters.getOrNull(chapter)?.title.orEmpty())
                 .setDisplayTitle(l.title)
                 .build(),

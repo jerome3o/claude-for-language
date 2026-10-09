@@ -119,6 +119,51 @@ test('a dialogue lesson lists its chapters and shows the transcript', async ({ a
   }
 });
 
+test('a story lesson: paste a conversation → each line three times with its English, in the list and the player', async ({ authenticatedPage: page }) => {
+  test.setTimeout(120_000);
+  await page.gotoAuthenticated('/audio-lessons');
+  await page.getByRole('radio', { name: /Story/ }).click();
+  // No length slider: a story is as long as its text.
+  await expect(page.getByLabel(/Length: about/)).toHaveCount(0);
+  await page.getByLabel('Paste a story or a conversation').fill(
+    '# 在咖啡馆\n明慧：你好！你今天想喝什么？\n杰罗姆：我要一杯热咖啡，不要糖。\n明慧：好的。你要大杯还是小杯？\n杰罗姆：小杯就好。谢谢！\n他们坐在窗边，外面下着小雨。',
+  );
+  await expect(page.getByTestId('al-story-estimate')).toHaveText(/^About \d+ minutes? of audio\.$/);
+  await page.getByRole('button', { name: '🎧 Make the lesson' }).click();
+
+  // Split by the app, translated (the E2E fake), recorded and rendered in the background.
+  const row = page.getByRole('button', { name: 'Play 在咖啡馆' });
+  await expect(row).toBeVisible({ timeout: 60000 });
+  await expect(row.locator('.al-row-icon')).toHaveText('📖');
+  await row.click();
+  await expect(page.getByText('📖 Listen & repeat a story')).toBeVisible();
+  await expect(page.getByText('✓ Saved on this phone · plays offline')).toBeVisible({ timeout: 30000 });
+
+  // Transcript on by default: each line ONE row, ×3, the speaker's name, its pinyin and its English.
+  const transcript = page.getByLabel('Transcript');
+  const first = transcript.locator('li', { hasText: '明慧：你好！你今天想喝什么？' });
+  await expect(first).toHaveCount(1);
+  await expect(first).toContainText('×3');
+  await expect(first).toContainText('Line 1 of the story.');
+  await expect(first.locator('.al-line-pinyin')).toBeVisible();
+  await expect(transcript.locator('li')).toHaveCount(5);
+  // 拼 / EN hide the pinyin and the English (remembered on this device).
+  await page.getByRole('button', { name: 'Pinyin in the transcript' }).click();
+  await expect(first.locator('.al-line-pinyin')).toHaveCount(0);
+  await page.getByRole('button', { name: 'English in the transcript' }).click();
+  await expect(first).not.toContainText('Line 1 of the story.');
+  expect(await page.evaluate(() => localStorage.getItem('audio-lesson-transcript-pinyin-v1'))).toBe('0');
+  await page.getByRole('button', { name: 'Pinyin in the transcript' }).click();
+  await page.getByRole('button', { name: 'English in the transcript' }).click();
+  // Tap a line → it plays from there.
+  await transcript.locator('li', { hasText: '他们坐在窗边' }).click();
+  await expect(transcript.locator('li.current')).toContainText('他们坐在窗边');
+  // The heading is the chapter; music on by default, like a sleep lesson.
+  await page.getByRole('button', { name: '☰ Chapters' }).click();
+  await expect(page.locator('.al-chapters').getByText('在咖啡馆', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Music' })).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('the private podcast feed: copy, fetch like a podcast app, Range, reset', async ({ authenticatedPage: page }) => {
   test.setTimeout(120_000);
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);

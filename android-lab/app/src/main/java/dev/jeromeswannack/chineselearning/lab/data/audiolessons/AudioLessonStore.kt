@@ -189,6 +189,14 @@ class AudioLessonPrefs(context: Context) {
         sp.edit().putString("music-on:${format.orEmpty()}", if (on) "1" else "0").apply()
     }
 
+    /** The transcript's 拼 / EN toggles (on until turned off; one choice for every lesson — the web's audio-lesson-transcript-*-v1). */
+    var showPinyin: Boolean
+        get() = sp.getBoolean("transcript-pinyin", true)
+        set(v) { sp.edit().putBoolean("transcript-pinyin", v).apply() }
+    var showEnglish: Boolean
+        get() = sp.getBoolean("transcript-english", true)
+        set(v) { sp.edit().putBoolean("transcript-english", v).apply() }
+
     /** The music's volume (0.05–1). */
     var musicVolume: Double
         get() = AudioLessonMusic.parseVolume(if (sp.contains("music-volume")) sp.getFloat("music-volume", 0f).toDouble() else null)

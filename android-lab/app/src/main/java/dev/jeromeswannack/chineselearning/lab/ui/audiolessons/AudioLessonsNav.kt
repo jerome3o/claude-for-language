@@ -69,6 +69,8 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
                 onDialogue = vm::setDialogue,
                 onShowDialogue = vm::showDialogue,
                 onText = vm::setText,
+                onStoryText = vm::setStoryText,
+                onStoryTitle = vm::setStoryTitle,
                 onMinutes = vm::setMinutes,
                 onStart = vm::start,
                 onOpen = { nav.open(Routes.audioLesson(it)) },
@@ -99,6 +101,8 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
                 onTimer = { app.haptics.tick(); vm.setTimer(it) },
                 onChapters = vm::toggleChapters,
                 onTranscript = vm::toggleTranscript,
+                onPinyin = vm::togglePinyin,
+                onEnglish = vm::toggleEnglish,
                 onWords = vm::toggleWords,
                 onMusic = { app.haptics.tick(); vm.toggleMusic() },
                 onMusicVolume = vm::setMusicVolume,
@@ -153,29 +157,35 @@ class AudioLessonsViewModel(private val app: LabApp) : ViewModel() {
 
     fun refresh() { list.refresh() }
 
-    fun setFormat(f: String) = form.update { it.copy(format = f, minutes = AudioLessonTimeline.Limits.defaultMinutes(f), error = null) }
+    fun setFormat(f: String) = form.update { it.copy(format = f, minutes = AudioLessonTimeline.Limits.defaultMinutes(f), error = null, notice = null) }
     fun setDescription(v: String) = form.update { it.copy(description = v) }
     fun setDialogue(v: String) = form.update { it.copy(dialogue = v) }
     fun showDialogue() = form.update { it.copy(showDialogue = true) }
     fun setText(v: String) = form.update { it.copy(text = v) }
+    fun setStoryText(v: String) = form.update { it.copy(storyText = v) }
+    fun setStoryTitle(v: String) = form.update { it.copy(storyTitle = v) }
     fun setMinutes(m: Int) = form.update { it.copy(minutes = m.coerceIn(AudioLessonTimeline.Limits.MIN_MINUTES, AudioLessonTimeline.Limits.MAX_MINUTES)) }
 
     fun start() {
         val f = ui.value
         if (!f.canStart) return
-        form.update { it.copy(busy = true, error = null) }
+        form.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch {
             try {
-                val body = if (f.format == "dialogue") {
-                    NewAudioLessonBody(format = "dialogue", description = f.description.trim(), dialogue = f.dialogue.trim().ifEmpty { null }, target_minutes = f.minutes)
-                } else {
-                    NewAudioLessonBody(format = "sleep", text = f.text.trim(), target_minutes = f.minutes)
+                val body = when (f.format) {
+                    "dialogue" -> NewAudioLessonBody(format = "dialogue", description = f.description.trim(), dialogue = f.dialogue.trim().ifEmpty { null }, target_minutes = f.minutes)
+                    // A story is as long as its text: no target length.
+                    "story" -> NewAudioLessonBody(format = "story", text = f.storyText.trim(), title = f.storyTitle.trim().ifEmpty { null })
+                    else -> NewAudioLessonBody(format = "sleep", text = f.text.trim(), target_minutes = f.minutes)
                 }
-                val lesson = app.repo.api.createAudioLesson(body)
-                app.analytics.track("audio_lesson.create", mapOf("format" to f.format, "target_minutes" to f.minutes))
-                store.remember(lesson)
+                val created = app.repo.api.createAudioLesson(body)
+                app.analytics.track(
+                    "audio_lesson.create",
+                    if (f.format == "story") mapOf("format" to f.format, "chunks" to (created.chunks ?: 0)) else mapOf("format" to f.format, "target_minutes" to f.minutes),
+                )
+                store.remember(created.lesson)
                 app.haptics.correct()
-                form.update { it.copy(busy = false, description = "", dialogue = "", text = "") }
+                form.update { it.copy(busy = false, description = "", dialogue = "", text = "", storyText = "", storyTitle = "", notice = created.notice) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -219,9 +229,9 @@ class AudioLessonsViewModel(private val app: LabApp) : ViewModel() {
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String) : ViewModel() {
     private val store = AudioLessonStore(app.cache, app.repo.api, app.filesDir)
-    private val screen = MutableStateFlow(AudioLessonPlayerUi())
-    private val file = MutableStateFlow<File?>(null)
     private val prefs = AudioLessonPrefs(app)
+    private val screen = MutableStateFlow(AudioLessonPlayerUi(showPinyin = prefs.showPinyin, showEnglish = prefs.showEnglish))
+    private val file = MutableStateFlow<File?>(null)
 
     /** The engine's state for THIS lesson (another lesson playing in the background is not shown here). */
     private val playback = AudioLessonPlayback.engine.flatMapLatest { e -> e?.state ?: flowOf(AudioLessonPlaybackState()) }
@@ -347,6 +357,8 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
     fun toggleTimerSheet() = screen.update { it.copy(showTimer = !it.showTimer) }
     fun toggleChapters() = screen.update { it.copy(showChapters = !it.showChapters) }
     fun toggleTranscript() = screen.update { it.copy(showTranscript = !it.transcriptOn) }
+    fun togglePinyin() = screen.update { it.copy(showPinyin = !it.showPinyin).also { u -> prefs.showPinyin = u.showPinyin } }
+    fun toggleEnglish() = screen.update { it.copy(showEnglish = !it.showEnglish).also { u -> prefs.showEnglish = u.showEnglish } }
     fun toggleWords() = screen.update { it.copy(showWords = !it.showWords) }
 
     override fun onCleared() {

@@ -8,3 +8,4 @@ export * from './tones';
 export * from './music';
 export * from './characters';
 export * from './phrases';
+export * from './story';
