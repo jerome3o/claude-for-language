@@ -393,6 +393,8 @@ private fun LessonRow(l: AudioLessonDto, saved: Boolean, downloading: Double?, o
                 else if (ready && downloading != null) append(" · Saving… ${Math.round(downloading * 100)}%")
             }
             Text(sub, fontSize = 13.sp, color = if (l.status == "failed") Palette.Again else Lab.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // Its companion mini lesson (shared/lesson/unlock.ts): "🔒 Mini lesson waiting" / "✓ Mini lesson unlocked".
+            l.companion?.let { c -> CompanionBadge(c.status, Modifier.padding(top = 2.dp).testTag("companion-badge-${l.id}")) }
             val total = l.progress_total
             AnimatedVisibility(l.status == "speaking" && total != null && total > 0) {
                 ProgressBar(((l.progress_done ?: 0).toFloat() / (total ?: 1)).coerceIn(0f, 1f), Modifier.padding(top = 4.dp))

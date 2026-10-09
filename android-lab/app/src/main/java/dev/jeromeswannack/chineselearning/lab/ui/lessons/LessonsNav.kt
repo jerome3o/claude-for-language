@@ -53,6 +53,8 @@ fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
                 onDoneForGood = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RETIRE) },
                 onBringBack = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RESTORE) },
                 onPlay = { nav.open(Routes.lessonPlay(it, "lessons_page")) },
+                onUnlock = vm::unlock,
+                onListen = { nav.open(Routes.audioLesson(it)) },
             ),
         )
     }
@@ -130,6 +132,13 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
             if (!cached) _ui.update { it.copy(lessons = null) }
             runtime.store.observe().collect { list ->
                 if (list.isNotEmpty() || runtime.store.hasCache()) _ui.update { it.copy(lessons = list, updatedAt = app.cache.updatedAt(dev.jeromeswannack.chineselearning.lab.data.lessons.LessonStore.LIST)) }
+                // The locked lessons' podcasts (title, heard to the end) from the audio lessons cache.
+                val ids = list.mapNotNull { e -> e.unlock?.takeIf { e.locked && it.isAudio }?.audioLessonId }
+                if (ids.isNotEmpty()) {
+                    val audio = runCatching { dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonStore(app.cache, app.repo.api, app.filesDir).cachedList() }.getOrDefault(emptyList()).associateBy { it.id }
+                    val map = ids.associateWith { id -> audio[id]?.title to (audio[id]?.listened_at != null || runtime.store.listenedHere(id) != null) }
+                    _ui.update { it.copy(audio = map) }
+                }
             }
         }
         refresh()
@@ -151,6 +160,15 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
             } catch (e: Exception) {
                 _ui.update { it.copy(refreshing = false, error = e.userMessage(), offline = e is java.io.IOException && e !is dev.jeromeswannack.chineselearning.lab.data.HttpException, lessons = it.lessons ?: emptyList()) }
             }
+        }
+    }
+
+    /** "✓ I've listened — unlock" / "✓ Done — unlock": written here at once, uploaded through the outbox. */
+    fun unlock(id: String) {
+        viewModelScope.launch {
+            app.safely("unlock lesson") { runtime.store.unlock(id, "manual") }
+            app.haptics.tick()
+            runtime.uploadSoon()
         }
     }
 

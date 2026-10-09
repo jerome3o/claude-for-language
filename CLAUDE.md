@@ -1302,6 +1302,23 @@ menu) inspects pending + completed lessons — full exercise listing per lesson,
 - `PUT /api/custom-lessons/:id` - Replace a lesson's spec in place (validated; same id so history/schedule carry over; keeps generated illustrations whose image_prompt is unchanged)
 - `DELETE /api/custom-lessons/:id` - Delete a lesson
 - `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id); an event may carry `attempt` (per-exercise answers + time), stored in `custom_lesson_attempts`
+- `POST /api/custom-lessons/unlock` - `{ events: [{ lesson_id, unlocked_at, via: auto|manual|player }] }` → `{ unlocked, already, not_found }` (idempotent; the earliest time wins)
+
+**Unlockable lessons — podcast companions** (`shared/lesson/unlock.ts`, Lab `core/…/LessonUnlock.kt`, parity-tested;
+`services/lesson-unlock.ts`, `services/companion-lesson.ts`, migration 0119; docs/STUDY_SESSION.md "Unlockable lessons",
+docs/AUDIO_LESSONS.md "Companion mini lesson"). A lesson may carry `unlock: { kind: 'audio_lesson', audio_lesson_id } |
+{ kind: 'manual', prompt }` (columns `custom_lessons.unlock_kind / unlock_ref / unlock_prompt / unlocked_at / unlocked_via`,
+`companion_of` = the podcast it was written for). LOCKED = never offered (`pickTodaysLessons`' `locked`: not in the session,
+today's lessons or the daily new-lesson place); unlocked = "I want this now": a NEW one comes today on top of the daily place
+(`unlocked`, like homework). Unlock: automatically when a listen reaches ≥ 85 % or the last chapter of its audio lesson
+(`audioLessonListened`; web player / Lab `AudioLessonEngine` → `POST /api/audio-lessons/listened`, which also unlocks
+server-side — only at the moment of a listen, so a companion made for a podcast already heard waits for a tap), by hand
+("✓ I've listened — unlock" / "✓ Done — unlock": web Mini Lessons page "🔒 Ready to unlock" + the locked gate on
+`/lessons/:id/play`; Lab Today's mini lessons + Mini Lessons), or from the player's companion card ("Mini lesson ready → ▶ Start").
+Offline-first: web IndexedDB `lessonUnlocks` (Dexie v32), Lab `lessons/local-unlocks` + the Outbox. `POST /api/custom-lessons`
+takes `unlock`; `POST /api/audio-lessons/:id/companion-lesson { unlock?: audio|manual, prompt? }` writes the companion on
+audio-lesson-queue (`{ lessonId, companion: true }`; Claude + validateLessonSpec + 2 repair rounds + the 一/不 rule; one per
+podcast, replaced in place while not started); audio lesson summaries carry `listened_at` + `companion`.
 
 **Lesson pictures** (describe_image; `worker/src/services/lesson-images.ts`, `routes/lesson-images.ts`,
 pure helpers in `shared/lesson/images.ts`): one picture per scene description, keyed by a hash of the
@@ -2010,6 +2027,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_custom_lesson` | Get one lesson with its full spec (fetch before editing) |
 | `update_custom_lesson` | Replace a lesson's content in place (same id — completion history + revisit schedule kept) |
 | `delete_custom_lesson` | Delete a custom mini lesson |
+| `create_companion_lesson` | `{ audio_lesson_id, unlock?: 'audio' \| 'manual', prompt? }` — the companion mini lesson of a READY audio lesson (~10–15 min drilling its characters, sentences and meanings), created LOCKED until the podcast is listened to (or "Done" for manual); waits ≤ ~50 s, else `generating` (see `get_audio_lesson`'s `companion`). `create_custom_lesson` also takes `unlock` |
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |

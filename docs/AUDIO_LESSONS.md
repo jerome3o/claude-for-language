@@ -298,6 +298,35 @@ from the same clip lengths, so the chapter list lines up with the audio.
 - `audio_lessons.format` is a TEXT column without a CHECK, so the story format needed no migration.
 - `GET /api/audio-lessons/:id/audio` · `POST /api/audio-lessons/:id/retry` · `DELETE /api/audio-lessons/:id`
 
+## Companion mini lesson
+
+A podcast can have ONE companion mini lesson that drills its characters, sentences and meanings
+(`worker/src/services/companion-lesson.ts`; the rules: `shared/lesson/unlock.ts`, docs/STUDY_SESSION.md
+"Unlockable lessons"). Written by Claude (Sonnet, forced tool, thinking off) from the plan — the dialogue
+lines with speakers, the points and their explanations (sleep: the words and their sentences; story: the
+chunks) with each character's syllable — as a ~10–15 minute lesson (14–22 exercises): a note per new word
+(each character with its tone and meaning), match / listen_choice / choice on the words and tones,
+scramble / translate / dictation / speak on the podcast's own lines, and the dialogue replayed as a
+conversation exercise with comprehension questions (sleep: a closing sentence_making). Validated with
+`validateLessonSpec` plus `companionSpecProblems` (two repair rounds), every pinyin through
+`applyYiBuToneChanges`; titled `"<podcast title> — mini lesson"` (`companionLessonTitle`).
+
+- `POST /api/audio-lessons/:id/companion-lesson { unlock?: 'audio' | 'manual', prompt? }` (ready lessons
+  only; 409 otherwise) → 202, `audio_lessons.companion_status = 'generating'` and `{ lessonId, companion: true }`
+  on audio-lesson-queue (`runCompanionJob`; E2E_TEST_MODE: `fakeCompanionSpec` inline). Failures land in
+  `companion_status = 'failed'` + `companion_error`; a build "generating" for 20 min reads as failed.
+- Created LOCKED: `unlock: 'audio'` (default) = until this podcast is listened to; `'manual'` = until "✓ Done —
+  unlock" next to `prompt` (default "Listen to “<title>”").
+- One per podcast (`custom_lessons.companion_of`): asking again replaces its content in place while nobody
+  has started it; a started one is kept (200, `started: true`).
+- Every summary carries `listened_at` (first listen that reached ≥ 85 % or the last chapter, any device —
+  `POST /api/audio-lessons/listened`) and `companion` (`generating | failed | locked | unlocked`, lesson id + title).
+- UI: the list shows "🔒 Mini lesson waiting" / "✓ Mini lesson unlocked"; the player's card: "✨ Make its mini
+  lesson" → "Writing…" → "🔒 Mini lesson waiting" + unlock → once the listen reaches the end "🔓 Mini lesson
+  ready: <title> → ▶ Start" (`/lessons/:id/play?from=player`). Web `components/audioLessons/CompanionCard.tsx`,
+  Lab `ui/audiolessons/CompanionCard.kt`.
+- MCP `create_companion_lesson { audio_lesson_id, unlock?, prompt? }` (waits ≤ ~50 s); `create_custom_lesson` takes `unlock`.
+
 ## Podcast feed
 
 A private RSS feed per user, so the lessons play in any podcast app (AntennaPod, Pocket Casts, Apple

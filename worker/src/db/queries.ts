@@ -4473,18 +4473,32 @@ export interface CustomLessonRow {
   library_item_id?: string | null;
   assigned_by?: string | null;
   assigned_relationship_id?: string | null;
+  /** Unlockable lessons (migration 0119, shared/lesson/unlock.ts). */
+  unlock_kind?: string | null;
+  unlock_ref?: string | null;
+  unlock_prompt?: string | null;
+  unlocked_at?: string | null;
+  unlocked_via?: string | null;
+  /** The audio lesson this lesson was written for (its companion mini lesson). */
+  companion_of?: string | null;
 }
 
 export async function createCustomLesson(
   db: D1Database,
   userId: string,
-  data: { title: string; description?: string | null; icon?: string | null; spec: string; source: string },
+  data: {
+    title: string; description?: string | null; icon?: string | null; spec: string; source: string;
+    unlock_kind?: string | null; unlock_ref?: string | null; unlock_prompt?: string | null; companion_of?: string | null;
+  },
 ): Promise<CustomLessonRow> {
   const id = crypto.randomUUID();
   await db.prepare(`
-    INSERT INTO custom_lessons (id, user_id, title, description, icon, spec, source)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(id, userId, data.title, data.description ?? null, data.icon ?? null, data.spec, data.source).run();
+    INSERT INTO custom_lessons (id, user_id, title, description, icon, spec, source, unlock_kind, unlock_ref, unlock_prompt, companion_of)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    id, userId, data.title, data.description ?? null, data.icon ?? null, data.spec, data.source,
+    data.unlock_kind ?? null, data.unlock_ref ?? null, data.unlock_prompt ?? null, data.companion_of ?? null,
+  ).run();
   const row = await db.prepare(`SELECT * FROM custom_lessons WHERE id = ?`).bind(id).first<CustomLessonRow>();
   return row!;
 }

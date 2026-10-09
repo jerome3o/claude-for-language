@@ -64,6 +64,8 @@ sealed interface ReplayState {
     data object Loading : ReplayState
     data object Missing : ReplayState
     data class Playing(val entry: LessonEntry, val practice: Boolean) : ReplayState
+    /** A LOCKED lesson (core LessonUnlocks): what unlocks it and the button. */
+    data class Locked(val entry: LessonEntry) : ReplayState
     /** [rated]: saved as a completion; else Practice only (nothing recorded). */
     data class Finished(val entry: LessonEntry, val rated: Boolean) : ReplayState
 }
@@ -73,9 +75,22 @@ class LessonReplayViewModel(private val app: LabApp, private val id: String, pri
     val state: StateFlow<ReplayState> = _state.asStateFlow()
 
     init {
+        viewModelScope.launch { load() }
+    }
+
+    /** "✓ I've listened — unlock" / "✓ Done — unlock" on the gate: unlocked here, then it plays. */
+    fun unlock() {
         viewModelScope.launch {
+            app.safely("unlock lesson") { LessonRuntime.of(app).store.unlock(id, if (from == "player") "player" else "manual") }
+            LessonRuntime.of(app).uploadSoon()
+            load()
+        }
+    }
+
+    private suspend fun load() {
+        run {
             val entry = app.safely("lesson replay load") { LessonRuntime.of(app).store.entry(id) }
-            _state.value = if (entry == null) ReplayState.Missing else {
+            _state.value = if (entry == null) ReplayState.Missing else if (entry.locked) ReplayState.Locked(entry) else {
                 // Decided once, when it opens: rating it mid-way doesn't flip it.
                 val practice = Revisit.replayIsPractice(entry.state, StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault()).ts)
                 app.analytics.track("lesson.replay", mapOf("from" to from, "practice" to practice))
@@ -111,7 +126,7 @@ fun NavGraphBuilder.lessonReplayGraph(nav: LabNav) {
         arguments = listOf(navArgument("from") { type = NavType.StringType; nullable = true; defaultValue = null }),
     ) { backStack ->
         val id = backStack.arguments?.getString("id").orEmpty()
-        val from = backStack.arguments?.getString("from")?.takeIf { it in setOf("lessons_page", "today", "homework") } ?: "lessons_page"
+        val from = backStack.arguments?.getString("from")?.takeIf { it in setOf("lessons_page", "today", "homework", "player") } ?: "lessons_page"
         val vm: LessonReplayViewModel = viewModel(key = "lesson-replay-$id", factory = LessonReplayViewModel.Factory(nav.app, id, from))
         val state by vm.state.collectAsStateWithLifecycle()
         LessonReplayRoute(nav, state, vm)
@@ -139,12 +154,35 @@ private fun LessonReplayRoute(nav: LabNav, state: ReplayState, vm: LessonReplayV
             )
         }
         is ReplayState.Finished -> ReplayDone(state, onDone = nav::back)
+        is ReplayState.Locked -> LockedGate(state.entry, onUnlock = vm::unlock, onBack = nav::back)
         ReplayState.Missing -> LabScreen("Mini lesson", onBack = nav::back) {
             item { InlineNotice("This lesson isn't on this phone yet — it comes with the next sync.") }
         }
         ReplayState.Loading -> Box(Modifier.fillMaxSize().background(Lab.colors.background))
     }
 }
+
+/** A locked lesson opened from a list: 🔒, what unlocks it and the unlock button. */
+@Composable
+fun LockedGate(entry: LessonEntry, onUnlock: () -> Unit, onBack: () -> Unit) {
+    val unlock = entry.unlock ?: return
+    LabScreen("Mini lesson", onBack = onBack) {
+        item {
+            Column(
+                Modifier.fillMaxWidth().padding(top = 24.dp).testTag(LOCKED_GATE_TAG),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("🔒", fontSize = 56.sp)
+                Text(entry.lesson.title, style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink, textAlign = TextAlign.Center)
+                Text(dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks.lockedLine(unlock), color = Lab.colors.muted, textAlign = TextAlign.Center)
+                PrimaryPill(dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks.buttonLabel(unlock), Modifier.fillMaxWidth().height(54.dp).testTag("lesson-gate-unlock"), onClick = onUnlock)
+            }
+        }
+    }
+}
+
+const val LOCKED_GATE_TAG = "lesson-locked-gate"
 
 /** After a replay: "Saved" (rated) or "Practice done" (nothing recorded). */
 @Composable

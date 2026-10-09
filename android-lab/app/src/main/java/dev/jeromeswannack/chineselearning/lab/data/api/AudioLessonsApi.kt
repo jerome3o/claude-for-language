@@ -43,12 +43,34 @@ data class AudioLessonDto(
     val transcript: List<AudioLessonTranscriptLine> = emptyList(),
     /** Story: "The text is long: this lesson covers the first …" when part of the text was left out. */
     val notice: String? = null,
+    /** When a listen first reached the end (≥ 85 % or the last chapter, any device). */
+    val listened_at: String? = null,
+    /** Its companion mini lesson (shared/lesson/unlock.ts), if one was asked for. */
+    val companion: AudioLessonCompanionDto? = null,
 ) {
     val ready: Boolean get() = status == "ready"
     val building: Boolean get() = AudioLessonTimeline.isBuilding(status)
     val statusLine: String get() = AudioLessonTimeline.statusLine(status, progress, progress_done, progress_total, error, duration_ms, word_count, size_bytes)
     val hasDetail: Boolean get() = chapters.isNotEmpty() || transcript.isNotEmpty()
 }
+
+/** AudioLessonCompanion: being written / failed, or made (locked / unlocked). */
+@Serializable
+data class AudioLessonCompanionDto(
+    val status: String,
+    val lesson_id: String? = null,
+    val title: String? = null,
+    val error: String? = null,
+    val started: Boolean = false,
+)
+
+/** POST /api/audio-lessons/:id/companion-lesson. */
+@Serializable data class CompanionRequestBody(val unlock: String? = null, val prompt: String? = null)
+@Serializable data class CompanionRequestDto(val companion: AudioLessonCompanionDto? = null, val existing: Boolean = false, val started: Boolean = false)
+
+/** POST /api/audio-lessons/listened. */
+@Serializable data class ListenedEvent(val audio_lesson_id: String, val listened_at: String)
+@Serializable data class ListenedBody(val events: List<ListenedEvent>)
 
 @Serializable data class AudioLessonListDto(val lessons: List<AudioLessonDto> = emptyList())
 @Serializable data class AudioLessonEnvelopeDto(val lesson: AudioLessonDto)
@@ -72,12 +94,17 @@ object AudioLessonPaths {
     fun lesson(id: String) = "/api/audio-lessons/${enc(id)}"
     fun audio(id: String) = "/api/audio-lessons/${enc(id)}/audio"
     fun retry(id: String) = "/api/audio-lessons/${enc(id)}/retry"
+    fun companion(id: String) = "/api/audio-lessons/${enc(id)}/companion-lesson"
+    const val LISTENED = "/api/audio-lessons/listened"
 }
 
 suspend fun Api.audioLessons(): List<AudioLessonDto> = get<AudioLessonListDto>(AudioLessonPaths.LIST).lessons
 suspend fun Api.audioLesson(id: String): AudioLessonDto = get<AudioLessonEnvelopeDto>(AudioLessonPaths.lesson(id)).lesson
 suspend fun Api.createAudioLesson(body: NewAudioLessonBody): AudioLessonCreatedDto = post<NewAudioLessonBody, AudioLessonCreatedDto>(AudioLessonPaths.LIST, body)
 suspend fun Api.retryAudioLesson(id: String): AudioLessonDto = post<AudioLessonEnvelopeDto>(AudioLessonPaths.retry(id)).lesson
+/** Ask for its companion mini lesson (written in the background). */
+suspend fun Api.requestCompanionLesson(id: String, body: CompanionRequestBody = CompanionRequestBody()): CompanionRequestDto =
+    post<CompanionRequestBody, CompanionRequestDto>(AudioLessonPaths.companion(id), body)
 suspend fun Api.deleteAudioLesson(id: String) {
     val res = send("DELETE", AudioLessonPaths.lesson(id))
     if (!res.ok && res.code != 404) throw HttpException(res.code, res.body.take(200), res.body)

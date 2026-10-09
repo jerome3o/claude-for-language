@@ -14,7 +14,8 @@
  *   (a lesson has only a handful, so they ride along with the content).
  */
 
-import { CustomLessonSpec, LessonAttemptData, lessonTtsTexts, lessonConversationClips } from '@shared/lesson';
+import { CustomLessonSpec, LessonAttemptData, lessonTtsTexts, lessonConversationClips, lockSets, type LessonUnlock } from '@shared/lesson';
+import { applyLocalUnlocks, uploadLessonUnlocks, uploadListened } from './lessonUnlock';
 import {
   pickTodaysLessons,
   newLessonsIntroducedToday,
@@ -67,6 +68,9 @@ interface CustomLessonListResponse {
     created_at: string;
     spec: CustomLessonSpec;
     completions?: ServerCompletion[];
+    unlock?: LessonUnlock | null;
+    unlocked_at?: string | null;
+    companion_of?: string | null;
   }>;
 }
 
@@ -185,7 +189,8 @@ export async function newLessonsToday(exclude?: ReadonlySet<string>): Promise<nu
  *   introduced today (from completion events). A homework lesson the tutor
  *   sent (both) comes on top: it doesn't take that place, and finishing it
  *   doesn't use it up. A lesson opened today and left half-way keeps its place.
- * Done-for-good lessons and one-off-only homework are never offered.
+ * Done-for-good lessons and one-off-only homework are never offered, nor are LOCKED lessons
+ * (shared/lesson/unlock.ts); an unlocked one still new comes on top of the daily place.
  */
 export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
   const cutoff = getStudyCutoff();
@@ -196,8 +201,12 @@ export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
     homeworkPassTargetIds(),
     lessonRevisitsToday(),
   ]);
+  // Locked lessons wait; unlocked ones come today on top of the daily place (shared/lesson/unlock.ts).
+  const { locked, unlocked } = lockSets(allLessons);
   const picked = pickTodaysLessons({
     lessons: allLessons.map(l => ({ id: l.id, created_at: l.created_at, state: rowRevisitState(l), row: l })),
+    locked,
+    unlocked,
     events,
     dayStartMs: localDayStartMs(),
     cutoffMs: cutoff.ts,
@@ -218,6 +227,9 @@ export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
  */
 export async function syncCustomLessons(): Promise<{ synced: number }> {
   await uploadCustomLessonCompletions();
+  // Unlocks and listens made here go up first, so the list below already carries them.
+  await uploadListened().catch(err => console.warn('[custom-lessons] listen upload failed:', err));
+  await uploadLessonUnlocks().catch(err => console.warn('[custom-lessons] unlock upload failed:', err));
   // Recordings from a just-finished attempt go up right behind it.
   await uploadLessonAttemptMedia().catch(err => console.warn('[custom-lessons] recording upload failed:', err));
 
@@ -261,6 +273,9 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
         status: lesson.status,
         created_at: lesson.created_at,
         spec: lesson.spec,
+        unlock: lesson.unlock ?? null,
+        unlocked_at: lesson.unlocked_at ?? null,
+        companion_of: lesson.companion_of ?? null,
         ...revisitRowFields({ status: 'new', due_ms: null, gap_days: 0, last_ms: null, finishes: 0 }),
         _synced_at: Date.now(),
       });
@@ -273,6 +288,8 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
       await db.customLessonCompletionEvents.bulkDelete(orphaned);
     }
   });
+  // This device's unlocks not on the server yet stay unlocked.
+  await applyLocalUnlocks();
   // The schedule from the merged history (+ Done for good / Bring back).
   await recomputeAllRevisitStates();
 
@@ -364,7 +381,11 @@ export function lessonHandwritingText(spec: CustomLessonSpec): string {
 export async function prefetchCustomLessonMedia(): Promise<void> {
   if (!navigator.onLine) return;
 
-  const lessons = await getDueCustomLessons();
+  // Locked lessons too: one is often unlocked on the train, right after its podcast.
+  const due = await getDueCustomLessons();
+  const locked = [...lockSets(await db.customLessons.toArray()).locked];
+  const lockedRows = (await db.customLessons.bulkGet(locked)).filter((l): l is LocalCustomLesson => !!l && !due.some(d => d.id === l.id));
+  const lessons = [...due, ...lockedRows];
   for (const lesson of lessons) {
     await prefetchTTSClips(lessonTtsTexts(lesson.spec).map(text => ({ text })));
     // Conversation lines in this account's voices / speed / delivery (the ⚙︎ Audio menu).
