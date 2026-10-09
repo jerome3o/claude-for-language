@@ -1072,7 +1072,11 @@ sound: `checkSpokenAnswer` in `shared/cards/answer.ts` (also `checkTypedAnswer`,
 `AnswerKey.checkSpoken`, parity-tested) accepts other hanzi whose toned pinyin (automatic pinyin + 一 / 不, or the note's
 pinyin) is the answer's — "Sounded right ✓ — written 由"; other tones = `close` (wrong). Web `hooks/useSpokenAnswer.ts` +
 `services/spokenAnswer.ts` (pure controller, unit-tested); Lab `StudyViewModel` "say the answer". Analytics
-`study.answer_spoken`, `study.spoken_answer_checked`.
+`study.answer_spoken`, `study.spoken_answer_checked` (both with `retry`). The question is **voice first**: a big centred 🎤,
+no box / keyboard until ✏️ Type (this card only; offline the box comes first). On the answer side **🎤 Say it again** (only
+for a spoken answer) is Record again for the spoken answer: the question with the live transcript, the new transcript
+checked anew (always), the take replacing the previous one, the card's clip once; ✕ / back keeps the previous answer + take
+(`start({ again: true })` / Lab `sayAgain`).
 - `POST /api/transcribe/live` - `{ provider: 'soniox', api_key, expires_at, websocket_url, model, language_hints }` or `{ provider: 'upload' }`; 502 when Soniox refuses (client falls back)
 - `POST /api/transcribe` - multipart `file` (+ `live_error`, `client`) → `{ text, language, provider }`; 502 `{ error, providers }` when every provider failed (`routes/transcription.ts`)
 - `GET /api/admin/transcription` - admin: which providers are configured (booleans only, never a key)

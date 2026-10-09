@@ -16,7 +16,7 @@ function fakeLive(result: string | Error = '油') {
 
 function setup(opts: { live?: ReturnType<typeof fakeLive> | null; upload?: () => Promise<{ text: string; language: string }>; autoSubmit?: boolean; online?: boolean; micOk?: boolean } = {}) {
   const states: SpokenAnswerState[] = [];
-  const results: Array<{ text: string; submit: boolean }> = [];
+  const results: Array<{ text: string; submit: boolean; again?: boolean }> = [];
   const tracked: Array<{ result: string; props: Record<string, unknown> }> = [];
   let stopHook: ((take: Blob) => void) | null = null;
   const take = new Blob(['take'], { type: 'audio/webm' });
@@ -30,12 +30,13 @@ function setup(opts: { live?: ReturnType<typeof fakeLive> | null; upload?: () =>
     stopRecorder: vi.fn(() => { stopHook?.(take); }),
     cancelRecorder: vi.fn(),
     discardTake: vi.fn(),
+    restorePrevious: vi.fn(),
     createLive: (cb) => { if (!live) return null; live.bind(cb); return live.live; },
     upload: vi.fn(opts.upload ?? (async () => ({ text: '油', language: 'zh' }))),
     isOnline: () => opts.online ?? true,
     autoSubmit: () => opts.autoSubmit ?? true,
     onState: (s) => states.push(s),
-    onResult: (text, submit) => results.push({ text, submit }),
+    onResult: (text, submit, again) => results.push(again ? { text, submit, again } : { text, submit }),
     track: (result, props) => tracked.push({ result, props }),
   };
   return { c: new SpokenAnswerController(deps), deps, states, results, tracked, live, take };
@@ -141,6 +142,80 @@ describe('SpokenAnswerController', () => {
     await t.c.start();
     expect(t.c.current.phase).toBe('idle');
     expect(t.live!.live.aborted).toBe(true);
+  });
+
+  describe('Say it again (answer side)', () => {
+    it('keeps the previous take until the new one lands, and always checks the new answer', async () => {
+      const t = setup({ autoSubmit: false });
+      await t.c.start({ again: true });
+      expect(t.deps.startRecorder).toHaveBeenCalledWith(expect.anything(), { keepPrevious: true });
+      expect(t.c.current).toMatchObject({ phase: 'listening', again: true });
+      t.live!.say('油', '');
+      expect(t.c.current.finalText).toBe('油');
+      t.c.stop();
+      await flush();
+      // Checked even with auto-submit off: the card is already revealed.
+      expect(t.results).toEqual([{ text: '油', submit: true, again: true }]);
+      expect(t.c.current).toMatchObject({ phase: 'idle', again: false });
+      expect(t.deps.restorePrevious).not.toHaveBeenCalled();
+      expect(t.tracked).toEqual([{ result: 'submitted', props: expect.objectContaining({ retry: true, auto_submit: false }) }]);
+    });
+
+    it('a first answer is tracked with retry false', async () => {
+      const t = setup();
+      await t.c.start();
+      t.c.stop();
+      await flush();
+      expect(t.tracked[0].props).toMatchObject({ retry: false });
+      expect(t.deps.startRecorder).toHaveBeenCalledWith(expect.anything(), { keepPrevious: false });
+    });
+
+    it('cancel while listening: the previous take comes back, nothing is answered', async () => {
+      const t = setup();
+      await t.c.start({ again: true });
+      t.c.cancel();
+      expect(t.deps.cancelRecorder).toHaveBeenCalled();
+      expect(t.deps.restorePrevious).toHaveBeenCalledTimes(1);
+      expect(t.c.current).toMatchObject({ phase: 'idle', again: false });
+      expect(t.tracked[0]).toMatchObject({ result: 'cancelled', props: { retry: true } });
+      await flush();
+      expect(t.results).toEqual([]);
+    });
+
+    it('a failed take stays a say-again: retry, 🎤 again, or cancel back to the previous take', async () => {
+      let fail = true;
+      const t = setup({ live: fakeLive(new Error('timeout')), upload: async () => { if (fail) throw new Error('502'); return { text: '由', language: 'zh' }; } });
+      await t.c.start({ again: true });
+      t.c.stop();
+      await flush();
+      expect(t.c.current).toMatchObject({ phase: 'failed', failure: 'failed', again: true });
+      expect(t.results).toEqual([]);
+      // 🎤 again from the failed state: still a say-again (keepPrevious), the take before it still restorable.
+      await t.c.start();
+      expect(t.c.current).toMatchObject({ phase: 'listening', again: true });
+      expect(t.deps.startRecorder).toHaveBeenLastCalledWith(expect.anything(), { keepPrevious: true });
+      t.c.stop();
+      await flush();
+      expect(t.c.current).toMatchObject({ phase: 'failed', again: true });
+      t.c.cancel();
+      expect(t.deps.discardTake).not.toHaveBeenCalled();
+      expect(t.deps.restorePrevious).toHaveBeenCalledTimes(1);
+      expect(t.c.current).toMatchObject({ phase: 'idle', again: false });
+      // And a retry that works lands as a checked say-again.
+      await t.c.start({ again: true });
+      t.c.stop();
+      await flush();
+      fail = false;
+      await t.c.retry();
+      expect(t.results).toEqual([{ text: '由', submit: true, again: true }]);
+    });
+
+    it('a microphone that will not open goes back to the answer with the previous take', async () => {
+      const t = setup({ micOk: false });
+      await t.c.start({ again: true });
+      expect(t.c.current).toMatchObject({ phase: 'idle', again: false });
+      expect(t.deps.restorePrevious).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('offline: does not start', async () => {

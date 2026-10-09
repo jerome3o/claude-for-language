@@ -486,7 +486,7 @@ export function StudyCard({
   const [shuffledMcOptions, setShuffledMcOptions] = useState<McOptionRow[] | null>(() => restored.mc?.rows ?? null);
   const mcRowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const { isRecording, audioBlob, audioLevel, error: recorderError, startRecording, stopRecording, cancelRecording, clearRecording } =
+  const { isRecording, audioBlob, audioLevel, error: recorderError, startRecording, stopRecording, cancelRecording, clearRecording, restoreRecording } =
     useAudioRecorder(restored.recording);
   // Record again (answer side): the card turns to the question while the new take records, so
   // the word is read from the hanzi alone; a tap anywhere on the card (or Stop) stops it and
@@ -562,18 +562,37 @@ export function StudyCard({
   // box still holds exactly it, the back checks it in spoken mode (homophones count by sound).
   const [spokenText, setSpokenText] = useState<string | null>(null);
   const [micHint, setMicHint] = useState(false);
+  // "🎤 Say it again" tapped offline (answer side): it needs a connection, like the 🎤.
+  const [sayAgainHint, setSayAgainHint] = useState(false);
+  // Voice first (docs/STUDY_SESSION.md): a typing card's question opens on the big 🎤, no box and no
+  // keyboard; ✏️ Type switches THIS card to the box (focused). A resumed card with an answer in the
+  // box, or a transcript only filled in (auto-submit off), shows the box.
+  const [typingMode, setTypingMode] = useState(() => !!restored.point?.answer?.trim());
   const spoken = useSpokenAnswer({
-    recorder: { startRecording, stopRecording, cancelRecording, clearRecording },
+    recorder: { startRecording, stopRecording, cancelRecording, clearRecording, restoreRecording },
     micDeviceId,
     cardType: card.card_type,
     online: aiAvailable,
-    onResult: (text, submit) => {
+    currentTake: audioBlob,
+    onResult: (text, submit, again) => {
       setUserAnswer(text);
       setSpokenText(text);
+      if (again) {
+        // Say it again: the new answer, checked in spoken mode (the card turns back to the answer
+        // as the take ends), then the card's own clip once — like Record again on a read card.
+        trackSpokenCheck(text, true);
+        scheduleReplayRef.current();
+        return;
+      }
       if (submit) setFlipped(true);
-      else window.setTimeout(() => inputRef.current?.focus(), 0);
+      else {
+        setTypingMode(true);
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+      }
     },
   });
+  // A "Say it again" is under way: the card shows the question (listening / finishing / failed).
+  const sayingAgain = flipped && spoken.again && spoken.active;
 
   // Track initial 0.5s delay to prevent accidental stop clicks
   const [isRecordingDelayActive, setIsRecordingDelayActive] = useState(false);
@@ -703,12 +722,12 @@ export function StudyCard({
     }
   }, [card.note.id, card.note.hanzi, queryClient, playAudio]);
 
-  // Focus input for typing cards
+  // Focus the box of a typing card once it is showing (voice first: only after ✏️ Type, or offline).
   useEffect(() => {
     if (isTypingCard && inputRef.current && !flipped) {
       inputRef.current.focus();
     }
-  }, [isTypingCard, flipped]);
+  }, [isTypingCard, flipped, typingMode, aiAvailable]);
 
   // Play audio for audio cards on front
   // Note: useStudySession guarantees card.note_id === card.note.id (data consistency)
@@ -803,14 +822,19 @@ export function StudyCard({
   // A spoken answer, checked: which way it went (enums only — never the transcript).
   const answerWasSpoken = isTypingCard && !!spokenText && userAnswer.trim() === spokenText;
   const spokenCheckTracked = useRef(false);
-  useEffect(() => {
-    if (!flipped || !answerWasSpoken || spokenCheckTracked.current) return;
-    spokenCheckTracked.current = true;
+  function trackSpokenCheck(answer: string, retry: boolean) {
     const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!); } catch { return []; } })() : [];
     track('study.spoken_answer_checked', {
       card_type: card.card_type,
-      verdict: checkSpokenAnswer(userAnswer, card.note.hanzi, alts, card.note.pinyin),
+      verdict: checkSpokenAnswer(answer, card.note.hanzi, alts, card.note.pinyin),
+      retry,
     });
+  }
+  useEffect(() => {
+    if (!flipped || !answerWasSpoken || spokenCheckTracked.current) return;
+    spokenCheckTracked.current = true;
+    trackSpokenCheck(userAnswer, false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flipped, answerWasSpoken, userAnswer, card.card_type, card.note.alternatives, card.note.hanzi, card.note.pinyin]);
   useEffect(() => {
     if (isSpeakingCard && audioBlob) {
@@ -845,14 +869,18 @@ export function StudyCard({
   };
   const replayTimerRef = useRef<number | null>(null);
   useEffect(() => () => { if (replayTimerRef.current) clearTimeout(replayTimerRef.current); }, []);
-  useEffect(() => {
-    if (!replayAfterReRecordRef.current || !audioBlob || !flipped) return;
-    replayAfterReRecordRef.current = false;
+  const scheduleReplayRef = useRef(() => {});
+  scheduleReplayRef.current = () => {
     if (replayTimerRef.current) clearTimeout(replayTimerRef.current);
     replayTimerRef.current = window.setTimeout(() => {
       replayTimerRef.current = null;
       playAfterReRecordRef.current();
     }, 50);
+  };
+  useEffect(() => {
+    if (!replayAfterReRecordRef.current || !audioBlob || !flipped) return;
+    replayAfterReRecordRef.current = false;
+    scheduleReplayRef.current();
   }, [audioBlob, flipped]);
 
   const handleFlip = () => {
@@ -871,6 +899,12 @@ export function StudyCard({
       // Record again: a tap anywhere on the card stops the take (and turns back to the answer).
       pressRef.current = null;
       if (isRecording) stopRecordingWithDelay();
+      return;
+    }
+    if (sayingAgain) {
+      // Say it again: a tap anywhere stops the take; the answer comes back once it is checked.
+      pressRef.current = null;
+      if (spoken.listening) spoken.stop();
       return;
     }
     const down = pressRef.current;
@@ -903,8 +937,25 @@ export function StudyCard({
     livePromiseRef.current = null;
     cancelRecording();
   }, [cancelRecording]);
+  // Back / Esc on the question side: cancels whichever take is recording there.
   const cancelReRecordRef = useRef(cancelReRecord);
-  cancelReRecordRef.current = cancelReRecord;
+  cancelReRecordRef.current = sayingAgain ? spoken.cancel : cancelReRecord;
+
+  // Say it again: the question while the new take is said, the answer again once it is checked or
+  // cancelled — the same peek flip as Record again. The previous verdict stays hidden meanwhile.
+  const sayAgainShownRef = useRef(false);
+  useEffect(() => {
+    if (sayingAgain && !sayAgainShownRef.current) {
+      sayAgainShownRef.current = true;
+      backScrollRef.current = cardContentRef.current?.scrollTop ?? 0;
+      setPeeking(true);
+      setPeekFlips((n) => n + 1);
+    } else if (!sayingAgain && sayAgainShownRef.current) {
+      sayAgainShownRef.current = false;
+      setPeeking(false);
+      setPeekFlips((n) => n + 1);
+    }
+  }, [sayingAgain]);
 
   // Record again: the question side as recording starts, the answer side once it stops
   // (saved or cancelled). The microphone failing to open leaves the answer where it was.
@@ -939,8 +990,9 @@ export function StudyCard({
   }, [reRecording, isRecording]);
   // Back (the Android back gesture in the app, the browser's back) and Esc cancel a Record
   // again instead of leaving Study: a history entry is pushed for the take and popped after.
+  const recordingOnQuestion = reRecording || sayingAgain;
   useEffect(() => {
-    if (!reRecording) return;
+    if (!recordingOnQuestion) return;
     window.history.pushState({ ...(window.history.state ?? {}), studyRerecord: true }, '');
     let popped = false;
     const onPop = () => { popped = true; cancelReRecordRef.current(); };
@@ -952,7 +1004,7 @@ export function StudyCard({
       window.removeEventListener('keydown', onKey);
       if (!popped && (window.history.state as { studyRerecord?: boolean } | null)?.studyRerecord) window.history.back();
     };
-  }, [reRecording]);
+  }, [recordingOnQuestion]);
 
 
   const handleGenerateSentenceClue = async (
@@ -1145,9 +1197,12 @@ export function StudyCard({
     for (const note of tutorNotes) {
       markRecordingNoteSeen(note.id).catch(() => {});
     }
-    track('study.card_rated', { rating: RATING_KEYS[rating], card_type: card.card_type, queue: QUEUE_KEYS[card.queue] ?? null, time_ms: timeSpent, recorded: !!audioBlob, multiple_choice: showMultipleChoice });
+    // Rated while a "Say it again" is under way: it is dropped, the answer and take before it are kept.
+    const take = sayingAgain ? spoken.keptTake() : audioBlob;
+    if (sayingAgain) spoken.cancel();
+    track('study.card_rated', { rating: RATING_KEYS[rating], card_type: card.card_type, queue: QUEUE_KEYS[card.queue] ?? null, time_ms: timeSpent, recorded: !!take, multiple_choice: showMultipleChoice });
     // Call parent's rate function - handles both state update and DB write
-    onRate(rating, timeSpent, userAnswer || undefined, audioBlob || undefined);
+    onRate(rating, timeSpent, userAnswer || undefined, take || undefined);
   };
 
   const processToolResults = (toolResults: AskToolResult[]) => {
@@ -1376,6 +1431,16 @@ export function StudyCard({
     startRecordingWithDelay(true, true);
   };
 
+  // "🎤 Say it again" (a typing card answered by speaking): the same turn to the question as
+  // Record again, with the live transcript there; the new answer is checked when the take ends.
+  const sayAgain = () => {
+    stopAudio();
+    recordingPlayerRef.current.stop();
+    if (!aiAvailable) { setSayAgainHint(true); return; }
+    setSayAgainHint(false);
+    spoken.startAgain();
+  };
+
   // The language explorer (docs/LANGUAGE_EXPLORER.md): a tapped character opens its Character
   // view — card-independent dictionary data, offline once cached — and the learner can walk on
   // to its words and their characters. "✍️ Write it" opens this card's writing pad.
@@ -1465,7 +1530,24 @@ export function StudyCard({
               </button>
             )
           )}
+          {answerWasSpoken && !mcBackSlots && (
+            <button
+              className={`study-pill${!aiAvailable ? ' study-pill--unavailable' : ''}`}
+              onClick={sayAgain}
+              aria-label="Say it again"
+              aria-disabled={!aiAvailable}
+              data-testid="spoken-say-again"
+            >
+              <span aria-hidden="true">🎤</span> Say it again
+            </button>
+          )}
         </div>
+        {answerWasSpoken && sayAgainHint && !aiAvailable && (
+          <p className="study-spoken-hint" data-testid="say-again-offline-hint">Saying it again needs a connection.</p>
+        )}
+        {answerWasSpoken && recorderError && !spoken.active && (
+          <p className="study-spoken-hint" data-testid="say-again-mic-error">{recorderError}</p>
+        )}
 
         <OfflineAudioNote audioUrl={card.note.audio_url} effectiveOffline={effectiveOffline} />
 
@@ -1939,6 +2021,71 @@ export function StudyCard({
     );
   };
 
+  // What is being said, live: confirmed text black, the provisional tail grey.
+  const renderSpokenLiveBox = (placeholder: string) => (
+    <div className="form-input study-typing-input study-spoken-live" data-testid="spoken-live" aria-live="polite">
+      {spoken.finalText || spoken.partialText ? (
+        <>
+          <span className="study-spoken-final">{spoken.finalText}</span>
+          <span className="study-spoken-interim">{spoken.partialText}</span>
+        </>
+      ) : (
+        <span className="study-spoken-placeholder">{spoken.phase === 'finishing' ? 'Finishing…' : placeholder}</span>
+      )}
+    </div>
+  );
+
+  // "Couldn't transcribe — tap to retry" (the same take, upload only).
+  const renderSpokenRetry = (note: string) => (
+    <button
+      type="button"
+      className="transcription-result transcription-failed"
+      data-testid="spoken-retry"
+      onClick={(e) => { e.stopPropagation(); spoken.retry(); }}
+    >
+      Couldn’t transcribe — tap to retry
+      <span className="transcription-failed-note">{note}</span>
+    </button>
+  );
+
+  // Say it again, on the question side: the live transcript, ⏹ (or 🎤 to try again after a take
+  // that gave nothing) and ✕ Cancel. Any other tap on the card stops the take too (handleCardClick).
+  const renderSayAgainPanel = () => (
+    <div className="study-rerecord study-sayagain" data-testid="study-sayagain">
+      <div className="study-typing-row">
+        {renderSpokenLiveBox(spoken.phase === 'failed' ? 'Say it again' : 'Listening… say the answer')}
+        <button
+          type="button"
+          className={`study-mic-btn${spoken.listening ? ' is-listening' : ''}`}
+          aria-label={spoken.listening ? 'Stop and check what I said' : 'Say it again'}
+          aria-disabled={spoken.phase === 'finishing'}
+          data-testid="spoken-mic"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (spoken.phase === 'finishing') return;
+            if (spoken.listening) spoken.stop();
+            else spoken.startAgain();
+          }}
+        >
+          {spoken.listening ? '⏹' : '🎤'}
+        </button>
+      </div>
+      {spoken.listening && <p className="study-rerecord-hint">Tap anywhere to stop</p>}
+      {spoken.phase === 'failed' && spoken.failure !== 'empty' && renderSpokenRetry('Or keep your first answer')}
+      {spoken.phase === 'failed' && spoken.failure === 'empty' && (
+        <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap 🎤 to try again.</p>
+      )}
+      <button
+        type="button"
+        className="study-spoken-cancel"
+        onClick={(e) => { e.stopPropagation(); spoken.cancel(); }}
+        data-testid="spoken-cancel"
+      >
+        ✕ Cancel
+      </button>
+    </div>
+  );
+
   // Record again, on the question side: pulsing mic, time, level, "Tap anywhere to stop",
   // Stop and Cancel. Any other tap on the card stops it too (handleCardClick).
   const renderReRecordPanel = () => (
@@ -2186,6 +2333,74 @@ export function StudyCard({
       );
     }
 
+    // Voice first: the big 🎤 in the middle, ✏️ Type on the left (this card only), Show answer on the
+    // right. Offline (no live transcription) the box comes first, the 🎤 dimmed beside it.
+    if (aiAvailable && !typingMode) {
+      return (
+        <div className="study-card-actions study-voice-first" data-testid="study-voice-first">
+          {mcFallbackNote && (
+            <p className="study-mc-note" data-testid="mc-fallback-note">{mcFallbackNote}</p>
+          )}
+          {spoken.busy && renderSpokenLiveBox('Listening… say the answer')}
+          <div className="study-voice-row">
+            <button
+              type="button"
+              className="study-voice-side"
+              onClick={() => { setMicHint(false); setTypingMode(true); }}
+              aria-label="Type the answer instead"
+              data-testid="spoken-type"
+              style={spoken.busy ? { visibility: 'hidden' } : undefined}
+            >
+              <span className="study-voice-side-icon" aria-hidden="true">✏️</span>
+              <span className="study-voice-side-label">Type</span>
+            </button>
+            <button
+              type="button"
+              className={`study-mic-big${spoken.listening ? ' is-listening' : ''}`}
+              aria-label={spoken.listening ? 'Stop and use what I said' : 'Say the answer'}
+              aria-disabled={spoken.phase === 'finishing'}
+              data-testid="spoken-mic"
+              onClick={() => {
+                if (spoken.phase === 'finishing') return;
+                if (spoken.listening) spoken.stop();
+                else {
+                  stopAudio(); // a listen card's clip must not play into the microphone
+                  spoken.start();
+                }
+              }}
+            >
+              {spoken.phase === 'finishing' ? <span className="spinner study-mic-big-spinner" aria-hidden="true" /> : (spoken.listening ? '⏹' : '🎤')}
+            </button>
+            <button
+              type="button"
+              className="study-voice-side"
+              onClick={handleFlip}
+              data-testid="voice-show-answer"
+              style={spoken.busy ? { visibility: 'hidden' } : undefined}
+            >
+              <span className="study-voice-side-icon" aria-hidden="true">👁</span>
+              <span className="study-voice-side-label">Show answer</span>
+            </button>
+          </div>
+          <p className="study-mic-big-label" aria-hidden="true">
+            {spoken.listening ? 'Tap to stop' : spoken.phase === 'finishing' ? 'Finishing…' : 'Tap to say it'}
+          </p>
+          {spoken.busy && (
+            <button type="button" className="study-spoken-cancel" onClick={spoken.cancel} data-testid="spoken-cancel">
+              ✕ Cancel
+            </button>
+          )}
+          {recorderError && !spoken.busy && (
+            <p className="study-spoken-hint" data-testid="spoken-mic-error">{recorderError}</p>
+          )}
+          {spoken.phase === 'failed' && spoken.failure !== 'empty' && renderSpokenRetry('Or type your answer')}
+          {spoken.phase === 'failed' && spoken.failure === 'empty' && (
+            <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap 🎤 to try again, or type it.</p>
+          )}
+        </div>
+      );
+    }
+
     const placeholder = card.card_type === 'audio_to_hanzi' ? 'Type what you hear...' : 'Type in Chinese...';
     return (
       <div className="study-card-actions">
@@ -2194,17 +2409,7 @@ export function StudyCard({
         )}
         <div className="study-typing-row">
           {spoken.busy ? (
-            // What is being said, live: confirmed text black, the provisional tail grey.
-            <div className="form-input study-typing-input study-spoken-live" data-testid="spoken-live" aria-live="polite">
-              {spoken.finalText || spoken.partialText ? (
-                <>
-                  <span className="study-spoken-final">{spoken.finalText}</span>
-                  <span className="study-spoken-interim">{spoken.partialText}</span>
-                </>
-              ) : (
-                <span className="study-spoken-placeholder">{spoken.phase === 'finishing' ? 'Finishing…' : 'Listening… say the answer'}</span>
-              )}
-            </div>
+            renderSpokenLiveBox('Listening… say the answer')
           ) : (
             <input
               ref={inputRef}
@@ -2250,12 +2455,7 @@ export function StudyCard({
         {recorderError && !spoken.busy && (
           <p className="study-spoken-hint" data-testid="spoken-mic-error">{recorderError}</p>
         )}
-        {spoken.phase === 'failed' && spoken.failure !== 'empty' && (
-          <button type="button" className="transcription-result transcription-failed" data-testid="spoken-retry" onClick={spoken.retry}>
-            Couldn’t transcribe — tap to retry
-            <span className="transcription-failed-note">Or type your answer</span>
-          </button>
-        )}
+        {spoken.phase === 'failed' && spoken.failure !== 'empty' && renderSpokenRetry('Or type your answer')}
         {spoken.phase === 'failed' && spoken.failure === 'empty' && (
           <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap 🎤 to try again, or type it.</p>
         )}
@@ -2453,7 +2653,7 @@ export function StudyCard({
               {peeking && (
                 <div className="study-card-main study-card-main--peek study-face-flip" data-testid="study-peek-front">
                   {renderFront()}
-                  {reRecording ? renderReRecordPanel() : <p className="study-peek-hint">Tap to see the answer</p>}
+                  {reRecording ? renderReRecordPanel() : sayingAgain ? renderSayAgainPanel() : <p className="study-peek-hint">Tap to see the answer</p>}
                 </div>
               )}
               {/* Hidden, not unmounted, while peeking: opened sentence rows and the
@@ -2540,8 +2740,9 @@ export function StudyCard({
 
       {/* Floating audio replay button for thumb-reach on the FRONT of audio cards.
           The back has its own play button in the reveal area, and a fixed FAB
-          there sat on top of the rating buttons. */}
-      {isAudioCard && !flipped && (
+          there sat on top of the rating buttons. Hidden while the answer is being said: the clip
+          must not play into the microphone, and the live transcript needs the room. */}
+      {isAudioCard && !flipped && !spoken.busy && (
         <button
           className={`audio-replay-fab${isPlaying ? ' audio-replay-fab--playing' : ''}${!showMultipleChoice ? ' audio-replay-fab--above-typing' : ''}`}
           onClick={cycleAndPlay}

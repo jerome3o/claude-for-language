@@ -94,6 +94,7 @@ class PeekFlipTest : LabScreenshotTest() {
 
     @Test fun typedAnswerIsKeptThroughAPeek() {
         studyScreen(CardTypes.MEANING_TO_HANZI)
+        compose.onNodeWithTag(SPOKEN_TYPE_TAG).performClick() // voice first: ✏️ Type opens the box
         compose.onNode(hasSetTextAction()).performTextInput("打蒜")
         compose.onNodeWithText("Check").performClick()
         assertEquals(listOf<AnswerKey.Verdict?>(AnswerKey.Verdict.WRONG), reveals)
@@ -164,6 +165,7 @@ class PeekFlipTest : LabScreenshotTest() {
 
     @Test fun frontTapOnAnUnrevealedTypingCardDoesNothing() {
         studyScreen(CardTypes.MEANING_TO_HANZI)
+        compose.onNodeWithTag(SPOKEN_TYPE_TAG).performClick() // voice first: ✏️ Type opens the box
         compose.onNode(hasSetTextAction()).performTextInput(Samples.note.hanzi)
         compose.onNodeWithText(Samples.note.english).performClick()
         tapEmptyFront()

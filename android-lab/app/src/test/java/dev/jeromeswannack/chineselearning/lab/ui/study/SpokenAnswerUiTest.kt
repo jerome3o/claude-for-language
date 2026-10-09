@@ -4,6 +4,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onRoot
+import com.github.takahirom.roborazzi.captureRoboImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -47,7 +52,7 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
 
     private val actions = StudyActions(
         onReveal = { reveals += it },
-        onSpokenChecked = { checked += it },
+        onSpokenChecked = { v, retry -> checked += v; if (retry) calls += "checked-again" },
         onStartSpoken = { calls += "start" },
         onStopSpoken = { calls += "stop" },
         onCancelSpoken = { calls += "cancel" },
@@ -91,7 +96,34 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SPOKEN_RETRY_TAG).performClick()
         assertEquals(listOf("retry"), calls)
         assertEquals(emptyList<AnswerKey.Verdict?>(), reveals)
-        compose.onNodeWithText("Show").assertIsDisplayed() // the box stays, empty and editable
+        // Voice first stays up: typing is one tap away, and the box opens empty.
+        compose.onNodeWithTag(SPOKEN_TYPE_TAG).performClick()
+        compose.onNodeWithText("Show").assertIsDisplayed()
+    }
+
+    @Test fun voiceFirstShowsTheBigMicAndNoBoxUntilType() {
+        compose.setContent { LabTheme { StudyScreen(ui(SpokenUi()), playingKey = null, actions = actions, autoplay = false) } }
+        compose.onNodeWithTag(VOICE_FIRST_TAG).assertIsDisplayed()
+        compose.onNodeWithText("Tap to say it").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size)
+        compose.onNodeWithText("Show answer").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals(listOf<AnswerKey.Verdict?>(null), reveals)
+    }
+
+    @Test fun typeOpensTheFocusedBoxWithTheSmallMic() {
+        compose.setContent { LabTheme { StudyScreen(ui(SpokenUi()), playingKey = null, actions = actions, autoplay = false) } }
+        compose.onNodeWithTag(SPOKEN_TYPE_TAG).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNode(hasSetTextAction()).assertIsFocused()
+        compose.onNodeWithTag(SPOKEN_MIC_TAG).assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(hasTestTag(VOICE_FIRST_TAG)).fetchSemanticsNodes().size)
+    }
+
+    @Test fun offlineTheBoxComesFirst() {
+        compose.setContent { LabTheme { StudyScreen(ui(SpokenUi(), online = false), playingKey = null, actions = actions, autoplay = false) } }
+        compose.onNode(hasSetTextAction()).assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(hasTestTag(VOICE_FIRST_TAG)).fetchSemanticsNodes().size)
     }
 
     @Test fun theMicStartsWithThePermissionAndOfflineSaysWhy() {
@@ -103,7 +135,16 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
 
     // ---------------- screenshots ----------------
 
-    @Test fun shotFront() = shoot("study-s01-typed-mic") { StudyScreen(ui(SpokenUi()), playingKey = null, actions = StudyActions(), autoplay = false) }
+    @Test fun shotFront() = shoot("study-s01-voice-first") { StudyScreen(ui(SpokenUi()), playingKey = null, actions = StudyActions(), autoplay = false) }
+
+    @Test fun shotFrontDark() = shoot("study-s01b-voice-first-dark", dark = true) { StudyScreen(ui(SpokenUi(), type = CardTypes.AUDIO_TO_HANZI), playingKey = null, actions = StudyActions(), autoplay = false) }
+
+    @Test fun shotTypingMode() {
+        compose.setContent { LabTheme { StudyScreen(ui(SpokenUi()), playingKey = null, actions = StudyActions(), autoplay = false) } }
+        compose.onNodeWithTag(SPOKEN_TYPE_TAG).performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.onRoot().captureRoboImage("screenshots/study-s09-typing-mode.png")
+    }
 
     @Test fun shotListening() = shoot("study-s02-listening-live") {
         StudyScreen(ui(SpokenUi(phase = SpokenPhase.LISTENING, finalText = "我", partialText = "由")), playingKey = null, actions = StudyActions(), autoplay = false)

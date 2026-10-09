@@ -118,8 +118,10 @@ class StudyActions(
     val onStopSpoken: () -> Unit = {},
     val onCancelSpoken: () -> Unit = {},
     val onRetrySpoken: () -> Unit = {},
-    /** The back checked a spoken answer (analytics). */
-    val onSpokenChecked: (AnswerKey.Verdict) -> Unit = {},
+    /** "🎤 Say it again" on the answer side of a typing card answered by speaking. */
+    val onSayAgain: () -> Unit = {},
+    /** The back checked a spoken answer (analytics); `retry` = the answer of a "Say it again". */
+    val onSpokenChecked: (AnswerKey.Verdict, Boolean) -> Unit = { _, _ -> },
     val recordingLevel: kotlinx.coroutines.flow.StateFlow<Float> = kotlinx.coroutines.flow.MutableStateFlow(0f),
     /** "Use in sentence" when the note has none yet, and ↻ on the shown one. */
     val onGenerateSentenceClue: () -> Unit = {},
@@ -232,6 +234,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onStopSpoken = vm::stopSpokenAnswer,
             onCancelSpoken = vm::cancelSpokenAnswer,
             onRetrySpoken = vm::retrySpokenAnswer,
+            onSayAgain = vm::sayAgain,
             onSpokenChecked = vm::onSpokenAnswerChecked,
             recordingLevel = vm.level,
             sendFlag = vm::flag,

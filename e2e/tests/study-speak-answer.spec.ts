@@ -28,11 +28,14 @@ async function api<T = unknown>(request: APIRequestContext, path: string, opts: 
   return (await res.json()) as T;
 }
 
-/** Soniox stand-in: interim 油 while audio arrives, the final 油 after the end-of-audio frame. `refuse` errors at once. */
-async function fakeSoniox(page: Page, mode: 'ok' | 'refuse' = 'ok') {
-  await page.addInitScript(([fakeUrl, fakeMode]) => {
+/**
+ * Soniox stand-in: interim 油 while audio arrives, the final 油 after the end-of-audio frame. `refuse`
+ * errors at once. `texts`: what each take in turn hears (the last one repeats) — default 油.
+ */
+async function fakeSoniox(page: Page, mode: 'ok' | 'refuse' = 'ok', texts: string[] = ['油']) {
+  await page.addInitScript(([fakeUrl, fakeMode, heard]) => {
     const Real = window.WebSocket;
-    const stats = { chunks: 0, ended: false, config: null as null | Record<string, unknown>, protocols: null as null | string[] };
+    const stats = { chunks: 0, ended: false, takes: 0, config: null as null | Record<string, unknown>, protocols: null as null | string[] };
     (window as unknown as { __soniox: typeof stats }).__soniox = stats;
     class FakeSoniox extends EventTarget {
       readyState = 0;
@@ -40,8 +43,13 @@ async function fakeSoniox(page: Page, mode: 'ok' | 'refuse' = 'ok') {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: Event) => void) | null = null;
       onclose: ((e: CloseEvent) => void) | null = null;
+      private text: string;
+      private configured = false;
+      private chunks = 0;
       constructor(public url: string, protocols?: string | string[]) {
         super();
+        this.text = (heard as string[])[Math.min(stats.takes, (heard as string[]).length - 1)];
+        stats.takes++;
         // Like Soniox since Oct 2026: the key comes WITH the connection (subprotocols
         // 'soniox-api-key' + key), never in the config frame.
         stats.protocols = protocols === undefined ? null : ([] as string[]).concat(protocols);
@@ -49,7 +57,8 @@ async function fakeSoniox(page: Page, mode: 'ok' | 'refuse' = 'ok') {
       }
       private reply(o: object) { this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(o) })); }
       send(data: unknown) {
-        if (!stats.config) {
+        if (!this.configured) {
+          this.configured = true; // the first frame of a connection is its config
           stats.config = JSON.parse(String(data));
           const authed = stats.protocols?.[0] === 'soniox-api-key' && !!stats.protocols[1];
           if (!authed || 'api_key' in stats.config!) {
@@ -71,12 +80,13 @@ async function fakeSoniox(page: Page, mode: 'ok' | 'refuse' = 'ok') {
         }
         if (data !== '') {
           stats.chunks++;
-          if (stats.chunks === 2) this.reply({ tokens: [{ text: '油', is_final: false }] });
+          this.chunks++;
+          if (this.chunks === 2) this.reply({ tokens: [{ text: this.text, is_final: false }] });
           return;
         }
         stats.ended = true;
         setTimeout(() => {
-          this.reply({ tokens: [{ text: '油', is_final: true }, { text: '<fin>', is_final: true }] });
+          this.reply({ tokens: [{ text: this.text, is_final: true }, { text: '<fin>', is_final: true }] });
           this.reply({ tokens: [], finished: true });
         }, 30);
       }
@@ -85,7 +95,7 @@ async function fakeSoniox(page: Page, mode: 'ok' | 'refuse' = 'ok') {
     window.WebSocket = function (url: string | URL, protocols?: string | string[]) {
       return String(url) === fakeUrl ? new FakeSoniox(String(url), protocols) : new Real(url, protocols);
     } as unknown as typeof WebSocket;
-  }, [FAKE_WS, mode] as const);
+  }, [FAKE_WS, mode, texts] as const);
   await page.route('**/api/transcribe/live', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
@@ -208,13 +218,40 @@ test('live and upload both failing: "Couldn’t transcribe — tap to retry", no
   await page.getByTestId('spoken-mic').click();
   const retry = page.getByTestId('spoken-retry');
   await expect(retry).toBeVisible({ timeout: 10000 });
-  // Not submitted: still the question, the box editable.
-  await expect(page.getByRole('button', { name: 'Check Answer' })).toBeVisible();
-  await expect(page.getByPlaceholder(/Type/)).toBeEditable();
+  // Not submitted: still the question (voice first), and typing is one tap away.
+  await expect(page.getByTestId('study-voice-first')).toBeVisible();
+  await expect(page.getByTestId('spoken-type')).toBeVisible();
 
   fail = false;
   await retry.click();
   await expect(page.getByTestId('typed-answer-diff').or(page.locator('.answer-diff')).first()).toBeVisible({ timeout: 8000 });
+});
+
+test('voice first: the big 🎤, no box and no keyboard; ✏️ Type opens the box for this card only', async ({ page, request }) => {
+  await fakeSoniox(page);
+  await seed(page, request);
+
+  await nextTypingCard(page);
+  await expect(page.getByTestId('study-voice-first')).toBeVisible();
+  await expect(page.locator('.study-mic-big')).toBeVisible();
+  await expect(page.getByText('Tap to say it')).toBeVisible();
+  await expect(page.getByPlaceholder(/Type/)).toHaveCount(0);
+  // Nothing focused that would pop the keyboard up.
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('INPUT');
+
+  await page.getByTestId('spoken-type').click();
+  const box = page.getByPlaceholder(/Type/);
+  await expect(box).toBeFocused();
+  await expect(page.getByTestId('spoken-mic')).toBeVisible(); // the small 🎤 beside the box
+  await expect(page.locator('.study-mic-big')).toHaveCount(0);
+  await box.fill('由');
+  await box.press('Enter');
+  await expect(page.locator('.answer-diff').first()).toBeVisible();
+  await page.getByRole('button', { name: /^Good/ }).first().click();
+  // The next typing card (if any) opens voice first again.
+  const next = page.getByTestId('study-voice-first').or(page.getByTestId('skip-recording')).or(page.getByText(/All done|Nothing due/));
+  await expect(next.first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByPlaceholder(/Type/)).toHaveCount(0);
 });
 
 test('auto-submit off: the transcript fills the box, Enter submits it', async ({ page, request }) => {
@@ -231,4 +268,78 @@ test('auto-submit off: the transcript fills the box, Enter submits it', async ({
   await expect(page.getByRole('button', { name: 'Check Answer' })).toBeVisible();
   await box.press('Enter');
   await expect(page.getByTestId('spoken-answer-sound')).toBeVisible();
+});
+
+/**
+ * Counts what the card plays: its clip (any <audio>) or the device voice reading the word (no clip
+ * in the test, none being made — "Audio coming…" would make it wait).
+ */
+async function countCardPlays(page: Page) {
+  await page.route('**/api/notes/*/ensure-audio', (route) => route.abort());
+  await page.addInitScript(() => {
+    const w = window as unknown as { __cardPlays: string[] };
+    w.__cardPlays = [];
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      w.__cardPlays.push(this.src);
+      return play.call(this);
+    };
+    if ('speechSynthesis' in window) {
+      const speak = window.speechSynthesis.speak.bind(window.speechSynthesis);
+      window.speechSynthesis.speak = (u: SpeechSynthesisUtterance) => { w.__cardPlays.push(`tts:${u.text}`); speak(u); };
+    }
+  });
+}
+const cardPlays = (page: Page) => page.evaluate(() => (window as unknown as { __cardPlays: string[] }).__cardPlays.length);
+
+test('say it again: the question while the new take is said, the NEW verdict after, the clip once; cancel keeps the answer', async ({ page, request }) => {
+  // The first take hears 油 (right by sound), the second 由 (exact), the third (cancelled) 有.
+  await fakeSoniox(page, 'ok', ['油', '由', '有']);
+  await countCardPlays(page);
+  await seed(page, request);
+
+  await nextTypingCard(page);
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('油', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-answer-sound')).toContainText('You said: 油', { timeout: 8000 });
+  // The reveal's auto-play has happened; from here on only "Say it again" may add one.
+  await expect.poll(() => cardPlays(page)).toBeGreaterThan(0);
+  await page.waitForTimeout(800);
+  const afterReveal = await cardPlays(page);
+
+  // Say it again: the question with the live box; the old verdict is out of sight.
+  await page.getByTestId('spoken-say-again').click();
+  await expect(page.getByTestId('study-sayagain')).toBeVisible();
+  await expect(page.getByTestId('study-card-back')).toBeHidden();
+  await expect(page.getByTestId('spoken-answer-sound')).toBeHidden();
+  await expect(page.getByTestId('spoken-live')).toContainText('由', { timeout: 10000 });
+  expect(await cardPlays(page)).toBe(afterReveal);
+  await page.getByTestId('spoken-mic').click(); // ⏹
+
+  // The answer again, with the NEW verdict (exact — no "sounded right" note), and the clip once.
+  await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('study-sayagain')).toHaveCount(0);
+  await expect(page.getByTestId('spoken-answer-sound')).toHaveCount(0);
+  await expect(page.locator('.answer-diff').first()).toBeVisible();
+  await expect.poll(() => cardPlays(page)).toBe(afterReveal + 1);
+  await page.waitForTimeout(1000);
+  expect(await cardPlays(page)).toBe(afterReveal + 1);
+
+  // Say it again → ✕ Cancel: back to the answer, the 由 result unchanged, nothing played.
+  await page.getByTestId('spoken-say-again').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('有', { timeout: 10000 });
+  await page.getByTestId('spoken-cancel').click();
+  await expect(page.getByTestId('study-card-back')).toBeVisible();
+  await expect(page.getByTestId('spoken-answer-sound')).toHaveCount(0);
+  await expect(page.locator('.answer-diff-spoken-note--close')).toHaveCount(0);
+  await page.waitForTimeout(800);
+  expect(await cardPlays(page)).toBe(afterReveal + 1);
+
+  // The review keeps the latest answer and a recording.
+  await page.getByRole('button', { name: /^Good/ }).first().click();
+  await expect.poll(async () => (await localReviews(page)).filter(r => r.card_type !== 'hanzi_to_meaning').length, { timeout: 10000 }).toBe(1);
+  const typed = (await localReviews(page)).find(r => r.card_type !== 'hanzi_to_meaning')!;
+  expect(typed.user_answer).toBe('由');
+  expect(typed.recording).toBe(true);
 });

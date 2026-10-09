@@ -26,9 +26,9 @@ export type McLoadResult =
 
 export const MC_FALLBACK_MESSAGES: Record<McFallbackReason, string> = {
   offline: 'No connection — type your answer instead.',
-  timeout: 'Options took too long — type your answer instead.',
-  error: "Couldn't build options — type your answer instead.",
-  empty: 'No options for this word — type your answer instead.',
+  timeout: 'Options took too long — say or type your answer instead.',
+  error: "Couldn't build options — say or type your answer instead.",
+  empty: 'No options for this word — say or type your answer instead.',
 };
 
 /**

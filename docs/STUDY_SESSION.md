@@ -713,6 +713,16 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
 `hooks/useSpokenAnswer.ts` + `services/spokenAnswer.ts`; Lab `StudyViewModel` "say the answer" +
 `CardStage` `SpokenMicButton`). It is the read cards' pronunciation take, not a fork:
 
+- **Voice first.** The question opens on a big round **🎤** (84 px / dp, centred, "Tap to say it")
+  — no answer box and no keyboard on card show. **✏️ Type** on the left switches THIS card to the
+  box (focused, keyboard up) with the small 🎤 beside it as before; the next card is voice first
+  again. **👁 Show answer** on the right reveals without answering. A resumed card with an answer in
+  the box, or a transcript only filled in (auto-submit off), shows the box. **Offline** (no live
+  transcription) the box comes first with the 🎤 dimmed, as before. While speaking the live
+  transcript shows above the 🎤 and a listen card's floating 🔊 steps aside. Web
+  `renderTypingActions` `typingMode` (`.study-voice-first`, `.study-mic-big`); Lab `CardStage`
+  `typingMode` / `VoiceFirstControls` / `BigMicButton`; e2e `study-speak-answer.spec.ts` "voice
+  first", Lab `SpokenAnswerUiTest`.
 - **Tap 🎤** → the SAME recorder and live Soniox stream as a read card's take (web
   `useAudioRecorder` + `LiveTranscriber`, Lab `VoiceRecorder.startLive` + `SonioxStream`); the box
   turns into the live transcript — confirmed text in ink, the provisional tail grey (the
@@ -740,8 +750,29 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   said: 油". The same syllables with other tones is **close** — still wrong (the diff, plus "Close —
   the tones are off"). Exact hanzi = right, as typed. Edited after speaking = a typed answer again.
   The expected answer is never sent to Soniox (no context) — it would bias recognition.
+- **🎤 Say it again** (answer side, beside Play — Record again's place on a read card; only when the
+  answer on the back was spoken): Record again for a spoken answer. The card turns back to the
+  question with the mic live and the live transcript in the box's place ("Tap anywhere to stop", ⏹,
+  ✕ Cancel); the previous answer / verdict is out of sight meanwhile. When the take ends its
+  transcript is checked with the same spoken rule (`checkSpokenAnswer`) — always, whatever the
+  auto-submit switch, since the card is already revealed — and the card turns to the answer with
+  the NEW verdict and "You said". The new take replaces the previous one (the review event is
+  written at rating time, so the latest answer and take are what is saved), and the card's own
+  clip plays once the same way as after Record again (#556: his own take's playback stops first; a
+  clip still "Audio coming…" is waited for by the reveal's auto-play; never twice). ✕ / back / Esc,
+  or rating meanwhile, drops the new take: the previous answer, verdict and take stay. A take that
+  gives nothing stays on the question ("Couldn't transcribe — tap to retry · Or keep your first
+  answer" / "Didn't catch anything — tap 🎤 to try again"); ✕ goes back. Offline the pill is dimmed
+  and a tap says "Saying it again needs a connection." Typed answers have no Say it again. Web:
+  `SpokenAnswerController.start({ again: true })` (`keepPrevious`, `restorePrevious`), `useSpokenAnswer`
+  `startAgain` / `keptTake`, `renderSayAgainPanel` + `sayingAgain` in `StudyPage.tsx` (the Record
+  again peek flip and history entry); unit `spokenAnswer.test.ts`, e2e `study-speak-answer.spec.ts`
+  "say it again". Lab: `StudyViewModel.sayAgain` / `takeBeforeSayAgain` (+ `playWordAfterRecordAgain`),
+  `SpokenUi.again` / `SpokenResult.again`, `SayAgainPill` / `SayAgainPanel` in `CardStage.kt`;
+  `SayItAgainTest` (ViewModel, fake recorder + transcriber), `SayItAgainUiTest`.
 - Analytics: `study.answer_spoken` (result submitted / filled / failed / empty / cancelled, via,
-  live_error, speech_ms, ms, auto_submit) and `study.spoken_answer_checked` (verdict).
+  live_error, speech_ms, ms, auto_submit, retry = a Say it again) and `study.spoken_answer_checked`
+  (verdict, retry).
 
 ## Multiple choice
 

@@ -12,10 +12,12 @@ import { liveFailureInvalidatesKey } from '@shared/transcription/soniox';
 import { track } from '../services/analytics';
 
 interface Recorder {
-  startRecording: (deviceId?: string, live?: { onChunk: (chunk: Blob) => void; onStop: (take: Blob) => void }) => Promise<boolean>;
+  startRecording: (deviceId?: string, live?: { onChunk: (chunk: Blob) => void; onStop: (take: Blob) => void }, keepPrevious?: boolean) => Promise<boolean>;
   stopRecording: () => void;
   cancelRecording: () => void;
   clearRecording: () => void;
+  /** Put a take back (a cancelled "Say it again" restores the one from before it). */
+  restoreRecording: (take: Blob | null) => void;
 }
 
 export function useSpokenAnswer(opts: {
@@ -24,17 +26,22 @@ export function useSpokenAnswer(opts: {
   cardType: string;
   /** Online and not forced offline. */
   online: boolean;
-  onResult: (text: string, submit: boolean) => void;
+  /** The recorder's current take (`audioBlob`): what a "Say it again" keeps until its new take lands. */
+  currentTake: Blob | null;
+  onResult: (text: string, submit: boolean, again: boolean) => void;
 }) {
   const [state, setState] = useState<SpokenAnswerState>(IDLE_SPOKEN);
   const latest = useRef(opts);
   latest.current = opts;
+  // The take from before a "Say it again" — put back when it is cancelled, saved with a rating made meanwhile.
+  const previousTake = useRef<Blob | null>(null);
 
   const controller = useMemo(() => new SpokenAnswerController({
-    startRecorder: (hooks) => latest.current.recorder.startRecording(latest.current.micDeviceId || undefined, hooks),
+    startRecorder: (hooks, { keepPrevious }) => latest.current.recorder.startRecording(latest.current.micDeviceId || undefined, hooks, keepPrevious),
     stopRecorder: () => latest.current.recorder.stopRecording(),
     cancelRecorder: () => latest.current.recorder.cancelRecording(),
     discardTake: () => latest.current.recorder.clearRecording(),
+    restorePrevious: () => latest.current.recorder.restoreRecording(previousTake.current),
     createLive: (onUpdate) => (liveSessionUnavailable()
       ? null
       : new LiveTranscriber(getLiveSession(), { onUpdate: (t) => onUpdate(t.finalText, t.partialText) })),
@@ -42,7 +49,7 @@ export function useSpokenAnswer(opts: {
     isOnline: () => latest.current.online && navigator.onLine,
     autoSubmit: readSpokenAutoSubmit,
     onState: setState,
-    onResult: (text, submit) => latest.current.onResult(text, submit),
+    onResult: (text, submit, again) => latest.current.onResult(text, submit, again),
     onLiveError: (reason) => {
       console.warn('[spoken answer] live transcription gave nothing, uploaded instead:', reason);
       if (liveFailureInvalidatesKey(reason)) resetLiveSessionCache();
@@ -57,7 +64,16 @@ export function useSpokenAnswer(opts: {
     ...state,
     listening: state.phase === 'listening',
     busy: state.phase === 'listening' || state.phase === 'finishing',
+    /** Under way: listening, finishing, or a failed / empty take still on screen. */
+    active: state.phase !== 'idle',
     start: () => void controller.start(),
+    /** "🎤 Say it again" on the answer side: the take so far is kept until the new one lands. */
+    startAgain: () => {
+      if (controller.current.phase === 'idle') previousTake.current = latest.current.currentTake;
+      void controller.start({ again: true });
+    },
+    /** The take a rating keeps: during a "Say it again", the one from before it. */
+    keptTake: (): Blob | null => (controller.current.again ? previousTake.current : latest.current.currentTake),
     stop: () => controller.stop(),
     cancel: () => controller.cancel(),
     retry: () => void controller.retry(),

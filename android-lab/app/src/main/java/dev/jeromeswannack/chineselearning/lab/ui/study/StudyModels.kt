@@ -160,8 +160,11 @@ enum class SpokenPhase { IDLE, LISTENING, FINISHING, FAILED }
 /** Why a spoken take gave no answer: both paths failed / offline (retry the take), or nothing was heard. */
 enum class SpokenFailure { FAILED, OFFLINE, EMPTY }
 
-/** The answer said: the card puts it in the box (and checks it when [submit]); [seq] bumps per answer. */
-data class SpokenResult(val text: String, val submit: Boolean, val seq: Int)
+/**
+ * The answer said: the card puts it in the box (and checks it when [submit]); [seq] bumps per answer.
+ * [again]: from a "🎤 Say it again" on the answer side — the card is revealed; it is checked anew.
+ */
+data class SpokenResult(val text: String, val submit: Boolean, val seq: Int, val again: Boolean = false)
 
 /**
  * "Say the answer" on a typing card (the web's useSpokenAnswer / services/spokenAnswer.ts): the
@@ -176,6 +179,8 @@ data class SpokenUi(
     val result: SpokenResult? = null,
     /** 🎤 tapped offline: "Saying the answer needs a connection — type it instead." */
     val offlineHint: Boolean = false,
+    /** A "🎤 Say it again" from the answer side is under way: the card shows the question meanwhile. */
+    val again: Boolean = false,
 ) {
     val listening: Boolean get() = phase == SpokenPhase.LISTENING
     val busy: Boolean get() = phase == SpokenPhase.LISTENING || phase == SpokenPhase.FINISHING
