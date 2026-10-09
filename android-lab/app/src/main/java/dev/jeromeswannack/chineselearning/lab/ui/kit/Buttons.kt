@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -59,9 +61,20 @@ fun PrimaryPill(label: String, modifier: Modifier = Modifier, enabled: Boolean =
     }
 }
 
-/** A quieter action beside a [PrimaryPill]: outlined, accent label. */
+/**
+ * A quieter action beside a [PrimaryPill]: outlined, accent label. [horizontalPadding] and
+ * [fontSize] make it smaller when two sit beside a wide primary in one row (study's voice-first row).
+ */
 @Composable
-fun SecondaryPill(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, danger: Boolean = false, onClick: () -> Unit) {
+fun SecondaryPill(
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+    horizontalPadding: Dp = 20.dp,
+    fontSize: TextUnit = 16.sp,
+    onClick: () -> Unit,
+) {
     val fg = if (danger) Palette.Again else Lab.colors.accent
     Box(
         modifier
@@ -70,9 +83,9 @@ fun SecondaryPill(label: String, modifier: Modifier = Modifier, enabled: Boolean
             .clip(RoundedCornerShape(20.dp))
             .border(1.5.dp, fg.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
             .alpha(if (enabled) 1f else 0.5f)
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = horizontalPadding),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Text(label, color = fg, fontWeight = FontWeight.SemiBold, fontSize = fontSize)
     }
 }

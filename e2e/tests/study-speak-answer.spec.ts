@@ -227,14 +227,26 @@ test('live and upload both failing: "Couldn’t transcribe — tap to retry", no
   await expect(page.getByTestId('typed-answer-diff').or(page.locator('.answer-diff')).first()).toBeVisible({ timeout: 8000 });
 });
 
-test('voice first: the big 🎤, no box and no keyboard; ✏️ Type opens the box for this card only', async ({ page, request }) => {
+test('voice first: one row — ✏️ Type, 👁 Show answer, the wide 🎤 Say it — no box and no keyboard; ✏️ Type opens the box for this card only', async ({ page, request }) => {
   await fakeSoniox(page);
   await seed(page, request);
 
   await nextTypingCard(page);
   await expect(page.getByTestId('study-voice-first')).toBeVisible();
-  await expect(page.locator('.study-mic-big')).toBeVisible();
-  await expect(page.getByText('Tap to say it')).toBeVisible();
+  const say = page.getByRole('button', { name: 'Say it', exact: true });
+  const type = page.getByRole('button', { name: 'Type the answer' });
+  const show = page.getByRole('button', { name: 'Show answer', exact: true });
+  await expect(say).toBeVisible();
+  await expect(type).toBeVisible();
+  await expect(show).toBeVisible();
+  // One row: Type and Show answer on the left, Say it (the widest) on the right, all the same height.
+  const [sb, tb, hb] = [await say.boundingBox(), await type.boundingBox(), await show.boundingBox()];
+  expect(tb!.x).toBeLessThan(hb!.x);
+  expect(hb!.x).toBeLessThan(sb!.x);
+  expect(sb!.width).toBeGreaterThan(hb!.width);
+  expect(Math.abs(sb!.y - tb!.y)).toBeLessThan(2);
+  expect(Math.abs(sb!.height - hb!.height)).toBeLessThan(2);
+  expect(sb!.height).toBeGreaterThanOrEqual(44);
   await expect(page.getByPlaceholder(/Type/)).toHaveCount(0);
   // Nothing focused that would pop the keyboard up.
   expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('INPUT');
@@ -243,7 +255,7 @@ test('voice first: the big 🎤, no box and no keyboard; ✏️ Type opens the b
   const box = page.getByPlaceholder(/Type/);
   await expect(box).toBeFocused();
   await expect(page.getByTestId('spoken-mic')).toBeVisible(); // the small 🎤 beside the box
-  await expect(page.locator('.study-mic-big')).toHaveCount(0);
+  await expect(page.locator('.study-voice-say')).toHaveCount(0);
   await box.fill('由');
   await box.press('Enter');
   await expect(page.locator('.answer-diff').first()).toBeVisible();

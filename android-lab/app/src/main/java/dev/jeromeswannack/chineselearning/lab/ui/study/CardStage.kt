@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.widthIn
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
@@ -69,13 +68,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.zIndex
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -1045,96 +1045,62 @@ private fun SpokenMicButton(spoken: SpokenUi, online: Boolean, actions: StudyAct
     }
 }
 
+/** Accessibility labels of the voice-first row (the web's aria-labels). */
+const val SAY_IT_LABEL = "Say it"
+const val TYPE_ANSWER_LABEL = "Type the answer"
+const val SHOW_ANSWER_LABEL = "Show answer"
+
 /**
- * Voice first (the web's `.study-voice-first`): the big 🎤 centred — the primary control, "Tap to say
- * it" — with ✏️ Type (this card only) on the left and Show answer on the right; the live transcript
- * shows above while speaking, ✕ Cancel / retry / nothing heard below.
+ * Voice first (the web's `.study-voice-first`): ONE row of the app's pills where the read card's
+ * Show answer / 🎤 Record row sits (same 60dp height, corners, type) — ✏️ Type (this card only) and
+ * 👁 Show answer small on the left, the wide orange 🎤 Say it on the right taking the rest. While
+ * the answer is said the live transcript shows above and the row turns into ✕ Cancel + a red
+ * ⏹ Stop (the read card's Stop recording); "Finishing…" until the transcript is final.
  */
 @Composable
 private fun VoiceFirstControls(spoken: SpokenUi, online: Boolean, actions: StudyActions, onType: () -> Unit, onShow: () -> Unit) {
+    val start = rememberRecordPermission { actions.onStartSpoken() }
+    val finishing = spoken.phase == SpokenPhase.FINISHING
     Column(Modifier.fillMaxWidth().testTag(VOICE_FIRST_TAG), horizontalAlignment = Alignment.CenterHorizontally) {
         if (spoken.busy) {
             SpokenLiveBox(spoken, Modifier.fillMaxWidth())
             Spacer(Modifier.height(10.dp))
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                if (!spoken.busy) VoiceSideButton("✏️", "Type", Modifier.testTag(SPOKEN_TYPE_TAG), onType)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (spoken.busy) {
+                SecondaryPill("✕ Cancel", Modifier.height(60.dp), horizontalPadding = 12.dp, fontSize = 14.sp, onClick = actions.onCancelSpoken)
+            } else {
+                SecondaryPill(
+                    "✏️ Type",
+                    Modifier.height(60.dp).testTag(SPOKEN_TYPE_TAG).semantics { contentDescription = TYPE_ANSWER_LABEL },
+                    horizontalPadding = 12.dp, fontSize = 14.sp,
+                    onClick = onType,
+                )
+                SecondaryPill(
+                    "👁 Show answer",
+                    Modifier.height(60.dp).semantics { contentDescription = SHOW_ANSWER_LABEL },
+                    horizontalPadding = 12.dp, fontSize = 14.sp,
+                    onClick = onShow,
+                )
             }
-            BigMicButton(spoken, actions)
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                if (!spoken.busy) VoiceSideButton("👁", "Show answer", Modifier, onShow)
+            val (label, color, description) = when {
+                finishing -> Triple("Finishing…", Lab.colors.accent, "Finishing")
+                spoken.listening -> Triple("⏹  Stop", Palette.Again, "Stop and use what I said")
+                else -> Triple("🎤  Say it", Lab.colors.accent, SAY_IT_LABEL)
             }
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            when {
-                spoken.listening -> "Tap to stop"
-                spoken.phase == SpokenPhase.FINISHING -> "Finishing…"
-                else -> "Tap to say it"
-            },
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = Lab.colors.muted,
-        )
-        SpokenStatus(spoken, online, actions)
-    }
-}
-
-/** ✏️ Type / 👁 Show answer beside the big 🎤: quieter, 56dp tall. */
-@Composable
-private fun VoiceSideButton(icon: String, label: String, modifier: Modifier, onClick: () -> Unit) {
-    Column(
-        modifier
-            .heightIn(min = 56.dp)
-            .widthIn(min = 64.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(14.dp))
-            .background(Lab.colors.card)
-            .bouncyClickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(icon, fontSize = 20.sp)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, maxLines = 1)
-    }
-}
-
-/** The big 🎤 of voice first (84dp, the web's `.study-mic-big`): ⏹ while listening, a spinner while finishing. */
-@Composable
-private fun BigMicButton(spoken: SpokenUi, actions: StudyActions) {
-    val start = rememberRecordPermission { actions.onStartSpoken() }
-    val pulse by rememberInfiniteTransition(label = "big-mic").animateFloat(
-        1f, if (spoken.listening) 1.08f else 1f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "pulse",
-    )
-    val finishing = spoken.phase == SpokenPhase.FINISHING
-    Box(
-        Modifier
-            .size(84.dp)
-            .scale(pulse)
-            .shadow(if (spoken.listening || finishing) 0.dp else 8.dp, CircleShape)
-            .clip(CircleShape)
-            .background(
+            PrimaryPill(
+                label,
+                Modifier.weight(1f).height(60.dp).testTag(SPOKEN_MIC_TAG).semantics { contentDescription = description },
+                enabled = !finishing,
+                color = color,
+            ) {
                 when {
-                    spoken.listening -> Palette.Again.copy(alpha = 0.16f)
-                    finishing -> Lab.colors.faint
-                    else -> Lab.colors.accent
-                },
-            )
-            .border(2.dp, if (spoken.listening) Palette.Again.copy(alpha = 0.7f) else Color.Transparent, CircleShape)
-            .clickable {
-                when {
-                    finishing -> Unit
                     spoken.listening -> actions.onStopSpoken()
                     else -> start()
                 }
             }
-            .testTag(SPOKEN_MIC_TAG),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (finishing) CircularProgressIndicator(Modifier.size(30.dp), color = Lab.colors.accent, strokeWidth = 3.dp)
-        else Text(if (spoken.listening) "⏹" else "🎤", fontSize = 34.sp)
+        }
+        SpokenStatus(spoken, online, actions, cancelInRow = true)
     }
 }
 
@@ -1171,18 +1137,25 @@ private fun SpokenLiveBox(spoken: SpokenUi, modifier: Modifier, placeholder: Str
 /**
  * Under the typing row: ✕ Cancel while listening, "Couldn't transcribe — tap to retry", nothing heard,
  * offline. [again] (the Say it again panel): no typing to fall back on, and the panel has its own ✕.
+ * [cancelInRow] (voice first): ✕ Cancel is a pill in the row itself, and "Say it" is the button to name.
  */
 @Composable
-private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyActions, again: Boolean = false) {
+private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyActions, again: Boolean = false, cancelInRow: Boolean = false) {
     val hint: @Composable (String) -> Unit = { text ->
         Text(text, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
     }
     when {
-        spoken.busy -> if (!again) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        spoken.busy -> if (!again && !cancelInRow) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             TextButton(onClick = actions.onCancelSpoken, modifier = Modifier.heightIn(min = 44.dp)) { Text("✕ Cancel", color = Lab.colors.muted) }
         }
         spoken.phase == SpokenPhase.FAILED && spoken.failure == SpokenFailure.EMPTY ->
-            hint(if (again) "Didn’t catch anything — tap 🎤 to try again." else "Didn’t catch anything — tap 🎤 to try again, or type it.")
+            hint(
+                when {
+                    again -> "Didn’t catch anything — tap 🎤 to try again."
+                    cancelInRow -> "Didn’t catch anything — tap Say it to try again, or type it."
+                    else -> "Didn’t catch anything — tap 🎤 to try again, or type it."
+                },
+            )
         spoken.phase == SpokenPhase.FAILED -> Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier

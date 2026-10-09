@@ -1072,7 +1072,7 @@ sound: `checkSpokenAnswer` in `shared/cards/answer.ts` (also `checkTypedAnswer`,
 `AnswerKey.checkSpoken`, parity-tested) accepts other hanzi whose toned pinyin (automatic pinyin + 一 / 不, or the note's
 pinyin) is the answer's — "Sounded right ✓ — written 由"; other tones = `close` (wrong). Web `hooks/useSpokenAnswer.ts` +
 `services/spokenAnswer.ts` (pure controller, unit-tested); Lab `StudyViewModel` "say the answer". Analytics
-`study.answer_spoken`, `study.spoken_answer_checked` (both with `retry`). The question is **voice first**: a big centred 🎤,
+`study.answer_spoken`, `study.spoken_answer_checked` (both with `retry`). The question is **voice first**: one bottom row like the read card's — ✏️ Type · 👁 Show answer · a wide 🎤 Say it —,
 no box / keyboard until ✏️ Type (this card only; offline the box comes first). On the answer side **🎤 Say it again** (only
 for a spoken answer) is Record again for the spoken answer: the question with the live transcript, the new transcript
 checked anew (always), the take replacing the previous one, the card's clip once; ✕ / back keeps the previous answer + take

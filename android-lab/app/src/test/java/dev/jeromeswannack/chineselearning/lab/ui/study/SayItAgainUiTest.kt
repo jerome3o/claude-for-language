@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -109,7 +110,7 @@ class SayItAgainUiTest : LabScreenshotTest() {
 
     @Test fun aTypedAnswerHasNoSayItAgain() {
         compose.setContent { LabTheme { StudyScreen(ui(SpokenUi()), playingKey = null, actions = actions, autoplay = false) } }
-        compose.onNodeWithText("Show answer").performClick()
+        compose.onNodeWithContentDescription(SHOW_ANSWER_LABEL).performClick()
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(0, compose.onAllNodesWithTagCount(SAY_AGAIN_TAG))
     }

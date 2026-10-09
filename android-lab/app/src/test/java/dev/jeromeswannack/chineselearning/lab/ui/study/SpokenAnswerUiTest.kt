@@ -9,6 +9,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -22,7 +23,9 @@ import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.robolectric.annotation.Config
 import org.robolectric.Shadows.shadowOf
 
 /**
@@ -65,7 +68,10 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         var state by mutableStateOf(ui(SpokenUi(phase = SpokenPhase.LISTENING, finalText = "", partialText = "油")))
         compose.setContent { LabTheme { StudyScreen(state, playingKey = null, actions = actions, autoplay = false) } }
         compose.onNodeWithTag(SPOKEN_LIVE_TAG).assertIsDisplayed()
+        // The row turns into ✕ Cancel + ⏹ Stop (one Cancel only); Type / Show answer are gone meanwhile.
         compose.onNodeWithText("✕ Cancel").assertIsDisplayed()
+        compose.onNodeWithText("⏹  Stop").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(hasTestTag(SPOKEN_TYPE_TAG)).fetchSemanticsNodes().size)
         compose.onNodeWithTag(SPOKEN_MIC_TAG).performClick()
         assertEquals(listOf("stop"), calls)
 
@@ -101,12 +107,21 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.onNodeWithText("Show").assertIsDisplayed()
     }
 
-    @Test fun voiceFirstShowsTheBigMicAndNoBoxUntilType() {
+    @Test fun voiceFirstShowsOneRowAndNoBoxUntilType() {
         compose.setContent { LabTheme { StudyScreen(ui(SpokenUi()), playingKey = null, actions = actions, autoplay = false) } }
         compose.onNodeWithTag(VOICE_FIRST_TAG).assertIsDisplayed()
-        compose.onNodeWithText("Tap to say it").assertIsDisplayed()
+        // One row of the read card's pills: ✏️ Type and 👁 Show answer small on the left, the wide 🎤 Say it on the right.
+        val say = compose.onNodeWithContentDescription(SAY_IT_LABEL).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val type = compose.onNodeWithContentDescription(TYPE_ANSWER_LABEL).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val show = compose.onNodeWithContentDescription(SHOW_ANSWER_LABEL).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithText("🎤  Say it").assertIsDisplayed()
+        assertTrue("Type left of Show answer", type.right <= show.left)
+        assertTrue("Show answer left of Say it", show.right <= say.left)
+        assertTrue("Say it is the widest", say.width > show.width && say.width > type.width)
+        assertEquals("one row", say.top, type.top, 0.5f)
+        assertEquals("same height", say.height, show.height, 0.5f)
         assertEquals(0, compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size)
-        compose.onNodeWithText("Show answer").performClick()
+        compose.onNodeWithContentDescription(SHOW_ANSWER_LABEL).performClick()
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(listOf<AnswerKey.Verdict?>(null), reveals)
     }
@@ -169,6 +184,17 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
     @Test fun shotDarkListening() = shoot("study-s07-listening-dark", dark = true) {
         StudyScreen(ui(SpokenUi(phase = SpokenPhase.LISTENING, finalText = "由", partialText = "于")), playingKey = null, actions = StudyActions(), autoplay = false)
     }
+
+    @Test fun shotFrontAudioLight() = shoot("study-s01c-voice-first-listen") { StudyScreen(ui(SpokenUi(), type = CardTypes.AUDIO_TO_HANZI), playingKey = null, actions = StudyActions(), autoplay = false) }
+
+    @Test fun shotDarkMeaning() = shoot("study-s01d-voice-first-meaning-dark", dark = true) { StudyScreen(ui(SpokenUi()), playingKey = null, actions = StudyActions(), autoplay = false) }
+
+    @Test fun shotFinishing() = shoot("study-s02b-finishing") {
+        StudyScreen(ui(SpokenUi(phase = SpokenPhase.FINISHING, finalText = "由")), playingKey = null, actions = StudyActions(), autoplay = false)
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun shotFrontUnfolded() = shoot("study-s01e-voice-first-unfolded") { StudyScreen(ui(SpokenUi()), playingKey = null, actions = StudyActions(), autoplay = false) }
 
     @Test fun shotSettings() = shoot("study-s08-settings-auto-submit") {
         SpokenAnswerSection(on = true) {}
