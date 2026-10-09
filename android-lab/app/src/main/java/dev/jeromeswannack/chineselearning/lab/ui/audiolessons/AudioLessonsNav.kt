@@ -30,6 +30,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.NewAudioLessonBody
 import dev.jeromeswannack.chineselearning.lab.data.api.audioLessons
 import dev.jeromeswannack.chineselearning.lab.data.api.createAudioLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.retryAudioLesson
+import dev.jeromeswannack.chineselearning.lab.data.api.requestCompanionLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonEngine
 import dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonPrefs
@@ -48,6 +49,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -122,6 +125,9 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
                         explore?.invoke(item)
                     }
                 },
+                onMakeCompanion = vm::makeCompanion,
+                onUnlockCompanion = vm::unlockCompanion,
+                onStartCompanion = { nav.open(Routes.lessonPlay(it, "player")) },
             ),
         )
     }
@@ -262,9 +268,11 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
     val ui: StateFlow<AudioLessonPlayerUi> = combine(screen, playback, AudioLessonPlayback.engine, clock, file) { s, p, engine, now, f ->
         if (p.lessonId != id || engine == null || f == null) {
             // Not in the player yet: the music as it will start (the remembered choice for this format).
-            s.copy(canPlay = false, playing = false, speed = p.speed, musicOn = prefs.musicOn(s.lesson?.format), musicVolume = prefs.musicVolume)
+            s.copy(canPlay = false, playing = false, speed = p.speed, musicOn = prefs.musicOn(s.lesson?.format), musicVolume = prefs.musicVolume, online = app.online.value)
         } else {
             s.copy(
+                listened = s.listened || p.listened,
+                online = app.online.value,
                 canPlay = true,
                 playing = p.playing,
                 positionMs = p.positionMs,
@@ -279,6 +287,27 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
 
     init {
         viewModelScope.launch { load() }
+        // Its companion mini lesson: this phone's copy first (an unlock here shows at once, offline too).
+        viewModelScope.launch {
+            val lessons = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store
+            combine(lessons.observe(), lessons.observeListens(), screen.map { it.lesson }.distinctUntilChanged()) { entries, listens, lesson -> Triple(entries, listens, lesson) }.collect { (entries, listens, lesson) ->
+                val local = entries.filter { it.lesson.companionOf == id }.maxByOrNull { it.lesson.createdAt }
+                val server = lesson?.companion
+                val view = when {
+                    server != null && (server.status == "generating" || server.status == "failed") -> CompanionView(server.status, server.lesson_id, server.title, local?.unlock, server.error)
+                    local != null -> CompanionView(if (local.locked) "locked" else "unlocked", local.id, local.lesson.title, local.unlock)
+                    server != null -> CompanionView(server.status, server.lesson_id, server.title)
+                    else -> null
+                }
+                val heard = lesson?.listened_at != null || listens.any { it.audioLessonId == id }
+                screen.update { it.copy(companion = view, listened = it.listened || heard) }
+                // Made on the server but not on this phone yet: pull the lessons once.
+                if (server?.lesson_id != null && local == null && app.online.value && !pulledCompanion) {
+                    pulledCompanion = true
+                    app.safely("companion pull") { lessons.sync(prefetch = false) }
+                }
+            }
+        }
         // The engine (created when the service binds) gets this lesson once the file is here.
         viewModelScope.launch {
             combine(AudioLessonPlayback.engine, file) { e, f -> e to f }.collectLatest { (e, f) ->
@@ -333,6 +362,43 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
             throw e
         } catch (e: Exception) {
             screen.update { it.copy(download = null, loadError = e.userMessage()) }
+        }
+    }
+
+    private var pulledCompanion = false
+
+    /** "✨ Make its mini lesson": asked once, then checked every 5 s while it is being written. */
+    fun makeCompanion() {
+        val lesson = screen.value.lesson ?: return
+        screen.update { it.copy(companionBusy = true) }
+        app.analytics.track("lesson.companion_request", mapOf("format" to lesson.format))
+        viewModelScope.launch {
+            try {
+                val res = app.repo.api.requestCompanionLesson(id)
+                screen.update { s -> s.copy(companionBusy = false, lesson = s.lesson?.copy(companion = res.companion)) }
+                while (screen.value.lesson?.companion?.status == "generating" && viewModelScope.isActive) {
+                    delay(5000)
+                    if (!app.online.value) continue
+                    val fresh = runCatching { store.fetchDetail(id) }.getOrNull() ?: continue
+                    pulledCompanion = false
+                    screen.update { it.copy(lesson = fresh) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                screen.update { s -> s.copy(companionBusy = false, lesson = s.lesson?.copy(companion = dev.jeromeswannack.chineselearning.lab.data.api.AudioLessonCompanionDto("failed", error = e.userMessage()))) }
+            }
+        }
+    }
+
+    /** "✓ I've listened — unlock" on the card: unlocked here at once (via the player), uploaded soon. */
+    fun unlockCompanion() {
+        val lessonId = screen.value.companion?.lessonId ?: return
+        viewModelScope.launch {
+            val runtime = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app)
+            app.safely("unlock companion") { runtime.store.unlock(lessonId, "player") }
+            app.haptics.tick()
+            runtime.uploadSoon()
         }
     }
 

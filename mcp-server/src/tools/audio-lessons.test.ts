@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { registerAudioLessonTools } from './audio-lessons';
 import type { ToolContext } from './context';
@@ -90,5 +90,53 @@ describe('audio lesson tools', () => {
     expect(calls).toEqual([{ method: 'GET', path: '/api/me/podcast-feed' }]);
     expect(out).toMatchObject({ feed_url: FEED.url, open_in_podcast_app: FEED.podcast_url, open_in_apple_podcasts: FEED.apple_url });
     expect(out.how_to).toContain('Reset link');
+  });
+});
+
+describe('create_companion_lesson', () => {
+  function companionContext(replies: Array<Record<string, unknown>>, detailCompanion: Record<string, unknown>) {
+    const tools = new Map<string, Handler>();
+    const schemas = new Map<string, Record<string, { safeParse: (v: unknown) => { success: boolean } }>>();
+    const calls: Array<{ method: string; path: string; body?: unknown }> = [];
+    const api = {
+      get: async (path: string) => { calls.push({ method: 'GET', path }); return { lesson: { ...DETAIL, companion: detailCompanion } }; },
+      post: async (path: string, body: unknown) => { calls.push({ method: 'POST', path, body }); return replies.shift(); },
+    };
+    const server = { tool: (name: string, _d: string, s: unknown, handler: Handler) => { tools.set(name, handler); schemas.set(name, s as never); } };
+    registerAudioLessonTools({ server, api, env: {}, userId: 'u1' } as unknown as ToolContext);
+    return { tools, calls, schemas };
+  }
+
+  it('asks the API for the companion (unlock + prompt) and returns it locked, nothing sent', async () => {
+    const locked = { status: 'locked', lesson_id: 'L1', title: '银行和邮局 — mini lesson', started: false };
+    const { tools, calls, schemas } = companionContext([{ companion: locked, existing: false, started: false }], locked);
+    expect(schemas.get('create_companion_lesson')!.unlock.safeParse('manual').success).toBe(true);
+    expect(schemas.get('create_companion_lesson')!.unlock.safeParse('later').success).toBe(false);
+    const out = JSON.parse(text(await tools.get('create_companion_lesson')!({ audio_lesson_id: 'a1', unlock: 'manual', prompt: 'Order 打包' })));
+    expect(calls).toEqual([{ method: 'POST', path: '/api/audio-lessons/a1/companion-lesson', body: { unlock: 'manual', prompt: 'Order 打包' } }]);
+    expect(out).toMatchObject({ audio_lesson_id: 'a1', sent: false, companion: { status: 'locked', lesson_id: 'L1', lesson_path: '/lessons/L1/play' } });
+  });
+
+  it('a started companion is kept (no polling)', async () => {
+    const unlocked = { status: 'unlocked', lesson_id: 'L1', title: 't', started: true };
+    const { tools, calls } = companionContext([{ companion: unlocked, existing: true, started: true }], unlocked);
+    const out = JSON.parse(text(await tools.get('create_companion_lesson')!({ audio_lesson_id: 'a1' })));
+    expect(calls).toHaveLength(1);
+    expect(out.note).toMatch(/already started/);
+    expect(out.companion.started).toBe(true);
+  });
+
+  it('polls while it is being written', async () => {
+    const { tools, calls } = companionContext([{ companion: { status: 'generating', lesson_id: null, title: null }, existing: false, started: false }], { status: 'locked', lesson_id: 'L2', title: 't' });
+    vi.useFakeTimers();
+    try {
+      const pending = tools.get('create_companion_lesson')!({ audio_lesson_id: 'a1' });
+      await vi.advanceTimersByTimeAsync(6000);
+      const out = JSON.parse(text(await pending));
+      expect(calls.map((c) => c.method)).toEqual(['POST', 'GET']);
+      expect(out.companion).toMatchObject({ status: 'locked', lesson_id: 'L2' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

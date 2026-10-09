@@ -611,3 +611,51 @@
 .al-textarea {
   font-family: inherit;
 }
+
+/* A podcast with a companion mini lesson (shared/lesson/unlock.ts). */
+.al-row-text .companion-badge {
+  align-self: flex-start;
+  margin-top: 0.3rem;
+}
+
+/* The player's companion mini lesson card (components/audioLessons/CompanionCard.tsx). */
+.al-companion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: center;
+  margin: -0.25rem auto 1rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 14px;
+  border: 1px dashed rgba(196, 181, 253, 0.45);
+  max-width: 28rem;
+}
+
+.al-companion-ready {
+  border: 1px solid #a78bfa;
+  background: rgba(139, 92, 246, 0.16);
+}
+
+.al-companion-title {
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.al-companion-ready-line {
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.al-companion-start {
+  min-height: 44px;
+  min-width: 9rem;
+}
+
+.al-companion-link {
+  color: #c4b5fd;
+  font-weight: 600;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}

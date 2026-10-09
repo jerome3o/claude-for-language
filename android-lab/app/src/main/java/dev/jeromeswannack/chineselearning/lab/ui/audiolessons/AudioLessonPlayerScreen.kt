@@ -95,6 +95,11 @@ data class AudioLessonPlayerUi(
     val musicVolume: Double = AudioLessonMusic.DEFAULT_VOLUME,
     /** Hanzi already in a deck: quieter word chips in the transcript. */
     val known: Set<String> = emptySet(),
+    /** Its companion mini lesson (null = none asked for) and whether a listen reached the end. */
+    val companion: CompanionView? = null,
+    val listened: Boolean = false,
+    val companionBusy: Boolean = false,
+    val online: Boolean = true,
 ) {
     val transcriptOn: Boolean get() = showTranscript ?: (lesson?.format != "sleep")
 }
@@ -119,6 +124,10 @@ data class AudioLessonPlayerActions(
     val onMusicVolume: (Double, Boolean) -> Unit = { _, _ -> },
     /** A word chip in the transcript: (the word, the sentence it was tapped in) → the language explorer. */
     val onWord: (ReaderWordDto, String) -> Unit = { _, _ -> },
+    /** The companion mini lesson: make it, unlock it, start it (`/lessons/:id/play?from=player`). */
+    val onMakeCompanion: () -> Unit = {},
+    val onUnlockCompanion: () -> Unit = {},
+    val onStartCompanion: (String) -> Unit = {},
 )
 
 /**
@@ -374,6 +383,9 @@ private fun Modifier.semanticsLabel(text: String): Modifier = semantics { conten
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun LazyListScope.playerPanels(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions) {
     val lesson = ui.lesson ?: return
+    item(key = "companion") {
+        CompanionCard(ui.companion, ui.listened, ui.online, ui.companionBusy, actions.onMakeCompanion, actions.onUnlockCompanion, actions.onStartCompanion)
+    }
     if (ui.showTimer) {
         item(key = "timer") {
             Column(

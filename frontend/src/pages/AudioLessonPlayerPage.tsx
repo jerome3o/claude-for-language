@@ -27,7 +27,15 @@ import { track } from '../services/analytics';
 import { TranscriptLine } from '../components/audioLessons/TranscriptLine';
 import { ChapterTitle } from '../components/audioLessons/ChapterTitle';
 import { useKnownHanzi } from '../components/reader/ReaderWords';
+import { CompanionCard, type CompanionView } from '../components/audioLessons/CompanionCard';
+import { audioLessonListened, lessonLockStatus } from '@shared/lesson';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db/database';
+import { requestCompanionLesson } from '../api/audioLessons';
+import { listenedHere, markAudioLessonListened, unlockLesson } from '../services/lessonUnlock';
+import { syncCustomLessons } from '../services/custom-lesson-study';
 import './AudioLessonsPage.css';
+import '../components/lesson/ReadyToUnlock.css';
 
 const SPEED_KEY = 'audio-lesson-speed-v1';
 
@@ -72,6 +80,16 @@ export function AudioLessonPlayerPage() {
   const musicRef = useRef<HTMLAudioElement>(null);
   const startedRef = useRef(false);
   const lineRef = useRef<HTMLLIElement | null>(null);
+  // Listened to the end (≥ 85 % or the last chapter): its companion mini lesson unlocks.
+  const listenedRef = useRef(false);
+  const [listenedNow, setListenedNow] = useState(false);
+  const [companionBusy, setCompanionBusy] = useState(false);
+  // The companion as this device has it (its unlock shows at once, offline too).
+  const localCompanion = useLiveQuery(async () => {
+    const rows = (await db.customLessons.toArray()).filter((l) => l.companion_of === id);
+    rows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    return rows[0] ?? null;
+  }, [id]);
 
   // ---- The lesson's details (cached first, then fresh when online) ----
   useEffect(() => {
@@ -84,6 +102,19 @@ export function AudioLessonPlayerPage() {
       cancelled = true;
     };
   }, [id]);
+
+  // The companion being written: check every 5 s; once made, pull it onto this device.
+  const companionStatus = lesson?.companion?.status ?? null;
+  useEffect(() => {
+    if (companionStatus !== 'generating' || !isOnline) return;
+    const t = window.setInterval(() => void fetchLessonDetail(id).then(setLesson).catch(() => {}), 5000);
+    return () => window.clearInterval(t);
+  }, [id, companionStatus, isOnline]);
+  const serverCompanionId = lesson?.companion?.lesson_id ?? null;
+  useEffect(() => {
+    if (!serverCompanionId || localCompanion === undefined || localCompanion || !isOnline) return;
+    void syncCustomLessons().catch(() => {});
+  }, [serverCompanionId, localCompanion, isOnline]);
 
   // Not ready yet (opened from a link): keep checking.
   useEffect(() => {
@@ -213,8 +244,16 @@ export function AudioLessonPlayerPage() {
     savePosition(id, (audioRef.current?.currentTime ?? 0) * 1000);
   };
 
+  const markListened = useCallback(() => {
+    if (listenedRef.current) return;
+    listenedRef.current = true;
+    setListenedNow(true);
+    void markAudioLessonListened(id).catch(() => {});
+  }, [id]);
+
   const onEnded = () => {
     setPlaying(false);
+    markListened();
     savePosition(id, 0);
     track('audio_lesson.complete', { format: lesson?.format, duration_ms: durationMs });
   };
@@ -229,6 +268,7 @@ export function AudioLessonPlayerPage() {
       const ms = a.currentTime * 1000;
       setNow(ms);
       if (!a.paused && ++saveTick % 10 === 0) savePosition(id, ms);
+      if (!a.paused && !listenedRef.current && audioLessonListened(ms, durationMs, chapters.map((c) => c.start_ms))) markListened();
       const m = musicRef.current;
       if (m) m.volume = musicOutputVolume(musicVolume, timer.endsAt ? sleepFadeVolume(timer.endsAt - Date.now()) : 1);
       if (timer.minutes === -1 && !a.paused) {
@@ -248,7 +288,7 @@ export function AudioLessonPlayerPage() {
       }
     }, 500);
     return () => window.clearInterval(t);
-  }, [src, id, timer, chapters, musicVolume]);
+  }, [src, id, timer, chapters, musicVolume, durationMs, markListened]);
 
   useEffect(() => {
     if (musicRef.current) musicRef.current.volume = musicOutputVolume(musicVolume);
@@ -324,6 +364,46 @@ export function AudioLessonPlayerPage() {
     }
   }
 
+  // The companion: this device's row first (an unlock here shows at once), else the server's.
+  const companion: CompanionView | null = (() => {
+    const server = lesson?.companion ?? null;
+    if (server && (server.status === 'generating' || server.status === 'failed')) {
+      return { status: server.status, lessonId: server.lesson_id, title: server.title, unlock: localCompanion?.unlock ?? null, error: server.error };
+    }
+    if (localCompanion) {
+      const st = lessonLockStatus(localCompanion.unlock ?? null, localCompanion.unlocked_at ?? null);
+      return { status: st === 'locked' ? 'locked' : 'unlocked', lessonId: localCompanion.id, title: localCompanion.title, unlock: localCompanion.unlock ?? null };
+    }
+    if (server) return { status: server.status, lessonId: server.lesson_id, title: server.title, unlock: null };
+    return null;
+  })();
+  const listened = listenedNow || !!lesson?.listened_at || !!listenedHere(id);
+
+  async function makeCompanion() {
+    if (!lesson) return;
+    setCompanionBusy(true);
+    try {
+      track('lesson.companion_request', { format: lesson.format });
+      const res = await requestCompanionLesson(id);
+      setLesson({ ...lesson, companion: res.companion });
+    } catch {
+      setLesson({ ...lesson, companion: { status: 'failed', lesson_id: null, title: null, error: "Couldn't ask — try again" } });
+    } finally {
+      setCompanionBusy(false);
+    }
+  }
+
+  async function unlockCompanion() {
+    if (!companion?.lessonId) return;
+    setCompanionBusy(true);
+    try {
+      await unlockLesson(companion.lessonId, 'player', companion.unlock?.kind);
+      if (lesson?.companion) setLesson({ ...lesson, companion: { ...lesson.companion, status: 'unlocked' } });
+    } finally {
+      setCompanionBusy(false);
+    }
+  }
+
   const timerLeft = timer.endsAt ? Math.max(0, timer.endsAt - Date.now()) : 0;
   const words = useMemo(() => lesson?.words ?? [], [lesson]);
 
@@ -391,6 +471,15 @@ export function AudioLessonPlayerPage() {
             {loadError && <div className="al-error">{loadError}</div>}
             {lesson.notice && <div className="al-fine" data-testid="al-player-notice">{lesson.notice}</div>}
           </div>
+
+          <CompanionCard
+            view={companion}
+            listened={listened}
+            online={isOnline}
+            busy={companionBusy}
+            onMake={() => void makeCompanion()}
+            onUnlock={unlockCompanion}
+          />
 
           <div className="al-scrub">
             <input

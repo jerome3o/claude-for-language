@@ -352,6 +352,38 @@ Lessons page under "Done for good", where **↩ Bring back** puts it back in rot
 - One-off homework passes are unchanged (not scheduled); a lesson finished in a pass records the
   same rated event, and "Done for good" is offered there too.
 
+### Unlockable lessons (podcast companions, real-world tasks)
+
+Jerome (Oct 2026): after a dialogue podcast he loved, he wanted a mini lesson drilling its characters,
+sentences and meanings — queued, but LOCKED until he has listened to the podcast (or done some other
+real thing: "Watch episode 3 of …", "Go to a restaurant and order 打包"). `shared/lesson/unlock.ts`
+(Lab `core/…/LessonUnlock.kt`, parity-tested by `parity/fixtures/lesson-unlock.ts` + the `locked` /
+`unlocked` sets in `parity/fixtures/revisit.ts`).
+
+- **The condition**: `unlock: { kind: 'audio_lesson', audio_lesson_id } | { kind: 'manual', prompt }` on
+  the lesson (columns `custom_lessons.unlock_kind / unlock_ref / unlock_prompt`, migration 0119);
+  `unlocked_at` (+ `unlocked_via` auto | manual | player) once met; `companion_of` = the podcast a
+  companion was written for. Synced with the lesson list (`GET /api/custom-lessons`).
+- **Locked = never offered**: `pickTodaysLessons(…, locked)` drops it from the session, Today's mini
+  lessons and the daily new-lesson place (it neither takes nor waits for it).
+- **Unlocked = "I want this now"**: `pickTodaysLessons(…, unlocked)` — a NEW unlocked lesson comes
+  right after the revisits, before homework and the daily place, which it neither takes nor uses up
+  when finished. After its first finish it is an ordinary revisit.
+- **Unlocking** (offline-first; the earliest time wins, `POST /api/custom-lessons/unlock` idempotent):
+  automatically when a listen reaches ≥ 85 % or the last chapter ("Final listen") of its audio lesson
+  (`audioLessonListened`; web player tick / Lab `AudioLessonEngine`, recorded per device and uploaded
+  to `POST /api/audio-lessons/listened`, which unlocks server-side too) — only at the moment of a
+  listen, so a companion made for a podcast already heard waits for one tap; by hand ("✓ I've listened
+  — unlock" / "✓ Done — unlock"); or from the audio player's card ("Mini lesson ready: <title> → ▶ Start").
+  Web: IndexedDB `lessonUnlocks` (Dexie v32), re-applied over each sync's rebuilt rows until the server
+  carries it (`services/lessonUnlock.ts`). Lab: `lessons/local-unlocks` + the Outbox (`LessonStore.unlock`,
+  `markAudioListened`).
+- **Where**: web `/lessons` "🔒 Ready to unlock" (▶ Listen = the podcast, the unlock button) and a
+  locked gate on `/lessons/:id/play`; Lab Today's mini lessons (the section replaces the lone "All mini
+  lessons ›", which stays as a smaller link below), the Mini Lessons list and the same gate. Locked
+  lessons' media is prefetched too (one is often unlocked on the train).
+- Analytics `lesson.unlock { via, kind }`; `lesson.companion_created` (server).
+
 ## Graded readers: read once, one a day, listen-first
 
 Graded readers close out an all-decks session (after the cards and any mini lessons). A story is

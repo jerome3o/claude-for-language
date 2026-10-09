@@ -40,7 +40,35 @@ data class CustomLessonDto(
     @SerialName("assigned_by") val assignedBy: String? = null,
     val spec: CustomLessonSpec = CustomLessonSpec(),
     val completions: List<LessonCompletionDto> = emptyList(),
+    /** Unlockable lessons (shared/lesson/unlock.ts): the condition (null = none) and when it was met. */
+    val unlock: LessonUnlockDto? = null,
+    @SerialName("unlocked_at") val unlockedAt: String? = null,
+    /** The audio lesson this lesson was written for (its companion mini lesson). */
+    @SerialName("companion_of") val companionOf: String? = null,
+) {
+    val unlockCondition: dev.jeromeswannack.chineselearning.lab.core.LessonUnlock? get() = unlock?.toCore()
+}
+
+/** `LessonUnlock`: { kind: audio_lesson, audio_lesson_id } | { kind: manual, prompt }. */
+@Serializable
+data class LessonUnlockDto(
+    val kind: String,
+    @SerialName("audio_lesson_id") val audioLessonId: String? = null,
+    val prompt: String? = null,
+) {
+    fun toCore() = dev.jeromeswannack.chineselearning.lab.core.LessonUnlock(kind, audioLessonId, prompt)
+}
+
+/** One unlock for `POST /api/custom-lessons/unlock` (idempotent; the earliest time wins). */
+@Serializable
+data class LessonUnlockUpload(
+    @SerialName("lesson_id") val lessonId: String,
+    @SerialName("unlocked_at") val unlockedAt: String,
+    val via: String,
 )
+
+@Serializable
+data class LessonUnlockUploadBody(val events: List<LessonUnlockUpload>)
 
 @Serializable
 data class CustomLessonsDto(val lessons: List<CustomLessonDto> = emptyList())

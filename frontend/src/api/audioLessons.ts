@@ -1,7 +1,7 @@
 /** API client for audio lessons (worker routes/audio-lessons.ts, docs/AUDIO_LESSONS.md). */
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
-import type { AudioLessonDetail, AudioLessonFormat, AudioLessonSummary, PodcastFeedInfo } from '@shared/audio-lesson';
+import type { AudioLessonCompanion, AudioLessonDetail, AudioLessonFormat, AudioLessonSummary, PodcastFeedInfo } from '@shared/audio-lesson';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -70,6 +70,14 @@ export function resetPodcastFeed(): Promise<{ feed: PodcastFeedInfo }> {
 /** Turn the feed off (opening the section again makes a new link). */
 export function deletePodcastFeed(): Promise<{ ok: true }> {
   return json('/me/podcast-feed', { method: 'DELETE' });
+}
+
+/** Ask for the audio lesson's companion mini lesson (written in the background; shared/lesson/unlock.ts). */
+export function requestCompanionLesson(
+  id: string,
+  body: { unlock?: 'audio' | 'manual'; prompt?: string } = {},
+): Promise<{ companion: AudioLessonCompanion | null; existing: boolean; started: boolean }> {
+  return json(`/audio-lessons/${encodeURIComponent(id)}/companion-lesson`, { method: 'POST', body: JSON.stringify(body) });
 }
 
 /** The lesson's MP3 as a stream (the caller reads it for progress). */

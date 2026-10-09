@@ -223,7 +223,7 @@ for (let i = 0; i < 200; i++) {
 
 // Today's lessons (pickTodaysLessons): revisits, homework on top of the place, then the queue's new.
 const todays: unknown[] = [];
-for (let i = 0; i < 250; i++) {
+for (let i = 0; i < 400; i++) {
   const dayStart = T0 + int(0, 30) * DAY;
   const cutoff = dayStart + DAY + int(-2, 2) * 3600_000;
   const lessons = Array.from({ length: int(0, 10) }, (_, k) => {
@@ -245,13 +245,16 @@ for (let i = 0; i < 250; i++) {
   const started = ids.filter(() => rand() < 0.15);
   const revisitedToday = int(0, 3);
   const perDay = rand() < 0.5 ? undefined : int(0, 4);
+  // Unlockable lessons (shared/lesson/unlock.ts): locked never offered, unlocked on top of the place.
+  const locked = i % 3 === 0 ? [] : ids.filter(() => rand() < 0.2);
+  const unlocked = i % 3 === 0 ? [] : ids.filter(id => !locked.includes(id) && rand() < 0.2);
   todays.push({
     lessons, events, day_start: dayStart, cutoff, one_off_only: oneOffOnly, homework_pass: homeworkPass, started,
-    revisited_today: revisitedToday, per_day: perDay ?? null,
+    revisited_today: revisitedToday, per_day: perDay ?? null, locked, unlocked,
     picked: pickTodaysLessons({
       lessons, events, dayStartMs: dayStart, cutoffMs: cutoff,
       oneOffOnly: new Set(oneOffOnly), homeworkPass: new Set(homeworkPass), startedToday: new Set(started),
-      revisitedToday, perDay,
+      revisitedToday, perDay, locked: new Set(locked), unlocked: new Set(unlocked),
     }).map(l => l.id),
     practice: lessons.map(l => replayIsPractice(l.state, cutoff)),
   });

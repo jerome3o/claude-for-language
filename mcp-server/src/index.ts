@@ -483,7 +483,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       "create_custom_lesson",
       `Create a custom mini lesson for the SIGNED-IN USER THEMSELVES — it appears in their own next study session (fully offline). A tutor making a lesson for a student uses create_library_lesson instead (it waits in their library; nothing is sent). A lesson is ordered sections, each holding any number of exercises of any type in any order. Exercise objects (each needs a "type"):
 ${LESSON_EXERCISE_DOC}
-${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems — fix them and retry.`,
+${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems — fix them and retry.
+Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in today's lessons) until the user has done something real: { kind: "audio_lesson", audio_lesson_id } unlocks by itself when they have listened to that audio lesson (list_audio_lessons; for a podcast's own companion lesson prefer create_companion_lesson, which writes it for you), { kind: "manual", prompt } waits for "✓ Done — unlock" next to the prompt ("Watch episode 3 of 家有儿女", "Go to a restaurant and order 打包"). Once unlocked it is offered today, on top of the daily new-lesson place.`,
       {
         title: z.string().describe("Short lesson title, e.g. 'Ordering at a café'"),
         icon: z.string().optional().describe("One emoji for the lesson (default 🎓)"),
@@ -492,18 +493,25 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
           title: z.string().optional().describe("Optional section heading"),
           exercises: z.array(z.record(z.unknown())).describe("Exercise objects as documented in the tool description"),
         })).describe("Ordered sections of exercises"),
+        unlock: z.union([
+          z.object({ kind: z.literal('audio_lesson'), audio_lesson_id: z.string() }),
+          z.object({ kind: z.literal('manual'), prompt: z.string().max(200) }),
+        ]).optional().describe('Keep it locked until this is done: an audio lesson listened to, or a real-world task the user confirms.'),
       },
-      async ({ title, icon, description, sections }) => guard(async () => {
+      async ({ title, icon, description, sections, unlock }) => guard(async () => {
         // The main API is the single write path: it validates the spec and
         // queues illustration generation for describe_image exercises.
         let data: { id?: string; image_jobs?: number };
         try {
-          data = await api.post<{ id?: string; image_jobs?: number }>('/api/custom-lessons', { spec: { title, icon, description, sections } });
+          data = await api.post<{ id?: string; image_jobs?: number }>('/api/custom-lessons', { spec: { title, icon, description, sections }, ...(unlock ? { unlock } : {}) });
         } catch (err) {
           if (err instanceof ApiError) return errorResult(`Lesson rejected: ${err.message}${problemLines(err)}`);
           throw err;
         }
-        return textResult(`Created custom lesson "${title}" (id=${data.id}). It will appear in the user's next study session.${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}${introWarningText({ title, sections })}`);
+        const when = unlock
+          ? ` It is LOCKED until ${unlock.kind === 'audio_lesson' ? 'the user has listened to that audio lesson' : `the user taps Done for: "${unlock.prompt}"`}; then it is offered that day.`
+          : " It will appear in the user's next study session.";
+        return textResult(`Created custom lesson "${title}" (id=${data.id}).${when}${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}${introWarningText({ title, sections })}`);
       })
     );
 
@@ -516,7 +524,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
       async ({ status }) => {
         const filter = status && status !== 'all' ? `AND status = '${status === 'active' ? 'active' : 'done'}'` : '';
         const r = await this.env.DB.prepare(
-          `SELECT id, title, description, icon, source, status, created_at FROM custom_lessons WHERE user_id = ? ${filter} ORDER BY created_at DESC LIMIT 50`
+          `SELECT id, title, description, icon, source, status, created_at, unlock_kind, unlock_prompt, unlocked_at, companion_of FROM custom_lessons WHERE user_id = ? ${filter} ORDER BY created_at DESC LIMIT 50`
         ).bind(userId).all();
         return {
           content: [{
@@ -524,7 +532,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
             text: r.results.length === 0
               ? "No custom lessons yet."
               : r.results
-                  .map((l: any) => `${l.icon || '🎓'} ${l.title} — ${l.status} (source: ${l.source}, id: ${l.id})${l.description ? `\n   ${l.description}` : ''}`)
+                  .map((l: any) => `${l.icon || '🎓'} ${l.title} — ${l.status}${l.unlock_kind ? (l.unlocked_at ? ` · unlocked ${l.unlocked_at}` : ` · 🔒 locked until ${l.unlock_kind === 'audio_lesson' ? 'its audio lesson is listened to' : `"${l.unlock_prompt}"`}`) : ''}${l.companion_of ? ` · companion of audio lesson ${l.companion_of}` : ''} (source: ${l.source}, id: ${l.id})${l.description ? `\n   ${l.description}` : ''}`)
                   .join("\n"),
           }],
         };

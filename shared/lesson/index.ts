@@ -24,3 +24,9 @@ export {
 } from './conversationAudio';
 export type { ConversationAudioPrefs, ConversationAudioContext, ResolvedConversationAudio } from './conversationAudio';
 export { conversationIntroWarnings, QUOTE_MIN_CHARS } from './introWarnings';
+export {
+  pickLessonUnlock, lessonUnlockFromRow, lessonUnlockColumns, lessonLockStatus, earlierUnlock, audioLessonListened,
+  lessonsUnlockedByListen, lockSets, companionLessonTitle, unlockButtonLabel, lockedLessonLine, companionBadge,
+  companionReadyLine, LISTENED_FRACTION, UNLOCK_PROMPT_MAX, LESSON_UNLOCK_VIAS,
+} from './unlock';
+export type { LessonUnlock, LessonUnlockKind, LessonUnlockVia, LessonLockStatus, CompanionStatus } from './unlock';
