@@ -22,12 +22,19 @@ import org.robolectric.annotation.Config
 class UnlockableLessonsTest {
     @get:Rule val compose = createComposeRule()
 
+    /** Render on a manual clock (animations never hold up idling — TodayComposeTest's way). */
+    private fun show(content: @androidx.compose.runtime.Composable () -> Unit) {
+        compose.mainClock.autoAdvance = false
+        compose.setContent { LabTheme { content() } }
+        compose.mainClock.advanceTimeBy(2_000)
+    }
+
     @Test
     fun readyToUnlockListsLockedLessonsWithListenAndUnlock() {
         val unlocked = mutableListOf<String>()
         val listened = mutableListOf<String>()
-        compose.setContent {
-            LabTheme {
+        show {
+            run {
                 TodayLessonsScreen(UnlockSamples.withLocked, onBack = {}, onOpen = {}, onAllLessons = {}, onUnlock = { unlocked += it }, onListen = { listened += it })
             }
         }
@@ -45,8 +52,8 @@ class UnlockableLessonsTest {
     @Test
     fun theCompanionCardSaysReadyAndStartsOnceListened() {
         val started = mutableListOf<String>()
-        compose.setContent {
-            LabTheme {
+        show {
+            run {
                 CompanionCard(UnlockSamples.unlockedCompanion, listened = true, online = true, busy = false, onMake = {}, onUnlock = {}, onStart = { started += it })
             }
         }
@@ -59,8 +66,8 @@ class UnlockableLessonsTest {
     fun aLockedCompanionOffersTheUnlockAndNoneOffersMakeIt() {
         var unlocks = 0
         var makes = 0
-        compose.setContent {
-            LabTheme {
+        show {
+            run {
                 androidx.compose.foundation.layout.Column {
                     CompanionCard(UnlockSamples.lockedCompanion, listened = false, online = true, busy = false, onMake = {}, onUnlock = { unlocks++ }, onStart = {})
                     CompanionCard(null, listened = false, online = true, busy = false, onMake = { makes++ }, onUnlock = {}, onStart = {})
