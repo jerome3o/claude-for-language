@@ -4,7 +4,9 @@ import {
   checkTypedAnswer,
   isAcceptedVerdict,
   normalizeSpokenPinyin,
+  spokenAnswerWithin,
   spokenPinyinKey,
+  spokenSyllables,
   spokenVerdictNote,
   tonelessPinyin,
 } from './answer';
@@ -77,5 +79,53 @@ describe('pinyin helpers', () => {
     expect(spokenVerdictNote('sound', '由')).toBe('Sounded right ✓ — written 由');
     expect(spokenVerdictNote('close', '由')).toBe('Close — the tones are off');
     expect(spokenVerdictNote('exact', '由')).toBeNull();
+  });
+});
+
+describe('spoken answer inside a sentence (contains — the read card rule)', () => {
+  it('the word said inside a sentence counts (Jerome: 他长得很好。 for 长得)', () => {
+    expect(checkSpokenAnswer('他长得很好。', '长得', [], 'zhǎngde')).toBe('contains');
+    expect(spokenAnswerWithin('他长得很好。', '长得')).toBe('hanzi');
+    expect(isAcceptedVerdict('contains')).toBe(true);
+    expect(spokenVerdictNote('contains', '长得')).toBeNull();
+  });
+
+  it('an alternative inside the sentence counts; numbers / punctuation / traditional are normalised', () => {
+    expect(checkSpokenAnswer('老师您好！', '你好', ['您好'])).toBe('contains');
+    expect(checkSpokenAnswer('我有7个苹果', '七个')).toBe('contains');
+    expect(checkSpokenAnswer('我想去銀行', '银行')).toBe('contains');
+  });
+
+  it('a homophone window inside the sentence counts by sound', () => {
+    expect(spokenAnswerWithin('我想去银航取钱', '银行')).toBe('sound');
+    expect(checkSpokenAnswer('我想去银航取钱', '银行')).toBe('contains');
+  });
+
+  it('a neutral syllable of the answer matches any tone (得 de vs the automatic dé)', () => {
+    // 涨得 reads zhǎng dé; the card's own pinyin zhǎng de has a neutral de.
+    expect(checkSpokenAnswer('涨得', '长得', [], 'zhǎng de')).toBe('sound');
+    expect(checkSpokenAnswer('他涨得很好', '长得', [], 'zhǎng de')).toBe('contains');
+    // An all-neutral answer gets no allowance: 妈 is not 吗.
+    expect(checkSpokenAnswer('妈', '吗')).toBe('close');
+    // Pinyin written without any tone mark never accepts every tone.
+    expect(checkSpokenAnswer('涨得', '长得', [], 'zhang de')).not.toBe('sound');
+  });
+
+  it('a one-character answer inside a long sentence counts, like on the read card', () => {
+    expect(checkSpokenAnswer('我今天很好', '好')).toBe('contains');
+    expect(checkSpokenAnswer('我想去游泳', '由')).toBe('contains');
+  });
+
+  it('the word not said stays wrong (or close)', () => {
+    expect(checkSpokenAnswer('他很高', '长得', [], 'zhǎngde')).toBe('wrong');
+    expect(spokenAnswerWithin('他很高', '长得', [], 'zhǎngde')).toBeNull();
+    expect(checkSpokenAnswer('有', '由')).toBe('close');
+    expect(spokenAnswerWithin('you are', '由')).toBeNull();
+  });
+
+  it('syllables per character with the 一 / 不 tone changes; null for a non-Han character', () => {
+    expect(spokenSyllables('他长得很好。')).toEqual(['tā', 'cháng', 'dé', 'hěn', 'hǎo']);
+    expect(spokenSyllables('一个')).toEqual(['yí', 'gè']);
+    expect(spokenSyllables('ok你')).toEqual([null, null, 'nǐ']);
   });
 });

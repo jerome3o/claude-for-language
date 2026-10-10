@@ -129,7 +129,7 @@ object AnswerKey {
      * [checkSpoken]: other characters with the answer's pinyin (tones included) / the same
      * syllables with other tones.
      */
-    enum class Verdict { EXACT, PUNCTUATION_ONLY, ALTERNATIVE, EQUIVALENT, SOUND, CLOSE, WRONG }
+    enum class Verdict { EXACT, PUNCTUATION_ONLY, ALTERNATIVE, EQUIVALENT, SOUND, CONTAINS, CLOSE, WRONG }
 
     /**
      * The AnswerDiff decision: exact → punctuation-only → accepted equivalent
@@ -186,10 +186,91 @@ object AnswerKey {
         return false
     }
 
+    private fun codePoints(s: String): List<String> = s.codePoints().toArray().map { String(Character.toChars(it)) }
+
+    /**
+     * Port of `spokenSyllables`: each character of the answer key with its syllable (automatic
+     * pinyin + 一 / 不, normalised); null for a non-Han character.
+     */
+    fun spokenSyllables(hanzi: String): List<String?> {
+        val key = hanziAnswerKey(hanzi)
+        if (key.isEmpty()) return emptyList()
+        val chars = codePoints(key)
+        val tokens = ToneChange.applyYiBuToneChanges(key, Pinyin.toPinyin(key)).split(" ")
+        if (tokens.size != chars.size) return chars.map { null }
+        return chars.mapIndexed { i, c -> if (hasHan(c)) normalizeSpokenPinyin(tokens[i]).ifEmpty { null } else null }
+    }
+
+    private fun allSyllables(xs: List<String?>): Boolean = xs.isNotEmpty() && xs.all { it != null }
+
+    private fun hasToneMark(py: String) = tonelessPinyin(py) != py
+
+    /** Port of `syllablesMatch`: equal, or a neutral syllable of an answer with at least one toned syllable. */
+    private fun syllablesMatch(heard: List<String>, target: List<String>): Boolean {
+        if (heard.size != target.size) return false
+        val neutralOk = target.any(::hasToneMark)
+        return heard.indices.all { i -> heard[i] == target[i] || (neutralOk && !hasToneMark(target[i]) && tonelessPinyin(heard[i]) == target[i]) }
+    }
+
+    /** Port of `runMatches`: heard syllables against the note's written pinyin run (no boundaries). */
+    private fun runMatches(heard: List<String>, run: String): Boolean {
+        val toned = hasToneMark(run)
+        var pos = 0
+        for (h in heard) {
+            if (run.startsWith(h, pos)) { pos += h.length; continue }
+            val bare = tonelessPinyin(h)
+            if (toned && run.startsWith(bare, pos)) { pos += bare.length; continue }
+            return false
+        }
+        return pos == run.length
+    }
+
+    private class SpokenTargets(val syllables: List<List<String>>, val runs: List<String>)
+
+    private fun spokenTargets(correct: String, alternatives: List<String>, notePinyin: String): SpokenTargets {
+        val syllables = (listOf(correct) + alternatives).map(::spokenSyllables).filter(::allSyllables).map { s -> s.map { it!! } }
+        val run = normalizeSpokenPinyin(notePinyin)
+        return SpokenTargets(syllables, if (run.isNotEmpty()) listOf(run) else emptyList())
+    }
+
+    private fun soundsLike(heard: List<String>, targets: SpokenTargets): Boolean =
+        targets.syllables.any { syllablesMatch(heard, it) } || targets.runs.any { runMatches(heard, it) }
+
+    /** How [answerWithin] found the answer inside the transcript. */
+    enum class Within { HANZI, SOUND }
+
+    /**
+     * Port of `spokenAnswerWithin`: the answer's (or an alternative's) hanzi as one stretch of the
+     * transcript's answer key (traditional → simplified for the common characters), else a
+     * syllable window that sounds like it. null = not found. Used by [checkSpoken] (CONTAINS) and
+     * the read card's "Answer found in your sentence" (ui/study Transcription.compare).
+     */
+    fun answerWithin(transcript: String, correct: String, alternatives: List<String> = emptyList(), notePinyin: String = ""): Within? {
+        if (!hasHan(transcript)) return null
+        val heardKey = PictureHuntMatch.toSimplified(hanziAnswerKey(transcript))
+        for (t in listOf(correct) + alternatives) {
+            val k = PictureHuntMatch.toSimplified(hanziAnswerKey(t))
+            if (k.isNotEmpty() && hasHan(k) && heardKey.contains(k)) return Within.HANZI
+        }
+        val heard = spokenSyllables(transcript)
+        val targets = spokenTargets(correct, alternatives, notePinyin)
+        if (targets.syllables.isEmpty() && targets.runs.isEmpty()) return null
+        for (i in heard.indices) {
+            for (j in i + 1..heard.size) {
+                val w = heard.subList(i, j)
+                if (!allSyllables(w)) break
+                if (soundsLike(w.map { it!! }, targets)) return Within.SOUND
+            }
+        }
+        return null
+    }
+
     /**
      * Port of `checkSpokenAnswer`: the typed check first; then by sound — [Verdict.SOUND] when the
-     * transcript's toned pinyin is the answer's (an alternative's, or the note's written pinyin),
-     * [Verdict.CLOSE] when only the toneless syllables match. Nothing Chinese heard is wrong.
+     * transcript's toned pinyin is the answer's (an alternative's, or the note's written pinyin; a
+     * neutral syllable of the answer matches any tone), [Verdict.CONTAINS] when the answer is said
+     * inside a longer sentence ([answerWithin]), [Verdict.CLOSE] when only the toneless syllables of
+     * the whole match. Nothing Chinese heard is wrong.
      */
     fun checkSpoken(transcript: String, correct: String, alternatives: List<String> = emptyList(), notePinyin: String = ""): Verdict {
         val typed = check(transcript, correct, alternatives)
@@ -197,9 +278,12 @@ object AnswerKey {
         if (!hasHan(transcript)) return Verdict.WRONG
         val heard = spokenPinyinKey(transcript)
         if (heard.isEmpty()) return Verdict.WRONG
-        val targets = (listOf(correct) + alternatives).map(::spokenPinyinKey) + normalizeSpokenPinyin(notePinyin)
-        val live = targets.filter { it.isNotEmpty() }
+        val keys = (listOf(correct) + alternatives).map(::spokenPinyinKey) + normalizeSpokenPinyin(notePinyin)
+        val live = keys.filter { it.isNotEmpty() }
         if (heard in live) return Verdict.SOUND
+        val syllables = spokenSyllables(transcript)
+        if (allSyllables(syllables) && soundsLike(syllables.map { it!! }, spokenTargets(correct, alternatives, notePinyin))) return Verdict.SOUND
+        if (answerWithin(transcript, correct, alternatives, notePinyin) != null) return Verdict.CONTAINS
         val bare = tonelessPinyin(heard)
         if (live.any { tonelessPinyin(it) == bare }) return Verdict.CLOSE
         return Verdict.WRONG

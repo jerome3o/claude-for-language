@@ -52,7 +52,7 @@ import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
-import { checkSpokenAnswer, checkTypedAnswer, spokenVerdictNote } from '@shared/cards/answer';
+import { checkSpokenAnswer, checkTypedAnswer, spokenVerdictNote, type AnswerVerdict } from '@shared/cards/answer';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
@@ -62,6 +62,7 @@ import { StudyActionRow, NEEDS_INTERNET } from '../components/study/StudyActionR
 import { StudyMenuItem } from '../components/study/StudyMoreMenu';
 import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
 import { TutorNoteLine } from '../components/study/TutorNoteLine';
+import { YouSaid, spokenYouSaid } from '../components/study/YouSaid';
 import { OfflineModeToggle } from '../components/study/OfflineModeToggle';
 import { isPeekTap, type PressPoint } from '../components/study/peekFlip';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
@@ -119,7 +120,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
 import { devicePinyinLine } from '../utils/autoPinyin';
-import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
+import { spokenAnswerDiff, typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
 function canWriteHanzi(hanzi: string): boolean {
@@ -148,11 +149,25 @@ function formatAddedDate(createdAt: string | null | undefined): string | null {
  * alternative → green + the canonical answer; otherwise the character diff. A SPOKEN answer
  * (🎤, `spoken`) is also right by sound: a homophone transcript (油 for 由) shows the expected
  * characters green with "Sounded right ✓ — written 由"; other tones are `close` (the diff + a note).
+ * The answer said inside a sentence (`contains`: 他长得很好。 for 长得) shows the answer green —
+ * nothing red. Every spoken answer then gets the read card's "You said" box (`YouSaid`: orange
+ * "Answer found in your sentence" for `contains`), and a wrong one's diff is lined up, not positional.
  */
-function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick, spoken, notePinyin }: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; spoken?: boolean; notePinyin?: string }) {
+function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; spoken?: boolean; notePinyin?: string }) {
+  const { userAnswer, correctAnswer, alternatives, spoken, notePinyin } = props;
   const verdict = spoken
     ? checkSpokenAnswer(userAnswer, correctAnswer, alternatives ?? [], notePinyin ?? '')
     : checkTypedAnswer(userAnswer, correctAnswer, alternatives ?? []);
+  if (!spoken) return <AnswerDiffBody {...props} verdict={verdict} />;
+  return (
+    <>
+      <AnswerDiffBody {...props} verdict={verdict} />
+      <YouSaid {...spokenYouSaid(userAnswer, correctAnswer, verdict)} />
+    </>
+  );
+}
+
+function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, verdict }: { userAnswer: string; correctAnswer: string; onCharacterClick?: (char: string) => void; spoken?: boolean; verdict: AnswerVerdict }) {
   const isFullyCorrect = verdict === 'exact';
   // A punctuation-only difference (e.g. a missing trailing 。) is functionally correct.
   const isPunctuationOnlyMatch = verdict === 'punctuation_only';
@@ -197,7 +212,20 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick,
         </div>
         <div className="answer-diff-pinyin">{canonicalPinyin}</div>
         <div className="answer-diff-spoken-note">{spokenNote}</div>
-        <div className="answer-diff-alternative-label">You said: {userAnswer}</div>
+      </div>
+    );
+  }
+
+  if (verdict === 'contains') {
+    // Said inside a sentence: the answer in green; the orange "You said" box follows (AnswerDiff).
+    return (
+      <div className="answer-diff" data-testid="spoken-answer-contains" data-verdict="contains">
+        <div className="answer-diff-row">
+          {[...correctAnswer].map((c, i) => (
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{c}</span>
+          ))}
+        </div>
+        {/* No automatic pinyin here (it reads 长得 cháng dé): the card's own pinyin follows. */}
       </div>
     );
   }
@@ -225,7 +253,8 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick,
   }
 
   // A wrong answer: character by character against the canonical answer
-  const diff = typedAnswerDiff(userAnswer, correctAnswer);
+  // A spoken answer is lined up with the answer (common characters kept), not position by position.
+  const diff = spoken ? spokenAnswerDiff(userAnswer, correctAnswer) : typedAnswerDiff(userAnswer, correctAnswer);
   return (
     <div className="answer-diff" data-testid="typed-answer-diff" data-verdict={verdict}>
       {spokenNote && <div className="answer-diff-spoken-note answer-diff-spoken-note--close">{spokenNote}</div>}
@@ -1412,32 +1441,8 @@ export function StudyCard({
 
     if (transcriptionComparison) {
       const { transcribedHanzi, transcribedPinyin, isMatch, containsExpected } = transcriptionComparison;
-      const boxColor = isMatch
-        ? { bg: 'rgba(34, 197, 94, 0.1)', border: 'rgba(34, 197, 94, 0.3)' }
-        : containsExpected
-          ? { bg: 'rgba(249, 115, 22, 0.12)', border: 'rgba(249, 115, 22, 0.4)' }
-          : { bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)' };
-
-      return (
-        <div className="transcription-result" style={{
-          padding: '0.5rem 0.75rem',
-          borderRadius: '6px',
-          backgroundColor: boxColor.bg,
-          border: `1px solid ${boxColor.border}`,
-          fontSize: '0.875rem',
-          marginBottom: '0.5rem',
-        }}>
-          <div style={{ fontWeight: 500 }}>
-            You said: {transcribedPinyin} ({transcribedHanzi}) {isMatch ? '\u2705' : containsExpected ? '\u2705' : '\u274C'}
-          </div>
-          {containsExpected && !isMatch && (
-            <div style={{ fontSize: '0.75rem', color: '#c2650a', marginTop: '0.125rem' }}>
-              Answer found in your sentence
-            </div>
-          )}
-          {/* "Record again" under the meaning covers the retry — no second button here */}
-        </div>
-      );
+      // The same box as a spoken answer on a typing card ("Record again" under the meaning covers the retry).
+      return <YouSaid hanzi={transcribedHanzi} pinyin={transcribedPinyin} isMatch={isMatch} containsExpected={containsExpected} />;
     }
 
     return null;

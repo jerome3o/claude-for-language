@@ -43,3 +43,35 @@ export function typedAnswerDiff(userAnswer: string, correctAnswer: string): Type
   }
   return { typed, expected };
 }
+
+/**
+ * A SPOKEN answer lined up with the expected hanzi by their longest common subsequence (by
+ * code point), so a word said with other words around it isn't all red because of an offset:
+ * characters in common are `correct` / `matched`, the rest of what was said `wrong`. No
+ * `missing` cells. Lab: `AnswerMarks.spokenDiff`.
+ */
+export function spokenAnswerDiff(userAnswer: string, correctAnswer: string): TypedAnswerDiff {
+  const user = [...userAnswer];
+  const target = [...correctAnswer];
+  const n = user.length;
+  const m = target.length;
+  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i][j] = user[i] === target[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  const userHit = new Array<boolean>(n).fill(false);
+  const targetHit = new Array<boolean>(m).fill(false);
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (user[i] === target[j]) { userHit[i] = true; targetHit[j] = true; i++; j++; }
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
+    else j++;
+  }
+  return {
+    typed: user.map((char, k) => ({ char, mark: userHit[k] ? 'correct' : 'wrong' })),
+    expected: target.map((char, k) => ({ char, matched: targetHit[k] })),
+  };
+}

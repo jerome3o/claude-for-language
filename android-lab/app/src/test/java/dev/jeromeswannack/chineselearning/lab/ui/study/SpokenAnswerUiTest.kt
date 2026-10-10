@@ -89,7 +89,48 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         assertEquals(listOf(AnswerKey.Verdict.SOUND), checked)
         compose.onNodeWithTag(SPOKEN_SOUND_TAG).assertExists()
         compose.onNodeWithText("Sounded right ✓ — written 由").assertExists()
-        compose.onNodeWithText("You said: 油").assertExists()
+        // The read card's "You said" box, green.
+        compose.onNodeWithTag("$YOU_SAID_TAG-match").assertExists()
+        compose.onNodeWithText("You said: yóu (油) ✅").assertExists()
+    }
+
+    // Jerome's card: 长得 said inside 他长得很好。 came back with every character red.
+    private val zhangde = Samples.note.copy(
+        hanzi = "长得", pinyin = "zhǎng de", english = "to look; to appear",
+        funFacts = "**长** (zhǎng) to grow + **得** (de) the complement marker — how someone has grown, i.e. looks.\n- 他长得很高。He is tall.",
+    )
+
+    private fun zhangdeUi(spoken: SpokenUi): StudyUi {
+        val state = CardScheduler.initialCardState()
+        val v = CardView(QueueCard("c2", zhangde.id, "d1", CardTypes.MEANING_TO_HANZI, state), zhangde, Samples.sentences, CardScheduler.intervalPreviews(state, now), emptyList(), 1, "HSK 3 · Words", true)
+        return StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(reviews = 14, correct = 12), canUndo = true, online = true, forcedOffline = false, extras = CardExtras(spoken = spoken))
+    }
+
+    @Test fun theAnswerSaidInsideASentenceIsRightWithTheReadCardsOrangeBox() {
+        var state by mutableStateOf(zhangdeUi(SpokenUi()))
+        compose.setContent { LabTheme { StudyScreen(state, playingKey = null, actions = actions, autoplay = false) } }
+        state = zhangdeUi(SpokenUi(result = SpokenResult("他长得很好。", submit = true, seq = 1)))
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals(listOf(AnswerKey.Verdict.CONTAINS), reveals)
+        assertEquals(listOf(AnswerKey.Verdict.CONTAINS), checked)
+        compose.onNodeWithTag(SPOKEN_CONTAINS_TAG).assertExists()
+        compose.onNodeWithTag("$YOU_SAID_TAG-contains").assertExists()
+        compose.onNodeWithText("Answer found in your sentence", substring = true).assertExists()
+        compose.onNodeWithText("(他长得很好。) ✅", substring = true).assertExists()
+        // Nothing marked wrong: no red diff at all.
+        assertEquals(0, compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(", wrong", substring = true)).fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodes(hasTestTag(EXPECTED_CHAR_TAG)).fetchSemanticsNodes().size)
+    }
+
+    @Test fun aWrongSpokenAnswerIsLinedUpAndRed() {
+        var state by mutableStateOf(zhangdeUi(SpokenUi()))
+        compose.setContent { LabTheme { StudyScreen(state, playingKey = null, actions = actions, autoplay = false) } }
+        state = zhangdeUi(SpokenUi(result = SpokenResult("他很高", submit = true, seq = 1)))
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals(listOf(AnswerKey.Verdict.WRONG), reveals)
+        compose.onNodeWithTag("$YOU_SAID_TAG-miss").assertExists()
     }
 
     @Test fun theReviewShowsWhatWasSaidReadOnlyWithRetryEditSubmit() {
@@ -222,6 +263,18 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
     }
 
     @Test fun shotSound() = shoot("study-s03-sounded-right", settleMs = 3_000) {
+        StudyScreen(ui(SpokenUi(result = SpokenResult("油", submit = true, seq = 1))), playingKey = null, actions = StudyActions(), autoplay = false)
+    }
+
+    @Test fun shotContainsDark() = shoot("study-s10-said-in-a-sentence-dark", dark = true, settleMs = 3_000) {
+        StudyScreen(zhangdeUi(SpokenUi(result = SpokenResult("他长得很好。", submit = true, seq = 1))), playingKey = null, actions = StudyActions(), autoplay = false)
+    }
+
+    @Test fun shotContains() = shoot("study-s10b-said-in-a-sentence", settleMs = 3_000) {
+        StudyScreen(zhangdeUi(SpokenUi(result = SpokenResult("他长得很好。", submit = true, seq = 1))), playingKey = null, actions = StudyActions(), autoplay = false)
+    }
+
+    @Test fun shotSoundDark() = shoot("study-s03b-sounded-right-dark", dark = true, settleMs = 3_000) {
         StudyScreen(ui(SpokenUi(result = SpokenResult("油", submit = true, seq = 1))), playingKey = null, actions = StudyActions(), autoplay = false)
     }
 

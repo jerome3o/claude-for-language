@@ -213,7 +213,10 @@ test('say the answer: live text, then the review (no keyboard), Submit — a hom
   const sound = page.getByTestId('spoken-answer-sound');
   await expect(sound).toBeVisible({ timeout: 8000 });
   await expect(sound).toContainText('Sounded right ✓ — written 由');
-  await expect(sound).toContainText('You said: 油');
+  // The read card's "You said" box, green.
+  const said = page.getByTestId('you-said');
+  await expect(said).toHaveAttribute('data-state', 'match');
+  await expect(said).toContainText('You said: yóu (油) ✅');
   expect(uploads).toBe(0);
   const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; ended: boolean } }).__soniox);
   expect(stats.config).not.toHaveProperty('context'); // the answer never biases the recogniser
@@ -224,6 +227,28 @@ test('say the answer: live text, then the review (no keyboard), Submit — a hom
   const typed = (await localReviews(page)).find(r => r.card_type !== 'hanzi_to_meaning')!;
   expect(typed.user_answer).toBe('油');
   expect(typed.recording).toBe(true);
+});
+
+test('the answer said inside a sentence is right — the read card\'s orange "Answer found in your sentence", nothing red', async ({ page, request }) => {
+  // Jerome said 他长得很好。 for 长得 and every character came back red; same rule here with 由.
+  await fakeSoniox(page, 'ok', ['这件事由我负责。']);
+  await seed(page, request);
+
+  await nextTypingCard(page);
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('由我负责', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('spoken-review-submit').click();
+
+  const contains = page.getByTestId('spoken-answer-contains');
+  await expect(contains).toBeVisible({ timeout: 8000 });
+  await expect(contains).toContainText('由');
+  const said = page.getByTestId('you-said');
+  await expect(said).toHaveAttribute('data-state', 'contains');
+  await expect(said).toContainText('(这件事由我负责。) ✅');
+  await expect(said).toContainText('Answer found in your sentence');
+  await expect(page.getByTestId('study-card-back').locator('.diff-wrong')).toHaveCount(0);
+  await expect(page.getByTestId('typed-answer-diff')).toHaveCount(0);
 });
 
 test('live and upload both failing: "Couldn’t transcribe — tap to retry", nothing submitted, the retry fills it', async ({ page, request }) => {
@@ -377,7 +402,8 @@ test('say it again: the question while the new take is said, its review there, t
   await expect(page.getByTestId('spoken-live')).toContainText('油', { timeout: 10000 });
   await page.getByTestId('spoken-mic').click();
   await page.getByTestId('spoken-review-submit').click();
-  await expect(page.getByTestId('spoken-answer-sound')).toContainText('You said: 油', { timeout: 8000 });
+  await expect(page.getByTestId('spoken-answer-sound')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('you-said')).toContainText('(油)');
   // The reveal's auto-play has happened; from here on only "Say it again" may add one.
   await expect.poll(() => cardPlays(page)).toBeGreaterThan(0);
   await page.waitForTimeout(800);

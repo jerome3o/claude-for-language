@@ -45,7 +45,10 @@ object Transcription {
         val tAlt = key(heard.replace("两", "二"))
         val eAlt = key(expected.replace("两", "二"))
         val match = tKey == eKey || tAlt == eAlt
-        val contains = !match && eKey.isNotEmpty() && (tKey.contains(eKey) || tAlt.contains(eAlt))
+        // "Answer found in your sentence": also the typing cards' spoken rule (AnswerKey.answerWithin —
+        // the hanzi inside, or a syllable window that sounds like it), as in shared/recordings/transcript.ts.
+        val contains = !match && eKey.isNotEmpty() &&
+            (tKey.contains(eKey) || tAlt.contains(eAlt) || AnswerKey.answerWithin(original, expectedHanzi) != null)
         return TranscriptionComparison(original, pinyin(heard), match, contains)
     }
 }

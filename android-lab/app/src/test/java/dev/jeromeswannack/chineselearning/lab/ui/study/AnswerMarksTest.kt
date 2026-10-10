@@ -46,6 +46,16 @@ class AnswerMarksTest {
         assertEquals(AnswerMarks.Mark.CORRECT, cells[2].mark)
     }
 
+    /** Same vectors as frontend/src/utils/answerDiff.test.ts `spokenAnswerDiff`. */
+    @Test fun spokenAnswersAreLinedUpNotPositional() {
+        val d = AnswerMarks.spokenDiff("他长的很高", "长得")
+        assertEquals(listOf("他:wrong", "长:correct", "的:wrong", "很:wrong", "高:wrong"), d.typed.map { "${it.char}:${it.mark.name.lowercase()}" })
+        assertEquals(listOf(AnswerMarks.Expected("长", true), AnswerMarks.Expected("得", false)), d.expected)
+        assertEquals(listOf("猫:wrong"), AnswerMarks.spokenDiff("猫", "狗").typed.map { "${it.char}:${it.mark.name.lowercase()}" })
+        assertEquals(emptyList<AnswerMarks.Cell>(), AnswerMarks.spokenDiff("", "好").typed)
+        assertEquals(listOf(AnswerMarks.Expected("好", false)), AnswerMarks.spokenDiff("", "好").expected)
+    }
+
     @Test fun punctuationNeverStartsAWrapUnit() {
         val chars = "早饭、聊天了，聊了两个小时。".codePoints().toArray().map { String(Character.toChars(it)) }
         val groups = AnswerMarks.wrapGroups(chars).map { g -> g.joinToString("") { chars[it] } }
