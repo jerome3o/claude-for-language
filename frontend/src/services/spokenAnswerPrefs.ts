@@ -1,20 +1,24 @@
 /**
- * Settings → Study → "Submit spoken answers automatically" (on by default): when the 🎤 on a
- * typing card has the transcript, it is checked at once like pressing Check; off = it only fills
- * the box and Enter / Check submits it (docs/STUDY_SESSION.md "Say the answer"). Per device, like
- * the Lab app's `StudyPrefs.spokenAutoSubmit`.
+ * Settings → Study → "Skip the review — submit spoken answers as soon as I stop" (OFF by default):
+ * on, the 🎤 on a typing card checks what was said at once; off, the transcript waits on the review
+ * step (🔁 Retry · ✏️ Edit · ✓ Submit; docs/STUDY_SESSION.md "Say the answer"). Per device, like the
+ * Lab app's `StudyPrefs.spokenSkipReview`.
+ *
+ * The key is the old "Submit spoken answers automatically" switch's (same meaning: '1' = checked at
+ * once). It was only ever written when someone flipped the switch, so a device that never touched it
+ * has no value and gets the new default (the review); a choice made on purpose is kept.
  */
 const KEY = 'spoken-answer-auto-submit-v1';
 
-export function readSpokenAutoSubmit(): boolean {
+export function readSpokenSkipReview(): boolean {
   try {
-    return localStorage.getItem(KEY) !== '0';
+    return localStorage.getItem(KEY) === '1';
   } catch {
-    return true;
+    return false;
   }
 }
 
-export function writeSpokenAutoSubmit(on: boolean): void {
+export function writeSpokenSkipReview(on: boolean): void {
   try {
     localStorage.setItem(KEY, on ? '1' : '0');
   } catch {

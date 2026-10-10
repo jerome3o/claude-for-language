@@ -118,6 +118,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
+import { devicePinyinLine } from '../utils/autoPinyin';
 import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
@@ -557,40 +558,60 @@ export function StudyCard({
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
 
   // Say the answer (typing cards, docs/STUDY_SESSION.md): 🎤 streams to the same live
-  // transcriber as a read card's take; the transcript becomes the answer (checked at once when
-  // "Submit spoken answers automatically" is on). `spokenText` = the answer as spoken — while the
-  // box still holds exactly it, the back checks it in spoken mode (homophones count by sound).
+  // transcriber as a read card's take; at ⏹ the transcript waits on the REVIEW step (big hanzi +
+  // pinyin; 🔁 Retry · ✏️ Edit · ✓ Submit) unless Settings → "Skip the review" checks it at once.
+  // `spokenText` = the answer as spoken — while the box still holds exactly it, the back checks it in
+  // spoken mode (homophones count by sound).
   const [spokenText, setSpokenText] = useState<string | null>(null);
+  // The spoken answer went through the review step (study.spoken_answer_checked `reviewed`).
+  const spokenReviewedRef = useRef(false);
   const [micHint, setMicHint] = useState(false);
   // "🎤 Say it again" tapped offline (answer side): it needs a connection, like the 🎤.
   const [sayAgainHint, setSayAgainHint] = useState(false);
   // Voice first (docs/STUDY_SESSION.md): a typing card's question opens on the big 🎤, no box and no
   // keyboard; ✏️ Type switches THIS card to the box (focused). A resumed card with an answer in the
-  // box, or a transcript only filled in (auto-submit off), shows the box.
+  // box, or a transcript sent to the box by ✏️ Edit, shows the box.
   const [typingMode, setTypingMode] = useState(() => !!restored.point?.answer?.trim());
+  // ✏️ Edit on a "Say it again" review: the box on the question side.
+  const [sayAgainDraft, setSayAgainDraft] = useState('');
   const spoken = useSpokenAnswer({
     recorder: { startRecording, stopRecording, cancelRecording, clearRecording, restoreRecording },
     micDeviceId,
     cardType: card.card_type,
     online: aiAvailable,
     currentTake: audioBlob,
-    onResult: (text, submit, again) => {
+    onResult: ({ text, transcript, submit, again, reviewed }) => {
       setUserAnswer(text);
-      setSpokenText(text);
+      setSpokenText(transcript);
+      spokenReviewedRef.current = reviewed;
       if (again) {
-        // Say it again: the new answer, checked in spoken mode (the card turns back to the answer
-        // as the take ends), then the card's own clip once — like Record again on a read card.
-        trackSpokenCheck(text, true);
+        // Say it again: the new answer, checked (in spoken mode unless edited) as the card turns back
+        // to the answer, then the card's own clip once — like Record again on a read card.
+        if (text === transcript) trackSpokenCheck(text, true);
         scheduleReplayRef.current();
         return;
       }
       if (submit) setFlipped(true);
       else {
+        // ✏️ Edit: the transcript in the box, focused, keyboard up; Check / Enter submits it.
         setTypingMode(true);
-        window.setTimeout(() => inputRef.current?.focus(), 0);
+        window.setTimeout(() => {
+          const el = inputRef.current;
+          if (!el) return;
+          el.focus();
+          el.setSelectionRange?.(el.value.length, el.value.length);
+        }, 0);
       }
     },
   });
+  // The transcript on review, with the device's pinyin under it (the app's one automatic pinyin).
+  const spokenReviewPinyin = useMemo(
+    () => (spoken.phase === 'review' || spoken.phase === 'editing' ? devicePinyinLine(spoken.finalText) : ''),
+    [spoken.phase, spoken.finalText],
+  );
+  useEffect(() => {
+    if (spoken.phase === 'editing') setSayAgainDraft(spoken.finalText);
+  }, [spoken.phase, spoken.finalText]);
   // A "Say it again" is under way: the card shows the question (listening / finishing / failed).
   const sayingAgain = flipped && spoken.again && spoken.active;
 
@@ -828,6 +849,7 @@ export function StudyCard({
       card_type: card.card_type,
       verdict: checkSpokenAnswer(answer, card.note.hanzi, alts, card.note.pinyin),
       retry,
+      reviewed: spokenReviewedRef.current,
     });
   }
   useEffect(() => {
@@ -2048,32 +2070,165 @@ export function StudyCard({
     </button>
   );
 
+  // The review step (docs/STUDY_SESSION.md "Say the answer"): what he said, big and clear — the
+  // transcript in the card's hanzi style with the device's pinyin under it, read-only (no box, no
+  // keyboard up). Nothing is checked until ✓ Submit.
+  const renderSpokenReviewText = () => {
+    const text = spoken.finalText;
+    const len = Array.from(text).length;
+    const size = len <= 4 ? ' hanzi-large' : len > 10 ? ' study-spoken-review-hanzi--long' : '';
+    return (
+      <div className="study-spoken-review" data-testid="spoken-review" aria-live="polite">
+        <div lang="zh-CN" className={`hanzi study-spoken-review-hanzi${size}`} data-testid="spoken-review-text">{text}</div>
+        {spokenReviewPinyin && (
+          <div className="pinyin study-spoken-review-pinyin" data-testid="spoken-review-pinyin">{spokenReviewPinyin}</div>
+        )}
+      </div>
+    );
+  };
+
+  // 🔁 Retry: a new take replaces this one (a listen card's clip is stopped first, like Say it).
+  const retakeSpoken = () => {
+    stopAudio();
+    recordingPlayerRef.current.stop();
+    spoken.retake();
+  };
+
+  // The review's row, in the voice-first row's buttons: 🔁 Retry · ✏️ Edit small on the left, the
+  // wide orange ✓ Submit on the right (checked with the spoken rule, the card turns to the answer).
+  const renderSpokenReviewRow = () => (
+    <div className="study-voice-row" data-testid="spoken-review-row">
+      <button
+        type="button"
+        className="btn btn-secondary study-voice-side"
+        onClick={(e) => { e.stopPropagation(); retakeSpoken(); }}
+        aria-label="Retry"
+        data-testid="spoken-review-retry"
+      >
+        <span aria-hidden="true">🔁</span> Retry
+      </button>
+      <button
+        type="button"
+        className="btn btn-secondary study-voice-side"
+        onClick={(e) => { e.stopPropagation(); spoken.edit(); }}
+        aria-label="Edit what I said"
+        data-testid="spoken-review-edit"
+      >
+        <span aria-hidden="true">✏️</span> Edit
+      </button>
+      <button
+        type="button"
+        className="btn btn-primary study-voice-say"
+        onClick={(e) => { e.stopPropagation(); spoken.submit(); }}
+        aria-label="Submit"
+        data-testid="spoken-review-submit"
+      >
+        <span aria-hidden="true">✓</span> Submit
+      </button>
+    </div>
+  );
+
+  // A take that gave nothing (couldn't transcribe / nothing heard): no Submit — ✏️ Type small on the
+  // left (when there is a box to fall back on) and the wide 🔁 Retry (a new take).
+  const renderSpokenFailedRow = (onType?: () => void) => (
+    <div className="study-voice-row" data-testid="spoken-failed-row">
+      {onType && (
+        <button
+          type="button"
+          className="btn btn-secondary study-voice-side"
+          onClick={(e) => { e.stopPropagation(); onType(); }}
+          aria-label="Type the answer"
+          data-testid="spoken-type"
+        >
+          <span aria-hidden="true">✏️</span> Type
+        </button>
+      )}
+      <button
+        type="button"
+        className="btn btn-primary study-voice-say"
+        onClick={(e) => { e.stopPropagation(); retakeSpoken(); }}
+        aria-label="Retry"
+        data-testid="spoken-review-retry"
+      >
+        <span aria-hidden="true">🔁</span> Retry
+      </button>
+    </div>
+  );
+
   // Say it again, on the question side: the live transcript, ⏹ (or 🎤 to try again after a take
   // that gave nothing) and ✕ Cancel. Any other tap on the card stops the take too (handleCardClick).
   const renderSayAgainPanel = () => (
     <div className="study-rerecord study-sayagain" data-testid="study-sayagain">
-      <div className="study-typing-row">
-        {renderSpokenLiveBox(spoken.phase === 'failed' ? 'Say it again' : 'Listening… say the answer')}
-        <button
-          type="button"
-          className={`study-mic-btn${spoken.listening ? ' is-listening' : ''}`}
-          aria-label={spoken.listening ? 'Stop and check what I said' : 'Say it again'}
-          aria-disabled={spoken.phase === 'finishing'}
-          data-testid="spoken-mic"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (spoken.phase === 'finishing') return;
-            if (spoken.listening) spoken.stop();
-            else spoken.startAgain();
-          }}
-        >
-          {spoken.listening ? '⏹' : '🎤'}
-        </button>
-      </div>
-      {spoken.listening && <p className="study-rerecord-hint">Tap anywhere to stop</p>}
-      {spoken.phase === 'failed' && spoken.failure !== 'empty' && renderSpokenRetry('Or keep your first answer')}
-      {spoken.phase === 'failed' && spoken.failure === 'empty' && (
-        <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap 🎤 to try again.</p>
+      {spoken.phase === 'review' ? (
+        <>
+          {renderSpokenReviewText()}
+          {renderSpokenReviewRow()}
+        </>
+      ) : spoken.phase === 'editing' ? (
+        <>
+          <p className="study-spoken-hint" data-testid="spoken-heard">You said: {spoken.finalText}</p>
+          <div className="study-typing-row">
+            <input
+              type="text"
+              lang="zh-CN"
+              className="form-input study-typing-input"
+              value={sayAgainDraft}
+              onChange={(e) => setSayAgainDraft(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => { if (e.key === 'Enter') spoken.submitEdit(sayAgainDraft); }}
+              autoFocus
+              data-testid="spoken-edit-input"
+            />
+          </div>
+          <div className="study-voice-row">
+            <button
+              type="button"
+              className="btn btn-secondary study-voice-side"
+              onClick={(e) => { e.stopPropagation(); retakeSpoken(); }}
+              aria-label="Retry"
+              data-testid="spoken-review-retry"
+            >
+              <span aria-hidden="true">🔁</span> Retry
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary study-voice-say"
+              onClick={(e) => { e.stopPropagation(); spoken.submitEdit(sayAgainDraft); }}
+              aria-disabled={!sayAgainDraft.trim()}
+              data-testid="spoken-edit-check"
+            >
+              Check
+            </button>
+          </div>
+        </>
+      ) : spoken.phase === 'failed' ? (
+        <>
+          {spoken.failure !== 'empty' && renderSpokenRetry('Or keep your first answer')}
+          {spoken.failure === 'empty' && (
+            <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap Retry to try again.</p>
+          )}
+          {renderSpokenFailedRow()}
+        </>
+      ) : (
+        <>
+          <div className="study-typing-row">
+            {renderSpokenLiveBox('Listening… say the answer')}
+            <button
+              type="button"
+              className={`study-mic-btn${spoken.listening ? ' is-listening' : ''}`}
+              aria-label={spoken.listening ? 'Stop' : 'Finishing'}
+              aria-disabled={spoken.phase === 'finishing'}
+              data-testid="spoken-mic"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (spoken.listening) spoken.stop();
+              }}
+            >
+              {spoken.listening ? '⏹' : '🎤'}
+            </button>
+          </div>
+          {spoken.listening && <p className="study-rerecord-hint">Tap anywhere to stop</p>}
+        </>
       )}
       <button
         type="button"
@@ -2333,6 +2488,17 @@ export function StudyCard({
       );
     }
 
+    // The review step: the transcript big and clear with Retry · Edit · Submit (voice first or from
+    // the box's small 🎤 alike) — no box, no keyboard until ✏️ Edit.
+    if (spoken.reviewing) {
+      return (
+        <div className="study-card-actions study-voice-first" data-testid="study-voice-review">
+          {renderSpokenReviewText()}
+          {renderSpokenReviewRow()}
+        </div>
+      );
+    }
+
     // Voice first: one row of the app's own buttons at the bottom, like the read card's (Skip
     // recording / Record): ✏️ Type (this card only) and 👁 Show answer small on the left, the wide
     // orange 🎤 Say it on the right. While the answer is said the live transcript shows above and the
@@ -2345,6 +2511,7 @@ export function StudyCard({
             <p className="study-mc-note" data-testid="mc-fallback-note">{mcFallbackNote}</p>
           )}
           {spoken.busy && renderSpokenLiveBox('Listening… say the answer')}
+          {spoken.phase === 'failed' ? renderSpokenFailedRow(() => { setMicHint(false); setTypingMode(true); }) : (
           <div className="study-voice-row">
             {spoken.busy ? (
               <button
@@ -2401,12 +2568,13 @@ export function StudyCard({
               )}
             </button>
           </div>
+          )}
           {recorderError && !spoken.busy && (
             <p className="study-spoken-hint" data-testid="spoken-mic-error">{recorderError}</p>
           )}
           {spoken.phase === 'failed' && spoken.failure !== 'empty' && renderSpokenRetry('Or type your answer')}
           {spoken.phase === 'failed' && spoken.failure === 'empty' && (
-            <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap Say it to try again, or type it.</p>
+            <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap Retry to try again, or type it.</p>
           )}
         </div>
       );
@@ -2755,7 +2923,7 @@ export function StudyCard({
           must not play into the microphone, and the live transcript needs the room. */}
       {isAudioCard && !flipped && !spoken.busy && (
         <button
-          className={`audio-replay-fab${isPlaying ? ' audio-replay-fab--playing' : ''}${!showMultipleChoice ? ' audio-replay-fab--above-typing' : ''}`}
+          className={`audio-replay-fab${isPlaying ? ' audio-replay-fab--playing' : ''}${!showMultipleChoice ? ' audio-replay-fab--above-typing' : ''}${spoken.reviewing ? ' audio-replay-fab--above-review' : ''}`}
           onClick={cycleAndPlay}
           disabled={isPlaying}
           aria-label="Replay audio"

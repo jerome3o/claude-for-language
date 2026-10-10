@@ -721,7 +721,7 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   reveals without answering. While speaking the live transcript shows above the row and the row
   turns into **✕ Cancel** + a red **⏹ Stop** (the read card's Stop recording), "Finishing…" until
   the transcript is final; a listen card's floating 🔊 steps aside. A resumed card with an answer in
-  the box, or a transcript only filled in (auto-submit off), shows the box. **Offline** (no live
+  the box, or a transcript sent to the box by ✏️ Edit (below), shows the box. **Offline** (no live
   transcription) the box comes first with the 🎤 dimmed, as before. Accessibility labels "Say it" /
   "Type the answer" / "Show answer". Web `renderTypingActions` `typingMode` (`.study-voice-first`,
   `.study-voice-row`: `.btn .btn-secondary .study-voice-side` + `.btn .btn-primary .study-voice-say`);
@@ -732,10 +732,37 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   turns into the live transcript — confirmed text in ink, the provisional tail grey (the
   transcriber's `onUpdate`). **✕ Cancel** throws the take away and fills nothing. A listen card's
   clip is stopped first so it doesn't play into the microphone.
-- **Tap ⏹** → the final text is the answer. With **Settings → Study → "Submit spoken answers
-  automatically"** on (the default; per device: web localStorage `spoken-answer-auto-submit-v1`,
-  Lab `StudyPrefs.spokenAutoSubmit`) it is checked at once — the same path as Check; off, it only
-  fills the box and Enter / Check submits it.
+- **Tap ⏹ → the review step** (the read cards' record → stop → check-or-re-record, for a spoken
+  answer): the card stays on the question and shows what he said, big and clear — the transcript in
+  the card's hanzi style (web `.hanzi` / `.hanzi-large` by length; Lab `studyHanziSize`, capped) with
+  the device's pinyin under it (`devicePinyinLine`: the app's one automatic pinyin + the 一 / 不 tone
+  changes) — as read-only text, not a box: nothing is focused, no keyboard, nothing checked yet. The
+  bottom row becomes, in the same buttons: **🔁 Retry** and **✏️ Edit** small on the left, the wide
+  orange **✓ Submit** on the right.
+  - **✓ Submit** checks the transcript with the spoken rule (`checkSpokenAnswer`) and turns to the
+    answer, the card's audio playing as on any reveal.
+  - **🔁 Retry** records again (back to listening; a listen card's clip stops first); the new take
+    replaces this one.
+  - **✏️ Edit** only on tap: the transcript goes into the answer box, prefilled, focused with the
+    cursor at the end, keyboard up; Check / Enter submits it — in spoken mode while it is still
+    exactly the transcript, as typed once changed (#570's rule).
+  - A take that gave nothing: "Couldn't transcribe — tap to retry" (the same take, upload) or
+    "Didn't catch anything — tap Retry to try again, or type it", with **✏️ Type** small and the wide
+    **🔁 Retry** — no Submit.
+  - **Settings → Study → "Skip the review — submit spoken answers as soon as I stop"** (OFF by
+    default; per device) checks it at once instead — the path before the review step existed. It is
+    the old "Submit spoken answers automatically" switch under its old key (web localStorage
+    `spoken-answer-auto-submit-v1` `'1'`, Lab `StudyPrefs.spokenSkipReview` = SharedPreferences
+    `spoken_auto_submit`), which both apps only ever wrote when it was flipped: a device that never
+    touched it has no value and gets the review; a choice made on purpose is kept (on = skip, off =
+    the review, which replaced "only fill the box").
+  - Web: `SpokenAnswerController` `phase: 'review' | 'editing'`, `submit` / `edit` / `retake` /
+    `submitEdit`, `onResult({ text, transcript, submit, again, reviewed })`; `renderSpokenReviewText` /
+    `renderSpokenReviewRow` / `renderSpokenFailedRow` in `StudyPage.tsx`; unit `spokenAnswer.test.ts`
+    "the review step", `spokenAnswerPrefs.test.ts`, e2e `study-speak-answer.spec.ts`. Lab:
+    `SpokenPhase.REVIEW` / `EDITING`, `StudyViewModel.submitSpokenAnswer` / `editSpokenAnswer` /
+    `retakeSpokenAnswer` / `submitEditedSpokenAnswer`, `SpokenReviewControls` / `SpokenFailedRow` in
+    `CardStage.kt`; `SpokenAnswerTest`, `SpokenAnswerUiTest`.
 - **The take is kept**: it rides with the review like a read card's (`recording_url` via the
   offline recording queue — web `pendingRecordings`, Lab outbox `rec-<eventId>`), so the tutor can
   hear it; the review's `answer` is the transcript. No schema change.
@@ -757,16 +784,20 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
 - **🎤 Say it again** (answer side, beside Play — Record again's place on a read card; only when the
   answer on the back was spoken): Record again for a spoken answer. The card turns back to the
   question with the mic live and the live transcript in the box's place ("Tap anywhere to stop", ⏹,
-  ✕ Cancel); the previous answer / verdict is out of sight meanwhile. When the take ends its
-  transcript is checked with the same spoken rule (`checkSpokenAnswer`) — always, whatever the
-  auto-submit switch, since the card is already revealed — and the card turns to the answer with
-  the NEW verdict and "You said". The new take replaces the previous one (the review event is
+  ✕ Cancel); the previous answer / verdict is out of sight meanwhile. When the take ends it goes
+  through **the same review step**, still on the question side (🔁 Retry stays a say-again; ✏️ Edit
+  turns the transcript into a box there, focused, and Check submits it; ✕ Cancel / back keeps the
+  first answer), unless "Skip the review" is on. Submitted, it is checked with the spoken rule
+  (`checkSpokenAnswer`; as typed when edited) and the card turns to the answer with the NEW verdict
+  and "You said". The new take replaces the previous one (the review event is
   written at rating time, so the latest answer and take are what is saved), and the card's own
   clip plays once the same way as after Record again (#556: his own take's playback stops first; a
-  clip still "Audio coming…" is waited for by the reveal's auto-play; never twice). ✕ / back / Esc,
-  or rating meanwhile, drops the new take: the previous answer, verdict and take stay. A take that
-  gives nothing stays on the question ("Couldn't transcribe — tap to retry · Or keep your first
-  answer" / "Didn't catch anything — tap 🎤 to try again"); ✕ goes back. Offline the pill is dimmed
+  clip still "Audio coming…" is waited for by the reveal's auto-play; never twice; nothing plays on
+  the review). ✕ / back / Esc, or rating meanwhile (also on the review), drops the new take: the
+  previous answer, verdict and take stay. A take that gives nothing stays on the question
+  ("Couldn't transcribe — tap to retry · Or keep your first answer" / "Didn't catch anything — tap
+  Retry to try again") with a wide 🔁 Retry; ✕ goes back. An edited say-again answer is a typed
+  answer, so it has no Say it again. Offline the pill is dimmed
   and a tap says "Saying it again needs a connection." Typed answers have no Say it again. Web:
   `SpokenAnswerController.start({ again: true })` (`keepPrevious`, `restorePrevious`), `useSpokenAnswer`
   `startAgain` / `keptTake`, `renderSayAgainPanel` + `sayingAgain` in `StudyPage.tsx` (the Record
@@ -774,9 +805,10 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   "say it again". Lab: `StudyViewModel.sayAgain` / `takeBeforeSayAgain` (+ `playWordAfterRecordAgain`),
   `SpokenUi.again` / `SpokenResult.again`, `SayAgainPill` / `SayAgainPanel` in `CardStage.kt`;
   `SayItAgainTest` (ViewModel, fake recorder + transcriber), `SayItAgainUiTest`.
-- Analytics: `study.answer_spoken` (result submitted / filled / failed / empty / cancelled, via,
-  live_error, speech_ms, ms, auto_submit, retry = a Say it again) and `study.spoken_answer_checked`
-  (verdict, retry).
+- Analytics: `study.answer_spoken` (result submitted / filled = ✏️ Edit / retaken = 🔁 Retry on the
+  review / failed / empty / cancelled, via, live_error, speech_ms, ms, auto_submit = "Skip the
+  review", retry = a Say it again, reviewed = went through the review, edited = ✏️ Edit; a reviewed
+  take is reported when he decides) and `study.spoken_answer_checked` (verdict, retry, reviewed).
 
 ## Multiple choice
 

@@ -2,10 +2,11 @@ import { test, expect, APIRequestContext, Page } from '@playwright/test';
 
 /**
  * Say the answer on a typing card (docs/STUDY_SESSION.md "Say the answer"): 🎤 streams to the
- * live transcriber (Soniox, faked in the page), the transcript shows in the box as it is
- * spoken, 🎤 again stops it and the answer is submitted at once. A homophone (油 for 由) is
- * right by sound; the review keeps the transcript as its answer and the take as its recording.
- * Live AND upload failing: "Couldn't transcribe — tap to retry", nothing submitted.
+ * live transcriber (Soniox, faked in the page), the transcript shows as it is spoken, ⏹ stops it
+ * and the transcript waits on the REVIEW step (big hanzi + pinyin, 🔁 Retry · ✏️ Edit · ✓ Submit);
+ * ✓ Submit checks it. A homophone (油 for 由) is right by sound; the review event keeps the
+ * transcript as its answer and the take as its recording. Live AND upload failing: "Couldn't
+ * transcribe — tap to retry", nothing submitted. "Skip the review" (Settings) checks it at once.
  */
 test.use({
   permissions: ['microphone'],
@@ -175,7 +176,7 @@ async function seed(page: Page, request: APIRequestContext) {
 
 test.describe.configure({ timeout: 90000 });
 
-test('say the answer: live text in the box, auto-submitted, a homophone is right by sound, the take is kept', async ({ page, request }) => {
+test('say the answer: live text, then the review (no keyboard), Submit — a homophone is right by sound, the take is kept', async ({ page, request }) => {
   await fakeSoniox(page);
   let uploads = 0;
   await page.route(/\/api\/transcribe$/, (route) => { uploads++; return route.fulfill({ json: { text: '油', language: 'zh' } }); });
@@ -186,7 +187,28 @@ test('say the answer: live text in the box, auto-submitted, a homophone is right
   // Live: the provisional 油 shows in the box while speaking.
   await expect(page.getByTestId('spoken-live')).toContainText('油', { timeout: 10000 });
   await expect(page.getByTestId('spoken-cancel')).toBeVisible();
-  await page.getByTestId('spoken-mic').click(); // ⏹ stop → submitted
+  await page.getByTestId('spoken-mic').click(); // ⏹ stop → the review
+
+  // The review: what was said, big, with the device's pinyin — read-only, nothing focused, not checked.
+  const review = page.getByTestId('spoken-review');
+  await expect(review).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('spoken-review-text')).toHaveText('油');
+  await expect(page.getByTestId('spoken-review-pinyin')).toHaveText('yóu');
+  await expect(page.getByTestId('study-card-back')).toBeHidden();
+  await expect(page.getByPlaceholder(/Type/)).toHaveCount(0);
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('INPUT');
+  // One row: 🔁 Retry · ✏️ Edit on the left, the wide ✓ Submit on the right.
+  const [rb, eb, sb] = [
+    await page.getByTestId('spoken-review-retry').boundingBox(),
+    await page.getByTestId('spoken-review-edit').boundingBox(),
+    await page.getByTestId('spoken-review-submit').boundingBox(),
+  ];
+  expect(rb!.x).toBeLessThan(eb!.x);
+  expect(eb!.x).toBeLessThan(sb!.x);
+  expect(sb!.width).toBeGreaterThan(eb!.width);
+  expect(Math.abs(sb!.y - rb!.y)).toBeLessThan(2);
+  expect(sb!.height).toBeGreaterThanOrEqual(44);
+  await page.getByTestId('spoken-review-submit').click();
 
   const sound = page.getByTestId('spoken-answer-sound');
   await expect(sound).toBeVisible({ timeout: 8000 });
@@ -218,12 +240,17 @@ test('live and upload both failing: "Couldn’t transcribe — tap to retry", no
   await page.getByTestId('spoken-mic').click();
   const retry = page.getByTestId('spoken-retry');
   await expect(retry).toBeVisible({ timeout: 10000 });
-  // Not submitted: still the question (voice first), and typing is one tap away.
+  // Not submitted: still the question, with 🔁 Retry (a new take) and ✏️ Type — no Submit.
   await expect(page.getByTestId('study-voice-first')).toBeVisible();
+  await expect(page.getByTestId('spoken-failed-row')).toBeVisible();
   await expect(page.getByTestId('spoken-type')).toBeVisible();
+  await expect(page.getByTestId('spoken-review-retry')).toBeVisible();
+  await expect(page.getByTestId('spoken-review-submit')).toHaveCount(0);
 
   fail = false;
-  await retry.click();
+  await retry.click(); // the same take, uploaded again → the review
+  await expect(page.getByTestId('spoken-review-text')).toHaveText('由', { timeout: 8000 });
+  await page.getByTestId('spoken-review-submit').click();
   await expect(page.getByTestId('typed-answer-diff').or(page.locator('.answer-diff')).first()).toBeVisible({ timeout: 8000 });
 });
 
@@ -266,8 +293,46 @@ test('voice first: one row — ✏️ Type, 👁 Show answer, the wide 🎤 Say 
   await expect(page.getByPlaceholder(/Type/)).toHaveCount(0);
 });
 
-test('auto-submit off: the transcript fills the box, Enter submits it', async ({ page, request }) => {
-  await page.addInitScript(() => { try { localStorage.setItem('spoken-answer-auto-submit-v1', '0'); } catch { /* */ } });
+test('review: 🔁 Retry replaces the take; ✏️ Edit puts it in the box (focused) and an edited answer is checked as typed', async ({ page, request }) => {
+  // The first take hears 有 (wrong), the retake 油, which is then edited to 由.
+  await fakeSoniox(page, 'ok', ['有', '油']);
+  await seed(page, request);
+
+  await nextTypingCard(page);
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('有', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-review-text')).toHaveText('有', { timeout: 8000 });
+
+  // Retry: listening again; the new take replaces the first.
+  await page.getByTestId('spoken-review-retry').click();
+  await expect(page.getByTestId('spoken-review')).toHaveCount(0);
+  await expect(page.getByTestId('spoken-live')).toContainText('油', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-review-text')).toHaveText('油', { timeout: 8000 });
+
+  // Edit: the box, prefilled and focused (keyboard up); nothing checked yet.
+  await page.getByTestId('spoken-review-edit').click();
+  const box = page.getByPlaceholder(/Type/);
+  await expect(box).toHaveValue('油');
+  await expect(box).toBeFocused();
+  await expect(page.getByTestId('study-card-back')).toBeHidden();
+  await box.fill('由');
+  await box.press('Enter');
+  // Checked as typed: exact, no "sounded right" note.
+  await expect(page.locator('.answer-diff').first()).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('spoken-answer-sound')).toHaveCount(0);
+  await expect(page.getByTestId('spoken-say-again')).toHaveCount(0); // a typed answer has no Say it again
+
+  await page.getByRole('button', { name: /^Good/ }).first().click();
+  await expect.poll(async () => (await localReviews(page)).filter(r => r.card_type !== 'hanzi_to_meaning').length, { timeout: 10000 }).toBe(1);
+  const typed = (await localReviews(page)).find(r => r.card_type !== 'hanzi_to_meaning')!;
+  expect(typed.user_answer).toBe('由');
+  expect(typed.recording).toBe(true); // the retake rides with the review
+});
+
+test('"Skip the review" on (a choice kept from the old auto-submit switch): checked as soon as he stops', async ({ page, request }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('spoken-answer-auto-submit-v1', '1'); } catch { /* */ } });
   await fakeSoniox(page);
   await seed(page, request);
 
@@ -275,11 +340,8 @@ test('auto-submit off: the transcript fills the box, Enter submits it', async ({
   await page.getByTestId('spoken-mic').click();
   await expect(page.getByTestId('spoken-live')).toContainText('油', { timeout: 10000 });
   await page.getByTestId('spoken-mic').click();
-  const box = page.getByPlaceholder(/Type/);
-  await expect(box).toHaveValue('油', { timeout: 8000 });
-  await expect(page.getByRole('button', { name: 'Check Answer' })).toBeVisible();
-  await box.press('Enter');
-  await expect(page.getByTestId('spoken-answer-sound')).toBeVisible();
+  await expect(page.getByTestId('spoken-answer-sound')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('spoken-review')).toHaveCount(0);
 });
 
 /**
@@ -304,7 +366,7 @@ async function countCardPlays(page: Page) {
 }
 const cardPlays = (page: Page) => page.evaluate(() => (window as unknown as { __cardPlays: string[] }).__cardPlays.length);
 
-test('say it again: the question while the new take is said, the NEW verdict after, the clip once; cancel keeps the answer', async ({ page, request }) => {
+test('say it again: the question while the new take is said, its review there, the NEW verdict after Submit, the clip once; cancel keeps the answer', async ({ page, request }) => {
   // The first take hears 油 (right by sound), the second 由 (exact), the third (cancelled) 有.
   await fakeSoniox(page, 'ok', ['油', '由', '有']);
   await countCardPlays(page);
@@ -314,6 +376,7 @@ test('say it again: the question while the new take is said, the NEW verdict aft
   await page.getByTestId('spoken-mic').click();
   await expect(page.getByTestId('spoken-live')).toContainText('油', { timeout: 10000 });
   await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('spoken-review-submit').click();
   await expect(page.getByTestId('spoken-answer-sound')).toContainText('You said: 油', { timeout: 8000 });
   // The reveal's auto-play has happened; from here on only "Say it again" may add one.
   await expect.poll(() => cardPlays(page)).toBeGreaterThan(0);
@@ -327,7 +390,12 @@ test('say it again: the question while the new take is said, the NEW verdict aft
   await expect(page.getByTestId('spoken-answer-sound')).toBeHidden();
   await expect(page.getByTestId('spoken-live')).toContainText('由', { timeout: 10000 });
   expect(await cardPlays(page)).toBe(afterReveal);
-  await page.getByTestId('spoken-mic').click(); // ⏹
+  await page.getByTestId('spoken-mic').click(); // ⏹ → the review, still on the question side
+  await expect(page.getByTestId('study-sayagain').getByTestId('spoken-review-text')).toHaveText('由', { timeout: 8000 });
+  await expect(page.getByTestId('study-card-back')).toBeHidden();
+  await page.waitForTimeout(400);
+  expect(await cardPlays(page)).toBe(afterReveal); // nothing plays until it is submitted
+  await page.getByTestId('spoken-review-submit').click();
 
   // The answer again, with the NEW verdict (exact — no "sounded right" note), and the clip once.
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 8000 });

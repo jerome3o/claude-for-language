@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SpokenAnswerController, type LiveLike, type SpokenAnswerDeps, type SpokenAnswerState } from './spokenAnswer';
+import { SpokenAnswerController, type LiveLike, type SpokenAnswer, type SpokenAnswerDeps, type SpokenAnswerState } from './spokenAnswer';
 
 /** A fake live transcriber: tokens arrive through `say`, `finish` resolves (or rejects) on demand. */
 function fakeLive(result: string | Error = '油') {
@@ -14,9 +14,11 @@ function fakeLive(result: string | Error = '油') {
   return { live, bind: (cb: typeof onUpdate) => { onUpdate = cb; }, say: (f: string, p: string) => onUpdate(f, p) };
 }
 
-function setup(opts: { live?: ReturnType<typeof fakeLive> | null; upload?: () => Promise<{ text: string; language: string }>; autoSubmit?: boolean; online?: boolean; micOk?: boolean } = {}) {
+/** `skipReview` defaults to TRUE here (the old checked-at-once path); the review step has its own block. */
+function setup(opts: { live?: ReturnType<typeof fakeLive> | null; upload?: () => Promise<{ text: string; language: string }>; skipReview?: boolean; online?: boolean; micOk?: boolean } = {}) {
   const states: SpokenAnswerState[] = [];
   const results: Array<{ text: string; submit: boolean; again?: boolean }> = [];
+  const answers: SpokenAnswer[] = [];
   const tracked: Array<{ result: string; props: Record<string, unknown> }> = [];
   let stopHook: ((take: Blob) => void) | null = null;
   const take = new Blob(['take'], { type: 'audio/webm' });
@@ -34,18 +36,21 @@ function setup(opts: { live?: ReturnType<typeof fakeLive> | null; upload?: () =>
     createLive: (cb) => { if (!live) return null; live.bind(cb); return live.live; },
     upload: vi.fn(opts.upload ?? (async () => ({ text: '油', language: 'zh' }))),
     isOnline: () => opts.online ?? true,
-    autoSubmit: () => opts.autoSubmit ?? true,
+    skipReview: () => opts.skipReview ?? true,
     onState: (s) => states.push(s),
-    onResult: (text, submit, again) => results.push(again ? { text, submit, again } : { text, submit }),
+    onResult: (a) => {
+      answers.push(a);
+      results.push(a.again ? { text: a.text, submit: a.submit, again: true } : { text: a.text, submit: a.submit });
+    },
     track: (result, props) => tracked.push({ result, props }),
   };
-  return { c: new SpokenAnswerController(deps), deps, states, results, tracked, live, take };
+  return { c: new SpokenAnswerController(deps), deps, states, results, answers, tracked, live, take };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('SpokenAnswerController', () => {
-  it('streams live: interim text shows, stop → the final text is submitted', async () => {
+  it('review skipped (Settings): streams live, interim text shows, stop → the final text is submitted', async () => {
     const t = setup();
     await t.c.start();
     expect(t.c.current.phase).toBe('listening');
@@ -57,16 +62,83 @@ describe('SpokenAnswerController', () => {
     expect(t.results).toEqual([{ text: '油', submit: true }]);
     expect(t.c.current.phase).toBe('idle');
     expect(t.deps.upload).not.toHaveBeenCalled();
-    expect(t.tracked).toEqual([{ result: 'submitted', props: expect.objectContaining({ via: 'live', live_error: 'none', auto_submit: true }) }]);
+    expect(t.tracked).toEqual([{ result: 'submitted', props: expect.objectContaining({ via: 'live', live_error: 'none', auto_submit: true, reviewed: false, edited: false }) }]);
+    expect(t.answers[0]).toMatchObject({ transcript: '油', reviewed: false });
   });
 
-  it('auto-submit off: fills the box only', async () => {
-    const t = setup({ autoSubmit: false });
-    await t.c.start();
-    t.c.stop();
-    await flush();
-    expect(t.results).toEqual([{ text: '油', submit: false }]);
-    expect(t.tracked[0].result).toBe('filled');
+  describe('the review step (the default)', () => {
+    it('stop → review: the transcript waits, nothing checked or reported until Submit', async () => {
+      const t = setup({ skipReview: false });
+      await t.c.start();
+      t.c.stop();
+      await flush();
+      expect(t.c.current).toMatchObject({ phase: 'review', finalText: '油', again: false });
+      expect(t.results).toEqual([]);
+      expect(t.tracked).toEqual([]);
+      t.c.submit();
+      expect(t.c.current.phase).toBe('idle');
+      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: true, again: false, reviewed: true }]);
+      expect(t.tracked).toEqual([{ result: 'submitted', props: expect.objectContaining({ via: 'live', reviewed: true, edited: false, auto_submit: false, retry: false }) }]);
+      expect(t.deps.discardTake).not.toHaveBeenCalled(); // the take rides with the review
+    });
+
+    it('Retry replaces the take: a new recording, the old transcript gone', async () => {
+      const t = setup({ skipReview: false, live: null, upload: vi.fn().mockResolvedValueOnce({ text: '油', language: 'zh' }).mockResolvedValueOnce({ text: '由', language: 'zh' }) });
+      await t.c.start();
+      t.c.stop();
+      await flush();
+      expect(t.c.current.finalText).toBe('油');
+      await t.c.retake();
+      expect(t.c.current).toMatchObject({ phase: 'listening', finalText: '' });
+      expect(t.deps.startRecorder).toHaveBeenCalledTimes(2);
+      expect(t.deps.startRecorder).toHaveBeenLastCalledWith(expect.anything(), { keepPrevious: false });
+      expect(t.tracked[0]).toMatchObject({ result: 'retaken', props: { reviewed: true } });
+      t.c.stop();
+      await flush();
+      expect(t.c.current).toMatchObject({ phase: 'review', finalText: '由' });
+      t.c.submit();
+      expect(t.results).toEqual([{ text: '由', submit: true }]);
+    });
+
+    it('Edit: the transcript goes to the box, not checked (Check submits it, typed once changed)', async () => {
+      const t = setup({ skipReview: false });
+      await t.c.start();
+      t.c.stop();
+      await flush();
+      t.c.edit();
+      expect(t.c.current.phase).toBe('idle');
+      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: false, again: false, reviewed: true }]);
+      expect(t.tracked).toEqual([{ result: 'filled', props: expect.objectContaining({ reviewed: true, edited: true }) }]);
+      // Submit / Edit outside the review do nothing.
+      t.c.submit();
+      t.c.edit();
+      expect(t.answers).toHaveLength(1);
+    });
+
+    it('a take that gives nothing: failed, no review, Retry records anew', async () => {
+      const t = setup({ skipReview: false, live: fakeLive(''), upload: async () => ({ text: '', language: 'zh' }) });
+      await t.c.start();
+      t.c.stop();
+      await flush();
+      expect(t.c.current).toMatchObject({ phase: 'failed', failure: 'empty' });
+      expect(t.tracked[0]).toMatchObject({ result: 'empty', props: { reviewed: true } });
+      t.c.submit();
+      expect(t.results).toEqual([]);
+      await t.c.retake();
+      expect(t.c.current.phase).toBe('listening');
+    });
+
+    it('cancel on the review throws the take away', async () => {
+      const t = setup({ skipReview: false });
+      await t.c.start();
+      t.c.stop();
+      await flush();
+      t.c.cancel();
+      expect(t.deps.discardTake).toHaveBeenCalled();
+      expect(t.c.current.phase).toBe('idle');
+      expect(t.tracked[0]).toMatchObject({ result: 'cancelled', props: { reviewed: true } });
+      expect(t.results).toEqual([]);
+    });
   });
 
   it('live fails → the take is uploaded (the read cards’ fallback)', async () => {
@@ -145,8 +217,8 @@ describe('SpokenAnswerController', () => {
   });
 
   describe('Say it again (answer side)', () => {
-    it('keeps the previous take until the new one lands, and always checks the new answer', async () => {
-      const t = setup({ autoSubmit: false });
+    it('review skipped: keeps the previous take until the new one lands, and checks the new answer at once', async () => {
+      const t = setup();
       await t.c.start({ again: true });
       expect(t.deps.startRecorder).toHaveBeenCalledWith(expect.anything(), { keepPrevious: true });
       expect(t.c.current).toMatchObject({ phase: 'listening', again: true });
@@ -154,11 +226,60 @@ describe('SpokenAnswerController', () => {
       expect(t.c.current.finalText).toBe('油');
       t.c.stop();
       await flush();
-      // Checked even with auto-submit off: the card is already revealed.
       expect(t.results).toEqual([{ text: '油', submit: true, again: true }]);
       expect(t.c.current).toMatchObject({ phase: 'idle', again: false });
       expect(t.deps.restorePrevious).not.toHaveBeenCalled();
-      expect(t.tracked).toEqual([{ result: 'submitted', props: expect.objectContaining({ retry: true, auto_submit: false }) }]);
+      expect(t.tracked).toEqual([{ result: 'submitted', props: expect.objectContaining({ retry: true, auto_submit: true, reviewed: false }) }]);
+    });
+
+    it('goes through the same review: Submit checks it, Retry stays a say-again', async () => {
+      const t = setup({ skipReview: false });
+      await t.c.start({ again: true });
+      t.c.stop();
+      await flush();
+      expect(t.c.current).toMatchObject({ phase: 'review', finalText: '油', again: true });
+      expect(t.results).toEqual([]);
+      await t.c.retake();
+      expect(t.c.current).toMatchObject({ phase: 'listening', again: true });
+      expect(t.deps.startRecorder).toHaveBeenLastCalledWith(expect.anything(), { keepPrevious: true });
+      t.c.stop();
+      await flush();
+      t.c.submit();
+      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: true, again: true, reviewed: true }]);
+      expect(t.deps.restorePrevious).not.toHaveBeenCalled();
+    });
+
+    it('Edit on its review: the box on the question side, Check submits the edited text (checked as typed)', async () => {
+      const t = setup({ skipReview: false });
+      await t.c.start({ again: true });
+      t.c.stop();
+      await flush();
+      t.c.edit();
+      expect(t.c.current).toMatchObject({ phase: 'editing', finalText: '油', again: true });
+      expect(t.results).toEqual([]);
+      t.c.submitEdit('  ');
+      expect(t.results).toEqual([]); // nothing to check
+      t.c.submitEdit(' 由 ');
+      expect(t.answers).toEqual([{ text: '由', transcript: '油', submit: true, again: true, reviewed: true }]);
+      expect(t.tracked).toEqual([{ result: 'filled', props: expect.objectContaining({ retry: true, reviewed: true, edited: true }) }]);
+    });
+
+    it('cancel on its review or while editing brings the previous take back', async () => {
+      const t = setup({ skipReview: false });
+      await t.c.start({ again: true });
+      t.c.stop();
+      await flush();
+      t.c.cancel();
+      expect(t.deps.restorePrevious).toHaveBeenCalledTimes(1);
+      expect(t.deps.discardTake).not.toHaveBeenCalled();
+      await t.c.start({ again: true });
+      t.c.stop();
+      await flush();
+      t.c.edit();
+      t.c.cancel();
+      expect(t.deps.restorePrevious).toHaveBeenCalledTimes(2);
+      expect(t.c.current).toMatchObject({ phase: 'idle', again: false });
+      expect(t.results).toEqual([]);
     });
 
     it('a first answer is tracked with retry false', async () => {

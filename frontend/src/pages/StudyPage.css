@@ -710,6 +710,10 @@
 .audio-replay-fab.audio-replay-fab--above-typing {
   bottom: 11rem;
 }
+/* On the review step the transcript sits above the row: the 🔊 goes above it (replay to compare). */
+.audio-replay-fab.audio-replay-fab--above-typing.audio-replay-fab--above-review {
+  bottom: 16rem;
+}
 .study-typing-row {
   display: flex;
   align-items: stretch;
@@ -855,4 +859,42 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .study-voice-say.is-listening { animation: none; }
+}
+
+/* The review step: what was said, in the card's hanzi style with the device's pinyin under it —
+   read-only text (no box, no keyboard) above the Retry · Edit · Submit row. */
+.study-spoken-review {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem 0.65rem;
+  border-radius: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  text-align: center;
+  animation: study-spoken-review-in 0.18s ease-out;
+}
+.study-spoken-review-hanzi {
+  color: var(--color-text);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.study-spoken-review-hanzi--long {
+  font-size: 1.75rem;
+}
+.study-spoken-review-pinyin {
+  font-size: 1.125rem;
+}
+.study-sayagain .study-spoken-review,
+.study-sayagain .study-voice-row {
+  width: 100%;
+}
+@keyframes study-spoken-review-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .study-spoken-review { animation: none; }
 }

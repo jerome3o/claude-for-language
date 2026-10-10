@@ -27,8 +27,9 @@ import kotlin.test.assertTrue
 
 /**
  * Say the answer on a typing card (docs/STUDY_SESSION.md; the web's spokenAnswer.test.ts): 🎤 →
- * the live transcript shows while speaking → ⏹ → the final text is the answer, submitted when
- * "Submit spoken answers automatically" is on; the rating's review event carries it as its answer
+ * the live transcript shows while speaking → ⏹ → the final text waits on the REVIEW step (🔁 Retry
+ * replaces the take, ✏️ Edit fills the box, ✓ Submit checks it) — or is submitted at once when
+ * "Skip the review" is on; the rating's review event carries it as its answer
  * and the take goes up with it (`rec-<eventId>` in the outbox). Live and upload both failing:
  * nothing is submitted, "tap to retry" re-sends the same take. Homophones are right by sound.
  */
@@ -41,6 +42,7 @@ class SpokenAnswerTest {
     class FakeRecorder(app: LabApp, scope: CoroutineScope) : VoiceRecorder(app, scope) {
         private var on = false
         val log = mutableListOf<String>()
+        val files = mutableListOf<File>()
         override val recording: Boolean get() = on
         override fun start(): Boolean { on = true; log += "start"; return true }
         override fun startLive(onAudio: (ByteArray, Int) -> Unit): Boolean {
@@ -53,7 +55,7 @@ class SpokenAnswerTest {
             if (!on) return null
             on = false
             log += "stop"
-            return File.createTempFile("take", ".wav").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            return File.createTempFile("take", ".wav").apply { writeBytes(byteArrayOf(1, 2, 3)) }.also { files += it }
         }
     }
 
@@ -84,7 +86,8 @@ class SpokenAnswerTest {
         app = ApplicationProvider.getApplicationContext()
         app.prefs.sessionToken = null
         app.prefs.budget = StudyBudget(5, 0)
-        StudyPrefs.get(app).spokenAutoSubmit = true
+        // Most tests here take the old checked-at-once path; the review step has its own tests below.
+        StudyPrefs.get(app).spokenSkipReview = true
         StudyDayStore.forTest(app, ZoneId.systemDefault())
         @Suppress("UNCHECKED_CAST")
         (LabApp::class.java.getDeclaredField("_online").apply { isAccessible = true }.get(app) as MutableStateFlow<Boolean>).value = true
@@ -135,7 +138,8 @@ class SpokenAnswerTest {
         waitFor("the answer") { spoken.result != null }
         val r = spoken.result!!
         assertEquals("油", r.text)
-        assertTrue(r.submit, "auto-submit is on by default")
+        assertTrue(r.submit, "the review is skipped")
+        assertTrue(!r.reviewed)
         assertEquals(SpokenPhase.IDLE, spoken.phase)
         assertEquals(0, fake.uploads, "the live text was enough")
         // A homophone is right by sound on the back.
@@ -154,14 +158,105 @@ class SpokenAnswerTest {
     }
 
     @Test
-    fun autoSubmitOffOnlyFillsTheBox() {
-        StudyPrefs.get(app).spokenAutoSubmit = false
+    fun theReviewIsTheDefaultForAPhoneThatNeverTouchedTheSwitch() {
+        // The store StudyPrefs reads ("lab_study"), as the old switch left it.
+        val sp = StudyPrefs::class.java.getDeclaredField("sp").apply { isAccessible = true }.get(StudyPrefs.get(app)) as android.content.SharedPreferences
+        sp.edit().remove("spoken_auto_submit").commit()
+        assertTrue(!StudyPrefs.get(app).spokenSkipReview, "off by default: the review step")
+        // A choice made with the old "Submit spoken answers automatically" switch is kept (same key, same meaning).
+        sp.edit().putBoolean("spoken_auto_submit", true).commit()
+        assertTrue(StudyPrefs.get(app).spokenSkipReview)
+        sp.edit().putBoolean("spoken_auto_submit", false).commit()
+        assertTrue(!StudyPrefs.get(app).spokenSkipReview)
+    }
+
+    @Test
+    fun stopGoesToTheReviewAndSubmitChecksIt() {
+        StudyPrefs.get(app).spokenSkipReview = false
+        sessionVm = session()
+        val vm = sessionVm
+        vm.startSpokenAnswer()
+        vm.stopSpokenAnswer()
+        waitFor("the review") { spoken.phase == SpokenPhase.REVIEW }
+        assertEquals("油", spoken.finalText)
+        assertNull(spoken.result, "nothing checked until Submit")
+        assertEquals("yóu", devicePinyinLine(spoken.finalText), "the pinyin shown under it")
+
+        vm.submitSpokenAnswer()
+        val r = assertNotNull(spoken.result)
+        assertEquals("油", r.text)
+        assertEquals("油", r.transcript)
+        assertTrue(r.submit && r.reviewed && !r.again)
+        assertEquals(SpokenPhase.IDLE, spoken.phase)
+
+        vm.onRevealed(AnswerKey.Verdict.SOUND)
+        vm.rate(2, 4_000, r.text)
+        waitFor("the review event") { runBlocking { app.repo.dao.allEvents().isNotEmpty() } }
+        val event = runBlocking { app.repo.dao.allEvents() }.single()
+        assertEquals("油", event.userAnswer)
+        waitFor("the take queued") { runBlocking { app.outbox.all().any { it.id == "rec-${event.id}" } } }
+    }
+
+    @Test
+    fun retryOnTheReviewRecordsANewTakeThatReplacesTheOld() {
+        StudyPrefs.get(app).spokenSkipReview = false
+        sessionVm = session()
+        val vm = sessionVm
+        vm.startSpokenAnswer()
+        vm.stopSpokenAnswer()
+        waitFor("the review") { spoken.phase == SpokenPhase.REVIEW }
+        val first = rec.files.single()
+
+        fake.live = "由"
+        vm.retakeSpokenAnswer()
+        assertEquals(SpokenPhase.LISTENING, spoken.phase)
+        assertEquals("", spoken.finalText)
+        assertTrue(!first.exists(), "the first take is thrown away")
+        vm.stopSpokenAnswer()
+        waitFor("the second review") { spoken.phase == SpokenPhase.REVIEW }
+        assertEquals("由", spoken.finalText)
+        assertEquals(listOf("startLive", "stop", "startLive", "stop"), rec.log)
+        vm.submitSpokenAnswer()
+        assertEquals("由", spoken.result!!.text)
+        assertTrue(rec.files.last().exists(), "the new take rides with the review")
+    }
+
+    @Test
+    fun editOnTheReviewFillsTheBoxWithoutChecking() {
+        StudyPrefs.get(app).spokenSkipReview = false
         sessionVm = session()
         sessionVm.startSpokenAnswer()
         sessionVm.stopSpokenAnswer()
-        waitFor("the answer") { spoken.result != null }
-        assertEquals("油", spoken.result!!.text)
-        assertTrue(!spoken.result!!.submit)
+        waitFor("the review") { spoken.phase == SpokenPhase.REVIEW }
+        sessionVm.editSpokenAnswer()
+        val r = assertNotNull(spoken.result)
+        assertEquals("油", r.text)
+        assertTrue(!r.submit, "into the box — Check submits it")
+        assertTrue(r.reviewed)
+        assertEquals(SpokenPhase.IDLE, spoken.phase)
+        // Submit / Edit outside the review do nothing.
+        val seq = r.seq
+        sessionVm.submitSpokenAnswer()
+        sessionVm.editSpokenAnswer()
+        assertEquals(seq, spoken.result!!.seq)
+        assertTrue(rec.files.single().exists(), "the take is kept for the review event")
+    }
+
+    @Test
+    fun aTakeThatGivesNothingHasNoReview() {
+        StudyPrefs.get(app).spokenSkipReview = false
+        fake.live = ""
+        fake.upload = { "" }
+        sessionVm = session()
+        sessionVm.startSpokenAnswer()
+        sessionVm.stopSpokenAnswer()
+        waitFor("the failure") { spoken.phase == SpokenPhase.FAILED }
+        assertEquals(SpokenFailure.EMPTY, spoken.failure)
+        sessionVm.submitSpokenAnswer()
+        assertNull(spoken.result)
+        fake.live = "由"
+        sessionVm.retakeSpokenAnswer()
+        assertEquals(SpokenPhase.LISTENING, spoken.phase)
     }
 
     @Test

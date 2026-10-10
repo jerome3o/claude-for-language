@@ -985,8 +985,8 @@ class StudyViewModel(
     /**
      * The 🎤 on a typing card (docs/STUDY_SESSION.md "Say the answer"; the web's useSpokenAnswer):
      * the SAME recorder + live Soniox stream as a read card's take, the transcript shown as it is
-     * spoken, then — at Stop — the final text as the answer (checked at once when
-     * "Submit spoken answers automatically" is on). Fallback: the upload, like a read card. Both
+     * spoken, then — at Stop — the final text on the REVIEW step (🔁 Retry · ✏️ Edit · ✓ Submit;
+     * checked at once when "Skip the review" is on). Fallback: the upload, like a read card. Both
      * failing: "Couldn't transcribe — tap to retry", nothing submitted. The take is [take], so it
      * goes up with the review (recording_url) like a read card's.
      */
@@ -1002,6 +1002,8 @@ class StudyViewModel(
     private var spokenStartedAt = 0L
     private var spokenSpeechMs = 0L
     private var spokenSeq = 0
+    /** The take on review: how it was transcribed, reported once Retry / Edit / Submit / cancel decides. */
+    private var spokenPending: Triple<TakeTranscription.Outcome?, Long, Boolean>? = null
     /**
      * During a "Say it again": the take of the answer on screen, kept until the new take's answer
      * lands (then deleted) — a cancel puts it back as [take], so the review keeps it.
@@ -1021,8 +1023,9 @@ class StudyViewModel(
     /**
      * "🎤 Say it again" (answer side, docs/STUDY_SESSION.md): Record again for a spoken answer — the
      * card turns to the question with the live transcript, the take before it is kept until the new
-     * answer lands, which is checked anew (whatever the auto-submit switch) and followed by the card's
-     * own clip once ([playWordAfterRecordAgain]); ✕ / back brings the previous answer and take back.
+     * answer is submitted from the same review step (or at once with "Skip the review" on), checked
+     * anew and followed by the card's own clip once ([playWordAfterRecordAgain]); ✕ / back brings the
+     * previous answer and take back.
      */
     fun sayAgain() = startSpokenAnswer(again = true)
 
@@ -1038,11 +1041,13 @@ class StudyViewModel(
             return if (sayAgain) updateExtras(v) { it.copy(notice = "Saying it again needs a connection.") } else updateSpoken(v) { it.copy(offlineHint = true) }
         }
         dropSpoken()
+        if (sp.reviewing) trackSpoken(v, "retaken", spokenPending, reviewed = true)
+        spokenPending = null
         val gen = spokenGeneration
         if (recorder.recording) recorder.stop()?.delete()
         if (sayAgain) {
             if (sp.phase == SpokenPhase.IDLE) takeBeforeSayAgain = take
-            else if (take != takeBeforeSayAgain) take?.delete() // the failed say-again's take
+            else if (take != takeBeforeSayAgain) take?.delete() // the failed / reviewed say-again's take
             take = takeBeforeSayAgain
         } else {
             take?.delete()
@@ -1123,7 +1128,7 @@ class StudyViewModel(
         if (sp.listening) {
             spokenSpeechMs = System.currentTimeMillis() - spokenStartedAt
             recorder.stop()?.delete()
-        } else if (sp.phase == SpokenPhase.FINISHING && !sp.again) {
+        } else if ((sp.phase == SpokenPhase.FINISHING || sp.reviewing) && !sp.again) {
             take?.delete()
             take = null
         }
@@ -1133,8 +1138,65 @@ class StudyViewModel(
             takeBeforeSayAgain = null
         }
         dropSpoken()
-        if (wasBusy) trackSpoken(v, "cancelled", null, 0, streamed = false)
+        if (wasBusy) trackSpoken(v, "cancelled", null)
+        else if (sp.reviewing) trackSpoken(v, "cancelled", spokenPending, reviewed = true)
+        spokenPending = null
         updateSpoken(v) { SpokenUi(result = it.result) }
+    }
+
+    /** 🔁 Retry on the review (or after a take that gave nothing): a new take replaces this one. */
+    fun retakeSpokenAnswer() {
+        val sp = _ui.value.extras.spoken
+        if (sp.phase !in setOf(SpokenPhase.REVIEW, SpokenPhase.FAILED, SpokenPhase.EDITING)) return
+        startSpokenAnswer(again = sp.again)
+    }
+
+    /** ✓ Submit on the review: the transcript is the answer, checked in spoken mode. */
+    fun submitSpokenAnswer() {
+        val v = currentView() ?: return
+        val sp = _ui.value.extras.spoken
+        if (!sp.reviewing) return
+        trackSpoken(v, "submitted", spokenPending, reviewed = true)
+        finishSpoken(v, SpokenResult(sp.finalText, submit = true, seq = 0, again = sp.again, transcript = sp.finalText, reviewed = true))
+    }
+
+    /**
+     * ✏️ Edit on the review: the transcript goes into the box, focused (a first answer: the card's own
+     * box, idle here; a "Say it again": [SpokenPhase.EDITING], the box on the question side, then
+     * [submitEditedSpokenAnswer]). Checked as typed once changed.
+     */
+    fun editSpokenAnswer() {
+        val v = currentView() ?: return
+        val sp = _ui.value.extras.spoken
+        if (!sp.reviewing) return
+        trackSpoken(v, "filled", spokenPending, reviewed = true, edited = true)
+        spokenPending = null
+        if (sp.again) {
+            updateSpoken(v) { it.copy(phase = SpokenPhase.EDITING) }
+            return
+        }
+        finishSpoken(v, SpokenResult(sp.finalText, submit = false, seq = 0, transcript = sp.finalText, reviewed = true))
+    }
+
+    /** Check on a "Say it again" being edited: [text] is the answer (spoken mode only while unchanged). */
+    fun submitEditedSpokenAnswer(text: String) {
+        val v = currentView() ?: return
+        val sp = _ui.value.extras.spoken
+        if (sp.phase != SpokenPhase.EDITING || text.isBlank()) return
+        finishSpoken(v, SpokenResult(text.trim(), submit = true, seq = 0, again = true, transcript = sp.finalText, reviewed = true))
+    }
+
+    /** The answer lands on the card ([SpokenResult]); a say-again's new take replaces the one before it. */
+    private fun finishSpoken(v: CardView, r: SpokenResult) {
+        spokenPending = null
+        if (r.again) {
+            // The new take replaces the one from before it (the review keeps the latest).
+            takeBeforeSayAgain?.takeIf { it != take }?.delete()
+            takeBeforeSayAgain = null
+        }
+        updateSpoken(v) { SpokenUi(result = r.copy(seq = ++spokenSeq)) }
+        // Then the card's own clip once, as the card turns back — like Record again.
+        if (r.again) playWordAfterRecordAgain(v)
     }
 
     /** "Couldn't transcribe — tap to retry": the same take, upload only. */
@@ -1163,17 +1225,16 @@ class StudyViewModel(
         val text = (outcome?.ui as? TranscriptionUi.Done)?.result?.transcribedHanzi?.trim().orEmpty()
         val again = _ui.value.extras.spoken.again
         if (!empty && text.isNotEmpty()) {
-            // Say it again: the card is already revealed — the new answer is always checked.
-            val submit = again || studyPrefs.spokenAutoSubmit
-            trackSpoken(v, if (submit) "submitted" else "filled", outcome, ms, streamed)
-            if (again) {
-                // The new take replaces the one from before it (the review keeps the latest).
-                takeBeforeSayAgain?.takeIf { it != take }?.delete()
-                takeBeforeSayAgain = null
+            spokenPending = Triple(outcome, ms, streamed)
+            if (studyPrefs.spokenSkipReview) {
+                // The review skipped (Settings): checked at once, like before the review step.
+                trackSpoken(v, "submitted", spokenPending)
+                finishSpoken(v, SpokenResult(text, submit = true, seq = 0, again = again, transcript = text, reviewed = false))
+                return
             }
-            updateSpoken(v) { SpokenUi(result = SpokenResult(text, submit, ++spokenSeq, again)) }
-            // Then the card's own clip once, as the card turns back — like Record again.
-            if (again) playWordAfterRecordAgain(v)
+            // The review: what was said, big and clear — nothing is checked until ✓ Submit.
+            app.haptics.tick()
+            updateSpoken(v) { SpokenUi(phase = SpokenPhase.REVIEW, finalText = text, result = it.result, again = again) }
             return
         }
         val failure = when {
@@ -1181,31 +1242,38 @@ class StudyViewModel(
             outcome?.ui == TranscriptionUi.Offline -> SpokenFailure.OFFLINE
             else -> SpokenFailure.FAILED
         }
-        trackSpoken(v, if (failure == SpokenFailure.EMPTY) "empty" else "failed", outcome, ms, streamed)
+        trackSpoken(v, if (failure == SpokenFailure.EMPTY) "empty" else "failed", Triple(outcome, ms, streamed), reviewed = !studyPrefs.spokenSkipReview)
         app.haptics.wrong()
         updateSpoken(v) { SpokenUi(phase = SpokenPhase.FAILED, failure = failure, result = it.result, again = it.again) }
     }
 
     /**
      * A spoken answer was checked on the back (`study.spoken_answer_checked`; enums only — never the
-     * transcript). [retry] = the answer of a "Say it again".
+     * transcript). [retry] = the answer of a "Say it again", [reviewed] = submitted from the review step.
      */
-    fun onSpokenAnswerChecked(verdict: AnswerKey.Verdict, retry: Boolean) {
+    fun onSpokenAnswerChecked(verdict: AnswerKey.Verdict, retry: Boolean, reviewed: Boolean) {
         val v = currentView() ?: return
-        app.analytics.track("study.spoken_answer_checked", mapOf("card_type" to v.card.cardType, "verdict" to AnswerKey.verdictName(verdict), "retry" to retry))
+        app.analytics.track("study.spoken_answer_checked", mapOf("card_type" to v.card.cardType, "verdict" to AnswerKey.verdictName(verdict), "retry" to retry, "reviewed" to reviewed))
     }
 
-    /** `study.answer_spoken`: enums, durations and a boolean only — never the transcript. */
-    private fun trackSpoken(v: CardView, result: String, outcome: TakeTranscription.Outcome?, ms: Long, streamed: Boolean) {
+    /**
+     * `study.answer_spoken`: enums, durations and booleans only — never the transcript. [take] = how
+     * the take was transcribed (outcome, stop → transcript ms, streamed live); a reviewed take is
+     * reported when the learner decides (Submit / Edit / Retry / cancel).
+     */
+    private fun trackSpoken(v: CardView, result: String, take: Triple<TakeTranscription.Outcome?, Long, Boolean>?, reviewed: Boolean = false, edited: Boolean = false) {
+        val outcome = take?.first
         app.analytics.track("study.answer_spoken", mapOf(
             "card_type" to v.card.cardType,
             "result" to result,
             "via" to (outcome?.via ?: "none"),
-            "live_error" to if (streamed) SonioxProtocol.errorKind(outcome?.liveError) else "none",
+            "live_error" to if (take?.third == true) SonioxProtocol.errorKind(outcome?.liveError) else "none",
             "speech_ms" to spokenSpeechMs.coerceAtLeast(0),
-            "ms" to ms.coerceAtLeast(0),
-            "auto_submit" to studyPrefs.spokenAutoSubmit,
+            "ms" to (take?.second ?: 0L).coerceAtLeast(0),
+            "auto_submit" to studyPrefs.spokenSkipReview,
             "retry" to _ui.value.extras.spoken.again,
+            "reviewed" to reviewed,
+            "edited" to edited,
         ))
     }
 

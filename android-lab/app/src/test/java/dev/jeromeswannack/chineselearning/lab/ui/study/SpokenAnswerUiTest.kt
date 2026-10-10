@@ -13,6 +13,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
@@ -30,9 +33,10 @@ import org.robolectric.Shadows.shadowOf
 
 /**
  * Say the answer on a typing card, the card's side (CardStage): 🎤 in the typing row, the live
- * transcript in place of the box (confirmed + grey tail), ✕ Cancel, a spoken answer auto-checked —
- * a homophone is "Sounded right ✓ — written 由" — or only filled in (auto-submit off), the retry line
- * when both transcription paths failed, the offline hint. Screenshots: study-s*.png.
+ * transcript in place of the box (confirmed + grey tail), ✕ Cancel, the REVIEW step (the transcript
+ * big with its pinyin, read-only; 🔁 Retry · ✏️ Edit · ✓ Submit), a spoken answer checked — a
+ * homophone is "Sounded right ✓ — written 由" — or put in the box by ✏️ Edit (focused), the retry line
+ * and 🔁 Retry / ✏️ Type when both transcription paths failed, the offline hint. Screenshots: study-s*.png.
  */
 class SpokenAnswerUiTest : LabScreenshotTest() {
     private val now = Js.parseDate("2026-09-27T09:30:00.000Z")
@@ -55,8 +59,11 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
 
     private val actions = StudyActions(
         onReveal = { reveals += it },
-        onSpokenChecked = { v, retry -> checked += v; if (retry) calls += "checked-again" },
+        onSpokenChecked = { v, retry, reviewed -> checked += v; if (retry) calls += "checked-again"; if (reviewed) calls += "checked-reviewed" },
         onStartSpoken = { calls += "start" },
+        onRetakeSpoken = { calls += "retake" },
+        onSubmitSpoken = { calls += "submit" },
+        onEditSpoken = { calls += "edit" },
         onStopSpoken = { calls += "stop" },
         onCancelSpoken = { calls += "cancel" },
         onRetrySpoken = { calls += "retry" },
@@ -85,16 +92,56 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.onNodeWithText("You said: 油").assertExists()
     }
 
-    @Test fun autoSubmitOffFillsTheBoxOnly() {
+    @Test fun theReviewShowsWhatWasSaidReadOnlyWithRetryEditSubmit() {
+        shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>()).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
         var state by mutableStateOf(ui(SpokenUi(phase = SpokenPhase.FINISHING, finalText = "油")))
         compose.setContent { LabTheme { StudyScreen(state, playingKey = null, actions = actions, autoplay = false) } }
-        state = ui(SpokenUi(result = SpokenResult("油", submit = false, seq = 1)))
-        compose.waitForIdle()
+        state = ui(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "油"))
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onNodeWithTag(VOICE_REVIEW_TAG).assertIsDisplayed()
+        compose.onNodeWithTag(SPOKEN_REVIEW_TEXT_TAG).assertIsDisplayed().assertTextEquals("油")
+        compose.onNodeWithTag(SPOKEN_REVIEW_PINYIN_TAG).assertIsDisplayed().assertTextEquals("yóu")
+        // Read-only: no box, so no keyboard; nothing checked yet.
+        assertEquals(0, compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size)
         assertEquals(emptyList<AnswerKey.Verdict?>(), reveals)
-        compose.onNodeWithText("油").assertExists()
-        compose.onNodeWithText("Check").performClick()
+        // One row: 🔁 Retry · ✏️ Edit small on the left, the wide ✓ Submit on the right, all 60dp.
+        val retry = compose.onNodeWithContentDescription(RETRY_LABEL).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val edit = compose.onNodeWithContentDescription(EDIT_LABEL).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val submit = compose.onNodeWithContentDescription(SUBMIT_LABEL).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("Retry left of Edit", retry.right <= edit.left)
+        assertTrue("Edit left of Submit", edit.right <= submit.left)
+        assertTrue("Submit is the widest", submit.width > edit.width && submit.width > retry.width)
+        assertEquals("one row", submit.top, retry.top, 0.5f)
+        assertEquals("same height", submit.height, edit.height, 0.5f)
+        assertEquals(0, compose.onAllNodes(hasTestTag(SPOKEN_TYPE_TAG)).fetchSemanticsNodes().size)
+        compose.onNodeWithTag(SPOKEN_REVIEW_RETRY_TAG).performClick()
+        compose.onNodeWithTag(SPOKEN_REVIEW_EDIT_TAG).performClick()
+        compose.onNodeWithTag(SPOKEN_REVIEW_SUBMIT_TAG).performClick()
+        assertEquals(listOf("retake", "edit", "submit"), calls)
+
+        // ✓ Submit lands: checked in spoken mode (a homophone, right by sound), reported as reviewed.
+        state = ui(SpokenUi(result = SpokenResult("油", submit = true, seq = 1, reviewed = true)))
+        compose.waitForIdle()
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(listOf(AnswerKey.Verdict.SOUND), reveals)
+        assertTrue(calls.contains("checked-reviewed"))
+        compose.onNodeWithText("Sounded right ✓ — written 由").assertExists()
+    }
+
+    @Test fun editPutsTheTranscriptInTheFocusedBoxAndAnEditedAnswerIsCheckedAsTyped() {
+        var state by mutableStateOf(ui(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "油")))
+        compose.setContent { LabTheme { StudyScreen(state, playingKey = null, actions = actions, autoplay = false) } }
+        state = ui(SpokenUi(result = SpokenResult("油", submit = false, seq = 1, reviewed = true)))
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(500)
+        assertEquals(emptyList<AnswerKey.Verdict?>(), reveals)
+        compose.onNode(hasSetTextAction()).assertIsFocused().assertTextContains("油")
+        // Changed in the box: a typed answer again (no "sounded right").
+        compose.onNode(hasSetTextAction()).performTextReplacement("由")
+        compose.onNodeWithText("Check").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals(listOf(AnswerKey.Verdict.EXACT), reveals)
+        assertEquals(emptyList<AnswerKey.Verdict>(), checked)
     }
 
     @Test fun bothFailingShowsTheRetryAndSubmitsNothing() {
@@ -102,7 +149,16 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SPOKEN_RETRY_TAG).performClick()
         assertEquals(listOf("retry"), calls)
         assertEquals(emptyList<AnswerKey.Verdict?>(), reveals)
-        // Voice first stays up: typing is one tap away, and the box opens empty.
+        // The row: ✏️ Type and the wide 🔁 Retry (a new take) — no Submit.
+        compose.onNodeWithTag(SPOKEN_FAILED_ROW_TAG).assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(hasTestTag(SPOKEN_REVIEW_SUBMIT_TAG)).fetchSemanticsNodes().size)
+        val type = compose.onNodeWithContentDescription(TYPE_ANSWER_LABEL).fetchSemanticsNode().boundsInRoot
+        val retry = compose.onNodeWithContentDescription(RETRY_LABEL).fetchSemanticsNode().boundsInRoot
+        assertTrue(type.right <= retry.left && retry.width > type.width)
+        shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>()).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        compose.onNodeWithContentDescription(RETRY_LABEL).performClick()
+        assertEquals(listOf("retry", "retake"), calls)
+        // Typing is one tap away, and the box opens empty.
         compose.onNodeWithTag(SPOKEN_TYPE_TAG).performClick()
         compose.onNodeWithText("Show").assertIsDisplayed()
     }
@@ -196,7 +252,36 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
     @Config(qualifiers = UNFOLDED)
     @Test fun shotFrontUnfolded() = shoot("study-s01e-voice-first-unfolded") { StudyScreen(ui(SpokenUi()), playingKey = null, actions = StudyActions(), autoplay = false) }
 
-    @Test fun shotSettings() = shoot("study-s08-settings-auto-submit") {
-        SpokenAnswerSection(on = true) {}
+    @Test fun shotSettings() = shoot("study-s08-settings-skip-review") {
+        SpokenAnswerSection(on = false) {}
+    }
+
+    @Test fun shotReview() = shoot("study-s10-review") {
+        StudyScreen(ui(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "油")), playingKey = null, actions = StudyActions(), autoplay = false)
+    }
+
+    @Test fun shotReviewDark() = shoot("study-s10b-review-dark", dark = true) {
+        StudyScreen(ui(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "油")), playingKey = null, actions = StudyActions(), autoplay = false)
+    }
+
+    @Test fun shotReviewListenSentence() = shoot("study-s10c-review-sentence") {
+        StudyScreen(ui(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "这件事由他负责"), type = CardTypes.AUDIO_TO_HANZI), playingKey = null, actions = StudyActions(), autoplay = false)
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun shotReviewUnfolded() = shoot("study-s10d-review-unfolded") {
+        StudyScreen(ui(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "油")), playingKey = null, actions = StudyActions(), autoplay = false)
+    }
+
+    @Test fun shotEdit() {
+        var state by mutableStateOf(ui(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "油")))
+        compose.setContent { LabTheme { StudyScreen(state, playingKey = null, actions = StudyActions(), autoplay = false) } }
+        state = ui(SpokenUi(result = SpokenResult("油", submit = false, seq = 1, reviewed = true)))
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.onRoot().captureRoboImage("screenshots/study-s11-review-edit.png")
+    }
+
+    @Test fun shotFailedEmptyDark() = shoot("study-s05b-nothing-heard-dark", dark = true) {
+        StudyScreen(ui(SpokenUi(phase = SpokenPhase.FAILED, failure = SpokenFailure.EMPTY)), playingKey = null, actions = StudyActions(), autoplay = false)
     }
 }
