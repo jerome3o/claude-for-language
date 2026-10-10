@@ -152,15 +152,20 @@ fun CardStage(
     var revealed by remember(view.presentation) { mutableStateOf(start.flipped || start.peeking) }
     var flipped by remember(view.presentation) { mutableStateOf(start.flipped && !start.peeking) }
     var answer by remember(view.presentation) { mutableStateOf(start.answer) }
+    // The box's own value (selection + the IME's composition, kept while he types). An answer put there
+    // from outside (✏️ Edit, a resume) gets the cursor at its end, so editing goes on from it.
+    var answerField by remember(view.presentation) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(start.answer, androidx.compose.ui.text.TextRange(start.answer.length))) }
     var mcSlots by remember(view.presentation) { mutableStateOf(start.mcSlots) }
     // Voice first (docs/STUDY_SESSION.md): a typing card's question opens on the big 🎤 — no box, no
-    // keyboard; ✏️ Type switches THIS card to the box (focused). A resumed answer, or a transcript only
-    // filled in (auto-submit off), shows the box. Offline (no live transcription) the box comes first.
+    // keyboard; ✏️ Type switches THIS card to the box (focused). A resumed answer, or a transcript sent
+    // to the box by ✏️ Edit on the review, shows the box. Offline (no live transcription) the box comes first.
     var typingMode by remember(view.presentation) { mutableStateOf(start.answer.isNotBlank()) }
     val voiceFirst = ui.aiAvailable && !typingMode
     // Say the answer (🎤): the answer as spoken. While the box still holds exactly it, the back
     // checks it in spoken mode — a homophone (油 for 由) is right by sound (core AnswerKey.checkSpoken).
     var spokenText by remember(view.presentation) { mutableStateOf<String?>(null) }
+    // The spoken answer went through the review step (study.spoken_answer_checked `reviewed`).
+    var spokenReviewed by remember(view.presentation) { mutableStateOf(false) }
     var consumedSpoken by remember(view.presentation) { mutableIntStateOf(0) }
     fun answerIsSpoken(a: String) = spokenText != null && a.trim() == spokenText
     fun checkAnswer(a: String): AnswerKey.Verdict =
@@ -212,7 +217,7 @@ fun CardStage(
         revealed = true
         flipped = true
         actions.onReveal(v)
-        if (v != null && answerIsSpoken(answer)) actions.onSpokenChecked(v, false)
+        if (v != null && answerIsSpoken(answer)) actions.onSpokenChecked(v, false, spokenReviewed)
         if (v != null && AnswerKey.isAccepted(v)) burst++
         if (v != null && !AnswerKey.isAccepted(v)) scope.launch { shake.shake() }
         scope.launch {
@@ -221,21 +226,23 @@ fun CardStage(
         }
     }
 
-    // A spoken answer arrived: into the box, and checked at once when auto-submit is on. From a
-    // "Say it again" (already revealed): the NEW answer is checked in spoken mode as the card turns
-    // back to it (the ViewModel plays the card's clip once after it).
+    // A spoken answer arrived — ✓ Submit on the review (or at once with "Skip the review" on): checked
+    // in spoken mode; ✏️ Edit: into the box, focused, keyboard up. From a "Say it again" (already
+    // revealed): the NEW answer is checked (as typed when edited) as the card turns back to it (the
+    // ViewModel plays the card's clip once after it).
     val spoken = ui.extras.spoken
     LaunchedEffect(spoken.result?.seq) {
         val r = spoken.result ?: return@LaunchedEffect
         if (r.seq <= consumedSpoken || (revealed && !r.again)) return@LaunchedEffect
         consumedSpoken = r.seq
         answer = r.text
-        spokenText = r.text
+        spokenText = r.transcript
+        spokenReviewed = r.reviewed
         if (r.again && revealed) {
-            val v = AnswerKey.checkSpoken(r.text, note.hanzi, view.alternatives, note.pinyin)
+            val v = checkAnswer(r.text)
             verdict = v
             actions.onReveal(v)
-            actions.onSpokenChecked(v, true)
+            if (answerIsSpoken(r.text)) actions.onSpokenChecked(v, true, r.reviewed)
             if (AnswerKey.isAccepted(v)) burst++ else scope.launch { shake.shake() }
         } else if (r.submit) reveal() else {
             typingMode = true
@@ -377,7 +384,11 @@ fun CardStage(
                     mc.fallbackNote?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), textAlign = TextAlign.Center)
                     }
-                    if (voiceFirst) {
+                    if (spoken.reviewing) {
+                        // The review step (voice first or from the box's small 🎤 alike): what was
+                        // said, big and clear, then 🔁 Retry · ✏️ Edit · ✓ Submit — no box, no keyboard.
+                        SpokenReviewControls(spoken, actions)
+                    } else if (voiceFirst) {
                         VoiceFirstControls(spoken, ui.aiAvailable, actions, onType = { typingMode = true }, onShow = { reveal() })
                     } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -385,8 +396,8 @@ fun CardStage(
                             SpokenLiveBox(spoken, Modifier.weight(1f))
                         } else {
                             OutlinedTextField(
-                                value = answer,
-                                onValueChange = { answer = it },
+                                value = if (answerField.text == answer) answerField else androidx.compose.ui.text.input.TextFieldValue(answer, androidx.compose.ui.text.TextRange(answer.length)),
+                                onValueChange = { answerField = it; answer = it.text },
                                 modifier = Modifier.weight(1f).focusRequester(focus),
                                 placeholder = { Text(if (view.card.cardType == CardTypes.AUDIO_TO_HANZI) "Type what you hear…" else "Type in Chinese…") },
                                 singleLine = true,
@@ -972,23 +983,72 @@ private fun SayAgainPill(online: Boolean, actions: StudyActions) {
 
 /**
  * Say it again, on the question side (the web's `.study-sayagain`): the live transcript in the answer
- * box's place, ⏹ (🎤 to try again after a take that gave nothing), "Couldn't transcribe — tap to
- * retry", and ✕ Cancel back to the answer as it was. The card's own tap stops the take too.
+ * box's place and ⏹, then the same review step as a first answer (🔁 Retry · ✏️ Edit · ✓ Submit; ✏️
+ * Edit = a box here, Check submits it), "Couldn't transcribe — tap to retry" with 🔁 Retry after a take
+ * that gave nothing, and ✕ Cancel back to the answer as it was. The card's own tap stops the take too.
  */
 @Composable
 private fun SayAgainPanel(spoken: SpokenUi, online: Boolean, actions: StudyActions) {
     Column(Modifier.fillMaxWidth().testTag(SAY_AGAIN_FRONT_TAG), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SpokenLiveBox(spoken, Modifier.weight(1f), placeholder = if (spoken.phase == SpokenPhase.FAILED) "Say it again" else "Listening… say the answer")
-            Spacer(Modifier.width(8.dp))
-            SpokenMicButton(spoken, online, actions, onStart = actions.onSayAgain)
+        when (spoken.phase) {
+            SpokenPhase.REVIEW -> {
+                SpokenReviewText(spoken.finalText, compact = true)
+                Spacer(Modifier.height(10.dp))
+                SpokenReviewRow(actions)
+            }
+            SpokenPhase.EDITING -> SayAgainEditor(spoken, actions)
+            SpokenPhase.FAILED -> {
+                SpokenStatus(spoken, online, actions, again = true)
+                Spacer(Modifier.height(10.dp))
+                SpokenFailedRow(actions, onType = null)
+            }
+            else -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SpokenLiveBox(spoken, Modifier.weight(1f), placeholder = "Listening… say the answer")
+                    Spacer(Modifier.width(8.dp))
+                    SpokenMicButton(spoken, online, actions, onStart = actions.onSayAgain)
+                }
+                if (spoken.listening) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Tap anywhere to stop", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+                }
+            }
         }
-        if (spoken.listening) {
-            Spacer(Modifier.height(8.dp))
-            Text("Tap anywhere to stop", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
-        }
-        SpokenStatus(spoken, online, actions, again = true)
         TextButton(onClick = actions.onCancelSpoken, modifier = Modifier.heightIn(min = 44.dp)) { Text("✕ Cancel", color = Lab.colors.muted) }
+    }
+}
+
+/** ✏️ Edit on a "Say it again" review: the transcript in a box, focused (keyboard up); Check submits it. */
+@Composable
+private fun SayAgainEditor(spoken: SpokenUi, actions: StudyActions) {
+    var draft by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(spoken.finalText, androidx.compose.ui.text.TextRange(spoken.finalText.length))) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(50); runCatching { focus.requestFocus() } }
+    Text("You said: ${spoken.finalText}", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+    Spacer(Modifier.height(6.dp))
+    OutlinedTextField(
+        value = draft,
+        onValueChange = { draft = it },
+        modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag(SPOKEN_EDIT_TAG),
+        singleLine = true,
+        textStyle = MaterialTheme.typography.titleLarge,
+        shape = RoundedCornerShape(18.dp),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { actions.onSubmitEditedSpoken(draft.text) }),
+        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+    )
+    Spacer(Modifier.height(10.dp))
+    val retake = rememberRecordPermission { actions.onRetakeSpoken() }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SecondaryPill(
+            "🔁 Retry",
+            Modifier.height(60.dp).testTag(SPOKEN_REVIEW_RETRY_TAG).semantics { contentDescription = RETRY_LABEL },
+            horizontalPadding = 12.dp, fontSize = 14.sp,
+            onClick = retake,
+        )
+        PrimaryPill("Check", Modifier.weight(1f).height(60.dp).testTag(SPOKEN_EDIT_CHECK_TAG), enabled = draft.text.isNotBlank()) {
+            actions.onSubmitEditedSpoken(draft.text)
+        }
     }
 }
 
@@ -1006,10 +1066,20 @@ private fun rememberRecordPermission(onGranted: () -> Unit): () -> Unit {
 /** Test tags of the spoken answer (say the answer on a typing card). */
 const val SPOKEN_TYPE_TAG = "spoken-type"
 const val VOICE_FIRST_TAG = "study-voice-first"
+const val VOICE_REVIEW_TAG = "study-voice-review"
 const val SPOKEN_MIC_TAG = "spoken-mic"
 const val SPOKEN_LIVE_TAG = "spoken-live"
 const val SPOKEN_RETRY_TAG = "spoken-retry"
 const val SPOKEN_SOUND_TAG = "spoken-answer-sound"
+const val SPOKEN_REVIEW_TAG = "spoken-review"
+const val SPOKEN_REVIEW_TEXT_TAG = "spoken-review-text"
+const val SPOKEN_REVIEW_PINYIN_TAG = "spoken-review-pinyin"
+const val SPOKEN_REVIEW_RETRY_TAG = "spoken-review-retry"
+const val SPOKEN_REVIEW_EDIT_TAG = "spoken-review-edit"
+const val SPOKEN_REVIEW_SUBMIT_TAG = "spoken-review-submit"
+const val SPOKEN_FAILED_ROW_TAG = "spoken-failed-row"
+const val SPOKEN_EDIT_TAG = "spoken-edit-input"
+const val SPOKEN_EDIT_CHECK_TAG = "spoken-edit-check"
 
 /**
  * 🎤 in the typing row (the web's `.study-mic-btn`): tap to say the answer, ⏹ to stop and use it.
@@ -1049,6 +1119,10 @@ private fun SpokenMicButton(spoken: SpokenUi, online: Boolean, actions: StudyAct
 const val SAY_IT_LABEL = "Say it"
 const val TYPE_ANSWER_LABEL = "Type the answer"
 const val SHOW_ANSWER_LABEL = "Show answer"
+/** Accessibility labels of the review row (the web's aria-labels). */
+const val RETRY_LABEL = "Retry"
+const val EDIT_LABEL = "Edit what I said"
+const val SUBMIT_LABEL = "Submit"
 
 /**
  * Voice first (the web's `.study-voice-first`): ONE row of the app's pills where the read card's
@@ -1066,7 +1140,10 @@ private fun VoiceFirstControls(spoken: SpokenUi, online: Boolean, actions: Study
             SpokenLiveBox(spoken, Modifier.fillMaxWidth())
             Spacer(Modifier.height(10.dp))
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (spoken.phase == SpokenPhase.FAILED) {
+            // A take that gave nothing: no Submit — ✏️ Type and the wide 🔁 Retry (a new take).
+            SpokenFailedRow(actions, onType = onType)
+        } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (spoken.busy) {
                 SecondaryPill("✕ Cancel", Modifier.height(60.dp), horizontalPadding = 12.dp, fontSize = 14.sp, onClick = actions.onCancelSpoken)
             } else {
@@ -1101,6 +1178,100 @@ private fun VoiceFirstControls(spoken: SpokenUi, online: Boolean, actions: Study
             }
         }
         SpokenStatus(spoken, online, actions, cancelInRow = true)
+    }
+}
+
+/**
+ * The review step (the web's `.study-spoken-review` + its row): what was said, big and clear — the
+ * transcript in the card's hanzi style with the phone's own pinyin under it (`devicePinyinLine`: the
+ * pinyin-pro port + the 一 / 不 tone changes), read-only, no keyboard — then 🔁 Retry · ✏️ Edit · ✓ Submit.
+ */
+@Composable
+private fun SpokenReviewControls(spoken: SpokenUi, actions: StudyActions) {
+    Column(Modifier.fillMaxWidth().testTag(VOICE_REVIEW_TAG), horizontalAlignment = Alignment.CenterHorizontally) {
+        SpokenReviewText(spoken.finalText)
+        Spacer(Modifier.height(10.dp))
+        SpokenReviewRow(actions)
+    }
+}
+
+/** The transcript on review: big hanzi (the card's sizes, capped) and the device's pinyin under it. */
+@Composable
+private fun SpokenReviewText(text: String, compact: Boolean = false) {
+    val pinyin = remember(text) { devicePinyinLine(text) }
+    val max = if (compact) 44f else 60f
+    val size = studyHanziSize(text).let { if (it.value > max) max.sp else it }
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(text) { appear.snapTo(0f); appear.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 500f)) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 8f * density }
+            .clip(RoundedCornerShape(18.dp))
+            .background(Lab.colors.card)
+            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .testTag(SPOKEN_REVIEW_TAG),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text,
+            fontSize = size,
+            fontWeight = FontWeight.Medium,
+            color = Lab.colors.ink,
+            textAlign = TextAlign.Center,
+            lineHeight = size * 1.2f,
+            modifier = Modifier.testTag(SPOKEN_REVIEW_TEXT_TAG),
+        )
+        if (pinyin.isNotEmpty()) {
+            Text(pinyin, style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.testTag(SPOKEN_REVIEW_PINYIN_TAG))
+        }
+    }
+}
+
+/** The review's row, in the voice-first row's pills: 🔁 Retry · ✏️ Edit small on the left, the wide ✓ Submit. */
+@Composable
+private fun SpokenReviewRow(actions: StudyActions) {
+    val retake = rememberRecordPermission { actions.onRetakeSpoken() }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SecondaryPill(
+            "🔁 Retry",
+            Modifier.height(60.dp).testTag(SPOKEN_REVIEW_RETRY_TAG).semantics { contentDescription = RETRY_LABEL },
+            horizontalPadding = 12.dp, fontSize = 14.sp,
+            onClick = retake,
+        )
+        SecondaryPill(
+            "✏️ Edit",
+            Modifier.height(60.dp).testTag(SPOKEN_REVIEW_EDIT_TAG).semantics { contentDescription = EDIT_LABEL },
+            horizontalPadding = 12.dp, fontSize = 14.sp,
+            onClick = actions.onEditSpoken,
+        )
+        PrimaryPill(
+            "✓  Submit",
+            Modifier.weight(1f).height(60.dp).testTag(SPOKEN_REVIEW_SUBMIT_TAG).semantics { contentDescription = SUBMIT_LABEL },
+            onClick = actions.onSubmitSpoken,
+        )
+    }
+}
+
+/** After a take that gave nothing: ✏️ Type (when there is a box to fall back on) and the wide 🔁 Retry. */
+@Composable
+private fun SpokenFailedRow(actions: StudyActions, onType: (() -> Unit)?) {
+    val retake = rememberRecordPermission { actions.onRetakeSpoken() }
+    Row(Modifier.fillMaxWidth().testTag(SPOKEN_FAILED_ROW_TAG), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (onType != null) {
+            SecondaryPill(
+                "✏️ Type",
+                Modifier.height(60.dp).testTag(SPOKEN_TYPE_TAG).semantics { contentDescription = TYPE_ANSWER_LABEL },
+                horizontalPadding = 12.dp, fontSize = 14.sp,
+                onClick = onType,
+            )
+        }
+        PrimaryPill(
+            "🔁  Retry",
+            Modifier.weight(1f).height(60.dp).testTag(SPOKEN_REVIEW_RETRY_TAG).semantics { contentDescription = RETRY_LABEL },
+            onClick = retake,
+        )
     }
 }
 
@@ -1151,8 +1322,8 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
         spoken.phase == SpokenPhase.FAILED && spoken.failure == SpokenFailure.EMPTY ->
             hint(
                 when {
-                    again -> "Didn’t catch anything — tap 🎤 to try again."
-                    cancelInRow -> "Didn’t catch anything — tap Say it to try again, or type it."
+                    again -> "Didn’t catch anything — tap Retry to try again."
+                    cancelInRow -> "Didn’t catch anything — tap Retry to try again, or type it."
                     else -> "Didn’t catch anything — tap 🎤 to try again, or type it."
                 },
             )

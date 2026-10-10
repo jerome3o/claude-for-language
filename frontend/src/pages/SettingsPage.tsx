@@ -10,7 +10,7 @@ import { NewCardOrderSection } from '../components/settings/NewCardOrderSection'
 import { AskClaudeLanguageSection } from '../components/settings/AskClaudeLanguageSection';
 import { PodcastFeedSection } from '../components/settings/PodcastFeedSection';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
-import { readSpokenAutoSubmit, writeSpokenAutoSubmit } from '../services/spokenAnswerPrefs';
+import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
 import { BudgetStepper } from '../components/BudgetStepper';
@@ -658,11 +658,12 @@ function UsageDataSection() {
 }
 
 /**
- * Settings → Study → "Submit spoken answers automatically" (on by default): the 🎤 on a typing
- * card checks what was said at once; off = it fills the box and Enter / Check submits it.
+ * Settings → Study → "Skip the review — submit spoken answers as soon as I stop" (off by default):
+ * off, the 🎤 on a typing card shows what was said first (🔁 Retry · ✏️ Edit · ✓ Submit); on, it is
+ * checked as soon as he stops.
  */
 function SpokenAnswerSection() {
-  const [on, setOn] = useState(readSpokenAutoSubmit);
+  const [on, setOn] = useState(readSpokenSkipReview);
   return (
     <div className="settings-section" data-testid="spoken-answers">
       <h2>Study</h2>
@@ -673,17 +674,17 @@ function SpokenAnswerSection() {
           onChange={(e) => {
             const next = e.target.checked;
             setOn(next);
-            writeSpokenAutoSubmit(next);
+            writeSpokenSkipReview(next);
             track('settings.change', { setting: 'spoken_auto_submit', value: next ? 'on' : 'off' });
           }}
           data-testid="spoken-auto-submit-toggle"
         />
-        <span>Submit spoken answers automatically</span>
+        <span>Skip the review — submit spoken answers as soon as I stop</span>
       </label>
       <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
         {on
           ? 'On the typing cards, 🎤 checks what you said as soon as you stop.'
-          : 'On the typing cards, 🎤 fills in what you said — press Enter or Check to submit it.'}
+          : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
     </div>
   );

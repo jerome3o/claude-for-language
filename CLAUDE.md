@@ -1065,18 +1065,24 @@ are `snx_temp_…`. The worker has no Soniox WebSocket of its own (calls and the
 broken live path shows in `event_counts` without reading logs.
 **Say the answer** on the typing cards (meaning → hanzi, audio → hanzi; docs/STUDY_SESSION.md "Say the answer"): a 🎤
 beside the answer box runs the SAME take (recorder + live stream, upload fallback, "tap to retry") with the transcript shown
-in the box as it is spoken (`LiveTranscriber` / `SonioxStream` `onUpdate`); ⏹ makes the final text the answer, submitted at
-once when Settings → Study → "Submit spoken answers automatically" is on (default, per device). The take rides with the
+in the box as it is spoken (`LiveTranscriber` / `SonioxStream` `onUpdate`); ⏹ puts the final text on the **review step**
+(the transcript big in the card's hanzi style + device pinyin `devicePinyinLine`, read-only; 🔁 Retry = a new take replacing
+it · ✏️ Edit = into the box, focused, checked as typed once changed · ✓ Submit = checked with the spoken rule; a take that
+gave nothing → "Couldn't transcribe — tap to retry" + ✏️ Type / 🔁 Retry, no Submit). Settings → Study → "Skip the review —
+submit spoken answers as soon as I stop" (OFF by default, per device: web `spokenAnswerPrefs.ts`, Lab
+`StudyPrefs.spokenSkipReview`; the old auto-submit key, only ever written when flipped, so untouched devices get the
+review) checks it at once instead. The take rides with the
 review (`recording_url`, offline queue) and the review's answer is the transcript — no schema change. Homophones count by
 sound: `checkSpokenAnswer` in `shared/cards/answer.ts` (also `checkTypedAnswer`, the typed AnswerDiff decision; Lab
 `AnswerKey.checkSpoken`, parity-tested) accepts other hanzi whose toned pinyin (automatic pinyin + 一 / 不, or the note's
 pinyin) is the answer's — "Sounded right ✓ — written 由"; other tones = `close` (wrong). Web `hooks/useSpokenAnswer.ts` +
 `services/spokenAnswer.ts` (pure controller, unit-tested); Lab `StudyViewModel` "say the answer". Analytics
-`study.answer_spoken`, `study.spoken_answer_checked` (both with `retry`). The question is **voice first**: one bottom row like the read card's — ✏️ Type · 👁 Show answer · a wide 🎤 Say it —,
+`study.answer_spoken` (+ `reviewed`, `edited`; result `retaken` = Retry on the review), `study.spoken_answer_checked`
+(+ `reviewed`; both with `retry`). The question is **voice first**: one bottom row like the read card's — ✏️ Type · 👁 Show answer · a wide 🎤 Say it —,
 no box / keyboard until ✏️ Type (this card only; offline the box comes first). On the answer side **🎤 Say it again** (only
-for a spoken answer) is Record again for the spoken answer: the question with the live transcript, the new transcript
-checked anew (always), the take replacing the previous one, the card's clip once; ✕ / back keeps the previous answer + take
-(`start({ again: true })` / Lab `sayAgain`).
+for a spoken answer) is Record again for the spoken answer: the question with the live transcript, then the same review
+step there (✏️ Edit = a box on the question side), the submitted answer checked anew, the take replacing the previous one,
+the card's clip once; ✕ / back keeps the previous answer + take (`start({ again: true })` / Lab `sayAgain`).
 - `POST /api/transcribe/live` - `{ provider: 'soniox', api_key, expires_at, websocket_url, model, language_hints }` or `{ provider: 'upload' }`; 502 when Soniox refuses (client falls back)
 - `POST /api/transcribe` - multipart `file` (+ `live_error`, `client`) → `{ text, language, provider }`; 502 `{ error, providers }` when every provider failed (`routes/transcription.ts`)
 - `GET /api/admin/transcription` - admin: which providers are configured (booleans only, never a key)

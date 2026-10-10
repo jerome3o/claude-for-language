@@ -6,8 +6,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { transcribeAudio } from '../api/client';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, resetLiveSessionCache } from '../services/liveTranscription';
-import { IDLE_SPOKEN, SpokenAnswerController, type SpokenAnswerState } from '../services/spokenAnswer';
-import { readSpokenAutoSubmit } from '../services/spokenAnswerPrefs';
+import { IDLE_SPOKEN, SpokenAnswerController, type SpokenAnswer, type SpokenAnswerState } from '../services/spokenAnswer';
+import { readSpokenSkipReview } from '../services/spokenAnswerPrefs';
 import { liveFailureInvalidatesKey } from '@shared/transcription/soniox';
 import { track } from '../services/analytics';
 
@@ -28,7 +28,7 @@ export function useSpokenAnswer(opts: {
   online: boolean;
   /** The recorder's current take (`audioBlob`): what a "Say it again" keeps until its new take lands. */
   currentTake: Blob | null;
-  onResult: (text: string, submit: boolean, again: boolean) => void;
+  onResult: (answer: SpokenAnswer) => void;
 }) {
   const [state, setState] = useState<SpokenAnswerState>(IDLE_SPOKEN);
   const latest = useRef(opts);
@@ -47,9 +47,9 @@ export function useSpokenAnswer(opts: {
       : new LiveTranscriber(getLiveSession(), { onUpdate: (t) => onUpdate(t.finalText, t.partialText) })),
     upload: (take, liveError) => transcribeAudio(take, { liveError }),
     isOnline: () => latest.current.online && navigator.onLine,
-    autoSubmit: readSpokenAutoSubmit,
+    skipReview: readSpokenSkipReview,
     onState: setState,
-    onResult: (text, submit, again) => latest.current.onResult(text, submit, again),
+    onResult: (answer) => latest.current.onResult(answer),
     onLiveError: (reason) => {
       console.warn('[spoken answer] live transcription gave nothing, uploaded instead:', reason);
       if (liveFailureInvalidatesKey(reason)) resetLiveSessionCache();
@@ -64,8 +64,10 @@ export function useSpokenAnswer(opts: {
     ...state,
     listening: state.phase === 'listening',
     busy: state.phase === 'listening' || state.phase === 'finishing',
-    /** Under way: listening, finishing, or a failed / empty take still on screen. */
+    /** Under way: listening, finishing, the review, or a failed / empty take still on screen. */
     active: state.phase !== 'idle',
+    /** The review step: what was said is on screen, waiting for Retry / Edit / Submit. */
+    reviewing: state.phase === 'review',
     start: () => void controller.start(),
     /** "🎤 Say it again" on the answer side: the take so far is kept until the new one lands. */
     startAgain: () => {
@@ -75,6 +77,14 @@ export function useSpokenAnswer(opts: {
     /** The take a rating keeps: during a "Say it again", the one from before it. */
     keptTake: (): Blob | null => (controller.current.again ? previousTake.current : latest.current.currentTake),
     stop: () => controller.stop(),
+    /** 🔁 Retry: a new take replaces the one on review (a "Say it again" stays one). */
+    retake: () => void controller.retake(),
+    /** ✓ Submit the transcript on review. */
+    submit: () => controller.submit(),
+    /** ✏️ Edit the transcript on review (into the box). */
+    edit: () => controller.edit(),
+    /** Check a "Say it again" edited in the question side's box. */
+    submitEdit: (text: string) => controller.submitEdit(text),
     cancel: () => controller.cancel(),
     retry: () => void controller.retry(),
   };

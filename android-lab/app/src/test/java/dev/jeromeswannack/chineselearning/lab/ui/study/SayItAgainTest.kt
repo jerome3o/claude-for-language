@@ -100,7 +100,8 @@ class SayItAgainTest {
         app = ApplicationProvider.getApplicationContext()
         app.prefs.sessionToken = null
         app.prefs.budget = StudyBudget(5, 0)
-        StudyPrefs.get(app).spokenAutoSubmit = true
+        // The checked-at-once path ("Skip the review" on); the review step has its own tests below.
+        StudyPrefs.get(app).spokenSkipReview = true
         StudyDayStore.forTest(app, ZoneId.systemDefault())
         @Suppress("UNCHECKED_CAST")
         (LabApp::class.java.getDeclaredField("_online").apply { isAccessible = true }.get(app) as MutableStateFlow<Boolean>).value = true
@@ -197,18 +198,88 @@ class SayItAgainTest {
     }
 
     @Test
-    fun autoSubmitOffStillChecksASayItAgain() {
-        StudyPrefs.get(app).spokenAutoSubmit = false
+    fun aSayItAgainGoesThroughTheSameReviewRetryReplacesItsTakeAndSubmitChecksIt() {
+        StudyPrefs.get(app).spokenSkipReview = false
         session()
         vm.startSpokenAnswer()
         vm.stopSpokenAnswer()
-        waitFor("the first answer") { spoken.result?.seq == 1 }
-        assertFalse(spoken.result!!.submit)
-        vm.onRevealed(AnswerKey.Verdict.SOUND) // he pressed Check
+        waitFor("the first review") { spoken.phase == SpokenPhase.REVIEW }
+        vm.submitSpokenAnswer()
+        assertEquals(1, spoken.result?.seq)
+        vm.onRevealed(AnswerKey.Verdict.SOUND)
+        vm.playWord(false)
+        idleFor(1_500)
+        plays.clear()
+        val first = rec.takes.single()
+
         vm.sayAgain()
         vm.stopSpokenAnswer()
-        waitFor("the new answer") { spoken.result?.seq == 2 }
-        assertTrue(spoken.result!!.submit && spoken.result!!.again)
+        waitFor("the say-again review") { spoken.phase == SpokenPhase.REVIEW }
+        assertTrue(spoken.again, "still on the question side")
+        assertEquals("由", spoken.finalText)
+        assertEquals(1, spoken.result?.seq, "nothing new answered yet")
+        assertTrue(first.exists(), "the take before it is kept until the new answer is submitted")
+        idleFor(1_000)
+        assertEquals(emptyList(), plays, "nothing plays on the review")
+
+        // 🔁 Retry: a new take (still a say-again) replaces the reviewed one.
+        val reviewed = rec.takes.last()
+        vm.retakeSpokenAnswer()
+        assertEquals(SpokenPhase.LISTENING, spoken.phase)
+        assertTrue(spoken.again)
+        assertFalse(reviewed.exists(), "the reviewed take is thrown away")
+        assertTrue(first.exists())
+        vm.stopSpokenAnswer()
+        waitFor("the second say-again review") { spoken.phase == SpokenPhase.REVIEW }
+        assertEquals("有", spoken.finalText)
+
+        vm.submitSpokenAnswer()
+        val r = spoken.result!!
+        assertEquals(2, r.seq)
+        assertEquals("有", r.text)
+        assertTrue(r.again && r.submit && r.reviewed)
+        assertFalse(spoken.again, "back to the answer")
+        assertFalse(first.exists(), "the new take replaces the one before it")
+        idleFor(RECORD_AGAIN_PLAY_DELAY_MS + 50)
+        assertEquals(listOf(clip), plays, "the card's clip once after it")
+    }
+
+    @Test
+    fun editOnASayItAgainReviewIsCheckedAsTypedAndCancelWhileEditingKeepsTheFirstAnswer() {
+        StudyPrefs.get(app).spokenSkipReview = false
+        session()
+        vm.startSpokenAnswer()
+        vm.stopSpokenAnswer()
+        waitFor("the first review") { spoken.phase == SpokenPhase.REVIEW }
+        vm.submitSpokenAnswer()
+        vm.onRevealed(AnswerKey.Verdict.SOUND)
+        val first = rec.takes.single()
+
+        vm.sayAgain()
+        vm.stopSpokenAnswer()
+        waitFor("the say-again review") { spoken.phase == SpokenPhase.REVIEW }
+        vm.editSpokenAnswer()
+        assertEquals(SpokenPhase.EDITING, spoken.phase)
+        assertTrue(spoken.again)
+        assertEquals("由", spoken.finalText)
+        // Cancel while editing: back to the answer with the first answer and take.
+        vm.cancelSpokenAnswer()
+        assertEquals(SpokenPhase.IDLE, spoken.phase)
+        assertEquals(1, spoken.result?.seq)
+        assertTrue(first.exists())
+
+        vm.sayAgain()
+        vm.stopSpokenAnswer()
+        waitFor("another say-again review") { spoken.phase == SpokenPhase.REVIEW }
+        vm.editSpokenAnswer()
+        vm.submitEditedSpokenAnswer("   ")
+        assertEquals(1, spoken.result?.seq, "nothing to check")
+        vm.submitEditedSpokenAnswer(" 由 ")
+        val r = spoken.result!!
+        assertEquals("由", r.text)
+        assertEquals("有", r.transcript, "as heard — the answer was edited, so it is checked as typed")
+        assertTrue(r.again && r.submit && r.reviewed)
+        assertFalse(first.exists())
     }
 
     @Test

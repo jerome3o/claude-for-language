@@ -155,21 +155,37 @@ data class CardExtras(
     val spoken: SpokenUi = SpokenUi(),
 )
 
-enum class SpokenPhase { IDLE, LISTENING, FINISHING, FAILED }
+/**
+ * [REVIEW]: the transcript is on screen ([SpokenUi.finalText]) waiting for 🔁 Retry / ✏️ Edit /
+ * ✓ Submit (the web's `phase: 'review'`). [EDITING]: a "Say it again" whose transcript is being edited
+ * in the question side's box (a first answer's Edit just fills the card's own box and goes idle).
+ */
+enum class SpokenPhase { IDLE, LISTENING, FINISHING, FAILED, REVIEW, EDITING }
 
 /** Why a spoken take gave no answer: both paths failed / offline (retry the take), or nothing was heard. */
 enum class SpokenFailure { FAILED, OFFLINE, EMPTY }
 
 /**
- * The answer said: the card puts it in the box (and checks it when [submit]); [seq] bumps per answer.
- * [again]: from a "🎤 Say it again" on the answer side — the card is revealed; it is checked anew.
+ * The answer said (the web's `SpokenAnswer`): the card puts [text] in the box (and checks it when
+ * [submit]); [seq] bumps per answer. [transcript] = as heard — while the answer is still exactly it,
+ * the back checks it in spoken mode (an edited answer is checked as typed). [again]: from a
+ * "🎤 Say it again" on the answer side — the card is revealed; it is checked anew. [reviewed]: it went
+ * through the review step (not skipped by the setting).
  */
-data class SpokenResult(val text: String, val submit: Boolean, val seq: Int, val again: Boolean = false)
+data class SpokenResult(
+    val text: String,
+    val submit: Boolean,
+    val seq: Int,
+    val again: Boolean = false,
+    val transcript: String = text,
+    val reviewed: Boolean = false,
+)
 
 /**
  * "Say the answer" on a typing card (the web's useSpokenAnswer / services/spokenAnswer.ts): the
  * live transcript while listening (confirmed [finalText] black, provisional [partialText] grey),
- * then the [result] — or a [failure] ("Couldn't transcribe — tap to retry"; nothing submitted).
+ * then the review ([SpokenPhase.REVIEW], [finalText] = the transcript) and the [result] — or a
+ * [failure] ("Couldn't transcribe — tap to retry"; nothing submitted).
  */
 data class SpokenUi(
     val phase: SpokenPhase = SpokenPhase.IDLE,
@@ -184,6 +200,8 @@ data class SpokenUi(
 ) {
     val listening: Boolean get() = phase == SpokenPhase.LISTENING
     val busy: Boolean get() = phase == SpokenPhase.LISTENING || phase == SpokenPhase.FINISHING
+    /** The review step: what was said is on screen, waiting for Retry / Edit / Submit. */
+    val reviewing: Boolean get() = phase == SpokenPhase.REVIEW
 }
 
 /** The web's recorder + useTranscription state for the current card. */

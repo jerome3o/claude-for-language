@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
  * The study card's own per-device settings (the web keeps these in localStorage):
  * the forced-offline override (services/offlineMode.ts `manualOfflineMode`) and whether the
  * first-card explainer has been dismissed (`firstCardExplainerSeen`), and whether a spoken answer
- * is submitted at once (`spokenAutoSubmit`).
+ * skips the review step (`spokenSkipReview`).
  */
 class StudyPrefs private constructor(context: Context) {
     private val sp = context.getSharedPreferences("lab_study", Context.MODE_PRIVATE)
@@ -27,12 +27,16 @@ class StudyPrefs private constructor(context: Context) {
         set(v) = sp.edit().putBoolean(EXPLAINER_SEEN, v).apply()
 
     /**
-     * Settings → "Submit spoken answers automatically" (on by default; the web's
-     * services/spokenAnswerPrefs.ts): the 🎤 on a typing card checks what was said at once;
-     * off = it fills the box and Check submits it.
+     * Settings → "Skip the review — submit spoken answers as soon as I stop" (OFF by default; the
+     * web's services/spokenAnswerPrefs.ts): on, the 🎤 on a typing card checks what was said at once;
+     * off, the transcript waits on the review step (🔁 Retry · ✏️ Edit · ✓ Submit).
+     *
+     * Stored under the old "Submit spoken answers automatically" key (same meaning: true = checked at
+     * once). It was only ever written when someone flipped the switch, so a phone that never touched
+     * it has no value and gets the new default (the review); a choice made on purpose is kept.
      */
-    var spokenAutoSubmit: Boolean
-        get() = sp.getBoolean(SPOKEN_AUTO_SUBMIT, true)
+    var spokenSkipReview: Boolean
+        get() = sp.getBoolean(SPOKEN_AUTO_SUBMIT, false)
         set(v) = sp.edit().putBoolean(SPOKEN_AUTO_SUBMIT, v).apply()
 
     companion object {

@@ -11,6 +11,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
@@ -28,8 +30,9 @@ import org.robolectric.Shadows.shadowOf
 /**
  * "🎤 Say it again", the card's side (CardStage): the pill beside Play once the answer was spoken;
  * while a say-again is under way the card shows the question with the live transcript (the old
- * verdict out of sight), ⏹ / a tap stops, ✕ cancels; its answer is checked anew as the card turns
- * back. Screenshots: study-say*.png.
+ * verdict out of sight), ⏹ / a tap stops, ✕ cancels, then the same review step there (✏️ Edit = a
+ * box on the question side); its answer is checked anew as the card turns back (as typed when edited).
+ * Screenshots: study-say*.png.
  */
 class SayItAgainUiTest : LabScreenshotTest() {
     private val now = Js.parseDate("2026-09-27T09:30:00.000Z")
@@ -53,7 +56,11 @@ class SayItAgainUiTest : LabScreenshotTest() {
 
     private val actions = StudyActions(
         onReveal = { reveals += it },
-        onSpokenChecked = { v, retry -> checked += v to retry },
+        onSpokenChecked = { v, retry, _ -> checked += v to retry },
+        onRetakeSpoken = { calls += "retake" },
+        onSubmitSpoken = { calls += "submit" },
+        onEditSpoken = { calls += "edit" },
+        onSubmitEditedSpoken = { calls += "check:$it" },
         onSayAgain = { calls += "sayAgain" },
         onStopSpoken = { calls += "stop" },
         onCancelSpoken = { calls += "cancel" },
@@ -94,6 +101,37 @@ class SayItAgainUiTest : LabScreenshotTest() {
         assertEquals(0, compose.onAllNodesWithTagCount(SAY_AGAIN_FRONT_TAG))
         assertEquals(0, compose.onAllNodesWithTagCount(SPOKEN_SOUND_TAG))
         compose.onNodeWithTag(SAY_AGAIN_TAG).assertIsDisplayed()
+    }
+
+    @Test fun itsReviewIsOnTheQuestionSideAndAnEditedAnswerIsCheckedAsTyped() {
+        shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>()).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        var state by mutableStateOf(ui(answered))
+        compose.setContent { LabTheme { StudyScreen(state, playingKey = null, actions = actions, autoplay = false) } }
+        compose.mainClock.advanceTimeBy(1_000)
+        state = ui(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "有", result = first, again = true))
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onNodeWithTag(SAY_AGAIN_FRONT_TAG, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag(SPOKEN_REVIEW_TEXT_TAG, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Sounded right ✓ — written 由").assertDoesNotExist()
+        compose.onNodeWithTag(SPOKEN_REVIEW_RETRY_TAG).performClick()
+        compose.onNodeWithTag(SPOKEN_REVIEW_SUBMIT_TAG).performClick()
+        compose.onNodeWithTag(SPOKEN_REVIEW_EDIT_TAG).performClick()
+        assertEquals(listOf("retake", "submit", "edit"), calls)
+
+        // ✏️ Edit: a box on the question side with the transcript, Check submits what is in it.
+        state = ui(SpokenUi(phase = SpokenPhase.EDITING, finalText = "有", result = first, again = true))
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithTag(SPOKEN_EDIT_TAG).assertIsFocused().performTextReplacement("由")
+        compose.onNodeWithTag(SPOKEN_EDIT_CHECK_TAG).performClick()
+        assertEquals("check:由", calls.last())
+
+        // The edited answer lands: checked as typed (exact), not reported as a spoken check.
+        state = ui(SpokenUi(result = SpokenResult("由", submit = true, seq = 2, again = true, transcript = "有", reviewed = true)))
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals(listOf(AnswerKey.Verdict.SOUND, AnswerKey.Verdict.EXACT), reveals)
+        assertEquals(listOf(AnswerKey.Verdict.SOUND to false), checked)
+        assertEquals(0, compose.onAllNodesWithTagCount(SAY_AGAIN_TAG)) // a typed answer: no Say it again
     }
 
     @Test fun aCancelledSayItAgainShowsThePreviousResult() {
@@ -147,6 +185,18 @@ class SayItAgainUiTest : LabScreenshotTest() {
 
     @Test fun shotNewVerdictDark() = shoot("study-say05-new-verdict-dark", dark = true, settleMs = 4_000) {
         Sequence(SpokenUi(result = SpokenResult("由", submit = true, seq = 2, again = true)))
+    }
+
+    @Test fun shotReview() = shoot("study-say07-review", settleMs = 3_000) {
+        Sequence(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "由", result = first, again = true))
+    }
+
+    @Test fun shotReviewDark() = shoot("study-say07b-review-dark", dark = true, settleMs = 3_000) {
+        Sequence(SpokenUi(phase = SpokenPhase.REVIEW, finalText = "由", result = first, again = true))
+    }
+
+    @Test fun shotEditing() = shoot("study-say08-editing", settleMs = 3_000) {
+        Sequence(SpokenUi(phase = SpokenPhase.EDITING, finalText = "有", result = first, again = true))
     }
 
     @Test fun shotFailed() = shoot("study-say06-failed", settleMs = 3_000) {
