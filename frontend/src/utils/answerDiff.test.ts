@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { typedAnswerDiff } from './answerDiff';
+import { spokenAnswerDiff, typedAnswerDiff } from './answerDiff';
 
 const marks = (s: string, t: string) => typedAnswerDiff(s, t).typed.map(c => `${c.char || '?'}:${c.mark}`);
 
@@ -28,5 +28,24 @@ describe('typedAnswerDiff', () => {
 
   it('marks everything missing for an empty answer', () => {
     expect(marks('', '好')).toEqual(['?:missing']);
+  });
+});
+
+describe('spokenAnswerDiff', () => {
+  const spoken = (s: string, t: string) => spokenAnswerDiff(s, t).typed.map(c => `${c.char}:${c.mark}`);
+
+  it('lines a spoken answer up with the expected one — no offset makes everything red', () => {
+    // Positionally every character of 他长的很高 would be red against 长得; lined up, 长 is right.
+    expect(spoken('他长的很高', '长得')).toEqual(['他:wrong', '长:correct', '的:wrong', '很:wrong', '高:wrong']);
+    expect(spokenAnswerDiff('他长的很高', '长得').expected).toEqual([
+      { char: '长', matched: true },
+      { char: '得', matched: false },
+    ]);
+  });
+
+  it('no missing cells; nothing in common is all wrong', () => {
+    expect(spoken('猫', '狗')).toEqual(['猫:wrong']);
+    expect(spokenAnswerDiff('', '好').typed).toEqual([]);
+    expect(spokenAnswerDiff('', '好').expected).toEqual([{ char: '好', matched: false }]);
   });
 });

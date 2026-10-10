@@ -30,6 +30,14 @@ class TranscriptionTest {
         assertFalse(Transcription.compare("你好", "打算").containsExpected)
     }
 
+    /** The typing cards' spoken rule (AnswerKey.answerWithin) also finds the answer — as the web's compareTranscription. */
+    @Test fun containsUsesTheSpokenRule() {
+        assertTrue(Transcription.compare("他长得很好。", "长得").containsExpected)
+        assertTrue(Transcription.compare("我想去銀行", "银行").containsExpected)
+        assertTrue(Transcription.compare("我想去银航取钱", "银行").containsExpected)
+        assertFalse(Transcription.compare("他很高", "长得").containsExpected)
+    }
+
     @Test fun normalizePinyin() {
         assertEquals("dǎsuàn", Transcription.normalizePinyin("Dǎ suàn."))
     }

@@ -7,7 +7,9 @@
  * alternatives, the note's own pinyin, English heard) plus thousands of seeded ones built from
  * a pool of common characters grouped by their pinyin: an expected word, then a transcript with
  * one character swapped for a homophone, a same-syllable / other-tone character or any other,
- * punctuation added, digits for numbers… Writes spoken-answer.json into process.argv[2];
+ * punctuation added, digits for numbers, the word (or a homophone / other-tone version) said
+ * inside a sentence, the note's pinyin with one neutral syllable — with `spokenAnswerWithin`
+ * (typing card + read card) and `spokenSyllables`. Writes spoken-answer.json into process.argv[2];
  * SpokenAnswerParityTest asserts the Kotlin port gives exactly the same answers.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -17,7 +19,9 @@ import {
   checkSpokenAnswer,
   checkTypedAnswer,
   normalizeSpokenPinyin,
+  spokenAnswerWithin,
   spokenPinyinKey,
+  spokenSyllables,
   spokenVerdictNote,
   tonelessPinyin,
 } from '../../../shared/cards/answer';
@@ -67,6 +71,27 @@ TABLE.push(
   { transcript: '律', correct: '绿', alternatives: [], note_pinyin: 'lǜ' }, // decomposed ǜ
   { transcript: '油', correct: '由', alternatives: ['游'], note_pinyin: 'yóu' },
   { transcript: '有', correct: '由', alternatives: [], note_pinyin: 'you2' },
+  // Said inside a sentence (`contains`, the read card's rule): hanzi, a homophone window, a
+  // neutral syllable of the answer (长得 zhǎng de vs the automatic dé), one-character answers,
+  // the word not said, an all-neutral answer (no allowance), pinyin without tone marks.
+  { transcript: '他长得很好。', correct: '长得', alternatives: [], note_pinyin: 'zhǎngde' },
+  { transcript: '他长得很好。', correct: '长得', alternatives: [], note_pinyin: '' },
+  { transcript: '涨得', correct: '长得', alternatives: [], note_pinyin: 'zhǎng de' },
+  { transcript: '他涨得很好', correct: '长得', alternatives: [], note_pinyin: 'zhǎng de' },
+  { transcript: '涨得', correct: '长得', alternatives: [], note_pinyin: 'zhang de' },
+  { transcript: '他很高', correct: '长得', alternatives: [], note_pinyin: 'zhǎngde' },
+  { transcript: '我想去银航取钱', correct: '银行', alternatives: [], note_pinyin: '' },
+  { transcript: '我想去銀行', correct: '银行', alternatives: [], note_pinyin: '' },
+  { transcript: '老师您好！', correct: '你好', alternatives: ['您好'], note_pinyin: '' },
+  { transcript: '我有7个苹果', correct: '七个', alternatives: [], note_pinyin: '' },
+  { transcript: '我今天很好', correct: '好', alternatives: [], note_pinyin: '' },
+  { transcript: '我想去游泳', correct: '由', alternatives: [], note_pinyin: '' },
+  { transcript: '妈', correct: '吗', alternatives: [], note_pinyin: '' },
+  { transcript: '你是谁吗', correct: '吗', alternatives: [], note_pinyin: '' },
+  { transcript: 'ok油', correct: '由', alternatives: [], note_pinyin: '' },
+  { transcript: '我觉的很好', correct: '觉得', alternatives: [], note_pinyin: 'juéde' },
+  { transcript: '我决的很好', correct: '觉得', alternatives: [], note_pinyin: '' },
+  { transcript: '看一看吧', correct: '看一看', alternatives: [], note_pinyin: 'kàn yi kàn' },
 );
 
 // A pool of common characters, grouped by toned and toneless pinyin.
@@ -96,16 +121,29 @@ function swap(word: string[], i: number, how: 'homophone' | 'tone' | 'any'): str
   return out;
 }
 
+function neutralOne(hanzi: string): string {
+  const syl = pinyin(hanzi, { toneType: 'symbol', type: 'array' });
+  const i = int(0, syl.length - 1);
+  syl[i] = tonelessPinyin(normalizeSpokenPinyin(syl[i]));
+  return syl.join(rand() < 0.5 ? ' ' : '');
+}
+
 const PUNCT = ['。', '！', '？', '，', ' ', '.', '?', '“', '”'];
 const cases: Case[] = [...TABLE];
-for (let n = 0; n < 4000; n++) {
+const around = () => Array.from({ length: int(0, 4) }, () => pick(POOL)).join('');
+for (let n = 0; n < 5000; n++) {
   const word = Array.from({ length: int(1, 5) }, () => pick(POOL));
   const correct = word.join('');
-  const kind = pick(['same', 'homophone', 'homophone', 'tone', 'tone', 'any', 'two', 'punct', 'number', 'latin'] as const);
+  const kind = pick(['same', 'homophone', 'homophone', 'tone', 'tone', 'any', 'two', 'punct', 'number', 'latin',
+    'sentence', 'sentence', 'sentence_homophone', 'sentence_tone'] as const);
   let heard = word;
   if (kind === 'homophone' || kind === 'tone' || kind === 'any') heard = swap(word, int(0, word.length - 1), kind);
   if (kind === 'two') heard = swap(swap(word, 0, 'homophone'), word.length - 1, pick(['homophone', 'tone'] as const));
+  if (kind === 'sentence_homophone') heard = swap(word, int(0, word.length - 1), 'homophone');
+  if (kind === 'sentence_tone') heard = swap(word, int(0, word.length - 1), 'tone');
   let transcript = heard.join('');
+  // The word (or a homophone / other-tone version of it) said inside a sentence.
+  if (kind.startsWith('sentence')) transcript = around() + transcript + around() + (rand() < 0.5 ? pick(PUNCT) : '');
   if (kind === 'punct') transcript = (rand() < 0.3 ? pick(PUNCT) : '') + transcript + pick(PUNCT);
   if (kind === 'number') transcript = transcript + String(int(0, 120));
   if (kind === 'latin') transcript = pick(['ok', 'Hello ', 'you', 'ma', 'nǐ ']) + transcript;
@@ -114,7 +152,9 @@ for (let n = 0; n < 4000; n++) {
   const note_pinyin = r < 0.4
     ? pinyin(correct, { toneType: 'symbol', type: 'string' })
     : r < 0.55 ? pinyin(heard.join(''), { toneType: 'symbol', type: 'string' }).toUpperCase()
-      : r < 0.65 ? pinyin(correct, { toneType: 'num', type: 'string' }) : '';
+      : r < 0.65 ? pinyin(correct, { toneType: 'num', type: 'string' })
+        // The card's pinyin with one syllable neutral (觉得 juéde): the neutral allowance.
+        : r < 0.75 ? neutralOne(correct) : '';
   cases.push({ transcript, correct, alternatives, note_pinyin });
 }
 
@@ -126,8 +166,11 @@ const out = cases.map((c) => ({
   correct_key: spokenPinyinKey(c.correct),
   note_key: normalizeSpokenPinyin(c.note_pinyin),
   toneless: tonelessPinyin(spokenPinyinKey(c.correct)),
+  within: spokenAnswerWithin(c.transcript, c.correct, c.alternatives, c.note_pinyin),
+  within_read: spokenAnswerWithin(c.transcript, c.correct),
+  syllables: spokenSyllables(c.transcript),
 }));
-const verdicts = ['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'close', 'wrong'] as const;
+const verdicts = ['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'close', 'wrong'] as const;
 const notes = verdicts.map((v) => ({ verdict: v, correct: '由', note: spokenVerdictNote(v, ' 由 ') }));
 const counts = Object.fromEntries(verdicts.map((v) => [v, out.filter((c) => c.spoken === v).length]));
 writeFileSync(join(OUT, 'spoken-answer.json'), JSON.stringify({ cases: out, notes, counts }));

@@ -632,7 +632,7 @@ private fun CardBack(
                 // A multiple-choice answer (possibly partial): row by row
                 KeepTaps { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar) }
             } else if (typed != null && verdict != null) {
-                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar) }
+                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, spoken = canSayAgain) }
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
             }
@@ -770,9 +770,30 @@ private fun TappableHanzi(text: String, size: TextUnit, color: Color, onChar: (S
  * The web's AnswerDiff: accepted answers in green with their pinyin; otherwise a
  * character-by-character diff with the pinyin of what was typed — wrong characters red and
  * underlined, missing ones a "?" with a dashed underline ([AnswerMarks]). Characters are tappable.
+ * A [spoken] answer also gets the read card's "You said" box ([YouSaidBox]) under it — the answer
+ * said inside a sentence is orange "Answer found in your sentence" with the answer in green above,
+ * never a red diff; a wrong spoken answer's diff is aligned (AnswerMarks.spokenDiff), not positional.
  */
 @Composable
-private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit) {
+private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean = false) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        AnswerDiffBody(typed, correct, verdict, onChar, spoken)
+        if (spoken) {
+            Spacer(Modifier.height(6.dp))
+            YouSaidBox(spokenComparison(typed, correct, verdict))
+        }
+    }
+}
+
+/** What the "You said" box shows for a spoken answer: the read card's comparison, its match flags from the spoken verdict. */
+internal fun spokenComparison(transcript: String, correct: String, verdict: AnswerKey.Verdict): TranscriptionComparison {
+    val said = Transcription.compare(transcript, correct)
+    val contains = verdict == AnswerKey.Verdict.CONTAINS
+    return said.copy(isMatch = AnswerKey.isAccepted(verdict) && !contains, containsExpected = contains)
+}
+
+@Composable
+private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean) {
     val size = hanziSize(correct) * 0.7f
     val pinyinStyle = MaterialTheme.typography.bodyMedium
     when (verdict) {
@@ -794,14 +815,21 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
             TappableHanzi(correct, size, Palette.Good, onChar)
             Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text(AnswerKey.spokenVerdictNote(verdict, correct).orEmpty(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.Good, textAlign = TextAlign.Center)
-            Text("You said: $typed", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, textAlign = TextAlign.Center)
+            // "You said" is the YouSaidBox under it (AnswerDiff).
+        }
+        AnswerKey.Verdict.CONTAINS -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.testTag(SPOKEN_CONTAINS_TAG)) {
+            // Said inside a sentence (他长得很好。 for 长得): the answer in green; the read card's orange
+            // "You said … ✅ Answer found in your sentence" box follows — nothing marked red.
+            TappableHanzi(correct, size, Palette.Good, onChar)
+            // No automatic pinyin here (it may read 长得 otherwise): the card's own pinyin follows.
         }
         AnswerKey.Verdict.CLOSE, AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             AnswerKey.spokenVerdictNote(verdict, correct)?.let {
                 Text(it, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.Hard, textAlign = TextAlign.Center)
             }
             // Wrong characters red + underlined, missing ones a "?" with a dashed underline (AnswerMarks).
-            val diff = AnswerMarks.typedDiff(typed, correct)
+            // A spoken answer is lined up with the answer (common characters kept), not position by position.
+            val diff = if (spoken) AnswerMarks.spokenDiff(typed, correct) else AnswerMarks.typedDiff(typed, correct)
             MarkedAnswerRow(diff.typed, size * 0.8f, onChar)
             Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("↓", color = Lab.colors.muted)
@@ -1080,6 +1108,7 @@ const val SPOKEN_REVIEW_SUBMIT_TAG = "spoken-review-submit"
 const val SPOKEN_FAILED_ROW_TAG = "spoken-failed-row"
 const val SPOKEN_EDIT_TAG = "spoken-edit-input"
 const val SPOKEN_EDIT_CHECK_TAG = "spoken-edit-check"
+const val SPOKEN_CONTAINS_TAG = "spoken-answer-contains"
 
 /**
  * 🎤 in the typing row (the web's `.study-mic-btn`): tap to say the answer, ⏹ to stop and use it.
@@ -1373,18 +1402,42 @@ private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}) {
         TranscriptionUi.Working -> "Transcribing…" to Palette.Easy
         TranscriptionUi.Offline -> "Recording saved, will transcribe when online" to Lab.colors.muted
         is TranscriptionUi.Done -> {
-            val r = t.result
-            val mark = if (r.isMatch || r.containsExpected) "✅" else "❌"
-            val color = if (r.isMatch) Palette.Good else if (r.containsExpected) Palette.Hard else Palette.Again
-            "You said: ${r.transcribedPinyin} (${r.transcribedHanzi}) $mark" + (if (r.containsExpected && !r.isMatch) "\nAnswer found in your sentence" else "") to color
+            Spacer(Modifier.height(6.dp))
+            YouSaidBox(t.result)
+            return
         }
     }
     Spacer(Modifier.height(6.dp))
+    TintedBox(text, tint)
+}
+
+@Composable
+private fun TintedBox(text: String, tint: Color, modifier: Modifier = Modifier) {
     Text(
         text,
         style = MaterialTheme.typography.bodyMedium,
         color = Lab.colors.ink,
         textAlign = TextAlign.Center,
-        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(tint.copy(alpha = 0.12f)).border(1.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
+        modifier = modifier.clip(RoundedCornerShape(10.dp)).background(tint.copy(alpha = 0.12f)).border(1.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
+    )
+}
+
+/** Test tag prefix of the "You said" box: `you-said-match` / `you-said-contains` / `you-said-miss`. */
+const val YOU_SAID_TAG = "you-said"
+
+/**
+ * "You said: pīnyīn (汉字) ✅" — ONE box for what was said, on the read card's back and under a
+ * spoken answer on a typing card (the web's `YouSaid`): green = it matched, orange + "Answer found
+ * in your sentence" = the answer was said inside a longer sentence, red ❌ = not.
+ */
+@Composable
+fun YouSaidBox(r: TranscriptionComparison) {
+    val mark = if (r.isMatch || r.containsExpected) "✅" else "❌"
+    val color = if (r.isMatch) Palette.Good else if (r.containsExpected) Palette.Hard else Palette.Again
+    val state = if (r.isMatch) "match" else if (r.containsExpected) "contains" else "miss"
+    TintedBox(
+        "You said: ${r.transcribedPinyin} (${r.transcribedHanzi}) $mark" + (if (r.containsExpected && !r.isMatch) "\nAnswer found in your sentence" else ""),
+        color,
+        Modifier.testTag("$YOU_SAID_TAG-$state"),
     )
 }

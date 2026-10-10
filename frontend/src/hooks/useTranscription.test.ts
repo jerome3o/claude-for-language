@@ -105,6 +105,14 @@ describe('compareTranscription containsExpected', () => {
     expect(result.containsExpected).toBe(false);
   });
 
+  it('uses the typing cards’ spoken rule too (spokenAnswerWithin): the hanzi inside, a homophone window', () => {
+    // pinyin-pro reads 长得 alone cháng dé but 他长得很好 … cháng dé …: the hanzi decide.
+    expect(compare('他长得很好。', '长得').containsExpected).toBe(true);
+    expect(compare('我想去銀行', '银行').containsExpected).toBe(true);
+    expect(compare('我想去银航取钱', '银行').containsExpected).toBe(true);
+    expect(compare('他很高', '长得').containsExpected).toBe(false);
+  });
+
   it('is false for an empty transcription', () => {
     const result = compare('', '咖啡');
     expect(result.isMatch).toBe(false);

@@ -28,7 +28,7 @@ class SpokenAnswerParityTest {
     @Test
     fun verdictsMatchTypeScript() {
         val cases = fixture["cases"]!!.jsonArray.map { it.jsonObject }
-        assertTrue(cases.size >= 4000)
+        assertTrue(cases.size >= 5000)
         for (c in cases) {
             val transcript = c["transcript"]!!.jsonPrimitive.content
             val correct = c["correct"]!!.jsonPrimitive.content
@@ -41,11 +41,18 @@ class SpokenAnswerParityTest {
             assertEquals(c["correct_key"]!!.jsonPrimitive.content, AnswerKey.spokenPinyinKey(correct), "correct key $what")
             assertEquals(c["note_key"]!!.jsonPrimitive.content, AnswerKey.normalizeSpokenPinyin(notePinyin), "note key $what")
             assertEquals(c["toneless"]!!.jsonPrimitive.content, AnswerKey.tonelessPinyin(AnswerKey.spokenPinyinKey(correct)), "toneless $what")
+            assertEquals(within(c["within"]), AnswerKey.answerWithin(transcript, correct, alternatives, notePinyin)?.name?.lowercase(), "within $what")
+            assertEquals(within(c["within_read"]), AnswerKey.answerWithin(transcript, correct)?.name?.lowercase(), "within (read card) $what")
+            val syllables = c["syllables"]!!.jsonArray.map { if (it is JsonNull) null else it.jsonPrimitive.content }
+            assertEquals(syllables, AnswerKey.spokenSyllables(transcript), "syllables $what")
         }
+        assertTrue(cases.count { it["within"] !is JsonNull && it["spoken"]!!.jsonPrimitive.content == "contains" } > 100, "few contains cases")
         // Every verdict is exercised.
         val counts = fixture["counts"]!!.jsonObject
         for (v in AnswerKey.Verdict.entries) assertTrue(counts[AnswerKey.verdictName(v)]!!.jsonPrimitive.int > 0, "no ${v.name} case")
     }
+
+    private fun within(el: kotlinx.serialization.json.JsonElement?): String? = if (el == null || el is JsonNull) null else el.jsonPrimitive.content
 
     @Test
     fun notesMatchTypeScript() {
@@ -60,6 +67,9 @@ class SpokenAnswerParityTest {
     @Test
     fun acceptedVerdicts() {
         assertTrue(AnswerKey.isAccepted(AnswerKey.Verdict.SOUND))
+        assertTrue(AnswerKey.isAccepted(AnswerKey.Verdict.CONTAINS))
+        // Jerome's card: 他长得很好。 for 长得 counts — the word said inside a sentence.
+        assertEquals(AnswerKey.Verdict.CONTAINS, AnswerKey.checkSpoken("他长得很好。", "长得", emptyList(), "zhǎngde"))
         assertTrue(!AnswerKey.isAccepted(AnswerKey.Verdict.CLOSE))
         assertTrue(!AnswerKey.isAccepted(AnswerKey.Verdict.WRONG))
     }

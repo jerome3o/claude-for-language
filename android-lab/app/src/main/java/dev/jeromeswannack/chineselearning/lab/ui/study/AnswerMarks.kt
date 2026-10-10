@@ -66,6 +66,38 @@ object AnswerMarks {
         return TypedDiff(typed, expected)
     }
 
+    /**
+     * Port of `spokenAnswerDiff()`: a spoken answer lined up with the expected one by their
+     * longest common subsequence (by code point), so a word said with extra words around it is
+     * not all red because of an offset: characters in common are CORRECT on both rows, the rest
+     * of what was said WRONG, the rest of the answer unmatched. No MISSING cells.
+     */
+    fun spokenDiff(userAnswer: String, correctAnswer: String): TypedDiff {
+        val user = codePoints(userAnswer)
+        val target = codePoints(correctAnswer)
+        val n = user.size
+        val m = target.size
+        val lcs = Array(n + 1) { IntArray(m + 1) }
+        for (i in n - 1 downTo 0) for (j in m - 1 downTo 0) {
+            lcs[i][j] = if (user[i] == target[j]) lcs[i + 1][j + 1] + 1 else maxOf(lcs[i + 1][j], lcs[i][j + 1])
+        }
+        val userHit = BooleanArray(n)
+        val targetHit = BooleanArray(m)
+        var i = 0
+        var j = 0
+        while (i < n && j < m) {
+            when {
+                user[i] == target[j] -> { userHit[i] = true; targetHit[j] = true; i++; j++ }
+                lcs[i + 1][j] >= lcs[i][j + 1] -> i++
+                else -> j++
+            }
+        }
+        return TypedDiff(
+            user.mapIndexed { k, c -> Cell(c, if (userHit[k]) Mark.CORRECT else Mark.WRONG) },
+            target.mapIndexed { k, c -> Expected(c, targetHit[k]) },
+        )
+    }
+
     /** A multiple-choice row's pick as a cell (the web's `McAnswerDiff`). */
     fun forSlot(slot: MultipleChoice.Slot): Cell {
         val chosen = slot.chosen ?: return Cell("", Mark.MISSING)

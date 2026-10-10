@@ -781,6 +781,31 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   said: 油". The same syllables with other tones is **close** — still wrong (the diff, plus "Close —
   the tones are off"). Exact hanzi = right, as typed. Edited after speaking = a typed answer again.
   The expected answer is never sent to Soniox (no context) — it would bias recognition.
+- **Said inside a sentence** (`contains`, the read card's rule — Jerome said 他长得很好。 for
+  长得 and got every character red): a spoken answer that CONTAINS the answer is right, exactly like
+  the read card's "You said … ✅ Answer found in your sentence". `spokenAnswerWithin`
+  (`shared/cards/answer.ts`, Lab `AnswerKey.answerWithin`, parity-tested) finds it either by hanzi —
+  the answer's (or an alternative's) answer key as one contiguous stretch of the transcript's
+  (numbers → hanzi, 两 → 二, punctuation / spaces dropped, common traditional characters →
+  simplified) — or by sound: a contiguous window of the transcript's syllables (per character, the
+  app's automatic pinyin + 一 / 不) equal to the answer's, the alternatives' or the note's written
+  pinyin. A **one-character answer counts too** (好 in 我今天很好, 由 inside 由我负责 — and, by sound,
+  游 in 我想去游泳), as on the read card. **Neutral tones**: a neutral syllable of the answer (得 de
+  in 长得 zhǎng de — pinyin-pro reads 他长得很好 as … dé …) matches that syllable in any tone, in the
+  window and in the whole-answer `sound` check; an all-neutral answer (吗 ma) gets no allowance (妈
+  is not 吗), nor does pinyin written without any tone mark. The read card's `compareTranscription`
+  (web) / `Transcription.compare` (Lab) uses `spokenAnswerWithin` too, so both card types follow one
+  rule (it also feeds the worker's recording check). Typed (keyboard) answers keep exact matching.
+- **One "You said" box for both card types** (web `components/study/YouSaid.tsx` `YouSaid` +
+  `spokenYouSaid`; Lab `YouSaidBox` in `CardStage.kt`): the read card's box is now shared, and a
+  spoken answer on a typing card shows it under the answer — green "You said: yóu (油) ✅" when
+  right, the read card's orange "You said: tā cháng dé hěn hǎo (他长得很好。) ✅ · Answer found in
+  your sentence" for `contains` (the answer above in green, nothing red), red ❌ when wrong. A wrong
+  spoken answer's character diff is lined up with the answer by longest common subsequence
+  (`spokenAnswerDiff` / `AnswerMarks.spokenDiff`), so extra words around it don't push every
+  character red; typed answers keep the positional diff. Tests: unit `answer.test.ts`,
+  `answerDiff.test.ts`, `useTranscription.test.ts`; e2e `study-speak-answer.spec.ts` "inside a
+  sentence"; Lab `SpokenAnswerUiTest`, `AnswerMarksTest`, `TranscriptionTest`, `SpokenAnswerParityTest`.
 - **🎤 Say it again** (answer side, beside Play — Record again's place on a read card; only when the
   answer on the back was spoken): Record again for a spoken answer. The card turns back to the
   question with the mic live and the live transcript in the box's place ("Tap anywhere to stop", ⏹,
