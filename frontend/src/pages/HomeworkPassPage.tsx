@@ -1,33 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { dueLabel, localDate, nextPassItem, passItemIds, passProgress, hasFsrs } from '@shared/homework';
+import { dueLabel, localDate, nextPassItem, passCardId, passItemIds, passProgress, hasFsrs, PASS_CARD_TYPE } from '@shared/homework';
 import { DEFAULT_DECK_SETTINGS, deckInDailyReview, isLongTerm, longTermSummary, prefForToggle, toLongTermPref } from '@shared/decks';
-import { CardQueue } from '../types';
+import { CardQueue, type CardWithNote, type IntervalPreview, type QueueCounts, type Rating } from '../types';
 import { setNoteLongTerm } from '../services/longTerm';
 import { LongTermSwitch, longTermLine } from '../components/homework/LongTermSwitch';
-import { db, type LocalNote } from '../db/database';
+import { db, type LocalCard, type LocalNote } from '../db/database';
 import { recordPassEvent, syncHomework, titleParts } from '../services/homework';
 import { track } from '../services/analytics';
 import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
 import { recordReaderFinish } from '../services/reader-study';
 import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { StudyReader } from '../components/StudyReader';
-import { SentenceSet } from '../components/SentenceSet';
 import { Confetti } from '../components/Confetti';
 import { DueChip } from '../components/homework/HomeworkRow';
 import { LinkPass } from '../components/homework/LinkPass';
-import { ExplorableText } from '../components/explorer/ExplorableText';
-import { useNoteAudio } from '../hooks/useAudio';
-import { API_BASE, updateDeckSettings } from '../api/client';
+import { BumpButton } from '../components/bumps/BumpButton';
+import { getMyRelationships, updateDeckSettings } from '../api/client';
+import { getIntervalPreviewLocal } from '../hooks/useStudySession';
+import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
+import { deckSettingsFromDb, DEFAULT_DECK_SETTINGS as DEFAULT_SCHEDULER_SETTINGS } from '../services/anki-scheduler';
+import { StudyCard, type PassAnswerInfo } from './StudyPage';
 import { useNetwork } from '../contexts/NetworkContext';
 import './StudyPage.css';
 import '../components/homework/homework.css';
 
 /**
  * One homework item, done as a ONE-OFF pass (docs/HOMEWORK.md) — no spaced
- * repetition. A word list: each word once, "Not yet" words come back at the
- * end until they are right. A lesson / reader: the regular player, once.
+ * repetition. A word list: each word once on the study card, "Not yet" words
+ * come back at the end until they are right. A lesson / reader: the regular player, once.
  * Everything is local (IndexedDB); events upload in the background.
  */
 export function HomeworkPassPage() {
@@ -101,7 +104,7 @@ function HomeworkPass() {
   }
   if (a.kind === 'reader') return <ReaderPass targetId={a.target_id} complete={progress.complete} onExit={exit} />;
   const { base, part } = titleParts(a);
-  return <DeckPass assignmentId={a.id} title={base} part={part} dueDate={a.due_date} deckId={a.target_id} oneOffOnly={!hasFsrs(a.mode)} itemIds={passItemIds(a)} progress={progress} onExit={exit} />;
+  return <DeckPass assignmentId={a.id} title={base} part={part} dueDate={a.due_date} deckId={a.target_id} oneOffOnly={!hasFsrs(a.mode)} itemIds={passItemIds(a)} events={data.events} progress={progress} onExit={exit} />;
 }
 
 function PassTopbar({ title, onClose, right }: { title: string; onClose: () => void; right?: React.ReactNode }) {
@@ -118,6 +121,15 @@ function PassTopbar({ title, onClose, right }: { title: string; onClose: () => v
 
 // ============ Word list ============
 
+/**
+ * The word list on the STUDY CARD (shared/homework/pass-card.ts): each word as its read card
+ * (hanzi → meaning) — 🎤 Record with the live "You said", Record again, Show answer, the back with
+ * its explorer chips, word tags, sentences, Ask Claude / Edit / ⋯ — exactly like Study. The pass
+ * keeps its own semantics: Not yet / Got it where the ratings are (what the card saw may suggest
+ * one), a homework event per answer, NOTHING in review_events, and the take stays on this device
+ * (it is never uploaded or attached to anything). On the answer side: "Add to my long-term review"
+ * and ⚡ Study it today.
+ */
 function DeckPass({
   assignmentId,
   title,
@@ -126,6 +138,7 @@ function DeckPass({
   deckId,
   oneOffOnly,
   itemIds,
+  events,
   progress,
   onExit,
 }: {
@@ -136,50 +149,75 @@ function DeckPass({
   deckId: string;
   oneOffOnly: boolean;
   itemIds: string[];
+  events: ReadonlyArray<{ item_id: string }>;
   progress: ReturnType<typeof passProgress>;
   onExit: () => void;
 }) {
+  const { isOnline } = useNetwork();
+  useNativeOutputHold();
+  const idsKey = itemIds.join(',');
   const notes = useLiveQuery(async () => {
     const rows = await db.notes.bulkGet(itemIds);
     return new Map(rows.filter((n): n is LocalNote => !!n).map((n) => [n.id, n]));
-  }, [itemIds.join(',')]);
+  }, [idsKey]);
+  // The card each word is shown as (its hanzi → meaning card) + the deck, for the card's own tools.
+  const cardsByNote = useLiveQuery(async () => {
+    const cards = await db.cards.where('note_id').anyOf(itemIds).toArray();
+    const byNote = new Map<string, LocalCard[]>();
+    for (const c of cards) byNote.set(c.note_id, [...(byNote.get(c.note_id) ?? []), c]);
+    return byNote;
+  }, [idsKey]);
+  const deck = useLiveQuery(() => db.decks.get(deckId), [deckId]);
   // "Add to my long-term review": the deck's own default (a one-off copy is 0 + 0) and
   // the words already started (their switch is fixed — they are in the reviews).
   const longTerm = useLiveQuery(async () => {
-    const [deck, cards] = await Promise.all([db.decks.get(deckId), db.cards.where('note_id').anyOf(itemIds).toArray()]);
+    const [d, cards] = await Promise.all([db.decks.get(deckId), db.cards.where('note_id').anyOf(itemIds).toArray()]);
     const reviewed = new Set(cards.filter((c) => c.queue !== CardQueue.NEW).map((c) => c.note_id));
-    const inReview = deck ? deckInDailyReview(deck.new_cards_per_day, deck.secondary_cards_per_day ?? DEFAULT_DECK_SETTINGS.secondary_cards_per_day) : !oneOffOnly;
+    const inReview = d ? deckInDailyReview(d.new_cards_per_day, d.secondary_cards_per_day ?? DEFAULT_DECK_SETTINGS.secondary_cards_per_day) : !oneOffOnly;
     return { inReview, reviewed };
-  }, [deckId, itemIds.join(','), oneOffOnly]);
-  const [revealed, setRevealed] = useState(false);
+  }, [deckId, idsKey, oneOffOnly]);
+  const { data: relationships } = useQuery({ queryKey: ['relationships'], queryFn: getMyRelationships, enabled: isOnline, staleTime: 5 * 60 * 1000 });
+  const tutors = useMemo(() => relationships?.tutors || [], [relationships?.tutors]);
   const [busy, setBusy] = useState(false);
-  const { play } = useNoteAudio('homework');
   const currentId = nextPassItem(progress);
   const note = currentId ? notes?.get(currentId) ?? null : null;
-  const lastPlayed = useRef<string | null>(null);
+  // Seen before in this pass ("Not yet"): the word comes back as a fresh card.
+  const attempt = currentId ? events.filter((e) => e.item_id === currentId).length : 0;
 
-  useEffect(() => {
-    setRevealed(false);
-  }, [currentId]);
+  const card: LocalCard | null = useMemo(() => {
+    if (!note) return null;
+    const own = cardsByNote?.get(note.id) ?? [];
+    const id = passCardId(own);
+    return own.find((c) => c.id === id) ?? passPlaceholderCard(note);
+  }, [note, cardsByNote]);
 
-  const answer = async (right: boolean) => {
+  const previews = useMemo<Record<Rating, IntervalPreview> | null>(() => {
+    if (!card) return null;
+    const settings = deck ? deckSettingsFromDb(deck) : DEFAULT_SCHEDULER_SETTINGS;
+    return {
+      0: getIntervalPreviewLocal(0, card, settings),
+      1: getIntervalPreviewLocal(1, card, settings),
+      2: getIntervalPreviewLocal(2, card, settings),
+      3: getIntervalPreviewLocal(3, card, settings),
+    };
+  }, [card, deck]);
+
+  const answer = useCallback(async (right: boolean, info: PassAnswerInfo) => {
     if (!currentId || busy) return;
     setBusy(true);
     try {
       await recordPassEvent(assignmentId, currentId, right ? 'right' : 'wrong');
-      track('homework.pass_item', { result: right ? 'right' : 'wrong' });
+      track('homework.pass_item', {
+        result: right ? 'right' : 'wrong',
+        card_type: info.cardType,
+        answered: info.answered,
+        suggested: info.suggested ?? 'none',
+        followed: info.suggested ? (info.suggested === 'right') === right : false,
+      });
     } finally {
       setBusy(false);
     }
-  };
-
-  const reveal = () => {
-    setRevealed(true);
-    if (note && lastPlayed.current !== note.id + ':reveal') {
-      lastPlayed.current = note.id + ':reveal';
-      play(note.audio_url ?? null, note.hanzi, API_BASE);
-    }
-  };
+  }, [assignmentId, currentId, busy]);
 
   const counter = <span className="hw-pass-count" data-testid="hw-pass-count">{progress.done}/{progress.total}</span>;
 
@@ -207,9 +245,8 @@ function DeckPass({
   }
 
   const due = dueLabel(dueDate, localDate());
-  return (
-    <div className="study-fullscreen hw-pass">
-      <PassTopbar title={title} onClose={onExit} right={counter} />
+  const meta = (
+    <>
       <div className="hw-pass-progress" aria-hidden="true">
         <span style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
       </div>
@@ -218,74 +255,96 @@ function DeckPass({
         <DueChip due={due} />
         {progress.retrying > 0 && <span className="hw-pass-retry">{progress.retrying} to try again</span>}
       </div>
+    </>
+  );
 
-      {notes === undefined ? null : !note ? (
+  if (notes === undefined || cardsByNote === undefined) return <div className="study-fullscreen" />;
+  if (!note || !card || !previews) {
+    return (
+      <div className="study-fullscreen hw-pass">
+        <PassTopbar title={title} onClose={onExit} right={counter} />
+        {meta}
         <div className="hw-pass-empty">
           <p>The words for this homework haven&rsquo;t reached this device yet.</p>
           <button type="button" className="btn btn-secondary" onClick={() => void syncHomework().catch(() => undefined)}>Try again</button>
         </div>
-      ) : (
-        <div className="hw-pass-card" data-testid="hw-pass-card">
-          <div className="hw-pass-hanzi" lang="zh">
-            {/* Answer side: every character opens the language explorer (docs/LANGUAGE_EXPLORER.md). */}
-            {revealed ? <ExplorableText text={note.hanzi} source="homework" cardHanzi={note.hanzi} /> : note.hanzi}
-          </div>
-          <button type="button" className="hw-pass-play" onClick={() => play(note.audio_url ?? null, note.hanzi, API_BASE)} aria-label="Play audio">▶</button>
-          {revealed ? (
-            <div className="hw-pass-answer" data-testid="hw-pass-answer">
-              <div className="hw-pass-pinyin">{note.pinyin}</div>
-              <div className="hw-pass-english">{note.english}</div>
-              {longTerm && (
-                <LongTermSwitch
-                  on={isLongTerm(toLongTermPref(note.long_term), longTerm.inReview, longTerm.reviewed.has(note.id))}
-                  started={longTerm.reviewed.has(note.id)}
-                  onChange={(on) => {
-                    try { navigator.vibrate?.(10); } catch { /* no haptics */ }
-                    void setNoteLongTerm(note.id, prefForToggle(on, longTerm.inReview));
-                  }}
-                />
-              )}
-              {/* The study card's sentence rows, kept calm: ▶, tap for pinyin then
-                  English, "What's going on here?" — nothing here records a review
-                  or a homework event. */}
-              <div className="hw-pass-sentences">
-                <SentenceSet
-                  noteId={note.id}
-                  variant="pass"
-                  defaultOpen
-                  cardSentence={
-                    note.sentence_clue
-                      ? {
-                          hanzi: note.sentence_clue,
-                          pinyin: note.sentence_clue_pinyin ?? null,
-                          translation: note.sentence_clue_translation ?? null,
-                          audio_url: note.sentence_clue_audio_url ?? null,
-                        }
-                      : null
-                  }
-                />
-              </div>
-            </div>
-          ) : (
-            <p className="hw-pass-hint">Say what it means, then check.</p>
-          )}
-        </div>
-      )}
+      </div>
+    );
+  }
 
-      {note && (
-        <div className="hw-pass-actions">
-          {revealed ? (
-            <>
-              <button key="notyet" type="button" className="btn hw-btn-notyet" onClick={() => void answer(false)} disabled={busy} data-testid="hw-notyet">Not yet</button>
-              <button key="gotit" type="button" className="btn hw-btn-gotit" onClick={() => void answer(true)} disabled={busy} data-testid="hw-gotit">Got it</button>
-            </>
-          ) : (
-            <button key="show" type="button" className="btn btn-primary hw-btn-show" onClick={reveal} data-testid="hw-show">Show answer</button>
-          )}
-        </div>
-      )}
-    </div>
+  const started = !!longTerm?.reviewed.has(note.id);
+  // Straight into the page's own full-screen frame, like the study session's card.
+  return (
+    <StudyCard
+      key={`${card.id}:${attempt}`}
+      card={{ ...card, note } as unknown as CardWithNote}
+      cardIsSecondaryNew={false}
+      intervalPreviews={previews}
+      counts={NO_COUNTS}
+      tutors={tutors}
+      isRating={busy}
+      canUndo={false}
+      onRate={() => {}}
+      onUndo={() => {}}
+      onEnd={onExit}
+      onUpdateNote={() => {}}
+      onDeleteCurrentCard={() => {}}
+      banner={meta}
+      pass={{
+        header: (
+          <div className="hw-pass-head">
+            <span className="study-topbar-label" lang="zh">{title}</span>
+            {counter}
+          </div>
+        ),
+        answerExtras: (
+          <div className="hw-pass-extras" data-testid="hw-pass-extras">
+            {longTerm && (
+              <LongTermSwitch
+                on={isLongTerm(toLongTermPref(note.long_term), longTerm.inReview, started)}
+                started={started}
+                onChange={(on) => {
+                  try { navigator.vibrate?.(10); } catch { /* no haptics */ }
+                  void setNoteLongTerm(note.id, prefForToggle(on, longTerm.inReview));
+                }}
+              />
+            )}
+            {/* ⚡ Study it today: this word first in today's study (shared/decks/bumps.ts) —
+                its new cards too, past the budget and even from this one-off copy. A second tap
+                takes it out. */}
+            <BumpButton noteIds={[note.id]} source="homework_pass" compact removable label="⚡ Study it today" />
+          </div>
+        ),
+        onAnswer: (right, info) => void answer(right, info),
+        coachReturn: `/homework/${assignmentId}`,
+      }}
+    />
   );
+}
+
+const NO_COUNTS: QueueCounts = { new: 0, secondaryNew: 0, learning: 0, review: 0 };
+
+/** A word whose cards haven't reached the device: shown as a NEW read card (nothing is written for it). */
+function passPlaceholderCard(note: LocalNote): LocalCard {
+  return {
+    id: `pass:${note.id}`,
+    note_id: note.id,
+    deck_id: note.deck_id,
+    card_type: PASS_CARD_TYPE,
+    queue: CardQueue.NEW,
+    stability: 0,
+    difficulty: 0,
+    lapses: 0,
+    learning_step: 0,
+    ease_factor: 2.5,
+    interval: 0,
+    repetitions: 0,
+    next_review_at: null,
+    due_timestamp: null,
+    created_at: note.created_at,
+    updated_at: note.updated_at,
+    _synced_at: null,
+  };
 }
 
 function PassDone({

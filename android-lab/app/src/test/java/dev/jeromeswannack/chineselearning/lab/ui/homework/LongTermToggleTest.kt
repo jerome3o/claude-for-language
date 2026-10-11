@@ -1,14 +1,14 @@
 package dev.jeromeswannack.chineselearning.lab.ui.homework
 
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
@@ -35,7 +35,7 @@ import org.robolectric.annotation.Config
 import java.time.ZoneId
 
 /**
- * "Add to my long-term review" on the pass's answer side (docs/HOMEWORK.md §3a): in a one-off
+ * "Add to my long-term review" on the pass's answer side (the study card's back in pass mode) (docs/HOMEWORK.md §3a): in a one-off
  * pass the switch starts off; switching it on stores the choice on the note at once (the study
  * queue introduces the word, offline), queues `PUT /api/notes/:id/long-term`, and a sync that
  * rewrites the note keeps the choice until it is uploaded. Switching back stores null. A word
@@ -76,6 +76,13 @@ class LongTermToggleTest {
         }
     }
 
+    /** The study card's read card: "Show answer" (once the word's card is dealt). */
+    private fun showAnswer() {
+        settle("the card's Show answer") { compose.onAllNodesWithText("Show answer").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Show answer").performClick()
+        settle("the answer side") { compose.onAllNodesWithTag("hw-gotit").fetchSemanticsNodes().isNotEmpty() }
+    }
+
     private fun newInQueue(): List<String> = runBlocking {
         TodayCounts.allDecksQueue(app.repo.dao, app.prefs, System.currentTimeMillis(), ZoneId.systemDefault())!!.dueCards.filter { it.queue == 0 }.map { it.noteId }
     }
@@ -83,14 +90,11 @@ class LongTermToggleTest {
     @Test
     fun switchingAOneOffWordOnPutsItInTheQueueAndQueuesTheUpload() {
         val vm = HomeworkPassViewModel(app, "a1")
-        compose.setContent {
-            val ui by vm.ui.collectAsStateWithLifecycle()
-            LabTheme { HomeworkPassScreen(ui, PassActions(onReveal = vm::reveal, onAnswer = vm::answer, onLongTerm = vm::setLongTerm)) }
-        }
+        compose.setContent { LabTheme { HomeworkPassContent(app, vm, PassActions()) } }
         settle("the first word") { (vm.ui.value as? PassUi.Deck)?.note?.id == "n1" }
         assertEquals(emptyList<String>(), newInQueue())
 
-        compose.onNodeWithTag("hw-show").performClick()
+        showAnswer()
         compose.onNodeWithText("Add to my long-term review").performScrollTo()
         compose.onNodeWithTag("hw-longterm").assertIsOff()
         compose.onNodeWithTag("hw-longterm").performClick()
@@ -122,16 +126,13 @@ class LongTermToggleTest {
     @Test
     fun aStartedWordShowsAlreadyInReviewsAndCannotBeSwitched() {
         val vm = HomeworkPassViewModel(app, "a1")
-        compose.setContent {
-            val ui by vm.ui.collectAsStateWithLifecycle()
-            LabTheme { HomeworkPassScreen(ui, PassActions(onReveal = vm::reveal, onAnswer = vm::answer, onLongTerm = vm::setLongTerm)) }
-        }
+        compose.setContent { LabTheme { HomeworkPassContent(app, vm, PassActions()) } }
         settle("the first word") { (vm.ui.value as? PassUi.Deck)?.note?.id == "n1" }
-        compose.onNodeWithTag("hw-show").performClick()
+        showAnswer()
         compose.onNodeWithTag("hw-gotit").performClick()
         settle("the second word") { (vm.ui.value as? PassUi.Deck)?.note?.id == "n2" }
         assertTrue((vm.ui.value as PassUi.Deck).note!!.started)
-        compose.onNodeWithTag("hw-show").performClick()
+        showAnswer()
         compose.onNodeWithText("✓ Already in your reviews").performScrollTo().assertExists()
         vm.setLongTerm(false)
         compose.waitForIdle()

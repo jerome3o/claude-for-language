@@ -115,12 +115,12 @@ test('the pass sentence: reveal, breakdown, add a word — and nothing is record
 
   await page.goto(`/homework/${assignmentId}`);
   await expect(page.getByTestId('hw-pass-card')).toBeVisible({ timeout: 30_000 });
-  // The face is inert: taps on the card never turn it — only Show answer does.
+  // The face is inert: taps on the card never turn it — only the read card's buttons do.
   await page.getByTestId('hw-pass-card').click({ position: { x: 8, y: 8 } });
   await page.getByTestId('hw-pass-card').getByText('互动', { exact: true }).click();
-  await expect(page.getByTestId('hw-show')).toBeVisible();
+  await expect(page.getByTestId('skip-recording')).toBeVisible();
   await expect(page.getByTestId('hw-gotit')).toHaveCount(0);
-  await page.getByTestId('hw-show').click();
+  await page.getByTestId('skip-recording').click();
 
   const sentences = page.locator('.sentence-set--pass');
   await expect(sentences).toBeVisible();
@@ -208,7 +208,7 @@ test('a card sentence with no pinyin or English still reveals both', async ({ pa
   await expect(page.getByTestId('homework-home-card')).toBeVisible({ timeout: 60_000 });
   await page.goto(`/homework/${mine.assignments[0].id}`);
   await expect(page.getByTestId('hw-pass-card')).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId('hw-show').click();
+  await page.getByTestId('skip-recording').click();
 
   const sentences = page.locator('.sentence-set--pass');
   await expect(sentences.locator('.sentence-set-hanzi')).toHaveText(BARE);

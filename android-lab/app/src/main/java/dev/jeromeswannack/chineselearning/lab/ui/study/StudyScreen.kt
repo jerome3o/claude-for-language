@@ -168,18 +168,43 @@ class StudyActions(
     val onReaderFinished: (timeSpentMs: Long, how: String) -> Unit = { _, _ -> },
     /** Lab "today split": Continue on the "Flashcards done" pause. (Later = [onClose].) */
     val onContinueExtras: () -> Unit = {},
+    // ---- the homework pass on the study card (PassCardUi) ----
+    /** Not yet / Got it: [answered] = take | spoken | typed | choice | none, [suggested] = right | wrong | null. */
+    val onPassAnswer: (right: Boolean, answered: String, suggested: String?) -> Unit = { _, _, _ -> },
+    /** "Add to my long-term review" flipped. */
+    val onPassLongTerm: (on: Boolean) -> Unit = {},
+    /** ⚡ Study it today flipped (on = bump, off = take it out of today's pocket). */
+    val onPassBump: (on: Boolean) -> Unit = {},
 )
 
 @Composable
-fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit, practice: PracticeSpec? = null) {
+fun StudyRoute(
+    app: LabApp,
+    deckId: String?,
+    onExit: () -> Unit,
+    onOpen: (String) -> Unit,
+    practice: PracticeSpec? = null,
+    /** A homework pass word (ui/homework): the card for [PassCardUi.noteId], Not yet / Got it, nothing reviewed. */
+    pass: PassCardUi? = null,
+    /** The pass's own answers (its event, the long-term switch, the ⚡ toggle). */
+    passActions: StudyActions? = null,
+) {
     // Today is the session (docs/STUDY_SESSION.md): the view model belongs to the activity, not to
     // this screen, so leaving Study — ✕, back, the coach, Home — ends nothing. The card on screen
     // (revealed, typed answer, recording), the undo and the queue are all still here on return.
     // (The tutor-notes practice is a focused mini session of its own: scoped to its screen.)
-    val vmKey = if (practice != null) "practice-${practice.cardIds.joinToString(",")}" else "study-${deckId ?: "all"}"
-    val owner = if (practice == null) androidx.compose.ui.platform.LocalContext.current.findViewModelStoreOwner() else null
+    // (So is the homework pass: its own card on its own screen.)
+    val passSpec = pass?.let { PassSpec(it.assignmentId) }
+    val vmKey = when {
+        passSpec != null -> "pass-${passSpec.assignmentId}"
+        practice != null -> "practice-${practice.cardIds.joinToString(",")}"
+        else -> "study-${deckId ?: "all"}"
+    }
+    val owner = if (practice == null && passSpec == null) androidx.compose.ui.platform.LocalContext.current.findViewModelStoreOwner() else null
     val vm: StudyViewModel = if (owner != null) viewModel(viewModelStoreOwner = owner, key = vmKey, factory = StudyViewModel.Factory(app, deckId, practice))
-        else viewModel(key = vmKey, factory = StudyViewModel.Factory(app, deckId, practice))
+        else viewModel(key = vmKey, factory = StudyViewModel.Factory(app, deckId, practice, passSpec))
+    // The pass says which word is up; the view model deals its card (a word coming back = a fresh card).
+    if (pass != null) LaunchedEffect(pass.noteId, pass.attempt) { vm.showPassCard(pass.noteId, pass.attempt) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val playing by app.audio.playingKey.collectAsState()
     val sync by app.repo.status.collectAsState()
@@ -243,7 +268,8 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onCardProgress = vm::onCardProgress,
             onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true)) },
             onYouSaidCoach = { text, source ->
-                vm.currentCardType()?.let { app.analytics.track("study.you_said_coach", mapOf("card_type" to it, "source" to source)) }
+                val where = if (pass != null) mapOf("where" to "homework") else emptyMap()
+                vm.currentCardType()?.let { app.analytics.track("study.you_said_coach", mapOf("card_type" to it, "source" to source) + where) }
                 onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(text = text, action = "check"))
             },
             onCardSpoken = vm::onCardSpoken,
@@ -312,7 +338,14 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             readerEnv = { id -> dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv(app, id) }, // Package B
             onReaderFinished = vm::finishReader, // Package B
             onContinueExtras = vm::continueToExtras, // Lab today split
+            onPassAnswer = { right, answered, suggested ->
+                vm.passAnswered(right)
+                passActions?.onPassAnswer?.invoke(right, answered, suggested)
+            },
+            onPassLongTerm = { on -> passActions?.onPassLongTerm?.invoke(on) },
+            onPassBump = { on -> passActions?.onPassBump?.invoke(on) },
         ),
+        pass = pass,
     )
 }
 
@@ -327,14 +360,15 @@ private fun android.content.Context.findViewModelStoreOwner(): androidx.lifecycl
 }
 
 @Composable
-fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState? = null, autoplay: Boolean = true, pendingReviews: Int = 0, initialCountsCopy: CountsCopy? = null, modifier: Modifier = Modifier) {
+fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState? = null, autoplay: Boolean = true, pendingReviews: Int = 0, initialCountsCopy: CountsCopy? = null, modifier: Modifier = Modifier, pass: PassCardUi? = null) {
     var countsCopy by remember { mutableStateOf(initialCountsCopy) }
     var copyTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(copyTick) { if (copyTick > 0) { kotlinx.coroutines.delay(2500); countsCopy = null } }
     val context = androidx.compose.ui.platform.LocalContext.current
     Box(modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
-            StudyTopBar(ui, actions, pendingReviews, onCountsCopied = { countsCopy = it; copyTick++ })
+            if (pass != null) PassTopBar(pass, ui, actions, pendingReviews)
+            else StudyTopBar(ui, actions, pendingReviews, onCountsCopied = { countsCopy = it; copyTick++ })
             ui.practice?.let { p -> if (ui.phase is StudyPhase.Showing) PracticeBanner(p.counts) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
@@ -345,7 +379,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                 ) { phase ->
                     when (phase) {
                         StudyPhase.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
-                        is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay)
+                        is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay, pass = pass)
                         is StudyPhase.Lesson -> dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLessonView(phase.lesson, ui.counts, actions.lessonEnv, actions.onLessonComplete) // Package B
                         is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderFinished) // Package B
                         is StudyPhase.Extras -> ExtrasBreakView(phase, ui, actions) // Lab today split
@@ -357,7 +391,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
         AnimatedVisibility(countsCopy != null, Modifier.align(Alignment.TopCenter).padding(top = 58.dp), enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut()) {
             countsCopy?.let { CountsCopiedChip(it, onShare = { QueueCountsShare.share(context, ui.counts); countsCopy = null }) }
         }
-        AnimatedVisibility(ui.showExplainer && ui.phase is StudyPhase.Showing, enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(ui.showExplainer && pass == null && ui.phase is StudyPhase.Showing, enter = fadeIn(), exit = fadeOut()) {
             FirstCardExplainer(actions.onDismissExplainer)
         }
     }
@@ -388,6 +422,42 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int,
         }
     }
 }
+
+/**
+ * The homework pass's top bar on the study card (web: the pass `header` + `banner`): ✕, the
+ * assignment's title and "3/12", the offline pill; the pass's progress, then part · due · "2 to
+ * try again". No queue counts, no undo — nothing here is a review.
+ */
+@Composable
+private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pendingReviews: Int) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "Close", tint = Lab.colors.muted) }
+            Text(
+                pass.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            Text("${pass.done}/${pass.total}", color = Palette.Secondary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp).testTag(PASS_COUNT_TAG))
+            OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
+        }
+        val progress by animateFloatAsState(if (pass.total > 0) pass.done.toFloat() / pass.total else 0f, spring(dampingRatio = 0.9f, stiffness = 120f), label = "pass-progress")
+        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).clip(CircleShape).background(Palette.Secondary))
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            pass.part?.let { Text(it.replaceFirstChar { c -> c.uppercase() }, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted) }
+            if (pass.due.text.isNotEmpty()) dev.jeromeswannack.chineselearning.lab.ui.homework.DueChip(pass.due)
+            if (pass.retrying > 0) Text("${pass.retrying} to try again", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+        }
+    }
+}
+
+/** Test tag of the pass's "3/12" on the study card. */
+const val PASS_COUNT_TAG = "hw-pass-count"
 
 /** The quiet line under the top bar in the tutor-notes practice: does this rating count? */
 @Composable

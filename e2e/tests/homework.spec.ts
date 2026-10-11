@@ -92,18 +92,20 @@ test('tutor sends a one-off deck with a due date; the student does the pass; the
   await expect(card.getByTestId('hw-due')).toHaveText('due tomorrow');
   await card.getByTestId('home-hw-row').first().click();
 
+  // Each word is the study card's read card (Record / Skip recording); Not yet / Got it on the back.
   await expect(page.getByTestId('hw-pass-card')).toBeVisible();
   await expect(page.getByTestId('hw-pass-count')).toHaveText('0/2');
-  const first = await page.locator('.hw-pass-hanzi').textContent();
-  await page.getByTestId('hw-show').click();
+  const word = page.getByTestId('hw-pass-card').locator('.hanzi-large');
+  const first = await word.textContent();
+  await page.getByTestId('skip-recording').click();
   await page.getByTestId('hw-notyet').click();
   // The missed word comes back after the other one
-  await expect(page.locator('.hw-pass-hanzi')).not.toHaveText(first!);
-  await page.getByTestId('hw-show').click();
+  await expect(word).not.toHaveText(first!);
+  await page.getByTestId('skip-recording').click();
   await page.getByTestId('hw-gotit').click();
   await expect(page.getByTestId('hw-pass-count')).toHaveText('1/2');
-  await expect(page.locator('.hw-pass-hanzi')).toHaveText(first!);
-  await page.getByTestId('hw-show').click();
+  await expect(word).toHaveText(first!);
+  await page.getByTestId('skip-recording').click();
   await page.getByTestId('hw-gotit').click();
   await expect(page.getByTestId('hw-pass-done')).toBeVisible();
   // One-off only: the student may keep the words for good

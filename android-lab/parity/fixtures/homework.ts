@@ -197,3 +197,22 @@ const budgetExclusion = Array.from({ length: 60 }, (_, c) => {
   return { pools, budget, bonus, alloc: Object.fromEntries(alloc) };
 });
 writeFileSync(join(OUT, 'homework-budget.json'), JSON.stringify({ cases: budgetExclusion }));
+
+// ---- The pass in the study card (shared/homework/pass-card.ts): which card, what is suggested ----
+import { passCardId, passSuggestion, type PassCardEvidence } from '../../../shared/homework';
+
+const PASS_TYPES = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi', 'other_type'];
+const passCards = Array.from({ length: 80 }, () => {
+  const cards = Array.from({ length: int(0, 4) }, () => ({ id: `c${int(0, 9)}`, card_type: pick(PASS_TYPES) }));
+  return { cards, id: passCardId(cards) };
+});
+const VERDICTS = ['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'close', 'wrong', null] as const;
+const TAKES = [null, { isMatch: true, containsExpected: false }, { isMatch: false, containsExpected: true }, { isMatch: false, containsExpected: false }];
+const passSuggestions: Array<{ evidence: PassCardEvidence; out: string | null }> = [];
+for (const v of VERDICTS) {
+  for (const take of TAKES) {
+    const evidence: PassCardEvidence = { answerVerdict: v, take };
+    passSuggestions.push({ evidence, out: passSuggestion(evidence) });
+  }
+}
+writeFileSync(join(OUT, 'homework-pass-card.json'), JSON.stringify({ cards: passCards, suggestions: passSuggestions }));

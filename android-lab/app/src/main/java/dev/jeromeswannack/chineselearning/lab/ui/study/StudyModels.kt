@@ -76,6 +76,38 @@ data class PracticeSpec(val cardIds: List<String>, val noteIds: List<String>)
  */
 data class PracticeUi(val counts: Boolean = false, val counted: Int = 0, val practiceOnly: Int = 0)
 
+/**
+ * The homework pass on the study card (web: `StudyCard pass`, shared/homework/pass-card.ts): the
+ * study view model runs the card for [assignmentId] — no queue, no review events, no take kept.
+ */
+data class PassSpec(val assignmentId: String)
+
+/**
+ * What the pass shows around the study card: its title + counter in the top bar, the progress and
+ * due line under it, and on the answer side the long-term switch and the ⚡ toggle; Not yet / Got it
+ * where the ratings are. [noteId] + [attempt] say which word is up (a "Not yet" word coming back is
+ * a new attempt — a fresh card).
+ */
+data class PassCardUi(
+    val assignmentId: String,
+    val noteId: String,
+    val attempt: Int,
+    val title: String,
+    val part: String? = null,
+    val due: dev.jeromeswannack.chineselearning.lab.core.DueLabel = dev.jeromeswannack.chineselearning.lab.core.DueLabel("", "none", null),
+    val done: Int = 0,
+    val total: Int = 0,
+    val retrying: Int = 0,
+    /** "Add to my long-term review" as it stands for this word, and whether it is already in the reviews. */
+    val longTermOn: Boolean = false,
+    val started: Boolean = false,
+    /** "⚡ Study it today": the word is in today's pocket (and who put it there, when the tutor did). */
+    val bumped: Boolean = false,
+    val bumpedBy: String? = null,
+    /** The answer is being written. */
+    val busy: Boolean = false,
+)
+
 data class StudyUi(
     val phase: StudyPhase = StudyPhase.Loading,
     val counts: QueueCounts = QueueCounts(0, 0, 0, 0),

@@ -108,6 +108,31 @@ describe('selectStudyQueue with bumps', () => {
     expect(q.due.map(c => c.id)).toEqual(['b']);
   });
 
+  it('a homework pass word in a one-off copy (caps 0 + 0), even opted out of long-term review, is bumped all the same', () => {
+    // The pass's "⚡ Study it today" toggle: the bump pocket sits outside the pools, so neither the
+    // 0 + 0 caps nor long_term = 0 keep its NEW cards out of today — and the budget is not spent.
+    const cards = [
+      card('w-h', 'w', 0, null, 'hanzi_to_meaning', 'oneoff'), card('w-m', 'w', 0, null, 'meaning_to_hanzi', 'oneoff'),
+      card('v-h', 'v', 0, null, 'hanzi_to_meaning', 'oneoff'),
+      card('n-h', 'n', 0),
+    ];
+    const decks = [deck('oneoff', 9, 0, 0), deck('d1')];
+    const longTerm = new Map([['w', 0 as const]]);
+    const without = selectStudyQueue(decks, cards, budget, 0, new Map(), CUTOFF, null, null, longTerm);
+    expect(without.due.map(c => c.id)).toEqual(['n-h']);
+    const q = selectStudyQueue(decks, cards, budget, 0, new Map(), CUTOFF, null, null, longTerm, bumps([['w', BUMP]]));
+    expect(q.due.map(c => c.id)).toEqual(['w-h', 'w-m', 'n-h']);
+    expect(q.bumpedNoteIds).toEqual(['w']);
+    // The one-off copy still introduces nothing of its own (v stays out); the budget's word is unchanged.
+    expect(q.allocation.get('oneoff')).toEqual({ primary: 0, secondary: 0 });
+    expect(q.due.some(c => c.note_id === 'v')).toBe(false);
+    // Once its cards are reviewed the bump is done; long_term = 0 keeps the rest of the word out of the pools.
+    const after = selectStudyQueue(decks, cards.map(c => (c.note_id === 'w' ? { ...c, queue: 1, due_ms: NOW + DAY } : c)), budget, 0, new Map(), CUTOFF, null, null, longTerm,
+      bumps([['w', BUMP]], [['w-h', NOW], ['w-m', NOW]], [['w-h', NOW], ['w-m', NOW]]));
+    expect(after.bumpedNoteIds).toEqual([]);
+    expect(after.due.map(c => c.id)).toEqual(['n-h']);
+  });
+
   it('without bumps nothing changes', () => {
     const cards = [card('a-h', 'a', 0), card('b-h', 'b', 0)];
     const a = selectStudyQueue([deck('d1')], cards, budget, 0, new Map(), CUTOFF);

@@ -18,8 +18,11 @@ export interface TranscriptionState {
   isOffline: boolean;
 }
 
-/** `initial`: a "You said" already worked out for the take (a card coming back from the coach). */
-export function useTranscription(initial: TranscriptionComparison | null = null) {
+/**
+ * `initial`: a "You said" already worked out for the take (a card coming back from the coach).
+ * `where`: 'homework' when the card is a homework pass word (analytics only).
+ */
+export function useTranscription(initial: TranscriptionComparison | null = null, where?: 'homework') {
   const [state, setState] = useState<TranscriptionState>({
     isTranscribing: false,
     result: null,
@@ -69,6 +72,7 @@ export function useTranscription(initial: TranscriptionComparison | null = null)
       via: outcome.kind === 'done' ? outcome.via : outcome.kind,
       live_error: live ? liveErrorKind(outcome.liveError) : 'none',
       ms,
+      ...(where ? { where } : {}),
     });
     switch (outcome.kind) {
       case 'done':
@@ -82,7 +86,7 @@ export function useTranscription(initial: TranscriptionComparison | null = null)
         console.warn(`[transcribe] failed after ${ms} ms: ${outcome.reason}`);
         set({ isTranscribing: false, result: null, comparison: null, error: "Couldn't transcribe", isOffline: false });
     }
-  }, []);
+  }, [where]);
 
   /** "Tap to retry": the saved take again, straight to the upload path. */
   const retry = useCallback(() => {

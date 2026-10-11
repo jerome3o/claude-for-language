@@ -160,7 +160,12 @@ sealed interface PassUi {
         val progress: PassProgress,
         /** The word to show now; null when its note hasn't synced yet. */
         val note: PassNote?,
-        val revealed: Boolean,
+        /** How many times [note] was answered before in this pass (a "Not yet" word coming back = a new attempt, a fresh card). */
+        val attempt: Int = 0,
+        val assignmentId: String = "",
+        /** "⚡ Study it today": [note] is in today's pocket (and who put it there, when the tutor did). */
+        val bumped: Boolean = false,
+        val bumpedBy: String? = null,
         val deckId: String,
         /** One-off only (no long-term review): offer "Add to my daily review" at the end. */
         val oneOffOnly: Boolean,
@@ -195,22 +200,13 @@ sealed interface PassUi {
 
 class PassActions(
     val onClose: () -> Unit = {},
-    val onReveal: () -> Unit = {},
-    val onAnswer: (right: Boolean) -> Unit = {},
-    val onPlay: () -> Unit = {},
     val onAddToDaily: () -> Unit = {},
-    /** The answer side's "Add to my long-term review" switch flipped to `on`. */
-    val onLongTerm: (on: Boolean) -> Unit = {},
     val onRetrySync: () -> Unit = {},
     val onAllHomework: () -> Unit = {},
     /** Lesson: the rated run (completion + attempt + recordings, then the homework `done`). */
     val onLessonComplete: (LessonResult) -> Unit = {},
     /** Reader: rated on its last page. */
     val onReaderFinished: (timeSpentMs: Long, how: String) -> Unit = { _, _ -> },
-    /** The example sentences' breakdown / add-as-card (the study card's); never a review. */
-    val sentences: SentenceActions = SentenceActions(),
-    /** ▶ on a sentence row: its clip, else the device voice. */
-    val onPlaySentence: (key: String?, text: String) -> Unit = { _, _ -> },
     /** Link homework: open the link outside the app. */
     val onOpenLink: (String) -> Unit = {},
     /** Link homework: the `done` event with the optional note. */
@@ -229,8 +225,6 @@ fun HomeworkPassScreen(
     actions: PassActions,
     lessonEnv: ExerciseEnv = ExerciseEnv(),
     readerEnv: ReaderEnv = ReaderEnv(),
-    playingKey: String? = null,
-    sentences: PassSentencesStart = PassSentencesStart(),
 ) {
     LabScreenFrame {
         when (ui) {
@@ -239,7 +233,7 @@ fun HomeworkPassScreen(
                 PassTopBar("Homework", onClose = actions.onAllHomework)
                 EmptyState("📭", "This homework isn’t on this device.", body = "It downloads with your next sync.", actionLabel = "All homework", onAction = actions.onAllHomework)
             }
-            is PassUi.Deck -> DeckPass(ui, actions, playingKey, sentences)
+            is PassUi.Deck -> DeckPass(ui, actions)
             is PassUi.Player -> PlayerPass(ui, actions, lessonEnv, readerEnv)
             is PassUi.Link -> {
                 PassTopBar("Homework", onClose = actions.onClose)
@@ -261,8 +255,14 @@ private fun PassTopBar(title: String, onClose: () -> Unit, right: @Composable ()
     }
 }
 
+/**
+ * A word list's pass around its words: the finish screen, or — while the next word hasn't reached
+ * the phone — the header and "Try again". A word that is here is shown on the STUDY CARD instead
+ * (HomeworkNav → StudyRoute's pass mode, PassCardUi): the read card's 🎤 take and "You said",
+ * Not yet / Got it where the ratings are, the long-term switch and ⚡ on the answer side.
+ */
 @Composable
-private fun DeckPass(ui: PassUi.Deck, actions: PassActions, playingKey: String?, start: PassSentencesStart) {
+private fun DeckPass(ui: PassUi.Deck, actions: PassActions) {
     val p = ui.progress
     val counter: @Composable () -> Unit = { Text("${p.done}/${p.total}", color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("hw-pass-count")) }
     PassTopBar(ui.title, actions.onClose, counter)
@@ -270,11 +270,6 @@ private fun DeckPass(ui: PassUi.Deck, actions: PassActions, playingKey: String?,
         PassDone(if (ui.part != null) "${ui.title} · ${ui.part}" else ui.title, p.total, ui.oneOffOnly, ui.addState, ui.online, actions, ui.longTermSummary, ui.deckInReview)
         return
     }
-    // How the last card left (Got it flings it away like Good, Not yet drops it like Again),
-    // and a fresh key each time a card is shown again (a "Not yet" word coming back).
-    var lastRight by remember { mutableStateOf<Boolean?>(null) }
-    val shown = remember { PassShown() }
-    val answer: (Boolean) -> Unit = { right -> lastRight = right; actions.onAnswer(right) }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         ProgressBar(if (p.total > 0) p.done.toFloat() / p.total else 0f, Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp))
         Row(Modifier.padding(horizontal = 4.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -282,185 +277,12 @@ private fun DeckPass(ui: PassUi.Deck, actions: PassActions, playingKey: String?,
             DueChip(ui.due)
             if (p.retrying > 0) StatusPill("${p.retrying} to try again", Palette.Hard)
         }
-        // The card takes the room between the header and the answer bar, like a study card.
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            val note = ui.note
-            if (note == null) {
+        if (ui.note == null) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 EmptyState("⏳", "The words for this homework haven’t reached this device yet.", actionLabel = "Try again", onAction = actions.onRetrySync)
-            } else {
-                AnimatedContent(
-                    targetState = PassFace(shown.key(note.id, ui.revealed), note, ui.revealed),
-                    contentKey = { it.key },
-                    transitionSpec = { studyCardTransition(when (lastRight) { true -> Rating.GOOD; false -> Rating.AGAIN; null -> null }) },
-                    label = "pass-card",
-                ) { face ->
-                    PassCard(face.note, face.revealed, actions.onPlay, longTerm = {
-                        LongTermSwitch(
-                            on = LongTerm.isLongTerm(face.note.longTerm, ui.deckInReview, face.note.started),
-                            started = face.note.started,
-                            onChange = actions.onLongTerm,
-                        )
-                    }) {
-                        PassSentences(
-                            key = face.key,
-                            rows = face.note.sentences,
-                            deckId = face.note.deckId,
-                            online = ui.online,
-                            playingKey = playingKey,
-                            actions = actions.sentences,
-                            onPlay = actions.onPlaySentence,
-                            startExplained = start.explained,
-                            startSteps = start.steps,
-                            startMore = start.more,
-                        )
-                    }
-                }
-            }
-        }
-        // The answer bar: anchored at the bottom, clear of the navigation bar (the frame pads it).
-        if (ui.note != null) {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp).testTag("hw-pass-actions"),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (ui.revealed) {
-                    AnswerTile("Not yet", Palette.Hard, Modifier.weight(1f).testTag("hw-notyet"), enabled = !ui.busy) { answer(false) }
-                    AnswerTile("Got it", Palette.Good, Modifier.weight(1f).testTag("hw-gotit"), enabled = !ui.busy) { answer(true) }
-                } else {
-                    PrimaryPill("Show answer", Modifier.fillMaxWidth().height(AnswerTileHeight).testTag("hw-show")) { actions.onReveal() }
-                }
             }
         }
     }
-}
-
-/**
- * How the sentence rows start — for screenshots (a row opened, a breakdown on screen); the
- * app always starts them closed.
- */
-data class PassSentencesStart(
-    val explained: Map<String, SentenceExplanation> = emptyMap(),
-    val steps: Map<String, Int> = emptyMap(),
-    val more: Boolean = false,
-)
-
-/** What the card shows: [key] changes when a new card comes up (the same word again gets a new one). */
-private data class PassFace(val key: String, val note: PassNote, val revealed: Boolean)
-
-/** Counts the cards shown: a card is done when its answer side gives way to a question side. */
-private class PassShown {
-    private var count = 0
-    private var wasRevealed = false
-    fun key(noteId: String, revealed: Boolean): String {
-        if (wasRevealed && !revealed) count++
-        wasRevealed = revealed
-        return "$noteId#$count"
-    }
-}
-
-/**
- * The word card (web: `.hw-pass-card`), built like the study card: it fills its slot, the
- * question centred on the front; Show answer turns it over to the answer side — hanzi,
- * pinyin, meaning, the example sentence — which scrolls when it doesn't fit (large fonts).
- */
-@Composable
-private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, longTerm: @Composable () -> Unit = {}, sentences: @Composable () -> Unit) {
-    val rotation by animateFloatAsState(if (revealed) 180f else 0f, StudyCardFlip, label = "flip")
-    val density = LocalDensity.current
-    Box(
-        Modifier
-            .fillMaxSize()
-            .padding(vertical = 4.dp)
-            .graphicsLayer {
-                rotationY = rotation
-                cameraDistance = 14f * density.density
-            }
-            .studyCardSurface(Lab.colors.card, Lab.colors.cardBorder, lifted = revealed)
-            .testTag("hw-pass-card"),
-    ) {
-        if (rotation <= 90f) {
-            PassFront(note, onPlay)
-        } else {
-            Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) { PassBack(note, onPlay, longTerm, sentences) }
-        }
-    }
-}
-
-@Composable
-private fun PassFront(note: PassNote, onPlay: () -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val minHeight = maxHeight
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .heightIn(min = minHeight)
-                // Like a study card: the face is inert — only Show answer reveals.
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Spacer(Modifier.height(0.dp))
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                val size = studyHanziSize(note.hanzi)
-                Text(note.hanzi, fontSize = size, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = size * 1.2f)
-                Spacer(Modifier.height(16.dp))
-                PlayCircle(onPlay)
-            }
-            Text("Say what it means, then check.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 16.dp))
-        }
-    }
-}
-
-@Composable
-private fun PassBack(note: PassNote, onPlay: () -> Unit, longTerm: @Composable () -> Unit, sentences: @Composable () -> Unit) {
-    // Centred in the card while it fits (a word's answer is short — no big empty half);
-    // scrolls from the top when it doesn't (large fonts, a long sentence).
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-    val minHeight = maxHeight
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = minHeight).padding(22.dp).testTag("hw-pass-answer"),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            val size = studyHanziSize(note.hanzi) * 0.85f
-            // Revealed: each character opens the language explorer (ui/explorer).
-            dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorableText(
-                note.hanzi, source = "homework", context = note.hanzi,
-                fontSize = size, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = size * 1.2f,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(4.dp))
-            Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(12.dp))
-            Row(
-                Modifier.clip(CircleShape).background(Lab.colors.faint).clickable(onClick = onPlay).padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.AutoMirrored.Filled.VolumeUp, null, Modifier.size(18.dp), tint = Lab.colors.accent)
-                Spacer(Modifier.width(6.dp))
-                Text("Play", color = Lab.colors.ink, style = MaterialTheme.typography.labelLarge)
-            }
-            Spacer(Modifier.height(10.dp))
-            longTerm()
-            if (note.sentences.isNotEmpty()) {
-                Spacer(Modifier.height(20.dp))
-                sentences()
-            }
-        }
-    }
-    }
-}
-
-/** ▶ on the question side (the study card's play button, smaller). */
-@Composable
-private fun PlayCircle(onPlay: () -> Unit) {
-    Box(
-        Modifier.size(56.dp).clip(CircleShape).background(Lab.colors.accentSoft).bouncyClickable(onClick = onPlay),
-        contentAlignment = Alignment.Center,
-    ) { Icon(Icons.AutoMirrored.Filled.VolumeUp, "Play", Modifier.size(24.dp), tint = Lab.colors.accent) }
 }
 
 @Composable

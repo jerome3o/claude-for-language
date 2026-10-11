@@ -50,13 +50,14 @@ class HomeworkListViewModel(app: LabApp) : ViewModel() {
 }
 
 /**
- * `/homework/:id` — one ONE-OFF pass (no spaced repetition). A word list: each word once,
- * "Not yet" words come back at the end until they are right; events are written locally and
- * uploaded through the outbox. A lesson / reader: the regular player, once.
+ * `/homework/:id` — one ONE-OFF pass (no spaced repetition). A word list: each word once, on the
+ * STUDY CARD (the route hands [PassUi.Deck] to StudyRoute's pass mode — the read card's 🎤 take,
+ * "You said", Show answer, the back), "Not yet" words come back at the end until they are right;
+ * events are written locally and uploaded through the outbox. Nothing is a review event. A
+ * lesson / reader: the regular player, once.
  */
 class HomeworkPassViewModel(private val app: LabApp, private val id: String) : ViewModel() {
     private data class Local(
-        val revealedFor: String? = null,
         val busy: Boolean = false,
         val add: AddState = AddState.Idle,
         val finished: Boolean = false,
@@ -70,6 +71,8 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
 
     private val local = MutableStateFlow(Local())
     private val notes = MutableStateFlow<Map<String, PassNote>?>(null)
+    /** "⚡ Study it today": the notes in today's pocket on this phone → who bumped them (null = the learner). */
+    private val bumped = MutableStateFlow<Map<String, String?>>(emptyMap())
     /** The deck copy's own long-term default (null until read): false for a 0 + 0 one-off copy. */
     @Volatile private var deckInReview: Boolean? = null
     private val runtime by lazy { LessonRuntime.of(app) }
@@ -79,7 +82,8 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     private var startTracked = false
     private var wasComplete: Boolean? = null
 
-    val ui: StateFlow<PassUi> = combine(HomeworkStore.observe(app.cache), notes, local, app.online, targets) { data, notes, l, online, targets ->
+    val ui: StateFlow<PassUi> = combine(HomeworkStore.observe(app.cache), notes, combine(local, bumped) { l, b -> l to b }, app.online, targets) { data, notes, lb, online, targets ->
+        val (l, bumpedNotes) = lb
         val a = data?.first?.firstOrNull { it.id == id } ?: return@combine if (data == null) PassUi.Loading else PassUi.Missing
         val progress = Homework.passProgress(Homework.passItemIds(a), data.second.filter { it.assignment_id == a.id })
         val items = Homework.passItemIds(a).size
@@ -92,13 +96,17 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         if (a.kind != "deck") return@combine playerUi(a, progress.complete, targets, l.finished)
         val parts = Homework.titleParts(a)
         val current = Homework.nextPassItem(progress)
+        val attempt = current?.let { c -> data.second.count { it.assignment_id == a.id && it.item_id == c } } ?: 0
         PassUi.Deck(
             title = parts.base,
             part = parts.part,
             due = Homework.dueLabel(a.due_date, Homework.localDate()),
             progress = progress,
             note = current?.let { notes?.get(it) },
-            revealed = current != null && l.revealedFor == current,
+            attempt = attempt,
+            assignmentId = a.id,
+            bumped = current != null && current in bumpedNotes,
+            bumpedBy = current?.let { bumpedNotes[it] },
             deckId = a.target_id,
             oneOffOnly = !Homework.hasFsrs(a.mode),
             addState = l.add,
@@ -112,6 +120,8 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     }.stateIn(viewModelScope, SharingStarted.Eagerly, PassUi.Loading)
 
     init {
+        // The ⚡ pocket as this phone has it (refreshed by every sync and every toggle).
+        viewModelScope.launch { app.repo.dataVersion.collect { refreshBumps() } }
         viewModelScope.launch {
             combine(HomeworkStore.assignments(app.cache), app.repo.dataVersion) { list, _ -> list?.firstOrNull { it.id == id } }.collect { a ->
                 if (a == null || a.kind != "deck") return@collect
@@ -222,15 +232,6 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         }
     }
 
-    fun reveal() {
-        val d = current() ?: return
-        val note = d.note ?: return
-        app.haptics.flip()
-        app.sounds.play(Sounds.Sfx.FLIP, 0.5f)
-        local.value = local.value.copy(revealedFor = note.id)
-        app.audio.play(note.audioUrl, note.hanzi, app.online.value)
-    }
-
     fun play() {
         val note = current()?.note ?: return
         app.audio.play(note.audioUrl, note.hanzi, app.online.value)
@@ -239,19 +240,58 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     /** ▶ on an example sentence: its clip, else the device voice. Nothing is recorded. */
     fun playSentence(key: String?, text: String) = app.audio.play(key, text, app.online.value)
 
-    fun answer(right: Boolean) {
+    /**
+     * Not yet / Got it on the study card: the pass's event (never a review). [answered] / [suggested]
+     * are the card's (analytics: how it was tried, what the answer side suggested, whether he followed it).
+     */
+    fun answer(right: Boolean, answered: String = "none", suggested: String? = null) {
         val d = current() ?: return
         val note = d.note ?: return
         if (local.value.busy) return
         if (right) { app.haptics.correct(); app.sounds.play(Sounds.Sfx.CORRECT) } else { app.haptics.wrong(); app.sounds.play(Sounds.Sfx.AGAIN, 0.6f) }
         local.value = local.value.copy(busy = true)
-        app.analytics.track("homework.pass_item", mapOf("result" to if (right) "right" else "wrong"))
+        app.analytics.track("homework.pass_item", mapOf(
+            "result" to if (right) "right" else "wrong",
+            "card_type" to Homework.PASS_CARD_TYPE,
+            "answered" to answered,
+            "suggested" to (suggested ?: "none"),
+            "followed" to (suggested != null && (suggested == "right") == right),
+        ))
         viewModelScope.launch {
             try {
                 HomeworkStore.recordPassEvent(app, id, note.id, if (right) "right" else "wrong")
             } finally {
-                local.value = local.value.copy(busy = false, revealedFor = null)
+                local.value = local.value.copy(busy = false)
             }
+        }
+    }
+
+    /**
+     * ⚡ Study it today on the answer side (shared/decks/bumps.ts, data/bumps/BumpStore.kt): on puts
+     * this word first in today's study — its NEW cards too, past the budget, even from a one-off
+     * copy (the pocket is outside the pools) — off takes it out of the pocket. Offline-first.
+     */
+    fun setBump(on: Boolean) {
+        val note = current()?.note ?: return
+        app.haptics.tick()
+        // Optimistic: the toggle moves now; the pocket read back confirms it.
+        bumped.value = if (on) bumped.value + (note.id to null) else bumped.value - note.id
+        viewModelScope.launch {
+            runCatching {
+                if (on) dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpNotes(app, listOf(note.id), SOURCE_BUMP)
+                else dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.clear(app, note.id, SOURCE_BUMP)
+            }
+            refreshBumps()
+        }
+    }
+
+    private suspend fun refreshBumps() {
+        bumped.value = withContext(Dispatchers.IO) {
+            runCatching {
+                val dao = app.repo.dao
+                // The rows in the pocket (pending clears left out) — the web BumpButton's `useBumps`.
+                dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.active(dao).associate { it.noteId to it.bumpedByName }
+            }.getOrDefault(bumped.value)
         }
     }
 
@@ -299,6 +339,9 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     }
 
     companion object {
+        /** The bump's source (analytics + the API), shared/decks/bumps.ts BUMP_SOURCES. */
+        const val SOURCE_BUMP = "homework_pass"
+
         /** shared/decks DEFAULT_DECK_SETTINGS: 3 new + 6 secondary a day. */
         val DEFAULT_CAPS = DeckCapsBody(new_cards_per_day = 3, secondary_cards_per_day = 6)
     }

@@ -29,6 +29,8 @@ export function useSpokenAnswer(opts: {
   /** The recorder's current take (`audioBlob`): what a "Say it again" keeps until its new take lands. */
   currentTake: Blob | null;
   onResult: (answer: SpokenAnswer) => void;
+  /** 'homework' on a homework pass word (analytics only). */
+  where?: 'homework';
 }) {
   const [state, setState] = useState<SpokenAnswerState>(IDLE_SPOKEN);
   const latest = useRef(opts);
@@ -55,7 +57,7 @@ export function useSpokenAnswer(opts: {
       if (liveFailureInvalidatesKey(reason)) resetLiveSessionCache();
     },
     // Enums, durations and a boolean only — never the transcript.
-    track: (result, props) => track('study.answer_spoken', { card_type: latest.current.cardType, result, ...props }),
+    track: (result, props) => track('study.answer_spoken', { card_type: latest.current.cardType, result, ...props, ...(latest.current.where ? { where: latest.current.where } : {}) }),
   }), []);
 
   useEffect(() => () => controller.dispose(), [controller]);

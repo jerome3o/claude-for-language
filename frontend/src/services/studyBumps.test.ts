@@ -6,10 +6,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { db, getStudyQueue, getRawQueueCounts, allocateQueueCounts, sumQueueCounts, createLocalReviewEvent, type LocalCard } from '../db/database';
 import { CardQueue } from '../types';
-import { bumpNotes, clearBump, replaceLocalBumps, findExistingNotes } from './studyBumps';
+import { bumpNotes, clearBump, replaceLocalBumps, findExistingNotes, flushPendingBumps } from './studyBumps';
+import { addBumpsApi, clearBumpApi } from '../api/bumps';
 import { writeStudyBudget } from './studyBudget';
 
 vi.mock('./analytics', () => ({ track: vi.fn(), trackError: vi.fn() }));
+vi.mock('../api/bumps', () => ({ addBumpsApi: vi.fn(), clearBumpApi: vi.fn(), listBumpsApi: vi.fn() }));
 
 const iso = () => new Date().toISOString();
 
@@ -77,5 +79,24 @@ describe('study bumps on the device', () => {
   it('finds a word I already have, punctuation ignored', async () => {
     const hits = await findExistingNotes(' 银行。');
     expect(hits.map(h => [h.note.id, h.deckName])).toEqual([['n-bank', 'HSK 2']]);
+  });
+
+  it('on → off while the add is still being sent: the bump is taken out, not brought back by the answer', async () => {
+    // The homework pass's ⚡ toggle tapped twice quickly, online.
+    const serverRow = { id: 'x', note_id: 'n-bank', created_at: iso(), source: 'homework_pass', bumped_by: null, bumped_by_name: null, hanzi: '银行', pinyin: '', english: '', deck_id: 'd1', deck_name: 'HSK 2' };
+    let answerAdd!: (v: unknown) => void;
+    vi.mocked(addBumpsApi).mockReturnValueOnce(new Promise((r) => { answerAdd = r; }) as never);
+    vi.mocked(clearBumpApi).mockResolvedValueOnce({ cleared: true, bumps: [] } as never);
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    await bumpNotes(['n-bank'], 'homework_pass');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(addBumpsApi).toHaveBeenCalledTimes(1);
+    await clearBump('n-bank', 'homework_pass');
+    expect((await db.studyBumps.where('note_id').equals('n-bank').first())?.pending).toBe('clear');
+    answerAdd({ bumps: [serverRow], added: [], already: [], not_found: [] });
+    await flushPendingBumps();
+    expect(clearBumpApi).toHaveBeenCalledWith('n-bank');
+    expect(await db.studyBumps.where('note_id').equals('n-bank').count()).toBe(0);
+    expect((await getStudyQueue()).dueCards).toEqual([]);
   });
 });

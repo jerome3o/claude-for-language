@@ -87,8 +87,25 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
   "Next up", the Decks tab; §11). A tap opens the pass `/homework/:id` for one-off / both items (for a lesson /
   reader that IS its player), `/lessons` for a legacy lesson. At most 4 rows ("+N more ›" → `/homework`); an unread tutor message is one
   small line. Nothing active → the card is not shown.
-- **`/homework`**: all items (to do / done), **`/homework/:id`**: the pass. Deck: the word (tap ▶ for
-  audio), *Show* reveals pinyin / meaning / the example sentence, then *Not yet* / *Got it*. The example
+- **`/homework`**: all items (to do / done), **`/homework/:id`**: the pass. Deck: each word is the **study card**
+  (web `StudyCard` with its `pass` prop in `pages/StudyPage.tsx`, Lab `StudyRoute(pass = PassCardUi)` →
+  `StudyViewModel` pass mode, `CardStage`): its read card (hanzi → meaning, `PASS_CARD_TYPE` / `passCardId` in
+  `shared/homework/pass-card.ts`) with everything Study has — 🎤 Record with the live transcription and "You said",
+  Record again, Skip recording / Show answer, the back with its explorer chips, word tags, Ask Claude / Edit / ⋯.
+  The answer side ends in *Not yet* / *Got it* where the ratings are. What the card saw before the reveal
+  **suggests** one (`passSuggestion`: a right typed / said answer, a matching "You said" → *Got it*; a wrong
+  answer → *Not yet*; a take the recogniser missed, or nothing tried → nothing) — ringed and marked "✓ suggested",
+  never chosen for him. The pass writes ONLY its homework event: no review event, no FSRS, no study time, no
+  resume point, and the take is not attached to anything — it stays on the device and is dropped with the card
+  (web: never handed on; Lab: deleted, never queued for upload). Analytics: `homework.pass_item` carries
+  `card_type`, `answered` (take / spoken / typed / choice / none), `suggested`, `followed`; the study events
+  (`study.take_transcribed`, `study.answer_spoken`, `study.spoken_answer_checked`, `study.you_said_coach`) carry
+  `where: homework`. On the answer side, beside "Add to my long-term review" (§3a), **⚡ Study it today** is a
+  toggle (web `BumpButton removable`, Lab `BumpToggle`): on = the word goes to the front of today's study (the
+  bump pocket, `shared/decks/bumps.ts`, source `homework_pass` — its NEW cards come in even past the budget and
+  even from a 0 + 0 one-off copy or with long-term switched off, because the pocket sits outside the pools; once
+  its cards are reviewed the bump is done and long_term = 0 keeps the rest out — tested in
+  `shared/decks/bumps.test.ts` / Lab `BumpsTest`), off = taken out of the pocket. The example
   sentence is the study card's sentence row, kept calm (web `SentenceSet variant="pass"`, Lab
   `PassSentences` → `SentenceRowView`): the Chinese is up, ▶ plays it, a tap adds the pinyin, the next the
   English and the tools line — "What's going on here?" (the same word-by-word breakdown: one word per row,

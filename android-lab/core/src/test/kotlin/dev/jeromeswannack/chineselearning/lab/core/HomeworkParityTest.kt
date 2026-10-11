@@ -177,4 +177,26 @@ class HomeworkParityTest {
             }
         }
     }
+
+    @Test
+    fun passCardAndSuggestionMatchTypeScript() {
+        val f = fixture("homework-pass-card.json")
+        for ((i, c) in f["cards"]!!.jsonArray.withIndex()) {
+            val o = c.jsonObject
+            val cards = o["cards"]!!.jsonArray.map { it.jsonObject["id"]!!.str!! to it.jsonObject["card_type"]!!.str!! }
+            assertEquals(o["id"]!!.str, Homework.passCardId(cards), "passCardId[$i] $cards")
+        }
+        for ((i, c) in f["suggestions"]!!.jsonArray.withIndex()) {
+            val o = c.jsonObject
+            val ev = o["evidence"]!!.jsonObject
+            val verdict = ev["answerVerdict"]?.str?.let { AnswerKey.Verdict.valueOf(it.uppercase()) }
+            val take = ev["take"]?.takeIf { it !is JsonNull }?.jsonObject
+            assertEquals(
+                o["out"]!!.str,
+                Homework.passSuggestion(verdict, take?.get("isMatch")?.jsonPrimitive?.boolean, take?.get("containsExpected")?.jsonPrimitive?.boolean),
+                "passSuggestion[$i] $ev",
+            )
+        }
+        assertEquals(CardTypes.HANZI_TO_MEANING, Homework.PASS_CARD_TYPE)
+    }
 }

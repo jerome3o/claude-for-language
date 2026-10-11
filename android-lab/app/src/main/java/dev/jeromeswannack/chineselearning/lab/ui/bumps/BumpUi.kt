@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.bumps
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -81,6 +82,38 @@ fun BumpChip(bumpedBy: String?, modifier: Modifier = Modifier) {
         color = BumpAmber,
         maxLines = 1,
         modifier = modifier.testTag("bump-chip").clip(CircleShape).background(BumpAmber.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
+    )
+}
+
+/** Test tag of [BumpToggle]. */
+const val BUMP_TOGGLE_TAG = "bump-toggle"
+
+/**
+ * "⚡ Study it today" as a toggle for ONE word (web: `BumpButton` with `removable`): off → a quiet
+ * amber-outlined pill; on → "⚡ Today ✓" (or "⚡ From Minghui"), filled. A tap flips it — on bumps
+ * the word to the front of today's study, off takes it out of the pocket (BumpStore.bumpNotes /
+ * clear, offline-first). Used on the homework pass's answer side.
+ */
+@Composable
+fun BumpToggle(on: Boolean, bumpedBy: String?, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val label = when {
+        !on -> STUDY_IT_TODAY
+        !bumpedBy.isNullOrBlank() -> "⚡ From ${bumpedBy.substringBefore(' ')}"
+        else -> "⚡ Today ✓"
+    }
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = if (on) Color.White else BumpAmber,
+        maxLines = 1,
+        modifier = modifier
+            .heightIn(min = 44.dp)
+            .clip(CircleShape)
+            .background(if (on) BumpAmber else BumpAmber.copy(alpha = 0.10f))
+            .toggleable(value = on, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .testTag(BUMP_TOGGLE_TAG),
     )
 }
 

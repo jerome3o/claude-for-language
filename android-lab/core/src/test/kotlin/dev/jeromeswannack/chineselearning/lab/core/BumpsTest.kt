@@ -55,6 +55,22 @@ class BumpsTest {
         assertEquals(listOf("r1"), Bumps.bumpPocket(cards, after, cutoff.ts).doneNoteIds)
     }
 
+    /** The homework pass's ⚡ toggle (web shared/decks/bumps.test.ts, same case): outside the pools, so 0 + 0 caps and long_term = 0 don't stop it. */
+    @Test
+    fun aPassWordInAOneOffCopyOptedOutIsStillBumped() {
+        assertEquals("homework_pass", Bumps.normalizeBumpSource("homework_pass"))
+        fun c(id: String, note: String, deck: String, type: String = CardTypes.HANZI_TO_MEANING) =
+            QueueCard(id, note, deck, type, CardScheduler.initialCardState())
+        val decks = listOf(QueueDeck("oneoff", 9, "2026-01-01", 0, 0), QueueDeck("d1", 0, "2026-01-01", 3, 6))
+        val cards = listOf(c("w-h", "w", "oneoff"), c("w-m", "w", "oneoff", CardTypes.MEANING_TO_HANZI), c("v-h", "v", "oneoff"), c("n-h", "n", "d1"))
+        val longTerm = mapOf("w" to 0)
+        val budget = StudyBudget(1, 0)
+        assertEquals(listOf("n-h"), StudyQueue.build(decks, cards, budget, 0, emptyMap(), cutoff, null, longTerm = longTerm).dueCards.map { it.id })
+        val q = StudyQueue.build(decks, cards, budget, 0, emptyMap(), cutoff, null, longTerm = longTerm, bumps = QueueBumps(listOf(QueueBump("w", now - h)), emptyMap(), emptyMap()))
+        assertEquals(listOf("w-h", "w-m", "n-h"), q.dueCards.map { it.id })
+        assertEquals(listOf("w"), q.bumpedNoteIds)
+    }
+
     @Test
     fun selectNextServesTheFirstBumpedCardBeforeLearningDueNow() {
         val learning = card("l", "nl", queue = CardQueue.LEARNING, due = now - 10 * 60_000)

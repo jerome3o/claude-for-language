@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
 import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTile
+import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.ui.kit.StudyCardFlip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardSurface
 import dev.jeromeswannack.chineselearning.lab.ui.kit.studyHanziSize
@@ -70,6 +71,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.zIndex
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -148,6 +150,8 @@ fun CardStage(
     actions: StudyActions,
     start: CardStartState = CardStartState(),
     autoplay: Boolean = true,
+    /** A homework pass word: Not yet / Got it where the ratings are, its choices on the answer side (web `StudyCard pass`). */
+    pass: PassCardUi? = null,
 ) {
     val note = view.note
     val typing = view.card.cardType != CardTypes.HANZI_TO_MEANING
@@ -362,7 +366,7 @@ fun CardStage(
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
-                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, onCharacter = { ch ->
+                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, onCharacter = { ch ->
                             if (explore != null) explore(dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem.Char(ch)) else sheet = CardSheet.Character(ch)
                         })
                     }
@@ -443,10 +447,31 @@ fun CardStage(
                     onMore = { sheet = CardSheet.More },
                 )
                 Spacer(Modifier.height(10.dp))
-                RatingBar(view.previews, enabled = !rated) { rating ->
-                    rated = true
-                    // Rated during a "Say it again": the ViewModel drops it; [answer] is still the one before it.
-                    actions.onRate(rating, System.currentTimeMillis() - startedAt, answer.takeIf { typing && it.isNotEmpty() })
+                if (pass != null) {
+                    // The pass: what the card saw before the reveal may suggest one (core Homework.passSuggestion).
+                    val partialMc = mcSlots != null && !MultipleChoice.allRight(mcSlots!!)
+                    val suggested = when {
+                        typing && answer.isNotBlank() -> if (partialMc) "wrong" else verdict?.let { Homework.passSuggestion(it) }
+                        !typing -> (ui.extras.take.transcription as? TranscriptionUi.Done)?.result?.let { Homework.passSuggestion(null, it.isMatch, it.containsExpected) }
+                        else -> null
+                    }
+                    val answered = when {
+                        !typing -> if (ui.extras.take.hasTake) "take" else "none"
+                        answer.isBlank() -> "none"
+                        mcSlots != null -> "choice"
+                        answerIsSpoken(answer) -> "spoken"
+                        else -> "typed"
+                    }
+                    PassAnswerBar(suggested, enabled = !rated && !pass.busy) { right ->
+                        rated = true
+                        actions.onPassAnswer(right, answered, suggested)
+                    }
+                } else {
+                    RatingBar(view.previews, enabled = !rated) { rating ->
+                        rated = true
+                        // Rated during a "Say it again": the ViewModel drops it; [answer] is still the one before it.
+                        actions.onRate(rating, System.currentTimeMillis() - startedAt, answer.takeIf { typing && it.isNotEmpty() })
+                    }
                 }
             }
         }
@@ -641,6 +666,8 @@ private fun CardBack(
     canSayPractice: Boolean = false,
     /** The last practice take's transcript ("You said" under the hanzi). */
     practiceSaid: String? = null,
+    /** A homework pass word: the long-term switch and ⚡ under Play; the pass's calm sentence rows. */
+    pass: PassCardUi? = null,
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -708,6 +735,10 @@ private fun CardBack(
                 if (canSayPractice) SayAgainPill(ui.aiAvailable, actions, practice = true, said = practiceSaid != null)
             }
             OfflineAudioNote(view, ui)
+            if (pass != null) {
+                Spacer(Modifier.height(10.dp))
+                KeepTaps { PassChoices(pass, actions) }
+            }
             if (voices.isEmpty() && ui.cardAudio.word != ClipState.READY && ui.cardAudio.word != ClipState.COMING && !making) {
                 Spacer(Modifier.height(6.dp))
                 KeepTaps { AudioStatusLine(ui.cardAudio.word, actions.onRetryAudio) }
@@ -728,7 +759,15 @@ private fun CardBack(
                 )
                 Spacer(Modifier.height(16.dp))
             }
-            SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps())
+            if (pass != null) {
+                // The pass keeps its calm rows: the Chinese up, the generated set behind "+ N more".
+                dev.jeromeswannack.chineselearning.lab.ui.homework.PassSentences(
+                    key = view.presentation, rows = sentenceRows(view), deckId = note.deckId, online = ui.aiAvailable,
+                    playingKey = playingKey, actions = actions.sentences, onPlay = actions.onPlay, modifier = Modifier.keepTaps(),
+                )
+            } else {
+                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps())
+            }
         }
     }
     if (wide) {
@@ -878,6 +917,54 @@ fun RatingBar(previews: List<IntervalPreview>, enabled: Boolean, onRate: (Int) -
         }
     }
 }
+
+/**
+ * The homework pass's Not yet / Got it where the ratings are (web `PassAnswerButtons`). The one the
+ * card suggests ([suggested] = right | wrong) is ringed and marked "✓ suggested" — he still chooses.
+ */
+@Composable
+fun PassAnswerBar(suggested: String?, enabled: Boolean, onAnswer: (right: Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().testTag(PASS_RATE_TAG), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        for ((right, label, color) in listOf(Triple(false, "Not yet", Palette.Hard), Triple(true, "Got it", Palette.Good))) {
+            val isSuggested = suggested == (if (right) "right" else "wrong")
+            // Both tiles sit in the same 3dp frame, so the ringed one is the same size as the other.
+            Box(
+                Modifier.weight(1f)
+                    .border(2.dp, if (isSuggested) color else Color.Transparent, RoundedCornerShape(21.dp))
+                    .padding(3.dp),
+            ) {
+                AnswerTile(
+                    label, color,
+                    Modifier.fillMaxWidth()
+                        .testTag(if (right) "hw-gotit" else "hw-notyet")
+                        .semantics { if (isSuggested) stateDescription = "Suggested" },
+                    sub = if (isSuggested) "✓ suggested" else null,
+                    enabled = enabled,
+                ) { onAnswer(right) }
+            }
+        }
+    }
+}
+
+/** Test tag of the pass's answer bar. */
+const val PASS_RATE_TAG = "hw-pass-rate"
+
+/** The pass's two choices on the answer side: "Add to my long-term review" and ⚡ Study it today. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun PassChoices(pass: PassCardUi, actions: StudyActions) {
+    androidx.compose.foundation.layout.FlowRow(
+        Modifier.testTag(PASS_EXTRAS_TAG),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        dev.jeromeswannack.chineselearning.lab.ui.homework.LongTermSwitch(on = pass.longTermOn, started = pass.started, onChange = actions.onPassLongTerm)
+        dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpToggle(on = pass.bumped, bumpedBy = pass.bumpedBy, onChange = actions.onPassBump)
+    }
+}
+
+/** Test tag of the pass's choices row on the answer side. */
+const val PASS_EXTRAS_TAG = "hw-pass-extras"
 
 @Composable
 private fun TypeChip(cardType: String) {

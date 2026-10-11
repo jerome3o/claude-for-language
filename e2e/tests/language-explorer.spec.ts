@@ -59,9 +59,9 @@ test('homework answer side → character → word → character → back, back �
   await expect(page.getByTestId('hw-pass-card')).toBeVisible({ timeout: 30_000 });
   // The question side is not explorable; the answer side is.
   await expect(page.getByTestId('hw-pass-card').getByTestId('explorable-text')).toHaveCount(0);
-  await page.getByTestId('hw-show').click();
+  await page.getByTestId('skip-recording').click();
 
-  await page.locator('.hw-pass-hanzi .xt-tap').filter({ hasText: '行' }).click();
+  await page.getByTestId('study-card-back').locator('.hanzi-large').getByRole('button', { name: '行', exact: true }).click();
   const explorer = page.getByTestId('explorer');
   await expect(page.getByRole('dialog', { name: 'The character 行' })).toContainText('Words with 行');
   // The card's own word comes first; open another word with 行.
