@@ -15,6 +15,8 @@ import { ExplorableText } from './explorer/ExplorableText';
 import type { ExerciseAnswer } from '@shared/lesson';
 import { useLessonImage, lessonImagePlaceholder } from '../hooks/useLessonImage';
 import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
+import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
+import { lessonSpokenCheck } from '@shared/lesson/spoken-check';
 import './lesson-exercises.css';
 
 export interface ExerciseSentence {
@@ -215,12 +217,20 @@ export function TranslateExercise(props: {
 }) {
   const { label, english, referenceHanzi, referencePinyin, note, speak, onNext } = props;
   const [answer, setAnswer] = useState('');
+  const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
   const [revealed, setRevealed] = useState(false);
 
-  function reveal() {
+  function reveal(given?: DictatedAnswer) {
+    if (given) {
+      setAnswer(given.text);
+      setSource(given.source);
+    }
     setRevealed(true);
     speak(referenceHanzi);
   }
+  // Voice-first (shared/voice/dictation.ts): an unchanged spoken answer also matches by sound.
+  const matched = isExactHanziMatch(answer, referenceHanzi) || lessonSpokenCheck(answer, referenceHanzi, [], source).accepted;
+  const report = () => ({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true });
 
   return (
     <div className="exercise">
@@ -228,16 +238,18 @@ export function TranslateExercise(props: {
       <div className="translate-prompt">{english}</div>
       {!revealed ? (
         <>
-          <textarea
-            className="translate-input"
+          <VoiceTextInput
+            surface="lesson_translate"
             value={answer}
-            onChange={e => setAnswer(e.target.value)}
-            placeholder="Type it, say it aloud, or build it in your head…"
-            rows={3}
-            lang="zh-CN"
+            onChange={setAnswer}
+            onSubmit={reveal}
+            submitLabel="Check"
+            placeholder="Type it in Chinese…"
+            multiline
+            testId="lesson-voice"
           />
           <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={reveal}>
+            <button className="practice-btn" onClick={() => reveal()} data-testid="lesson-show-answer">
               Show answer
             </button>
           </div>
@@ -247,11 +259,11 @@ export function TranslateExercise(props: {
           {/* An exact match gets a green nudge; there's deliberately no
               "wrong" state — a different wording can still be right. */}
           {answer.trim() && (
-            <div className={`speak-transcript ${isExactHanziMatch(answer, referenceHanzi) ? 'exact' : ''}`}>
+            <div className={`speak-transcript ${matched ? 'exact' : ''}`}>
               <div className="speak-transcript-label">
-                Your answer
-                {isExactHanziMatch(answer, referenceHanzi) && (
-                  <span className="speak-transcript-exact-badge">✓ Exact match</span>
+                {source === 'spoken' || source === 'edited' ? '🎤 You said' : 'Your answer'}
+                {matched && (
+                  <span className="speak-transcript-exact-badge">{isExactHanziMatch(answer, referenceHanzi) ? '✓ Exact match' : '✓ Sounds right'}</span>
                 )}
               </div>
               <div className="speak-transcript-text">{answer.trim()}</div>
@@ -267,10 +279,10 @@ export function TranslateExercise(props: {
             {note || 'Did yours match the meaning? (Different wording is fine.)'}
           </p>
           <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false, { text: answer.trim() || undefined, self_assessed: true })}>
+            <button className="practice-btn" onClick={() => onNext(false, report())}>
               ✗ Missed it
             </button>
-            <button className="practice-btn primary" onClick={() => onNext(true, { text: answer.trim() || undefined, self_assessed: true })}>
+            <button className="practice-btn primary" onClick={() => onNext(true, report())}>
               ✓ Got it
             </button>
           </div>
@@ -638,9 +650,17 @@ export function ListenTranslateExercise(props: {
 }) {
   const { audio, note, speak, onNext } = props;
   const [answer, setAnswer] = useState('');
+  const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
   const [revealed, setRevealed] = useState(false);
   const plays = useRef(0);
-  const report = () => ({ text: answer.trim() || undefined, self_assessed: true, plays: plays.current });
+  const report = () => ({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true, plays: plays.current });
+  const reveal = (given?: DictatedAnswer) => {
+    if (given) {
+      setAnswer(given.text);
+      setSource(given.source);
+    }
+    setRevealed(true);
+  };
 
   return (
     <div className="exercise">
@@ -648,15 +668,21 @@ export function ListenTranslateExercise(props: {
       <ListenPlayButton text={audio.hanzi} speak={speak} onPlay={() => { plays.current++; }} />
       {!revealed ? (
         <>
-          <textarea
-            className="translate-input"
+          {/* What it meant, usually in English: the transcriber hears English first here. */}
+          <VoiceTextInput
+            surface="lesson_listen_translate"
             value={answer}
-            onChange={e => setAnswer(e.target.value)}
-            placeholder="What did it mean? Type it or say it in your head…"
-            rows={3}
+            onChange={setAnswer}
+            onSubmit={reveal}
+            submitLabel="Check"
+            placeholder="What did it mean?"
+            listeningPlaceholder="Listening… say what it meant"
+            multiline
+            lang="en"
+            testId="lesson-voice"
           />
           <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={() => setRevealed(true)}>
+            <button className="practice-btn" onClick={() => reveal()} data-testid="lesson-show-answer">
               Show answer
             </button>
           </div>
@@ -666,7 +692,7 @@ export function ListenTranslateExercise(props: {
           {answer.trim() && (
             <div className={`speak-transcript ${isListenAnswerMatch(answer, audio) ? 'exact' : ''}`}>
               <div className="speak-transcript-label">
-                Your answer
+                {source === 'spoken' || source === 'edited' ? '🎤 You said' : 'Your answer'}
                 {isListenAnswerMatch(answer, audio) && (
                   <span className="speak-transcript-exact-badge">✓ Exact match</span>
                 )}

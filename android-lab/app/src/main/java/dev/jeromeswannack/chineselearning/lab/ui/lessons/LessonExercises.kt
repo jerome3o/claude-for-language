@@ -49,6 +49,8 @@ import dev.jeromeswannack.chineselearning.lab.core.SpeakExercise
 import dev.jeromeswannack.chineselearning.lab.core.TranslateExercise
 import dev.jeromeswannack.chineselearning.lab.core.UnknownExercise
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
+import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextField
+import dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.delay
@@ -201,21 +203,30 @@ private fun optionState(answered: Boolean, index: Int, correct: Int?, choice: In
 @Composable
 fun TranslateView(ex: TranslateExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     var answer by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf<String?>(null) }
     var revealed by remember { mutableStateOf(false) }
     PhaseLabel("Say it in Chinese")
     PromptText(ex.english)
     if (!revealed) {
-        AnswerField(answer, { answer = it }, "Type it, say it aloud, or build it in your head…")
-        ActionRow { Primary("Show answer") { revealed = true; env.speak(ex.referenceHanzi) } }
+        // Voice first (core VoiceDictation): Check reveals the reference; Show answer skips answering.
+        VoiceTextField(
+            value = answer, onValueChange = { answer = it },
+            onSubmit = { a -> answer = a.text; source = a.source; revealed = true; env.speak(ex.referenceHanzi) },
+            surface = "lesson_translate", submitLabel = "Check", placeholder = "Type it in Chinese…", multiline = true,
+        )
+        ActionRow { Secondary("Show answer") { revealed = true; env.speak(ex.referenceHanzi) } }
     } else {
         val typed = answer.trim()
-        // An exact match gets a green nudge; there's no "wrong" state — other wordings can be right.
-        if (typed.isNotEmpty()) YourAnswer(typed, LessonAnswers.isExactHanziMatch(answer, ex.referenceHanzi))
+        // An exact match (or an unchanged spoken answer that sounds right) gets a green nudge; there's
+        // no "wrong" state — other wordings can be right.
+        val exact = LessonAnswers.isExactHanziMatch(answer, ex.referenceHanzi)
+        val matched = exact || LessonSpokenCheck.check(answer, ex.referenceHanzi, emptyList(), source).accepted
+        if (typed.isNotEmpty()) YourAnswer(typed, matched, label = if (source == "spoken" || source == "edited") "🎤 You said" else "Your answer", badge = if (exact) "✓ Exact match" else "✓ Sounds right")
         Reference(LessonSentence(ex.referenceHanzi, ex.referencePinyin), env)
         SelfAssess(
             ex.note?.takeIf { it.isNotBlank() } ?: "Did yours match the meaning? (Different wording is fine.)",
             no = "✗ Missed it",
-        ) { ok -> onNext(ok, ExerciseAnswer(text = typed.ifEmpty { null }, selfAssessed = true)) }
+        ) { ok -> onNext(ok, ExerciseAnswer(text = typed.ifEmpty { null }, selfAssessed = true, input = source?.takeIf { typed.isNotEmpty() })) }
     }
 }
 
@@ -394,18 +405,24 @@ fun ListenChoiceView(ex: ListenChoiceExercise, env: ExerciseEnv, onNext: (Boolea
 @Composable
 fun ListenTranslateView(ex: ListenTranslateExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     var answer by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf<String?>(null) }
     var revealed by remember { mutableStateOf(false) }
     var plays by remember { mutableIntStateOf(0) }
-    fun report() = ExerciseAnswer(text = answer.trim().ifEmpty { null }, selfAssessed = true, plays = plays)
+    fun report() = ExerciseAnswer(text = answer.trim().ifEmpty { null }, selfAssessed = true, plays = plays, input = source?.takeIf { answer.isNotBlank() })
 
     PhaseLabel("Listen and translate")
     ListenPlayButton(ex.audio.hanzi, env) { plays++ }
     if (!revealed) {
-        AnswerField(answer, { answer = it }, "What did it mean? Type it or say it in your head…")
-        ActionRow { Primary("Show answer") { revealed = true; env.onTap() } }
+        // What it meant, usually in English: the transcriber hears English first here.
+        VoiceTextField(
+            value = answer, onValueChange = { answer = it },
+            onSubmit = { a -> answer = a.text; source = a.source; revealed = true; env.onTap() },
+            surface = "lesson_listen_translate", submitLabel = "Check", placeholder = "What did it mean?", multiline = true, lang = "en",
+        )
+        ActionRow { Secondary("Show answer") { revealed = true; env.onTap() } }
     } else {
         val typed = answer.trim()
-        if (typed.isNotEmpty()) YourAnswer(typed, LessonAnswers.isListenAnswerMatch(answer, ex.audio))
+        if (typed.isNotEmpty()) YourAnswer(typed, LessonAnswers.isListenAnswerMatch(answer, ex.audio), label = if (source == "spoken" || source == "edited") "🎤 You said" else "Your answer")
         Reference(ex.audio, env)
         SelfAssess(ex.note?.takeIf { it.isNotBlank() } ?: "Did you catch the meaning? (Different wording is fine.)", no = "✗ Missed it") { ok -> onNext(ok, report()) }
     }

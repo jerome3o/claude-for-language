@@ -60,6 +60,8 @@ data class ExerciseAnswer(
     val recording: AttemptRecording? = null,
     val feedback: SentenceFeedback? = null,
     val questions: List<QuestionAnswer>? = null,
+    /** How `text` was given (the voice-first box): spoken | edited | typed. */
+    val input: String? = null,
 )
 
 @Serializable

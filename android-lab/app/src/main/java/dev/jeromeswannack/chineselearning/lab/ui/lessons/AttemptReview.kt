@@ -139,11 +139,11 @@ private fun AttRow(label: String, value: String) {
 private fun LessonSentence.line() = hanzi + (pinyin?.let { " $it" } ?: "") + (english?.let { " — $it" } ?: "")
 
 @Composable
-private fun TypedDiff(text: String?, expected: String, alternatives: List<String>) {
+private fun TypedDiff(text: String?, expected: String, alternatives: List<String>, input: String? = null) {
     if (text.isNullOrEmpty()) { AttRow("Answered", "(nothing typed)"); return }
     val d = LessonAnswers.diffHanzi(text, expected, alternatives)
     Row {
-        Text("Typed", fontSize = 13.sp, color = Lab.colors.muted, modifier = Modifier.width(92.dp))
+        Text(dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck.inputLabel(input), fontSize = 13.sp, color = Lab.colors.muted, modifier = Modifier.width(92.dp))
         Text(buildAnnotatedString { d.typed.forEach { withStyle(SpanStyle(color = if (it.hit) Palette.Good else Palette.Again)) { append(it.ch) } } }, fontSize = 20.sp)
     }
     if (!d.correct) Row {
@@ -188,12 +188,12 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
         }
         is TranslateExercise -> {
             AttRow("English", exercise.english)
-            AttRow("Typed", a?.text ?: "(said it / no text)")
+            AttRow(dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck.inputLabel(a?.input), a?.text ?: "(said it / no text)")
             AttRow("Reference", exercise.referenceHanzi)
         }
         is ListenTranslateExercise -> {
             AttRow("Played", exercise.audio.line())
-            AttRow("Their answer", a?.text ?: "(in their head)")
+            AttRow(dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck.inputLabel(a?.input, "Their answer"), a?.text ?: "(in their head)")
             a?.plays?.let { AttRow("Listened", "$it×") }
         }
         is MatchExercise -> AttRow("Wrong taps", "${a?.mistakes ?: 0}")
@@ -202,7 +202,7 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
         is SentenceMakingExercise -> {
             AttRow("Words", exercise.words.joinToString("、") { it.hanzi })
             exercise.task?.takeIf { it.isNotBlank() }?.let { AttRow("Task", it) }
-            a?.text?.takeIf { it.isNotBlank() }?.let { AttRow("Wrote", it) }
+            a?.text?.takeIf { it.isNotBlank() }?.let { AttRow(dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck.inputLabel(a?.input, "Wrote"), it) }
             a?.handwriting?.strokes?.let { StrokesView(it, "Handwritten", maxHeight = 120.dp) }
             a?.feedback?.let { f ->
                 val v = when (f.verdict) { "correct" -> "correct"; "minor" -> "almost"; else -> "not quite" }
@@ -213,7 +213,7 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
         }
         is WriteTypedExercise -> {
             AttRow("Cue", exercise.answer.english ?: exercise.answer.pinyin ?: "🔊")
-            TypedDiff(a?.text, exercise.answer.hanzi, exercise.alternatives.orEmpty())
+            TypedDiff(a?.text, exercise.answer.hanzi, exercise.alternatives.orEmpty(), a?.input)
         }
         is WriteHandwritingExercise -> {
             AttRow("Cue", exercise.answer.english ?: exercise.answer.pinyin ?: "🔊")
@@ -222,7 +222,7 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
         is DictationExercise -> {
             AttRow("Played", exercise.audio.line())
             if (exercise.input == WritingInput.HANDWRITE) Handwritten(attempt, exercise.audio.hanzi)
-            else TypedDiff(a?.text, exercise.audio.hanzi, exercise.alternatives.orEmpty())
+            else TypedDiff(a?.text, exercise.audio.hanzi, exercise.alternatives.orEmpty(), a?.input)
             a?.plays?.let { AttRow("Listened", "$it×") }
         }
         is OralExpressionExercise -> {

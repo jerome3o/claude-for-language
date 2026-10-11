@@ -69,6 +69,8 @@ export interface SentenceFeedback {
 export interface ExerciseAnswer {
   /** Typed text (translate, writing, dictation, sentence making, listen & translate). */
   text?: string;
+  /** How `text` was given (the voice-first box): spoken = said and submitted as heard, edited = said then edited, typed. */
+  input?: 'spoken' | 'edited' | 'typed';
   /** The option chosen — an index into the SPEC's options (not display order). */
   choice?: number;
   /** Scramble tiles in the order the learner put them. */
@@ -230,6 +232,7 @@ function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
   const out: ExerciseAnswer = {};
   const text = str(v.text);
   if (text !== undefined) out.text = text;
+  if (v.input === 'spoken' || v.input === 'edited' || v.input === 'typed') out.input = v.input;
   const choice = int(v.choice, 0, 20);
   if (choice !== undefined) out.choice = choice;
   if (Array.isArray(v.order)) out.order = v.order.filter((t): t is string => typeof t === 'string').slice(0, 30).map(t => t.slice(0, 50));
