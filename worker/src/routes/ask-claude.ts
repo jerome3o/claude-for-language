@@ -124,7 +124,7 @@ async function applyToolActions(c: Context<{ Bindings: Env }>, userId: string, n
         case 'create_custom_lesson': {
           const result = await createCustomLessonFromSpec(c.env, userId, action.input, 'chat');
           if (result.ok) {
-            toolResults.push({ tool: 'create_custom_lesson', success: true, data: { lesson_id: result.lesson.id, title: result.lesson.title, image_jobs: result.imageJobs } });
+            toolResults.push({ tool: 'create_custom_lesson', success: true, data: { lesson_id: result.lesson.id, title: result.lesson.title, image_jobs: result.imageJobs, ...(result.pinyinFixes.length ? { pinyin_fixes: result.pinyinFixes } : {}) } });
           } else {
             toolResults.push({ tool: 'create_custom_lesson', success: false, error: `Invalid lesson spec: ${result.errors.join('; ')}` });
           }

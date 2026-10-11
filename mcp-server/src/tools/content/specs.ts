@@ -6,6 +6,7 @@
  *
  * Nothing here touches the network, so it is unit-tested directly.
  */
+import { pinyinFixSummary, type PinyinFix } from '../../../../shared/pinyin/fixes';
 import { validateReaderSpec } from '../../../../shared/reader/validate';
 import { READER_STANDARD_SHORT } from '../../../../shared/reader/standard';
 import type { ReaderSpec } from '../../../../shared/reader/types';
@@ -175,4 +176,16 @@ export function notesMissingAudio(
 ): string[] {
   const byId = new Map(deckNotes.map(n => [n.id, n.audio_url]));
   return noteIds.filter(id => !byId.get(id));
+}
+
+/** The API's automatic pinyin corrections (a syllable its character can't have), for a JSON reply. Pure. */
+export function pinyinReply(fixes: PinyinFix[] | undefined): { pinyin_fixes?: Array<{ where: string; hanzi: string; before: string; after: string }> } {
+  if (!fixes?.length) return {};
+  return { pinyin_fixes: fixes.map((f) => ({ where: f.where, hanzi: f.hanzi, before: f.before, after: f.after })) };
+}
+
+/** The same as a sentence after the reply's message ('' when none). Pure. */
+export function pinyinSuffix(fixes: PinyinFix[] | undefined): string {
+  if (!fixes?.length) return '';
+  return ` Pinyin corrected automatically on save (${fixes.length}): ${fixes.slice(0, 8).map(pinyinFixSummary).join('; ')}${fixes.length > 8 ? '; …' : ''} — see pinyin_fixes.`;
 }

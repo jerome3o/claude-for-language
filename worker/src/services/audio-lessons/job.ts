@@ -14,6 +14,7 @@
  * A delivery that runs past SOFT_DEADLINE_MS re-enqueues itself. Failures are
  * written to the row (status failed + error); Retry resumes from what exists.
  */
+import { pinyinSources } from '../pinyin-check';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   buildTimeline,
@@ -195,6 +196,7 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
         deadline,
         charLinks,
         learnerGender,
+        pinyinSources: pinyinSources(env),
         checkpoint: (s, progress) => q.patchAudioLesson(env.DB, lessonId, { agent_transcript: { messages: s.messages, usage: s.usage } as unknown as unknown[], rounds: s.rounds, progress }),
       });
       const usage = usageFor(out.state.usage, out.state.rounds, null, null, null);

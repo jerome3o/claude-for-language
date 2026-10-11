@@ -42,6 +42,8 @@ import { queueLessonImages, LESSON_SPEC_INPUT_SCHEMA } from './custom-lesson';
 import { LESSON_STYLE_RULES, LESSON_SPEC_SCHEMA_TEXT } from './lesson-editor';
 import { READER_SPEC_INPUT_SCHEMA } from './reader-editor';
 import { createReaderFromSpec } from '../db/reader-editor-queries';
+import { fixSpecPinyin, logPinyinFixes, pinyinSources } from './pinyin-check';
+import { pinyinFixSummary } from '@shared/pinyin/fixes';
 import * as lib from '../db/lesson-library-queries';
 import * as iq from '../db/insights-queries';
 import { rankStruggling, pickGoingWell } from './insights';
@@ -829,6 +831,8 @@ async function executeTool(ctx: RunContext, name: string, input: Record<string, 
         const dup = lessons.find(l => l.title === spec.title);
         if (dup) return { library_item_id: dup.library_item_id, title: dup.title, note: 'A lesson with this title was already made in this job.' };
         if (lessons.length >= 2) return { error: 'At most two lessons per session. Fold this into one of the existing ones or leave it out.' };
+        const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(env));
+        logPinyinFixes('session-notes lesson', pinyinFixes);
         const item = await lib.createLibraryItem(env.DB, job.tutor_id, {
           title: spec.title,
           description: spec.description ?? null,
@@ -840,7 +844,7 @@ async function executeTool(ctx: RunContext, name: string, input: Record<string, 
         lessons.push({ library_item_id: item.id, title: spec.title, exercise_count: exerciseCount });
         ctx.result.lessons = lessons;
         await jobs.patchJob(env.DB, job.id, { result: ctx.result });
-        return { library_item_id: item.id, title: spec.title, exercise_count: exerciseCount };
+        return { library_item_id: item.id, title: spec.title, exercise_count: exerciseCount, ...(pinyinFixes.length ? { pinyin_fixes: pinyinFixes.map(pinyinFixSummary) } : {}) };
       }
       case 'create_reader': {
         if (ctx.result.reader) return { reader_id: ctx.result.reader.id, note: 'This job already has its reader.' };
@@ -848,6 +852,8 @@ async function executeTool(ctx: RunContext, name: string, input: Record<string, 
         if (errors.length > 0) return { problems: errors };
         const spec = normalizeReaderSpec(input.spec as ReaderSpec);
         const warnings = readerPageWarnings(spec).map(w => w.message);
+        const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(env));
+        logPinyinFixes('session-notes reader', pinyinFixes);
         const { reader, imageJobs } = await createReaderFromSpec(env.DB, job.tutor_id, spec);
         if (imageJobs.length > 0 && env.GEMINI_API_KEY && env.IMAGE_QUEUE) {
           try {
@@ -858,7 +864,7 @@ async function executeTool(ctx: RunContext, name: string, input: Record<string, 
         }
         ctx.result.reader = { id: reader.id, title_english: spec.title_english, title_chinese: spec.title_chinese, page_count: spec.pages.length };
         await jobs.patchJob(env.DB, job.id, { result: ctx.result });
-        return { reader_id: reader.id, title_english: spec.title_english, page_count: spec.pages.length, warnings };
+        return { reader_id: reader.id, title_english: spec.title_english, page_count: spec.pages.length, warnings, ...(pinyinFixes.length ? { pinyin_fixes: pinyinFixes.map(pinyinFixSummary) } : {}) };
       }
       case 'remove_cards': {
         if (!ctx.result.deck) return { error: 'This job has no deck.' };

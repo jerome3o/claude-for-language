@@ -4,9 +4,16 @@ import { z } from "zod";
 import { CARD_STANDARD, CARD_STANDARD_SHORT } from '../../shared/cards/standard';
 import { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '../../shared/lesson/doc';
 import { conversationIntroWarnings } from '../../shared/lesson/introWarnings';
+import { pinyinFixesText, type PinyinFix } from '../../shared/pinyin/fixes';
 import type { CustomLessonSpec } from '../../shared/lesson/types';
 
 /** Soft spoiler-intro warnings appended to a lesson tool's reply (the lesson is saved anyway). */
+/** The API's automatic pinyin corrections, as a paragraph after the reply ('' when none). */
+function pinyinNote(fixes: PinyinFix[] | undefined): string {
+  const text = pinyinFixesText(fixes);
+  return text ? `\n\n${text}` : '';
+}
+
 function introWarningText(spec: unknown): string {
   try {
     const w = conversationIntroWarnings(spec as CustomLessonSpec);
@@ -48,6 +55,7 @@ import { registerPictureHuntTools } from './tools/picture-hunts.js';
 import { registerIdiomTools } from './tools/idioms.js';
 import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerBumpTools } from './tools/bumps.js';
+import { registerPinyinScanTools } from './tools/pinyin-scan.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerTutorApps } from './tools/apps.js';
 
@@ -501,9 +509,9 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
       async ({ title, icon, description, sections, unlock }) => guard(async () => {
         // The main API is the single write path: it validates the spec and
         // queues illustration generation for describe_image exercises.
-        let data: { id?: string; image_jobs?: number };
+        let data: { id?: string; image_jobs?: number; pinyin_fixes?: PinyinFix[] };
         try {
-          data = await api.post<{ id?: string; image_jobs?: number }>('/api/custom-lessons', { spec: { title, icon, description, sections }, ...(unlock ? { unlock } : {}) });
+          data = await api.post<typeof data>('/api/custom-lessons', { spec: { title, icon, description, sections }, ...(unlock ? { unlock } : {}) });
         } catch (err) {
           if (err instanceof ApiError) return errorResult(`Lesson rejected: ${err.message}${problemLines(err)}`);
           throw err;
@@ -511,7 +519,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
         const when = unlock
           ? ` It is LOCKED until ${unlock.kind === 'audio_lesson' ? 'the user has listened to that audio lesson' : `the user taps Done for: "${unlock.prompt}"`}; then it is offered that day.`
           : " It will appear in the user's next study session.";
-        return textResult(`Created custom lesson "${title}" (id=${data.id}).${when}${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}${introWarningText({ title, sections })}`);
+        return textResult(`Created custom lesson "${title}" (id=${data.id}).${when}${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}${introWarningText({ title, sections })}${pinyinNote(data.pinyin_fixes)}`);
       })
     );
 
@@ -595,14 +603,14 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
       async ({ lesson_id, title, icon, description, sections }) => guard(async () => {
         // Same single write path as create: the main API validates the spec,
         // preserves generated illustrations, and queues any new ones.
-        let data: { id?: string; image_jobs?: number };
+        let data: { id?: string; image_jobs?: number; pinyin_fixes?: PinyinFix[] };
         try {
-          data = await api.put<{ id?: string; image_jobs?: number }>(`/api/custom-lessons/${encodeURIComponent(lesson_id)}`, { spec: { title, icon, description, sections } });
+          data = await api.put<typeof data>(`/api/custom-lessons/${encodeURIComponent(lesson_id)}`, { spec: { title, icon, description, sections } });
         } catch (err) {
           if (err instanceof ApiError) return errorResult(`Update rejected: ${err.message}${problemLines(err)}`);
           throw err;
         }
-        return textResult(`Updated custom lesson "${title}" (id=${lesson_id}). The user's device picks up the new content on its next sync; completion history and scheduling are unchanged.${data.image_jobs ? ` ${data.image_jobs} new illustration(s) generating in the background.` : ''}${introWarningText({ title, sections })}`);
+        return textResult(`Updated custom lesson "${title}" (id=${lesson_id}). The user's device picks up the new content on its next sync; completion history and scheduling are unchanged.${data.image_jobs ? ` ${data.image_jobs} new illustration(s) generating in the background.` : ''}${introWarningText({ title, sections })}${pinyinNote(data.pinyin_fixes)}`);
       })
     );
 
@@ -1975,6 +1983,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     // Audio lessons: an agent-written listening lesson rendered to one audio file (docs/AUDIO_LESSONS.md).
     registerAudioLessonTools(ctx);
     registerBumpTools(ctx);
+    registerPinyinScanTools(ctx);
     registerMaterialTools(ctx);
   }
 }

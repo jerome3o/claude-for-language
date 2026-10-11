@@ -44,6 +44,7 @@ import { normalizeHanzi } from '@shared/import/parse';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
+import { fixSpecPinyin, logPinyinFixes, pinyinSources, type PinyinFix } from './services/pinyin-check';
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
 import askClaudeRoutes from './routes/ask-claude';
 import { shapeNoteQuestion, type NoteQuestionRow } from './services/ask-claude';
@@ -141,6 +142,7 @@ import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order'
 import { listActiveBumps } from './services/study-bumps';
 import { FolderError, fileItem, listFolders, resolveFolderId } from './services/folders';
 import analyticsRoutes from './routes/analytics';
+import pinyinScanRoutes from './routes/pinyin-scan';
 import { requestLog, bindAnalyticsScope } from './services/analytics/request-log';
 import { runInScope } from './services/analytics/scope';
 import { installAiUsageCapture } from './services/analytics/ai-usage';
@@ -575,6 +577,8 @@ app.route('/api', lessonEditor);
 
 // Reader editor: whole-reader spec, import, exports, text assist (routes/reader-editor.ts)
 app.route('/api', readerEditor);
+// Pinyin check of stored lessons / library lessons / readers: POST /api/me/pinyin-scan (routes/pinyin-scan.ts)
+app.route('/api', pinyinScanRoutes);
 
 // Invite-only sign-up: invites, access requests, can_invite (see routes/invites.ts)
 app.route('/api', invitesRoutes);
@@ -3278,9 +3282,10 @@ app.post('/api/readers/:id/pages', async (c) => {
   const userId = c.get('user').id;
   const readerId = c.req.param('id');
   const pageData = await c.req.json<{ content_chinese: string; content_pinyin: string; content_english: string; image_prompt?: string | null }>();
+  const pinyinFixes = await fixSpecPinyin(pageData, pinyinSources(c.env));
   const page = await db.addReaderPage(c.env.DB, readerId, userId, { ...pageData, image_prompt: pageData.image_prompt || null });
   if (c.env.ANTHROPIC_API_KEY) c.executionCtx.waitUntil(segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId).catch(() => {}));
-  return c.json(page);
+  return c.json({ ...page, pinyin_fixes: pinyinFixes });
 });
 
 app.put('/api/readers/:readerId/pages/:pageId', async (c) => {
@@ -3288,11 +3293,21 @@ app.put('/api/readers/:readerId/pages/:pageId', async (c) => {
   const readerId = c.req.param('readerId');
   const pageId = c.req.param('pageId');
   const data = await c.req.json<{ content_chinese?: string; content_pinyin?: string; content_english?: string; image_prompt?: string | null }>();
+  let pinyinFixes: PinyinFix[] = [];
+  if (typeof data.content_pinyin === 'string' && data.content_pinyin.trim()) {
+    // The pinyin is checked against the page's Chinese (the new one, else the stored one).
+    const chinese = data.content_chinese ?? (await c.env.DB.prepare('SELECT content_chinese FROM reader_pages WHERE id = ? AND reader_id = ?').bind(pageId, readerId).first<{ content_chinese: string }>())?.content_chinese;
+    if (chinese) {
+      const pair = { content_chinese: chinese, content_pinyin: data.content_pinyin };
+      pinyinFixes = await fixSpecPinyin(pair, pinyinSources(c.env));
+      data.content_pinyin = pair.content_pinyin;
+    }
+  }
   await db.updateReaderPage(c.env.DB, pageId, readerId, userId, data);
   if (data.content_chinese !== undefined && c.env.ANTHROPIC_API_KEY) {
     c.executionCtx.waitUntil(segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId).catch(() => {}));
   }
-  return c.json({ success: true });
+  return c.json({ success: true, content_pinyin: data.content_pinyin, pinyin_fixes: pinyinFixes });
 });
 
 app.delete('/api/readers/:readerId/pages/:pageId', async (c) => {
@@ -5971,7 +5986,7 @@ app.post('/api/custom-lessons', async (c) => {
   if (!result.ok) {
     return c.json({ error: 'Invalid lesson spec', problems: result.errors }, 400);
   }
-  return c.json({ ...result.lesson, ...lessonUnlockFields(result.lesson), spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs }, 201);
+  return c.json({ ...result.lesson, ...lessonUnlockFields(result.lesson), spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs, pinyin_fixes: result.pinyinFixes }, 201);
 });
 
 // Unlock events from the devices (offline-first, idempotent; the earliest time wins).
@@ -5995,7 +6010,7 @@ app.put('/api/custom-lessons/:id', async (c) => {
     if (result.notFound) return c.json({ error: 'Lesson not found' }, 404);
     return c.json({ error: 'Invalid lesson spec', problems: result.errors }, 400);
   }
-  return c.json({ ...result.lesson, spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs });
+  return c.json({ ...result.lesson, spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs, pinyin_fixes: result.pinyinFixes });
 });
 
 app.delete('/api/custom-lessons/:id', async (c) => {
@@ -6471,6 +6486,9 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           await env.DB.prepare(`
             UPDATE graded_readers SET title_chinese = ?, title_english = ? WHERE id = ?
           `).bind(story.title_chinese, story.title_english, readerId).run();
+
+          // A syllable its character can't have is corrected before the pages are stored.
+          logPinyinFixes('generated reader', await fixSpecPinyin({ pages: story.pages }, pinyinSources(env)));
 
           // Add pages to the reader
           const pages = await db.addReaderPages(env.DB, readerId, story.pages.map(page => ({

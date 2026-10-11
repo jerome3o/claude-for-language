@@ -183,7 +183,7 @@ export function defaultApply(env: Env, bg?: ExecutionContext): CoachApplyFn {
     if (action.tool === 'create_custom_lesson') {
       const result = await createCustomLessonFromSpec(env, userId, action.input, 'chat');
       return result.ok
-        ? { tool: 'create_custom_lesson', success: true, data: { lesson_id: result.lesson.id, title: result.lesson.title, image_jobs: result.imageJobs } }
+        ? { tool: 'create_custom_lesson', success: true, data: { lesson_id: result.lesson.id, title: result.lesson.title, image_jobs: result.imageJobs, ...(result.pinyinFixes.length ? { pinyin_fixes: result.pinyinFixes } : {}) } }
         : { tool: 'create_custom_lesson', success: false, error: `Invalid lesson spec: ${result.errors.join('; ')}` };
     }
     if (action.tool !== 'create_flashcards') return { tool: action.tool, success: false, error: 'Unsupported tool' };

@@ -31,6 +31,7 @@ import {
   stampCharNotes,
 } from '@shared/audio-lesson';
 import type { CharLinksFn } from './char-links';
+import { fixSpecPinyin, logPinyinFixes, type PinyinReadingSources } from '../pinyin-check';
 import { CARD_STANDARD_SHORT } from './prompt-bits';
 import { analyseText, checkWords, levelSample, type VocabIndex } from './vocab';
 
@@ -478,6 +479,8 @@ export async function runAuthor(args: {
   charLinks?: CharLinksFn;
   /** Dialogue: the account's voice gender — the learner's own part speaks in it (applyLearnerGender). */
   learnerGender?: Gender | null;
+  /** The dictionaries for the pinyin check of the handed-in plan (services/pinyin-check.ts; pinyin-pro alone without). */
+  pinyinSources?: PinyinReadingSources;
 }): Promise<AuthorOutcome> {
   const { format, input, index, call, checkpoint, charLinks, learnerGender } = args;
   const state = args.state;
@@ -531,6 +534,8 @@ export async function runAuthor(args: {
         results.push({ type: 'tool_result', tool_use_id: use.id, content: JSON.stringify(checks) });
         progress = `Checking ${words.length} word${words.length === 1 ? '' : 's'} against your cards…`;
       } else if (use.name === 'submit_lesson') {
+        // A syllable its character can't have (扶梯 "fúqī") is corrected in the plan before it is compiled.
+        logPinyinFixes('audio lesson plan', await fixSpecPinyin(toolInput, args.pinyinSources ?? {}));
         const links = format === 'sleep' && charLinks ? await charLinks(planWords(toolInput)) : undefined;
         const out = acceptPlan(format, toolInput, input, { charLinks: links, learnerGender });
         if (out.ok) {
