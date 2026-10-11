@@ -30,6 +30,7 @@ object AnalyticsEvents {
         ev("app.open", "app", listOf("install_kind")),
         ev("app.screen_view", "app", listOf("duration_ms", "from")),
         ev("app.update_applied", "app", emptyList()),
+        ev("voice_input.used", "app", listOf("surface", "outcome", "via", "live_error", "speech_ms", "ms", "blocked")),
         ev("study.session_start", "study", listOf("scope", "due", "new_cards", "offline")),
         ev("study.session_end", "study", listOf("reviews", "duration_ms", "reason")),
         ev("study.card_rated", "study", listOf("rating", "card_type", "queue", "time_ms", "recorded", "multiple_choice")),

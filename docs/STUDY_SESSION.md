@@ -938,6 +938,29 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   "Say it" practice; a reviewed take is reported when he decides) and `study.spoken_answer_checked`
   (verdict, retry, reviewed, practice).
 
+## Voice-first text boxes (say it, or type it — everywhere he would type)
+
+The typing cards' flow above, without the card, as one reusable box: web
+`components/voice/VoiceTextInput.tsx` (+ `hooks/useVoiceDictation.ts`, which drives the SAME
+`SpokenAnswerController`, live Soniox stream, upload fallback and "Couldn't transcribe — tap to retry"),
+Lab `ui/kit/VoiceTextField.kt` (+ `VoiceDictationController.kt`, the same `VoiceRecorder.startLive` /
+`SonioxStream` / `TakeTranscription`). The rules are ONE pure module, `shared/voice/dictation.ts`
+(Lab `core/…/VoiceDictation.kt`, parity-tested by `parity/fixtures/voice-dictation.ts`):
+
+- **Voice is the default, always** (Jerome: "the default should be speaking") — nothing remembers that he
+  typed last time. Idle: ✏️ Type · wide 🎤 Say it. Listening: ✕ Cancel · red ⏹ Stop, the words streaming in
+  (confirmed black, provisional grey). Then the **review**: what was heard, big (hanzi + the device's
+  pinyin), 🔁 Retry · ✏️ Edit · ✓ Submit (the caller's label, e.g. Check) — no keyboard until Edit / Type.
+- **Typing**: the normal box (input or textarea) with a 🎤 beside it to go back to speaking; text typed
+  before the 🎤 stays, the take is joined onto it (`joinDictation`).
+- **Speaking off** → typing with a short reason under the box (`voiceBlockReason`): offline (no 🎤),
+  microphone blocked / not found / wouldn't open (🎤 kept to try again), unsupported browser. Never a dead end.
+- **What Submit sends**: `{ text, source, transcript }` — `source` = `spoken` (submitted as heard, or ✏️ Edit
+  left unchanged), `edited`, `typed` — so an exercise can be lenient with a spoken answer and record it.
+- Language hints: `zh` first (default) or `en` first for an English answer (`dictationLanguageHints`).
+- Analytics: `voice_input.used` { surface, outcome, via, live_error, speech_ms, ms, blocked } — enums and
+  durations only, never the text.
+
 ## Multiple choice
 
 Options come from the note's cached `multiple_choice_options`; otherwise a generation request
