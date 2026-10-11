@@ -18,11 +18,12 @@ export interface TranscriptionState {
   isOffline: boolean;
 }
 
-export function useTranscription() {
+/** `initial`: a "You said" already worked out for the take (a card coming back from the coach). */
+export function useTranscription(initial: TranscriptionComparison | null = null) {
   const [state, setState] = useState<TranscriptionState>({
     isTranscribing: false,
     result: null,
-    comparison: null,
+    comparison: initial,
     error: null,
     isOffline: false,
   });

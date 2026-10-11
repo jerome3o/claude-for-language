@@ -920,6 +920,18 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   practice, e2e `study-speak-answer.spec.ts` "Say it practice". Lab: `StudyViewModel.sayItPractice`,
   `SpokenUi.practice` / `SpokenResult.practice`, `practiceSaid` + `SayAgainPill(practice = true)` in
   `CardStage.kt`; `SayItAgainTest` (practice), `SayItPracticeUiTest` (+ Roborazzi `study-practice01…05`).
+- **✏️ Check on the orange "You said" box** (`contains`: he said a whole sentence around the answer —
+  read cards, spoken answers on the typing cards and Say it practice alike): a compact 44 px button
+  on the box's far right (the box pads both sides equally, so the text stays centred) opens the
+  hanzi he said in the Sentence Coach straight into ✏️ Check my sentence (`/coach?text=…&action=check`,
+  `coachDeepLinkAction`; Lab `Routes.coach(text, action = "check")`), so he sees whether his sentence
+  was actually good. Back to your card returns to the same card as it was — the ⋯ → Sentence coach
+  resume path, plus the card's in-memory extras: the read card's "You said" for that take (not
+  transcribed again), a spoken answer's transcript (still checked in spoken mode) and the practice
+  transcript (web `services/studyResume.ts` `ResumeExtras`; Lab `CardStartState.spokenText` /
+  `practiceSaid` via `StudyViewModel.onCardSpoken`). Offline the coach opens with the text in the box.
+  Green / red boxes have no button. Analytics `study.you_said_coach` (card_type, source = read |
+  spoken | practice). Tests: e2e `study-speak-answer.spec.ts` "orange You said box"; Lab `YouSaidCoachUiTest`.
 - Analytics: `study.answer_spoken` (result submitted / filled = ✏️ Edit / retaken = 🔁 Retry on the
   review / failed / empty / cancelled, via, live_error, speech_ms, ms, auto_submit = "Skip the
   review", retry = a Say it again, reviewed = went through the review, edited = ✏️ Edit, practice =

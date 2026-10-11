@@ -4,6 +4,11 @@
  * green = it matched, orange + "Answer found in your sentence" = the answer was said inside a
  * longer sentence (the read card's rule, `spokenAnswerWithin` in shared/cards/answer.ts),
  * red ❌ = not. Lab: `YouSaidBox` in ui/study/CardStage.kt.
+ *
+ * The orange box (`contains`: a whole sentence said around the answer) gets `onCoach`: a compact ✏️
+ * Check button on its far right that opens the sentence in the Sentence Coach (✏️ Check my sentence),
+ * so he can see whether the sentence itself was good. The box keeps equal padding on both sides so
+ * the text stays centred.
  */
 import { compareTranscription } from '@shared/recordings/transcript';
 import { isAcceptedVerdict, type AnswerVerdict } from '@shared/cards/answer';
@@ -13,10 +18,13 @@ export interface YouSaidProps {
   pinyin: string;
   isMatch: boolean;
   containsExpected: boolean;
+  /** Only shown on the orange (contains) box: open `hanzi` in the Sentence Coach's Check my sentence. */
+  onCoach?: () => void;
 }
 
-export function YouSaid({ hanzi, pinyin, isMatch, containsExpected }: YouSaidProps) {
+export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, onCoach }: YouSaidProps) {
   const state = isMatch ? 'match' : containsExpected ? 'contains' : 'miss';
+  const coach = state === 'contains' && onCoach;
   const boxColor = isMatch
     ? { bg: 'rgba(34, 197, 94, 0.1)', border: 'rgba(34, 197, 94, 0.3)' }
     : containsExpected
@@ -25,7 +33,8 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected }: YouSaidPro
 
   return (
     <div className="transcription-result" data-testid="you-said" data-state={state} style={{
-      padding: '0.5rem 0.75rem',
+      padding: coach ? '0.5rem 3rem' : '0.5rem 0.75rem',
+      position: coach ? 'relative' : undefined,
       borderRadius: '6px',
       backgroundColor: boxColor.bg,
       border: `1px solid ${boxColor.border}`,
@@ -39,6 +48,19 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected }: YouSaidPro
         <div style={{ fontSize: '0.75rem', color: '#c2650a', marginTop: '0.125rem' }}>
           Answer found in your sentence
         </div>
+      )}
+      {coach && (
+        <button
+          type="button"
+          className="you-said-coach"
+          onClick={(e) => { e.stopPropagation(); onCoach(); }}
+          aria-label="Check this sentence in the Sentence Coach"
+          title="Check this sentence in the Sentence Coach"
+          data-testid="you-said-coach"
+        >
+          <span aria-hidden="true">✏️</span>
+          <span className="you-said-coach-label">Check</span>
+        </button>
       )}
     </div>
   );

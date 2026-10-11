@@ -120,6 +120,11 @@ data class CardStartState(
     val mcSlots: List<MultipleChoice.Slot>? = null,
     /** Time already spent on the card (resumed): the review's time_spent_ms carries on from it. */
     val elapsedMs: Long = 0,
+    /** A spoken answer's transcript (back from the coach: still checked in spoken mode, "You said" kept). */
+    val spokenText: String? = null,
+    val spokenReviewed: Boolean = false,
+    /** The last "🎤 Say it" practice transcript ("You said" only). */
+    val practiceSaid: String? = null,
 )
 
 /** The sheets a card can open over itself. */
@@ -163,18 +168,19 @@ fun CardStage(
     val voiceFirst = ui.aiAvailable && !typingMode
     // Say the answer (🎤): the answer as spoken. While the box still holds exactly it, the back
     // checks it in spoken mode — a homophone (油 for 由) is right by sound (core AnswerKey.checkSpoken).
-    var spokenText by remember(view.presentation) { mutableStateOf<String?>(null) }
+    var spokenText by remember(view.presentation) { mutableStateOf(start.spokenText) }
     // The spoken answer went through the review step (study.spoken_answer_checked `reviewed`).
-    var spokenReviewed by remember(view.presentation) { mutableStateOf(false) }
+    var spokenReviewed by remember(view.presentation) { mutableStateOf(start.spokenReviewed) }
     var consumedSpoken by remember(view.presentation) { mutableIntStateOf(0) }
     // "🎤 Say it" practice (answer side after Show answer with no attempt): what he said last, shown as
     // "You said" only — never [answer], so the rating flow and user_answer are untouched.
-    var practiceSaid by remember(view.presentation) { mutableStateOf<String?>(null) }
+    var practiceSaid by remember(view.presentation) { mutableStateOf(start.practiceSaid) }
+    LaunchedEffect(view.presentation, spokenText, spokenReviewed, practiceSaid) { actions.onCardSpoken(view.presentation, spokenText, spokenReviewed, practiceSaid) }
     fun answerIsSpoken(a: String) = spokenText != null && a.trim() == spokenText
     fun checkAnswer(a: String): AnswerKey.Verdict =
         if (answerIsSpoken(a)) AnswerKey.checkSpoken(a, note.hanzi, view.alternatives, note.pinyin) else AnswerKey.check(a, note.hanzi, view.alternatives)
     var verdict by remember(view.presentation) {
-        mutableStateOf(if ((start.flipped || start.peeking) && typing && start.answer.isNotBlank()) AnswerKey.check(start.answer, note.hanzi, view.alternatives) else null)
+        mutableStateOf(if ((start.flipped || start.peeking) && typing && start.answer.isNotBlank()) checkAnswer(start.answer) else null)
     }
     var rated by remember(view.presentation) { mutableStateOf(false) }
     var sheet by remember(view.presentation) { mutableStateOf<CardSheet?>(null) }
@@ -645,15 +651,17 @@ private fun CardBack(
                 // A multiple-choice answer (possibly partial): row by row
                 KeepTaps { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar) }
             } else if (typed != null && verdict != null) {
-                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, spoken = canSayAgain) }
+                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, spoken = canSayAgain, onCoach = { actions.onYouSaidCoach(it, "spoken") }) }
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
             }
-            KeepTaps { TranscriptionLine(ui.extras.take.transcription, actions.onRetryTranscription) }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }) }
             if (canSayPractice && practiceSaid != null) {
                 Spacer(Modifier.height(6.dp))
                 Box(Modifier.testTag(PRACTICE_YOU_SAID_TAG)) {
-                    YouSaidBox(spokenComparison(practiceSaid, note.hanzi, AnswerKey.checkSpoken(practiceSaid, note.hanzi, view.alternatives, note.pinyin)))
+                    YouSaidBox(spokenComparison(practiceSaid, note.hanzi, AnswerKey.checkSpoken(practiceSaid, note.hanzi, view.alternatives, note.pinyin))) {
+                        actions.onYouSaidCoach(practiceSaid, "practice")
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -797,12 +805,12 @@ private fun TappableHanzi(text: String, size: TextUnit, color: Color, onChar: (S
  * never a red diff; a wrong spoken answer's diff is aligned (AnswerMarks.spokenDiff), not positional.
  */
 @Composable
-private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean = false) {
+private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean = false, onCoach: ((String) -> Unit)? = null) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         AnswerDiffBody(typed, correct, verdict, onChar, spoken)
         if (spoken) {
             Spacer(Modifier.height(6.dp))
-            YouSaidBox(spokenComparison(typed, correct, verdict))
+            YouSaidBox(spokenComparison(typed, correct, verdict), onCoach?.let { open -> { open(typed) } })
         }
     }
 }
@@ -1408,7 +1416,7 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
 
 /** "You said: …" under the answer (the web's renderTranscriptionResult). */
 @Composable
-private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}) {
+private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}, onCoach: ((String) -> Unit)? = null) {
     val (text, tint) = when (t) {
         null -> return
         TranscriptionUi.Failed -> {
@@ -1433,7 +1441,7 @@ private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}) {
         TranscriptionUi.Offline -> "Recording saved, will transcribe when online" to Lab.colors.muted
         is TranscriptionUi.Done -> {
             Spacer(Modifier.height(6.dp))
-            YouSaidBox(t.result)
+            YouSaidBox(t.result, onCoach?.let { open -> { open(t.result.transcribedHanzi) } })
             return
         }
     }
@@ -1454,6 +1462,9 @@ private fun TintedBox(text: String, tint: Color, modifier: Modifier = Modifier) 
 
 /** Test tag prefix of the "You said" box: `you-said-match` / `you-said-contains` / `you-said-miss`. */
 const val YOU_SAID_TAG = "you-said"
+/** ✏️ Check on the orange box: the sentence in the Sentence Coach. */
+const val YOU_SAID_COACH_TAG = "you-said-coach"
+const val YOU_SAID_COACH_LABEL = "Check this sentence in the Sentence Coach"
 
 /**
  * "You said: pīnyīn (汉字) ✅" — ONE box for what was said, on the read card's back and under a
@@ -1461,13 +1472,49 @@ const val YOU_SAID_TAG = "you-said"
  * in your sentence" = the answer was said inside a longer sentence, red ❌ = not.
  */
 @Composable
-fun YouSaidBox(r: TranscriptionComparison) {
+fun YouSaidBox(r: TranscriptionComparison, onCoach: (() -> Unit)? = null) {
     val mark = if (r.isMatch || r.containsExpected) "✅" else "❌"
     val color = if (r.isMatch) Palette.Good else if (r.containsExpected) Palette.Hard else Palette.Again
     val state = if (r.isMatch) "match" else if (r.containsExpected) "contains" else "miss"
-    TintedBox(
-        "You said: ${r.transcribedPinyin} (${r.transcribedHanzi}) $mark" + (if (r.containsExpected && !r.isMatch) "\nAnswer found in your sentence" else ""),
-        color,
-        Modifier.testTag("$YOU_SAID_TAG-$state"),
-    )
+    val text = "You said: ${r.transcribedPinyin} (${r.transcribedHanzi}) $mark" + (if (r.containsExpected && !r.isMatch) "\nAnswer found in your sentence" else "")
+    if (state != "contains" || onCoach == null) {
+        TintedBox(text, color, Modifier.testTag("$YOU_SAID_TAG-$state"))
+        return
+    }
+    // The orange box (a sentence said around the answer): ✏️ Check on its far right opens the sentence
+    // in the Sentence Coach. Equal room on both sides keeps the text centred.
+    Box(
+        Modifier
+            .testTag("$YOU_SAID_TAG-$state")
+            .clip(RoundedCornerShape(10.dp))
+            .background(color.copy(alpha = 0.12f))
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+            .padding(vertical = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Lab.colors.ink,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 52.dp),
+        )
+        Column(
+            Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 4.dp)
+                .size(width = 44.dp, height = 48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Lab.colors.card.copy(alpha = 0.7f))
+                .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                .clickable(onClick = onCoach)
+                .semantics { contentDescription = YOU_SAID_COACH_LABEL }
+                .testTag(YOU_SAID_COACH_TAG),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("✏️", fontSize = 15.sp)
+            Text("Check", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = color)
+        }
+    }
 }

@@ -456,7 +456,11 @@ class StudyViewModel(
     fun onCardProgress(presentation: Int, revealed: Boolean, answer: String, mcSlots: List<MultipleChoice.Slot>?) {
         val v = currentView() ?: return
         if (v.presentation != presentation) return
-        val p = CardStartState(flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue, elapsedMs = v.start.elapsedMs)
+        val prev = (if (progressPresentation == presentation) progress else null) ?: v.start
+        val p = CardStartState(
+            flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue, elapsedMs = v.start.elapsedMs,
+            spokenText = prev.spokenText, spokenReviewed = prev.spokenReviewed, practiceSaid = prev.practiceSaid,
+        )
         progress = p
         progressPresentation = presentation
         if (answer.isNotEmpty()) onInteraction() // typing is activity too
@@ -465,6 +469,25 @@ class StudyViewModel(
         setViewStart(presentation, p)
         saveResumePoint()
     }
+
+    /**
+     * CardStage reports the spoken answer's transcript (checked in spoken mode while the answer is still
+     * exactly it) and the "🎤 Say it" practice transcript, so the card comes back from the coach with its
+     * "You said" box as it was (its own state isn't kept while it's away).
+     */
+    fun onCardSpoken(presentation: Int, spokenText: String?, spokenReviewed: Boolean, practiceSaid: String?) {
+        val v = currentView() ?: return
+        if (v.presentation != presentation) return
+        val prev = (if (progressPresentation == presentation) progress else null) ?: v.start
+        val p = prev.copy(spokenText = spokenText, spokenReviewed = spokenReviewed, practiceSaid = practiceSaid)
+        if (p == prev) return
+        progress = p
+        progressPresentation = presentation
+        setViewStart(presentation, p)
+    }
+
+    /** The card type on screen (analytics from the screen). */
+    fun currentCardType(): String? = currentView()?.card?.cardType
 
     private fun setViewStart(presentation: Int, start: CardStartState) {
         _ui.update { u ->

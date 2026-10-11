@@ -500,3 +500,52 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   expect(typed.user_answer).toBeNull();
   expect(typed.recording).toBe(true);
 });
+
+test('the orange "You said" box: ✏️ Check opens the sentence in the Sentence Coach (Check my sentence), and "Back to your card" brings the card back as it was', async ({ page, request }) => {
+  await fakeSoniox(page, 'ok', ['它的作业由我写的。']);
+  const started: Array<{ text?: string; action?: string }> = [];
+  await page.route(/\/api\/coach\/conversations$/, (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    started.push(route.request().postDataJSON());
+    return route.fulfill({ status: 503, json: { error: 'Claude is busy — try again', retryable: true } });
+  });
+  await seed(page, request);
+
+  await nextTypingCard(page);
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('由我写', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('spoken-review-submit').click();
+  const said = page.getByTestId('you-said');
+  await expect(said).toHaveAttribute('data-state', 'contains', { timeout: 8000 });
+  const coach = said.getByTestId('you-said-coach');
+  await expect(coach).toBeVisible();
+  // On the far right, at least 44px.
+  const [box, btn] = [await said.boundingBox(), await coach.boundingBox()];
+  expect(btn!.height).toBeGreaterThanOrEqual(44);
+  expect(btn!.width).toBeGreaterThanOrEqual(44);
+  expect(box!.x + box!.width - (btn!.x + btn!.width)).toBeLessThan(12);
+
+  await coach.click();
+  await expect(page).toHaveURL(/\/coach/);
+  await expect.poll(() => started.length, { timeout: 10000 }).toBe(1);
+  expect(started[0]).toMatchObject({ text: '它的作业由我写的。', action: 'check' });
+
+  await page.getByTestId('coach-back-to-card').click();
+  await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 30000 });
+  // Still the spoken answer with its orange box (not re-checked as typed).
+  await expect(page.getByTestId('you-said')).toHaveAttribute('data-state', 'contains');
+  await expect(page.getByTestId('spoken-say-again')).toBeVisible();
+});
+
+test('a match ("You said" green) has no coach button', async ({ page, request }) => {
+  await fakeSoniox(page, 'ok', ['由']);
+  await seed(page, request);
+  await nextTypingCard(page);
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('由', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('spoken-review-submit').click();
+  await expect(page.getByTestId('you-said')).toHaveAttribute('data-state', 'match', { timeout: 8000 });
+  await expect(page.getByTestId('you-said-coach')).toHaveCount(0);
+});

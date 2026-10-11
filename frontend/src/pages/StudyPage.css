@@ -673,6 +673,35 @@
   font-size: 0.875rem;
 }
 
+/* ✏️ Check on the orange "You said … Answer found in your sentence" box: the sentence → the coach.
+   Pinned to the box's far right (the box pads both sides equally, so the text stays centred). */
+.you-said-coach {
+  position: absolute;
+  right: 0.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 0.25rem 0;
+  border: 1px solid rgba(249, 115, 22, 0.45);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #c2650a;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.you-said-coach-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
 /* "Couldn't transcribe — tap to retry" under the answer (both transcription paths failed). */
 .transcription-failed {
   display: block;
