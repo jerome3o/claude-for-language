@@ -38,3 +38,33 @@ export function fakeCheckClient(): Pick<Anthropic, 'messages'> {
     },
   } as unknown as Pick<Anthropic, 'messages'>;
 }
+
+/** E2E_TEST_MODE only: the AI word tags (services/word-tags-ai.ts) for a few known words; every other card → n/a, neutral (shows nothing). */
+const KNOWN_TAGS: Record<string, Record<string, unknown>> = {
+  告诉: { transitivity: 'transitive', register: 'neutral', confidence: 'high' },
+  休息: { transitivity: 'intransitive', register: 'neutral', confidence: 'high' },
+  告知: { transitivity: 'transitive', register: 'formal', register_note: 'formal written; in speech use 告诉', confidence: 'high' },
+  搞定: { transitivity: 'transitive', register: 'informal', register_note: 'casual speech; at work say 完成', confidence: 'medium' },
+  吃: { transitivity: 'both', register: 'neutral', confidence: 'low' },
+};
+
+export function fakeWordTagsClient(): Pick<Anthropic, 'messages'> {
+  return {
+    messages: {
+      create: async (params: { messages: Array<{ content: unknown }> }) => {
+        const text = String(params.messages[0]?.content ?? '');
+        const tags: unknown[] = [];
+        for (const line of text.split('\n')) {
+          const m = line.match(/^(\d+)\. (.+?) \| /);
+          if (!m) continue;
+          tags.push({ index: Number(m[1]), ...(KNOWN_TAGS[m[2].trim()] ?? { transitivity: 'n/a', register: 'neutral', confidence: 'high' }) });
+        }
+        return {
+          stop_reason: 'tool_use',
+          usage: { input_tokens: 1000 + text.length, output_tokens: 30 + tags.length * 30 },
+          content: [{ type: 'tool_use', id: 'fake', name: 'tag_words', input: { tags } }],
+        };
+      },
+    },
+  } as unknown as Pick<Anthropic, 'messages'>;
+}

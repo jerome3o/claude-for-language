@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { ToolContext } from './context.js';
 import { errorResult, guard, jsonResult } from './context.js';
 import { estimateCheckCost, type DeckCheckJob } from '../../../shared/cards/check';
+import { estimateWordTagsCost, WORD_TAGS_BACKFILL_PER_HOUR } from '../../../shared/cards/word-tags-ai';
 
 /** One warning the API returns with a created note (`?check=sync`). */
 export interface CheckWarning {
@@ -137,4 +138,39 @@ export function registerCheckTools(ctx: ToolContext, options: { pollMs?: number;
       return jsonResult({ applied: applied.length, failed, message: `Applied ${applied.length} fix(es)${failed.length ? `; ${failed.length} failed` : ''}.` });
     }),
   );
+
+  server.tool(
+    'backfill_word_tags',
+    `AI word tags for the signed-in user's own cards: a cheap batched Haiku pass gives each note a transitivity ("Takes an object" / "No object") and a register verdict (formal, informal, slang…, with a short note) — shown on the answer side as ✨ pills only where the app's dictionary has nothing. It fills itself in the background (≤ ${WORD_TAGS_BACKFILL_PER_HOUR} notes an hour, on every sync); this tool reports progress and, unless status_only, queues up to \`limit\` untagged notes now (≈ $${estimateWordTagsCost(1000).toFixed(2)} per 1,000 notes). Nothing on the cards' text changes.`,
+    {
+      limit: z.number().int().min(1).max(1000).optional().describe(`Untagged notes to queue now (default ${WORD_TAGS_BACKFILL_PER_HOUR}, max 1000)`),
+      status_only: z.boolean().optional().describe('Only report progress, queue nothing'),
+    },
+    async ({ limit, status_only }) => guard(async () => {
+      const res = status_only
+        ? { queued: 0, ...(await api.get<WordTagsProgressReply>('/api/notes/word-tags/backfill')) }
+        : await api.post<WordTagsProgressReply & { queued: number }>('/api/notes/word-tags/backfill', limit ? { limit } : {});
+      const left = Math.max(0, res.untagged - res.queued);
+      return jsonResult({
+        ...res,
+        estimated_cost_left_usd: Math.round(estimateWordTagsCost(left) * 100) / 100,
+        message:
+          `${res.tagged} of ${res.total} notes have AI word tags` +
+          (res.queued ? `; queued ${res.queued} more now (they appear on the devices after their next sync)` : '') +
+          `. Spent so far ≈ $${res.cost_usd.toFixed(2)}.` +
+          (left ? ` ${left} still to go — the sync fills ≤ ${res.per_hour} an hour by itself.` : ''),
+      });
+    }),
+  );
+}
+
+interface WordTagsProgressReply {
+  total: number;
+  tagged: number;
+  untagged: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  queued_this_hour: number;
+  per_hour: number;
 }

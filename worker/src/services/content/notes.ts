@@ -18,6 +18,7 @@ import {
 } from './audio';
 import type { Background, CreateNoteOptions, NoteInput, NotePatch, UpdateNoteOptions } from './types';
 import { dropStaleIssues, queueNoteCheck } from '../card-check';
+import { clearWordTags, queueWordTags } from '../word-tags-ai';
 import { cardTextProblems } from '@shared/cards';
 import { toLongTermPref } from '@shared/decks/long-term';
 
@@ -87,7 +88,10 @@ export async function createNote(
   const clean = cleanInput(input);
   const note = await db.createNote(env.DB, deckId, clean);
   await runNoteEffects(env, note.id, !!clean.sentence_clue, options);
-  if (options.check ?? true) await queueNoteCheck(env, userId, [note.id], options.bg);
+  if (options.check ?? true) {
+    await queueNoteCheck(env, userId, [note.id], options.bg);
+    await queueWordTags(env, userId, [note.id], options.bg, 'create');
+  }
   void trackServer('server.content_created', { kind: 'note', count: 1 }, { env, userId });
   return note;
 }
@@ -129,7 +133,10 @@ export async function createNotes(
       result.failed.push({ index: i, hanzi: input.hanzi, error: err instanceof Error ? err.message : String(err) });
     }
   }
-  if (result.created.length && (options.check ?? true)) await queueNoteCheck(env, userId, result.created.map(n => n.id), options.bg);
+  if (result.created.length && (options.check ?? true)) {
+    await queueNoteCheck(env, userId, result.created.map(n => n.id), options.bg);
+    await queueWordTags(env, userId, result.created.map(n => n.id), options.bg, 'create');
+  }
   if (result.created.length) void trackServer('server.content_created', { kind: 'note', count: result.created.length }, { env, userId });
   return result;
 }
@@ -173,6 +180,11 @@ export async function updateNote(
   if (wordChanged) {
     await dropStaleIssues(env.DB, { id: noteId, hanzi: note.hanzi, pinyin: note.pinyin, english: note.english, check_issues: before.check_issues });
     if (options.check ?? true) await queueNoteCheck(env, userId, [noteId], bg);
+  }
+  // The AI word tags are about the word in this meaning: a new hanzi / English re-tags it.
+  if (note.hanzi !== before.hanzi || note.english !== before.english) {
+    await clearWordTags(env.DB, noteId);
+    if (options.check ?? true) await queueWordTags(env, userId, [noteId], bg, 'edit');
   }
   const hanziChanged = patch.hanzi !== undefined && note.hanzi !== before.hanzi;
   const clueChanged =

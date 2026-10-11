@@ -68,6 +68,11 @@ data class NoteEntity(
      * on the deck page (core CardCheck.parseCheckIssues / liveCheckIssues). v4.
      */
     val checkIssues: String? = null,
+    /**
+     * AI word tags (notes.word_tags): the JSON verdict — transitivity, register… — merged under
+     * the lexicon's word tags (core WordTagsAi). v7.
+     */
+    val wordTags: String? = null,
 )
 
 @Entity(tableName = "cards", indices = [Index("noteId"), Index("deckId")])
@@ -270,7 +275,7 @@ interface LabDao {
         // v6: "⚡ Study it today".
         StudyBumpEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

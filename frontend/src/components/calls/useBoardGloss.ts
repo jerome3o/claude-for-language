@@ -2,7 +2,9 @@
  * Tab-complete for the call's text board. After a pause of GLOSS_DEBOUNCE_MS
  * with no typing and no IME composition, if the caret sits after Chinese at
  * the end of a line (findGlossSegment, shared/calls/gloss.ts), ask for its
- * pinyin + meaning and offer ` - pīnyīn - meaning` as ghost text. Only the
+ * pinyin + meaning and offer ` - pīnyīn - meaning` as ghost text; after an
+ * English word or short phrase, ask for the Chinese and offer
+ * ` - 中文 - pīnyīn`. Only the
  * typist sees it; accepting types it in like any edit, so it reaches the other
  * person through the CRDT and ends up in the saved board text.
  *
@@ -12,18 +14,20 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { GLOSS_DEBOUNCE_MS, charToCodeUnitIndex, codeUnitToCharIndex, findGlossSegment, formatGloss, type Gloss, type GlossCheck } from '@shared/calls';
+import { GLOSS_DEBOUNCE_MS, charToCodeUnitIndex, codeUnitToCharIndex, findGlossSegment, formatGloss, type AnyGloss, type GlossCheck, type GlossDirection } from '@shared/calls';
 
 export interface GlossSuggestion {
   segment: string;
   /** Caret (character index) the suggestion belongs after. */
   end: number;
-  gloss: Gloss;
-  /** What Tab inserts: " - pīnyīn - meaning". */
+  /** 'zh': Chinese typed → { pinyin, english }; 'en': English typed → { chinese, pinyin }. */
+  direction: GlossDirection;
+  gloss: AnyGloss;
+  /** What Tab inserts: " - pīnyīn - meaning" / " - 中文 - pīnyīn". */
   text: string;
 }
 
-export type GlossFetcher = (segment: string, signal: AbortSignal) => Promise<Gloss | null>;
+export type GlossFetcher = (segment: string, signal: AbortSignal, direction: GlossDirection) => Promise<AnyGloss | null>;
 
 export function useBoardGloss(opts: {
   taRef: RefObject<HTMLTextAreaElement>;
@@ -71,14 +75,14 @@ export function useBoardGloss(opts: {
     inflight.current?.abort();
     const ac = new AbortController();
     inflight.current = ac;
-    const gloss = await fetchGloss(c.segment, ac.signal).catch(() => null);
+    const gloss = await fetchGloss(c.segment, ac.signal, c.direction).catch(() => null);
     if (ac.signal.aborted || inflight.current !== ac) return;
     inflight.current = null;
     if (!gloss) return;
     // Stale? The text or caret moved while we waited.
     const now = check();
     if (!now?.ok || now.segment !== c.segment || now.end !== c.end || document.activeElement !== ta || !latest.current.enabled) return;
-    setSuggestion({ segment: c.segment, end: c.end, gloss, text: formatGloss(gloss) });
+    setSuggestion({ segment: c.segment, end: c.end, direction: c.direction, gloss, text: formatGloss(gloss) });
   }, [check, setSuggestion, taRef]);
 
   /** Something changed: keep a suggestion that still fits, else drop it and wait for the next pause. */

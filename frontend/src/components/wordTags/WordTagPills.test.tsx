@@ -2,7 +2,8 @@
  * Word tags (web): the pills under the meaning render from the lexicon in the shared order, a tap
  * opens the explanation sheet (title, body, example, source) without reaching the card underneath
  * (no peek), "Got it" / Escape close it, Settings → Study switches them off live, and a word with
- * nothing to say renders nothing.
+ * nothing to say renders nothing. AI word tags (notes.word_tags) add ✨ pills only where the
+ * lexicon has nothing, low confidence never shows, and their sheet says so with the note.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
@@ -15,7 +16,7 @@ const analytics = vi.hoisted(() => ({ track: vi.fn(), trackError: vi.fn() }));
 vi.mock('../../services/analytics', () => analytics);
 
 const LEXICON = parseWordTagLexicon(
-  ['#words', '书\tn\t\t本:běn,册:cè\t1\t書', '睡觉\tv\t\t\t1\t睡覺\t睡了一个好觉', '您\tr\tP\t\t1', '#markers', '您\tP', '^请\tP', ''].join('\n'),
+  ['#words', '书\tn\t\t本:běn,册:cè\t1\t書', '睡觉\tv\t\t\t1\t睡覺\t睡了一个好觉', '您\tr\tP\t\t1', '告知\tv\t\t\t6', '打扰\tv\tP\t\t5', '#markers', '您\tP', '^请\tP', ''].join('\n'),
 );
 vi.mock('../../services/wordTags', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/wordTags')>()),
@@ -79,7 +80,8 @@ describe('WordTagPills', () => {
     expect(sheet.textContent).toContain('睡了一个好觉');
     expect(sheet.textContent).toContain('Source: Curated list');
     expect(parentClick).not.toHaveBeenCalled();
-    expect(analytics.track).toHaveBeenCalledWith('study.word_tag_open', { kind: 'separable', tag: 'separable', source: 'study' });
+    expect(analytics.track).toHaveBeenCalledWith('study.word_tag_open', { kind: 'separable', tag: 'separable', source: 'study', tag_source: 'lexicon' });
+    expect(sheet.querySelector('[data-testid="word-tag-sheet-ai"]')).toBeNull();
 
     act(() => (sheet.querySelector('.btn') as HTMLButtonElement).click());
     expect(document.querySelector('[data-testid="word-tag-sheet"]')).toBeNull();
@@ -114,5 +116,38 @@ describe('WordTagPills', () => {
     expect(host.querySelector('[data-testid="word-tags"]')).toBeNull();
     act(() => writeWordTagsOn(true));
     expect(pills().length).toBeGreaterThan(0);
+  });
+
+  describe('AI word tags', () => {
+    const verdict = JSON.stringify({ v: 1, transitivity: 'transitive', register: 'formal', register_note: 'formal written; in speech use 告诉', confidence: 'high' });
+
+    it('adds ✨ transitivity and register pills where the lexicon has none', async () => {
+      await render('告知', { aiTags: verdict });
+      expect(pills()).toEqual(['Verb', '✨Takes an object', '✨Formal', 'HSK 6', 'Rare']);
+      const ai = [...host.querySelectorAll('[data-ai="true"]')].map((b) => b.getAttribute('data-tag'));
+      expect(ai).toEqual(['transitivity:transitive', 'register:F']);
+      expect(host.querySelector('[data-tag="register:F"]')!.getAttribute('aria-label')).toBe('Formal (suggested by AI)');
+    });
+
+    it('the sheet says it is an AI suggestion and shows the register note', async () => {
+      await render('告知', { aiTags: verdict });
+      act(() => (host.querySelector('[data-tag="register:F"]') as HTMLButtonElement).click());
+      const sheet = document.querySelector('[data-testid="word-tag-sheet"]')!;
+      expect(sheet.querySelector('[data-testid="word-tag-sheet-ai"]')!.textContent).toContain('Suggested by AI — may be wrong');
+      expect(sheet.querySelector('[data-testid="word-tag-sheet-note"]')!.textContent).toBe('formal written; in speech use 告诉');
+      expect(analytics.track).toHaveBeenCalledWith('study.word_tag_open', { kind: 'register', tag: 'register:F', source: 'study', tag_source: 'ai' });
+    });
+
+    it('the lexicon wins: its register stays, no AI one', async () => {
+      await render('打扰', { aiTags: JSON.stringify({ v: 1, register: 'informal', transitivity: 'transitive', confidence: 'high' }) });
+      expect(pills()).toEqual(['Verb', '✨Takes an object', 'Polite', 'HSK 5', 'Rare']);
+    });
+
+    it('low confidence and junk show nothing extra', async () => {
+      await render('告知', { aiTags: JSON.stringify({ v: 1, transitivity: 'transitive', register: 'formal', confidence: 'low' }) });
+      expect(pills()).toEqual(['Verb', 'HSK 6', 'Rare']);
+      await render('告知', { aiTags: 'not json' });
+      expect(pills()).toEqual(['Verb', 'HSK 6', 'Rare']);
+    });
   });
 });

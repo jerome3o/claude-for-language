@@ -665,7 +665,7 @@ private fun CardBack(
             Spacer(Modifier.height(4.dp))
             Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
             // Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off)
-            KeepTaps { WordTagsFor(note.hanzi, source = "study", modifier = Modifier.padding(top = 8.dp)) }
+            KeepTaps { WordTagsFor(note.hanzi, source = "study", aiTags = note.wordTags, modifier = Modifier.padding(top = 8.dp)) }
             Spacer(Modifier.height(12.dp))
             val playing = isWordPlaying(playingKey, view, ui)
             val voices = ui.extras.voices

@@ -55,7 +55,11 @@ async function pause(ms = 600) {
 beforeEach(() => {
   vi.useFakeTimers();
   sent = [];
-  fetchGloss = vi.fn(async (segment: string) => ({ pinyin: segment === '你好' ? 'nǐ hǎo' : 'xièxie', english: segment === '你好' ? 'hello' : 'thanks' }));
+  fetchGloss = vi.fn(async (segment: string, _signal: AbortSignal, direction: 'zh' | 'en') =>
+    direction === 'en'
+      ? { chinese: '洗澡', pinyin: 'xǐzǎo' }
+      : { pinyin: segment === '你好' ? 'nǐ hǎo' : 'xièxie', english: segment === '你好' ? 'hello' : 'thanks' },
+  );
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -78,7 +82,7 @@ describe('board tab-complete after an IME commit', () => {
     comp(ta, 'compositionend', '你好');
     expect(session.isComposing).toBe(false);
     await pause();
-    expect(fetchGloss).toHaveBeenCalledWith('你好', expect.anything());
+    expect(fetchGloss).toHaveBeenCalledWith('你好', expect.anything(), 'zh');
     expect(host.querySelector('[data-testid="text-board-ghost"]')?.textContent).toContain('nǐ hǎo - hello');
   });
 
@@ -92,7 +96,7 @@ describe('board tab-complete after an IME commit', () => {
     expect(session.isComposing).toBe(false);
     expect(session.text).toBe('你好');
     await pause();
-    expect(fetchGloss).toHaveBeenCalledWith('你好', expect.anything());
+    expect(fetchGloss).toHaveBeenCalledWith('你好', expect.anything(), 'zh');
     expect(host.querySelector('[data-testid="text-board-ghost"]')?.textContent).toContain('nǐ hǎo - hello');
 
     // …and the next word, typed the same way, gets one too.
@@ -102,7 +106,7 @@ describe('board tab-complete after an IME commit', () => {
     comp(ta, 'compositionend', '谢谢');
     input(ta, '你好\n谢谢', true);
     await pause();
-    expect(fetchGloss).toHaveBeenCalledWith('谢谢', expect.anything());
+    expect(fetchGloss).toHaveBeenCalledWith('谢谢', expect.anything(), 'zh');
   });
 
   it('nothing is asked while a composition is really open', async () => {
@@ -138,5 +142,34 @@ describe('board tab-complete: the ghost sits at the caret', () => {
       ta.dispatchEvent(new Event('scroll'));
     });
     expect(layer.scrollTop).toBe(ta.scrollTop);
+  });
+});
+
+describe('board tab-complete after English', () => {
+  it('offers " - 中文 - pīnyīn" after an English phrase; Tab types it in', async () => {
+    const { session, ta } = mount();
+    input(ta, 'to take a shower', false);
+    await pause();
+    expect(fetchGloss).toHaveBeenCalledWith('to take a shower', expect.anything(), 'en');
+    const ghost = host.querySelector('[data-testid="text-board-ghost"]');
+    expect(ghost?.textContent).toContain(' - 洗澡 - xǐzǎo');
+    act(() => {
+      ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    });
+    expect(ta.value).toBe('to take a shower - 洗澡 - xǐzǎo');
+    expect(session.text).toBe('to take a shower - 洗澡 - xǐzǎo');
+    expect(host.querySelector('[data-testid="text-board-ghost"]')).toBeNull();
+    // The gloss's own tail is never glossed again.
+    await pause(2000);
+    expect(fetchGloss).toHaveBeenCalledTimes(1);
+  });
+
+  it('a single letter, or pinyin with tone marks, asks nothing', async () => {
+    const { ta } = mount();
+    input(ta, 'I', false);
+    await pause();
+    input(ta, 'wǒ xiǎng', false);
+    await pause();
+    expect(fetchGloss).not.toHaveBeenCalled();
   });
 });

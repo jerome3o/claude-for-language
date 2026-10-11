@@ -80,3 +80,41 @@ test('answer side: word tags under the meaning, tap one for what it means, off i
   await expect(page.getByTestId('study-card-back')).toContainText('to sleep');
   await expect(page.getByTestId('word-tags')).toHaveCount(0);
 });
+
+test('AI word tags: a ✨ pill where the lexicon has nothing, and its sheet says it is a suggestion', async ({ page, request }) => {
+  const email = `tags-ai-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Tag learner' } });
+  const token = auth.session_token;
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token, data: { name: '告知练习' } });
+  // E2E_TEST_MODE's fake model tags 告知: transitive, formal, with a note.
+  const note = await api<{ id: string }>(request, `/api/decks/${deck.id}/notes`, {
+    method: 'POST', token, data: { hanzi: '告知', pinyin: 'gàozhī', english: 'to inform', fun_facts: '告 (gào) to tell · 知 (zhī) to know' },
+  });
+  // Tagged on the queue after the create; the on-demand backfill covers a slow queue.
+  await expect
+    .poll(async () => {
+      const n = await api<{ word_tags?: string | null }>(request, `/api/notes/${note.id}`, { token });
+      if (!n.word_tags) await api(request, '/api/notes/word-tags/backfill', { method: 'POST', token, data: { limit: 10 } }).catch(() => {});
+      return n.word_tags ?? null;
+    }, { timeout: 30000, intervals: [500, 1000, 2000] })
+    .toContain('"transitivity":"transitive"');
+
+  await page.goto(`/decks?session_token=${token}`);
+  await expect(page.getByText('告知练习').first()).toBeVisible({ timeout: 30000 });
+  await page.goto(`/study?deck=${deck.id}&autostart=true`);
+  const skip = page.getByTestId('skip-recording');
+  await expect(skip).toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(500);
+  const explainer = page.getByRole('button', { name: 'Got it' });
+  if (await explainer.isVisible().catch(() => false)) await explainer.click();
+  await skip.click();
+
+  const tags = page.getByTestId('study-card-back').getByTestId('word-tags');
+  await expect(tags).toContainText('Verb');
+  await expect(tags).toContainText('Takes an object');
+  await expect(tags.locator('[data-ai="true"]')).toHaveCount(2);
+  await tags.getByRole('button', { name: 'Formal (suggested by AI)' }).click();
+  const sheet = page.getByTestId('word-tag-sheet');
+  await expect(sheet.getByTestId('word-tag-sheet-ai')).toContainText('Suggested by AI — may be wrong');
+  await expect(sheet.getByTestId('word-tag-sheet-note')).toHaveText('formal written; in speech use 告诉');
+});

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { FrequencyIndex } from '@shared/decks';
-import { wordTagExplanation, wordTagKey, wordTags, type WordTag, type WordTagKind, type WordTagLexicon } from '@shared/cards/word-tags';
+import { wordTagKey, type WordTag, type WordTagKind, type WordTagLexicon } from '@shared/cards/word-tags';
+import { AI_WORD_TAG_NOTICE, explainWordTag, parseAiWordTags, wordTagsWithAi, type AiWordTags } from '@shared/cards/word-tags-ai';
 import { loadWordTagLexicon, onWordTagsPrefChange, readWordTagsOn } from '../../services/wordTags';
 import { loadWordFrequency } from '../../services/wordFrequency';
 import { track } from '../../services/analytics';
@@ -37,16 +38,21 @@ export function useWordTagsOn(): boolean {
  * The quiet row of word tags (docs/STUDY_SESSION.md "Word tags") — under the meaning on a
  * card's answer side and in the explorer's Word view header. Part of speech, separable verb,
  * register, measure word, HSK level, how common, traditional form, from the shipped lexicon
- * (shared/cards/word-tags.ts) — no network, no AI. A tap on a pill opens a one-line
- * explanation. Renders nothing while loading, when there are no tags, or when switched off.
+ * (shared/cards/word-tags.ts) — no network. Where the lexicon has nothing, the note's AI verdict
+ * (`aiTags` = notes.word_tags, shared/cards/word-tags-ai.ts) adds transitivity / a register,
+ * marked ✨. A tap on a pill opens a one-line explanation. Renders nothing while loading, when
+ * there are no tags, or when switched off.
  */
 export function WordTagPills({
   hanzi,
+  aiTags,
   source,
   exclude,
   className,
 }: {
   hanzi: string;
+  /** The note's AI word tags (notes.word_tags JSON); absent / null = lexicon only. */
+  aiTags?: string | null;
   source: 'study' | 'explorer';
   exclude?: readonly WordTagKind[];
   className?: string;
@@ -56,11 +62,12 @@ export function WordTagPills({
   const [open, setOpen] = useState<WordTag | null>(null);
   const key = wordTagKey(hanzi);
   const excludeKey = (exclude ?? []).join(',');
+  const ai = useMemo(() => parseAiWordTags(aiTags ?? null), [aiTags]);
   const tags = useMemo(() => {
     if (!lexicon) return [];
     const rank = freq ? (([...key].length === 1 ? freq.chars.get(key) : freq.words.get(key)) ?? null) : undefined;
-    return wordTags(hanzi, lexicon, { rank, exclude: excludeKey ? (excludeKey.split(',') as WordTagKind[]) : [] });
-  }, [hanzi, key, lexicon, freq, excludeKey]);
+    return wordTagsWithAi(hanzi, lexicon, ai, { rank, exclude: excludeKey ? (excludeKey.split(',') as WordTagKind[]) : [] });
+  }, [hanzi, key, lexicon, freq, excludeKey, ai]);
 
   useEffect(() => {
     setOpen(null);
@@ -74,26 +81,50 @@ export function WordTagPills({
           <button
             key={t.id}
             type="button"
-            className={`word-tag word-tag--${t.tone}${t.kind === 'frequency' ? ` freq-decal freq-decal--${t.tone}` : ''}`}
+            className={`word-tag word-tag--${t.tone}${t.kind === 'frequency' ? ` freq-decal freq-decal--${t.tone}` : ''}${t.ai ? ' word-tag--ai' : ''}`}
             data-tag={t.id}
+            data-ai={t.ai ? 'true' : undefined}
+            aria-label={t.ai ? `${t.label} (suggested by AI)` : undefined}
             onClick={(e) => {
               e.stopPropagation();
               setOpen(t);
-              track('study.word_tag_open', { kind: t.kind, tag: t.id, source });
+              track('study.word_tag_open', { kind: t.kind, tag: t.id, source, tag_source: t.ai ? 'ai' : 'lexicon' });
             }}
           >
+            {t.ai && <AiMark />}
             <span lang={t.kind === 'trad' || t.kind === 'measure' ? 'zh-CN' : undefined}>{t.label}</span>
           </button>
         ))}
       </div>
-      {open && <WordTagSheet tag={open} hanzi={hanzi} lexicon={lexicon} onClose={() => setOpen(null)} />}
+      {open && <WordTagSheet tag={open} hanzi={hanzi} lexicon={lexicon} ai={ai} onClose={() => setOpen(null)} />}
     </>
   );
 }
 
-/** The tiny explanation sheet: what the tag means, one example, where it comes from. */
-function WordTagSheet({ tag, hanzi, lexicon, onClose }: { tag: WordTag; hanzi: string; lexicon: WordTagLexicon | null; onClose: () => void }) {
-  const e = wordTagExplanation(tag, hanzi, lexicon);
+/** The ✨ before an AI-suggested pill's label. */
+function AiMark() {
+  return (
+    <span className="word-tag-ai-mark" aria-hidden="true">
+      ✨
+    </span>
+  );
+}
+
+/** The tiny explanation sheet: what the tag means, one example, where it comes from (+ the AI notice and note). */
+function WordTagSheet({
+  tag,
+  hanzi,
+  lexicon,
+  ai,
+  onClose,
+}: {
+  tag: WordTag;
+  hanzi: string;
+  lexicon: WordTagLexicon | null;
+  ai: AiWordTags | null;
+  onClose: () => void;
+}) {
+  const e = explainWordTag(tag, hanzi, lexicon, ai);
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') {
@@ -118,10 +149,24 @@ function WordTagSheet({ tag, hanzi, lexicon, onClose }: { tag: WordTag; hanzi: s
       <div className="word-tag-sheet" role="dialog" aria-label={e.title} data-testid="word-tag-sheet" onClick={(ev) => ev.stopPropagation()}>
         <div className="word-tag-sheet-grip" aria-hidden="true" />
         <div className="word-tag-sheet-head">
-          <span className={`word-tag word-tag--${tag.tone} word-tag--static${tag.kind === 'frequency' ? ` freq-decal freq-decal--${tag.tone}` : ''}`}>{tag.label}</span>
+          <span className={`word-tag word-tag--${tag.tone} word-tag--static${tag.kind === 'frequency' ? ` freq-decal freq-decal--${tag.tone}` : ''}${tag.ai ? ' word-tag--ai' : ''}`}>
+            {tag.ai && <AiMark />}
+            {tag.label}
+          </span>
           <h2 className="word-tag-sheet-title">{e.title}</h2>
         </div>
+        {e.ai && (
+          <p className="word-tag-sheet-ai" data-testid="word-tag-sheet-ai">
+            <span aria-hidden="true">✨ </span>
+            {AI_WORD_TAG_NOTICE}
+          </p>
+        )}
         <p className="word-tag-sheet-body">{e.body}</p>
+        {e.note && (
+          <p className="word-tag-sheet-note" data-testid="word-tag-sheet-note">
+            {e.note}
+          </p>
+        )}
         {e.example && (
           <p className="word-tag-sheet-example" lang="zh-CN">
             {e.example}

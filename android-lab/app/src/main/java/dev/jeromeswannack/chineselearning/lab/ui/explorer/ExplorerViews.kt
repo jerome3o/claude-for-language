@@ -239,7 +239,7 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
         }
         // The card's word tags (docs/STUDY_SESSION.md "Word tags"); how common it is is the pill above.
         dev.jeromeswannack.chineselearning.lab.ui.study.WordTagsFor(
-            ui.hanzi, source = "explorer", exclude = EXPLORER_TAG_EXCLUDE, centred = false, modifier = Modifier.padding(top = 6.dp),
+            ui.hanzi, source = "explorer", aiTags = ui.mine?.card?.wordTags, exclude = EXPLORER_TAG_EXCLUDE, centred = false, modifier = Modifier.padding(top = 6.dp),
         )
         if (ui.lookup == WordDict.Lookup.Offline && r.source != WordSource.DICTIONARY) {
             Spacer(Modifier.height(10.dp))

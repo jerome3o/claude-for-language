@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { cleanGloss, findGlossSegment, formatGloss, glossCacheKey, glossChipLabel, isHanChar, GLOSS_MAX_SEGMENT } from './gloss';
+import {
+  cleanChineseGloss,
+  cleanGloss,
+  findGlossSegment,
+  formatGloss,
+  glossCacheKey,
+  glossChipLabel,
+  glossDirectionOf,
+  glossStoreKey,
+  isHanChar,
+  GLOSS_CACHE_VERSION,
+  GLOSS_MAX_SEGMENT,
+} from './gloss';
 
 /** Caret at the end of `text` (in characters). */
 const atEnd = (text: string, composing = false) => {
@@ -9,8 +21,8 @@ const atEnd = (text: string, composing = false) => {
 
 describe('findGlossSegment — when to suggest', () => {
   it('glosses the Chinese run ending at the caret', () => {
-    expect(atEnd('你好')).toEqual({ ok: true, segment: '你好', start: 0, end: 2 });
-    expect(atEnd('我想喝咖啡')).toEqual({ ok: true, segment: '我想喝咖啡', start: 0, end: 5 });
+    expect(atEnd('你好')).toEqual({ ok: true, segment: '你好', start: 0, end: 2, direction: 'zh' });
+    expect(atEnd('我想喝咖啡')).toEqual({ ok: true, segment: '我想喝咖啡', start: 0, end: 5, direction: 'zh' });
   });
 
   it('never suggests while an IME composition is open', () => {
@@ -21,12 +33,51 @@ describe('findGlossSegment — when to suggest', () => {
     expect(findGlossSegment('你好', 0, 2)).toEqual({ ok: false, reason: 'selection' });
   });
 
-  it('only when the text just before the caret is Chinese', () => {
-    expect(atEnd('hello')).toEqual({ ok: false, reason: 'no_chinese' });
-    expect(atEnd('你好 ')).toEqual({ ok: false, reason: 'no_chinese' });
-    expect(atEnd('')).toEqual({ ok: false, reason: 'no_chinese' });
-    expect(atEnd('。')).toEqual({ ok: false, reason: 'no_chinese' });
-    expect(atEnd('你好 - nǐ hǎo - hello')).toEqual({ ok: false, reason: 'no_chinese' });
+  it('only when the text just before the caret is Chinese or English', () => {
+    expect(atEnd('你好 ')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('。')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('hello ')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('hello.')).toEqual({ ok: false, reason: 'no_text' });
+    // Pinyin with tone marks is not English.
+    expect(atEnd('nǐ hǎo')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('wǒ xiǎng')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('xiǎng')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('café')).toEqual({ ok: false, reason: 'no_text' });
+    // After a whole gloss: nothing more to suggest.
+    expect(atEnd('你好 - nǐ hǎo - hello')).toEqual({ ok: false, reason: 'already_glossed' });
+    expect(atEnd('apple - 苹果 - píngguǒ')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('of - 的 - de')).toEqual({ ok: false, reason: 'already_glossed' });
+    expect(atEnd('你好 - ni hao - hello there')).toEqual({ ok: false, reason: 'already_glossed' });
+    expect(atEnd('好 — hao')).toEqual({ ok: false, reason: 'already_glossed' });
+  });
+
+  it('glosses an English word or short phrase the other way round', () => {
+    expect(atEnd('hello')).toEqual({ ok: true, segment: 'hello', start: 0, end: 5, direction: 'en' });
+    expect(atEnd('to take a shower')).toMatchObject({ ok: true, segment: 'to take a shower', direction: 'en' });
+    expect(atEnd("don't worry")).toMatchObject({ ok: true, segment: "don't worry", direction: 'en' });
+    expect(atEnd('ice-cream')).toMatchObject({ ok: true, segment: 'ice-cream', direction: 'en' });
+    expect(atEnd('3 apples')).toMatchObject({ ok: true, segment: '3 apples', direction: 'en' });
+    expect(atEnd('COVID-19')).toMatchObject({ ok: true, segment: 'COVID-19', direction: 'en' });
+    // Abbreviations of two letters count; a single letter / a number alone don't.
+    expect(atEnd('OK')).toMatchObject({ ok: true, segment: 'OK', direction: 'en' });
+    expect(atEnd('I')).toEqual({ ok: false, reason: 'too_short' });
+    expect(atEnd('a')).toEqual({ ok: false, reason: 'too_short' });
+    expect(atEnd('2026')).toEqual({ ok: false, reason: 'too_short' });
+    // A sentence boundary starts the run afresh; leading spaces are not part of it.
+    expect(atEnd('Good. See you tomorrow')).toEqual({ ok: true, segment: 'See you tomorrow', start: 6, end: 22, direction: 'en' });
+    expect(atEnd('Hi, how are you')).toMatchObject({ ok: true, segment: 'how are you' });
+    // Too long for a "word or short phrase".
+    expect(atEnd('one two three four five six seven eight nine')).toEqual({ ok: false, reason: 'too_long' });
+    expect(atEnd('one two three four five six seven eight')).toMatchObject({ ok: true, direction: 'en' });
+    expect(atEnd('x'.repeat(61))).toEqual({ ok: false, reason: 'too_long' });
+  });
+
+  it('on a mixed line takes the last run: Han → zh, Latin → en', () => {
+    expect(atEnd('我喜欢apple')).toEqual({ ok: true, segment: 'apple', start: 3, end: 8, direction: 'en' });
+    expect(atEnd('我喜欢 green tea')).toMatchObject({ ok: true, segment: 'green tea', direction: 'en' });
+    expect(atEnd('apple 苹果')).toMatchObject({ ok: true, segment: '苹果', direction: 'zh' });
+    expect(atEnd('我有3')).toEqual({ ok: false, reason: 'too_short' });
   });
 
   it('keeps Chinese punctuation inside and at the end, drops it at the start', () => {
@@ -36,17 +87,17 @@ describe('findGlossSegment — when to suggest', () => {
   });
 
   it('on a mixed line takes only the trailing Chinese run', () => {
-    expect(atEnd('Today we learned 苹果')).toEqual({ ok: true, segment: '苹果', start: 17, end: 19 });
+    expect(atEnd('Today we learned 苹果')).toEqual({ ok: true, segment: '苹果', start: 17, end: 19, direction: 'zh' });
     expect(atEnd('I like 苹果 and 香蕉')).toMatchObject({ ok: true, segment: '香蕉' });
     expect(atEnd('abc苹果')).toMatchObject({ ok: true, segment: '苹果', start: 3 });
     expect(atEnd('你好 - nǐ hǎo - hello 谢谢')).toMatchObject({ ok: true, segment: '谢谢' });
   });
 
   it('works on the current line only', () => {
-    expect(atEnd('你好\n谢谢')).toEqual({ ok: true, segment: '谢谢', start: 3, end: 5 });
-    expect(atEnd('你好\n')).toEqual({ ok: false, reason: 'no_chinese' });
+    expect(atEnd('你好\n谢谢')).toEqual({ ok: true, segment: '谢谢', start: 3, end: 5, direction: 'zh' });
+    expect(atEnd('你好\n')).toEqual({ ok: false, reason: 'no_text' });
     // Caret at the end of line 1, line 2 below.
-    expect(findGlossSegment('你好\nhello', 2, 2)).toEqual({ ok: true, segment: '你好', start: 0, end: 2 });
+    expect(findGlossSegment('你好\nhello', 2, 2)).toEqual({ ok: true, segment: '你好', start: 0, end: 2, direction: 'zh' });
   });
 
   it('not when the line already has a gloss after the run', () => {
@@ -74,18 +125,19 @@ describe('findGlossSegment — when to suggest', () => {
   });
 
   it('counts characters as code points (supplementary ideographs)', () => {
-    expect(atEnd('a𠀀好')).toEqual({ ok: true, segment: '𠀀好', start: 1, end: 3 });
+    expect(atEnd('a𠀀好')).toEqual({ ok: true, segment: '𠀀好', start: 1, end: 3, direction: 'zh' });
     expect(isHanChar('𠀀')).toBe(true);
     expect(isHanChar('a')).toBe(false);
     expect(isHanChar('〇')).toBe(true);
   });
 
   it('a caret on a line below other Chinese lines glosses only its own line', () => {
-    expect(atEnd('你好\n谢谢\n再见')).toEqual({ ok: true, segment: '再见', start: 6, end: 8 });
+    expect(atEnd('你好\n谢谢\n再见')).toEqual({ ok: true, segment: '再见', start: 6, end: 8, direction: 'zh' });
     expect(atEnd('你好。\n我们')).toMatchObject({ ok: true, segment: '我们' });
-    // An empty or English line below Chinese ones: nothing to gloss, never reaching up.
-    expect(atEnd('你好\n谢谢\n')).toEqual({ ok: false, reason: 'no_chinese' });
-    expect(atEnd('你好\nok')).toEqual({ ok: false, reason: 'no_chinese' });
+    // An empty line below Chinese ones: nothing to gloss, never reaching up; an English one is glossed on its own.
+    expect(atEnd('你好\n谢谢\n')).toEqual({ ok: false, reason: 'no_text' });
+    expect(atEnd('你好\nok')).toEqual({ ok: true, segment: 'ok', start: 3, end: 5, direction: 'en' });
+    expect(atEnd('hello\nworld')).toMatchObject({ ok: true, segment: 'world', start: 6 });
     // Windows line endings.
     expect(atEnd('你好\r\n谢谢')).toMatchObject({ ok: true, segment: '谢谢' });
     // A long line never pulls text from the line above even when shorter than the cap.
@@ -105,8 +157,39 @@ describe('formatGloss', () => {
     expect('你好' + formatGloss({ pinyin: 'nǐ hǎo', english: 'hello' })).toBe('你好 - nǐ hǎo - hello');
     expect(glossChipLabel({ pinyin: 'nǐ hǎo', english: 'hello' })).toBe('⇥ nǐ hǎo - hello');
   });
-  it('cache key is the trimmed NFC text', () => {
+  it('after English: " - 中文 - pīnyīn"', () => {
+    expect(formatGloss({ chinese: '苹果', pinyin: 'píngguǒ' })).toBe(' - 苹果 - píngguǒ');
+    expect('apple' + formatGloss({ chinese: '苹果', pinyin: 'píng\nguǒ ' })).toBe('apple - 苹果 - píng guǒ');
+    expect(glossChipLabel({ chinese: '苹果', pinyin: 'píngguǒ' })).toBe('⇥ 苹果 - píngguǒ');
+  });
+  it('cache key is the trimmed NFC text; the store key adds the rules version and direction', () => {
     expect(glossCacheKey(' 你好 ')).toBe('你好');
+    expect(glossStoreKey(' 你好 ', 'zh')).toBe(`v${GLOSS_CACHE_VERSION}:zh:你好`);
+    expect(glossStoreKey('apple', 'en')).toBe(`v${GLOSS_CACHE_VERSION}:en:apple`);
+    expect(GLOSS_CACHE_VERSION).toBeGreaterThanOrEqual(2);
+  });
+  it('direction of a bare text', () => {
+    expect(glossDirectionOf('apple')).toBe('en');
+    expect(glossDirectionOf('我喜欢apple')).toBe('zh');
+  });
+});
+
+describe('cleanChineseGloss — Claude reply for English → board text', () => {
+  it('accepts a good reply and tidies it', () => {
+    expect(cleanChineseGloss({ chinese: '苹果', pinyin: 'píngguǒ' })).toEqual({ chinese: '苹果', pinyin: 'píngguǒ' });
+    expect(cleanChineseGloss({ chinese: ' “我 想 洗澡。” ', pinyin: 'wo3 xiang3\nxi3zao3' })).toEqual({ chinese: '我想洗澡', pinyin: 'wǒ xiǎng xǐzǎo' });
+    expect(cleanChineseGloss({ chinese: '你好吗？', pinyin: 'nǐ hǎo ma?' })).toEqual({ chinese: '你好吗？', pinyin: 'nǐ hǎo ma?' });
+  });
+  it('rejects bad shapes', () => {
+    expect(cleanChineseGloss(null)).toBeNull();
+    expect(cleanChineseGloss({ pinyin: 'píngguǒ' })).toBeNull();
+    expect(cleanChineseGloss({ chinese: 'apple', pinyin: 'píngguǒ' })).toBeNull();
+    expect(cleanChineseGloss({ chinese: '苹果/苹果树', pinyin: 'píngguǒ' })).toBeNull();
+    expect(cleanChineseGloss({ chinese: '苹果 - 水果', pinyin: 'píngguǒ' })).toBeNull();
+    expect(cleanChineseGloss({ chinese: 'OK的', pinyin: 'ōukèi de' })).toBeNull();
+    expect(cleanChineseGloss({ chinese: '苹果', pinyin: '' })).toBeNull();
+    expect(cleanChineseGloss({ chinese: '苹果', pinyin: '苹果' })).toBeNull();
+    expect(cleanChineseGloss({ chinese: '我'.repeat(60), pinyin: 'wǒ' })).toBeNull();
   });
 });
 

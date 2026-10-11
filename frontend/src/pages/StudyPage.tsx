@@ -1560,7 +1560,7 @@ export function StudyCard({
         <TutorNoteLine notes={tutorNotes} />
         <div className="study-back-meaning">{card.note.english}</div>
         {/* Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off) */}
-        <WordTagPills hanzi={card.note.hanzi} source="study" />
+        <WordTagPills hanzi={card.note.hanzi} aiTags={card.note.word_tags} source="study" />
 
         {/* Play · Record again — the only controls between the meaning and the action row */}
         <div className="study-back-pills">
