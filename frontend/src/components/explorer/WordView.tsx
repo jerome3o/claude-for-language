@@ -20,6 +20,7 @@ import { useTTS } from '../../hooks/useAudio';
 import { db, type LocalNote } from '../../db/database';
 import { AddChunkModal } from '../AddChunkModal';
 import { BumpButton } from '../bumps/BumpButton';
+import { WordTagPills } from '../wordTags/WordTagPills';
 import { ExplorableText } from './ExplorableText';
 import { useExplorer } from './ExplorerContext';
 import { WordRows } from './CharacterView';
@@ -207,6 +208,8 @@ export function WordView({
       <div className="xp-chips">
         <span className={`xp-freq xp-freq--${freq.tier}`} data-testid="explorer-word-freq">{freq.text}</span>
       </div>
+      {/* The card's word tags (docs/STUDY_SESSION.md "Word tags"); how common it is is the chip above. */}
+      <WordTagPills hanzi={hanzi} source="explorer" exclude={['frequency']} className="word-tags--left" />
 
       {showIdiomLink(hanzi, { known: idiomKnown, senses: word.senses }) && (
         <button

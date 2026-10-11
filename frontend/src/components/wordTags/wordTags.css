@@ -1,0 +1,168 @@
+/* Word tags (docs/STUDY_SESSION.md "Word tags"): small, muted pills under the meaning.
+ * Subtle on purpose — they inform, the meaning stays the star. Each pill is a button (tap = what
+ * it means); the visible pill is small but the tap area is 32px tall with the row gap. */
+.word-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.375rem;
+  margin: 0.5rem auto 0;
+  max-width: 34rem;
+}
+
+.word-tags--left {
+  justify-content: flex-start;
+}
+
+.word-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 0.625rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--word-tag-bg, #f3f4f6);
+  color: var(--word-tag-fg, #4b5563);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.word-tag:active {
+  filter: brightness(0.95);
+}
+
+.word-tag:focus-visible {
+  outline: 2px solid var(--color-primary, #dc2626);
+  outline-offset: 2px;
+}
+
+.word-tag--static {
+  cursor: default;
+}
+
+/* Tones — all low-saturation tints with ≥ 4.5:1 text. */
+.word-tag--plain {
+  --word-tag-bg: #f3f4f6;
+  --word-tag-fg: #4b5563;
+}
+.word-tag--grammar {
+  --word-tag-bg: #ede9fe;
+  --word-tag-fg: #5b21b6;
+}
+.word-tag--formal {
+  --word-tag-bg: #e0f2fe;
+  --word-tag-fg: #075985;
+}
+.word-tag--casual {
+  --word-tag-bg: #fef3c7;
+  --word-tag-fg: #92400e;
+}
+.word-tag--warning {
+  --word-tag-bg: #fee2e2;
+  --word-tag-fg: #991b1b;
+}
+.word-tag--level {
+  --word-tag-bg: #ccfbf1;
+  --word-tag-fg: #115e59;
+}
+/* Frequency: the explorer's decal outline on a white pill (freq-decal adds the outline). */
+.word-tag--top100,
+.word-tag--top1000,
+.word-tag--top2000,
+.word-tag--rare {
+  --word-tag-bg: #ffffff;
+  --word-tag-fg: #374151;
+}
+
+:root[data-theme='dark'] .word-tag--plain { --word-tag-bg: #2a2a30; --word-tag-fg: #d4d4d8; }
+:root[data-theme='dark'] .word-tag--grammar { --word-tag-bg: #2e2348; --word-tag-fg: #c4b5fd; }
+:root[data-theme='dark'] .word-tag--formal { --word-tag-bg: #12304a; --word-tag-fg: #7dd3fc; }
+:root[data-theme='dark'] .word-tag--casual { --word-tag-bg: #3a2a10; --word-tag-fg: #fcd34d; }
+:root[data-theme='dark'] .word-tag--warning { --word-tag-bg: #3f1d1d; --word-tag-fg: #fca5a5; }
+:root[data-theme='dark'] .word-tag--level { --word-tag-bg: #113532; --word-tag-fg: #5eead4; }
+:root[data-theme='dark'] .word-tag--top100,
+:root[data-theme='dark'] .word-tag--top1000,
+:root[data-theme='dark'] .word-tag--top2000,
+:root[data-theme='dark'] .word-tag--rare { --word-tag-bg: #1c1c20; --word-tag-fg: #e4e4e7; }
+
+/* The explanation sheet sits above everything, the explorer sheet included. */
+.word-tag-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1200;
+}
+
+.word-tag-sheet {
+  --sheet-pad: 1rem;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 auto;
+  max-width: 640px;
+  max-height: 70dvh;
+  overflow-y: auto;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #111827);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+  padding: 0.375rem var(--sheet-pad) 0;
+  z-index: 1201;
+  text-align: left;
+}
+
+.word-tag-sheet-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border, #e5e7eb);
+  margin: 0.25rem auto 0.75rem;
+}
+
+.word-tag-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.word-tag-sheet-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.word-tag-sheet-body {
+  margin: 0.75rem 0 0;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.word-tag-sheet-example {
+  margin: 0.625rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: var(--color-background, #f9fafb);
+  font-size: 1.125rem;
+}
+
+.word-tag-sheet-source {
+  margin: 0.625rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+}
+
+.word-tag-sheet-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+.word-tag-sheet-footer .btn {
+  min-height: 44px;
+}

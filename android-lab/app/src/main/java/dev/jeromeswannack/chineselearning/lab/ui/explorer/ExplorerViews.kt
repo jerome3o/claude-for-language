@@ -198,6 +198,7 @@ const val EXPLORER_WORD_TAG = "explorer-word"
 const val EXPLORER_WORD_CHAR_TAG = "explorer-word-char"
 const val EXPLORER_RELATED_TAG = "explorer-related"
 const val EXPLORER_MORE_TAG = "explorer-more"
+private val EXPLORER_TAG_EXCLUDE = setOf("frequency")
 const val EXPLORER_RELATED_TILE_TAG = "explorer-related-tile"
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -236,6 +237,10 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
                 else -> Unit
             }
         }
+        // The card's word tags (docs/STUDY_SESSION.md "Word tags"); how common it is is the pill above.
+        dev.jeromeswannack.chineselearning.lab.ui.study.WordTagsFor(
+            ui.hanzi, source = "explorer", exclude = EXPLORER_TAG_EXCLUDE, centred = false, modifier = Modifier.padding(top = 6.dp),
+        )
         if (ui.lookup == WordDict.Lookup.Offline && r.source != WordSource.DICTIONARY) {
             Spacer(Modifier.height(10.dp))
             InlineNotice("You’re offline — the dictionary entry loads next time you’re online. Showing what’s on this phone.", kind = NoticeKind.Offline, modifier = Modifier.testTag("explorer-word-offline"))

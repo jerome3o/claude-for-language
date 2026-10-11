@@ -58,6 +58,7 @@ object AnalyticsEvents {
         ev("explorer.drill_start", "study", listOf("kind", "items")),
         ev("explorer.drill_finish", "study", listOf("kind", "items", "correct", "duration_ms")),
         ev("explorer.write", "study", emptyList()),
+        ev("study.word_tag_open", "study", listOf("kind", "tag", "source")),
         ev("study.study_more", "study", listOf("count")),
         ev("study.celebration", "study", listOf("reviews", "active_ms")),
         ev("study.long_term_toggle", "study", listOf("value")),

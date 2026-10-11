@@ -505,7 +505,7 @@ All session logic works offline. Reviews are stored locally and synced when conn
 
 ## Card back layout
 
-The back of a card is: hanzi · pinyin · (tutor note) · meaning · **Play** · **Record
+The back of a card is: hanzi · pinyin · (tutor note) · meaning · the word tags (below) · **Play** · **Record
 again** · the **example sentences**, always visible (the card's own sentence first, then
 the generated set — `components/SentenceSet.tsx` in `compact` mode). The list scrolls
 inside the card; the footer stays put: one action row **Ask Claude · Edit card · ⋯**
@@ -567,6 +567,46 @@ Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRe
 `keepNewTake` in `StudyViewModel.kt` (`RecordAgainFlipTest`). The replay: web
 `replayAfterReRecordRef` in `StudyPage.tsx` (plays when the new take's blob lands); Lab
 `recordingAgain` / `playWordAfterRecordAgain` in `StudyViewModel.kt` (`RecordAgainAutoplayTest`).
+
+## Word tags
+
+Under the meaning on the answer side sits a quiet row of small pills — **metadata about the word,
+with no AI**: part of speech (≤ 2: Noun · Verb · Adjective · Adverb · Measure word · Pronoun ·
+Question word · Preposition · Conjunction · Particle · Number · Time word · Position word ·
+Idiom 成语 · Set phrase · Name …), **Separable verb** (离合词), register (≤ 2: Polite · Formal ·
+Literary · Colloquial · Informal · Slang · Rude · Derogatory · Humorous · Euphemism · Dated ·
+Regional · Taiwan · Cantonese), **Measure: 本 běn** (≤ 2), **HSK 3** (HSK 3.0, 2021; 7–9 as one
+band), how common (Top 100 / 1,000 / 2,000 / Rare — the explorer's decal colours, from the
+shipped word-freq list) and **Trad. 長得**. A tap on a pill opens a tiny sheet: what it means in
+one or two lines, an example (the separable verb's split — 睡了一个好觉 — or 一本书 built from the
+word), and where it comes from. The pills are buttons, so they never peek the card. The question
+side has none. The same pills (minus how common) head the explorer's Word view.
+
+A sentence or phrase card gets only what applies: "Phrase" for 2–6 Han characters that aren't a
+dictionary word (not for a card ending in 。？！ or with a comma), and the register words found in it
+(您, 请问, 贵姓, 啥, 干嘛…, and 请 only at the start of a clause — 请坐, not 申请).
+
+**Settings → Study → "Word tags on the answer"** turns them off (on by default, per device: web
+localStorage `word-tags-on-answer-v1`, Lab `StudyPrefs.wordTagsOn`).
+
+**Data** (`shared/data/word-tags/word-tags.txt`, ~45,000 words and characters, ~580 kB / 250 kB
+gzipped; sources and licences in its README): part of speech from HanLP's CoreNatureDictionary
+(Apache-2.0, corpus tag counts; a second part of speech only with ≥ 20 % of the first's count) with
+jieba (MIT) for words HanLP lacks; register, measure words, idioms and traditional forms from
+CC-CEDICT — register only from the FIRST sense of a word of 2+ characters, and only what every
+common reading shares (single characters' first senses are often archaic: 派 "(literary) tributary");
+HSK levels from complete-hsk-vocabulary (MIT); separable verbs and the register of everyday
+polite / informal / slang / rude words curated in `shared/cards/word-tags-curated.ts`. HanLP's
+"intransitive verb" tag is deliberately NOT used — it marks 喜欢, 叫, 从事 and 停 intransitive — so
+transitivity is never shown; the separable-verb sheet says they take no object. Built by
+`npm run build:word-tags` (`scripts/build-word-tags.ts`, rules in `shared/cards/word-tags-build.ts`).
+Web: loaded lazily as a precached chunk (`services/wordTags.ts`), works offline. Lab: the same file
+as a core resource.
+
+Rules: `shared/cards/word-tags.ts` (`wordTags`, `wordTagExplanation`; Lab `core/…/cards/WordTags.kt`,
+parity-tested over the shipped file by `android-lab/parity/fixtures/word-tags.ts`). Web
+`components/wordTags/WordTagPills.tsx`; Lab `ui/study/WordTagsUi.kt`. Event: `study.word_tag_open`
+`{ kind, tag, source }`; the switch: `settings.change { setting: 'word_tags' }`.
 
 ## Ask Claude — answers in Chinese, the chat's look and tools
 
