@@ -81,8 +81,8 @@ export function parseWordTagLexicon(text: string): WordTagLexicon {
   return { words, markers };
 }
 
-/** `transitivity` only ever comes from the AI pass (shared/cards/word-tags-ai.ts). */
-export type WordTagKind = 'pos' | 'separable' | 'transitivity' | 'register' | 'measure' | 'hsk' | 'frequency' | 'trad' | 'phrase';
+/** `transitivity` and `spoken` (Everyday speech) only ever come from the AI pass (shared/cards/word-tags-ai.ts). */
+export type WordTagKind = 'pos' | 'separable' | 'transitivity' | 'register' | 'measure' | 'hsk' | 'frequency' | 'spoken' | 'trad' | 'phrase';
 
 /** Colour family of a pill — all muted; register tags tint by how careful you need to be. */
 export type WordTagTone = 'plain' | 'grammar' | 'formal' | 'casual' | 'warning' | 'level' | FrequencyDecal;
@@ -189,6 +189,16 @@ const FREQUENCY_LABELS: Readonly<Record<FrequencyDecal, string>> = {
   rare: 'Rare',
 };
 
+/**
+ * The HSK level of a word or character (a character: its level as a one-character word), from
+ * the lexicon; null = not on the list, or the lexicon isn't loaded. The frequency decals pass it
+ * to frequencyTier so an HSK word is never "rare" — on the card's pills and the explorer's tiles.
+ */
+export function hskLevel(lexicon: WordTagLexicon | null | undefined, text: string): number | null {
+  if (!lexicon) return null;
+  return lexicon.words.get(wordTagKey(text))?.hsk ?? null;
+}
+
 export function hskLabel(level: number): string {
   return level >= 7 ? 'HSK 7–9' : `HSK ${level}`;
 }
@@ -256,7 +266,8 @@ export function wordTags(hanzi: string, lexicon: WordTagLexicon | null, options:
   if (entry.measures.length) push({ kind: 'measure', id: 'measure', label: measureLabel(entry.measures), tone: 'plain' });
   if (entry.hsk !== null) push({ kind: 'hsk', id: 'hsk', label: hskLabel(entry.hsk), tone: 'level' });
   if (options.rank !== undefined) {
-    const tier = frequencyTier(options.rank, [...key].length === 1 ? 'char' : 'word');
+    // An HSK word is never "Rare" (frequencyTier): the list counts mostly written text.
+    const tier = frequencyTier(options.rank, [...key].length === 1 ? 'char' : 'word', entry.hsk);
     if (tier) push({ kind: 'frequency', id: 'frequency', label: FREQUENCY_LABELS[tier], tone: tier });
   }
   if (entry.trad) push({ kind: 'trad', id: 'trad', label: `Trad. ${entry.trad}`, tone: 'plain' });

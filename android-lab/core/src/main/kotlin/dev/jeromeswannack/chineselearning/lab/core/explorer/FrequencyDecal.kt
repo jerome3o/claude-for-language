@@ -7,7 +7,8 @@ package dev.jeromeswannack.chineselearning.lab.core.explorer
  * (ExplorerParityTest).
  *
  *   top 100 → purple · top 1,000 → green · top 2,000 → yellow · in between → none
- *   rare → grey: not listed, or beyond RARE_WORD_RANK (words) / RARE_CHAR_RANK (characters)
+ *   rare → grey: not listed, or beyond RARE_WORD_RANK (words) / RARE_CHAR_RANK (characters) —
+ *          never for an HSK-listed word / character (`hsk`, WordTags.hskLevel): no outline instead
  */
 
 /** Port of `FrequencyDecal`. */
@@ -23,13 +24,17 @@ object FrequencyDecals {
     /** Port of RARE_CHAR_RANK (the 3,500 common characters of 现代汉语常用字表). */
     const val RARE_CHAR_RANK = 3_500
 
-    /** Port of `frequencyTier`: null / < 1 = not in the list → RARE; null = the unmarked middle band. */
-    fun tier(rank: Int?, kind: DecalKind = DecalKind.WORD): FrequencyDecal? {
-        if (rank == null || rank < 1) return FrequencyDecal.RARE
+    /**
+     * Port of `frequencyTier`: null / < 1 = not in the list → RARE; null = the unmarked middle band.
+     * [hsk] = the item's HSK level (WordTags.hskLevel): an HSK-listed item is never RARE (→ null).
+     */
+    fun tier(rank: Int?, kind: DecalKind = DecalKind.WORD, hsk: Int? = null): FrequencyDecal? {
+        val listed = hsk != null
+        if (rank == null || rank < 1) return if (listed) null else FrequencyDecal.RARE
         if (rank <= 100) return FrequencyDecal.TOP100
         if (rank <= 1000) return FrequencyDecal.TOP1000
         if (rank <= 2000) return FrequencyDecal.TOP2000
-        return if (rank > (if (kind == DecalKind.CHAR) RARE_CHAR_RANK else RARE_WORD_RANK)) FrequencyDecal.RARE else null
+        return if (rank > (if (kind == DecalKind.CHAR) RARE_CHAR_RANK else RARE_WORD_RANK) && !listed) FrequencyDecal.RARE else null
     }
 
     /** Port of `FREQUENCY_DECAL_KEY`: the legend behind the ⓘ, in order. */

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import type { FrequencyIndex } from '@shared/decks';
 import type { CharRecord, CharWord, CharWordRow, WordRecord } from '@shared/chars';
 import { buildDrill, relatedWords, resolveWord, wordChars, wordFrequencyLabel, type DrillTarget, type WordItem } from '@shared/explorer';
 import { hanCharacters } from '@shared/progress/known';
@@ -24,7 +23,7 @@ import { WordTagPills } from '../wordTags/WordTagPills';
 import { ExplorableText } from './ExplorableText';
 import { useExplorer } from './ExplorerContext';
 import { WordRows } from './CharacterView';
-import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor } from './FrequencyDecal';
+import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor, useDecalIndex } from './FrequencyDecal';
 
 const online = () => typeof navigator === 'undefined' || navigator.onLine;
 
@@ -87,7 +86,7 @@ export function WordView({
   const [charRecords, setCharRecords] = useState<CharRecord[]>([]);
   const [rank, setRank] = useState<number | null>(null);
   const [rankOf, setRankOf] = useState<((w: string) => number | null) | null>(null);
-  const [freqIdx, setFreqIdx] = useState<FrequencyIndex | null>(null);
+  const freqIdx = useDecalIndex();
   const [keyOpen, setKeyOpen] = useState(false);
   const [existing, setExisting] = useState<Array<{ note: LocalNote; deckName: string }> | null>(null);
   const [examples, setExamples] = useState<Example[]>([]);
@@ -121,7 +120,6 @@ export function WordView({
       if (!alive || !idx) return;
       setRank(idx.words.get(hanzi) ?? null);
       setRankOf(() => (w: string) => idx.words.get(w) ?? null);
-      setFreqIdx(idx);
     });
     void findExistingNotes(hanzi).then((e) => alive && setExisting(e)).catch(() => alive && setExisting([]));
     void examplesFor(hanzi).then((e) => alive && setExamples(e));

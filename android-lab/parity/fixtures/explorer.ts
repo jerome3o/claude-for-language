@@ -130,7 +130,15 @@ const freq = ranks.map((rank) => ({ rank, out: wordFrequencyLabel(rank) }));
 // Frequency decals: every edge of both cutoffs, plus seeded ranks across the list.
 const decalRanks = [null, 0, -1, 1, 2, 99, 100, 101, 500, 999, 1000, 1001, 1500, 1999, 2000, 2001, 3000, 3499, 3500, 3501, 5000, 9999, 10000, 10001, 29999, 30000, 1234567];
 for (let i = 0; i < 80; i++) decalRanks.push(int(1, 40000));
-const decals = decalRanks.map((rank) => ({ rank, word: frequencyTier(rank, 'word'), char: frequencyTier(rank, 'char'), default: frequencyTier(rank) }));
+const decals = decalRanks.map((rank) => ({
+  rank,
+  word: frequencyTier(rank, 'word'),
+  char: frequencyTier(rank, 'char'),
+  default: frequencyTier(rank),
+  // An HSK-listed word / character is never rare.
+  word_hsk: frequencyTier(rank, 'word', 3),
+  char_hsk: frequencyTier(rank, 'char', 7),
+}));
 const decalKey = { entries: FREQUENCY_DECAL_KEY, line: frequencyKeyLine() };
 
 const record = { hanzi: '银行', pinyin: 'yínháng', syllables: ['yín', 'háng'], english: 'bank', senses: ['bank', 'banking'], rank: 570 };

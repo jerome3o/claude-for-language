@@ -46,6 +46,8 @@ const KNOWN_TAGS: Record<string, Record<string, unknown>> = {
   告知: { transitivity: 'transitive', register: 'formal', register_note: 'formal written; in speech use 告诉', confidence: 'high' },
   搞定: { transitivity: 'transitive', register: 'informal', register_note: 'casual speech; at work say 完成', confidence: 'medium' },
   吃: { transitivity: 'both', register: 'neutral', confidence: 'low' },
+  结账: { transitivity: 'intransitive', register: 'neutral', confidence: 'high', spoken: 'everyday', spoken_confidence: 'high' },
+  买单: { transitivity: 'intransitive', register: 'informal', register_note: 'everyday speech; 结账 is more neutral', confidence: 'medium', spoken: 'everyday', spoken_confidence: 'high' },
 };
 
 export function fakeWordTagsClient(): Pick<Anthropic, 'messages'> {

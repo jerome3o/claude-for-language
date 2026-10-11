@@ -68,7 +68,7 @@ describe('check tools', () => {
 });
 
 describe('backfill_word_tags', () => {
-  const progress = { total: 5600, tagged: 1200, untagged: 4400, input_tokens: 90_000, output_tokens: 40_000, cost_usd: 0.29, queued_this_hour: 0, per_hour: 200 };
+  const progress = { total: 5600, tagged: 1200, untagged: 4400, outdated: 0, input_tokens: 90_000, output_tokens: 40_000, cost_usd: 0.29, queued_this_hour: 0, per_hour: 200 };
 
   it('queues the untagged notes now and reports progress + what is left', async () => {
     const { tools, calls } = fake({ 'POST /api/notes/word-tags/backfill': () => ({ ...progress, queued: 500 }) });
@@ -78,6 +78,12 @@ describe('backfill_word_tags', () => {
     expect(body.estimated_cost_left_usd).toBeGreaterThan(0);
     expect(body.message).toContain('1200 of 5600');
     expect(body.message).toContain('queued 500');
+  });
+
+  it('says how many notes have tags of an older version, to be redone', async () => {
+    const { tools } = fake({ 'GET /api/notes/word-tags/backfill': () => ({ ...progress, tagged: 0, untagged: 5600, outdated: 4400 }) });
+    const body = JSON.parse(text(await tools.get('backfill_word_tags')!({ status_only: true })));
+    expect(body.message).toContain('0 of 5600 notes have up-to-date AI word tags (4400 more have older tags, to be redone)');
   });
 
   it('status_only reads progress without queueing', async () => {

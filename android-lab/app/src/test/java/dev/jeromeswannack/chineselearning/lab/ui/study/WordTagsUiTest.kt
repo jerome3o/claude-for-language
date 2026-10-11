@@ -68,6 +68,12 @@ class WordTagsUiTest : LabScreenshotTest() {
         wordTags = """{"v":1,"transitivity":"transitive","register":"formal","register_note":"formal written; in speech use 告诉","confidence":"high"}""",
     )
     private val xiuxi = note("休息", "xiūxi", "to rest").copy(wordTags = """{"v":1,"transitivity":"intransitive","register":"neutral","confidence":"medium"}""")
+    private val jiezhang = note("结账", "jiézhàng", "to settle the bill")
+    private val jiezhangEveryday = jiezhang.copy(
+        wordTags = """{"v":2,"transitivity":"intransitive","register":"neutral","spoken":"everyday","spoken_confidence":"high","confidence":"high"}""",
+    )
+    /** HSK 1, but ranked ~16,000 by the written-text list. */
+    private val yikuair = note("一块儿", "yíkuàir", "together")
 
     @Before fun load() {
         // Read once like the app does after the first card (the UI then has them at once).
@@ -164,6 +170,28 @@ class WordTagsUiTest : LabScreenshotTest() {
         assertEquals(0, compose.onAllNodes(hasTestTag(wordTagTestTag("register:F"))).fetchSemanticsNodes().size)
     }
 
+    @Test fun withoutAVerdictItIsRare() {
+        showAnswer(jiezhang)
+        compose.onNodeWithText("Rare").assertIsDisplayed()
+    }
+
+    @Test fun everydaySpeechReplacesRare() {
+        showAnswer(jiezhangEveryday)
+        compose.onNodeWithText("Everyday speech").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(hasTestTag(wordTagTestTag("frequency"))).fetchSemanticsNodes().size)
+        compose.onNodeWithTag(wordTagTestTag("spoken:everyday")).performClick()
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithTag(WORD_TAG_SHEET_AI_TAG).assertExists()
+        compose.onNodeWithText("✨ Suggested by AI — may be wrong").assertExists()
+        assertEquals(0, peeks)
+    }
+
+    @Test fun anHskWordIsNeverRare() {
+        showAnswer(yikuair)
+        compose.onNodeWithText("HSK 1").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(hasTestTag(wordTagTestTag("frequency"))).fetchSemanticsNodes().size)
+    }
+
     @Test fun theSettingsRowFlipsThePref() {
         var on = true
         compose.setContent { LabTheme { SpokenAnswerSection(on = false, wordTagsOn = true, onWordTagsChange = { on = it }) {} } }
@@ -192,6 +220,11 @@ class WordTagsUiTest : LabScreenshotTest() {
     @Test fun shotAiAnswerDark() = shootAnswer("word-tags-11-answer-ai-dark", xiuxi, dark = true)
     @Test fun shotAiSheet() = shoot("word-tags-12-sheet-ai") { overCard(gaozhi) { aiSheetFor(gaozhi, "register:F") } }
     @Test fun shotAiSheetDark() = shoot("word-tags-13-sheet-ai-dark", dark = true) { overCard(gaozhi) { aiSheetFor(gaozhi, "transitivity:transitive") } }
+    @Test fun shotRareBefore() = shootAnswer("word-tags-14-answer-rare-before", jiezhang)
+    @Test fun shotEveryday() = shootAnswer("word-tags-15-answer-everyday", jiezhangEveryday)
+    @Test fun shotEverydayDark() = shootAnswer("word-tags-16-answer-everyday-dark", jiezhangEveryday, dark = true)
+    @Test fun shotEverydaySheet() = shoot("word-tags-17-sheet-everyday") { overCard(jiezhangEveryday) { aiSheetFor(jiezhangEveryday, "spoken:everyday") } }
+    @Test fun shotHskNotRare() = shootAnswer("word-tags-18-answer-hsk-not-rare", yikuair)
     @Test fun shotSettings() = shoot("word-tags-08-settings") {
         Column(Modifier.fillMaxSize().background(Lab.colors.background).padding(16.dp)) { SpokenAnswerSection(on = false, wordTagsOn = true) {} }
     }

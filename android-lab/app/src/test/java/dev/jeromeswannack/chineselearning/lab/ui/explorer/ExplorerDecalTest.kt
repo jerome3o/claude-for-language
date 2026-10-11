@@ -38,6 +38,11 @@ class ExplorerDecalTest {
         assertNull(decal("自行车", DecalKind.WORD))
         assertEquals(FrequencyDecal.RARE, decal("银子", DecalKind.WORD))
         assertEquals(FrequencyDecal.RARE, decal("收银台", DecalKind.WORD))
+        // An HSK word / character the written-text list ranks low is never grey (the card pill's rule).
+        assertNull(decal("一块儿", DecalKind.WORD))
+        assertNull(decal("一下儿", DecalKind.WORD))
+        assertNull(decal("拎", DecalKind.CHAR))
+        assertEquals(FrequencyDecal.RARE, decal("结账", DecalKind.WORD))
     }
 
     @Test fun keyToggles() {

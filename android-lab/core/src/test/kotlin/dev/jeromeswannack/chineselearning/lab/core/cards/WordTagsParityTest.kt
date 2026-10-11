@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -99,6 +100,11 @@ class WordTagsParityTest {
         for (h in data["hsk_labels"]!!.jsonArray.map { it.jsonArray }) {
             assertEquals(h[1].jsonPrimitive.content, WordTags.hskLabel(h[0].jsonPrimitive.int))
         }
+        for (h in data["hsk_levels"]!!.jsonArray.map { it.jsonObject }) {
+            val text = h["text"]!!.jsonPrimitive.content
+            assertEquals(h["level"]!!.jsonPrimitive.intOrNull, WordTags.hskLevel(lexicon, text), "hskLevel($text)")
+        }
+        assertEquals(null, WordTags.hskLevel(null, "书"))
         assertEquals(emptyList(), WordTags.tags("书", null))
     }
 

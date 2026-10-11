@@ -523,22 +523,27 @@ register, measure word, HSK level, how common, traditional form — from `shared
 (CC-CEDICT + HanLP + jieba + complete-hsk-vocabulary + the curated lists in `shared/cards/word-tags-curated.ts`;
 README there has sources and licences). Rebuild with `npm run build:word-tags`. Lab: `core/…/cards/WordTags.kt`
 over the same file, parity-tested. Settings → Study → "Word tags on the answer" (on by default, per device).
-No transitivity from the lexicon: HanLP's `vi` is wrong too often (喜欢).
+No transitivity from the lexicon: HanLP's `vi` is wrong too often (喜欢). **An HSK word is never "Rare"**
+(`frequencyTier(rank, kind, hsk)`, `hskLevel(lexicon, text)`): the word-freq list counts mostly written text; the same
+rule drives the explorer's grey decals (web `useDecalIndex`, Lab `shippedDecals`), so a card and a tile agree.
 
 **AI word tags** (`shared/cards/word-tags-ai.ts`, `worker/src/services/word-tags-ai.ts`, `routes/word-tags.ts`): a cheap
 batched Haiku `structuredCall` (forced `tag_words` tool, thinking off, `WORD_TAGS_BATCH_SIZE` 40 words per call) gives each
-note `{ v, transitivity?, separable?, register?, register_note? (≤ 60), confidence }`, stored as `notes.word_tags` with
+note `{ v, transitivity?, separable?, register?, register_note? (≤ 60), spoken?: 'everyday', spoken_confidence?, confidence }`, stored as `notes.word_tags` with
 `word_tags_at` (migration 0120; `/api/sync/changes` returns notes by it — `updated_at` is never touched). The apps merge it
 under the lexicon's pills (`wordTagsWithAi` / Lab `core/…/cards/WordTagsAi.kt`, parity-tested): the lexicon always wins
 (an AI register only when it has none), transitivity ("Takes an object" / "No object" / "Object optional") only for a verb
 and never a sentence, low confidence never shown, AI pills marked ✨ and their sheet says "Suggested by AI — may be wrong" +
-the register note. Runs on **`card-check-queue`** (`{ kind: 'word_tags' }`): a created note, or an edit of hanzi / English
+the register note. **✨ Everyday speech** (v2, `isEverydaySpeech`: high `spoken_confidence` only, never a sentence) drops the
+"Rare" frequency pill (written text undercounts 结账) and shows only where no Top 100 / 1,000 / 2,000 pill is. Bumping
+`WORD_TAGS_AI_VERSION` re-tags every note through the same backfill (`needsWordTagsSql`: no verdict or an older `v`; untagged
+first, then outdated; progress `outdated`). Runs on **`card-check-queue`** (`{ kind: 'word_tags' }`): a created note, or an edit of hanzi / English
 (tags cleared + re-tagged), at the word check's trigger points with its skips (`check: false`, copies — which carry the
 source's tags —, the starter deck) but for every account; plus the backfill: every `/api/sync/changes` queues up to
 `WORD_TAGS_BACKFILL_PER_HOUR` (200) untagged notes an hour per user (looks at most every 15 min; `word_tag_runs`). A note the
-model skips is stored as `{ v: 1, confidence: 'low' }`; a failed call writes nothing (the next hour retries). Token use per
+model skips is stored as `{ v: <version>, confidence: 'low' }`; a failed call writes nothing (the next hour retries). Token use per
 user in `word_tag_runs`; events `server.word_tags_batch` / `server.word_tags_backfill`. E2E: `fakeWordTagsClient`
-(`services/card-check-fake.ts`: 告诉, 休息, 告知, 搞定). MCP `backfill_word_tags` (`tools/checks.ts`).
+(`services/card-check-fake.ts`: 告诉, 休息, 告知, 搞定, 结账 / 买单 = Everyday speech). MCP `backfill_word_tags` (`tools/checks.ts`).
 
 ### Reader page standard
 `shared/reader/standard.ts` — `READER_STANDARD`: a page is one picture and one moment, 1–2 sentences
@@ -973,7 +978,7 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `PUT /api/notes/:id` - Update note (a changed hanzi gets a new word clip, a changed clue a new sentence clip)
 - `POST /api/notes/:id/check-issues/:issueId/apply` | `/dismiss` - a word check's "⚠ Possible issue" → `{ note }` (apply = the fix through updateNote)
 - `POST /api/notes/check` - `{ note_ids }` (≤ 100) run the word check now and store it → `{ issues: { [noteId]: NoteCheckIssue[] } }`
-- `GET /api/notes/word-tags/backfill` - AI word tags progress of my notes → `{ total, tagged, untagged, input_tokens, output_tokens, cost_usd, queued_this_hour, per_hour }`; `POST` `{ limit? }` (default 200, ≤ 1000) queues that many untagged notes now → `{ queued, …progress }` (503 without a model; the sync does this by itself, ≤ 200 an hour)
+- `GET /api/notes/word-tags/backfill` - AI word tags progress of my notes → `{ total, tagged, untagged, outdated, input_tokens, output_tokens, cost_usd, queued_this_hour, per_hour }`; `POST` `{ limit? }` (default 200, ≤ 1000) queues that many untagged notes now → `{ queued, …progress }` (503 without a model; the sync does this by itself, ≤ 200 an hour)
 - `POST /api/ai/check-words` - `{ words: [{ hanzi, pinyin, english }] }` (≤ 60) → `{ issues: [{ index, field, kind, current, proposed, reason }] }`, nothing stored (Paste a list's preview)
 - `GET|POST /api/decks/:id/check` - per-deck "Check for errors": `{ estimate, job }` / start → 202 `{ job }`; `GET|POST /api/relationships/:relId/shared-decks/:id/check` the same on the student's copy (tutor; `can_fix_source`); `GET /api/deck-checks/:jobId`; `POST /api/deck-checks/:jobId/apply` `{ proposal_ids, also_source? }` → `{ applied, source_applied, failed, job }`
 - `PUT /api/profile/card-check` - `{ card_check: boolean | null }` "Check new words for mistakes"

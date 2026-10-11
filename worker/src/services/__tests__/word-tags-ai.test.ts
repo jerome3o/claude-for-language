@@ -16,7 +16,7 @@ import {
 } from '../word-tags-ai';
 import * as content from '../content';
 import { getNotesChangedSince, insertNoteCopy } from '../../db/queries';
-import { parseAiWordTags, WORD_TAGS_BACKFILL_PER_HOUR, WORD_TAGS_BATCH_SIZE } from '@shared/cards/word-tags-ai';
+import { parseAiWordTags, WORD_TAGS_AI_VERSION, WORD_TAGS_BACKFILL_PER_HOUR, WORD_TAGS_BATCH_SIZE } from '@shared/cards/word-tags-ai';
 import type { Env } from '../../types';
 
 function exec(db: SqliteD1, sql: string, ...params: unknown[]) {
@@ -29,6 +29,8 @@ const VERDICTS: Record<string, Record<string, unknown>> = {
   告诉: { transitivity: 'transitive', register: 'neutral', confidence: 'high' },
   告知: { transitivity: 'transitive', register: 'formal', register_note: 'formal written; in speech use 告诉 — and a note far too long to keep', confidence: 'high' },
   休息: { transitivity: 'intransitive', register: 'neutral', confidence: 'medium' },
+  结账: { transitivity: 'intransitive', register: 'neutral', confidence: 'high', spoken: 'everyday', spoken_confidence: 'high' },
+  沉思: { transitivity: 'intransitive', register: 'literary', confidence: 'medium', spoken: 'other', spoken_confidence: 'high' },
 };
 
 /** A fake model: a verdict for the words it knows, none for 沉默 (left out), n/a for the rest. */
@@ -78,8 +80,19 @@ describe('validateTagReply', () => {
     });
     expect([...map.keys()]).toEqual([0, 2]);
     expect(map.get(0)!.register_note).toHaveLength(60);
-    expect(map.get(2)).toEqual({ v: 1, register: 'neutral', confidence: 'low' });
+    expect(map.get(2)).toEqual({ v: WORD_TAGS_AI_VERSION, register: 'neutral', confidence: 'low' });
     expect(() => validateTagReply({ tags: 'no' })).toThrow();
+  });
+
+  it('keeps Everyday speech with its own confidence; "other" is left out', () => {
+    const map = validateTagReply({
+      tags: [
+        { index: 0, transitivity: 'intransitive', register: 'neutral', confidence: 'low', spoken: 'everyday', spoken_confidence: 'high' },
+        { index: 1, transitivity: 'n/a', register: 'literary', confidence: 'high', spoken: 'other', spoken_confidence: 'high' },
+      ],
+    });
+    expect(map.get(0)).toEqual({ v: 2, transitivity: 'intransitive', register: 'neutral', spoken: 'everyday', spoken_confidence: 'high', confidence: 'low' });
+    expect(map.get(1)).toEqual({ v: 2, transitivity: 'n/a', register: 'literary', confidence: 'high' });
   });
 });
 
@@ -89,10 +102,10 @@ describe('runWordTags', () => {
     const r = await runWordTags(env, 'me', ['n0', 'n1', 'n2', 'n3', 'n4'], { client: m.client });
     expect(m.create).toHaveBeenCalledTimes(1);
     expect(r).toMatchObject({ tagged: 5, shown: 5 - 1, failed: 0, input_tokens: 2000, output_tokens: 900 });
-    expect(parseAiWordTags(stored('n0').word_tags)).toEqual({ v: 1, transitivity: 'transitive', register: 'neutral', confidence: 'high' });
+    expect(parseAiWordTags(stored('n0').word_tags)).toEqual({ v: WORD_TAGS_AI_VERSION, transitivity: 'transitive', register: 'neutral', confidence: 'high' });
     expect(parseAiWordTags(stored('n1').word_tags)).toMatchObject({ register: 'formal', confidence: 'high' });
     expect(parseAiWordTags(stored('n1').word_tags)!.register_note!.length).toBeLessThanOrEqual(60);
-    expect(parseAiWordTags(stored('n3').word_tags)).toEqual({ v: 1, confidence: 'low' });
+    expect(parseAiWordTags(stored('n3').word_tags)).toEqual({ v: WORD_TAGS_AI_VERSION, confidence: 'low' });
     expect(stored('n0').word_tags_at).toBeTruthy();
     expect(stored('n0').updated_at).toBe('2026-09-01 10:00:00');
   });
@@ -151,6 +164,66 @@ describe('runWordTags', () => {
   it('does nothing without a model', async () => {
     const r = await runWordTags({ ...env, ANTHROPIC_API_KEY: '' } as Env, 'me', ['n0']);
     expect(r.tagged).toBe(0);
+  });
+
+  it('stores Everyday speech and counts it', async () => {
+    exec(db, "INSERT INTO notes (id, deck_id, hanzi, pinyin, english) VALUES ('j', 'd', '结账', 'jiézhàng', 'to settle the bill'), ('k', 'd', '沉思', 'chénsī', 'to ponder')");
+    const m = fakeModel();
+    const r = await runWordTags(env, 'me', ['j', 'k'], { client: m.client });
+    expect(r).toMatchObject({ tagged: 2, everyday: 1 });
+    expect(parseAiWordTags(stored('j').word_tags)).toEqual({
+      v: 2,
+      transitivity: 'intransitive',
+      register: 'neutral',
+      spoken: 'everyday',
+      spoken_confidence: 'high',
+      confidence: 'high',
+    });
+    expect(parseAiWordTags(stored('k').word_tags)).not.toHaveProperty('spoken');
+    // The prompt asks for it, and the tool requires an answer for every card.
+    expect(m.create.mock.calls[0][0]).toMatchObject({ system: expect.stringContaining('spoken: "everyday"') });
+  });
+});
+
+describe('re-tagging after a version bump', () => {
+  const v1 = JSON.stringify({ v: 1, transitivity: 'transitive', register: 'neutral', confidence: 'high' });
+
+  beforeEach(() => {
+    // n0, n1 tagged by the first pass (v1), n2 already current, n3 / n4 never tagged.
+    exec(db, "UPDATE notes SET word_tags = ?, word_tags_at = '2026-10-05 00:00:00' WHERE id IN ('n0', 'n1')", v1);
+    exec(db, "UPDATE notes SET word_tags = ?, word_tags_at = '2026-10-05 00:00:00' WHERE id = 'n2'", JSON.stringify({ v: WORD_TAGS_AI_VERSION, confidence: 'low' }));
+  });
+
+  it('counts v1 verdicts as outdated', async () => {
+    expect(await wordTagsProgress(db, 'me')).toMatchObject({ total: 5, tagged: 1, untagged: 4, outdated: 2 });
+  });
+
+  it('re-tags outdated notes (never touching updated_at); a current one is left alone', async () => {
+    const m = fakeModel();
+    const r = await runWordTags(env, 'me', ['n0', 'n1', 'n2'], { client: m.client });
+    expect(m.calls[0]).toContain('告诉');
+    expect(m.calls[0]).not.toContain('休息');
+    expect(r.tagged).toBe(2);
+    expect(parseAiWordTags(stored('n0').word_tags)!.v).toBe(WORD_TAGS_AI_VERSION);
+    expect(stored('n0').word_tags_at).not.toBe('2026-10-05 00:00:00');
+    expect(stored('n0').updated_at).toBe('2026-09-01 10:00:00');
+    expect(stored('n2').word_tags_at).toBe('2026-10-05 00:00:00');
+  });
+
+  it('the fill queues never-tagged notes first, then outdated, newest first', async () => {
+    const send = vi.fn(async (_body: unknown) => {});
+    const qenv = { ...env, CARD_CHECK_QUEUE: { send } } as unknown as Env;
+    expect(await maybeBackfillWordTags(qenv, 'me')).toBe(4);
+    expect(send).toHaveBeenCalledWith({ kind: 'word_tags', userId: 'me', noteIds: ['n4', 'n3', 'n1', 'n0'], via: 'backfill' });
+  });
+
+  it('treats a verdict without a version, or unreadable JSON, as outdated', async () => {
+    exec(db, "UPDATE notes SET word_tags = '{\"confidence\":\"high\"}' WHERE id = 'n3'");
+    exec(db, "UPDATE notes SET word_tags = 'not json' WHERE id = 'n4'");
+    expect(await wordTagsProgress(db, 'me')).toMatchObject({ tagged: 1, untagged: 4, outdated: 4 });
+    const r = await runWordTags(env, 'me', ['n3', 'n4'], { client: fakeModel().client });
+    expect(r.tagged).toBe(2);
+    expect(await wordTagsProgress(db, 'me')).toMatchObject({ tagged: 3, outdated: 2 });
   });
 });
 

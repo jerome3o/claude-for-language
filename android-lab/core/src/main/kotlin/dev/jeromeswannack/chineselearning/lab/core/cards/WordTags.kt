@@ -165,6 +165,12 @@ object WordTags {
     /** Port of wordTagKey(). */
     fun key(hanzi: String): String = EDGE.replace(Normalizer.normalize(hanzi, Normalizer.Form.NFC), "")
 
+    /**
+     * Port of hskLevel(): the HSK level of a word or character (a character: as a one-character
+     * word), null = not on the list / no lexicon. The explorer's decals pass it to FrequencyDecals.tier.
+     */
+    fun hskLevel(lexicon: WordTagLexicon?, text: String): Int? = lexicon?.words?.get(key(text))?.hsk
+
     /** Port of hskLabel(). */
     fun hskLabel(level: Int): String = if (level >= 7) "HSK 7–9" else "HSK $level"
 
@@ -230,7 +236,8 @@ object WordTags {
         if (entry.measures.isNotEmpty()) push(WordTag("measure", "measure", measureLabel(entry.measures), "plain"))
         if (entry.hsk != null) push(WordTag("hsk", "hsk", hskLabel(entry.hsk), "level"))
         if (rankLoaded) {
-            val tier = FrequencyDecals.tier(rank, if (cpCount(key) == 1) DecalKind.CHAR else DecalKind.WORD)
+            // An HSK word is never "Rare" (FrequencyDecals.tier): the list counts mostly written text.
+            val tier = FrequencyDecals.tier(rank, if (cpCount(key) == 1) DecalKind.CHAR else DecalKind.WORD, entry.hsk)
             if (tier != null) push(WordTag("frequency", "frequency", FREQUENCY_LABELS.getValue(tier.wire), tier.wire))
         }
         if (entry.trad != null) push(WordTag("trad", "trad", "Trad. ${entry.trad}", "plain"))

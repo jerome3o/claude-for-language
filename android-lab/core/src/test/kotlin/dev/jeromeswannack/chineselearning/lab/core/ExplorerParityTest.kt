@@ -146,6 +146,8 @@ class ExplorerParityTest {
             assertEquals(c["word"].str(), FrequencyDecals.tier(rank, DecalKind.WORD)?.wire, "word decal of $rank")
             assertEquals(c["char"].str(), FrequencyDecals.tier(rank, DecalKind.CHAR)?.wire, "char decal of $rank")
             assertEquals(c["default"].str(), FrequencyDecals.tier(rank)?.wire, "default decal of $rank")
+            assertEquals(c["word_hsk"].str(), FrequencyDecals.tier(rank, DecalKind.WORD, 3)?.wire, "HSK word decal of $rank")
+            assertEquals(c["char_hsk"].str(), FrequencyDecals.tier(rank, DecalKind.CHAR, 7)?.wire, "HSK char decal of $rank")
         }
         val key = fixture["decal_key"]!!.jsonObject
         assertEquals(key["line"].str(), FrequencyDecals.keyLine())

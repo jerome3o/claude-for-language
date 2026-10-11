@@ -214,7 +214,7 @@ object AnalyticsEvents {
         ev("server.ai_call", "server", listOf("provider", "model", "input_tokens", "output_tokens", "cache_read_tokens", "cost_usd", "status", "route"), server = true),
         ev("server.push_sent", "server", listOf("channel", "kind", "ok"), server = true),
         ev("server.email_sent", "server", listOf("kind", "ok"), server = true),
-        ev("server.word_tags_batch", "server", listOf("batch_size", "tagged", "shown", "input_tokens", "output_tokens", "cost_usd", "via"), server = true),
+        ev("server.word_tags_batch", "server", listOf("batch_size", "tagged", "shown", "everyday", "input_tokens", "output_tokens", "cost_usd", "via"), server = true),
         ev("server.word_tags_backfill", "server", listOf("queued", "via"), server = true),
         ev("server.recording_check", "server", listOf("scored", "match", "note", "audio_ms"), server = true),
         ev("server.coach_auto_detect", "server", emptyList(), server = true, replacedBy = "coach.start"),

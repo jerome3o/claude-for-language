@@ -577,7 +577,10 @@ Idiom 成语 · Set phrase · Name …), **Separable verb** (离合词), registe
 Literary · Colloquial · Informal · Slang · Rude · Derogatory · Humorous · Euphemism · Dated ·
 Regional · Taiwan · Cantonese), **Measure: 本 běn** (≤ 2), **HSK 3** (HSK 3.0, 2021; 7–9 as one
 band), how common (Top 100 / 1,000 / 2,000 / Rare — the explorer's decal colours, from the
-shipped word-freq list) and **Trad. 長得**. A tap on a pill opens a tiny sheet: what it means in
+shipped word-freq list; **an HSK word is never Rare**: the list counts mostly written text, so it
+ranks ~3,800 HSK words — 一块儿, 一下儿, 打包… — beyond 10,000 or not at all; they get no
+frequency pill instead, the unmarked middle band — `frequencyTier(rank, kind, hsk)`, the same rule
+as the explorer's decals) and **Trad. 長得**. A tap on a pill opens a tiny sheet: what it means in
 one or two lines, an example (the separable verb's split — 睡了一个好觉 — or 一本书 built from the
 word), and where it comes from. The pills are buttons, so they never peek the card. The question
 side has none. The same pills (minus how common) head the explorer's Word view.
@@ -610,11 +613,13 @@ parity-tested over the shipped file by `android-lab/parity/fixtures/word-tags.ts
 
 ### AI tags (✨)
 
-What the lexicon can't say — whether a verb takes an object, and a register for the many words it
-has no label for — comes from a cheap AI pass per note, stored on the note (`notes.word_tags`, JSON
-`{ v, transitivity?: transitive | intransitive | both | n/a, separable?, register?: formal | neutral |
-informal | polite | rude | slang | literary, register_note? (≤ 60 chars), confidence: high | medium |
-low }`) and synced to the devices like everything else on a note, so it works offline.
+What the lexicon can't say — whether a verb takes an object, a register for the many words it
+has no label for, and whether a word is everyday spoken Mandarin — comes from a cheap AI pass per
+note, stored on the note (`notes.word_tags`, JSON `{ v, transitivity?: transitive | intransitive |
+both | n/a, separable?, register?: formal | neutral | informal | polite | rude | slang | literary,
+register_note? (≤ 60 chars), spoken?: everyday, spoken_confidence?: high | medium | low,
+confidence: high | medium | low }`) and synced to the devices like everything else on a note, so it
+works offline. `v` is `WORD_TAGS_AI_VERSION` (2 since Everyday speech).
 
 Shown only where the lexicon has nothing, and marked: the pill carries a small ✨ and its sheet says
 **"Suggested by AI — may be wrong"**, plus the register note ("formal written; in speech use 告诉").
@@ -624,8 +629,17 @@ Shown only where the lexicon has nothing, and marked: the pill carries a small �
 - **Register** — Formal / Polite / Informal / Slang / Rude / Literary, the lexicon's own colours —
   only when the lexicon gave the card no register (it always wins); `neutral` shows nothing.
 - **Separable verb** from the AI only when the lexicon doesn't already say so (no split example).
+- **Everyday speech** (v2) — a word a learner would HEAR regularly in daily life (restaurants,
+  shops, transport, home, chatting), not merely one that exists in speech: 结账 (jiézhàng, settle
+  the bill) is everyday restaurant talk but ranks ~29,000 in the written-text frequency list, so it
+  used to say "Rare". Shown only at **high** `spoken_confidence` (its own confidence; the overall
+  `confidence` is about transitivity and register), never on a sentence. It **drops the "Rare"
+  pill** and shows "✨ Everyday speech" where the frequency pill was — but only where the list
+  doesn't already call the word common (no Top 100 / 1,000 / 2,000 pill: on 吃饭 it would add
+  nothing). Its sheet: "A word you'll hear all the time in daily life … that's why this card isn't
+  marked Rare." The explorer's tiles aren't notes, so their decals follow only the HSK rule.
 - **Low confidence is never shown**; a note the model said nothing about is stored as
-  `{ v: 1, confidence: 'low' }` (done, nothing shown).
+  `{ v: 2, confidence: 'low' }` (done, nothing shown).
 
 Rules: `shared/cards/word-tags-ai.ts` (`parseAiWordTags`, `mergeAiWordTags`, `wordTagsWithAi`,
 `explainWordTag`; Lab `core/…/cards/WordTagsAi.kt`, parity-tested by
@@ -637,9 +651,16 @@ side and, in the explorer's Word view, the learner's own card of that word.
 when its hanzi or English changes (same trigger points and skips as the word check, for every
 account); a tutor's copy carries the source's tags. Existing notes fill themselves: every
 `/api/sync/changes` queues up to 200 of the user's untagged notes an hour (newest first, looked for
-at most every 15 minutes). On demand: `POST /api/notes/word-tags/backfill { limit }` / MCP
-`backfill_word_tags` (progress + cost). Cost ≈ $0.22 per 1,000 notes, ~$1.25 for 5,600 (`estimateWordTagsCost`);
-real token use is kept per user in `word_tag_runs` and reported as `server.word_tags_batch`.
+at most every 15 minutes). **Version bumps re-tag**: a note whose verdict has an older `v` (or none,
+or unreadable JSON) counts as untagged (`needsWordTagsSql`), so bumping `WORD_TAGS_AI_VERSION`
+makes the same fill redo every note — never-tagged notes first, then the outdated ones, newest
+first; the old verdict keeps showing until the new one replaces it, and `updated_at` is never
+touched (`word_tags_at` carries it to the devices). Progress reports `outdated`. On demand:
+`POST /api/notes/word-tags/backfill { limit }` / MCP `backfill_word_tags` (progress + cost). Cost:
+v1 measured ≈ $0.22 per 1,000 notes; v2 (the `spoken` field in the prompt and every verdict) is
+estimated at ≈ $0.26 per 1,000, ~$1.50 for 5,600 (`estimateWordTagsCost`) — so the re-tag of every
+existing note costs about that once. Real token use is kept per user in `word_tag_runs` and reported
+as `server.word_tags_batch` (with `everyday` = notes called Everyday speech).
 
 ## Ask Claude — answers in Chinese, the chat's look and tools
 
