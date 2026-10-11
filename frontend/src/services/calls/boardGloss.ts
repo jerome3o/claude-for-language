@@ -5,14 +5,15 @@
  * The rules — when, which text, what gets inserted — are shared/calls/gloss.ts.
  */
 
-import { cleanGloss, glossCacheKey, type Gloss } from '@shared/calls';
+import { cleanChineseGloss, cleanGloss, glossCacheKey, glossStoreKey, type AnyGloss, type GlossDirection } from '@shared/calls';
 import { glossBoardText } from '../../api/calls';
 
 const LRU_SIZE = 300;
-const lru = new Map<string, Gloss>();
+const lru = new Map<string, AnyGloss>();
 
-export function cachedBoardGloss(segment: string): Gloss | null {
-  const key = glossCacheKey(segment);
+/** Keyed by rules version + direction + text (glossStoreKey): a gloss from older rules is never reused. */
+export function cachedBoardGloss(segment: string, direction: GlossDirection = 'zh'): AnyGloss | null {
+  const key = glossStoreKey(segment, direction);
   const hit = lru.get(key);
   if (!hit) return null;
   lru.delete(key);
@@ -20,8 +21,8 @@ export function cachedBoardGloss(segment: string): Gloss | null {
   return hit;
 }
 
-export function rememberBoardGloss(segment: string, gloss: Gloss): void {
-  const key = glossCacheKey(segment);
+export function rememberBoardGloss(segment: string, gloss: AnyGloss, direction: GlossDirection = 'zh'): void {
+  const key = glossStoreKey(segment, direction);
   lru.set(key, gloss);
   while (lru.size > LRU_SIZE) lru.delete(lru.keys().next().value as string);
 }
@@ -32,16 +33,17 @@ let quietUntil = 0;
 /**
  * The gloss for a segment: cache first, else the worker. null when offline,
  * paused, aborted or failed — the board then simply shows nothing.
+ * 'zh' → { pinyin, english }; 'en' (English typed) → { chinese, pinyin }.
  */
-export async function fetchBoardGloss(callId: string, segment: string, signal: AbortSignal): Promise<Gloss | null> {
-  const hit = cachedBoardGloss(segment);
+export async function fetchBoardGloss(callId: string, segment: string, signal: AbortSignal, direction: GlossDirection = 'zh'): Promise<AnyGloss | null> {
+  const hit = cachedBoardGloss(segment, direction);
   if (hit) return hit;
   if (Date.now() < quietUntil || (typeof navigator !== 'undefined' && navigator.onLine === false)) return null;
   try {
-    const res = await glossBoardText(callId, glossCacheKey(segment), signal);
+    const res = await glossBoardText(callId, glossCacheKey(segment), direction, signal);
     // Cleaned again here: whatever arrives, the suggestion is one line.
-    const gloss = cleanGloss(res);
-    if (gloss) rememberBoardGloss(segment, gloss);
+    const gloss: AnyGloss | null = direction === 'en' ? cleanChineseGloss(res) : cleanGloss(res);
+    if (gloss) rememberBoardGloss(segment, gloss, direction);
     return gloss;
   } catch (err) {
     const status = (err as { status?: number } | null)?.status;

@@ -22,7 +22,8 @@
  * Tab-complete (useBoardGloss): pause after typing Chinese and a grey
  * " - pīnyīn - meaning" appears after the caret — Tab accepts, typing on or
  * Esc dismisses; on a touch screen a "⇥ pīnyīn - meaning" chip under the caret
- * accepts on tap. Only the typist sees it; accepted text is ordinary board text.
+ * accepts on tap. After English it is " - 中文 - pīnyīn" the same way. Only the
+ * typist sees it; accepted text is ordinary board text.
  */
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
@@ -240,7 +241,7 @@ export function TextBoard({
   const callId = gloss?.callId;
   const customFetch = gloss?.fetchGloss;
   const fetchGloss = useMemo<GlossFetcher | null>(
-    () => customFetch ?? (callId ? (segment, signal) => fetchBoardGloss(callId, segment, signal) : null),
+    () => customFetch ?? (callId ? (segment, signal, direction) => fetchBoardGloss(callId, segment, signal, direction) : null),
     [callId, customFetch],
   );
   const suggest = useBoardGloss({
@@ -459,7 +460,11 @@ export function TextBoard({
           onKeyDown={(e) => {
             if (!suggestion || e.nativeEvent.isComposing || imeOpen.current) return;
             if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
-              if (suggest.accept()) e.preventDefault();
+              const direction = suggestion.direction;
+              if (suggest.accept()) {
+                e.preventDefault();
+                track('call.board_gloss', { direction, via: 'tab' });
+              }
             } else if (e.key === 'Escape') {
               e.preventDefault();
               e.stopPropagation();
@@ -498,8 +503,11 @@ export function TextBoard({
             // Keep the keyboard up: don't take focus from the textarea.
             onPointerDown={(e) => e.preventDefault()}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => suggest.accept()}
-            aria-label={`Add ${suggestion.gloss.pinyin} - ${suggestion.gloss.english}`}
+            onClick={() => {
+              const direction = suggestion.direction;
+              if (suggest.accept()) track('call.board_gloss', { direction, via: 'chip' });
+            }}
+            aria-label={`Add${suggestion.text}`}
           >
             {glossChipLabel(suggestion.gloss)}
           </button>
@@ -547,7 +555,7 @@ export function TextBoard({
                     />
                     <span>
                       Suggest pinyin &amp; meaning
-                      <small>After you type Chinese, Tab (or tap ⇥) adds “ - pīnyīn - meaning”</small>
+                      <small>After you type Chinese, Tab (or tap ⇥) adds “ - pīnyīn - meaning”; after English, “ - 中文 - pīnyīn”</small>
                     </span>
                   </label>
                 </div>

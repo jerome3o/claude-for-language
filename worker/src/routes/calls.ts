@@ -16,7 +16,7 @@
  *   POST   /calls/:id/pieces/:pieceId/close           { chunk_count, duration_ms }
  *   POST   /calls/:id/process                         "Process now": close stale pieces, retry failures, redo the report
  *   POST   /calls/:id/flashcards                      { deck_id? | deck_name?, words: [...] } → notes made from the report
- *   POST   /calls/:id/gloss                           { text } → { pinyin, english } — the text board's tab-complete (Haiku, cached)
+ *   POST   /calls/:id/gloss                           { text, direction?: zh|en } → zh { pinyin, english } / en { chinese, pinyin } — the text board's tab-complete (cached)
  *   GET    /calls/:id/ws?ticket=                      WebSocket into the CallRoom
  */
 
@@ -45,7 +45,9 @@ import { roomPresence, withPresence } from '../services/calls/presence';
 import { pickTranscriber } from '../services/calls/transcribe';
 import type { CallReport, CallReportWord } from '../services/calls/report';
 import { StructuredCallError } from '../services/structured-call';
-import { cachedGloss, glossBoardText, rememberGloss, takeGlossToken, validBoardGlossText } from '../services/calls/gloss';
+import { cachedGloss, glossBoardText, glossEnglishText, rememberGloss, takeGlossToken, validBoardGlossText } from '../services/calls/gloss';
+import { glossReadingSources } from '../services/calls/gloss-sources';
+import { glossDirectionOf, type GlossDirection } from '@shared/calls';
 
 const calls = new Hono<{ Bindings: Env }>();
 
@@ -329,13 +331,14 @@ calls.post('/calls/:id/flashcards', async (c) => {
 });
 
 /**
- * The text board's tab-complete: pinyin + a short meaning for the Chinese just
- * typed. Only the call's members may ask (the same 404 as every call route):
- * the endpoint spends Claude credits, and scoping it to a call keeps it from
- * becoming a general translation API. The membership check is remembered for
- * a few minutes per isolate so a lesson's worth of pauses costs one lookup.
- * Failures are quiet for the board: 503 when no key / Claude is down, 429 when
- * this user asks too often, 400 for text that isn't a short Chinese run.
+ * The text board's tab-complete: pinyin + a short meaning for the Chinese just typed
+ * (direction 'zh'), or the Chinese + its pinyin for English just typed ('en'; when the body has
+ * no direction it follows the text: any Chinese character → zh). Only the call's members may ask
+ * (the same 404 as every call route): the endpoint spends Claude credits, and scoping it to a
+ * call keeps it from becoming a general translation API. The membership check is remembered for
+ * a few minutes per isolate so a lesson's worth of pauses costs one lookup. Failures are quiet
+ * for the board: 503 when no key / Claude is down, 429 when this user asks too often, 400 for
+ * text that isn't a short run of Chinese / English.
  */
 const glossMembers = new Map<string, number>();
 calls.post('/calls/:id/gloss', async (c) => {
@@ -349,16 +352,19 @@ calls.post('/calls/:id/gloss', async (c) => {
       glossMembers.set(memberKey, Date.now() + 5 * 60_000);
       if (glossMembers.size > 5_000) glossMembers.delete(glossMembers.keys().next().value as string);
     }
-    const body = await c.req.json<{ text?: unknown }>().catch(() => ({ text: undefined }));
-    const text = validBoardGlossText(body.text);
-    if (!text) return c.json({ error: 'Send a short run of Chinese' }, 400);
-    const hit = cachedGloss(text);
-    if (hit) return c.json({ text, ...hit, cached: true });
+    const body = await c.req.json<{ text?: unknown; direction?: unknown }>().catch(() => ({ text: undefined, direction: undefined }));
+    if (body.direction !== undefined && body.direction !== 'zh' && body.direction !== 'en') return c.json({ error: 'direction is zh or en' }, 400);
+    const direction: GlossDirection = (body.direction as GlossDirection | undefined) ?? (typeof body.text === 'string' ? glossDirectionOf(body.text) : 'zh');
+    const text = validBoardGlossText(body.text, direction);
+    if (!text) return c.json({ error: direction === 'en' ? 'Send a short English word or phrase' : 'Send a short run of Chinese' }, 400);
+    const hit = cachedGloss(text, direction);
+    if (hit) return c.json({ text, direction, ...hit, cached: true });
     if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'Suggestions are not configured' }, 503);
     if (!takeGlossToken(user.id)) return c.json({ error: 'Too many suggestions — slow down a little' }, 429);
-    const gloss = await glossBoardText(c.env.ANTHROPIC_API_KEY, text);
-    rememberGloss(text, gloss);
-    return c.json({ text, ...gloss, cached: false });
+    const opts = { sources: glossReadingSources(c.env.CHAR_DICT) };
+    const gloss = direction === 'en' ? await glossEnglishText(c.env.ANTHROPIC_API_KEY, text, opts) : await glossBoardText(c.env.ANTHROPIC_API_KEY, text, opts);
+    rememberGloss(text, gloss, direction);
+    return c.json({ text, direction, ...gloss, cached: false });
   } catch (error) {
     if (error instanceof StructuredCallError) return c.json({ error: 'No suggestion right now' }, error.retryable ? 503 : 502);
     return errorResponse(c, error, 'No suggestion right now');

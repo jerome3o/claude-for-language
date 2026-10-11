@@ -17,7 +17,8 @@ vi.mock('@anthropic-ai/sdk', () => {
 
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
 import calls from '../calls';
-import { resetBoardGlossState, BOARD_GLOSS_RATE_PER_MIN, BOARD_GLOSS_MAX_TOKENS, glossBoardText } from '../../services/calls/gloss';
+import { resetBoardGlossState, cachedGloss, BOARD_GLOSS_RATE_PER_MIN, BOARD_GLOSS_MAX_TOKENS, glossBoardText } from '../../services/calls/gloss';
+import { GLOSS_CACHE_VERSION, glossStoreKey } from '@shared/calls';
 import type { Env } from '../../types';
 
 const toolReply = (input: unknown, stop_reason = 'tool_use') => ({
@@ -49,15 +50,18 @@ describe('POST /api/calls/:id/gloss', () => {
     db.raw.run("INSERT INTO calls (id, relationship_id, created_by) VALUES ('c1', 'r1', 't1')");
   });
 
-  it('glosses Chinese for a member with Haiku (forced tool, thinking off, small budget) and caches it', async () => {
+  it('glosses Chinese for a member with Sonnet (forced tool, thinking off, small budget) and caches it', async () => {
     create.mockResolvedValueOnce(toolReply({ pinyin: 'wǒ xiǎng hē kāfēi', english: 'I want to drink coffee.' }));
     const post = makeApp(db, { id: 's1' });
     const res = await post('c1', { text: '我想喝咖啡' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ text: '我想喝咖啡', pinyin: 'wǒ xiǎng hē kāfēi', english: 'I want to drink coffee', cached: false });
+    expect(await res.json()).toEqual({ text: '我想喝咖啡', direction: 'zh', pinyin: 'wǒ xiǎng hē kāfēi', english: 'I want to drink coffee', cached: false });
     expect(create).toHaveBeenCalledTimes(1);
     const params = create.mock.calls[0][0];
-    expect(params.model).toMatch(/haiku/);
+    expect(params.model).toMatch(/sonnet/);
+    // The prompt teaches the context readings and the neutral tones.
+    expect(params.system).toMatch(/银行 yínháng/);
+    expect(params.system).toMatch(/Neutral tones/);
     expect(params.thinking).toEqual({ type: 'disabled' });
     expect(params.tool_choice).toEqual({ type: 'tool', name: 'gloss' });
     expect(params.max_tokens).toBeLessThanOrEqual(BOARD_GLOSS_MAX_TOKENS);
@@ -98,12 +102,59 @@ describe('POST /api/calls/:id/gloss', () => {
 
   it('refuses text that is not a short Chinese run', async () => {
     const post = makeApp(db, { id: 's1' });
-    expect((await post('c1', { text: 'hello' })).status).toBe(400);
+    expect((await post('c1', { text: 'hello', direction: 'zh' })).status).toBe(400);
+    expect((await post('c1', { text: '你好', direction: 'en' })).status).toBe(400);
+    expect((await post('c1', { text: 'a', direction: 'en' })).status).toBe(400);
+    expect((await post('c1', { text: '你好', direction: 'fr' })).status).toBe(400);
     expect((await post('c1', { text: '' })).status).toBe(400);
     expect((await post('c1', { text: '你好\n谢谢' })).status).toBe(400);
     expect((await post('c1', { text: '我'.repeat(80) })).status).toBe(400);
     expect((await post('c1', {})).status).toBe(400);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('English → Chinese + pinyin (direction en, or inferred from a text without Chinese)', async () => {
+    create.mockResolvedValueOnce(toolReply({ chinese: '洗澡。', pinyin: 'xǐ zǎo' }));
+    const post = makeApp(db, { id: 's1' });
+    const res = await post('c1', { text: 'to take a shower', direction: 'en' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ text: 'to take a shower', direction: 'en', chinese: '洗澡', pinyin: 'xǐ zǎo', cached: false });
+    const params = create.mock.calls[0][0];
+    expect(params.model).toMatch(/sonnet/);
+    expect(params.thinking).toEqual({ type: 'disabled' });
+    expect(params.tool_choice).toEqual({ type: 'tool', name: 'gloss' });
+    expect(params.tools[0].input_schema.required).toEqual(['chinese', 'pinyin']);
+    expect(params.messages[0].content).toBe('to take a shower');
+
+    // No direction: a text without Chinese is English. Cached from the first answer.
+    const again = await post('c1', { text: 'to take a shower' });
+    expect(await again.json()).toMatchObject({ direction: 'en', chinese: '洗澡', cached: true });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks the English answer's pinyin against its Chinese too (一 / 不 rule, wrong readings)", async () => {
+    create.mockResolvedValueOnce(toolReply({ chinese: '一起去银行', pinyin: 'yīqǐ qù yínxìng' }));
+    const res = await makeApp(db, { id: 's1' })('c1', { text: 'go to the bank together', direction: 'en' });
+    expect(await res.json()).toMatchObject({ chinese: '一起去银行', pinyin: 'yìqǐ qù yínháng' });
+  });
+
+  it("replaces a reading the character never has with the dictionary's (pinyin-pro without the asset dictionary)", async () => {
+    create.mockResolvedValueOnce(toolReply({ pinyin: 'tā zhāngdà lè', english: 'He grew up' }));
+    const res = await makeApp(db, { id: 's1' })('c1', { text: '他长大了' });
+    expect(await res.json()).toMatchObject({ pinyin: 'tā zhǎngdà le', english: 'He grew up' });
+    // A left-out syllable: the whole line from the dictionary.
+    create.mockResolvedValueOnce(toolReply({ pinyin: 'wǒ hē kāfēi', english: 'I want to drink coffee' }));
+    const res2 = await makeApp(db, { id: 's1' })('c1', { text: '我想喝咖啡' });
+    expect(((await res2.json()) as { pinyin: string }).pinyin.replace(/ /g, '')).toBe('wǒxiǎnghēkāfēi');
+  });
+
+  it('caches per rules version and direction (old glosses are never served)', async () => {
+    expect(GLOSS_CACHE_VERSION).toBeGreaterThanOrEqual(2);
+    expect(glossStoreKey('你好', 'zh')).toBe(`v${GLOSS_CACHE_VERSION}:zh:你好`);
+    create.mockResolvedValueOnce(toolReply({ pinyin: 'nǐ hǎo', english: 'hello' }));
+    await makeApp(db, { id: 's1' })('c1', { text: '你好' });
+    expect(cachedGloss('你好', 'zh')).toEqual({ pinyin: 'nǐ hǎo', english: 'hello' });
+    expect(cachedGloss('你好', 'en')).toBeNull();
   });
 
   it('503 without an API key', async () => {
@@ -128,6 +179,6 @@ describe('POST /api/calls/:id/gloss', () => {
 describe('glossBoardText', () => {
   it('uses the client given (test seam)', async () => {
     const fake = { messages: { create: vi.fn(async () => toolReply({ pinyin: 'hǎo', english: 'good' })) } };
-    await expect(glossBoardText('k', '好', fake as never)).resolves.toEqual({ pinyin: 'hǎo', english: 'good' });
+    await expect(glossBoardText('k', '好', { client: fake as never })).resolves.toEqual({ pinyin: 'hǎo', english: 'good' });
   });
 });
