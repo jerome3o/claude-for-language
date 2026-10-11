@@ -369,6 +369,8 @@ test('check my Chinese before sending → Use this replaces the draft', async ({
   });
   await expect(page.getByText('你昨天做了什么？')).toBeVisible({ timeout: 20000 });
 
+  // The composer opens voice first (🎤 Say it); ⌨️ types.
+  await page.getByTestId('chat-type-btn').click();
   const box = page.getByRole('textbox', { name: 'Message' });
   await expect(page.getByRole('button', { name: 'Check my Chinese' })).toHaveCount(0);
   await box.fill('我昨天去去商店买东西');
@@ -384,6 +386,7 @@ test('check my Chinese before sending → Use this replaces the draft', async ({
   // The tutor never gets the ✓ (it is the learner's tool).
   const tutorPage = await openAs(browser, tutor, chatPath, { width: 1280, height: 860 }, noWords);
   await expect(tutorPage.getByText('你昨天做了什么？')).toBeVisible({ timeout: 20000 });
+  await tutorPage.getByTestId('chat-type-btn').click();
   await tutorPage.getByRole('textbox', { name: 'Message' }).fill('很好！');
   await tutorPage.getByRole('textbox', { name: 'Message' }).fill('你说得很好');
   await expect(tutorPage.getByRole('button', { name: 'Check my Chinese' })).toHaveCount(0);

@@ -511,11 +511,17 @@ private fun DiscussSheet(m: ChatMessageDto, ui: ChatUi, actions: ChatSheetAction
                 if (d.selected.isNotEmpty()) DeckPicker(ui, d.selected.size, actions) { deck, new -> actions.onSaveDiscussCards(m, deck, new) }
             }
             d.saved?.let { InlineNotice(it, kind = NoticeKind.Success) }
-            Row(verticalAlignment = Alignment.Bottom) {
-                OutlinedTextField(input, { input = it }, placeholder = { Text("Ask about this message...") }, maxLines = 4, enabled = !d.thinking, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(8.dp))
-                PrimaryPill("Ask", Modifier.height(52.dp), enabled = input.isNotBlank() && !d.thinking && ui.online) { actions.onAsk(m, input); input = "" }
-            }
+            // Voice first (core VoiceDictation; the web's MessageDiscussionModal): 🎤 Say it → the review → Ask.
+            dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceFirstField(
+                value = input,
+                onValueChange = { input = it },
+                onSubmit = { a -> actions.onAsk(m, a.text); input = "" },
+                surface = "chat_discuss",
+                submitLabel = "Ask",
+                placeholder = "Ask about this message...",
+                multiline = true,
+                enabled = !d.thinking && ui.online,
+            )
             Spacer(Modifier.height(12.dp))
         }
     }

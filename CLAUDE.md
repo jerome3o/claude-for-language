@@ -2441,6 +2441,12 @@ The app supports many-to-many tutor-student relationships where users can be tut
   role-aware (`toolsForMessage` in `frontend/src/components/chat/messageTools.ts`, unit-tested):
   Check my Chinese only on the learner's own messages, Translate only on the other party's. Failures
   show as Coach-style inline notices (`InlineNotice`), never `alert()`.
+- **Voice-first composer** (docs/CHAT.md "Voice-first composer"): the composer opens on 🎤 **Say it** (dictate the
+  message as TEXT — live words, then 🔁 · ✏️ · ✓ Check my Chinese · ➤), ⌨️ types; the round **waveform** button is the
+  hold-to-record VOICE MESSAGE (unchanged gestures). Web `components/chat/DictationComposer.tsx` on
+  `hooks/useVoiceDictation.ts`; Lab `ChatComposer.kt` `DictationRow`. The same voice-first box is on Ask Claude, Discuss
+  with Claude, the Sentence Coach (sentence box — the review runs Check / Explain / Translate — and follow-up) and Flag
+  for tutor; Lab helpers `ui/kit/VoiceFirst.kt`.
 - **One chat per pair** (docs/CHAT.md "One chat per pair", migration 0102, `routes/one-chat.ts`): a tutor and a
   student have exactly ONE conversation — `openRelationshipConversation` (`services/conversations.ts`) is the
   get-or-create every path posts through (`POST /api/relationships/:relId/conversations/open`; creating another

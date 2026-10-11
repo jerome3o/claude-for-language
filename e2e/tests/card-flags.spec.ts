@@ -67,8 +67,10 @@ test('student flags a card from study; tutor sees it, replies; student sees the 
   await page.getByRole('menuitem', { name: /Flag for tutor/ }).click();
   const sheet = page.getByTestId('flag-card-sheet');
   await expect(sheet).toContainText('银行');
-  await page.getByTestId('flag-card-input').fill('Is 行 here háng or xíng? I keep mixing it up with 很行');
-  await page.getByTestId('flag-card-send').click();
+  // Voice first: ✏️ Type opens the box.
+  await page.getByTestId('flag-card-type').click();
+  await page.getByTestId('flag-card-text').fill('Is 行 here háng or xíng? I keep mixing it up with 很行');
+  await page.getByTestId('flag-card-submit').click();
   await expect(page.getByTestId('flag-card-done')).toContainText('Sent to Flags tutor');
 
   // Server: the flag exists and landed in the chat

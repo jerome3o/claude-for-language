@@ -35,6 +35,7 @@ import {
   COACH_NEW_WORDS_LABEL,
   COACH_SENTENCE_CARD_LABEL,
   coachButtons,
+  hasHan,
   type CoachAction,
   type CoachWord,
 } from '@shared/coach';
@@ -57,6 +58,11 @@ import { cacheTextExplanation, getCachedTextExplanation } from '../services/sent
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
 import { coachReturnPath, setCoachReturn } from '../services/studyResume';
 import { track, trackError } from '../services/analytics';
+import { useVoiceDictation, type DictatedAnswer } from '../hooks/useVoiceDictation';
+import { VoiceTextInputView } from '../components/voice/VoiceTextInput';
+import { enterToSubmit } from '../components/voice/enterToSubmit';
+import { devicePinyinLine } from '../utils/autoPinyin';
+import { DICTATION_COPY, voiceBlockReason, voiceButtonShown, type VoiceBlock } from '@shared/voice/dictation';
 import './SentenceCoachPage.css';
 
 const LAST_DECK_KEY = 'coach-last-deck-id';
@@ -108,6 +114,11 @@ const QUICK_ACTIONS: QuickAction[] = [
 ];
 
 /** The Chinese sentence the latest analysis settled on (corrected, explained or translated). */
+/** Why speaking is off, in the coach's words (the box is for a sentence, not an answer). */
+function voiceBlockReasonFor(blocked: VoiceBlock): string {
+  return voiceBlockReason(blocked).replace('type your answer', 'type it');
+}
+
 function analysisSentence(analysis: CoachAnalysis): string {
   if (analysis.kind === 'chinese') return analysis.coach.corrected.hanzi;
   if (analysis.kind === 'explain') return analysis.breakdown.hanzi;
@@ -701,6 +712,11 @@ export function SentenceCoachPage() {
   useEffect(() => () => setCoachReturn(null), []);
   const focusRequestedRef = useRef(searchParams.get('focus') === '1');
   const [followUp, setFollowUp] = useState('');
+  // Voice-first boxes (shared/voice/dictation.ts): speaking is the default — a deep link that brings
+  // text (?text= / ?draft=) or the widget's ✏️ (?focus=1) opens the box for typing instead.
+  const [startTyping] = useState(() => !!(searchParams.get('text') || searchParams.get('draft') || searchParams.get('focus') === '1'));
+  /** The coach action a spoken / typed sentence goes to (set just before `sentenceVoice.submit()`). */
+  const pendingCoachAction = useRef<CoachAction | null>(null);
   const [selectedDeckId, setSelectedDeckId] = useState<string>(
     () => localStorage.getItem(LAST_DECK_KEY) ?? ''
   );
@@ -899,21 +915,73 @@ export function SentenceCoachPage() {
   };
 
   const trimmed = sentence.trim();
-  const buttons = coachButtons(sentence);
+  // The sentence box, voice first: what was said lands on the review, and the action buttons
+  // (✏️ Check / 🔍 Explain or Translate, by what was said) run on it — no Submit of its own.
+  const sentenceVoice = useVoiceDictation({
+    surface: 'coach',
+    value: sentence,
+    onChange: setSentence,
+    defaultMode: startTyping ? 'type' : 'voice',
+    onSubmit: (answer: DictatedAnswer) => {
+      const action = pendingCoachAction.current;
+      pendingCoachAction.current = null;
+      // The text stays in the box (typing) while the coach works, so a failure keeps it for "Try again".
+      setSentence(answer.text);
+      if (answer.source === 'spoken') sentenceVoice.type();
+      if (action) void runAction(action, answer.text);
+    },
+  });
+  const sentenceReview = sentenceVoice.state.mode === 'voice' && sentenceVoice.state.phase === 'review';
+  // ✏️ Type / ✏️ Edit: into the box, keyboard up, caret at the end.
+  const sentenceTyping = sentenceVoice.state.mode === 'type';
+  const wasTyping = useRef(sentenceTyping);
+  useEffect(() => {
+    if (sentenceTyping && !wasTyping.current && !sentenceVoice.state.blocked && !startMutation.isPending) {
+      const el = inputRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    }
+    wasTyping.current = sentenceTyping;
+  }, [sentenceTyping, sentenceVoice.state.blocked, startMutation.isPending]);
+  // On the review the buttons follow what was SAID (English → Translate); typing, what is in the box.
+  const buttons = coachButtons(sentenceReview ? sentenceVoice.finalText : sentence);
+  const runCoachAction = (action: CoachAction) => {
+    if (startMutation.isPending) return;
+    pendingCoachAction.current = action;
+    sentenceVoice.submit();
+    if (!sentenceReview && !sentenceVoice.canSubmit) pendingCoachAction.current = null;
+  };
   const pendingAction = startMutation.isPending ? startMutation.variables?.action ?? null : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    void runAction(buttons.actions[0]);
+    runCoachAction(buttons.actions[0]);
   };
 
-  const handleFollowUp = (e: React.FormEvent) => {
-    e.preventDefault();
-    const msg = followUp.trim();
+  const sendFollowUp = (message: string) => {
+    const msg = message.trim();
     if (!msg || !conversationId || replyMutation.isPending || replyPending) return;
     track('coach.follow_up');
     replyMutation.mutate({ id: conversationId, message: msg });
   };
+  // The follow-up box, voice first like the sentence box (Send instead of Submit).
+  const followUpVoice = useVoiceDictation({
+    surface: 'coach_chat',
+    value: followUp,
+    onChange: setFollowUp,
+    onSubmit: (answer) => {
+      // Kept in the box until the reply is in (cleared on success), so a failed send can be resent.
+      setFollowUp(answer.text);
+      sendFollowUp(answer.text);
+    },
+  });
+  // A spoken follow-up that failed to send: into the box (typing) so it can be fixed or sent again.
+  useEffect(() => {
+    if (replyMutation.isError && followUp.trim() && followUpVoice.state.mode === 'voice' && followUpVoice.state.phase === 'idle') followUpVoice.type();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyMutation.isError]);
 
   const openConversation = (id: string) => {
     setSearchParams({ c: id });
@@ -921,6 +989,8 @@ export function SentenceCoachPage() {
 
   const backToList = () => {
     setSearchParams({});
+    // Back on the coach's first page: speaking again, whatever was used last.
+    if (!sentence.trim()) sentenceVoice.reset();
   };
 
   // ============ Conversation view ============
@@ -1000,28 +1070,24 @@ export function SentenceCoachPage() {
           )}
 
           {data && (
-            <form onSubmit={handleFollowUp} className="coach-followup-form">
-              <textarea
-                className="form-textarea coach-followup-input"
+            <div className="coach-followup-form" data-testid="coach-followup" onKeyDown={enterToSubmit(followUpVoice.submit)}>
+              <VoiceTextInputView
                 value={followUp}
-                onChange={(e) => setFollowUp(e.target.value)}
+                onChange={setFollowUp}
                 placeholder="Ask a follow-up… (grammar, usage, add words to a deck)"
-                rows={2}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleFollowUp(e);
-                  }
-                }}
+                listeningPlaceholder="Listening… ask anything, in Chinese or English"
+                submitLabel={replyMutation.isPending || replyPending ? '…' : 'Send'}
+                multiline
+                disabled={replyMutation.isPending || replyPending}
+                testId="coach-followup"
+                className="coach-followup-voice"
+                state={followUpVoice.state}
+                finalText={followUpVoice.finalText}
+                partialText={followUpVoice.partialText}
+                canSubmit={followUpVoice.canSubmit}
+                actions={followUpVoice}
               />
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={!followUp.trim() || replyMutation.isPending || replyPending}
-              >
-                {replyMutation.isPending || replyPending ? '…' : 'Send'}
-              </button>
-            </form>
+            </div>
           )}
           {adding && <AddChunkModal source="coach" chunk={adding} onClose={() => setAdding(null)} />}
         </div>
@@ -1042,26 +1108,87 @@ export function SentenceCoachPage() {
         )}
         <h1 className="mb-2">Sentence Coach</h1>
         <p className="text-light mb-4">
-          Wrote something in Chinese? Check it. Reading something? Explain it word by word. Or type
-          English to see how to say it in Chinese. Then keep chatting about it.
+          Wrote something in Chinese? Check it. Reading something? Explain it word by word. Or say
+          English to hear how to say it in Chinese. Speak or type — then keep chatting about it.
         </p>
 
         <div className="card">
-          <form onSubmit={handleSubmit} className="sentence-input-form">
-            <div className="form-group">
-              <textarea
-                ref={inputRef}
-                className="form-textarea"
-                value={sentence}
-                onChange={(e) => setSentence(e.target.value)}
-                placeholder="我昨天去了商店买苹果 — or — How do I say I'm running late?"
-                required
-                rows={3}
-              />
-              {buttons.hint && (
-                <div className="coach-detect-hint" data-testid="coach-detect-hint">{buttons.hint}</div>
-              )}
-            </div>
+          <form onSubmit={handleSubmit} className="sentence-input-form" data-testid="coach-sentence-box">
+            {sentenceVoice.state.mode === 'type' ? (
+              <div className="form-group">
+                <div className="coach-typing-row">
+                  <textarea
+                    ref={inputRef}
+                    className="form-textarea"
+                    value={sentence}
+                    onChange={(e) => setSentence(e.target.value)}
+                    placeholder="我昨天去了商店买苹果 — or — How do I say I'm running late?"
+                    required
+                    rows={3}
+                    data-testid="coach-sentence-text"
+                  />
+                  {voiceButtonShown(sentenceVoice.state.blocked) ? (
+                    <button
+                      type="button"
+                      className="voice-input-mic coach-say-mic"
+                      onClick={sentenceVoice.say}
+                      aria-label={DICTATION_COPY.micLabel}
+                      data-testid="coach-sentence-mic"
+                    >
+                      🎤
+                    </button>
+                  ) : null}
+                </div>
+                {sentenceVoice.state.blocked && (
+                  <div className="coach-detect-hint" data-testid="coach-voice-blocked">{voiceBlockReasonFor(sentenceVoice.state.blocked)}</div>
+                )}
+                {buttons.hint && (
+                  <div className="coach-detect-hint" data-testid="coach-detect-hint">{buttons.hint}</div>
+                )}
+              </div>
+            ) : sentenceReview ? (
+              <div className="form-group">
+                <div className="voice-input-review coach-voice-review" data-testid="coach-voice-review" aria-live="polite">
+                  <div
+                    className={`voice-input-review-text${hasHan(sentenceVoice.finalText) ? ' hanzi' : ''}${Array.from(sentenceVoice.finalText).length > 12 ? ' is-long' : ''}`}
+                    data-testid="coach-voice-review-text"
+                  >
+                    {sentenceVoice.finalText}
+                  </div>
+                  {hasHan(sentenceVoice.finalText) && (
+                    <div className="pinyin voice-input-review-pinyin">{devicePinyinLine(sentenceVoice.finalText)}</div>
+                  )}
+                </div>
+                <div className="voice-input-row coach-voice-review-row">
+                  <button type="button" className="btn btn-secondary voice-input-side" onClick={sentenceVoice.retake} data-testid="coach-voice-retake">
+                    <span aria-hidden="true">🔁</span> {DICTATION_COPY.retake}
+                  </button>
+                  <button type="button" className="btn btn-secondary voice-input-side" onClick={sentenceVoice.edit} aria-label="Edit what I said" data-testid="coach-voice-edit">
+                    <span aria-hidden="true">✏️</span> {DICTATION_COPY.edit}
+                  </button>
+                </div>
+                {buttons.hint && (
+                  <div className="coach-detect-hint" data-testid="coach-detect-hint">{buttons.hint}</div>
+                )}
+              </div>
+            ) : (
+              <div className="form-group">
+                <VoiceTextInputView
+                  value={sentence}
+                  onChange={setSentence}
+                  listeningPlaceholder="Listening… say it in Chinese or English"
+                  testId="coach-voice"
+                  state={sentenceVoice.state}
+                  finalText={sentenceVoice.finalText}
+                  partialText={sentenceVoice.partialText}
+                  canSubmit={sentenceVoice.canSubmit}
+                  actions={sentenceVoice}
+                />
+                {sentenceVoice.state.phase === 'idle' && (
+                  <div className="coach-detect-hint coach-voice-hint">Say a sentence in Chinese to check or explain it — or in English to hear how to say it.</div>
+                )}
+              </div>
+            )}
 
             {startMutation.error && (
               <div className="coach-error mb-3" role="alert" data-testid="coach-start-error">
@@ -1074,27 +1201,29 @@ export function SentenceCoachPage() {
               </div>
             )}
 
-            <div className="sentence-input-actions coach-action-buttons" role="group" aria-label="What to do with it">
-              {buttons.actions.map((action) => (
-                <button
-                  key={action}
-                  type="button"
-                  className={`btn flex-1 coach-action-btn coach-action-${action} ${action === 'explain' ? 'btn-secondary' : 'btn-primary'}`}
-                  disabled={!buttons.enabled || startMutation.isPending}
-                  onClick={() => runAction(action)}
-                  data-testid={`coach-action-${action}`}
-                >
-                  {pendingAction === action ? (
-                    <>
-                      <span className="spinner" style={{ width: '20px', height: '20px' }} />
-                      {COACH_ACTION_BUSY[action]}
-                    </>
-                  ) : (
-                    actionLabel(action)
-                  )}
-                </button>
-              ))}
-            </div>
+            {(sentenceVoice.state.mode === 'type' || sentenceReview) && (
+              <div className="sentence-input-actions coach-action-buttons" role="group" aria-label="What to do with it">
+                {buttons.actions.map((action) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className={`btn flex-1 coach-action-btn coach-action-${action} ${action === 'explain' ? 'btn-secondary' : 'btn-primary'}`}
+                    disabled={!buttons.enabled || startMutation.isPending}
+                    onClick={() => runCoachAction(action)}
+                    data-testid={`coach-action-${action}`}
+                  >
+                    {pendingAction === action ? (
+                      <>
+                        <span className="spinner" style={{ width: '20px', height: '20px' }} />
+                        {COACH_ACTION_BUSY[action]}
+                      </>
+                    ) : (
+                      actionLabel(action)
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </form>
         </div>
 

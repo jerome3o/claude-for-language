@@ -137,6 +137,7 @@ test('a Coach reply keeps going when you leave: start, leave, come back; follow-
   test.setTimeout(150_000);
   const user = await seedUser(request, 'solo', 'Jerome');
   const page = await openAs(browser, user, '/coach');
+  await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
   await page.locator('.sentence-input-form textarea').fill('我们明天一起去公园吧');
   await page.locator('.sentence-input-form').getByTestId('coach-action-check').click();
   // The page moves to the conversation at once with the answer pending…
@@ -156,7 +157,8 @@ test('a Coach reply keeps going when you leave: start, leave, come back; follow-
   await expect(page.getByText('(E2E) Looks fine.')).toBeVisible({ timeout: 15000 });
 
   // A follow-up, then leave before the reply.
-  await page.locator('.coach-followup-input').fill('Why 吧 here?');
+  await page.getByTestId('coach-followup-type').click();
+  await page.getByTestId('coach-followup-text').fill('Why 吧 here?');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByTestId('coach-reply-pending')).toBeVisible();
   await shoot(page, 'web-05-thinking');

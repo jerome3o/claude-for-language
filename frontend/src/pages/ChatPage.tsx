@@ -105,6 +105,9 @@ import { AlbumBubble, AlbumViewer, type AlbumPhoto } from '../components/chat/Al
 import { useBackLevels } from '../hooks/useBackLevels';
 import { VoiceBubble } from '../components/chat/VoiceBubble';
 import { VoiceComposer, type VoiceCommand } from '../components/chat/VoiceComposer';
+import { DictationComposer, WaveformIcon } from '../components/chat/DictationComposer';
+import { useVoiceDictation } from '../hooks/useVoiceDictation';
+import { DICTATION_COPY, voiceBlockReason, voiceButtonShown } from '@shared/voice/dictation';
 import { PhotoComposeSheet } from '../components/chat/PhotoComposeSheet';
 import { PinnedBar } from '../components/chat/PinnedBar';
 import { ChatSearchBar } from '../components/chat/ChatSearchBar';
@@ -164,6 +167,17 @@ export function ChatPage() {
     if (draftConv.current === convId) saveDraft(convId, newMessage);
   }, [convId, newMessage]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Voice first (docs/CHAT.md "Voice-first composer", shared/voice/dictation.ts): 🎤 Say it dictates the
+  // message as TEXT (live words, then the review: 🔁 · ✏️ · ✓ · ➤); ⌨️ types. A saved draft opens typing.
+  // Typing sends go through it too (`voice.submit()` → `onSubmit`), so `voice_input.used` sees every send.
+  const voice = useVoiceDictation({
+    surface: 'chat',
+    value: newMessage,
+    onChange: setNewMessage,
+    defaultMode: loadDraft(convId).trim() ? 'type' : 'voice',
+    onSubmit: (answer) => sendText(answer.text),
+  });
+  const voiceReview = voice.state.mode === 'voice' && voice.state.phase === 'review';
 
   // Rich messages (docs/CHAT.md PR 2)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -304,6 +318,7 @@ export function ChatPage() {
     setSearchQuery('');
     setSearchIndex(0);
     setRecording(false);
+    voice.reset();
     setPendingPhotos(null);
     setForwarding(null);
     setInfoFor(null);
@@ -604,13 +619,47 @@ export function ChatPage() {
     }
   };
 
+  // Dictating: the other side sees "typing…" while words come in; the review is kept as the draft
+  // (leave the chat on it and it comes back in the box), and a cancel / send puts the draft back as it was.
+  // ⌨️ Type / ✏️ Edit: into the box, keyboard up, caret at the end.
+  const composerTyping = voice.state.mode === 'type';
+  const wasComposerTyping = useRef(composerTyping);
+  useEffect(() => {
+    const el = inputRef.current;
+    if (composerTyping && !wasComposerTyping.current && el && !voice.state.blocked) {
+      el.focus();
+      el.selectionStart = el.selectionEnd = el.value.length;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+    }
+    wasComposerTyping.current = composerTyping;
+  }, [composerTyping, voice.state.blocked]);
+  const dictatedLive = voice.state.phase === 'listening' ? `${voice.finalText}${voice.partialText}` : '';
+  useEffect(() => {
+    if (dictatedLive) noteTyping(dictatedLive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dictatedLive]);
+  useEffect(() => {
+    if (!convId || draftConv.current !== convId) return;
+    saveDraft(convId, voiceReview ? voice.finalText : newMessage);
+    // A check of a review that was then retaken / cancelled is stale.
+    if (!voiceReview && voice.state.mode === 'voice') setDraftCheck(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceReview, voice.finalText]);
+
   const resetInputHeight = () => {
     if (inputRef.current) inputRef.current.style.height = 'auto';
   };
 
   const handleSend = (e?: React.FormEvent) => {
     e?.preventDefault();
-    const text = newMessage.trim();
+    if (isWaitingForAI || !convId) return;
+    // The typed box, or the dictated text on review: both land in sendText via the voice box.
+    voice.submit();
+  };
+
+  const sendText = (raw: string) => {
+    const text = raw.trim();
     if (!text || isWaitingForAI || !convId) return;
     setNotice(null);
     setDraftCheck(null);
@@ -1394,7 +1443,7 @@ export function ChatPage() {
     if (!p || recording !== 'held') return;
     if (Date.now() - p.at < MIC_MIN_HOLD_MS) {
       setVoiceCmd({ action: 'cancel', seq: Date.now() });
-      setNotice({ kind: 'info', text: 'Hold the mic to record, release to send.' });
+      setNotice({ kind: 'info', text: 'Voice message: hold to record, release to send. To write it by speaking, tap 🎤 Say it.' });
       return;
     }
     setVoiceCmd({ action: 'send', seq: Date.now() });
@@ -1576,6 +1625,26 @@ export function ChatPage() {
   const queueText = queueLabel(messages.filter((m) => m.outbox && m.outbox.status !== 'failed').length, isOnline);
   const hitSet = new Set(searchHits);
   const composerEmpty = !newMessage.trim();
+  // The composer's voice side (DictationComposer) unless typing / recording a voice message.
+  const dictating = voice.state.mode === 'voice' && !recording;
+  const canCheckReview = isLearner && voiceReview && looksLikeChinese(voice.finalText);
+  const attachButton = (
+    <button
+      type="button"
+      className={`chat-round-btn chat-attach-btn${attachOpen ? ' open' : ''}`}
+      onClick={() => {
+        setEmojiOpen(false);
+        setAttachOpen((v) => !v);
+      }}
+      disabled={preparingPhoto}
+      aria-label="Attach"
+      aria-expanded={attachOpen}
+      title="Photo, camera, help me say it"
+      data-testid="chat-attach-btn"
+    >
+      {preparingPhoto ? <span className="chat-spinner" aria-hidden="true" /> : '+'}
+    </button>
+  );
   // ✓ "Check my Chinese" on the compose box: the learner, a draft with Chinese (same rule as the menu).
   const canCheckDraft = isLearner && !composerEmpty && looksLikeChinese(newMessage);
 
@@ -2280,6 +2349,8 @@ export function ChatPage() {
           <CheckDraftPanel
             check={draftCheck}
             onUse={(text) => {
+              // On a dictated review: into the typing box (✏️ Edit), then the corrected text over it.
+              if (voiceReview) voice.edit();
               setNewMessage(text);
               setDraftCheck(null);
               inputRef.current?.focus();
@@ -2319,6 +2390,40 @@ export function ChatPage() {
           </div>
         )}
         <form className="chat-input-form" onSubmit={handleSend}>
+          {/* The file pickers stay mounted in every mode: the [+] menu opens them. */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="chat-file-input"
+            data-testid="chat-photo-input"
+            multiple
+            onChange={(e) => void handlePhotoPicked(e.target.files)}
+          />
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime,video/*"
+            className="chat-file-input"
+            data-testid="chat-video-input"
+            onChange={(e) => void handleVideoPicked(e.target.files?.[0])}
+          />
+          <input
+            ref={docInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.txt,.csv,.md,.rtf,.zip,.apkg,.epub,.mp3,.m4a"
+            className="chat-file-input"
+            data-testid="chat-file-input"
+            onChange={(e) => handleDocPicked(e.target.files?.[0])}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="chat-file-input"
+            onChange={(e) => void handlePhotoPicked(e.target.files)}
+          />
           {recording ? (
             <VoiceComposer
               mode={recording}
@@ -2331,56 +2436,21 @@ export function ChatPage() {
               }}
               onError={(text) => setNotice({ kind: 'error', text })}
             />
+          ) : dictating ? (
+            <DictationComposer
+              state={voice.state}
+              finalText={voice.finalText}
+              partialText={voice.partialText}
+              actions={voice}
+              attach={attachButton}
+              onCheck={canCheckReview ? () => void runDraftCheck(voice.finalText.trim()) : null}
+              checkBusy={draftCheck?.kind === 'loading'}
+              sendDisabled={isWaitingForAI}
+              listeningPlaceholder={isAIConversation ? 'Listening… say it in Chinese' : 'Listening… say your message'}
+            />
           ) : (
             <>
-              <button
-                type="button"
-                className={`chat-round-btn chat-attach-btn${attachOpen ? ' open' : ''}`}
-                onClick={() => {
-                  setEmojiOpen(false);
-                  setAttachOpen((v) => !v);
-                }}
-                disabled={preparingPhoto}
-                aria-label="Attach"
-                aria-expanded={attachOpen}
-                title="Photo, camera, help me say it"
-                data-testid="chat-attach-btn"
-              >
-                {preparingPhoto ? <span className="chat-spinner" aria-hidden="true" /> : '+'}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="chat-file-input"
-                data-testid="chat-photo-input"
-                multiple
-                onChange={(e) => void handlePhotoPicked(e.target.files)}
-              />
-              <input
-                ref={videoInputRef}
-                type="file"
-                accept="video/mp4,video/webm,video/quicktime,video/*"
-                className="chat-file-input"
-                data-testid="chat-video-input"
-                onChange={(e) => void handleVideoPicked(e.target.files?.[0])}
-              />
-              <input
-                ref={docInputRef}
-                type="file"
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.txt,.csv,.md,.rtf,.zip,.apkg,.epub,.mp3,.m4a"
-                className="chat-file-input"
-                data-testid="chat-file-input"
-                onChange={(e) => handleDocPicked(e.target.files?.[0])}
-              />
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="chat-file-input"
-                onChange={(e) => void handlePhotoPicked(e.target.files)}
-              />
+              {attachButton}
               <div className="chat-input-pill">
                 <button
                   type="button"
@@ -2417,6 +2487,21 @@ export function ChatPage() {
                   rows={1}
                   aria-label="Message"
                 />
+                {voiceButtonShown(voice.state.blocked) && (
+                  <button
+                    type="button"
+                    className="chat-pill-btn chat-pill-dictate"
+                    onClick={() => {
+                      setEmojiOpen(false);
+                      voice.say();
+                    }}
+                    aria-label={`${DICTATION_COPY.micLabel} — dictate`}
+                    title="Say it — dictate instead of typing"
+                    data-testid="chat-dictate-mic"
+                  >
+                    🎤
+                  </button>
+                )}
                 {canCheckDraft && (
                   <button
                     type="button"
@@ -2432,10 +2517,11 @@ export function ChatPage() {
               </div>
             </>
           )}
-          {recording === 'locked' ? null : composerEmpty && !isAIConversation ? (
+          {/* ONE call site for the voice-message button, so a hold survives the row turning into the recorder. */}
+          {recording === 'locked' || (dictating && voice.state.phase !== 'idle') ? null : (composerEmpty || dictating) && !isAIConversation ? (
             <button
               type="button"
-              className={`chat-round-btn chat-mic-btn${recording === 'held' ? ' recording' : ''}`}
+              className={`chat-round-btn chat-mic-btn chat-voice-msg-btn${recording === 'held' ? ' recording' : ''}`}
               onPointerDown={micDown}
               onPointerMove={micMove}
               onPointerUp={micUp}
@@ -2450,12 +2536,12 @@ export function ChatPage() {
                 }
               }}
               aria-label="Hold to record a voice message"
-              title="Hold to record, release to send"
+              title="Voice message — hold to record, release to send"
               data-testid="chat-mic-btn"
             >
-              🎤
+              <WaveformIcon />
             </button>
-          ) : (
+          ) : dictating ? null : (
             <SpinnerButton
               type="submit"
               className="chat-round-btn chat-send"
@@ -2467,6 +2553,9 @@ export function ChatPage() {
             </SpinnerButton>
           )}
         </form>
+        {voice.state.blocked && voice.state.blocked !== 'offline' && !recording && (
+          <p className="chat-dictate-blocked" data-testid="chat-dictate-blocked">{voiceBlockReason(voice.state.blocked).replace('type your answer', 'type your message')}</p>
+        )}
         {attachOpen && !recording && (
           <div className="chat-attach-menu" role="menu" data-testid="chat-attach-menu">
             {!isAIConversation && (

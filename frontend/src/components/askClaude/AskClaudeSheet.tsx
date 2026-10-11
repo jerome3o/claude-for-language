@@ -25,6 +25,9 @@ import { readConversationVoices } from '../../services/conversationVoices';
 import { createAudioPlayer } from '../../utils/audioPlayback';
 import { track } from '../../services/analytics';
 import type { AskClaudeConversation, AskPart } from './useAskClaude';
+import { useVoiceDictation } from '../../hooks/useVoiceDictation';
+import { VoiceTextInputView } from '../voice/VoiceTextInput';
+import { enterToSubmit } from '../voice/enterToSubmit';
 import '../chat/chat-learning.css';
 import '../chat/chat-signal.css';
 import '../chat/chat-listening.css';
@@ -212,7 +215,24 @@ export function AskClaudeSheet({
   const { user } = useAuth();
   const known = useKnownHanzi();
   const press = useLongPress();
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // The question box, voice first (shared/voice/dictation.ts): 🎤 Say it → the review → Ask; ✏️ Type a tap away.
+  const voice = useVoiceDictation({
+    surface: 'ask_claude',
+    value: chat.question,
+    onChange: chat.setQuestion,
+    lang: language === 'en' ? 'en' : 'zh',
+    online: aiAvailable,
+    onSubmit: (answer) => {
+      chat.setQuestion(answer.text);
+      void chat.ask(answer.text);
+    },
+  });
+  // A spoken question that failed to send: into the box (typing) so it can be fixed or sent again.
+  const voiceIdle = voice.state.mode === 'voice' && voice.state.phase === 'idle';
+  useEffect(() => {
+    if (chat.error && !chat.isAsking && chat.question.trim() && voiceIdle) voice.type();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.error, chat.isAsking]);
   const playerRef = useRef(createAudioPlayer());
   const [menu, setMenu] = useState<{ target: Target; anchor: MenuAnchor } | null>(null);
   const [shown, setShown] = useState<{ pinyin: Set<string>; translate: Set<string> }>({ pinyin: new Set(), translate: new Set() });
@@ -617,30 +637,24 @@ export function AskClaudeSheet({
         </div>
 
         {!cardDeleted && (
-          <div className="claude-input-row">
-            <textarea
-              ref={inputRef}
-              className="form-input claude-autogrow-input"
+          <div className="claude-input-row ask-voice-row" data-testid="ask-claude-input" onKeyDown={enterToSubmit(voice.submit)}>
+            <VoiceTextInputView
               value={chat.question}
-              onChange={(e) => {
-                chat.setQuestion(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-              }}
+              onChange={chat.setQuestion}
               placeholder={chat.pendingToolResults ? 'Approve or reject changes first...' : language === 'zh' ? '用中文问吧… (or English)' : 'Ask a question...'}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void chat.ask(chat.question);
-                }
-              }}
+              listeningPlaceholder={language === 'zh' ? '在听… 用中文问吧 (or English)' : 'Listening… ask your question'}
+              submitLabel={chat.isAsking ? '…' : 'Ask'}
+              multiline
+              lang={language === 'en' ? 'en' : 'zh'}
               disabled={chat.isAsking || !!chat.pendingToolResults}
-              rows={1}
-              autoFocus
+              testId="ask-voice"
+              className="ask-voice"
+              state={voice.state}
+              finalText={voice.finalText}
+              partialText={voice.partialText}
+              canSubmit={voice.canSubmit}
+              actions={voice}
             />
-            <button className="btn btn-primary" onClick={() => void chat.ask(chat.question)} disabled={!chat.question.trim() || chat.isAsking || !!chat.pendingToolResults}>
-              Ask
-            </button>
           </div>
         )}
       </div>
@@ -672,8 +686,8 @@ export function AskClaudeSheet({
           onDiscuss={() => {
             const corrected = sayBetterFor.question_check?.corrected ?? sayBetterFor.question;
             setSayBetterFor(null);
+            voice.type();
             chat.setQuestion(language === 'zh' ? `为什么「${corrected}」更好？` : `Why is "${corrected}" better?`);
-            window.setTimeout(() => inputRef.current?.focus(), 50);
           }}
           onOpenCoach={() => {
             const entry = sayBetterFor;

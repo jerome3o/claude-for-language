@@ -62,3 +62,7 @@
   color: #22c55e;
   font-weight: 500;
 }
+
+/* The question box, voice first (components/voice/VoiceTextInput). */
+.discuss-voice-row { display: block; }
+.discuss-voice-row .voice-input-box--multi { min-height: 3.25rem; max-height: 120px; }

@@ -27,10 +27,9 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -213,8 +212,19 @@ fun AskClaudeBody(
     listening: Boolean = false,
     listen: ListeningUi = ListeningUi(),
     listenNotice: AskListenNotice? = null,
+    /** Screenshot tests: the question box drawn in this voice state (they have no microphone). */
+    voicePreview: dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi? = null,
 ) {
     var question by remember { mutableStateOf("") }
+    // The question box, voice first (core VoiceDictation; the web's AskClaudeSheet): 🎤 Say it → the
+    // review → Ask; ✏️ Type a tap away. Chinese hints in 中文 mode, English first in English mode.
+    val voiceLang = if (language == AskClaude.ZH) "zh" else "en"
+    val voice = androidx.compose.runtime.key(voiceLang) { dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceDictation("ask_claude", voiceLang) }
+    val voiceUi by voice.ui.collectAsState()
+    val voiceActions = dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceFirstActions(
+        voice, question, onFill = { question = it },
+        onSubmit = { a -> actions.ask(a.text, true, userAnswer); question = "" },
+    )
     // 🎧 Answers on screen when the sheet opened (and every answer already looked at) never play by themselves.
     val seen = remember { ask.conversation.mapTo(HashSet()) { it.id } }
     LaunchedEffect(ask.conversation.size) {
@@ -337,23 +347,17 @@ fun AskClaudeBody(
         ask.error?.takeIf { !ask.asking }?.let { InlineNotice(it, kind = NoticeKind.Error) }
 
         if (!ask.cardDeleted) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                OutlinedTextField(
-                    value = question,
-                    onValueChange = { question = it },
-                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
-                    placeholder = { Text(if (ask.pending != null) "Approve or reject changes first…" else if (language == AskClaude.ZH) "用中文问吧… (or English)" else "Ask a question…") },
-                    enabled = !ask.asking && ask.pending == null,
-                    maxLines = 5,
-                    shape = RoundedCornerShape(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
-                )
-                Spacer(Modifier.width(8.dp))
-                PrimaryPill("Ask", Modifier.height(52.dp), enabled = question.isNotBlank() && !ask.asking && ask.pending == null) {
-                    actions.ask(question, true, userAnswer)
-                    question = ""
-                }
-            }
+            dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldContent(
+                ui = voicePreview ?: voiceUi,
+                value = question,
+                onValueChange = { question = it },
+                actions = voiceActions,
+                submitLabel = if (ask.asking) "…" else "Ask",
+                placeholder = if (ask.pending != null) "Approve or reject changes first…" else if (language == AskClaude.ZH) "用中文问吧… (or English)" else "Ask a question…",
+                multiline = true,
+                lang = voiceLang,
+                enabled = !ask.asking && ask.pending == null,
+            )
         }
         Spacer(Modifier.height(4.dp))
     }
@@ -399,6 +403,7 @@ fun AskClaudeBody(
                 onPlay = { actions.readAloud(v.corrected, true) },
                 onAsk = {
                     sayBetterFor = null
+                    voice.type()
                     question = if (language == AskClaude.ZH) "为什么「${v.corrected}」更好？" else "Why is \"${v.corrected}\" better?"
                 },
                 onClose = { sayBetterFor = null },

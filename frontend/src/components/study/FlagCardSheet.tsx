@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { VoiceTextInput } from '../voice/VoiceTextInput';
 import { queueCardFlag, type RememberedTutor } from '../../services/cardFlags';
 import { track, trackError } from '../../services/analytics';
 
@@ -25,16 +26,13 @@ export function FlagCardSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 80);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => {
-      clearTimeout(t);
       window.removeEventListener('keydown', onKey);
     };
   }, [onClose]);
@@ -47,8 +45,9 @@ export function FlagCardSheet({
 
   const tutor = tutors.find((t) => t.relationship_id === relId) ?? tutors[0];
 
-  const send = async () => {
-    if (!message.trim() || busy || !tutor) return;
+  const send = async (text: string) => {
+    if (!text.trim() || busy || !tutor) return;
+    setMessage(text);
     setBusy(true);
     setError(null);
     try {
@@ -58,7 +57,7 @@ export function FlagCardSheet({
         note_id: noteId,
         card_id: cardId,
         hanzi,
-        message,
+        message: text.trim(),
       });
       track('study.flag_card');
       setDone(r.sent ? `Sent to ${tutor.name}` : `Saved — it goes to ${tutor.name} when you're back online`);
@@ -92,27 +91,24 @@ export function FlagCardSheet({
           <div className="study-flag-done" role="status" data-testid="flag-card-done">✓ {done}</div>
         ) : (
           <>
-            <textarea
-              ref={inputRef}
-              className="study-flag-input"
+            {/* Voice first (shared/voice/dictation.ts): say what's confusing, or ✏️ Type. Offline → typing (it queues). */}
+            <VoiceTextInput
+              surface="card_flag"
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={setMessage}
+              onSubmit={(answer) => void send(answer.text)}
               placeholder="What's confusing? e.g. I keep mixing this up with 很行"
-              rows={3}
-              maxLength={2000}
-              disabled={busy}
-              data-testid="flag-card-input"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send();
-              }}
+              listeningPlaceholder="Listening… what's confusing?"
+              submitLabel={busy ? 'Sending…' : 'Send'}
+              multiline
+              lang="en"
+              disabled={busy || !tutor}
+              testId="flag-card"
             />
             {error && <div className="study-inline-error" role="alert">{error}</div>}
             <p className="study-flag-hint">Your tutor gets it in the chat with a link to this card, and their reply shows here next time.</p>
-            <div className="study-flag-actions sheet-footer">
+            <div className="study-flag-actions">
               <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={send} disabled={busy || !message.trim() || !tutor} data-testid="flag-card-send">
-                {busy ? 'Sending…' : 'Send'}
-              </button>
             </div>
           </>
         )}

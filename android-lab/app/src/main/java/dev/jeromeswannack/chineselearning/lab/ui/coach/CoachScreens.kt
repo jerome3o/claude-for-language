@@ -37,6 +37,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.style.TextAlign
+import dev.jeromeswannack.chineselearning.lab.ui.study.devicePinyinLine
+import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceFirstActions
+import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceDictation
+import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldContent
+import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi
+import dev.jeromeswannack.chineselearning.lab.core.VoiceDictation
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
@@ -129,9 +137,41 @@ internal fun CoachAction.buttonLabel() = if (this == CoachAction.TRANSLATE) labe
 /** Test tags on the home buttons. */
 fun coachActionTag(a: CoachAction) = "coach-action-" + a.id
 
+/** The sentence box's voice side (the web's coach-sentence-* / coach-voice-* test ids). */
+const val COACH_SENTENCE_TEXT_TAG = "coach-sentence-text"
+const val COACH_SENTENCE_MIC_TAG = "coach-sentence-mic"
+const val COACH_VOICE_RETAKE_TAG = "coach-voice-retake"
+const val COACH_VOICE_EDIT_TAG = "coach-voice-edit"
+
+/** What was said, on the review: big, read-only, pinyin under Chinese (the action buttons act on it). */
+@Composable
+private fun VoiceReview(text: String) {
+    val chinese = remember(text) { text.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN } }
+    val pinyin = remember(text) { if (chinese) devicePinyinLine(text) else "" }
+    val size = when {
+        !chinese -> 22.sp
+        text.length <= 14 -> 30.sp
+        else -> 24.sp
+    }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.background)
+            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 12.dp).testTag("coach-voice-review"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text, fontSize = size, lineHeight = size * 1.25f, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+        if (pinyin.isNotEmpty()) Text(pinyin, style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center)
+    }
+}
+
 /** `/coach` — the web's SentenceCoachPage home view. [autoFocus]: focus the sentence box and raise the keyboard. */
 @Composable
-fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boolean = false) {
+fun CoachHomeScreen(
+    ui: CoachHomeUi,
+    actions: CoachHomeActions,
+    autoFocus: Boolean = false,
+    /** Screenshot tests: the sentence box drawn in this voice state (they have no microphone). */
+    voicePreview: VoiceDictationUi? = null,
+) {
     var confirmDelete by remember { mutableStateOf<CoachConversationDto?>(null) }
     val inputFocus = remember { FocusRequester() }
     // The box keeps its own cursor; a draft put in from outside (?draft=, a failed send) lands with the cursor at its end.
@@ -147,41 +187,90 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
         }
     }
     val trimmed = ui.draft.trim()
-    val buttons = CoachActions.buttons(ui.draft)
+    // The sentence box, voice first (core VoiceDictation; the web's SentenceCoachPage): what was said lands
+    // on the review and the action buttons (Check / Explain, or Translate for English) run on it. A draft
+    // that arrives with the screen (?draft= / ?text= / the widget's ✏️) opens it for typing.
+    val voice = rememberVoiceDictation("coach", defaultMode = if (ui.draft.isNotBlank() || autoFocus) VoiceDictation.TYPE else null)
+    val liveVoice by voice.ui.collectAsState()
+    val voiceUi = voicePreview ?: liveVoice
+    var pendingAction by remember { mutableStateOf<CoachAction?>(null) }
+    val voiceActions = rememberVoiceFirstActions(voice, ui.draft, onFill = actions.onDraft) { answer ->
+        val a = pendingAction
+        pendingAction = null
+        // The text stays in the box (typing) while the coach works, so a failure keeps it for "Try again".
+        actions.onDraft(answer.text)
+        if (answer.source == "spoken") voice.type()
+        if (a != null) actions.onAction(a)
+    }
+    val reviewing = voiceUi.state.mode == VoiceDictation.VOICE && voiceUi.phase == "review"
+    val typing = voiceUi.state.mode == VoiceDictation.TYPE
+    val buttons = CoachActions.buttons(if (reviewing) voiceUi.finalText else ui.draft)
+    val runAction: (CoachAction) -> Unit = { a -> pendingAction = a; voiceActions.submit() }
     var adding by remember { mutableStateOf<Chunk?>(null) }
     LabScreen("Sentence Coach", onBack = actions.onBack) {
         item {
             Text(
-                "Wrote something in Chinese? Check it. Reading something? Explain it word by word. Or type English to see how to say it in Chinese. Then keep chatting about it.",
+                "Wrote something in Chinese? Check it. Reading something? Explain it word by word. Or say English to hear how to say it in Chinese. Speak or type — then keep chatting about it.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Lab.colors.muted,
             )
         }
         item {
             Card {
-                OutlinedTextField(
-                    value = field,
-                    onValueChange = { field = it; if (it.text != ui.draft) actions.onDraft(it.text) },
-                    placeholder = { Text("我昨天去了商店买苹果 — or — How do I say I'm running late?") },
-                    minLines = 3,
-                    shape = RoundedCornerShape(14.dp),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
-                    colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Lab.colors.background, unfocusedContainerColor = Lab.colors.background),
-                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocus),
-                )
-                buttons.hint?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
+                if (typing) {
+                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = field,
+                            onValueChange = { field = it; if (it.text != ui.draft) actions.onDraft(it.text) },
+                            placeholder = { Text("我昨天去了商店买苹果 — or — How do I say I'm running late?") },
+                            minLines = 3,
+                            shape = RoundedCornerShape(14.dp),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Lab.colors.background, unfocusedContainerColor = Lab.colors.background),
+                            modifier = Modifier.weight(1f).focusRequester(inputFocus).testTag(COACH_SENTENCE_TEXT_TAG),
+                        )
+                        if (VoiceDictation.voiceButtonShown(voiceUi.state.blocked)) {
+                            Box(
+                                Modifier.padding(top = 4.dp).size(52.dp).clip(CircleShape).border(1.dp, Lab.colors.cardBorder, CircleShape).background(Lab.colors.card)
+                                    .bouncyClickable(true, 0.92f, onClick = voiceActions.say).testTag(COACH_SENTENCE_MIC_TAG),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("🎤", fontSize = 22.sp) }
+                        }
+                    }
+                    // ✏️ Type / ✏️ Edit: into the box with the keyboard up.
+                    LaunchedEffect(Unit) {
+                        if (voiceUi.state.blocked == null && !autoFocus) {
+                            withFrameNanos { }
+                            runCatching { inputFocus.requestFocus() }
+                        }
+                    }
+                    voiceUi.state.blocked?.let { Text(VoiceDictation.blockReason(it).replace("type your answer", "type it"), fontSize = 13.sp, color = Lab.colors.muted) }
+                } else if (reviewing) {
+                    VoiceReview(voiceUi.finalText)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SecondaryPill("🔁 ${VoiceDictation.Copy.RETAKE}", Modifier.weight(1f).heightIn(min = 52.dp).testTag(COACH_VOICE_RETAKE_TAG), onClick = voiceActions.retake)
+                        SecondaryPill("✏️ ${VoiceDictation.Copy.EDIT}", Modifier.weight(1f).heightIn(min = 52.dp).testTag(COACH_VOICE_EDIT_TAG), onClick = voiceActions.edit)
+                    }
+                } else {
+                    VoiceTextFieldContent(voiceUi, ui.draft, actions.onDraft, voiceActions)
+                    if (voiceUi.phase == "idle") Text(
+                        "Say a sentence in Chinese to check or explain it — or in English to hear how to say it.",
+                        fontSize = 13.sp, color = Lab.colors.muted, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (typing || reviewing) buttons.hint?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
                 ui.startError?.let {
                     val retry = ui.lastAction?.takeIf { a -> a in buttons.actions } ?: buttons.actions.first()
                     InlineNotice(it, kind = NoticeKind.Error, actionLabel = if (trimmed.isNotEmpty()) "Try again" else null, onAction = { actions.onAction(retry) })
                 }
                 // Chinese / mixed: Check my sentence + Explain; English: Translate (shared/coach).
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (typing || reviewing) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (a in buttons.actions) {
                         val label = if (ui.pendingAction == a) a.busy else a.buttonLabel()
                         val enabled = buttons.enabled && !ui.starting
                         // "Check my sentence" is the longer label: it gets the wider share so it stays on one line.
                         val share = if (buttons.actions.size > 1 && a == CoachAction.CHECK) 1.5f else 1f
-                        CoachActionPill(label, primary = a != CoachAction.EXPLAIN, enabled = enabled, modifier = Modifier.weight(share).heightIn(min = 56.dp).testTag(coachActionTag(a))) { actions.onAction(a) }
+                        CoachActionPill(label, primary = a != CoachAction.EXPLAIN, enabled = enabled, modifier = Modifier.weight(share).heightIn(min = 56.dp).testTag(coachActionTag(a))) { runAction(a) }
                     }
                 }
             }
@@ -320,13 +409,28 @@ data class CoachChatActions(
 
 /** `/coach?c=<id>` — the conversation: the analysis, the chat, quick actions, the follow-up box. */
 @Composable
-fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
+fun CoachChatScreen(
+    ui: CoachChatUi,
+    actions: CoachChatActions,
+    /** Screenshot tests: the follow-up box drawn in this voice state. */
+    voicePreview: VoiceDictationUi? = null,
+) {
     val thread = ui.thread.data
     val messages = thread?.messages.orEmpty()
     val sentence = messages.firstOrNull { it.content_type == "analysis" && it.status == null }?.let { CoachAnalysisDto.parse(it.content)?.sentence }
     val convAction = thread?.conversation?.let { CoachActions.conversationAction(it.action, it.input_language) } ?: CoachAction.CHECK
     val listState = rememberLazyListState()
     var adding by remember { mutableStateOf<Chunk?>(null) }
+    val followUpVoice = rememberVoiceDictation("coach_chat")
+    val followUpUi by followUpVoice.ui.collectAsState()
+    val followUpActions = rememberVoiceFirstActions(followUpVoice, ui.followUp, onFill = actions.onFollowUp) { answer ->
+        actions.onFollowUp(answer.text)
+        actions.onSend(answer.text.trim())
+    }
+    // A spoken follow-up that failed to send: into the box (typing) so it can be fixed or sent again.
+    LaunchedEffect(ui.sendError) {
+        if (ui.sendError != null && ui.followUp.isNotBlank() && followUpUi.state.mode == VoiceDictation.VOICE && followUpUi.phase == "idle") followUpVoice.type()
+    }
     val count = messages.size + (if (ui.pendingMessage != null) 2 else 0) + (if (ui.sendError != null) 1 else 0)
     LaunchedEffect(count) { if (count > 2) listState.animateScrollToItem(maxOf(0, count - 1)) }
 
@@ -370,19 +474,17 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (sentence != null) QuickActions(sentence, ui, actions) { adding = it }
-                Row(verticalAlignment = Alignment.Bottom) {
-                    OutlinedTextField(
-                        value = ui.followUp,
-                        onValueChange = actions.onFollowUp,
-                        placeholder = { Text("Ask a follow-up… (grammar, usage, add words to a deck)") },
-                        maxLines = 4,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Lab.colors.background, unfocusedContainerColor = Lab.colors.background),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    PrimaryPill(if (ui.sending) "…" else "Send", Modifier.height(56.dp).testTag(COACH_SEND_TAG), enabled = ui.followUp.isNotBlank() && !ui.sending && !ui.replyPending) { actions.onSend(ui.followUp.trim()) }
-                }
+                // The follow-up, voice first like the sentence box (Send instead of Submit).
+                VoiceTextFieldContent(
+                    ui = voicePreview ?: followUpUi,
+                    value = ui.followUp,
+                    onValueChange = actions.onFollowUp,
+                    actions = followUpActions,
+                    submitLabel = if (ui.sending) "…" else "Send",
+                    placeholder = "Ask a follow-up… (grammar, usage, add words to a deck)",
+                    multiline = true,
+                    enabled = !ui.sending && !ui.replyPending,
+                )
             }
         }
     }
@@ -717,5 +819,6 @@ const val COACH_REPLY_PENDING_TAG = "coach-reply-pending"
 const val COACH_REPLY_FAILED_TAG = "coach-reply-failed"
 const val COACH_CONV_PENDING_TAG = "coach-conv-pending"
 const val COACH_CONV_FAILED_TAG = "coach-conv-failed"
-const val COACH_SEND_TAG = "coach-send"
+/** The follow-up's Send: the voice-first box's submit (typing in tests, which have no microphone). */
+const val COACH_SEND_TAG = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.SUBMIT
 

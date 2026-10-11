@@ -291,6 +291,8 @@ data class ChatUi(
     val selection: SelectionUi? = null,
     val review: ReviewUi? = null,
     val draftCheck: DraftCheckUi? = null,
+    /** Screenshot tests: the composer drawn in this voice-first state (they have no microphone). */
+    val voicePreview: dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi? = null,
     /** A correction being saved / removed (its message id). */
     val correcting: String? = null,
     /** Claude is picking cards (from the selection or one message). */

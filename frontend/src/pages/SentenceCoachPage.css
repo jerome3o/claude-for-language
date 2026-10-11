@@ -296,11 +296,34 @@
   background: var(--color-bg, #fff);
 }
 
-.coach-followup-input {
+.coach-followup-form {
+  flex-direction: column;
+  align-items: stretch;
+}
+.coach-followup-voice .voice-input-box--multi {
+  min-height: 3.25rem;
+}
+
+/* ============ The sentence box, voice first (shared/voice/dictation.ts) ============ */
+.coach-typing-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.coach-typing-row textarea {
   flex: 1;
-  min-height: 44px;
-  resize: none;
-  margin-bottom: 0;
+  min-width: 0;
+}
+.coach-voice-review-row {
+  margin-top: 0.5rem;
+  justify-content: center;
+}
+.coach-voice-review-row .btn {
+  flex: 1 1 0;
+}
+.coach-voice-hint {
+  text-align: center;
+  margin-top: 0.5rem;
 }
 
 /* ============ Conversation list ============ */

@@ -156,3 +156,7 @@
 .ask-hidden-extra .claude-tool-results {
   margin-top: 0.25rem;
 }
+
+/* The question box, voice first (components/voice/VoiceTextInput): full width under the thread. */
+.ask-voice-row { display: block; }
+.ask-voice .voice-input-box--multi { min-height: 3.25rem; max-height: 120px; }

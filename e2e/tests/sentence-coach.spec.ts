@@ -54,6 +54,7 @@ test('a dropped first request is retried automatically and the answer shows', as
   await page.route('**/api/coach/conversations/conv-e2e', (route) => route.fulfill({ json: conversationPayload() }));
 
   await page.goto(`/coach?session_token=${session_token}`);
+  await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
   await page.locator('.sentence-input-form textarea').fill(SENTENCE);
   await page.locator('.sentence-input-form').getByTestId('coach-action-check').click();
   await expect(page.getByText('我的智能体给我们的应用加了视频通话功能。')).toBeVisible({ timeout: 15000 });
@@ -75,6 +76,7 @@ test('a failure the retry cannot fix shows the reason and Try again, keeping the
   await page.route('**/api/coach/conversations/conv-e2e', (route) => route.fulfill({ json: conversationPayload() }));
 
   await page.goto(`/coach?session_token=${session_token}`);
+  await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
   await page.locator('.sentence-input-form textarea').fill(SENTENCE);
   await page.locator('.sentence-input-form').getByTestId('coach-action-check').click();
   const error = page.getByTestId('coach-start-error');
