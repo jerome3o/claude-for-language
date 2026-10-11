@@ -94,6 +94,7 @@ object AnalyticsEvents {
         ev("call.end", "calls", listOf("duration_ms")),
         ev("call.board", "calls", listOf("tile")),
         ev("call.board_page", "calls", listOf("action")),
+        ev("call.board_gloss", "calls", listOf("direction", "via")),
         ev("call.screen_share", "calls", listOf("on", "sound")),
         ev("call.annotate", "calls", listOf("target")),
         ev("call.material_present", "calls", listOf("material_kind", "pages")),

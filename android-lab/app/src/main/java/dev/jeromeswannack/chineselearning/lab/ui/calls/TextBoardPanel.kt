@@ -89,21 +89,33 @@ private val HAN = Regex("[\\u3400-\\u9fff\\uf900-\\ufaff]")
 
 private fun parseColor(hex: String): Color = Color(0xFF000000 or hex.removePrefix("#").toLong(16))
 
-/** Pinyin + a short meaning for Chinese on the board (web: POST /api/calls/:id/gloss). */
-data class BoardGloss(val pinyin: String, val english: String)
+/**
+ * The board's tab-complete answer (web: POST /api/calls/:id/gloss): pinyin + a short meaning for
+ * Chinese on the board, or — when [chinese] is set — the Chinese for English typed, with its pinyin.
+ */
+data class BoardGloss(val pinyin: String, val english: String, val chinese: String? = null) {
+    /** What Tab / the chip inserts: " - pīnyīn - meaning", or " - 中文 - pīnyīn" after English. */
+    val text: String get() = if (chinese != null) CallGloss.formatEn(chinese, pinyin) else CallGloss.format(pinyin, english)
+    /** "⇥ pīnyīn - meaning" / "⇥ 中文 - pīnyīn". */
+    val chip: String get() = if (chinese != null) CallGloss.chipLabelEn(chinese, pinyin) else CallGloss.chipLabel(pinyin, english)
+}
 
 /** The offer shown after the caret: [segment] ends at character index [end]. */
 data class GlossSuggestion(val segment: String, val end: Int, val gloss: BoardGloss) {
-    val text: String get() = CallGloss.format(gloss.pinyin, gloss.english)
+    val text: String get() = gloss.text
 }
 
-/** Glosses fetched this run of the app (a lesson repeats words): a repeat is instant and free. */
+/**
+ * Glosses fetched this run of the app (a lesson repeats words): a repeat is instant and free. Keyed by
+ * the server rules' version + direction + text (CallGloss.storeKey), like the web's LRU.
+ */
 object BoardGlossCache {
     private val lru = object : LinkedHashMap<String, BoardGloss>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BoardGloss>?) = size > 300
     }
-    @Synchronized fun get(segment: String): BoardGloss? = lru[CallGloss.cacheKey(segment)]
-    @Synchronized fun put(segment: String, g: BoardGloss) { lru[CallGloss.cacheKey(segment)] = g }
+    private fun key(segment: String) = CallGloss.storeKey(segment, CallGloss.directionOf(segment))
+    @Synchronized fun get(segment: String): BoardGloss? = lru[key(segment)]
+    @Synchronized fun put(segment: String, g: BoardGloss) { lru[key(segment)] = g }
 }
 
 private fun checkAt(v: TextFieldValue): CallGloss.Check = CallGloss.findSegment(
@@ -129,7 +141,8 @@ private fun checkAt(v: TextFieldValue): CallGloss.Check = CallGloss.findSegment(
  * and (online) a word-by-word meaning.
  *
  * Tab-complete (web: useBoardGloss): after typing Chinese and pausing CallGloss.DEBOUNCE_MS with no
- * composition open, " - pīnyīn - meaning" shows grey after the caret with a "⇥ …" chip under it;
+ * composition open, " - pīnyīn - meaning" shows grey after the caret with a "⇥ …" chip under it
+ * (after an English word or short phrase: " - 中文 - pīnyīn");
  * a tap on the chip (or Tab on a hardware keyboard) types it in like any edit, so the other person
  * gets it through the CRDT. Typing on moves past it; Esc dismisses. Only I see the offer.
  *
@@ -232,7 +245,8 @@ fun TextBoardPanel(
         val now = checkAt(currentValue)
         if (now is CallGloss.Check.Ok && now.segment == c.segment && now.end == c.end) suggestion = GlossSuggestion(c.segment, c.end, g)
     }
-    fun accept() {
+    /** [via] "tab" (hardware keyboard) | "chip" — analytics only. */
+    fun accept(via: String) {
         val s = suggestion ?: return
         val c = checkAt(value)
         suggestion = null
@@ -244,6 +258,9 @@ fun TextBoardPanel(
         value = v
         onChange(v.text, v.selection.min, v.selection.max, null)
         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
+            "call.board_gloss", mapOf("direction" to (if (s.gloss.chinese != null) CallGloss.EN else CallGloss.ZH), "via" to via),
+        )
     }
     val padX = 16.dp
     val padY = 14.dp
@@ -305,7 +322,7 @@ fun TextBoardPanel(
                     .onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown || suggestion == null || value.composition != null) false
                         else when (e.key) {
-                            Key.Tab -> { accept(); true }
+                            Key.Tab -> { accept("tab"); true }
                             Key.Escape -> { dismissed = suggestion?.let { "${it.segment}@${it.end}" }; suggestion = null; true }
                             else -> false
                         }
@@ -360,7 +377,7 @@ fun TextBoardPanel(
                 val x = (r.left + with(density) { padX.toPx() }).coerceAtMost(fieldWidth - chipWidth - margin).coerceAtLeast(margin)
                 val y = r.bottom + (ghost?.rest?.size?.height ?: 0) + with(density) { (padY + 6.dp).toPx() }
                 Text(
-                    CallGloss.chipLabel(s.gloss.pinyin, s.gloss.english),
+                    s.gloss.chip,
                     color = BoardPaper.ChipText, fontSize = 16.sp, lineHeight = 21.sp, maxLines = 4, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
@@ -369,7 +386,7 @@ fun TextBoardPanel(
                         .clip(RoundedCornerShape(22.dp))
                         .background(BoardPaper.ChipBg)
                         .border(1.dp, BoardPaper.ChipBorder, RoundedCornerShape(22.dp))
-                        .bouncyClickable { accept() }
+                        .bouncyClickable { accept("chip") }
                         .heightIn(min = 44.dp)
                         .padding(horizontal = 16.dp, vertical = 11.dp),
                 )

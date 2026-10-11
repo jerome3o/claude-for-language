@@ -72,18 +72,47 @@ test call), and the **Join the call** button that appears in the relationship's 
   composition range, so it never had the flag. The rules are `shared/calls/gloss.ts` (`findGlossSegment`: the
   trailing run of Chinese characters / Chinese punctuation on the caret's line, ≤ 40 characters, only
   at the end of a line that has no ` - …` after it yet; `formatGloss`: always one line), ported to the
-  Lab app as `CallGloss.kt` and parity-tested. `POST /api/calls/:id/gloss { text }` (members of the
-  call only) asks Haiku through `structuredCall` (forced tool, thinking off, 500 tokens, 6 s, one
-  retry when the reply is unusable) and returns `{ pinyin, english }` cleaned by `cleanGloss` (tone
-  marks, ≤ 30 English words (a whole sentence), no line breaks); answers are cached per text in the worker isolate and
+  Lab app as `CallGloss.kt` and parity-tested. `POST /api/calls/:id/gloss { text, direction? }` (members of the
+  call only) asks **Sonnet** through `structuredCall` (forced tool, thinking off, 500 tokens, 8 s, one
+  retry — on Haiku — when the reply is unusable) and returns `{ pinyin, english }` cleaned by `cleanGloss` (tone
+  marks, ≤ 30 English words (a whole sentence), no line breaks); answers are cached per rules version +
+  direction + text (`glossStoreKey`, `GLOSS_CACHE_VERSION`) in the worker isolate and
   in a 300-entry LRU on each device (a repeat is instant and free), and each user may make 30
   uncached requests a minute (429). A sentence gets its **whole** translation (the prompt asks for
-it, 500 tokens, 6 s; `GLOSS_MAX_ENGLISH_WORDS` is a 30-word safety net — it was 8, which cut
+it, 500 tokens; `GLOSS_MAX_ENGLISH_WORDS` is a 30-word safety net — it was 8, which cut
 Minghui's sentences off), and the touch chip wraps to up to four lines instead of an ellipsis. No key / offline / an error → simply no offer (the client stays
   quiet for a minute after 503 / 429). A request in flight is aborted on new input and a reply for
   text that has changed since is ignored. Off switch: the board's ⋯ (web, remembered per user on the
   device) / "⇥ Pinyin hints" (Lab). Web: `components/calls/useBoardGloss.ts`,
   `services/calls/boardGloss.ts`; Lab: `ui/calls/TextBoardPanel.kt`, `BoardGlossFetcher.kt`.
+- **Tab-complete pinyin you can trust** (Oct 2026: Jerome and his tutor found Haiku's pinyin often
+  wrong). The gloss is **Sonnet** now (thinking off, ~1–2 s instead of ~0.5–1 s — the ghost only
+  shows after the pause, and a stale reply is still dropped), with a prompt that spells out the
+  context readings of the usual multi-reading characters (长 cháng / zhǎng, 行 xíng / háng, 得 de / dé /
+  děi, 了 le / liǎo, 还 hái / huán, 都 dōu / dū, 觉, 地, 着, 便, 乐…), the neutral tones (de, le, ma,
+  māma, dōngxi, xièxie…) and the 一 / 不 convention. Then a deterministic check
+  (`worker/src/services/calls/gloss-pinyin.ts`): every syllable is lined up with its character (one
+  each; a word + 儿 may share one, nǎr) and must be a reading that character can have — pinyin-pro's
+  readings, then the character dictionary's CC-CEDICT readings (`gloss-sources.ts`, CHAR_DICT assets)
+  for one pinyin-pro doesn't accept; a neutral syllable fits any tone of the same syllable, 一 / 不
+  only need yi / bu. A word with a syllable its character never has is replaced by the word
+  dictionary's reading of it, else pinyin-pro's reading in that sentence; syllables that can't be
+  lined up at all (one left out / added) → the whole line from pinyin-pro, word by word. Last,
+  `applyYiBuToneChanges`. It can't catch a reading the character has but not here (还 hái for huán)
+  — that is the prompt's job. The worker logs only how many words it replaced.
+- **English → Chinese on the board** — type an English word or short phrase (≤ 8 words, ≤ 60
+  characters, ≥ 2 Latin letters — "OK" / "TV" yes, "a" / "I" / "3" no), pause, and the ghost is
+  ` - 中文 - pīnyīn` (chip "⇥ 中文 - pīnyīn"); Tab types it in after the English. The run is the
+  ASCII letters / digits / spaces / apostrophes / hyphens before the caret: it stops at a line break,
+  other punctuation, Chinese and accented letters (pinyin like "wǒ xiǎng" is never English), and the
+  tail of a gloss (a dash after a space: "你好 - nǐ hǎo - hello") is never glossed again. On a mixed
+  line the run ending at the caret decides (我喜欢apple → English; apple 苹果 → Chinese).
+  `findGlossSegment` returns `direction: 'zh' | 'en'`; `POST …/gloss { text, direction: 'en' }`
+  (no direction → any Chinese character means zh) → `{ chinese, pinyin }` (`cleanChineseGloss`:
+  simplified characters, no Latin letters / spaces / dashes / final 。), its pinyin checked against the
+  Chinese the same way. Same rate limit and caches. Lab: `CallGloss.findSegment` (`Ok.direction`),
+  `BoardGloss(chinese = …)`, `formatEn` / `chipLabelEn`; the fetcher derives the direction from the
+  segment (`CallGloss.directionOf`).
 - **Both people draw on a shared screen** — the sharer's own screen is a tile like any other
   (large, not a corner preview): **✏️ Draw on it** on the share bar puts it on the stage (their
   camera floats beside it) with the pen on, so the sharer can circle things on their own screen the

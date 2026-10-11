@@ -18,8 +18,20 @@ describe('board tab-complete client', () => {
     expect(await fetchBoardGloss('c1', '你好', signal)).toEqual({ pinyin: 'nǐ hǎo', english: 'hello' });
     expect(await fetchBoardGloss('c1', ' 你好', signal)).toEqual({ pinyin: 'nǐ hǎo', english: 'hello' });
     expect(glossBoardText).toHaveBeenCalledTimes(1);
-    expect(glossBoardText).toHaveBeenCalledWith('c1', '你好', signal);
+    expect(glossBoardText).toHaveBeenCalledWith('c1', '你好', 'zh', signal);
     expect(cachedBoardGloss('你好')).not.toBeNull();
+  });
+
+  it('English → Chinese: asks with direction en, cleans and caches it apart from Chinese', async () => {
+    glossBoardText.mockResolvedValueOnce({ text: 'apple', direction: 'en', chinese: '苹果。', pinyin: 'píngguǒ' });
+    const signal = new AbortController().signal;
+    expect(await fetchBoardGloss('c1', 'apple', signal, 'en')).toEqual({ chinese: '苹果', pinyin: 'píngguǒ' });
+    expect(glossBoardText).toHaveBeenCalledWith('c1', 'apple', 'en', signal);
+    expect(cachedBoardGloss('apple', 'en')).toEqual({ chinese: '苹果', pinyin: 'píngguǒ' });
+    expect(cachedBoardGloss('apple', 'zh')).toBeNull();
+    // A reply without Chinese is no suggestion.
+    glossBoardText.mockResolvedValueOnce({ chinese: 'apple', pinyin: 'píngguǒ' });
+    expect(await fetchBoardGloss('c1', 'pear', signal, 'en')).toBeNull();
   });
 
   it('flattens a multi-line reply and drops an unusable one', async () => {

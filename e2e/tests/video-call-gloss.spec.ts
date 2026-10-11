@@ -5,6 +5,7 @@ import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test
  * " - pīnyīn - meaning" appears after the caret; Tab types it in (the other
  * person sees it through the CRDT like any typing), Esc / typing on dismisses,
  * nothing while an IME composition is open, and the ⋯ setting turns it off.
+ * After English it goes the other way: " - 中文 - pīnyīn".
  * On a touch screen a "⇥ …" chip accepts on tap.
  *
  * The gloss endpoint is mocked in the browser (no AI keys in CI).
@@ -37,7 +38,9 @@ async function seedUser(request: APIRequestContext, tag: string, name: string, r
   return { id: r.user.id, email, token: r.session_token };
 }
 
-const GLOSSES: Record<string, { pinyin: string; english: string }> = {
+const GLOSSES: Record<string, { pinyin: string; english?: string; chinese?: string }> = {
+  'to take a shower': { chinese: '洗澡', pinyin: 'xǐzǎo' },
+  OK: { chinese: '好的', pinyin: 'hǎo de' },
   一杯咖啡: { pinyin: 'yì bēi kāfēi', english: 'a cup of coffee' },
   你好: { pinyin: 'nǐ hǎo', english: 'hello' },
   谢谢: { pinyin: 'xièxie', english: 'thank you' },
@@ -49,10 +52,12 @@ const GLOSSES: Record<string, { pinyin: string; english: string }> = {
 async function mockGloss(page: Page): Promise<string[]> {
   const asked: string[] = [];
   await page.route('**/api/calls/*/gloss', async (route) => {
-    const { text } = route.request().postDataJSON() as { text: string };
+    const { text, direction } = route.request().postDataJSON() as { text: string; direction?: 'zh' | 'en' };
     asked.push(text);
     const g = GLOSSES[text];
-    await route.fulfill(g ? { status: 200, contentType: 'application/json', body: JSON.stringify({ text, ...g }) } : { status: 503, contentType: 'application/json', body: '{"error":"none"}' });
+    // The board says which way: Chinese typed → zh, English typed → en.
+    const fits = g && (direction === 'en') === !!g.chinese;
+    await route.fulfill(fits ? { status: 200, contentType: 'application/json', body: JSON.stringify({ text, direction, ...g }) } : { status: 503, contentType: 'application/json', body: '{"error":"none"}' });
   });
   return asked;
 }
@@ -169,6 +174,20 @@ test('text board tab-complete: ghost after a pause, Tab accepts for both, Esc / 
   await expect(sBoard).toHaveValue(/\n你好$/, { timeout: 10000 });
   await tp.keyboard.press('Escape');
 
+  // ---- English → Chinese: " - 中文 - pīnyīn" after the English; Tab types it in for both.
+  await tp.keyboard.press('Enter');
+  await tp.keyboard.type('to take a shower');
+  await expect(tGhost).toHaveText(/ - 洗澡 - xǐzǎo/, { timeout: 5000 });
+  await tp.keyboard.press('Tab');
+  await expect(tBoard).toHaveValue(/\nto take a shower - 洗澡 - xǐzǎo$/);
+  await expect(sBoard).toHaveValue(/\nto take a shower - 洗澡 - xǐzǎo$/, { timeout: 10000 });
+  // A single letter is never glossed.
+  await tp.keyboard.press('Enter');
+  await tp.keyboard.type('I');
+  await tp.waitForTimeout(900);
+  await expect(tGhost).toHaveCount(0);
+  expect(tAsked).not.toContain('I');
+
   // ---- The ⋯ setting turns it off (remembered for this user).
   await tp.getByTestId('text-board-menu').click();
   await tp.getByTestId('text-board-gloss-toggle').uncheck();
@@ -194,6 +213,13 @@ test('text board tab-complete: ghost after a pause, Tab accepts for both, Esc / 
   await expect(sBoard).toBeFocused();
   await expect(tBoard).toHaveValue(/\n你好 - nǐ hǎo - hello$/, { timeout: 10000 });
   expect(sAsked).toContain('你好');
+
+  // ---- …and English on the phone: "⇥ 好的 - hǎo de".
+  await sp.keyboard.press('Enter');
+  await sp.keyboard.insertText('OK');
+  await expect(chip).toHaveText('⇥ 好的 - hǎo de', { timeout: 5000 });
+  await chip.tap();
+  await expect(sBoard).toHaveValue(/\nOK - 好的 - hǎo de$/);
 });
 
 test('the ghost sits right after the caret on a long, scrolled board (not "down the bottom somewhere")', async ({ browser, request }) => {

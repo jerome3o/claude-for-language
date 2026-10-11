@@ -226,13 +226,18 @@ suspend fun Api.makeCallFlashcards(id: String, body: FlashcardsRequest): Flashca
 suspend fun Api.callHomework(id: String): List<SessionJobDto> = get<CallJobsDto>("${callPath(id)}/homework").jobs
 
 @Serializable
-data class BoardGlossBody(val text: String)
+data class BoardGlossBody(val text: String, val direction: String)
 
+/** direction "zh": pinyin + english; "en" (English typed): chinese + pinyin. */
 @Serializable
-data class BoardGlossDto(val pinyin: String = "", val english: String = "")
+data class BoardGlossDto(val pinyin: String = "", val english: String = "", val chinese: String = "")
 
-/** The text board's tab-complete (Haiku, cached server-side); 503 without a key / 429 when asked too often. */
-suspend fun Api.glossBoardText(id: String, text: String): BoardGlossDto = post("${callPath(id)}/gloss", BoardGlossBody(text))
+/**
+ * The text board's tab-complete (cached server-side): [direction] "zh" = pinyin + meaning of the Chinese
+ * typed, "en" = the Chinese + its pinyin for English typed. 503 without a key / 429 when asked too often.
+ */
+suspend fun Api.glossBoardText(id: String, text: String, direction: String): BoardGlossDto =
+    post("${callPath(id)}/gloss", BoardGlossBody(text, direction))
 
 /** Homework is made once per LESSON: an existing (not failed / cancelled) job for any of its calls comes back with `existing`. */
 suspend fun Api.makeCallHomework(id: String): CallHomeworkResultDto = post("${callPath(id)}/homework", CallHomeworkRequest())
