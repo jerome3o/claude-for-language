@@ -931,6 +931,18 @@ Lab `ui/kit/VoiceTextField.kt` (+ `VoiceDictationController.kt`, the same `Voice
 - Analytics: `voice_input.used` { surface, outcome, via, live_error, speech_ms, ms, blocked } — enums and
   durations only, never the text.
 
+**Where it is used — mini lessons** (`lesson-exercises.tsx`, `practice-exercises.tsx`; Lab `ui/lessons/`):
+translate and listen & translate (Check reveals the reference; a quiet "Show answer" still skips answering;
+listen & translate hears English first), sentence making typed (Check sends what was said to Claude's
+sentence check), write_typed, dictation with `input: type`, and the conversation exercise's written
+questions. write_handwriting and the stroke pad are unchanged. **Checking**: typed or edited text is
+checked exactly as before (`diffHanzi`); an UNCHANGED spoken answer to write_typed / dictation also counts
+when it is right by the spoken rule (`lessonSpokenCheck`, shared/lesson/spoken-check.ts → `checkSpokenAnswer`:
+a homophone the recogniser wrote, the answer said inside a sentence — as on the typing cards, #584), shown
+as "✓ Correct (spoken)" with "Sounded right ✓ — written 图书馆"; the translate exercises' green nudge says
+"✓ Sounds right". The attempt keeps how it was given (`ExerciseAnswer.input`: spoken / edited / typed),
+and the tutor's attempt review labels it "🎤 Said" / "🎤 Said, then edited" (`answerInputLabel`).
+
 ## Multiple choice
 
 Options come from the note's cached `multiple_choice_options`; otherwise a generation request

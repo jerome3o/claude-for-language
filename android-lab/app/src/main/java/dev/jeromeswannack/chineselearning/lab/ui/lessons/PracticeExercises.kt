@@ -1,5 +1,8 @@
 package dev.jeromeswannack.chineselearning.lab.ui.lessons
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextField
+import dev.jeromeswannack.chineselearning.lab.ui.kit.DictatedAnswer
+import dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -104,6 +107,7 @@ import java.io.File
 fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     val typed = ex.typed
     var text by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf<String?>(null) }
     var hw by remember { mutableStateOf<HandwritingAnswer?>(null) }
     var phase by remember { mutableStateOf("answer") }
     var feedback by remember { mutableStateOf<SentenceFeedback?>(null) }
@@ -117,33 +121,44 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
         handwriting = if (typed) null else hw,
         feedback = feedback,
         selfAssessed = feedback == null,
+        input = if (typed) source else null,
     )
+    fun checkTyped(sentence: String) {
+        phase = "checking"
+        scope.launch {
+            try {
+                feedback = env.sentenceFeedback(ex.words.map { it.hanzi }, ex.task, sentence)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                offlineNote = "Claude can’t check it right now — compare with the example."
+            }
+            phase = "result"
+            feedback?.let { if (it.verdict != "incorrect" && it.usesAllWords) env.onCorrect() else env.onWrong() }
+        }
+    }
 
     PhaseLabel("Make a sentence ${if (typed) "⌨️" else "✍️"}")
     PromptText(ex.task?.takeIf { it.isNotBlank() } ?: "Write your own sentence using these words.")
     WordChips(ex.words, env, marks)
 
     if (phase != "result") {
-        if (typed) AnswerField(text, { text = it }, "Type your sentence in Chinese…", enabled = phase != "checking")
-        else SketchPad(null, { hw = it })
-        ActionRow {
-            Primary(if (phase == "checking") "Claude is checking…" else if (typed) "Check" else "Done", enabled = canCheck && phase != "checking") {
-                if (!typed) { phase = "result"; return@Primary }
-                phase = "checking"
-                scope.launch {
-                    try {
-                        feedback = env.sentenceFeedback(ex.words.map { it.hanzi }, ex.task, text)
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        offlineNote = "Claude can’t check it right now — compare with the example."
-                    }
-                    phase = "result"
-                    feedback?.let { if (it.verdict != "incorrect" && it.usesAllWords) env.onCorrect() else env.onWrong() }
-                }
+        when {
+            typed && phase == "checking" -> {
+                YourAnswer(text.trim(), exact = false, label = if (source == "typed") "Your sentence" else "🎤 Your sentence")
+                ActionRow { Primary("Claude is checking…", enabled = false) {} }
+            }
+            typed -> VoiceTextField(
+                value = text, onValueChange = { text = it },
+                onSubmit = { a -> text = a.text; source = a.source; checkTyped(a.text) },
+                surface = "lesson_sentence_making", submitLabel = "Check", placeholder = "Type your sentence in Chinese…", multiline = true,
+            )
+            else -> {
+                SketchPad(null, { hw = it })
+                ActionRow { Primary("Done", enabled = canCheck) { phase = "result" } }
             }
         }
     } else {
-        if (typed) YourAnswer(text.trim(), exact = false, label = "Your sentence")
+        if (typed) YourAnswer(text.trim(), exact = false, label = if (source == "spoken" || source == "edited") "🎤 Your sentence" else "Your sentence")
         else hw?.strokes?.let { StrokesView(it, "Your sentence") }
         feedback?.let { FeedbackCard(it, env) }
         offlineNote?.let { Explanation(it) }
@@ -199,24 +214,33 @@ private fun WritingCues(answer: LessonSentence, cues: List<String>, prompt: Stri
 @Composable
 fun WriteTypedView(ex: WriteTypedExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     var text by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf<String?>(null) }
     var diff by remember { mutableStateOf<LessonAnswers.HanziDiff?>(null) }
-    fun check() {
-        val d = LessonAnswers.diffHanzi(text, ex.answer.hanzi, ex.alternatives.orEmpty())
+    var spoken by remember { mutableStateOf<LessonSpokenCheck.Result?>(null) }
+    // A spoken answer the recogniser wrote (unchanged): right by sound, or said inside a sentence (#584).
+    fun check(given: DictatedAnswer) {
+        text = given.text
+        source = given.source
+        val d = LessonAnswers.diffHanzi(given.text, ex.answer.hanzi, ex.alternatives.orEmpty())
+        val s = LessonSpokenCheck.check(given.text, ex.answer.hanzi, ex.alternatives.orEmpty(), given.source)
         diff = d
-        if (d.correct) env.onCorrect() else env.onWrong()
+        spoken = s
+        if (LessonSpokenCheck.correct(d.correct, s)) env.onCorrect() else env.onWrong()
         env.speak(ex.answer.hanzi)
     }
-    PhaseLabel("Type it in characters ⌨️")
+    PhaseLabel("Say it or type it in characters")
     WritingCues(ex.answer, ex.cues ?: WritingCue.DEFAULT, ex.prompt, env)
     val d = diff
     if (d == null) {
-        AnswerField(text, { text = it }, "汉字…", singleLine = true, big = true, onDone = { if (text.isNotBlank()) check() })
-        ActionRow { Primary("Check", enabled = text.isNotBlank()) { check() } }
+        VoiceTextField(value = text, onValueChange = { text = it }, onSubmit = ::check, surface = "lesson_write_typed", submitLabel = "Check", placeholder = "汉字…")
     } else {
-        ResultBanner(d.correct, if (d.correct) "✓ Correct" else "✗ Not quite — ${Math.round(d.accuracy * 100)}% of the characters")
-        CharDiffView(d)
+        val s = spoken ?: LessonSpokenCheck.check("", "")
+        val ok = LessonSpokenCheck.correct(d.correct, s)
+        ResultBanner(ok, if (d.correct) "✓ Correct" else if (ok) "✓ Correct (spoken)" else "✗ Not quite — ${Math.round(d.accuracy * 100)}% of the characters")
+        s.note?.let { Explanation(it) }
+        if (!(ok && !d.correct)) CharDiffView(d)
         Reference(ex.answer, env)
-        ActionRow { Primary("Continue") { onNext(d.correct, ExerciseAnswer(text = text.trim())) } }
+        ActionRow { Primary("Continue") { onNext(ok, ExerciseAnswer(text = text.trim(), input = source)) } }
     }
 }
 
@@ -337,32 +361,37 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
     var text by remember { mutableStateOf("") }
     var hw by remember { mutableStateOf<HandwritingAnswer?>(null) }
     var diff by remember { mutableStateOf<LessonAnswers.HanziDiff?>(null) }
+    var source by remember { mutableStateOf<String?>(null) }
+    var spoken by remember { mutableStateOf<LessonSpokenCheck.Result?>(null) }
     var revealed by remember { mutableStateOf(false) }
     var strokeRun by remember { mutableStateOf<WritingExerciseResult?>(null) }
     var plays by remember { mutableIntStateOf(0) }
-    fun check() {
-        if (typed) {
-            val d = LessonAnswers.diffHanzi(text, ex.audio.hanzi, ex.alternatives.orEmpty())
+    fun check(given: DictatedAnswer? = null) {
+        if (typed && given != null) {
+            text = given.text
+            source = given.source
+            val d = LessonAnswers.diffHanzi(given.text, ex.audio.hanzi, ex.alternatives.orEmpty())
+            // Said back and unchanged: the recogniser chose the characters — right by sound (#584).
+            val s = LessonSpokenCheck.check(given.text, ex.audio.hanzi, ex.alternatives.orEmpty(), given.source)
             diff = d
-            if (d.correct) env.onCorrect() else env.onWrong()
+            spoken = s
+            if (LessonSpokenCheck.correct(d.correct, s)) env.onCorrect() else env.onWrong()
         }
         revealed = true
     }
     fun base(selfAssessed: Boolean? = null): ExerciseAnswer = when {
-        typed -> ExerciseAnswer(plays = plays, text = text.trim(), selfAssessed = selfAssessed)
+        typed -> ExerciseAnswer(plays = plays, text = text.trim(), selfAssessed = selfAssessed, input = source)
         else -> ExerciseAnswer(plays = plays, handwriting = strokeRun?.let(::strokeAnswer) ?: hw, selfAssessed = selfAssessed)
     }
-    val verdict: Boolean? = if (typed) diff?.correct else strokeRun?.let { StrokeQuiz.writtenFromMemory(it) }
+    val typedCorrect: Boolean? = diff?.let { LessonSpokenCheck.correct(it.correct, spoken ?: LessonSpokenCheck.check("", "")) }
+    val verdict: Boolean? = if (typed) typedCorrect else strokeRun?.let { StrokeQuiz.writtenFromMemory(it) }
 
     PhaseLabel("Dictation ${if (typed) "⌨️" else "✍️"}")
     Explanation("Write down exactly what you hear.")
     ListenPlayButton(ex.audio.hanzi, env) { plays++ }
     if (!revealed) {
         when {
-            typed -> {
-                AnswerField(text, { text = it }, "汉字…", singleLine = true, big = true, onDone = { if (text.isNotBlank()) check() })
-                ActionRow { Primary("Check", enabled = text.isNotBlank()) { check() } }
-            }
+            typed -> VoiceTextField(value = text, onValueChange = { text = it }, onSubmit = { check(it) }, surface = "lesson_dictation", submitLabel = "Check", placeholder = "汉字…")
             strokes -> WritingExercise(
                 text = ex.audio.hanzi,
                 initialMode = WritingMode.RECALL,
@@ -382,8 +411,10 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
     } else {
         val d = diff
         if (d != null) {
-            ResultBanner(d.correct, if (d.correct) "✓ Every character right" else "${Math.round(d.accuracy * 100)}% of the characters")
-            CharDiffView(d)
+            val ok = typedCorrect == true
+            ResultBanner(ok, if (d.correct) "✓ Every character right" else if (ok) "✓ Right (spoken)" else "${Math.round(d.accuracy * 100)}% of the characters")
+            spoken?.note?.let { Explanation(it) }
+            if (!(ok && !d.correct)) CharDiffView(d)
         }
         strokeRun?.let { r ->
             val ok = StrokeQuiz.writtenFromMemory(r)
@@ -728,7 +759,11 @@ fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolea
                         }
                     }
                 } else if (!a.revealed) {
-                    AnswerField(a.text, { answers[qi] = QuestionState(text = it) }, "Your answer (English or Chinese)…")
+                    VoiceTextField(
+                        value = a.text, onValueChange = { answers[qi] = QuestionState(text = it) },
+                        onSubmit = { d -> answers[qi] = QuestionState(text = d.text, revealed = true) },
+                        surface = "lesson_conversation", submitLabel = "Check", placeholder = "Your answer (English or Chinese)…", multiline = true,
+                    )
                     ActionRow { Secondary("Show answer") { answers[qi] = QuestionState(text = a.text, revealed = true) } }
                 } else {
                     if (a.text.isNotBlank()) Text("You: ${a.text.trim()}", color = Lab.colors.muted)

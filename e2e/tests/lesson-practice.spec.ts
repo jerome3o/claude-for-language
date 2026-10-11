@@ -67,16 +67,19 @@ test('student writes typed answers in a lesson; the tutor reviews the attempt', 
   await page.goto('/study?autostart=true');
 
   // Typed writing: one wrong character is marked, not just "wrong"
-  const input = page.locator('input.write-input');
-  await input.waitFor({ timeout: 30000 });
-  await input.fill('图书官');
+  // Voice first: ✏️ Type opens the keyboard box.
+  await page.getByTestId('lesson-voice-type').waitFor({ timeout: 30000 });
+  await expect(page.getByTestId('lesson-voice-say')).toBeVisible();
+  await page.getByTestId('lesson-voice-type').click();
+  await page.getByTestId('lesson-voice-text').fill('图书官');
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   await expect(page.locator('.char-diff .extra')).toHaveText('官');
   await expect(page.locator('.char-diff .miss')).toHaveText('馆');
   await page.getByRole('button', { name: 'Continue' }).click();
 
   // Dictation (typed): punctuation doesn't count
-  await page.locator('input.write-input').fill('我喜欢喝茶');
+  await page.getByTestId('lesson-voice-type').click();
+  await page.getByTestId('lesson-voice-text').fill('我喜欢喝茶');
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   await expect(page.getByText('✓ Every character right')).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -96,9 +99,9 @@ test('student writes typed answers in a lesson; the tutor reviews the attempt', 
   const detail = await api<{ attempt: { data: { exercises: Array<{ type: string; answer?: { text?: string } }> } } }>(
     request, `/api/relationships/${relId}/lesson-attempts/${list.attempts[0].id}`, { token: tutor.token },
   );
-  expect(detail.attempt.data.exercises.map(e => [e.type, e.answer?.text])).toEqual([
-    ['write_typed', '图书官'],
-    ['dictation', '我喜欢喝茶'],
+  expect(detail.attempt.data.exercises.map(e => [e.type, e.answer?.text, (e.answer as { input?: string } | undefined)?.input])).toEqual([
+    ['write_typed', '图书官', 'typed'],
+    ['dictation', '我喜欢喝茶', 'typed'],
   ]);
 
   // ---- Tutor: the review page shows the answer with the wrong character
@@ -117,7 +120,8 @@ test('tutor catalogue lists every type; a sample lesson runs as a trial', async 
   }
   await page.locator('#type-write_typed').getByRole('link', { name: /Try it/ }).click();
   await expect(page.getByText('Preview · nothing is recorded')).toBeVisible({ timeout: 15000 });
-  await page.locator('input.write-input').fill('图书馆');
+  await page.getByTestId('lesson-voice-type').click();
+  await page.getByTestId('lesson-voice-text').fill('图书馆');
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   await expect(page.getByText('✓ Correct')).toBeVisible();
 });

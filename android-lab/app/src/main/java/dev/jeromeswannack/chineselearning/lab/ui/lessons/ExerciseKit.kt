@@ -230,14 +230,14 @@ fun AnswerField(
 
 /** `speak-transcript`: what the learner typed, green when it matches exactly. */
 @Composable
-fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer") {
+fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badge: String = "✓ Exact match") {
     val tint = if (exact) Palette.Good else Lab.colors.muted
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (exact) Palette.Good.copy(alpha = 0.10f) else Lab.colors.faint).padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
-            if (exact) Text("  ✓ Exact match", style = MaterialTheme.typography.labelMedium, color = Palette.Good, fontWeight = FontWeight.Bold)
+            if (exact) Text("  $badge", style = MaterialTheme.typography.labelMedium, color = Palette.Good, fontWeight = FontWeight.Bold)
         }
         Text(text, fontSize = 20.sp, color = Lab.colors.ink)
     }

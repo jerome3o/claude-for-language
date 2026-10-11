@@ -42,6 +42,8 @@ import { shuffledIndexes } from '../utils/shuffle';
 import { audioForConversation, onConversationAudioChange } from '../services/conversationAudio';
 import { ConversationAudioSheet } from './lesson/ConversationAudioSheet';
 import { track } from '../services/analytics';
+import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
+import { lessonSpokenCheck, lessonAnswerCorrect, type LessonSpokenCheck } from '@shared/lesson/spoken-check';
 import './lesson-exercises.css';
 
 type Speak = (text: string) => void;
@@ -149,6 +151,7 @@ export function SentenceMakingExercise(props: {
 }) {
   const { words, task, input = 'type', example, speak, onNext } = props;
   const [text, setText] = useState('');
+  const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
   const [hw, setHw] = useState<HandwritingAnswer | null>(null);
   const [phase, setPhase] = useState<'answer' | 'checking' | 'result'>('answer');
   const [feedback, setFeedback] = useState<SentenceFeedback | null>(null);
@@ -158,14 +161,19 @@ export function SentenceMakingExercise(props: {
   const canCheck = typed ? text.trim().length > 0 : hasStrokes(hw);
   const marks = typed && phase === 'result' ? words.map(w => sentenceUsesWord(text, w.hanzi)) : undefined;
 
-  async function check() {
+  async function check(given?: DictatedAnswer) {
     if (!typed) {
       setPhase('result');
       return;
     }
+    const sentence = given?.text ?? text;
+    if (given) {
+      setText(given.text);
+      setSource(given.source);
+    }
     setPhase('checking');
     try {
-      setFeedback(await checkMadeSentence(words.map(w => w.hanzi), task, text));
+      setFeedback(await checkMadeSentence(words.map(w => w.hanzi), task, sentence));
     } catch {
       setOfflineNote('Claude can’t check it right now — compare with the example.');
     }
@@ -174,6 +182,7 @@ export function SentenceMakingExercise(props: {
 
   const answer = (): ExerciseAnswer => ({
     text: typed ? text.trim() : hw?.text,
+    input: typed ? source ?? undefined : undefined,
     handwriting: typed ? undefined : hw ?? undefined,
     feedback: feedback ?? undefined,
     self_assessed: !feedback,
@@ -195,29 +204,43 @@ export function SentenceMakingExercise(props: {
       {phase !== 'result' ? (
         <>
           {typed ? (
-            <textarea
-              className="translate-input"
-              value={text}
-              onChange={e => setText(e.target.value)}
-              placeholder="Type your sentence in Chinese…"
-              rows={3}
-              lang="zh-CN"
-              disabled={phase === 'checking'}
-            />
+            phase === 'checking' ? (
+              <>
+                <div className="speak-transcript">
+                  <div className="speak-transcript-label">{source === 'typed' ? 'Your sentence' : '🎤 Your sentence'}</div>
+                  <div className="speak-transcript-text" lang="zh-CN">{text.trim()}</div>
+                </div>
+                <div className="exercise-actions">
+                  <button className="practice-btn primary" disabled>Claude is checking…</button>
+                </div>
+              </>
+            ) : (
+              <VoiceTextInput
+                surface="lesson_sentence_making"
+                value={text}
+                onChange={setText}
+                onSubmit={a => void check(a)}
+                submitLabel="Check"
+                placeholder="Type your sentence in Chinese…"
+                listeningPlaceholder="Listening… say your sentence"
+                multiline
+                testId="lesson-voice"
+              />
+            )
           ) : (
-            <HandwritingPad onChange={setHw} />
+            <>
+              <HandwritingPad onChange={setHw} />
+              <div className="exercise-actions">
+                <button className="practice-btn primary" onClick={() => void check()} disabled={!canCheck}>Done</button>
+              </div>
+            </>
           )}
-          <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={check} disabled={!canCheck || phase === 'checking'}>
-              {phase === 'checking' ? 'Claude is checking…' : typed ? 'Check' : 'Done'}
-            </button>
-          </div>
         </>
       ) : (
         <>
           {typed ? (
             <div className="speak-transcript">
-              <div className="speak-transcript-label">Your sentence</div>
+              <div className="speak-transcript-label">{source === 'spoken' || source === 'edited' ? '🎤 Your sentence' : 'Your sentence'}</div>
               <div className="speak-transcript-text" lang="zh-CN">{text.trim()}</div>
             </div>
           ) : hw?.strokes && <StrokesView strokes={hw.strokes} label="Your sentence" />}
@@ -280,41 +303,44 @@ export function WriteTypedExercise(props: {
 }) {
   const { answer, prompt, cues = ['english', 'pinyin'], alternatives, speak, onNext } = props;
   const [text, setText] = useState('');
+  const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
   const [diff, setDiff] = useState<HanziDiff | null>(null);
+  const [spoken, setSpoken] = useState<LessonSpokenCheck | null>(null);
 
-  function check() {
-    setDiff(diffHanzi(text, answer.hanzi, alternatives));
+  // A spoken answer the recogniser wrote (unchanged): right by sound, or said inside a sentence (#584).
+  function check(given: DictatedAnswer) {
+    setText(given.text);
+    setSource(given.source);
+    setDiff(diffHanzi(given.text, answer.hanzi, alternatives));
+    setSpoken(lessonSpokenCheck(given.text, answer.hanzi, alternatives, given.source));
     speak(answer.hanzi);
   }
+  const correct = diff ? lessonAnswerCorrect(diff.correct, spoken ?? lessonSpokenCheck('', '')) : false;
 
   return (
     <div className="exercise">
-      <div className="phase-label">Type it in characters ⌨️</div>
+      <div className="phase-label">Say it or type it in characters</div>
       <WritingCues answer={answer} cues={cues} prompt={prompt} speak={speak} />
       {!diff ? (
-        <>
-          <input
-            className="translate-input write-input"
-            value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && text.trim()) check(); }}
-            placeholder="汉字…"
-            lang="zh-CN"
-            autoComplete="off"
-          />
-          <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={check} disabled={!text.trim()}>Check</button>
-          </div>
-        </>
+        <VoiceTextInput
+          surface="lesson_write_typed"
+          value={text}
+          onChange={setText}
+          onSubmit={check}
+          submitLabel="Check"
+          placeholder="汉字…"
+          testId="lesson-voice"
+        />
       ) : (
         <>
-          <div className={`result-banner ${diff.correct ? 'correct' : 'wrong'}`}>
-            {diff.correct ? '✓ Correct' : `✗ Not quite — ${Math.round(diff.accuracy * 100)}% of the characters`}
+          <div className={`result-banner ${correct ? 'correct' : 'wrong'}`}>
+            {diff.correct ? '✓ Correct' : correct ? '✓ Correct (spoken)' : `✗ Not quite — ${Math.round(diff.accuracy * 100)}% of the characters`}
           </div>
-          <CharDiffView diff={diff} />
+          {spoken?.note && <p className="result-explanation" data-testid="lesson-spoken-note">{spoken.note}</p>}
+          {!(correct && !diff.correct) && <CharDiffView diff={diff} />}
           <Reference sentence={answer} speak={speak} />
           <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={() => onNext(diff.correct, { text: text.trim() })}>Continue</button>
+            <button className="practice-btn primary" onClick={() => onNext(correct, { text: text.trim(), input: source ?? undefined })}>Continue</button>
           </div>
         </>
       )}
@@ -460,21 +486,30 @@ export function DictationExercise(props: {
   const [text, setText] = useState('');
   const [hw, setHw] = useState<HandwritingAnswer | null>(null);
   const [diff, setDiff] = useState<HanziDiff | null>(null);
+  const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
+  const [spoken, setSpoken] = useState<LessonSpokenCheck | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [strokeRun, setStrokeRun] = useState<WritingExerciseResult | null>(null);
   const plays = useRef(0);
   const strokes = !typed && pad === 'strokes';
 
-  function check() {
-    if (typed) setDiff(diffHanzi(text, audio.hanzi, alternatives));
+  function check(given?: DictatedAnswer) {
+    if (typed && given) {
+      setText(given.text);
+      setSource(given.source);
+      setDiff(diffHanzi(given.text, audio.hanzi, alternatives));
+      // Said back and unchanged: the recogniser chose the characters — right by sound (#584).
+      setSpoken(lessonSpokenCheck(given.text, audio.hanzi, alternatives, given.source));
+    }
     setRevealed(true);
   }
 
   const base = (): ExerciseAnswer => ({
     plays: plays.current,
-    ...(typed ? { text: text.trim() } : { handwriting: strokeRun ? strokeAnswer(strokeRun) : hw ?? undefined }),
+    ...(typed ? { text: text.trim(), input: source ?? undefined } : { handwriting: strokeRun ? strokeAnswer(strokeRun) : hw ?? undefined }),
   });
-  const verdict: boolean | null = typed ? diff?.correct ?? null : strokeRun ? strokeRunCorrect(strokeRun) : null;
+  const typedCorrect = diff ? lessonAnswerCorrect(diff.correct, spoken ?? lessonSpokenCheck('', '')) : null;
+  const verdict: boolean | null = typed ? typedCorrect : strokeRun ? strokeRunCorrect(strokeRun) : null;
 
   return (
     <div className="exercise">
@@ -483,20 +518,16 @@ export function DictationExercise(props: {
       <ListenPlayButton text={audio.hanzi} speak={speak} onPlay={() => { plays.current++; }} />
       {!revealed ? (
         typed ? (
-          <>
-            <input
-              className="translate-input write-input"
-              value={text}
-              onChange={e => setText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && text.trim()) check(); }}
-              placeholder="汉字…"
-              lang="zh-CN"
-              autoComplete="off"
-            />
-            <div className="exercise-actions">
-              <button className="practice-btn primary" onClick={check} disabled={!text.trim()}>Check</button>
-            </div>
-          </>
+          <VoiceTextInput
+            surface="lesson_dictation"
+            value={text}
+            onChange={setText}
+            onSubmit={check}
+            submitLabel="Check"
+            placeholder="汉字…"
+            listeningPlaceholder="Listening… say what you heard"
+            testId="lesson-voice"
+          />
         ) : strokes ? (
           <WritingExercise
             text={audio.hanzi}
@@ -511,7 +542,7 @@ export function DictationExercise(props: {
           <>
             <HandwritingPad target={audio.hanzi} onChange={setHw} />
             <div className="exercise-actions">
-              <button className="practice-btn primary" onClick={check} disabled={!hasStrokes(hw)}>Check</button>
+              <button className="practice-btn primary" onClick={() => check()} disabled={!hasStrokes(hw)}>Check</button>
             </div>
           </>
         )
@@ -519,10 +550,11 @@ export function DictationExercise(props: {
         <>
           {diff && (
             <>
-              <div className={`result-banner ${diff.correct ? 'correct' : 'wrong'}`}>
-                {diff.correct ? '✓ Every character right' : `${Math.round(diff.accuracy * 100)}% of the characters`}
+              <div className={`result-banner ${typedCorrect ? 'correct' : 'wrong'}`}>
+                {diff.correct ? '✓ Every character right' : typedCorrect ? '✓ Right (spoken)' : `${Math.round(diff.accuracy * 100)}% of the characters`}
               </div>
-              <CharDiffView diff={diff} />
+              {spoken?.note && <p className="result-explanation" data-testid="lesson-spoken-note">{spoken.note}</p>}
+              {!(typedCorrect && !diff.correct) && <CharDiffView diff={diff} />}
             </>
           )}
           {strokeRun && (
@@ -903,12 +935,16 @@ export function ConversationExercise(props: {
                   </div>
                 ) : !a.revealed ? (
                   <>
-                    <textarea
-                      className="translate-input"
-                      rows={2}
+                    <VoiceTextInput
+                      surface="lesson_conversation"
                       value={a.text ?? ''}
-                      onChange={e => setAnswer(qi, { text: e.target.value })}
+                      onChange={t => setAnswer(qi, { text: t })}
+                      onSubmit={d => setAnswer(qi, { text: d.text, revealed: true })}
+                      submitLabel="Check"
                       placeholder="Your answer (English or Chinese)…"
+                      listeningPlaceholder="Listening… English or Chinese"
+                      multiline
+                      testId={`lesson-voice-q${qi}`}
                     />
                     <div className="exercise-actions">
                       <button className="practice-btn" onClick={() => setAnswer(qi, { revealed: true })}>Show answer</button>

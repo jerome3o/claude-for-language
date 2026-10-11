@@ -7,6 +7,7 @@
  * review page and the learner's own "My answers".
  */
 
+import { answerInputLabel } from '@shared/lesson/spoken-check';
 import {
   diffHanzi,
   exerciseTypeInfo,
@@ -21,6 +22,8 @@ import { StrokesView } from '../handwriting/StrokesView';
 import { StrokeRunView } from './StrokeRunView';
 import { RecordingButton } from '../../pages/tutor/tutor-shared';
 import './attempts.css';
+
+type ExerciseAnswerInput = 'spoken' | 'edited' | 'typed';
 
 const RATING = ['Again', 'Hard', 'Good', 'Easy'];
 
@@ -43,12 +46,12 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function TypedDiff({ text, expected, alternatives }: { text: string | undefined; expected: string; alternatives?: string[] }) {
+function TypedDiff({ text, expected, alternatives, input }: { text: string | undefined; expected: string; alternatives?: string[]; input?: ExerciseAnswerInput }) {
   if (!text) return <Row label="Answered">(nothing typed)</Row>;
   const d = diffHanzi(text, expected, alternatives);
   return (
     <>
-      <Row label="Typed">
+      <Row label={answerInputLabel(input)}>
         <span className="att-chars" lang="zh-CN">
           {d.typed.map((m, i) => <span key={i} className={m.hit ? 'hit' : 'extra'}>{m.ch}</span>)}
         </span>
@@ -106,7 +109,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
       return (
         <>
           <Row label="English">{exercise.english}</Row>
-          <Row label="Typed">{a.text ? <span lang="zh-CN">{a.text}</span> : '(said it / no text)'}</Row>
+          <Row label={answerInputLabel(a.input)}>{a.text ? <span lang="zh-CN">{a.text}</span> : '(said it / no text)'}</Row>
           <Row label="Reference"><span lang="zh-CN">{exercise.reference_hanzi}</span></Row>
         </>
       );
@@ -114,7 +117,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
       return (
         <>
           <Row label="Played"><Sentence s={exercise.audio} /></Row>
-          <Row label="Their answer">{a.text || '(in their head)'}</Row>
+          <Row label={answerInputLabel(a.input, 'Their answer')}>{a.text || '(in their head)'}</Row>
           {a.plays !== undefined && <Row label="Listened">{a.plays}×</Row>}
         </>
       );
@@ -129,7 +132,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
         <>
           <Row label="Words"><span lang="zh-CN">{exercise.words.map(w => w.hanzi).join('、')}</span></Row>
           {exercise.task && <Row label="Task">{exercise.task}</Row>}
-          {a.text && <Row label="Wrote"><span lang="zh-CN" className="att-big">{a.text}</span></Row>}
+          {a.text && <Row label={answerInputLabel(a.input, 'Wrote')}><span lang="zh-CN" className="att-big">{a.text}</span></Row>}
           {a.handwriting?.strokes && <StrokesView strokes={a.handwriting.strokes} label="Handwritten" maxHeight={120} />}
           {a.feedback && (
             <div className={`att-feedback ${a.feedback.verdict}`}>
@@ -145,7 +148,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
       return (
         <>
           <Row label="Cue">{exercise.answer.english || exercise.answer.pinyin || '🔊'}</Row>
-          <TypedDiff text={a.text} expected={exercise.answer.hanzi} alternatives={exercise.alternatives} />
+          <TypedDiff text={a.text} expected={exercise.answer.hanzi} alternatives={exercise.alternatives} input={a.input} />
         </>
       );
     case 'write_handwriting':
@@ -170,7 +173,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
               <span className="att-model" lang="zh-CN">{exercise.audio.hanzi}</span>
             </div>
           ) : (
-            <TypedDiff text={a.text} expected={exercise.audio.hanzi} alternatives={exercise.alternatives} />
+            <TypedDiff text={a.text} expected={exercise.audio.hanzi} alternatives={exercise.alternatives} input={a.input} />
           )}
           {a.plays !== undefined && <Row label="Listened">{a.plays}×</Row>}
         </>

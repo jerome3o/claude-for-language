@@ -161,7 +161,7 @@ fun rememberVoiceDictation(surface: String, lang: String = "zh", defaultMode: St
     val app = context.applicationContext as? LabApp
     val online = app?.online?.collectAsState()
     val forced = app?.let { StudyPrefs.get(it).forcedOffline.collectAsState() }
-    val isOnline = { (online?.value ?: false) && forced?.value != true }
+    val isOnline = { if (app == null) true else (online?.value ?: false) && forced?.value != true }
     val controller = remember(surface) {
         val engine: DictationEngine = if (app != null) AppDictationEngine(app, scope) else NoDictationEngine
         VoiceDictationController(
@@ -170,7 +170,8 @@ fun rememberVoiceDictation(surface: String, lang: String = "zh", defaultMode: St
             surface = surface,
             lang = lang,
             defaultMode = defaultMode,
-            online = { (app?.online?.value ?: false) && app?.let { StudyPrefs.get(it).forcedOffline.value } != true },
+            // No app (previews, screenshot tests): render as online so the box shows its voice-first face.
+            online = { if (app == null) true else app.online.value && !StudyPrefs.get(app).forcedOffline.value },
             track = { name, props -> app?.analytics?.track(name, props) },
             autoSubmit = autoSubmit,
             onLiveError = { reason ->
