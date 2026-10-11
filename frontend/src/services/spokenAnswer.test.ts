@@ -77,7 +77,7 @@ describe('SpokenAnswerController', () => {
       expect(t.tracked).toEqual([]);
       t.c.submit();
       expect(t.c.current.phase).toBe('idle');
-      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: true, again: false, reviewed: true }]);
+      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: true, again: false, reviewed: true, practice: false }]);
       expect(t.tracked).toEqual([{ result: 'submitted', props: expect.objectContaining({ via: 'live', reviewed: true, edited: false, auto_submit: false, retry: false }) }]);
       expect(t.deps.discardTake).not.toHaveBeenCalled(); // the take rides with the review
     });
@@ -107,7 +107,7 @@ describe('SpokenAnswerController', () => {
       await flush();
       t.c.edit();
       expect(t.c.current.phase).toBe('idle');
-      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: false, again: false, reviewed: true }]);
+      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: false, again: false, reviewed: true, practice: false }]);
       expect(t.tracked).toEqual([{ result: 'filled', props: expect.objectContaining({ reviewed: true, edited: true }) }]);
       // Submit / Edit outside the review do nothing.
       t.c.submit();
@@ -216,6 +216,40 @@ describe('SpokenAnswerController', () => {
     expect(t.live!.live.aborted).toBe(true);
   });
 
+  describe('"Say it" practice (answer side, after Show answer with no attempt)', () => {
+    it('runs the say-again flow and hands back a practice result; Retry stays practice', async () => {
+      const t = setup({ skipReview: false });
+      await t.c.start({ again: true, practice: true });
+      expect(t.deps.startRecorder).toHaveBeenCalledWith(expect.anything(), { keepPrevious: true });
+      expect(t.c.current).toMatchObject({ phase: 'listening', again: true, practice: true });
+      t.c.stop();
+      await flush();
+      expect(t.c.current).toMatchObject({ phase: 'review', finalText: '油', again: true, practice: true });
+      await t.c.retake();
+      expect(t.c.current).toMatchObject({ phase: 'listening', again: true, practice: true });
+      t.c.stop();
+      await flush();
+      t.c.submit();
+      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: true, again: true, reviewed: true, practice: true }]);
+      expect(t.c.current).toMatchObject({ phase: 'idle', again: false, practice: false });
+      expect(t.tracked.map((x) => [x.result, x.props.practice, x.props.retry])).toEqual([['retaken', true, true], ['submitted', true, true]]);
+    });
+
+    it('review skipped: checked at once as practice; a take that gave nothing keeps it practice', async () => {
+      const t = setup({ upload: async () => ({ text: '', language: 'zh' }), live: fakeLive('') });
+      await t.c.start({ again: true, practice: true });
+      t.c.stop();
+      await flush();
+      expect(t.c.current).toMatchObject({ phase: 'failed', failure: 'empty', practice: true });
+      await t.c.start({ again: true }); // the 🎤 / Retry after it
+      expect(t.c.current).toMatchObject({ phase: 'listening', practice: true });
+      t.c.cancel();
+      expect(t.deps.restorePrevious).toHaveBeenCalled();
+      expect(t.c.current).toMatchObject({ phase: 'idle', practice: false });
+      expect(t.answers).toEqual([]);
+    });
+  });
+
   describe('Say it again (answer side)', () => {
     it('review skipped: keeps the previous take until the new one lands, and checks the new answer at once', async () => {
       const t = setup();
@@ -245,7 +279,7 @@ describe('SpokenAnswerController', () => {
       t.c.stop();
       await flush();
       t.c.submit();
-      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: true, again: true, reviewed: true }]);
+      expect(t.answers).toEqual([{ text: '油', transcript: '油', submit: true, again: true, reviewed: true, practice: false }]);
       expect(t.deps.restorePrevious).not.toHaveBeenCalled();
     });
 
@@ -260,7 +294,7 @@ describe('SpokenAnswerController', () => {
       t.c.submitEdit('  ');
       expect(t.results).toEqual([]); // nothing to check
       t.c.submitEdit(' 由 ');
-      expect(t.answers).toEqual([{ text: '由', transcript: '油', submit: true, again: true, reviewed: true }]);
+      expect(t.answers).toEqual([{ text: '由', transcript: '油', submit: true, again: true, reviewed: true, practice: false }]);
       expect(t.tracked).toEqual([{ result: 'filled', props: expect.objectContaining({ retry: true, reviewed: true, edited: true }) }]);
     });
 

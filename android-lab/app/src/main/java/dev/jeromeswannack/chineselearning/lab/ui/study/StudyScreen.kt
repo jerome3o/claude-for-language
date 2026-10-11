@@ -126,6 +126,8 @@ class StudyActions(
     val onSubmitEditedSpoken: (String) -> Unit = {},
     /** "🎤 Say it again" on the answer side of a typing card answered by speaking. */
     val onSayAgain: () -> Unit = {},
+    /** "🎤 Say it" practice on the answer side after Show answer with no attempt. */
+    val onSayPractice: () -> Unit = {},
     /**
      * The back checked a spoken answer (analytics); `retry` = the answer of a "Say it again",
      * `reviewed` = submitted from the review step.
@@ -248,6 +250,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onEditSpoken = vm::editSpokenAnswer,
             onSubmitEditedSpoken = vm::submitEditedSpokenAnswer,
             onSayAgain = vm::sayAgain,
+            onSayPractice = vm::sayItPractice,
             onSpokenChecked = vm::onSpokenAnswerChecked,
             recordingLevel = vm.level,
             sendFlag = vm::flag,

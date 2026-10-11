@@ -167,6 +167,9 @@ fun CardStage(
     // The spoken answer went through the review step (study.spoken_answer_checked `reviewed`).
     var spokenReviewed by remember(view.presentation) { mutableStateOf(false) }
     var consumedSpoken by remember(view.presentation) { mutableIntStateOf(0) }
+    // "🎤 Say it" practice (answer side after Show answer with no attempt): what he said last, shown as
+    // "You said" only — never [answer], so the rating flow and user_answer are untouched.
+    var practiceSaid by remember(view.presentation) { mutableStateOf<String?>(null) }
     fun answerIsSpoken(a: String) = spokenText != null && a.trim() == spokenText
     fun checkAnswer(a: String): AnswerKey.Verdict =
         if (answerIsSpoken(a)) AnswerKey.checkSpoken(a, note.hanzi, view.alternatives, note.pinyin) else AnswerKey.check(a, note.hanzi, view.alternatives)
@@ -235,6 +238,11 @@ fun CardStage(
         val r = spoken.result ?: return@LaunchedEffect
         if (r.seq <= consumedSpoken || (revealed && !r.again)) return@LaunchedEffect
         consumedSpoken = r.seq
+        if (r.practice) {
+            // Practice: the "You said" box (the ViewModel plays the card's clip once after it).
+            practiceSaid = r.transcript
+            return@LaunchedEffect
+        }
         answer = r.text
         spokenText = r.transcript
         spokenReviewed = r.reviewed
@@ -347,7 +355,8 @@ fun CardStage(
                     ) {
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
-                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer), onCharacter = { ch ->
+                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
+                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, onCharacter = { ch ->
                             if (explore != null) explore(dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem.Char(ch)) else sheet = CardSheet.Character(ch)
                         })
                     }
@@ -622,6 +631,10 @@ private fun CardBack(
     wide: Boolean,
     /** The answer was spoken: "🎤 Say it again" sits beside Play (Record again's place on a read card). */
     canSayAgain: Boolean = false,
+    /** Revealed with nothing typed or said: "🎤 Say it" practice sits there instead. */
+    canSayPractice: Boolean = false,
+    /** The last practice take's transcript ("You said" under the hanzi). */
+    practiceSaid: String? = null,
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -637,6 +650,12 @@ private fun CardBack(
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
             }
             KeepTaps { TranscriptionLine(ui.extras.take.transcription, actions.onRetryTranscription) }
+            if (canSayPractice && practiceSaid != null) {
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.testTag(PRACTICE_YOU_SAID_TAG)) {
+                    YouSaidBox(spokenComparison(practiceSaid, note.hanzi, AnswerKey.checkSpoken(practiceSaid, note.hanzi, view.alternatives, note.pinyin)))
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
@@ -678,6 +697,7 @@ private fun CardBack(
                 if (voices.isEmpty() && ui.cardAudio.word == ClipState.COMING) AudioComingPill()
                 if (view.card.cardType == CardTypes.HANZI_TO_MEANING) RecordAgainPill(ui.extras.take, actions)
                 if (canSayAgain) SayAgainPill(ui.aiAvailable, actions)
+                if (canSayPractice) SayAgainPill(ui.aiAvailable, actions, practice = true, said = practiceSaid != null)
             }
             OfflineAudioNote(view, ui)
             if (voices.isEmpty() && ui.cardAudio.word != ClipState.READY && ui.cardAudio.word != ClipState.COMING && !making) {
@@ -992,21 +1012,28 @@ private fun RecordAgainPill(take: TakeUi, actions: StudyActions) {
 /** Test tags of "Say it again" (answer side pill / the panel on the question side). */
 const val SAY_AGAIN_TAG = "spoken-say-again"
 const val SAY_AGAIN_FRONT_TAG = "study-sayagain"
+/** "🎤 Say it" practice (answer side after Show answer with no attempt) and its "You said" box. */
+const val SAY_PRACTICE_TAG = "spoken-say-practice"
+const val PRACTICE_YOU_SAID_TAG = "practice-you-said"
 
-/** 🎤 Say it again on the back of a typing card answered by speaking (the web's study-back-pills). Offline: dimmed, a tap says why. */
+/**
+ * 🎤 Say it again on the back of a typing card answered by speaking (the web's study-back-pills). Offline: dimmed, a tap says why.
+ * [practice]: "🎤 Say it" after Show answer with no attempt ("Say it again" once [said]) — the result is only shown.
+ */
 @Composable
-private fun SayAgainPill(online: Boolean, actions: StudyActions) {
-    val start = rememberRecordPermission { actions.onSayAgain() }
+private fun SayAgainPill(online: Boolean, actions: StudyActions, practice: Boolean = false, said: Boolean = false) {
+    val action = if (practice) actions.onSayPractice else actions.onSayAgain
+    val start = rememberRecordPermission { action() }
     Text(
-        "🎤 Say it again",
+        if (practice && !said) "🎤 Say it" else "🎤 Say it again",
         color = Lab.colors.ink,
         style = MaterialTheme.typography.labelLarge,
         modifier = Modifier
-            .testTag(SAY_AGAIN_TAG)
+            .testTag(if (practice) SAY_PRACTICE_TAG else SAY_AGAIN_TAG)
             .graphicsLayer { alpha = if (online) 1f else 0.45f }
             .clip(CircleShape)
             .background(Lab.colors.faint)
-            .clickable { if (online) start() else actions.onSayAgain() }
+            .clickable { if (online) start() else action() }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     )
 }
@@ -1024,7 +1051,8 @@ private fun SayAgainPanel(spoken: SpokenUi, online: Boolean, actions: StudyActio
             SpokenPhase.REVIEW -> {
                 SpokenReviewText(spoken.finalText, compact = true)
                 Spacer(Modifier.height(10.dp))
-                SpokenReviewRow(actions)
+                // Practice shows what was said as said: nothing to edit.
+                SpokenReviewRow(actions, allowEdit = !spoken.practice)
             }
             SpokenPhase.EDITING -> SayAgainEditor(spoken, actions)
             SpokenPhase.FAILED -> {
@@ -1262,7 +1290,7 @@ private fun SpokenReviewText(text: String, compact: Boolean = false) {
 
 /** The review's row, in the voice-first row's pills: 🔁 Retry · ✏️ Edit small on the left, the wide ✓ Submit. */
 @Composable
-private fun SpokenReviewRow(actions: StudyActions) {
+private fun SpokenReviewRow(actions: StudyActions, allowEdit: Boolean = true) {
     val retake = rememberRecordPermission { actions.onRetakeSpoken() }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SecondaryPill(
@@ -1271,7 +1299,7 @@ private fun SpokenReviewRow(actions: StudyActions) {
             horizontalPadding = 12.dp, fontSize = 14.sp,
             onClick = retake,
         )
-        SecondaryPill(
+        if (allowEdit) SecondaryPill(
             "✏️ Edit",
             Modifier.height(60.dp).testTag(SPOKEN_REVIEW_EDIT_TAG).semantics { contentDescription = EDIT_LABEL },
             horizontalPadding = 12.dp, fontSize = 14.sp,
@@ -1372,7 +1400,7 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
                 .testTag(SPOKEN_RETRY_TAG),
         ) {
             Text("Couldn’t transcribe — tap to retry", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
-            Text(if (again) "Or keep your first answer" else "Or type your answer", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
+            Text(if (spoken.practice) "Or cancel — it’s only practice" else if (again) "Or keep your first answer" else "Or type your answer", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         spoken.offlineHint && !online -> hint("Saying the answer needs a connection — type it instead.")
     }

@@ -604,13 +604,25 @@ export function StudyCard({
   const [typingMode, setTypingMode] = useState(() => !!restored.point?.answer?.trim());
   // ✏️ Edit on a "Say it again" review: the box on the question side.
   const [sayAgainDraft, setSayAgainDraft] = useState('');
+  // "🎤 Say it" practice (answer side after 👁 Show answer with no attempt): what he said last, shown
+  // as "You said" only — never the card's answer, so the rating flow and user_answer are untouched.
+  const [practiceSaid, setPracticeSaid] = useState<string | null>(null);
   const spoken = useSpokenAnswer({
     recorder: { startRecording, stopRecording, cancelRecording, clearRecording, restoreRecording },
     micDeviceId,
     cardType: card.card_type,
     online: aiAvailable,
     currentTake: audioBlob,
-    onResult: ({ text, transcript, submit, again, reviewed }) => {
+    onResult: ({ text, transcript, submit, again, reviewed, practice }) => {
+      if (practice) {
+        // Practice: shown as "You said" (spoken check, the orange decal for a sentence), then the
+        // card's own clip once — like Say it again. The answer and the rating are left alone.
+        setPracticeSaid(transcript);
+        spokenReviewedRef.current = reviewed;
+        trackSpokenCheck(transcript, true, true);
+        scheduleReplayRef.current();
+        return;
+      }
       setUserAnswer(text);
       setSpokenText(transcript);
       spokenReviewedRef.current = reviewed;
@@ -873,13 +885,14 @@ export function StudyCard({
   // A spoken answer, checked: which way it went (enums only — never the transcript).
   const answerWasSpoken = isTypingCard && !!spokenText && userAnswer.trim() === spokenText;
   const spokenCheckTracked = useRef(false);
-  function trackSpokenCheck(answer: string, retry: boolean) {
+  function trackSpokenCheck(answer: string, retry: boolean, practice = false) {
     const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!); } catch { return []; } })() : [];
     track('study.spoken_answer_checked', {
       card_type: card.card_type,
       verdict: checkSpokenAnswer(answer, card.note.hanzi, alts, card.note.pinyin),
       retry,
       reviewed: spokenReviewedRef.current,
+      practice,
     });
   }
   useEffect(() => {
@@ -1469,6 +1482,20 @@ export function StudyCard({
     spoken.startAgain();
   };
 
+  // "🎤 Say it" (practice): revealed with nothing typed or said — say it anyway, in situ. The same
+  // turn to the question and review as Say it again; the result is only shown (practiceSaid).
+  const canSayPractice = isTypingCard && !userAnswer.trim();
+  const sayPractice = () => {
+    stopAudio();
+    recordingPlayerRef.current.stop();
+    if (!aiAvailable) { setSayAgainHint(true); return; }
+    setSayAgainHint(false);
+    spoken.startPractice();
+  };
+  const practiceVerdict = practiceSaid
+    ? checkSpokenAnswer(practiceSaid, card.note.hanzi, card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [], card.note.pinyin)
+    : null;
+
   // The language explorer (docs/LANGUAGE_EXPLORER.md): a tapped character opens its Character
   // view — card-independent dictionary data, offline once cached — and the learner can walk on
   // to its words and their characters. "✍️ Write it" opens this card's writing pad.
@@ -1523,6 +1550,11 @@ export function StudyCard({
         )}
 
         {renderTranscriptionResult()}
+        {canSayPractice && practiceSaid && practiceVerdict && (
+          <div data-testid="practice-you-said">
+            <YouSaid {...spokenYouSaid(practiceSaid, card.note.hanzi, practiceVerdict)} />
+          </div>
+        )}
 
         <div className="pinyin mb-1">{card.note.pinyin}</div>
         <TutorNoteLine notes={tutorNotes} />
@@ -1571,11 +1603,22 @@ export function StudyCard({
               <span aria-hidden="true">🎤</span> Say it again
             </button>
           )}
+          {canSayPractice && (
+            <button
+              className={`study-pill${!aiAvailable ? ' study-pill--unavailable' : ''}`}
+              onClick={sayPractice}
+              aria-label={practiceSaid ? 'Say it again (practice)' : 'Say it (practice)'}
+              aria-disabled={!aiAvailable}
+              data-testid="spoken-say-practice"
+            >
+              <span aria-hidden="true">🎤</span> {practiceSaid ? 'Say it again' : 'Say it'}
+            </button>
+          )}
         </div>
-        {answerWasSpoken && sayAgainHint && !aiAvailable && (
-          <p className="study-spoken-hint" data-testid="say-again-offline-hint">Saying it again needs a connection.</p>
+        {(answerWasSpoken || canSayPractice) && sayAgainHint && !aiAvailable && (
+          <p className="study-spoken-hint" data-testid="say-again-offline-hint">{canSayPractice ? 'Saying it needs a connection.' : 'Saying it again needs a connection.'}</p>
         )}
-        {answerWasSpoken && recorderError && !spoken.active && (
+        {(answerWasSpoken || canSayPractice) && recorderError && !spoken.active && (
           <p className="study-spoken-hint" data-testid="say-again-mic-error">{recorderError}</p>
         )}
 
@@ -2115,15 +2158,18 @@ export function StudyCard({
       >
         <span aria-hidden="true">🔁</span> Retry
       </button>
-      <button
-        type="button"
-        className="btn btn-secondary study-voice-side"
-        onClick={(e) => { e.stopPropagation(); spoken.edit(); }}
-        aria-label="Edit what I said"
-        data-testid="spoken-review-edit"
-      >
-        <span aria-hidden="true">✏️</span> Edit
-      </button>
+      {/* Practice shows what was said as said: nothing to edit. */}
+      {!spoken.practice && (
+        <button
+          type="button"
+          className="btn btn-secondary study-voice-side"
+          onClick={(e) => { e.stopPropagation(); spoken.edit(); }}
+          aria-label="Edit what I said"
+          data-testid="spoken-review-edit"
+        >
+          <span aria-hidden="true">✏️</span> Edit
+        </button>
+      )}
       <button
         type="button"
         className="btn btn-primary study-voice-say"
@@ -2211,7 +2257,7 @@ export function StudyCard({
         </>
       ) : spoken.phase === 'failed' ? (
         <>
-          {spoken.failure !== 'empty' && renderSpokenRetry('Or keep your first answer')}
+          {spoken.failure !== 'empty' && renderSpokenRetry(spoken.practice ? 'Or cancel — it’s only practice' : 'Or keep your first answer')}
           {spoken.failure === 'empty' && (
             <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap Retry to try again.</p>
           )}

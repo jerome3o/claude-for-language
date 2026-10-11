@@ -179,6 +179,8 @@ data class SpokenResult(
     val again: Boolean = false,
     val transcript: String = text,
     val reviewed: Boolean = false,
+    /** "🎤 Say it" practice after 👁 Show answer with no attempt: shown as "You said" only, never the answer. */
+    val practice: Boolean = false,
 )
 
 /**
@@ -197,6 +199,8 @@ data class SpokenUi(
     val offlineHint: Boolean = false,
     /** A "🎤 Say it again" from the answer side is under way: the card shows the question meanwhile. */
     val again: Boolean = false,
+    /** …and it is "🎤 Say it" practice after Show answer with no attempt (implies [again]). */
+    val practice: Boolean = false,
 ) {
     val listening: Boolean get() = phase == SpokenPhase.LISTENING
     val busy: Boolean get() = phase == SpokenPhase.LISTENING || phase == SpokenPhase.FINISHING
