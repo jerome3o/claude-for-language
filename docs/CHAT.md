@@ -333,6 +333,38 @@ The bubbles carry **no buttons**; every tool is in the message menu. Same rules 
   release = send; **slide left** ≥ 100 dp = cancel ("‹ Slide to cancel"); **slide up** ≥ 80 dp = lock (hands-free, then
   ■ stop → preview / ➤ send / 🗑). A quick tap shows "Hold to record" and starts nothing.
 
+## Voice-first composer (dictate the message — the default)
+Jerome: "the default should be speaking". The composer opens on the voice side (shared/voice/dictation.ts, the same
+controller / live Soniox stream / upload fallback as the study cards; web `components/chat/DictationComposer.tsx` +
+`hooks/useVoiceDictation.ts`, Lab `ChatComposer.kt` `DictationRow`):
+
+| State | Row |
+|---|---|
+| idle | `[ + ] [ ⌨️ ] [ 🎤 Say it ............ ] [ 〰 ]` |
+| listening | `[ ✕ ] [ 我明天下午有空… (live, grey tail) ] [ ⏹ ]` — the other side sees "typing…" |
+| review | `[ 🔁 ] [ 我明天下午有空，三点可以吗？  ✏️  ✓ ] [ ➤ ]` |
+| failed | `[ ⌨️ ] [ Couldn't transcribe — tap to retry ] [ 🔁 ]` (or "Didn't catch anything") |
+| typing | the composer above, with a 🎤 in the pill to go back to speaking (typed text kept, the take added to it) |
+
+- **Two microphones, two jobs, never the same glyph.** 🎤 **Say it** (the wide blue button) writes TEXT. The round
+  **waveform** button records a **voice message** — hold / slide / lock exactly as before; a tap explains "Voice message:
+  hold to record, release to send. To write it by speaking, tap 🎤 Say it." It is ONE element in the row on both sides
+  (web: one call site outside the row's ternary; Lab: the `mic` branch), so a hold survives the row turning into the
+  recorder. Claude role-play chats have no voice messages: only dictation.
+- **Review**: tap the text or ✏️ = Edit (into the typing box, keyboard up); ✓ = Check my Chinese on what was said (the
+  learner; its "Use this" goes into the typing box, "Send as is" sends the transcript); ➤ sends it as a normal text
+  message (outbox, `client_id`, auto-check — nothing differs from typed). 🔁 says it again.
+- **Drafts**: a saved draft opens the typing box; leaving on a review keeps the transcript as the draft (web). Typing
+  sends also go through the voice box (`voice.submit()`), so `voice_input.used` { surface: chat, outcome: submitted |
+  edited | typed | … } counts every send.
+- Offline: speaking is off (the outbox still takes typed messages) — the typing box, no 🎤; mic blocked / not found → a
+  one-line reason under the composer.
+- The other free-text boxes where he writes are voice-first the same way (`VoiceTextInputView` / `VoiceTextFieldContent`):
+  Ask Claude (`ask_claude`, Ask), Discuss with Claude (`chat_discuss`), the Sentence Coach's sentence box (`coach`: the
+  review runs ✏️ Check / 🔍 Explain or Translate on what was said) and follow-up (`coach_chat`, Send), Flag for tutor
+  (`card_flag`, English hints). Enter still sends from the typing textarea of the chat-like ones
+  (`components/voice/enterToSubmit.ts`).
+
 ## Voice bubble
 ▶/⏸, a real waveform (peaks of the decoded clip, 40 bars, cached per message; seeded bars until decoded), the elapsed /
 total time, and a **speed chip 1× → 1.5× → 2×** (remembered on the device). Transcript + pinyin / translation as in #491/#493.

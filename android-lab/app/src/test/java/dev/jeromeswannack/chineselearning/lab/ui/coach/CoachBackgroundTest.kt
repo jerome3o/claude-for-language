@@ -27,7 +27,7 @@ class CoachBackgroundTest : dev.jeromeswannack.chineselearning.lab.testing.LabSc
     @Test fun pendingReplyDisablesSend() {
         var sent = 0
         compose.setContent {
-            LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingReply), decks = CoachSamples.decks, followUp = "And 去了?"), CoachChatActions(onSend = { sent++ })) }
+            LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingReply), decks = CoachSamples.decks, followUp = "And 去了?"), CoachChatActions(onSend = { sent++ }), voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")) }
         }
         compose.onNodeWithTag(COACH_REPLY_PENDING_TAG).assertIsDisplayed()
         compose.onNodeWithTag(COACH_SEND_TAG).assertIsNotEnabled()
@@ -36,7 +36,7 @@ class CoachBackgroundTest : dev.jeromeswannack.chineselearning.lab.testing.LabSc
 
     @Test fun failedReplyRetries() {
         var retried: String? = null
-        compose.setContent { LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.failedReply), decks = CoachSamples.decks, followUp = "x"), CoachChatActions(onRetryReply = { retried = it })) } }
+        compose.setContent { LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.failedReply), decks = CoachSamples.decks, followUp = "x"), CoachChatActions(onRetryReply = { retried = it }), voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")) } }
         compose.onNodeWithText("Claude is busy right now — try again in a moment.").assertIsDisplayed()
         compose.onNodeWithTag(COACH_SEND_TAG).assertIsEnabled()
         compose.onNodeWithText("Retry").performClick()

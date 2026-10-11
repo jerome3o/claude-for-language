@@ -5,6 +5,9 @@ import remarkGfm from 'remark-gfm';
 import { discussMessage, createNote, getMessageDiscussion, saveMessageDiscussion } from '../api/client';
 import { MessageWithSender, GeneratedNote } from '../types';
 import { DeckSelectorWithCreate } from './chat/DeckSelectors';
+import { VoiceTextInputView } from './voice/VoiceTextInput';
+import { enterToSubmit } from './voice/enterToSubmit';
+import { useVoiceDictation } from '../hooks/useVoiceDictation';
 import './MessageDiscussionModal.css';
 
 interface DiscussionMessage {
@@ -28,7 +31,6 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
   const [selectedCards, setSelectedCards] = useState<Set<number>>(new Set());
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
 
   // Load persisted discussion on mount
@@ -53,11 +55,6 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
     }
   }, [discussion.length, pendingFlashcards]);
 
-  useEffect(() => {
-    if (!isLoadingDiscussion) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [isLoadingDiscussion]);
 
   // Persist discussion when it changes (after initial load)
   const persistDiscussion = async (msgs: DiscussionMessage[]) => {
@@ -126,6 +123,17 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
       setIsLoading(false);
     }
   };
+
+  // The question box, voice first (shared/voice/dictation.ts): 🎤 Say it → the review → Ask; ✏️ Type a tap away.
+  const voice = useVoiceDictation({
+    surface: 'chat_discuss',
+    value: input,
+    onChange: setInput,
+    onSubmit: (answer) => {
+      setInput('');
+      void handleSend(answer.text);
+    },
+  });
 
   const toggleCard = (index: number) => {
     setSelectedCards(prev => {
@@ -256,33 +264,23 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
         </div>
 
         {/* Input */}
-        <div className="claude-input-row">
-          <textarea
-            ref={inputRef}
-            className="form-input claude-autogrow-input"
+        {/* Voice first (shared/voice/dictation.ts): 🎤 Say it → the review → Ask; ✏️ Type a tap away. */}
+        <div className="claude-input-row discuss-voice-row" onKeyDown={enterToSubmit(voice.submit)}>
+          <VoiceTextInputView
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-            }}
+            onChange={setInput}
             placeholder="Ask about this message..."
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
+            listeningPlaceholder="Listening… ask about this message"
+            submitLabel={isLoading ? '…' : 'Ask'}
+            multiline
             disabled={isLoading}
-            rows={1}
+            testId="discuss-voice"
+            state={voice.state}
+            finalText={voice.finalText}
+            partialText={voice.partialText}
+            canSubmit={voice.canSubmit}
+            actions={voice}
           />
-          <button
-            className="btn btn-primary"
-            onClick={() => handleSend()}
-            disabled={!input.trim() || isLoading}
-          >
-            Ask
-          </button>
         </div>
       </div>
     </div>

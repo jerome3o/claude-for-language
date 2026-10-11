@@ -128,6 +128,7 @@ test('Ask Claude answers in Chinese: word chips → explorer, ✎ + Open in Coac
   await expect(sheet.getByRole('button', { name: /造句/ })).toBeVisible();
   if (process.env.SHOOT) await page.screenshot({ path: '../docs/pr-screenshots/ask-claude-immersion/web-01-empty.png' });
 
+  await sheet.getByTestId('ask-voice-type').click(); // voice first: ✏️ Type opens the box
   await sheet.locator('textarea').fill(QUESTION);
   await sheet.locator('textarea').press('Enter');
 

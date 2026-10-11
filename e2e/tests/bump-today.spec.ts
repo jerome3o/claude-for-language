@@ -75,6 +75,7 @@ test('Coach → a word I already have → ⚡ Study it today → Home → first 
 
   // Coach → Explain → add 银行, which I already have.
   await page.goto('/coach');
+  await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
   await page.locator('.sentence-input-form textarea').fill(SENTENCE);
   await page.getByTestId('coach-action-explain').click();
   await expect(page.getByTestId('coach-explain-result')).toBeVisible({ timeout: 15000 });

@@ -141,10 +141,14 @@ test('drafts stay per conversation; offline sends show as waiting in the header'
   await api(request, `/api/conversations/${convId}/messages`, { method: 'POST', token: tutor.token, data: { content: '你好' } });
   const page = await openAs(browser, student, `/connections/${relId}/chat/${convId}`);
   await expect(page.getByText('你好')).toBeVisible({ timeout: 20000 });
+  // The composer opens voice first (🎤 Say it); ⌨️ types.
+  await page.getByTestId('chat-type-btn').click();
   const box = page.getByRole('textbox', { name: 'Message' });
   await box.fill('我还没写完');
   await page.goto(`/connections/${relId2}/chat/${conv2}`);
-  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+  // No draft there: the composer opens voice first.
+  await expect(page.getByTestId('chat-say-btn')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveCount(0);
   await page.goto(`/connections/${relId}/chat/${convId}`);
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('我还没写完', { timeout: 20000 });
 

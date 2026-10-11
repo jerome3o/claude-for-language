@@ -43,6 +43,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceFirstActions
+import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceDictation
+import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldActions
+import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi
+import dev.jeromeswannack.chineselearning.lab.core.VoiceDictation
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -81,6 +89,14 @@ import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /*
+ * Voice first (docs/CHAT.md "Voice-first composer"; core VoiceDictation, the web's DictationComposer):
+ *   idle       [ + ] [ ⌨️ ] [ 🎤 Say it ........ ] [ 〰 ]   〰 = hold to send a VOICE MESSAGE (unchanged)
+ *   listening  [ ✕ ] [ 我明天… (live, grey tail) ] [ ⏹ ]
+ *   review     [ 🔁 ] [ 我明天去公园  ✏️ ✓ ]      [ ➤ ]   ➤ sends it as TEXT; ✓ = Check my Chinese
+ *   failed     [ ⌨️ ] [ Couldn't transcribe — tap to retry ] [ 🔁 ]
+ * 🎤 Say it writes text; the round waveform records a voice message — never the same glyph. ⌨️ is the
+ * typing composer below, which keeps a 🎤 in its pill to go back to speaking. A saved draft opens typing.
+ *
  * The composer as one row (docs/CHAT.md "Round 2"):  [ + ]  [ 😊  Message…  ✓ ]  [ 🎤 | ➤ ]
  * + = the attach sheet (Camera · Photo · 💡 Help me say it); 😊 = the emoji panel (inserts at the
  * caret); ✓ = Check my Chinese (the learner's draft has Chinese); the mic becomes ➤ once there is
@@ -112,6 +128,20 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
     // The draft changed from outside (sent, "Use this", edit): the field follows, caret at the end.
     val value = if (field.text == ui.draft) field else TextFieldValue(ui.draft, TextRange(ui.draft.length)).also { field = it }
     val keyboard = LocalSoftwareKeyboardController.current
+    val fieldFocus = remember { FocusRequester() }
+    // Voice first: the dictation controller (the same as every voice-first box).
+    val voice = rememberVoiceDictation("chat", defaultMode = if (ui.draft.isNotBlank()) VoiceDictation.TYPE else null)
+    val liveVoice by voice.ui.collectAsState()
+    val v = ui.voicePreview ?: liveVoice
+    val voiceActions = rememberVoiceFirstActions(voice, ui.draft, onFill = actions.onDraft) { answer ->
+        actions.onDraft(answer.text)
+        actions.onSend()
+    }
+    val voiceMode = v.state.mode == VoiceDictation.VOICE && ui.editing == null
+    val reviewing = voiceMode && v.phase == "review"
+    // On the review, Check my Chinese works on what was said; its "Use this" goes into the typing box.
+    val onUseCheck: () -> Unit = { if (reviewing) voiceActions.edit(); actions.onUseCheck() }
+    val onSendAsIs: () -> Unit = { if (reviewing) { actions.onDismissCheck(); voiceActions.submit() } else actions.onSendAsIs() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!ui.online) Text(
             if (rich) "Offline — messages send when you're back" else "You're offline. Messages to Claude can't be sent until you're back online.",
@@ -120,7 +150,7 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
         ui.notice?.let { InlineNotice(it.text, kind = if (it.error) NoticeKind.Error else NoticeKind.Success, actionLabel = "×", onAction = actions.onDismissNotice) }
         if (ui.proposingCards) ProposingRow()
         if (ui.generatingOptions) Busy("Claude is thinking of ways to say it…")
-        DraftCheckPanel(ui.draftCheck, actions)
+        DraftCheckPanel(ui.draftCheck, actions, onUse = onUseCheck, onSendAsIs = onSendAsIs)
         if (ui.preparingPhoto) Busy("Preparing the photo…")
         Box {
             Row(verticalAlignment = Alignment.Bottom) {
@@ -128,7 +158,16 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
                 when (rec) {
                     is RecorderUi.Preview -> VoicePreviewBar(rec, ui, actions, Modifier.weight(1f))
                     is RecorderUi.Recording -> RecordingBar(rec, actions, Modifier.weight(1f))
-                    RecorderUi.Idle -> {
+                    RecorderUi.Idle -> if (voiceMode) {
+                        DictationRow(
+                            v, voiceActions, Modifier.weight(1f),
+                            onAttach = { emojiOpen = false; actions.onOpenSheet(ChatSheet.Attach) },
+                            canCheck = reviewing && ChatLearning.canCheckDraft(v.finalText, ui.viewerRole, ui.isAi, false),
+                            checkBusy = ui.draftCheck?.loading == true,
+                            onCheck = { actions.onDraft(v.finalText); actions.onCheckDraft() },
+                            sendEnabled = !ui.sending && !ui.waitingForAi && (ui.online || rich),
+                        )
+                    } else {
                         if (ui.editing == null) {
                             RoundIcon("+", "Attach", Modifier.testTag("chat-attach")) { emojiOpen = false; actions.onOpenSheet(ChatSheet.Attach) }
                             Spacer(Modifier.width(2.dp))
@@ -140,14 +179,18 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
                             onEmoji = { emojiOpen = !emojiOpen; if (emojiOpen) keyboard?.hide() },
                             onFocus = { if (it) emojiOpen = false },
                             modifier = Modifier.weight(1f),
+                            focus = fieldFocus,
+                            onDictate = if (ui.editing == null && VoiceDictation.voiceButtonShown(v.blocked)) ({ emojiOpen = false; voiceActions.say() }) else null,
                         )
                     }
                 }
                 Spacer(Modifier.width(6.dp))
                 // ONE call site for the mic, so a hold survives the composer turning into the recording bar.
-                val mic = (rec is RecorderUi.Idle && rich && ui.editing == null && ui.draft.isBlank()) || (rec is RecorderUi.Recording && !rec.locked)
+                val micIdle = rec is RecorderUi.Idle && rich && ui.editing == null && (if (voiceMode) v.phase == "idle" else ui.draft.isBlank())
+                val mic = micIdle || (rec is RecorderUi.Recording && !rec.locked)
                 when {
                     mic -> MicButton(rec, actions) { hint++ }
+                    rec is RecorderUi.Idle && voiceMode -> Unit // the dictation row has its own buttons
                     rec is RecorderUi.Preview -> SendCircle("Send the voice message", Modifier.testTag("chat-voice-send"), onClick = actions.onRecordSend)
                     rec is RecorderUi.Recording -> SendCircle("Send the voice message", Modifier.testTag("chat-voice-send-now"), onClick = actions.onRecordSendNow)
                     else -> SendCircle(
@@ -160,6 +203,22 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
                 }
             }
             HoldHint(hint, Modifier.align(Alignment.TopEnd).offset(y = (-44).dp))
+        }
+        v.blocked?.takeIf { it != "offline" && ui.recorder is RecorderUi.Idle }?.let {
+            Text(
+                VoiceDictation.blockReason(it).replace("type your answer", "type your message"),
+                style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 8.dp).testTag("chat-dictate-blocked"),
+            )
+        }
+        // ⌨️ Type / ✏️ Edit: into the box with the keyboard up.
+        var wasVoice by remember { mutableStateOf(voiceMode) }
+        LaunchedEffect(voiceMode) {
+            if (!voiceMode && wasVoice && v.blocked == null) {
+                kotlinx.coroutines.delay(50)
+                runCatching { fieldFocus.requestFocus() }
+                keyboard?.show()
+            }
+            wasVoice = voiceMode
         }
         AnimatedVisibility(emojiOpen && ui.recorder is RecorderUi.Idle, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             EmojiPanel(ui.recentEmojis) { e ->
@@ -190,6 +249,9 @@ private fun Field(
     onEmoji: () -> Unit,
     onFocus: (Boolean) -> Unit,
     modifier: Modifier,
+    focus: FocusRequester = remember { FocusRequester() },
+    /** 🎤 in the pill: back to speaking (what is typed stays, the take is added to it). */
+    onDictate: (() -> Unit)? = null,
 ) {
     val c = chatColors()
     val bg = if (c.dark) Color(0xFF26262A) else Color(0xFFF0F0F2)
@@ -208,8 +270,14 @@ private fun Field(
                 textStyle = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, color = Lab.colors.ink),
                 cursorBrush = SolidColor(c.mine),
                 maxLines = 6,
-                modifier = Modifier.fillMaxWidth().onFocusChanged { onFocus(it.isFocused) }.testTag("chat-input"),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { onFocus(it.isFocused) }.testTag("chat-input"),
             )
+        }
+        onDictate?.let { dictate ->
+            Box(
+                Modifier.size(40.dp, 48.dp).clip(CircleShape).clickable(onClickLabel = "Say it — dictate instead of typing", onClick = dictate).testTag("chat-dictate-mic"),
+                contentAlignment = Alignment.Center,
+            ) { Text("🎤", fontSize = 19.sp) }
         }
         // ✓ Check my Chinese before sending (the learner's draft has Chinese).
         if (ChatLearning.canCheckDraft(ui.draft, ui.viewerRole, ui.isAi, ui.editing != null)) {
@@ -270,7 +338,7 @@ private fun HoldHint(nonce: Int, modifier: Modifier) {
     }
     AnimatedVisibility(show, modifier = modifier, enter = fadeIn(), exit = fadeOut()) {
         Text(
-            "Hold to record", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            "Hold to record a voice message", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xE6202024)).padding(horizontal = 12.dp, vertical = 7.dp).testTag("chat-hold-hint"),
         )
     }
@@ -307,7 +375,7 @@ private fun MicButton(recorder: RecorderUi, actions: ChatActions, onTap: () -> U
         Box(
             Modifier.offset { IntOffset(dragX.roundToInt().coerceAtMost(0), 0) }
                 .size(48.dp).scale(scale).clip(CircleShape)
-                .background(if (recording != null) Palette.Again else c.mine)
+                .background(if (recording != null) Palette.Again else if (c.dark) Color(0xFF2C2C2E) else Color(0xFFEDEDF0))
                 .testTag("chat-mic")
                 .semantics { contentDescription = "Hold to record a voice message" }
                 .pointerInput(Unit) {
@@ -340,10 +408,140 @@ private fun MicButton(recorder: RecorderUi, actions: ChatActions, onTap: () -> U
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Text("🎤", fontSize = 21.sp, color = Color.White)
+            // The waveform: a VOICE MESSAGE (dictating text is the 🎤 Say it button).
+            WaveformGlyph(if (recording != null) Color.White else Lab.colors.ink.copy(alpha = 0.75f))
         }
     }
 }
+
+/** Five bars: the voice-message button's glyph (never the dictation 🎤). */
+@Composable
+fun WaveformGlyph(color: Color, modifier: Modifier = Modifier) {
+    Row(modifier.height(20.dp), horizontalArrangement = Arrangement.spacedBy(2.5.dp), verticalAlignment = Alignment.CenterVertically) {
+        for (h in listOf(6, 13, 20, 11, 6)) Box(Modifier.width(2.5.dp).height(h.dp).clip(RoundedCornerShape(1.25.dp)).background(color))
+    }
+}
+
+/**
+ * The composer's voice side (see the top of the file): idle · listening · finishing · review · failed,
+ * from the dictation controller's [ui]. The voice-message button stays outside (one call site).
+ */
+@Composable
+private fun DictationRow(
+    ui: VoiceDictationUi,
+    actions: VoiceTextFieldActions,
+    modifier: Modifier,
+    onAttach: () -> Unit,
+    canCheck: Boolean,
+    checkBusy: Boolean,
+    onCheck: () -> Unit,
+    sendEnabled: Boolean,
+) {
+    val c = chatColors()
+    val grey = if (c.dark) Color(0xFF26262A) else Color(0xFFF0F0F2)
+    Row(modifier.testTag("chat-dictate"), verticalAlignment = Alignment.Bottom) {
+        when (ui.phase) {
+            "idle" -> {
+                RoundIcon("+", "Attach", Modifier.testTag("chat-attach"), onClick = onAttach)
+                Spacer(Modifier.width(2.dp))
+                GreyCircle("⌨️", "Type a message", grey, Modifier.testTag("chat-type"), onClick = actions.type)
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(c.mine)
+                        .bouncyClickable(pressedScale = 0.96f, onClick = actions.say)
+                        .semantics { contentDescription = "Say it — dictate a text message" }.testTag("chat-say"),
+                    contentAlignment = Alignment.Center,
+                ) { Text("🎤  ${VoiceDictation.Copy.SAY}", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
+            }
+            "listening", "finishing" -> {
+                val finishing = ui.phase == "finishing"
+                GreyCircle("✕", VoiceDictation.Copy.CANCEL, grey, Modifier.testTag("chat-dictate-cancel"), onClick = actions.cancel)
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(Lab.colors.card)
+                        .border(1.5.dp, Palette.Again.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp).testTag("chat-dictate-live"),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (ui.finalText.isEmpty() && ui.partialText.isEmpty()) {
+                        Text(if (finishing) VoiceDictation.Copy.FINISHING else "Listening… say your message", color = Lab.colors.muted, fontSize = 15.sp)
+                    } else {
+                        Text(
+                            androidx.compose.ui.text.buildAnnotatedString {
+                                append(ui.finalText)
+                                pushStyle(androidx.compose.ui.text.SpanStyle(color = Lab.colors.muted.copy(alpha = 0.7f)))
+                                append(ui.partialText)
+                                pop()
+                            },
+                            color = Lab.colors.ink, fontSize = 17.sp, lineHeight = 22.sp, maxLines = 6,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(6.dp))
+                val pulse by rememberInfiniteTransition(label = "stop").animateFloat(1f, 1.08f, infiniteRepeatable(tween(550), RepeatMode.Reverse), label = "pulse")
+                Box(
+                    Modifier.size(48.dp).scale(if (finishing) 1f else pulse).clip(CircleShape).background(if (finishing) grey else Palette.Again)
+                        .bouncyClickable(enabled = !finishing, pressedScale = 0.9f, onClick = actions.stop)
+                        .semantics { contentDescription = if (finishing) VoiceDictation.Copy.FINISHING else "Stop and use what I said" }.testTag("chat-dictate-stop"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (finishing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Lab.colors.accent)
+                    else Box(Modifier.size(15.dp).clip(RoundedCornerShape(3.dp)).background(Color.White))
+                }
+            }
+            "review" -> {
+                GreyCircle("🔁", "Say it again", grey, Modifier.testTag("chat-dictate-retake"), onClick = actions.retake)
+                Spacer(Modifier.width(6.dp))
+                Row(Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(grey).testTag("chat-dictate-review"), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        ui.finalText, color = Lab.colors.ink, fontSize = 17.sp, lineHeight = 22.sp, maxLines = 6,
+                        modifier = Modifier.weight(1f).clickable(onClickLabel = "Edit what I said", onClick = actions.edit).padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+                    )
+                    Box(Modifier.size(40.dp, 48.dp).clip(CircleShape).clickable(onClickLabel = "Edit what I said", onClick = actions.edit).testTag("chat-dictate-edit"), contentAlignment = Alignment.Center) {
+                        Text("✏️", fontSize = 18.sp)
+                    }
+                    if (canCheck) CheckDraftButton(busy = checkBusy, enabled = true, onClick = onCheck) else Spacer(Modifier.width(8.dp))
+                }
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape).background(if (sendEnabled) c.mine else c.mine.copy(alpha = 0.4f))
+                        .bouncyClickable(enabled = sendEnabled, pressedScale = 0.88f, onClick = actions.submit)
+                        .semantics { contentDescription = "Send" }.testTag("chat-dictate-send"),
+                    contentAlignment = Alignment.Center,
+                ) { Text("➤", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold) }
+            }
+            else -> { // failed: typing or another take, never a dead end
+                GreyCircle("⌨️", "Type a message", grey, Modifier.testTag("chat-type"), onClick = actions.type)
+                Spacer(Modifier.width(6.dp))
+                val retry = "retry_upload" in VoiceDictation.controls(ui.state)
+                Box(
+                    Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp))
+                        .background(if (retry) Palette.Again.copy(alpha = 0.08f) else grey)
+                        .border(1.dp, if (retry) Palette.Again.copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(24.dp))
+                        .clickable(enabled = retry, onClick = actions.retryUpload).padding(horizontal = 14.dp, vertical = 10.dp)
+                        .testTag(if (retry) "chat-dictate-retry-upload" else "chat-dictate-empty"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (!retry) VoiceDictation.Copy.EMPTY else if (ui.failure == "offline") VoiceDictation.Copy.OFFLINE else VoiceDictation.Copy.FAILED,
+                        color = if (retry) Lab.colors.ink else Lab.colors.muted, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+                GreyCircle("🔁", "Say it again", grey, Modifier.testTag("chat-dictate-retake"), onClick = actions.retake)
+            }
+        }
+    }
+}
+
+@Composable
+private fun GreyCircle(label: String, description: String, bg: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.size(48.dp).clip(CircleShape).background(bg).bouncyClickable(pressedScale = 0.88f, onClick = onClick).semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) { Text(label, fontSize = 19.sp, color = Lab.colors.ink) }
+}
+
 
 /** Recording: ● timer + level, "‹ Slide to cancel" while held; locked: 🗑 · ● timer · ■ stop (→ preview). */
 @Composable

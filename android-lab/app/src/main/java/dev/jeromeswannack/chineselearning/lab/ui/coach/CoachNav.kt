@@ -132,7 +132,7 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                 actions = CoachHomeActions(
                     onBack = nav::back,
                     onDraft = vm::setDraft,
-                    onAction = { action -> vm.start(ui.draft.trim(), action) { id -> nav.open(Routes.coachConversation(id)) } },
+                    onAction = { action -> vm.start(vm.draftNow().trim(), action) { id -> nav.open(Routes.coachConversation(id)) } },
                     onOpen = { nav.open(Routes.coachConversation(it)) },
                     onDelete = vm::delete,
                     cards = coachCardActions(nav.app),
@@ -205,6 +205,9 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
     }
 
     fun setDraft(s: String) = local.update { it.copy(draft = s, startError = null, savedBreakdown = null) }
+
+    /** The draft as it is NOW (a spoken sentence is set and run in the same tap). */
+    fun draftNow(): String = local.value.draft
 
     private val tools = CardTools(app)
 

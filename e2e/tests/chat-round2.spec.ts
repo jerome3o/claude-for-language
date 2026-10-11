@@ -188,7 +188,7 @@ test('hold the mic to record: a quick tap explains, slide left cancels, release 
   // A quick tap: nothing recorded, a hint.
   await mic.dispatchEvent('pointerdown', at());
   await mic.dispatchEvent('pointerup', at());
-  await expect(page.getByText('Hold the mic to record, release to send.')).toBeVisible();
+  await expect(page.getByText('Voice message: hold to record, release to send. To write it by speaking, tap 🎤 Say it.')).toBeVisible();
   await expect(page.getByTestId('voice-composer')).toHaveCount(0, { timeout: 5000 });
 
   // Hold, slide left past the threshold → cancelled.

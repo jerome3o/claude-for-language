@@ -82,6 +82,8 @@ test('a student message gets the ✎, the menu starts with How to say it better,
   expect(deck.status).toBe(201);
 
   const page = await openAs(browser, student, `/connections/${relId}/chat/${convId}`);
+  // The composer opens voice first (🎤 Say it); ⌨️ types.
+  await page.getByTestId('chat-type-btn').click();
   const box = page.getByRole('textbox', { name: 'Message' });
   await box.click();
   await box.fill('我昨天去了商店买东西了');

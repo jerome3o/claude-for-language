@@ -56,6 +56,11 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
+import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldContent
+import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceDictation
+import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceFirstActions
+import dev.jeromeswannack.chineselearning.lab.core.VoiceDictation
+import androidx.compose.runtime.collectAsState
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.delay
@@ -211,13 +216,15 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
     val scope = rememberCoroutineScope()
     LaunchedEffect(done) { if (done != null && startDone == null) { delay(1400); onDismiss() } }
 
-    fun submit() {
+    fun submit(text: String) {
         val t = tutor ?: return
+        if (text.isBlank()) return
+        message = text
         busy = true
         error = null
         scope.launch {
             try {
-                val sent = send(t, message)
+                val sent = send(t, text.trim())
                 done = if (sent) "Sent to ${t.name}" else "Saved — it goes to ${t.name} when you're back online"
             } catch (e: Exception) {
                 error = e.message ?: "Could not save the flag"
@@ -226,6 +233,11 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
             }
         }
     }
+
+    // Voice first (core VoiceDictation; the web's FlagCardSheet): say what's confusing, or ✏️ Type. Offline → typing (it queues).
+    val voice = rememberVoiceDictation("card_flag", "en", defaultMode = if (startMessage.isNotBlank()) VoiceDictation.TYPE else null)
+    val voiceUi by voice.ui.collectAsState()
+    val voiceActions = rememberVoiceFirstActions(voice, message, onFill = { message = it }) { a -> submit(a.text) }
 
     SheetScaffold(
         modifier,
@@ -251,7 +263,6 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
                 SecondaryPill("Close", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
             } else {
                 SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), enabled = !busy, onClick = onDismiss)
-                PrimaryPill(if (busy) "Sending…" else "Send", Modifier.weight(1f).height(50.dp), enabled = !busy && message.isNotBlank() && tutor != null) { submit() }
             }
         },
     ) {
@@ -260,14 +271,16 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
                 InlineNotice("✓ $d", kind = NoticeKind.Success)
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
+                    VoiceTextFieldContent(
+                        ui = voiceUi,
                         value = message,
                         onValueChange = { if (it.length <= 2000) message = it },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp),
-                        placeholder = { Text("What's confusing? e.g. I keep mixing this up with 很行") },
-                        enabled = !busy,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+                        actions = voiceActions,
+                        submitLabel = if (busy) "Sending…" else "Send",
+                        placeholder = "What's confusing? e.g. I keep mixing this up with 很行",
+                        multiline = true,
+                        lang = "en",
+                        enabled = !busy && tutor != null,
                     )
                     Text(
                         "Your tutor gets it in the chat with a link to this card, and their reply shows here next time.",

@@ -71,6 +71,7 @@ test('Ask Claude reply: multi-character word chips at once, no Claude splitter',
   await page.getByRole('button', { name: 'Ask Claude' }).click();
   const sheet = page.getByTestId('ask-claude-sheet');
   await expect(sheet).toBeVisible();
+  await sheet.getByTestId('ask-voice-type').click(); // voice first: ✏️ Type opens the box
   await sheet.locator('textarea').fill(QUESTION);
   await sheet.locator('textarea').press('Enter');
 

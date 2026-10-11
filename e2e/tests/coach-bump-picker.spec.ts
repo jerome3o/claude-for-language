@@ -54,6 +54,7 @@ async function stubCoach(page: Page, id: string, sentence: string) {
 
 async function explain(page: Page, sentence: string) {
   await page.goto('/coach');
+  await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
   await page.locator('.sentence-input-form textarea').fill(sentence);
   await page.getByTestId('coach-action-explain').click();
   await expect(page.getByTestId('coach-explain-result')).toBeVisible({ timeout: 15000 });

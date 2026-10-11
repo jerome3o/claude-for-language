@@ -135,6 +135,7 @@ test('🎧 Listen first: the answer arrives hidden and plays by itself, tap play
   await expect.poll(async () => (await api<{ ask_claude_listening?: boolean }>(request, '/api/auth/me', { token })).ask_claude_listening).toBe(true);
   if (process.env.SHOOT) await page.screenshot({ path: '../docs/pr-screenshots/ask-claude-listening/web-01-toggle.png' });
 
+  await sheet.getByTestId('ask-voice-type').click(); // voice first: ✏️ Type opens the box
   await sheet.locator('textarea').fill(QUESTION);
   await sheet.locator('textarea').press('Enter');
 

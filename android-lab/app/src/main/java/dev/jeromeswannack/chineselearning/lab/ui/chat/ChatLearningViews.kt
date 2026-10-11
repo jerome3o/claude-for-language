@@ -464,7 +464,7 @@ fun CheckDraftButton(busy: Boolean, enabled: Boolean, onClick: () -> Unit) {
  * critique, then "Send as is" / "Use this" (or "Send" when it was already right).
  */
 @Composable
-fun DraftCheckPanel(check: DraftCheckUi?, actions: ChatActions) {
+fun DraftCheckPanel(check: DraftCheckUi?, actions: ChatActions, onUse: () -> Unit = actions.onUseCheck, onSendAsIs: () -> Unit = actions.onSendAsIs) {
     AnimatedVisibility(check != null, enter = expandVertically(spring(Spring.DampingRatioLowBouncy)) + fadeIn(), exit = shrinkVertically() + fadeOut()) {
         val c = check ?: return@AnimatedVisibility
         val shape = RoundedCornerShape(16.dp)
@@ -510,10 +510,10 @@ fun DraftCheckPanel(check: DraftCheckUi?, actions: ChatActions) {
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.padding(end = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (r.isCorrect || r.corrected.hanzi.isBlank()) {
-                        PrimaryPill("Send", Modifier.weight(1f).height(48.dp).testTag("chat-check-send"), onClick = actions.onSendAsIs)
+                        PrimaryPill("Send", Modifier.weight(1f).height(48.dp).testTag("chat-check-send"), onClick = onSendAsIs)
                     } else {
-                        SecondaryPill("Send as is", Modifier.weight(1f).testTag("chat-check-send"), onClick = actions.onSendAsIs)
-                        PrimaryPill("Use this", Modifier.weight(1f).height(48.dp).testTag("chat-check-use"), onClick = actions.onUseCheck)
+                        SecondaryPill("Send as is", Modifier.weight(1f).testTag("chat-check-send"), onClick = onSendAsIs)
+                        PrimaryPill("Use this", Modifier.weight(1f).height(48.dp).testTag("chat-check-use"), onClick = onUse)
                     }
                 }
             }

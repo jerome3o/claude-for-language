@@ -100,6 +100,8 @@ test('a message goes out at once, arrives live with typing, and comes back Seen'
   await studentPage.waitForTimeout(1500);
 
   // Typing → the other side sees it.
+  // The composer opens voice first (🎤 Say it); ⌨️ types.
+  await studentPage.getByTestId('chat-type-btn').click();
   const box = studentPage.getByRole('textbox', { name: 'Message' });
   await box.click();
   await box.pressSequentially('我有空', { delay: 60 });
@@ -241,6 +243,7 @@ test('offline: the message waits in the outbox and goes out when back online', a
   await expect(studentPage.getByText('到了告诉我')).toBeVisible({ timeout: 20000 });
 
   await studentPage.context().setOffline(true);
+  // Offline: speaking needs a connection, so the composer is the typing box by itself.
   const box = studentPage.getByRole('textbox', { name: 'Message' });
   await box.fill('我在火车上，快到了');
   await box.press('Enter');
