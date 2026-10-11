@@ -26,7 +26,8 @@
     "build:char-dict": "esbuild scripts/build-char-dict.ts --bundle --platform=node --format=esm --outfile=scripts/.cache/build-char-dict.mjs --log-level=warning && node scripts/.cache/build-char-dict.mjs",
     "build:word-freq": "esbuild scripts/build-word-freq.ts --bundle --platform=node --format=esm --outfile=scripts/.cache/build-word-freq.mjs --log-level=warning && node scripts/.cache/build-word-freq.mjs",
     "build:word-dict": "esbuild scripts/build-word-dict.ts --bundle --platform=node --format=esm --outfile=scripts/.cache/build-word-dict.mjs --log-level=warning && node scripts/.cache/build-word-dict.mjs",
-    "build:segment-words": "esbuild scripts/build-segment-words.ts --bundle --platform=node --format=esm --outfile=scripts/.cache/build-segment-words.mjs --log-level=warning && node scripts/.cache/build-segment-words.mjs"
+    "build:segment-words": "esbuild scripts/build-segment-words.ts --bundle --platform=node --format=esm --outfile=scripts/.cache/build-segment-words.mjs --log-level=warning && node scripts/.cache/build-segment-words.mjs",
+    "build:word-tags": "esbuild scripts/build-word-tags.ts --bundle --platform=node --format=esm --outfile=scripts/.cache/build-word-tags.mjs --log-level=warning && node scripts/.cache/build-word-tags.mjs"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

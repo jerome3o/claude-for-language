@@ -10,6 +10,7 @@ import { NewCardOrderSection } from '../components/settings/NewCardOrderSection'
 import { AskClaudeLanguageSection } from '../components/settings/AskClaudeLanguageSection';
 import { PodcastFeedSection } from '../components/settings/PodcastFeedSection';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
+import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
@@ -686,7 +687,40 @@ function SpokenAnswerSection() {
           ? 'On the typing cards, 🎤 checks what you said as soon as you stop.'
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
+      <WordTagsSetting />
     </div>
+  );
+}
+
+/**
+ * Settings → Study → "Word tags on the answer" (on by default, per device): the small pills
+ * under the meaning — part of speech, register, measure word, HSK level (docs/STUDY_SESSION.md
+ * "Word tags").
+ */
+function WordTagsSetting() {
+  const [on, setOn] = useState(readWordTagsOn);
+  return (
+    <>
+      <label className="settings-toggle-row" style={{ marginTop: '1rem' }}>
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setOn(next);
+            writeWordTagsOn(next);
+            track('settings.change', { setting: 'word_tags', value: next ? 'on' : 'off' });
+          }}
+          data-testid="word-tags-toggle"
+        />
+        <span>Word tags on the answer</span>
+      </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
+        {on
+          ? 'Small tags under the meaning: noun / verb, polite / colloquial, measure word, HSK level. Tap one to see what it means.'
+          : 'Off — the answer shows just the word, pinyin and meaning.'}
+      </p>
+    </>
   );
 }
 

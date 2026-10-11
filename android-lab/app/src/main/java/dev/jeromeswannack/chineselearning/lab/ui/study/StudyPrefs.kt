@@ -7,8 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * The study card's own per-device settings (the web keeps these in localStorage):
  * the forced-offline override (services/offlineMode.ts `manualOfflineMode`) and whether the
- * first-card explainer has been dismissed (`firstCardExplainerSeen`), and whether a spoken answer
- * skips the review step (`spokenSkipReview`).
+ * first-card explainer has been dismissed (`firstCardExplainerSeen`), whether a spoken answer
+ * skips the review step (`spokenSkipReview`) and whether the answer shows word tags (`wordTagsOn`).
  */
 class StudyPrefs private constructor(context: Context) {
     private val sp = context.getSharedPreferences("lab_study", Context.MODE_PRIVATE)
@@ -39,7 +39,21 @@ class StudyPrefs private constructor(context: Context) {
         get() = sp.getBoolean(SPOKEN_AUTO_SUBMIT, false)
         set(v) = sp.edit().putBoolean(SPOKEN_AUTO_SUBMIT, v).apply()
 
+    private val _wordTagsOn = MutableStateFlow(sp.getBoolean(WORD_TAGS_ON, true))
+
+    /**
+     * Settings → Study → "Word tags on the answer" (ON by default; the web's
+     * services/wordTags.ts `readWordTagsOn`): the small pills under the meaning.
+     */
+    val wordTagsOn: StateFlow<Boolean> = _wordTagsOn
+
+    fun setWordTagsOn(on: Boolean) {
+        sp.edit().putBoolean(WORD_TAGS_ON, on).apply()
+        _wordTagsOn.value = on
+    }
+
     companion object {
+        private const val WORD_TAGS_ON = "word_tags_on"
         private const val FORCED_OFFLINE = "forced_offline"
         private const val EXPLAINER_SEEN = "first_card_explainer_seen"
         private const val SPOKEN_AUTO_SUBMIT = "spoken_auto_submit"

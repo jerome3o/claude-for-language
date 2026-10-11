@@ -49,6 +49,24 @@ export function LicencesPage() {
           </li>
         </ul>
 
+        <h2>Word tags</h2>
+        <p>The tags under a card’s meaning (part of speech, register, measure word, HSK level) come from CC-CEDICT and:</p>
+        <ul>
+          <li>
+            <strong>HanLP</strong> (<code>CoreNatureDictionary.txt</code>) — parts of speech. © hankcs,{' '}
+            <a href="https://github.com/hankcs/HanLP" target="_blank" rel="noreferrer">github.com/hankcs/HanLP</a>, licensed{' '}
+            <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer">Apache 2.0</a>.
+          </li>
+          <li>
+            <strong>jieba</strong> (<code>dict.txt</code>) — parts of speech for words HanLP lacks. © Sun Junyi,{' '}
+            <a href="https://github.com/fxsjy/jieba" target="_blank" rel="noreferrer">github.com/fxsjy/jieba</a>, MIT licence.
+          </li>
+          <li>
+            <strong>Complete HSK Vocabulary</strong> — HSK 3.0 levels. © Yanis Zafirópulos,{' '}
+            <a href="https://github.com/drkameleon/complete-hsk-vocabulary" target="_blank" rel="noreferrer">github.com/drkameleon/complete-hsk-vocabulary</a>, MIT licence.
+          </li>
+        </ul>
+
         <h2>Handwriting</h2>
         <ul>
           <li>

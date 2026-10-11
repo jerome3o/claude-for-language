@@ -46,6 +46,10 @@ a word row opens the **Word view** (which has Add / ⚡ Study it today) instead 
   `PracticeTts`; offline and never heard → the device voice), pinyin, English, frequency
   (`wordFrequencyLabel`: "#570 most common word" up to rank 30,000 — tiers top ≤ 1,000, common ≤
   5,000, uncommon —, else "Rare word"; from the shipped word-freq list, `shared/decks/frequency.ts`).
+- **Word tags** under the head: the same pills as the card's answer side (part of speech, separable
+  verb, register, measure word, HSK level, traditional form — docs/STUDY_SESSION.md "Word tags"),
+  minus how common (the chip above already says it). Web `components/wordTags/WordTagPills.tsx`
+  (`exclude={['frequency']}`), Lab `WordTagsFor(…, exclude = {"frequency"})`.
 - **Characters**: one chip per character with its syllable, coloured by tone (`wordChars`) → the
   Character view.
 - **Your card**: "📚 You have this in <deck>" → Open card (the card hub) and ⚡ Study it today; else

@@ -101,6 +101,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   └── index.ts       # Re-exports
 │   ├── audio-lesson/      # Audio lessons (docs/AUDIO_LESSONS.md): plan types (DialoguePlan / SleepPlan / StoryPlan), compile.ts (plan → speech/pause script, RATES / PAUSES), dialogue-tones.ts (a dialogue word's tone lines from its pinyin: "打, dǎ, third tone."), story.ts (the story splitter, compileStoryLesson, the 60-min cap), validate.ts, timeline.ts (chapters / transcript in ms, player helpers), input.ts
 │   ├── idioms/            # 成语 Idioms (beta, docs/IDIOMS.md): the entry shape (types.ts), starter list (~46), cache key + explorer link rule (normalize.ts), validator (validate.ts), "+ Add as card" fields (card.ts), sample entry — parity-tested by the Lab app
+│   ├── cards/             # Card standard, word checks, answer checking, word tags (word-tags.ts = the tagger; word-tags-build.ts + word-tags-curated.ts = the lexicon build)
 │   ├── picture-hunt/      # Picture hunt (看图找词): types (normalised boxes / outlines), answer matching (match.ts), hit-testing (geometry.ts), feedback copy, validation — parity-tested by the Lab app
 │   ├── quest/             # Quests: the tile-map mini-game framework
 │   │   ├── types.ts       # World schema (terrain, objects, verbs, goal conditions)
@@ -513,6 +514,14 @@ character) or a wrong / misleading English gloss, plus the deterministic 一/不
 - E2E_TEST_MODE uses a fake model (`services/card-check-fake.ts`: 银行 yínxíng, 苹果 "banana", 长大, 妈妈).
 - MCP: `check_deck_for_errors`, `apply_note_fixes` (`mcp-server/src/tools/checks.ts`); `add_note`, `batch_add_notes`,
   `create_homework_deck`, `add_words_to_student_deck` create with `?check=sync` and return `check_warnings`.
+
+### Word tags on the answer side (`shared/cards/word-tags.ts`, docs/STUDY_SESSION.md "Word tags")
+Deterministic pills under the meaning (and in the explorer's Word view): part of speech, separable verb,
+register, measure word, HSK level, how common, traditional form — from `shared/data/word-tags/word-tags.txt`
+(CC-CEDICT + HanLP + jieba + complete-hsk-vocabulary + the curated lists in `shared/cards/word-tags-curated.ts`;
+README there has sources and licences). Rebuild with `npm run build:word-tags`. Lab: `core/…/cards/WordTags.kt`
+over the same file, parity-tested. Settings → Study → "Word tags on the answer" (on by default, per device).
+No transitivity: HanLP's `vi` is wrong too often (喜欢).
 
 ### Reader page standard
 `shared/reader/standard.ts` — `READER_STANDARD`: a page is one picture and one moment, 1–2 sentences

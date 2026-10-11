@@ -63,6 +63,7 @@ import { StudyMenuItem } from '../components/study/StudyMoreMenu';
 import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
 import { TutorNoteLine } from '../components/study/TutorNoteLine';
 import { YouSaid, spokenYouSaid } from '../components/study/YouSaid';
+import { WordTagPills } from '../components/wordTags/WordTagPills';
 import { OfflineModeToggle } from '../components/study/OfflineModeToggle';
 import { isPeekTap, type PressPoint } from '../components/study/peekFlip';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
@@ -1526,6 +1527,8 @@ export function StudyCard({
         <div className="pinyin mb-1">{card.note.pinyin}</div>
         <TutorNoteLine notes={tutorNotes} />
         <div className="study-back-meaning">{card.note.english}</div>
+        {/* Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off) */}
+        <WordTagPills hanzi={card.note.hanzi} source="study" />
 
         {/* Play · Record again — the only controls between the meaning and the action row */}
         <div className="study-back-pills">

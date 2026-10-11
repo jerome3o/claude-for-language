@@ -214,6 +214,14 @@ narration, its source only when known (uncertain or modern origins say so), usag
 opposite idioms and a 2–3 question "Try it" (practice only). "+ Add as card" makes a card-standard card;
 opened entries read offline. The explorer's Word view links a 成语 to its page. Details: docs/IDIOMS.md.
 
+### 16. Word tags
+
+The answer side of a card (and the explorer's Word view) shows small, muted pills about the word —
+part of speech, separable verb, register (polite / formal / colloquial / slang / rude…), measure word,
+HSK level, how common, traditional form — all from open dictionaries and curated lists, no AI, offline.
+A tap explains the tag in a line with an example. Settings → Study can turn them off. Details:
+docs/STUDY_SESSION.md "Word tags".
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities

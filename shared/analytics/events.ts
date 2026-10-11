@@ -92,6 +92,7 @@ export const ANALYTICS_EVENTS = {
   'explorer.drill_start': e('study', 'Started a quick drill from the explorer (kind = char / word; practice only, no review events).', ['kind', 'items']),
   'explorer.drill_finish': e('study', 'Finished a quick drill from the explorer.', ['kind', 'items', 'correct', 'duration_ms']),
   'explorer.write': e('study', '"✍️ Write it" from the explorer\'s Character view.', []),
+  'study.word_tag_open': e('study', 'Tapped a word tag (part of speech, register, measure word, HSK…) for its explanation (kind = pos | separable | register | measure | hsk | frequency | trad | phrase; tag = its id, e.g. register:P; source = study | explorer | pass).', ['kind', 'tag', 'source']),
   'study.study_more': e('study', 'Pressed Study More (bonus new cards).', ['count']),
   'study.celebration': e('study', "Emptied today's queue (the once-a-day celebration).", ['reviews', 'active_ms']),
   'study.long_term_toggle': e('study', '"Add to my long-term review" switched for a word.', ['value']),
