@@ -20,6 +20,11 @@
  * the box on the question side, then `submitEdit`) and is then checked; ✕ / back / Esc brings the
  * previous take back (`restorePrevious`) with its answer untouched.
  *
+ * "Say it" practice (`start({ again: true, practice: true })`): the same flow after 👁 Show answer with
+ * no attempt — the card is revealed with nothing typed or said. The result comes back with
+ * `practice: true` and the card shows it as "You said" only: it is never the card's answer and never
+ * changes the rating flow. Its take is in the recorder like any other, so it goes up with the review.
+ *
  * Pure apart from the injected recorder / transcriber / upload, so every branch is unit-tested
  * (spokenAnswer.test.ts). Lab twin: StudyViewModel `startSpokenAnswer` / `stopSpokenAnswer`.
  */
@@ -45,9 +50,11 @@ export interface SpokenAnswerState {
   failure: SpokenFailure | null;
   /** A "Say it again" from the answer side is under way (the card shows the question meanwhile). */
   again: boolean;
+  /** …and it is "Say it" practice after Show answer with no attempt (implies `again`). */
+  practice: boolean;
 }
 
-export const IDLE_SPOKEN: SpokenAnswerState = { phase: 'idle', finalText: '', partialText: '', failure: null, again: false };
+export const IDLE_SPOKEN: SpokenAnswerState = { phase: 'idle', finalText: '', partialText: '', failure: null, again: false, practice: false };
 
 /** The live stream of one take (a `LiveTranscriber`). */
 export interface LiveLike {
@@ -71,6 +78,8 @@ export interface SpokenAnswer {
   again: boolean;
   /** It went through the review step (not skipped by the setting). */
   reviewed: boolean;
+  /** "Say it" practice after Show answer: shown as "You said" only, never the card's answer. */
+  practice: boolean;
 }
 
 export interface SpokenAnswerDeps {
@@ -96,7 +105,7 @@ export interface SpokenAnswerDeps {
   onResult(answer: SpokenAnswer): void;
   /** The live stream was refused (key etc.): reason as given, for the key cache. */
   onLiveError?(reason: string): void;
-  track(result: SpokenResult, props: { via: string; live_error: string; speech_ms: number; ms: number; auto_submit: boolean; retry: boolean; reviewed: boolean; edited: boolean }): void;
+  track(result: SpokenResult, props: { via: string; live_error: string; speech_ms: number; ms: number; auto_submit: boolean; retry: boolean; reviewed: boolean; edited: boolean; practice: boolean }): void;
   now?(): number;
 }
 
@@ -133,12 +142,14 @@ export class SpokenAnswerController {
 
   /**
    * 🎤: start listening (online only — the button is disabled offline). `again`: "Say it again" from
-   * the answer side (a 🎤 after a failed / empty say-again keeps going as one).
+   * the answer side (a 🎤 after a failed / empty say-again keeps going as one). `practice`: "Say it"
+   * after Show answer with no attempt (a say-again whose result is only shown, never the answer).
    */
-  async start(opts: { again?: boolean } = {}): Promise<void> {
+  async start(opts: { again?: boolean; practice?: boolean } = {}): Promise<void> {
     if (this.state.phase === 'listening' || this.state.phase === 'finishing') return;
     if (!this.deps.isOnline()) return;
-    const again = !!opts.again || this.state.again;
+    const practice = !!opts.practice || this.state.practice;
+    const again = !!opts.again || this.state.again || practice;
     if (this.state.phase === 'review') this.report('retaken', this.pending, true);
     this.pending = null;
     const gen = ++this.generation;
@@ -154,7 +165,7 @@ export class SpokenAnswerController {
     this.startedAt = this.now();
     this.stoppedAt = 0;
     this.speechMs = 0;
-    this.set({ phase: 'listening', finalText: '', partialText: '', failure: null, again });
+    this.set({ phase: 'listening', finalText: '', partialText: '', failure: null, again, practice });
     const ok = await this.deps.startRecorder({
       onChunk: (chunk) => { if (gen === this.generation) live?.push(chunk); },
       onStop: (take) => { void this.stopped(gen, take); },
@@ -216,9 +227,9 @@ export class SpokenAnswerController {
   /** ✓ Submit on the review: the transcript is the answer, checked in spoken mode. */
   submit(): void {
     if (this.state.phase !== 'review') return;
-    const { finalText: text, again } = this.state;
+    const { finalText: text, again, practice } = this.state;
     this.report('submitted', this.pending, true);
-    this.finish({ text, transcript: text, submit: true, again, reviewed: true });
+    this.finish({ text, transcript: text, submit: true, again, reviewed: true, practice });
   }
 
   /**
@@ -234,13 +245,13 @@ export class SpokenAnswerController {
       this.set({ ...this.state, phase: 'editing' });
       return;
     }
-    this.finish({ text, transcript: text, submit: false, again: false, reviewed: true });
+    this.finish({ text, transcript: text, submit: false, again: false, reviewed: true, practice: false });
   }
 
   /** Check on a "Say it again" being edited: `text` is the answer (spoken mode only while unchanged). */
   submitEdit(text: string): void {
     if (this.state.phase !== 'editing' || !text.trim()) return;
-    this.finish({ text: text.trim(), transcript: this.state.finalText, submit: true, again: true, reviewed: true });
+    this.finish({ text: text.trim(), transcript: this.state.finalText, submit: true, again: true, reviewed: true, practice: this.state.practice });
   }
 
   private finish(answer: SpokenAnswer) {
@@ -290,24 +301,24 @@ export class SpokenAnswerController {
 
   private land(outcome: TakeOutcome, streamed: boolean) {
     const ms = Math.max(0, this.now() - this.stoppedAt);
-    const again = this.state.again;
+    const { again, practice } = this.state;
     const text = outcome.kind === 'done' ? outcome.text.trim() : '';
     if (text) {
       if (this.deps.skipReview()) {
         // The review skipped (Settings): checked at once, like before the review step.
         this.pending = { outcome, ms, streamed };
         this.report('submitted', this.pending, false);
-        this.finish({ text, transcript: text, submit: true, again, reviewed: false });
+        this.finish({ text, transcript: text, submit: true, again, reviewed: false, practice });
         return;
       }
       // The review: what was said, big and clear — nothing is checked until ✓ Submit.
       this.pending = { outcome, ms, streamed };
-      this.set({ phase: 'review', finalText: text, partialText: '', failure: null, again });
+      this.set({ phase: 'review', finalText: text, partialText: '', failure: null, again, practice });
       return;
     }
     const failure: SpokenFailure = outcome.kind === 'done' ? 'empty' : outcome.kind === 'offline' ? 'offline' : 'failed';
     this.report(failure === 'empty' ? 'empty' : 'failed', { outcome, ms, streamed }, !this.deps.skipReview());
-    this.set({ phase: 'failed', finalText: '', partialText: '', failure, again });
+    this.set({ phase: 'failed', finalText: '', partialText: '', failure, again, practice });
   }
 
   /** `study.answer_spoken` — enums, durations and booleans only (never the transcript). */
@@ -322,6 +333,7 @@ export class SpokenAnswerController {
       retry: this.state.again,
       reviewed,
       edited,
+      practice: this.state.practice,
     });
   }
 }

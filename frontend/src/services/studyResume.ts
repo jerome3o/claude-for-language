@@ -6,7 +6,9 @@
  * - The resume point (`shared/study/resume.ts`): the card on screen, whether it was revealed,
  *   the typed answer, the time spent on it — in localStorage, so a reload keeps it too.
  * - The card's extras that can't go in localStorage — the recording blob and the multiple-choice
- *   grid as answered — in memory (they survive in-app navigation, not a reload).
+ *   grid as answered, the read card's "You said" for that take, a spoken answer's transcript and a
+ *   "Say it" practice transcript — in memory (they survive in-app navigation, not a reload), so the
+ *   card comes back from the coach with its "You said" box as it was.
  * - The undo snapshot, in memory for the rest of the day (per scope).
  * - The celebration mark (`shared/study/celebration.ts`), in localStorage.
  */
@@ -18,6 +20,7 @@ import {
   type StudyResumePoint,
 } from '@shared/study';
 import { getLocalDateString } from '../api/client';
+import type { TranscriptionComparison } from '@shared/recordings/transcript';
 
 const POINT_KEY = 'study-resume-v1';
 const CELEBRATION_KEY = 'study-celebrated-v1';
@@ -51,6 +54,12 @@ export interface ResumeExtras {
   cardId: string;
   recording?: Blob | null;
   mc?: ResumeMcState | null;
+  /** The read card's "You said" for `recording` (not transcribed again on the way back). */
+  transcription?: TranscriptionComparison | null;
+  /** A typing card's answer as spoken (checked in spoken mode while the answer is still exactly it). */
+  spoken?: { text: string; reviewed: boolean } | null;
+  /** "🎤 Say it" practice: the last transcript (shown as "You said" only). */
+  practiceSaid?: string | null;
 }
 
 let memoryPoint: StudyResumePoint | null = null;

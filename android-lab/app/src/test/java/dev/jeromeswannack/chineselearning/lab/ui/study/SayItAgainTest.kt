@@ -343,4 +343,41 @@ class SayItAgainTest {
         assertFalse(rec.takes[1].exists(), "the say-again's take is thrown away")
         assertFalse(rec.takes[0].exists(), "the first take went up with the review")
     }
+
+    @Test
+    fun sayItPracticeAfterShowAnswerIsShownOnlyAndItsTakeGoesUpWithTheReview() {
+        StudyPrefs.get(app).spokenSkipReview = false
+        session()
+        // 👁 Show answer with nothing typed or said.
+        vm.onRevealed(null)
+        vm.playWord(false)
+        idleFor(1_500)
+        plays.clear()
+
+        vm.sayItPractice()
+        assertEquals(SpokenPhase.LISTENING, spoken.phase)
+        assertTrue(spoken.again && spoken.practice, "the question side, as practice")
+        vm.stopSpokenAnswer()
+        waitFor("the practice review") { spoken.phase == SpokenPhase.REVIEW }
+        assertTrue(spoken.practice)
+        // 🔁 Retry stays practice.
+        vm.retakeSpokenAnswer()
+        assertTrue(spoken.practice)
+        vm.stopSpokenAnswer()
+        waitFor("the second practice review") { spoken.phase == SpokenPhase.REVIEW }
+        vm.submitSpokenAnswer()
+        val r = spoken.result!!
+        assertTrue(r.practice && r.again, "a practice result: shown as You said only")
+        assertEquals("由", r.transcript)
+        assertFalse(spoken.practice, "back to the answer")
+        idleFor(RECORD_AGAIN_PLAY_DELAY_MS + 50)
+        assertEquals(listOf(clip), plays, "the card's clip once after it")
+
+        // He rates as usual: no answer, the practice take goes up with the review.
+        vm.rate(0, 6_000, null)
+        waitFor("the review") { runBlocking { app.repo.dao.allEvents().isNotEmpty() } }
+        val event = runBlocking { app.repo.dao.allEvents() }.single()
+        assertEquals(null, event.userAnswer, "practice is never the answer")
+        waitFor("the take queued") { runBlocking { app.outbox.all().any { it.id == "rec-${event.id}" } } }
+    }
 }

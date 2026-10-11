@@ -456,7 +456,11 @@ class StudyViewModel(
     fun onCardProgress(presentation: Int, revealed: Boolean, answer: String, mcSlots: List<MultipleChoice.Slot>?) {
         val v = currentView() ?: return
         if (v.presentation != presentation) return
-        val p = CardStartState(flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue, elapsedMs = v.start.elapsedMs)
+        val prev = (if (progressPresentation == presentation) progress else null) ?: v.start
+        val p = CardStartState(
+            flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue, elapsedMs = v.start.elapsedMs,
+            spokenText = prev.spokenText, spokenReviewed = prev.spokenReviewed, practiceSaid = prev.practiceSaid,
+        )
         progress = p
         progressPresentation = presentation
         if (answer.isNotEmpty()) onInteraction() // typing is activity too
@@ -465,6 +469,25 @@ class StudyViewModel(
         setViewStart(presentation, p)
         saveResumePoint()
     }
+
+    /**
+     * CardStage reports the spoken answer's transcript (checked in spoken mode while the answer is still
+     * exactly it) and the "🎤 Say it" practice transcript, so the card comes back from the coach with its
+     * "You said" box as it was (its own state isn't kept while it's away).
+     */
+    fun onCardSpoken(presentation: Int, spokenText: String?, spokenReviewed: Boolean, practiceSaid: String?) {
+        val v = currentView() ?: return
+        if (v.presentation != presentation) return
+        val prev = (if (progressPresentation == presentation) progress else null) ?: v.start
+        val p = prev.copy(spokenText = spokenText, spokenReviewed = spokenReviewed, practiceSaid = practiceSaid)
+        if (p == prev) return
+        progress = p
+        progressPresentation = presentation
+        setViewStart(presentation, p)
+    }
+
+    /** The card type on screen (analytics from the screen). */
+    fun currentCardType(): String? = currentView()?.card?.cardType
 
     private fun setViewStart(presentation: Int, start: CardStartState) {
         _ui.update { u ->
@@ -1029,16 +1052,25 @@ class StudyViewModel(
      */
     fun sayAgain() = startSpokenAnswer(again = true)
 
-    fun startSpokenAnswer(again: Boolean = false) {
+    /**
+     * "🎤 Say it" practice (answer side after 👁 Show answer with nothing typed or said): the same flow as
+     * [sayAgain] — question side, live transcript, review — but the result is only shown ("You said",
+     * [SpokenResult.practice]); the answer and the rating are untouched. The take is [take] like any
+     * other, so it goes up with the review (recording_url) for the tutor to hear.
+     */
+    fun sayItPractice() = startSpokenAnswer(again = true, practice = true)
+
+    fun startSpokenAnswer(again: Boolean = false, practice: Boolean = false) {
         val v = currentView() ?: return
         if (v.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING) return
         val sp = _ui.value.extras.spoken
         if (sp.busy) return
-        // A 🎤 after a say-again that gave nothing keeps going as one.
-        val sayAgain = again || sp.again
+        // A 🎤 after a say-again that gave nothing keeps going as one (practice stays practice).
+        val practiceTake = practice || (sp.again && sp.practice)
+        val sayAgain = again || sp.again || practiceTake
         if (sayAgain && !isRevealed(v)) return
         if (!aiAvailable) {
-            return if (sayAgain) updateExtras(v) { it.copy(notice = "Saying it again needs a connection.") } else updateSpoken(v) { it.copy(offlineHint = true) }
+            return if (sayAgain) updateExtras(v) { it.copy(notice = if (practiceTake) "Saying it needs a connection." else "Saying it again needs a connection.") } else updateSpoken(v) { it.copy(offlineHint = true) }
         }
         dropSpoken()
         if (sp.reviewing) trackSpoken(v, "retaken", spokenPending, reviewed = true)
@@ -1076,7 +1108,7 @@ class StudyViewModel(
         spokenStartedAt = System.currentTimeMillis()
         spokenSpeechMs = 0
         app.haptics.tick()
-        updateSpoken(v) { SpokenUi(phase = SpokenPhase.LISTENING, again = sayAgain, result = it.result) }
+        updateSpoken(v) { SpokenUi(phase = SpokenPhase.LISTENING, again = sayAgain, practice = practiceTake, result = it.result) }
     }
 
     /** 🎤 again (⏹): stop; the transcript becomes the answer. */
@@ -1148,7 +1180,7 @@ class StudyViewModel(
     fun retakeSpokenAnswer() {
         val sp = _ui.value.extras.spoken
         if (sp.phase !in setOf(SpokenPhase.REVIEW, SpokenPhase.FAILED, SpokenPhase.EDITING)) return
-        startSpokenAnswer(again = sp.again)
+        startSpokenAnswer(again = sp.again, practice = sp.practice)
     }
 
     /** ✓ Submit on the review: the transcript is the answer, checked in spoken mode. */
@@ -1157,7 +1189,7 @@ class StudyViewModel(
         val sp = _ui.value.extras.spoken
         if (!sp.reviewing) return
         trackSpoken(v, "submitted", spokenPending, reviewed = true)
-        finishSpoken(v, SpokenResult(sp.finalText, submit = true, seq = 0, again = sp.again, transcript = sp.finalText, reviewed = true))
+        finishSpoken(v, SpokenResult(sp.finalText, submit = true, seq = 0, again = sp.again, transcript = sp.finalText, reviewed = true, practice = sp.practice))
     }
 
     /**
@@ -1183,7 +1215,7 @@ class StudyViewModel(
         val v = currentView() ?: return
         val sp = _ui.value.extras.spoken
         if (sp.phase != SpokenPhase.EDITING || text.isBlank()) return
-        finishSpoken(v, SpokenResult(text.trim(), submit = true, seq = 0, again = true, transcript = sp.finalText, reviewed = true))
+        finishSpoken(v, SpokenResult(text.trim(), submit = true, seq = 0, again = true, transcript = sp.finalText, reviewed = true, practice = sp.practice))
     }
 
     /** The answer lands on the card ([SpokenResult]); a say-again's new take replaces the one before it. */
@@ -1193,6 +1225,14 @@ class StudyViewModel(
             // The new take replaces the one from before it (the review keeps the latest).
             takeBeforeSayAgain?.takeIf { it != take }?.delete()
             takeBeforeSayAgain = null
+        }
+        if (r.practice) {
+            // Practice: checked for the "You said" box only (the card's answer and rating are untouched).
+            app.analytics.track("study.spoken_answer_checked", mapOf(
+                "card_type" to v.card.cardType,
+                "verdict" to AnswerKey.verdictName(AnswerKey.checkSpoken(r.transcript, v.note.hanzi, v.alternatives, v.note.pinyin)),
+                "retry" to true, "reviewed" to r.reviewed, "practice" to true,
+            ))
         }
         updateSpoken(v) { SpokenUi(result = r.copy(seq = ++spokenSeq)) }
         // Then the card's own clip once, as the card turns back — like Record again.
@@ -1224,17 +1264,18 @@ class StudyViewModel(
     private fun landSpoken(v: CardView, outcome: TakeTranscription.Outcome?, ms: Long, streamed: Boolean, empty: Boolean = false) {
         val text = (outcome?.ui as? TranscriptionUi.Done)?.result?.transcribedHanzi?.trim().orEmpty()
         val again = _ui.value.extras.spoken.again
+        val practice = _ui.value.extras.spoken.practice
         if (!empty && text.isNotEmpty()) {
             spokenPending = Triple(outcome, ms, streamed)
             if (studyPrefs.spokenSkipReview) {
                 // The review skipped (Settings): checked at once, like before the review step.
                 trackSpoken(v, "submitted", spokenPending)
-                finishSpoken(v, SpokenResult(text, submit = true, seq = 0, again = again, transcript = text, reviewed = false))
+                finishSpoken(v, SpokenResult(text, submit = true, seq = 0, again = again, transcript = text, reviewed = false, practice = practice))
                 return
             }
             // The review: what was said, big and clear — nothing is checked until ✓ Submit.
             app.haptics.tick()
-            updateSpoken(v) { SpokenUi(phase = SpokenPhase.REVIEW, finalText = text, result = it.result, again = again) }
+            updateSpoken(v) { SpokenUi(phase = SpokenPhase.REVIEW, finalText = text, result = it.result, again = again, practice = practice) }
             return
         }
         val failure = when {
@@ -1244,7 +1285,7 @@ class StudyViewModel(
         }
         trackSpoken(v, if (failure == SpokenFailure.EMPTY) "empty" else "failed", Triple(outcome, ms, streamed), reviewed = !studyPrefs.spokenSkipReview)
         app.haptics.wrong()
-        updateSpoken(v) { SpokenUi(phase = SpokenPhase.FAILED, failure = failure, result = it.result, again = it.again) }
+        updateSpoken(v) { SpokenUi(phase = SpokenPhase.FAILED, failure = failure, result = it.result, again = it.again, practice = it.practice) }
     }
 
     /**
@@ -1274,6 +1315,7 @@ class StudyViewModel(
             "retry" to _ui.value.extras.spoken.again,
             "reviewed" to reviewed,
             "edited" to edited,
+            "practice" to _ui.value.extras.spoken.practice,
         ))
     }
 

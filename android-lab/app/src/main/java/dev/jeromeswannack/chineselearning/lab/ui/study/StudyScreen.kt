@@ -126,6 +126,8 @@ class StudyActions(
     val onSubmitEditedSpoken: (String) -> Unit = {},
     /** "🎤 Say it again" on the answer side of a typing card answered by speaking. */
     val onSayAgain: () -> Unit = {},
+    /** "🎤 Say it" practice on the answer side after Show answer with no attempt. */
+    val onSayPractice: () -> Unit = {},
     /**
      * The back checked a spoken answer (analytics); `retry` = the answer of a "Say it again",
      * `reviewed` = submitted from the review step.
@@ -145,6 +147,13 @@ class StudyActions(
     val onCardProgress: (presentation: Int, revealed: Boolean, answer: String, mcSlots: List<MultipleChoice.Slot>?) -> Unit = { _, _, _, _ -> },
     /** ⋯ → Sentence coach, prefilled with [text]; back returns to this card as it is. */
     val onOpenCoach: (text: String) -> Unit = {},
+    /**
+     * ✏️ Check on the orange "You said … Answer found in your sentence" box: [text] (the hanzi said)
+     * in the Sentence Coach's Check my sentence; [source] = read | spoken | practice (analytics).
+     */
+    val onYouSaidCoach: (text: String, source: String) -> Unit = { _, _ -> },
+    /** CardStage reports a spoken answer's transcript / a practice transcript, so the card comes back from the coach as it was. */
+    val onCardSpoken: (presentation: Int, spokenText: String?, spokenReviewed: Boolean, practiceSaid: String?) -> Unit = { _, _, _, _ -> },
     val sendFlag: suspend (FlagTutor, String) -> Boolean = { _, _ -> false },
     val edit: EditCardActions = EditCardActions(),
     val ask: AskActions = AskActions(),
@@ -233,6 +242,11 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onTick = { app.haptics.tick() },
             onCardProgress = vm::onCardProgress,
             onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true)) },
+            onYouSaidCoach = { text, source ->
+                vm.currentCardType()?.let { app.analytics.track("study.you_said_coach", mapOf("card_type" to it, "source" to source)) }
+                onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(text = text, action = "check"))
+            },
+            onCardSpoken = vm::onCardSpoken,
             onPlayMyRecording = vm::playMyRecording,
             onStartRecording = vm::startRecording,
             onStopRecording = vm::stopRecording,
@@ -248,6 +262,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onEditSpoken = vm::editSpokenAnswer,
             onSubmitEditedSpoken = vm::submitEditedSpokenAnswer,
             onSayAgain = vm::sayAgain,
+            onSayPractice = vm::sayItPractice,
             onSpokenChecked = vm::onSpokenAnswerChecked,
             recordingLevel = vm.level,
             sendFlag = vm::flag,

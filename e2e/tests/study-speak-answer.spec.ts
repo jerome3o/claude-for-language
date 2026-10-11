@@ -449,3 +449,103 @@ test('say it again: the question while the new take is said, its review there, t
   expect(typed.user_answer).toBe('由');
   expect(typed.recording).toBe(true);
 });
+
+test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "You said" only (orange in a sentence), the clip once, Retry any number of times; the answer stays empty and the take goes up', async ({ page, request }) => {
+  // First practice take: the answer inside a sentence; the next one: a wrong word.
+  await fakeSoniox(page, 'ok', ['这件事由我负责。', '有']);
+  await countCardPlays(page);
+  await seed(page, request);
+
+  await nextTypingCard(page);
+  await page.getByRole('button', { name: 'Show answer', exact: true }).click();
+  await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('spoken-say-again')).toHaveCount(0);
+  const practice = page.getByTestId('spoken-say-practice');
+  await expect(practice).toHaveText(/Say it$/);
+  await expect.poll(() => cardPlays(page)).toBeGreaterThan(0);
+  await page.waitForTimeout(800);
+  const afterReveal = await cardPlays(page);
+
+  // The question with the live box, like Say it again; its review has no ✏️ Edit.
+  await practice.click();
+  await expect(page.getByTestId('study-sayagain')).toBeVisible();
+  await expect(page.getByTestId('study-card-back')).toBeHidden();
+  await expect(page.getByTestId('spoken-live')).toContainText('由我负责', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('study-sayagain').getByTestId('spoken-review-text')).toHaveText('这件事由我负责。', { timeout: 8000 });
+  await expect(page.getByTestId('spoken-review-edit')).toHaveCount(0);
+  await page.getByTestId('spoken-review-submit').click();
+
+  // Back on the answer: "You said" with the orange decal; no answer diff, the card's clip once.
+  await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 8000 });
+  const said = page.getByTestId('practice-you-said').getByTestId('you-said');
+  await expect(said).toHaveAttribute('data-state', 'contains');
+  await expect(said).toContainText('Answer found in your sentence');
+  await expect(page.locator('.answer-diff')).toHaveCount(0);
+  await expect.poll(() => cardPlays(page)).toBe(afterReveal + 1);
+  await expect(practice).toHaveText(/Say it again$/);
+
+  // Again: a wrong word — red, still only "You said".
+  await practice.click();
+  await expect(page.getByTestId('spoken-live')).toContainText('有', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('spoken-review-submit').click();
+  await expect(page.getByTestId('practice-you-said').getByTestId('you-said')).toHaveAttribute('data-state', 'miss', { timeout: 8000 });
+  await expect(page.locator('.answer-diff')).toHaveCount(0);
+
+  // He rates himself as usual: no answer on the review, the practice take kept as its recording.
+  await page.getByRole('button', { name: /^Again/ }).first().click();
+  await expect.poll(async () => (await localReviews(page)).filter(r => r.card_type !== 'hanzi_to_meaning').length, { timeout: 10000 }).toBe(1);
+  const typed = (await localReviews(page)).find(r => r.card_type !== 'hanzi_to_meaning')!;
+  expect(typed.user_answer).toBeNull();
+  expect(typed.recording).toBe(true);
+});
+
+test('the orange "You said" box: ✏️ Check opens the sentence in the Sentence Coach (Check my sentence), and "Back to your card" brings the card back as it was', async ({ page, request }) => {
+  await fakeSoniox(page, 'ok', ['它的作业由我写的。']);
+  const started: Array<{ text?: string; action?: string }> = [];
+  await page.route(/\/api\/coach\/conversations$/, (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    started.push(route.request().postDataJSON());
+    return route.fulfill({ status: 503, json: { error: 'Claude is busy — try again', retryable: true } });
+  });
+  await seed(page, request);
+
+  await nextTypingCard(page);
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('由我写', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('spoken-review-submit').click();
+  const said = page.getByTestId('you-said');
+  await expect(said).toHaveAttribute('data-state', 'contains', { timeout: 8000 });
+  const coach = said.getByTestId('you-said-coach');
+  await expect(coach).toBeVisible();
+  // On the far right, at least 44px.
+  const [box, btn] = [await said.boundingBox(), await coach.boundingBox()];
+  expect(btn!.height).toBeGreaterThanOrEqual(44);
+  expect(btn!.width).toBeGreaterThanOrEqual(44);
+  expect(box!.x + box!.width - (btn!.x + btn!.width)).toBeLessThan(12);
+
+  await coach.click();
+  await expect(page).toHaveURL(/\/coach/);
+  await expect.poll(() => started.length, { timeout: 10000 }).toBe(1);
+  expect(started[0]).toMatchObject({ text: '它的作业由我写的。', action: 'check' });
+
+  await page.getByTestId('coach-back-to-card').click();
+  await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 30000 });
+  // Still the spoken answer with its orange box (not re-checked as typed).
+  await expect(page.getByTestId('you-said')).toHaveAttribute('data-state', 'contains');
+  await expect(page.getByTestId('spoken-say-again')).toBeVisible();
+});
+
+test('a match ("You said" green) has no coach button', async ({ page, request }) => {
+  await fakeSoniox(page, 'ok', ['由']);
+  await seed(page, request);
+  await nextTypingCard(page);
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('由', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('spoken-review-submit').click();
+  await expect(page.getByTestId('you-said')).toHaveAttribute('data-state', 'match', { timeout: 8000 });
+  await expect(page.getByTestId('you-said-coach')).toHaveCount(0);
+});

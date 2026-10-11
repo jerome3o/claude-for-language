@@ -74,6 +74,14 @@ export function useSpokenAnswer(opts: {
       if (controller.current.phase === 'idle') previousTake.current = latest.current.currentTake;
       void controller.start({ again: true });
     },
+    /**
+     * "🎤 Say it" on the answer side after 👁 Show answer with no attempt: practice — the same flow as
+     * Say it again, its result only shown ("You said"), never the card's answer.
+     */
+    startPractice: () => {
+      if (controller.current.phase === 'idle') previousTake.current = latest.current.currentTake;
+      void controller.start({ again: true, practice: true });
+    },
     /** The take a rating keeps: during a "Say it again", the one from before it. */
     keptTake: (): Blob | null => (controller.current.again ? previousTake.current : latest.current.currentTake),
     stop: () => controller.stop(),
