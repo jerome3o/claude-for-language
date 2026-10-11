@@ -7,7 +7,9 @@
  *
  *   top 100  → purple · top 1,000 → green · top 2,000 → yellow · in between → no outline
  *   rare     → grey: not in the list, or ranked beyond RARE_WORD_RANK (words) /
- *              RARE_CHAR_RANK (characters)
+ *              RARE_CHAR_RANK (characters) — but NEVER for a word on the HSK list (`hsk`):
+ *              the list counts mostly written text, so an HSK word it ranks low (一块儿, 一下儿,
+ *              拎) gets no outline, the unmarked middle band, instead of "rare"
  *
  * Pure; ported to the Lab app (core/…/explorer/FrequencyDecal.kt, parity-tested).
  */
@@ -25,14 +27,16 @@ export const RARE_CHAR_RANK = 3_500;
 /**
  * The decal for a rank (1 = most frequent). `null` / `undefined` / < 1 / not finite = not in
  * the list → 'rare'. `kind` picks the rare cutoff. Returns null for the unmarked middle band
- * (2,001 … the cutoff).
+ * (2,001 … the cutoff). `hsk` = the item's HSK level (shared/cards/word-tags.ts `hskLevel`;
+ * a character: its level as a one-character word): an HSK-listed item is never 'rare' (→ null).
  */
-export function frequencyTier(rank: number | null | undefined, kind: 'word' | 'char' = 'word'): FrequencyDecal | null {
-  if (rank == null || !Number.isFinite(rank) || rank < 1) return 'rare';
+export function frequencyTier(rank: number | null | undefined, kind: 'word' | 'char' = 'word', hsk: number | null = null): FrequencyDecal | null {
+  const listed = hsk != null;
+  if (rank == null || !Number.isFinite(rank) || rank < 1) return listed ? null : 'rare';
   if (rank <= 100) return 'top100';
   if (rank <= 1000) return 'top1000';
   if (rank <= 2000) return 'top2000';
-  return rank > (kind === 'char' ? RARE_CHAR_RANK : RARE_WORD_RANK) ? 'rare' : null;
+  return rank > (kind === 'char' ? RARE_CHAR_RANK : RARE_WORD_RANK) && !listed ? 'rare' : null;
 }
 
 /** The legend behind the ⓘ next to a list header: one entry per decal, in order. */

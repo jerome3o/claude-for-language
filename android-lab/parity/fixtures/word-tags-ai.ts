@@ -1,7 +1,8 @@
 /**
  * Golden vectors for the Kotlin port of shared/cards/word-tags-ai.ts (core/…/cards/WordTagsAi.kt),
- * over the SHIPPED lexicon: parsing stored verdicts (incl. junk), the merge with the lexicon's tags
- * (with / without a rank, with an exclude) and every tag's explanation. Writes word-tags-ai.json;
+ * over the SHIPPED lexicon: parsing stored verdicts (incl. junk, v1 and v2 with Everyday speech), the
+ * merge with the lexicon's tags (with / without a rank — common, middle band, rare —, with an
+ * exclude) and every tag's explanation. Writes word-tags-ai.json;
  * checked by WordTagsAiParityTest.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -36,11 +37,20 @@ const RAW: Array<string | null> = [
   '{"v":1,"separable":1,"register":"rude","confidence":"medium"}',
   '{"v":1,"register":"literary","confidence":"high"}',
   '{"v":1.0,"transitivity":"transitive","separable":false,"confidence":"high"}',
+  // v2: Everyday speech (shown only at high spoken_confidence, whatever the overall confidence).
+  '{"v":2,"transitivity":"intransitive","register":"neutral","spoken":"everyday","spoken_confidence":"high","confidence":"high"}',
+  '{"v":2,"transitivity":"transitive","register":"formal","spoken":"everyday","spoken_confidence":"high","confidence":"low"}',
+  '{"v":2,"spoken":"everyday","spoken_confidence":"medium","confidence":"high","register":"informal"}',
+  '{"v":2,"spoken":"everyday","confidence":"high"}',
+  '{"v":2,"spoken":"other","spoken_confidence":"high","confidence":"high","transitivity":"both"}',
+  '{"v":2,"spoken":"everyday","spoken_confidence":"sure","confidence":"medium"}',
+  '{"v":2,"spoken":true,"spoken_confidence":"high","confidence":"high"}',
 ];
 
 const HANZI = [
   '告诉', '告知', '休息', '吃', '见面', '睡觉', '游泳', '散步', '书', '漂亮', '您', '打扰', '请问', '喝咖啡', '看一下',
   '我今天很忙。', '您慢走。', '画蛇添足', 'hello', '', '老婆', '研究', '学习', '他邀请我。', '帮忙', '一路平安', ' 告诉！ ',
+  '结账', '买单', '一块儿', '拎', '我们结账吧。', '不好意思',
 ];
 
 const parsed = RAW.map((raw) => ({ raw, ai: parseAiWordTags(raw) }));
@@ -54,8 +64,14 @@ for (const hanzi of HANZI) {
       raw,
       tags,
       with_rank: wordTagsWithAi(hanzi, lexicon, ai, { rank: 500 }),
+      with_mid_rank: wordTagsWithAi(hanzi, lexicon, ai, { rank: 5000 }),
+      with_rare_rank: wordTagsWithAi(hanzi, lexicon, ai, { rank: 29_044 }),
+      with_no_rank: wordTagsWithAi(hanzi, lexicon, ai, { rank: null }),
+      rare_excluded: wordTagsWithAi(hanzi, lexicon, ai, { rank: 29_044, exclude: ['spoken'] }),
       excluded: wordTagsWithAi(hanzi, lexicon, ai, { rank: null, exclude: ['frequency', 'transitivity', 'trad'] }),
-      explanations: tags.map((t) => explainWordTag(t, hanzi, lexicon, ai)),
+      explanations: [...tags, ...wordTagsWithAi(hanzi, lexicon, ai, { rank: 29_044 }).filter((t) => t.kind === 'spoken' || t.kind === 'frequency')].map((t) =>
+        explainWordTag(t, hanzi, lexicon, ai),
+      ),
     });
   }
 }

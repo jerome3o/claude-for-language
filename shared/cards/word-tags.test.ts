@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseFrequencyList } from '../decks/frequency';
 import {
+  hskLevel,
   markerRegister,
   parseWordTagLexicon,
   wordTagExplanation,
@@ -137,10 +138,26 @@ describe('wordTags — real words', () => {
   it('frequency tier from the shipped list, only when a rank is given', () => {
     expect(labels('的', { rank: true })).toContain('Top 100');
     expect(labels('银行', { rank: true })).toContain('Top 1,000');
-    expect(labels('画蛇添足', { rank: true })).toContain('Rare');
+    expect(labels('结账', { rank: true })).toContain('Rare');
     expect(ids('银行')).not.toContain('frequency');
     const tag = wordTags('的', lexicon, { rank: 1 }).find((t) => t.kind === 'frequency');
     expect(tag?.tone).toBe('top100');
+  });
+
+  it('an HSK word is never Rare, however low the written-text list ranks it', () => {
+    // 画蛇添足 (HSK 7–9) and 一块儿 (HSK 1) rank beyond 10,000; 一下儿 (HSK 1) isn't in the list.
+    for (const w of ['画蛇添足', '一块儿', '一下儿']) {
+      expect(labels(w, { rank: true })).not.toContain('Rare');
+      expect(wordTags(w, lexicon, { rank: null }).map((t) => t.kind)).not.toContain('frequency');
+    }
+    // A character on the HSK list as a word (拎, HSK 7–9, character rank ~3,700).
+    expect(labels('拎', { rank: true })).not.toContain('Rare');
+    // Not on the HSK list: still Rare.
+    expect(wordTags('结账', lexicon, { rank: null }).map((t) => t.label)).toContain('Rare');
+    expect(hskLevel(lexicon, '一块儿')).toBe(1);
+    expect(hskLevel(lexicon, ' 画蛇添足。')).toBe(7);
+    expect(hskLevel(lexicon, '结账')).toBeNull();
+    expect(hskLevel(null, '书')).toBeNull();
   });
 
   it('traditional form when it differs', () => {

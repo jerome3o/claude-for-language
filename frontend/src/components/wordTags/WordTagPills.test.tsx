@@ -16,7 +16,7 @@ const analytics = vi.hoisted(() => ({ track: vi.fn(), trackError: vi.fn() }));
 vi.mock('../../services/analytics', () => analytics);
 
 const LEXICON = parseWordTagLexicon(
-  ['#words', '书\tn\t\t本:běn,册:cè\t1\t書', '睡觉\tv\t\t\t1\t睡覺\t睡了一个好觉', '您\tr\tP\t\t1', '告知\tv\t\t\t6', '打扰\tv\tP\t\t5', '#markers', '您\tP', '^请\tP', ''].join('\n'),
+  ['#words', '书\tn\t\t本:běn,册:cè\t1\t書', '睡觉\tv\t\t\t1\t睡覺\t睡了一个好觉', '您\tr\tP\t\t1', '告知\tv\t\t\t6', '打扰\tv\tP\t\t5', '结账\tv\t\t\t\t\t结了账', '#markers', '您\tP', '^请\tP', ''].join('\n'),
 );
 vi.mock('../../services/wordTags', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/wordTags')>()),
@@ -123,7 +123,8 @@ describe('WordTagPills', () => {
 
     it('adds ✨ transitivity and register pills where the lexicon has none', async () => {
       await render('告知', { aiTags: verdict });
-      expect(pills()).toEqual(['Verb', '✨Takes an object', '✨Formal', 'HSK 6', 'Rare']);
+      // An HSK word is never "Rare", however low the frequency list ranks it.
+      expect(pills()).toEqual(['Verb', '✨Takes an object', '✨Formal', 'HSK 6']);
       const ai = [...host.querySelectorAll('[data-ai="true"]')].map((b) => b.getAttribute('data-tag'));
       expect(ai).toEqual(['transitivity:transitive', 'register:F']);
       expect(host.querySelector('[data-tag="register:F"]')!.getAttribute('aria-label')).toBe('Formal (suggested by AI)');
@@ -140,14 +141,33 @@ describe('WordTagPills', () => {
 
     it('the lexicon wins: its register stays, no AI one', async () => {
       await render('打扰', { aiTags: JSON.stringify({ v: 1, register: 'informal', transitivity: 'transitive', confidence: 'high' }) });
-      expect(pills()).toEqual(['Verb', '✨Takes an object', 'Polite', 'HSK 5', 'Rare']);
+      expect(pills()).toEqual(['Verb', '✨Takes an object', 'Polite', 'HSK 5']);
     });
 
     it('low confidence and junk show nothing extra', async () => {
       await render('告知', { aiTags: JSON.stringify({ v: 1, transitivity: 'transitive', register: 'formal', confidence: 'low' }) });
-      expect(pills()).toEqual(['Verb', 'HSK 6', 'Rare']);
+      expect(pills()).toEqual(['Verb', 'HSK 6']);
       await render('告知', { aiTags: 'not json' });
-      expect(pills()).toEqual(['Verb', 'HSK 6', 'Rare']);
+      expect(pills()).toEqual(['Verb', 'HSK 6']);
+    });
+
+    it('Everyday speech replaces "Rare" (结账: not HSK, ranked low by written text), with its own sheet', async () => {
+      await render('结账');
+      expect(pills()).toEqual(['Verb', 'Separable verb', 'Rare']);
+      const everyday = JSON.stringify({ v: 2, transitivity: 'intransitive', register: 'neutral', spoken: 'everyday', spoken_confidence: 'high', confidence: 'high' });
+      await render('结账', { aiTags: everyday });
+      expect(pills()).toEqual(['Verb', 'Separable verb', '✨No object', '✨Everyday speech']);
+      act(() => (host.querySelector('[data-tag="spoken:everyday"]') as HTMLButtonElement).click());
+      const sheet = document.querySelector('[data-testid="word-tag-sheet"]')!;
+      expect(sheet.textContent).toContain('Everyday speech');
+      expect(sheet.textContent).toContain('daily life');
+      expect(sheet.querySelector('[data-testid="word-tag-sheet-ai"]')!.textContent).toContain('Suggested by AI — may be wrong');
+      expect(analytics.track).toHaveBeenCalledWith('study.word_tag_open', { kind: 'spoken', tag: 'spoken:everyday', source: 'study', tag_source: 'ai' });
+    });
+
+    it('Everyday speech at medium confidence changes nothing', async () => {
+      await render('结账', { aiTags: JSON.stringify({ v: 2, spoken: 'everyday', spoken_confidence: 'medium', confidence: 'low' }) });
+      expect(pills()).toEqual(['Verb', 'Separable verb', 'Rare']);
     });
   });
 });

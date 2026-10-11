@@ -14,6 +14,8 @@ import java.text.Normalizer
  * tags"): a note's `word_tags` verdict (transitivity, register, separable, register note,
  * confidence) merged under the lexicon's tags. The lexicon always wins; low confidence is never
  * shown; AI pills carry `ai = true` (✨) and their sheet says "Suggested by AI — may be wrong".
+ * v2 adds `spoken` ("Everyday speech", high spoken confidence only, never a sentence): it drops a
+ * "Rare" frequency pill and shows where the list doesn't already call the word common.
  * Parity-tested over the shipped lexicon (WordTagsAiParityTest, parity/fixtures/word-tags-ai.ts).
  */
 
@@ -24,11 +26,14 @@ data class AiWordTags(
     val separable: Boolean? = null,
     val register: String? = null,
     val registerNote: String? = null,
+    /** v2: "everyday" or null. */
+    val spoken: String? = null,
+    val spokenConfidence: String? = null,
     val confidence: String,
 )
 
 object WordTagsAi {
-    const val WORD_TAGS_AI_VERSION = 1
+    const val WORD_TAGS_AI_VERSION = 2
     const val REGISTER_NOTE_MAX = 60
     const val AI_WORD_TAG_NOTICE = "Suggested by AI — may be wrong"
     private const val AI_SOURCE = "AI suggestion from the card’s word and meaning"
@@ -36,6 +41,13 @@ object WordTagsAi {
     val TRANSITIVITIES = listOf("transitive", "intransitive", "both", "n/a")
     val AI_REGISTERS = listOf("formal", "neutral", "informal", "polite", "rude", "slang", "literary")
     val AI_CONFIDENCES = listOf("high", "medium", "low")
+
+    /** Port of EVERYDAY_MIN_CONFIDENCE / EVERYDAY_SPEECH_LABEL. */
+    const val EVERYDAY_MIN_CONFIDENCE = "high"
+    const val EVERYDAY_SPEECH_LABEL = "Everyday speech"
+    private const val EVERYDAY_SPEECH_BODY =
+        "A word you’ll hear all the time in daily life — ordering and paying, shops, getting around, at home, chatting with friends. " +
+            "Frequency lists count mostly written text, so they can rank everyday spoken words low; that’s why this card isn’t marked Rare."
 
     /** Port of AI_REGISTER_CODE (neutral = no pill). */
     val AI_REGISTER_CODE: Map<String, String?> = mapOf(
@@ -67,7 +79,7 @@ object WordTagsAi {
 
     private val SLOT: Map<String, Int> = mapOf(
         "pos" to 0, "phrase" to 0, "separable" to 1, "transitivity" to 2, "register" to 3, "measure" to 4,
-        "hsk" to 5, "frequency" to 6, "trad" to 7,
+        "hsk" to 5, "frequency" to 6, "spoken" to 6, "trad" to 7,
     )
 
     private fun str(e: JsonElement?): String? = JsJson.str(e)
@@ -93,12 +105,15 @@ object WordTagsAi {
         val sepPrim = o["separable"] as? JsonPrimitive
         val separable = if (sepPrim != null && !sepPrim.isString && sepPrim !is JsonNull) sepPrim.booleanOrNull else null
         val note = cleanRegisterNote(o["register_note"])
+        val spoken = if (str(o["spoken"]) == "everyday") "everyday" else null
         return AiWordTags(
             v = v,
             transitivity = str(o["transitivity"])?.takeIf { it in TRANSITIVITIES },
             separable = separable,
             register = str(o["register"])?.takeIf { it in AI_REGISTERS },
             registerNote = note.ifEmpty { null },
+            spoken = spoken,
+            spokenConfidence = if (spoken != null) str(o["spoken_confidence"])?.takeIf { it in AI_CONFIDENCES } else null,
             confidence = confidence,
         )
     }
@@ -117,12 +132,23 @@ object WordTagsAi {
     /** Port of visibleAiWordTags(). */
     fun visible(ai: AiWordTags?): AiWordTags? = ai?.takeIf { it.confidence != "low" }
 
+    /** Port of isEverydaySpeech(): "everyday" at EVERYDAY_MIN_CONFIDENCE, whatever the overall confidence. */
+    fun isEverydaySpeech(ai: AiWordTags?): Boolean = ai != null && ai.spoken == "everyday" && ai.spokenConfidence == EVERYDAY_MIN_CONFIDENCE
+
     /** Port of mergeAiWordTags(). [base] = WordTags.tags(hanzi, lexicon, …) without an exclude. */
     fun merge(hanzi: String, base: List<WordTag>, ai: AiWordTags?): List<WordTag> {
-        val v = visible(ai) ?: return base.toList()
         val key = WordTags.key(hanzi)
-        val added = ArrayList<WordTag>()
         val sentence = WordTags.SENTENCE_MARK.containsMatchIn(Normalizer.normalize(hanzi, Normalizer.Form.NFC)) || !WordTags.isAllHan(key)
+        val everyday = !sentence && isEverydaySpeech(ai)
+        val v = visible(ai)
+        if (v == null && !everyday) return base.toList()
+        // Everyday speech: the written-text frequency list undercounts it — no "Rare" pill.
+        val kept = if (everyday) base.filter { !(it.kind == "frequency" && it.tone == "rare") } else base.toList()
+        val added = ArrayList<WordTag>()
+        if (everyday && kept.none { it.kind == "frequency" }) {
+            added.add(WordTag("spoken", "spoken:everyday", EVERYDAY_SPEECH_LABEL, "plain", ai = true))
+        }
+        if (v == null) return sortTags(kept, added)
         val hasPos = base.any { it.kind == "pos" }
         val verbish = !sentence && (base.any { it.id == "pos:v" } || !hasPos)
         val t = v.transitivity
@@ -136,8 +162,13 @@ object WordTagsAi {
         if (code != null && base.none { it.kind == "register" }) {
             added.add(WordTag("register", "register:$code", WordTags.REGISTER_LABELS.getValue(code), WordTags.REGISTER_TONE[code] ?: "plain", ai = true))
         }
-        if (added.isEmpty()) return base.toList()
-        return (base + added).sortedBy { SLOT[it.kind] ?: 9 }
+        return sortTags(kept, added)
+    }
+
+    /** [kept] then [added], stably sorted into the display slots. */
+    private fun sortTags(kept: List<WordTag>, added: List<WordTag>): List<WordTag> {
+        if (added.isEmpty()) return kept.toList()
+        return (kept + added).sortedBy { SLOT[it.kind] ?: 9 }
     }
 
     /** Port of wordTagsWithAi(): the lexicon's tags merged with the verdict, then the exclude. */
@@ -169,6 +200,7 @@ object WordTagsAi {
                     ai = true, note = ai?.registerNote ?: "",
                 )
             }
+            "spoken" -> WordTagExplanation(EVERYDAY_SPEECH_LABEL, EVERYDAY_SPEECH_BODY, "", AI_SOURCE, ai = true)
             else -> WordTags.explanation(tag, hanzi, lexicon).copy(source = AI_SOURCE, ai = true)
         }
     }

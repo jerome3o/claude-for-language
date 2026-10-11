@@ -1,20 +1,36 @@
 import { useEffect, useState } from 'react';
 import type { FrequencyIndex } from '@shared/decks';
 import { FREQUENCY_DECAL_KEY, frequencyKeyLine, frequencyTier, type FrequencyDecal } from '@shared/explorer';
+import { hskLevel, type WordTagLexicon } from '@shared/cards/word-tags';
 import { loadWordFrequency } from '../../services/wordFrequency';
+import { loadWordTagLexicon } from '../../services/wordTags';
 
 /*
  * Frequency decals (docs/LANGUAGE_EXPLORER.md "Frequency decals"): a 1.5px outline around a
  * word / character tile from its rank in the shipped word-freq list (already loaded for the
- * Word view's "#N most common"), via the shared `frequencyTier`. One O(1) map lookup per tile.
+ * Word view's "#N most common"), via the shared `frequencyTier`. One O(1) map lookup per tile,
+ * plus one in the word-tag lexicon: an HSK word is never grey "rare" (the same rule as the
+ * card's frequency pill, shared/cards/word-tags.ts `hskLevel`).
  */
 
-/** The shipped frequency index once loaded (null while loading / unavailable → no decals). */
-export function useFrequencyIndex(): FrequencyIndex | null {
-  const [index, setIndex] = useState<FrequencyIndex | null>(null);
+/** What the decals need: the frequency list, and the word-tag lexicon for HSK levels (null if it couldn't load). */
+export interface DecalIndex {
+  freq: FrequencyIndex;
+  lexicon: WordTagLexicon | null;
+}
+
+/**
+ * The shipped frequency list + word-tag lexicon once BOTH have loaded (null while loading, or
+ * when the list is unavailable → no decals). Waiting for the lexicon too means an HSK word never
+ * flashes grey before its level is known.
+ */
+export function useDecalIndex(): DecalIndex | null {
+  const [index, setIndex] = useState<DecalIndex | null>(null);
   useEffect(() => {
     let alive = true;
-    void loadWordFrequency().then((idx) => alive && setIndex(idx));
+    void Promise.all([loadWordFrequency(), loadWordTagLexicon()]).then(([freq, lexicon]) => {
+      if (alive && freq) setIndex({ freq, lexicon });
+    });
     return () => {
       alive = false;
     };
@@ -23,9 +39,10 @@ export function useFrequencyIndex(): FrequencyIndex | null {
 }
 
 /** The decal of a word / character, or null (index not loaded, or the unmarked middle band). */
-export function decalFor(index: FrequencyIndex | null, text: string, kind: 'word' | 'char'): FrequencyDecal | null {
+export function decalFor(index: DecalIndex | null, text: string, kind: 'word' | 'char'): FrequencyDecal | null {
   if (!index) return null;
-  return frequencyTier((kind === 'char' ? index.chars : index.words).get(text) ?? null, kind);
+  const rank = (kind === 'char' ? index.freq.chars : index.freq.words).get(text) ?? null;
+  return frequencyTier(rank, kind, hskLevel(index.lexicon, text));
 }
 
 /** ` freq-decal freq-decal--top100` (leading space) or '' — append to a tile's className. */

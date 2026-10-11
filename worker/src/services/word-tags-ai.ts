@@ -1,8 +1,9 @@
 /**
  * Word tags — the AI pass (shared/cards/word-tags-ai.ts; docs/STUDY_SESSION.md "Word tags").
  * A cheap batched Haiku call through structuredCall (forced `tag_words` tool, thinking off,
- * WORD_TAGS_BATCH_SIZE words per call) gives each note a transitivity and a register verdict —
- * what the shipped lexicon can't say — stored as `notes.word_tags` with `word_tags_at`, which
+ * WORD_TAGS_BATCH_SIZE words per call) gives each note a transitivity and a register verdict and
+ * says whether it is everyday spoken Mandarin ("Everyday speech", v2) — what the shipped lexicon
+ * and the written-text frequency list can't say — stored as `notes.word_tags` with `word_tags_at`, which
  * /api/sync/changes follows (updated_at is never touched). The apps merge it under the lexicon's
  * tags (the lexicon always wins; low confidence is never shown; AI pills carry ✨).
  *
@@ -13,8 +14,11 @@
  * - the backfill of untagged notes: every /api/sync/changes calls maybeBackfillWordTags (at most
  *   WORD_TAGS_BACKFILL_PER_HOUR notes queued per user an hour, looked for at most every 15 min),
  *   and POST /api/notes/word-tags/backfill (+ the MCP `backfill_word_tags`) queues on demand.
- * A note the model gives nothing for is stored as `{ v: 1, confidence: 'low' }` (done, shows
- * nothing); a failed call writes nothing, so the next hour's backfill tries again.
+ *   "Untagged" includes a verdict of an older WORD_TAGS_AI_VERSION (`v` in the JSON): bumping the
+ *   version makes the same fill re-tag every note, never-tagged notes first, then newest first.
+ *   The old verdict stays (and shows) until the new one replaces it.
+ * A note the model gives nothing for is stored as `{ v: <version>, confidence: 'low' }` (done,
+ * shows nothing); a failed call writes nothing, so the next hour's backfill tries again.
  * Token use is added up per user in `word_tag_runs` and reported as `server.word_tags_batch`.
  */
 import type Anthropic from '@anthropic-ai/sdk';
@@ -27,11 +31,13 @@ import { CHECK_MODEL, type CheckWord } from '@shared/cards/check';
 import {
   AI_CONFIDENCES,
   AI_REGISTERS,
+  AI_SPOKEN,
   REGISTER_NOTE_MAX,
   TRANSITIVITIES,
   WORD_TAGS_AI_VERSION,
   WORD_TAGS_BACKFILL_PER_HOUR,
   WORD_TAGS_BATCH_SIZE,
+  isEverydaySpeech,
   pickAiWordTags,
   visibleAiWordTags,
   wordTagsCostUsd,
@@ -50,7 +56,7 @@ export interface WordTagsMessage {
 /** The model the tags run on (the word check's cheap model). */
 export const WORD_TAGS_MODEL = CHECK_MODEL;
 
-export const WORD_TAGS_SYSTEM = `You tag Chinese flashcards for a learner with two things a dictionary rarely says. Each card has hanzi, pinyin and an English gloss — judge the word in the sense the gloss gives.
+export const WORD_TAGS_SYSTEM = `You tag Chinese flashcards for a learner with three things a dictionary rarely says. Each card has hanzi, pinyin and an English gloss — judge the word in the sense the gloss gives.
 
 Return one entry for EVERY card:
 - index: the card's number.
@@ -59,11 +65,13 @@ Return one entry for EVERY card:
 - register: how the card sounds — "neutral" (most words), "formal" (official, written, speeches), "polite" (shows respect), "informal" (casual speech), "slang", "rude", "literary" (classical, bookish). For a sentence, judge the whole sentence.
 - register_note: only when the register is not neutral and one hint helps the learner — at most ${REGISTER_NOTE_MAX} characters, e.g. "formal written; in speech use 告诉". Omit otherwise.
 - confidence: "high", "medium" or "low" — how sure you are of the transitivity and register. Low verdicts are not shown, so say low rather than guess.
+- spoken: "everyday" when a learner living in China would HEAR this word or phrase regularly in ordinary daily life — ordering and paying in restaurants (结账, 买单, 打包), shops, transport, at home, chatting with friends and family; otherwise "other". "Exists in speech" is not enough: bookish, technical, formal, regional, rare or old-fashioned words are "other", and so is any full sentence. Written-text frequency lists undercount everyday speech, so judge by daily conversation, not by how often the word is printed.
+- spoken_confidence: only with "everyday" — "high", "medium" or "low". Only "high" is shown, so say high only when you are sure.
 Be conservative: most words are neutral and most cards need no note.`;
 
 const TAG_TOOL = {
   name: 'tag_words',
-  description: 'Give every card of this batch its transitivity and register verdict.',
+  description: 'Give every card of this batch its transitivity, register and everyday-speech verdict.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -78,8 +86,10 @@ const TAG_TOOL = {
             register: { type: 'string', enum: [...AI_REGISTERS] },
             register_note: { type: 'string' },
             confidence: { type: 'string', enum: [...AI_CONFIDENCES] },
+            spoken: { type: 'string', enum: [...AI_SPOKEN] },
+            spoken_confidence: { type: 'string', enum: [...AI_CONFIDENCES] },
           },
-          required: ['index', 'transitivity', 'register', 'confidence'],
+          required: ['index', 'transitivity', 'register', 'confidence', 'spoken'],
         },
       },
     },
@@ -140,7 +150,16 @@ interface UntaggedRow extends CheckWord {
   id: string;
 }
 
-/** The user's notes among `noteIds` that have no tags yet. */
+/**
+ * SQL: the note `alias` needs (re-)tagging — no verdict, or one of an older WORD_TAGS_AI_VERSION
+ * (a verdict without `v` counts as 1; unreadable JSON as outdated). Binds nothing.
+ */
+export function needsWordTagsSql(alias = 'n'): string {
+  const col = alias ? `${alias}.word_tags` : 'word_tags';
+  return `(CASE WHEN ${col} IS NULL THEN 1 WHEN json_valid(${col}) THEN COALESCE(json_extract(${col}, '$.v'), 1) < ${WORD_TAGS_AI_VERSION} ELSE 1 END)`;
+}
+
+/** The user's notes among `noteIds` that have no up-to-date tags yet. */
 async function loadUntagged(db: D1Database, userId: string, noteIds: string[]): Promise<UntaggedRow[]> {
   const out: UntaggedRow[] = [];
   for (let i = 0; i < noteIds.length; i += 80) {
@@ -148,7 +167,7 @@ async function loadUntagged(db: D1Database, userId: string, noteIds: string[]): 
     const res = await db
       .prepare(
         `SELECT n.id, n.hanzi, n.pinyin, n.english FROM notes n JOIN decks d ON d.id = n.deck_id
-          WHERE d.user_id = ? AND n.word_tags IS NULL AND n.id IN (${ids.map(() => '?').join(',')})`
+          WHERE d.user_id = ? AND ${needsWordTagsSql('n')} AND n.id IN (${ids.map(() => '?').join(',')})`
       )
       .bind(userId, ...ids)
       .all<UntaggedRow>();
@@ -173,6 +192,8 @@ export interface WordTagsRunResult {
   tagged: number;
   /** Notes whose verdict shows something (not low confidence). */
   shown: number;
+  /** Notes the verdict calls Everyday speech (shown: high spoken confidence). */
+  everyday: number;
   /** Notes left untagged because their batch's model call failed. */
   failed: number;
   input_tokens: number;
@@ -184,7 +205,7 @@ export interface WordTagsRunResult {
  * already has tags, was edited meanwhile, or isn't the user's is left alone.
  */
 export async function runWordTags(env: Env, userId: string, noteIds: string[], deps: CheckDeps = {}, via: WordTagsVia = 'create'): Promise<WordTagsRunResult> {
-  const result: WordTagsRunResult = { tagged: 0, shown: 0, failed: 0, input_tokens: 0, output_tokens: 0 };
+  const result: WordTagsRunResult = { tagged: 0, shown: 0, everyday: 0, failed: 0, input_tokens: 0, output_tokens: 0 };
   if (!noteIds.length || !modelAvailable(env, deps)) return result;
   const notes = await loadUntagged(env.DB, userId, [...new Set(noteIds)]);
   for (let start = 0; start < notes.length; start += WORD_TAGS_BATCH_SIZE) {
@@ -201,24 +222,27 @@ export async function runWordTags(env: Env, userId: string, noteIds: string[], d
     }
     let tagged = 0;
     let shown = 0;
+    let everyday = 0;
     for (let i = 0; i < batch.length; i++) {
       const verdict = verdicts.get(i) ?? EMPTY_VERDICT;
       const n = batch[i];
       const res = await env.DB
         .prepare(
           `UPDATE notes SET word_tags = ?, word_tags_at = datetime('now')
-            WHERE id = ? AND word_tags IS NULL AND hanzi = ? AND english = ?`
+            WHERE id = ? AND ${needsWordTagsSql('')} AND hanzi = ? AND english = ?`
         )
         .bind(JSON.stringify(verdict), n.id, n.hanzi, n.english)
         .run();
       if ((res.meta?.changes ?? 0) > 0) {
         tagged++;
-        if (visibleAiWordTags(verdict)) shown++;
+        if (visibleAiWordTags(verdict) || isEverydaySpeech(verdict)) shown++;
+        if (isEverydaySpeech(verdict)) everyday++;
       }
     }
     await addRunTotals(env.DB, userId, tagged, usage);
     result.tagged += tagged;
     result.shown += shown;
+    result.everyday += everyday;
     result.input_tokens += usage.input_tokens;
     result.output_tokens += usage.output_tokens;
     void trackServer(
@@ -227,6 +251,7 @@ export async function runWordTags(env: Env, userId: string, noteIds: string[], d
         batch_size: batch.length,
         tagged,
         shown,
+        everyday,
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
         cost_usd: Math.round(wordTagsCostUsd(usage.input_tokens, usage.output_tokens) * 1e6) / 1e6,
@@ -274,9 +299,12 @@ export async function clearWordTags(db: D1Database, noteId: string): Promise<voi
 export interface WordTagsProgress {
   /** The user's notes. */
   total: number;
-  /** Notes with a verdict. */
+  /** Notes with an up-to-date verdict (WORD_TAGS_AI_VERSION). */
   tagged: number;
+  /** Notes still to (re-)tag: never tagged + outdated. */
   untagged: number;
+  /** Of `untagged`, notes with a verdict of an older version (re-tagged by the same fill). */
+  outdated: number;
   /** Tokens and dollars the pass has used for this user so far. */
   input_tokens: number;
   output_tokens: number;
@@ -309,11 +337,13 @@ async function readRun(db: D1Database, userId: string): Promise<RunRow | null> {
 export async function wordTagsProgress(db: D1Database, userId: string): Promise<WordTagsProgress> {
   const counts = await db
     .prepare(
-      `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN n.word_tags IS NOT NULL THEN 1 ELSE 0 END), 0) AS tagged
+      `SELECT COUNT(*) AS total,
+              COALESCE(SUM(CASE WHEN ${needsWordTagsSql('n')} THEN 0 ELSE 1 END), 0) AS tagged,
+              COALESCE(SUM(CASE WHEN n.word_tags IS NOT NULL AND ${needsWordTagsSql('n')} THEN 1 ELSE 0 END), 0) AS outdated
          FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.user_id = ?`
     )
     .bind(userId)
-    .first<{ total: number; tagged: number }>();
+    .first<{ total: number; tagged: number; outdated: number }>();
   const run = await readRun(db, userId);
   const total = counts?.total ?? 0;
   const tagged = counts?.tagged ?? 0;
@@ -323,6 +353,7 @@ export async function wordTagsProgress(db: D1Database, userId: string): Promise<
     total,
     tagged,
     untagged: total - tagged,
+    outdated: counts?.outdated ?? 0,
     input_tokens: input,
     output_tokens: output,
     cost_usd: Math.round(wordTagsCostUsd(input, output) * 10_000) / 10_000,
@@ -331,11 +362,13 @@ export async function wordTagsProgress(db: D1Database, userId: string): Promise<
   };
 }
 
+/** Notes to (re-)tag: never-tagged ones first (they show nothing yet), then outdated; newest first. */
 async function untaggedIds(db: D1Database, userId: string, limit: number): Promise<string[]> {
   const res = await db
     .prepare(
       `SELECT n.id FROM notes n JOIN decks d ON d.id = n.deck_id
-        WHERE d.user_id = ? AND n.word_tags IS NULL ORDER BY n.created_at DESC, n.id LIMIT ?`
+        WHERE d.user_id = ? AND ${needsWordTagsSql('n')}
+        ORDER BY (n.word_tags IS NULL) DESC, n.created_at DESC, n.id LIMIT ?`
     )
     .bind(userId, limit)
     .all<{ id: string }>();

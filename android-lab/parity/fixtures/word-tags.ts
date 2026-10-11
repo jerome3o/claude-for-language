@@ -8,7 +8,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseFrequencyList } from '../../../shared/decks/frequency';
-import { hskLabel, markerRegister, parseWordTagLexicon, wordTagExplanation, wordTagKey, wordTags } from '../../../shared/cards/word-tags';
+import { hskLabel, hskLevel, markerRegister, parseWordTagLexicon, wordTagExplanation, wordTagKey, wordTags } from '../../../shared/cards/word-tags';
 
 const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
@@ -31,6 +31,8 @@ const INPUTS = [
   '你干嘛呢？', '我今天很忙。', ' 你好！ ', '“书”', '（书）', '书。', '书\n', '书　', ' 您 ', '！', '', '   ',
   'hello', 'A4纸', '守株待兔', '画蛇添足。', '一二三四五六七', '多此一举', '咱们走吧', '哥们儿，干嘛去？', '他妈的！',
   '請問', '書', 'ｈｉ', '老婆和老公', '没事儿', '谢谢您',
+  // HSK words the written-text list ranks rare (never "Rare"), and non-HSK ones that stay rare
+  '一块儿', '一下儿', '一举', '拎', '结账', '买单', '银子',
 ];
 
 const rankOf = (key: string): number | null => ([...key].length === 1 ? freq.chars.get(key) : freq.words.get(key)) ?? null;
@@ -57,6 +59,7 @@ const out = {
   markers: lexicon.markers,
   entries: ENTRY_WORDS.map((w) => ({ hanzi: w, entry: lexicon.words.get(w) ?? null })),
   hsk_labels: [1, 2, 6, 7].map((n) => [n, hskLabel(n)]),
+  hsk_levels: ['书', '一块儿', ' 画蛇添足。', '拎', '结账', '', 'hello'].map((text) => ({ text, level: hskLevel(lexicon, text) })),
   ranks: [1, 100, 101, 1000, 1500, 2000, 2001, 3500, 3501, 10000, 10001].flatMap((rank) =>
     ['的', '书', '银行'].map((hanzi) => ({ hanzi, rank, tags: wordTags(hanzi, lexicon, { rank }) })),
   ),

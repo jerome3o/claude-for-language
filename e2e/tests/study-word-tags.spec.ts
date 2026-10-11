@@ -118,3 +118,39 @@ test('AI word tags: a ✨ pill where the lexicon has nothing, and its sheet says
   await expect(sheet.getByTestId('word-tag-sheet-ai')).toContainText('Suggested by AI — may be wrong');
   await expect(sheet.getByTestId('word-tag-sheet-note')).toHaveText('formal written; in speech use 告诉');
 });
+
+test('Everyday speech: 结账 loses its "Rare" pill (written text undercounts it)', async ({ page, request }) => {
+  const email = `tags-everyday-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Tag learner' } });
+  const token = auth.session_token;
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token, data: { name: '饭馆' } });
+  // E2E_TEST_MODE's fake model calls 结账 everyday speech (high spoken confidence).
+  const note = await api<{ id: string }>(request, `/api/decks/${deck.id}/notes`, {
+    method: 'POST', token, data: { hanzi: '结账', pinyin: 'jiézhàng', english: 'to settle the bill', fun_facts: '结 (jié) to settle · 账 (zhàng) account' },
+  });
+  await expect
+    .poll(async () => {
+      const n = await api<{ word_tags?: string | null }>(request, `/api/notes/${note.id}`, { token });
+      if (!n.word_tags) await api(request, '/api/notes/word-tags/backfill', { method: 'POST', token, data: { limit: 10 } }).catch(() => {});
+      return n.word_tags ?? null;
+    }, { timeout: 30000, intervals: [500, 1000, 2000] })
+    .toContain('"spoken":"everyday"');
+
+  await page.goto(`/decks?session_token=${token}`);
+  await expect(page.getByText('饭馆').first()).toBeVisible({ timeout: 30000 });
+  await page.goto(`/study?deck=${deck.id}&autostart=true`);
+  const skip = page.getByTestId('skip-recording');
+  await expect(skip).toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(500);
+  const explainer = page.getByRole('button', { name: 'Got it' });
+  if (await explainer.isVisible().catch(() => false)) await explainer.click();
+  await skip.click();
+
+  const tags = page.getByTestId('study-card-back').getByTestId('word-tags');
+  await expect(tags).toContainText('Everyday speech');
+  await expect(tags).not.toContainText('Rare');
+  await tags.getByRole('button', { name: 'Everyday speech (suggested by AI)' }).click();
+  const sheet = page.getByTestId('word-tag-sheet');
+  await expect(sheet).toContainText('daily life');
+  await expect(sheet.getByTestId('word-tag-sheet-ai')).toContainText('Suggested by AI — may be wrong');
+});

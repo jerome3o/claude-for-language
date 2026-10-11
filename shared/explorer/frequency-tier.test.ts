@@ -33,6 +33,22 @@ describe('frequencyTier', () => {
     }
   });
 
+  it('never calls an HSK-listed word or character rare (the unmarked middle band instead)', () => {
+    expect(frequencyTier(29_044, 'word', 4)).toBeNull();
+    expect(frequencyTier(null, 'word', 1)).toBeNull();
+    expect(frequencyTier(undefined, 'word', 7)).toBeNull();
+    expect(frequencyTier(3_730, 'char', 7)).toBeNull();
+    expect(frequencyTier(0, 'char', 2)).toBeNull();
+    // Only "rare" changes: the coloured tiers and the middle band stay as they were.
+    expect(frequencyTier(50, 'word', 1)).toBe('top100');
+    expect(frequencyTier(800, 'word', 3)).toBe('top1000');
+    expect(frequencyTier(1_500, 'char', 5)).toBe('top2000');
+    expect(frequencyTier(5_000, 'word', 6)).toBeNull();
+    // No level (null / undefined) = the old rule.
+    expect(frequencyTier(29_044, 'word', null)).toBe('rare');
+    expect(frequencyTier(29_044, 'word', undefined)).toBe('rare');
+  });
+
   it('has a one-line key in tier order', () => {
     expect(FREQUENCY_DECAL_KEY.map((k) => k.tier)).toEqual(['top100', 'top1000', 'top2000', 'rare']);
     expect(frequencyKeyLine()).toBe('purple top 100 · green top 1,000 · yellow top 2,000 · grey rare');

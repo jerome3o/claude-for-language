@@ -7,11 +7,13 @@ import {
   cleanRegisterNote,
   estimateWordTagsCost,
   explainWordTag,
+  isEverydaySpeech,
   mergeAiWordTags,
   parseAiWordTags,
   pickAiWordTags,
   visibleAiWordTags,
   wordTagsWithAi,
+  WORD_TAGS_AI_VERSION,
   type AiWordTags,
 } from './word-tags-ai';
 
@@ -27,8 +29,17 @@ describe('pickAiWordTags / parseAiWordTags', () => {
     expect(Object.keys(v!)).toEqual(['v', 'transitivity', 'separable', 'register', 'register_note', 'confidence']);
   });
 
+  it('keeps "everyday" speech with its own confidence, drops "other" and junk', () => {
+    const v = pickAiWordTags({ v: 2, confidence: 'low', spoken_confidence: 'high', spoken: 'everyday', register: 'neutral' });
+    expect(v).toEqual({ v: 2, register: 'neutral', spoken: 'everyday', spoken_confidence: 'high', confidence: 'low' });
+    expect(Object.keys(v!)).toEqual(['v', 'register', 'spoken', 'spoken_confidence', 'confidence']);
+    expect(pickAiWordTags({ v: 2, spoken: 'other', spoken_confidence: 'high', confidence: 'high' })).toEqual({ v: 2, confidence: 'high' });
+    expect(pickAiWordTags({ v: 2, spoken: true, confidence: 'high' })).toEqual({ v: 2, confidence: 'high' });
+    expect(pickAiWordTags({ v: 2, spoken: 'everyday', spoken_confidence: 'sure', confidence: 'high' })).toEqual({ v: 2, spoken: 'everyday', confidence: 'high' });
+  });
+
   it('drops unknown values and needs a confidence', () => {
-    expect(pickAiWordTags({ transitivity: 'ditransitive', register: 'posh', separable: 'yes', confidence: 'high' })).toEqual({ v: 1, confidence: 'high' });
+    expect(pickAiWordTags({ transitivity: 'ditransitive', register: 'posh', separable: 'yes', confidence: 'high' })).toEqual({ v: WORD_TAGS_AI_VERSION, confidence: 'high' });
     expect(pickAiWordTags({ transitivity: 'transitive' })).toBeNull();
     expect(pickAiWordTags({ confidence: 'sure' })).toBeNull();
     expect(pickAiWordTags({ v: 0, confidence: 'high' })).toBeNull();
@@ -41,7 +52,7 @@ describe('pickAiWordTags / parseAiWordTags', () => {
     expect(cleanRegisterNote('  formal   written;\n in speech use 告诉 ')).toBe('formal written; in speech use 告诉');
     expect(cleanRegisterNote('x'.repeat(80))).toHaveLength(60);
     expect(cleanRegisterNote(42)).toBe('');
-    expect(pickAiWordTags({ register_note: '   ', confidence: 'high' })).toEqual({ v: 1, confidence: 'high' });
+    expect(pickAiWordTags({ register_note: '   ', confidence: 'high' })).toEqual({ v: WORD_TAGS_AI_VERSION, confidence: 'high' });
   });
 
   it('parses stored JSON and survives junk', () => {
@@ -49,7 +60,10 @@ describe('pickAiWordTags / parseAiWordTags', () => {
     expect(parseAiWordTags('not json')).toBeNull();
     expect(parseAiWordTags('')).toBeNull();
     expect(parseAiWordTags(null)).toBeNull();
-    expect(parseAiWordTags({ confidence: 'low' })).toEqual({ v: 1, confidence: 'low' });
+    expect(parseAiWordTags({ confidence: 'low' })).toEqual({ v: WORD_TAGS_AI_VERSION, confidence: 'low' });
+    // A stored v1 verdict keeps its version (the background fill re-tags it).
+    expect(parseAiWordTags('{"v":1,"confidence":"high"}')).toEqual({ v: 1, confidence: 'high' });
+    expect(WORD_TAGS_AI_VERSION).toBe(2);
   });
 
   it('hides low confidence', () => {
@@ -119,6 +133,65 @@ describe('mergeAiWordTags', () => {
       'frequency',
       'trad',
     ]);
+  });
+});
+
+describe('Everyday speech', () => {
+  const everyday = (o: Partial<AiWordTags> = {}) => ai({ v: 2, spoken: 'everyday', spoken_confidence: 'high', ...o });
+  const rare = { rank: 29_044 }; // 结账 in the shipped list
+
+  it('shows only at high spoken confidence, whatever the overall confidence', () => {
+    expect(isEverydaySpeech(everyday())).toBe(true);
+    expect(isEverydaySpeech(everyday({ confidence: 'low' }))).toBe(true);
+    expect(isEverydaySpeech(everyday({ spoken_confidence: 'medium' }))).toBe(false);
+    expect(isEverydaySpeech(everyday({ spoken_confidence: undefined }))).toBe(false);
+    expect(isEverydaySpeech(ai({}))).toBe(false);
+    expect(isEverydaySpeech(null)).toBe(false);
+  });
+
+  it('replaces the Rare pill of 结账 (written text undercounts it)', () => {
+    expect(wordTagsWithAi('结账', lexicon, null, rare).map((t) => t.label)).toContain('Rare');
+    const tags = wordTagsWithAi('结账', lexicon, everyday({ confidence: 'low' }), rare);
+    expect(tags.map((t) => `${t.ai ? '✨' : ''}${t.label}`)).toEqual(['Verb', 'Separable verb', '✨Everyday speech']);
+    expect(tags.find((t) => t.kind === 'spoken')).toEqual({ kind: 'spoken', id: 'spoken:everyday', label: 'Everyday speech', tone: 'plain', ai: true });
+    // Not sure enough: Rare stays.
+    expect(wordTagsWithAi('结账', lexicon, everyday({ spoken_confidence: 'medium' }), rare).map((t) => t.label)).toContain('Rare');
+  });
+
+  it('sits where the frequency pill was, before the traditional form', () => {
+    const kinds = wordTagsWithAi('买单', lexicon, everyday({ transitivity: 'intransitive' }), { rank: 29_000 }).map((t) => t.kind);
+    expect(kinds).toEqual(['pos', 'pos', 'transitivity', 'spoken', 'trad']);
+  });
+
+  it('adds nothing where the list already calls the word common', () => {
+    expect(wordTagsWithAi('吃饭', lexicon, everyday(), { rank: 300 }).map((t) => t.label)).toEqual(wordTagsWithAi('吃饭', lexicon, null, { rank: 300 }).map((t) => t.label));
+    // The unmarked middle band: no frequency pill, so Everyday speech shows.
+    expect(wordTagsWithAi('结账', lexicon, everyday(), { rank: 5000 }).map((t) => t.label)).toContain('Everyday speech');
+    // No rank loaded: shows.
+    expect(wordTagsWithAi('结账', lexicon, everyday()).map((t) => t.label)).toContain('Everyday speech');
+  });
+
+  it('never on a sentence', () => {
+    expect(show('我们结账吧。', everyday())).toEqual(show('我们结账吧。', null));
+    expect(show('hello', everyday())).toEqual([]);
+  });
+
+  it('a phrase may get it', () => {
+    expect(show('喝咖啡', everyday())).toEqual(['Phrase', '✨Everyday speech']);
+  });
+
+  it('is left out with an exclude', () => {
+    expect(wordTagsWithAi('结账', lexicon, everyday(), { rank: 29_044, exclude: ['spoken'] }).map((t) => t.kind)).toEqual(['pos', 'separable']);
+  });
+
+  it('explains itself as an AI suggestion', () => {
+    const verdict = everyday();
+    const t = wordTagsWithAi('结账', lexicon, verdict, rare).find((x) => x.kind === 'spoken')!;
+    const e = explainWordTag(t, '结账', lexicon, verdict);
+    expect(e.title).toBe('Everyday speech');
+    expect(e.ai).toBe(true);
+    expect(e.body).toMatch(/daily life/);
+    expect(e.body).toMatch(/isn’t marked Rare/);
   });
 });
 

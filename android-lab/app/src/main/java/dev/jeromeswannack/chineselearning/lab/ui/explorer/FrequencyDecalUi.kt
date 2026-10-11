@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.WordFrequency
+import dev.jeromeswannack.chineselearning.lab.core.cards.WordTags
 import dev.jeromeswannack.chineselearning.lab.core.explorer.DecalKind
 import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyDecal
 import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyDecals
@@ -47,9 +48,14 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 /** The decal of a word / character (null = no outline). A null provider = no frequency list → no decals. */
 typealias DecalOf = (text: String, kind: DecalKind) -> FrequencyDecal?
 
-/** Decals from the list shipped with the app (null if it couldn't be read). One map lookup per tile. */
+/**
+ * Decals from the list shipped with the app (null if it couldn't be read). One map lookup per
+ * tile, plus one in the word-tag lexicon: an HSK word / character is never grey "rare" (the same
+ * rule as the card's frequency pill; web decalFor). The lexicon is warmed at app start (LabApp).
+ */
 fun shippedDecals(): DecalOf? = WordFrequency.shipped?.let { idx ->
-    { text, kind -> FrequencyDecals.tier(if (kind == DecalKind.CHAR) idx.chars[text] else idx.words[text], kind) }
+    val lexicon = WordTags.shipped
+    { text, kind -> FrequencyDecals.tier(if (kind == DecalKind.CHAR) idx.chars[text] else idx.words[text], kind, WordTags.hskLevel(lexicon, text)) }
 }
 
 /**

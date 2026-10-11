@@ -141,7 +141,7 @@ export function registerCheckTools(ctx: ToolContext, options: { pollMs?: number;
 
   server.tool(
     'backfill_word_tags',
-    `AI word tags for the signed-in user's own cards: a cheap batched Haiku pass gives each note a transitivity ("Takes an object" / "No object") and a register verdict (formal, informal, slang…, with a short note) — shown on the answer side as ✨ pills only where the app's dictionary has nothing. It fills itself in the background (≤ ${WORD_TAGS_BACKFILL_PER_HOUR} notes an hour, on every sync); this tool reports progress and, unless status_only, queues up to \`limit\` untagged notes now (≈ $${estimateWordTagsCost(1000).toFixed(2)} per 1,000 notes). Nothing on the cards' text changes.`,
+    `AI word tags for the signed-in user's own cards: a cheap batched Haiku pass gives each note a transitivity ("Takes an object" / "No object"), a register verdict (formal, informal, slang…, with a short note) and an "Everyday speech" verdict (heard regularly in daily life — it also stops the frequency list calling such a word "Rare") — shown on the answer side as ✨ pills only where the app's dictionary has nothing. It fills itself in the background (≤ ${WORD_TAGS_BACKFILL_PER_HOUR} notes an hour, on every sync), and re-tags notes tagged by an older version of the pass (\`outdated\`) the same way; this tool reports progress and, unless status_only, queues up to \`limit\` untagged / outdated notes now (≈ $${estimateWordTagsCost(1000).toFixed(2)} per 1,000 notes). Nothing on the cards' text changes.`,
     {
       limit: z.number().int().min(1).max(1000).optional().describe(`Untagged notes to queue now (default ${WORD_TAGS_BACKFILL_PER_HOUR}, max 1000)`),
       status_only: z.boolean().optional().describe('Only report progress, queue nothing'),
@@ -155,7 +155,8 @@ export function registerCheckTools(ctx: ToolContext, options: { pollMs?: number;
         ...res,
         estimated_cost_left_usd: Math.round(estimateWordTagsCost(left) * 100) / 100,
         message:
-          `${res.tagged} of ${res.total} notes have AI word tags` +
+          `${res.tagged} of ${res.total} notes have up-to-date AI word tags` +
+          (res.outdated ? ` (${res.outdated} more have older tags, to be redone)` : '') +
           (res.queued ? `; queued ${res.queued} more now (they appear on the devices after their next sync)` : '') +
           `. Spent so far ≈ $${res.cost_usd.toFixed(2)}.` +
           (left ? ` ${left} still to go — the sync fills ≤ ${res.per_hour} an hour by itself.` : ''),
@@ -168,6 +169,7 @@ interface WordTagsProgressReply {
   total: number;
   tagged: number;
   untagged: number;
+  outdated: number;
   input_tokens: number;
   output_tokens: number;
   cost_usd: number;

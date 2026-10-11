@@ -5,7 +5,7 @@ import { isHanCodePoint } from '@shared/progress/known';
 import { charWordStatuses, explainChar, lookupChar, type CharLookup } from '../../services/charDict';
 import { track } from '../../services/analytics';
 import { useExplorer } from './ExplorerContext';
-import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor, useFrequencyIndex } from './FrequencyDecal';
+import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor, useDecalIndex } from './FrequencyDecal';
 
 const isHan = (ch: string | null | undefined) => !!ch && [...ch].length === 1 && isHanCodePoint(ch.codePointAt(0)!);
 
@@ -33,7 +33,7 @@ export function CharacterView({
   const [lookup, setLookup] = useState<CharLookup | null>(null);
   const [rows, setRows] = useState<CharWordRow<CharWord>[] | null>(null);
   const [more, setMore] = useState<{ state: 'idle' | 'loading' | 'done' | 'offline' | 'error'; text?: string }>({ state: 'idle' });
-  const freq = useFrequencyIndex();
+  const freq = useDecalIndex();
   const [keyOpen, setKeyOpen] = useState(false);
 
   useEffect(() => {

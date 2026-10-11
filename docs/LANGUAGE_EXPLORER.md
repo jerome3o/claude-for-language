@@ -79,13 +79,21 @@ not the radical, often a radical form like 钅) says at a glance how common it i
 | green | 101 – 1,000 |
 | yellow | 1,001 – 2,000 |
 | none | 2,001 – the rare cutoff |
-| grey ("rare") | beyond the cutoff, or not in the list |
+| grey ("rare") | beyond the cutoff, or not in the list — **never for an HSK word** |
 
-`frequencyTier(rank, kind)` — words rank against the 30,000-word list, rare beyond **10,000**
+`frequencyTier(rank, kind, hsk)` — words rank against the 30,000-word list, rare beyond **10,000**
 (`RARE_WORD_RANK`); characters against the 8,000-character list, rare beyond **3,500**
-(`RARE_CHAR_RANK`, the size of 现代汉语常用字表). The rank is one map lookup in the list the app
-already loads (web `services/wordFrequency.ts`, Lab `WordFrequency.shipped`); while it loads there
-are no decals (never a flash of grey). Port: `core/…/explorer/FrequencyDecal.kt`, parity-tested.
+(`RARE_CHAR_RANK`, the size of 现代汉语常用字表). **An HSK-listed word or character is never grey**:
+the list is built from mostly written text, so it ranks ~3,800 HSK words (一块儿, 一下儿, 打包…)
+and a few HSK characters (拎, 涮, 遛…) as rare; they get no outline instead. `hsk` is the level from
+the word-tag lexicon (`hskLevel(lexicon, text)`, `shared/cards/word-tags.ts`; a character = its
+level as a one-character word) — the same rule as the card's frequency pill (docs/STUDY_SESSION.md
+"Word tags"), so a tile and a card never disagree. The rank is one map lookup in the list the app
+already loads (web `services/wordFrequency.ts`, Lab `WordFrequency.shipped`), the level one in the
+lexicon (web `useDecalIndex` waits for both; Lab `shippedDecals`, the lexicon warmed at app start);
+while they load there are no decals (never a flash of grey). Port: `core/…/explorer/FrequencyDecal.kt`
++ `WordTags.hskLevel`, parity-tested. A note's AI "Everyday speech" verdict also drops its card's
+Rare pill, but explorer tiles aren't notes, so decals don't use it.
 
 Look: 1.5px (web: `box-shadow: inset`, or the chip's own border + 0.5px; Lab: `Modifier.border`)
 so a decal never changes a tile's size. Tokens (web `--freq-*` in `explorer.css`, Lab

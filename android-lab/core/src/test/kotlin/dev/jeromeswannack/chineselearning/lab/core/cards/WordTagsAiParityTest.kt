@@ -43,6 +43,8 @@ class WordTagsAiParityTest {
             separable = o["separable"]?.jsonPrimitive?.boolean,
             register = o["register"]?.str,
             registerNote = o["register_note"]?.str,
+            spoken = o["spoken"]?.str,
+            spokenConfidence = o["spoken_confidence"]?.str,
             confidence = o["confidence"]!!.str!!,
         )
     }
@@ -66,6 +68,7 @@ class WordTagsAiParityTest {
         val cases = data["cases"]!!.jsonArray.map { it.jsonObject }
         assertTrue(cases.size > 100, "fixture has cases")
         var aiPills = 0
+        var everyday = 0
         for (c in cases) {
             val hanzi = c["hanzi"]!!.str!!
             val raw = c["raw"]?.str
@@ -73,6 +76,16 @@ class WordTagsAiParityTest {
             val got = WordTagsAi.tags(hanzi, lexicon, ai)
             assertEquals(tags(c["tags"]), got, "tags($hanzi, $raw)")
             assertEquals(tags(c["with_rank"]), WordTagsAi.tags(hanzi, lexicon, ai, rankLoaded = true, rank = 500), "tags($hanzi, $raw, rank)")
+            assertEquals(tags(c["with_mid_rank"]), WordTagsAi.tags(hanzi, lexicon, ai, rankLoaded = true, rank = 5000), "tags($hanzi, $raw, mid rank)")
+            val rare = WordTagsAi.tags(hanzi, lexicon, ai, rankLoaded = true, rank = 29_044)
+            assertEquals(tags(c["with_rare_rank"]), rare, "tags($hanzi, $raw, rare rank)")
+            assertEquals(tags(c["with_no_rank"]), WordTagsAi.tags(hanzi, lexicon, ai, rankLoaded = true, rank = null), "tags($hanzi, $raw, no rank)")
+            assertEquals(
+                tags(c["rare_excluded"]),
+                WordTagsAi.tags(hanzi, lexicon, ai, rankLoaded = true, rank = 29_044, exclude = setOf("spoken")),
+                "tags($hanzi, $raw, rare, exclude spoken)",
+            )
+            everyday += rare.count { it.kind == "spoken" }
             assertEquals(
                 tags(c["excluded"]),
                 WordTagsAi.tags(hanzi, lexicon, ai, rankLoaded = true, rank = null, exclude = setOf("frequency", "transitivity", "trad")),
@@ -84,9 +97,11 @@ class WordTagsAiParityTest {
                     ai = it["ai"]?.jsonPrimitive?.boolean ?: false, note = it["note"]?.str ?: "",
                 )
             }
-            assertEquals(explained, got.map { WordTagsAi.explanation(it, hanzi, lexicon, ai) }, "explanation($hanzi, $raw)")
+            val explainedTags = got + rare.filter { it.kind == "spoken" || it.kind == "frequency" }
+            assertEquals(explained, explainedTags.map { WordTagsAi.explanation(it, hanzi, lexicon, ai) }, "explanation($hanzi, $raw)")
             aiPills += got.count { it.ai }
         }
         assertTrue(aiPills > 20, "the fixture exercises AI pills")
+        assertTrue(everyday > 5, "the fixture exercises Everyday speech")
     }
 }

@@ -102,6 +102,8 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
         runCatching { dev.jeromeswannack.chineselearning.lab.data.chat.ChatDelivery.install(this) } // chat notifications, live socket, FCM
         // Word chips made on the phone (tests opt in with DeviceWords.setForTests, so they stay deterministic).
         if (android.os.Build.FINGERPRINT != "robolectric") scope.launch { dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.preload() }
+        // The word-tag lexicon (card pills; the explorer's decals read HSK levels from it), parsed off the main thread.
+        if (android.os.Build.FINGERPRINT != "robolectric") scope.launch { dev.jeromeswannack.chineselearning.lab.core.cards.WordTags.shipped }
     }
 
     private fun appVersion(): String = appVersionOrNull() ?: "unknown"

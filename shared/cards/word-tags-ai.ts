@@ -11,7 +11,12 @@
  * - transitivity only for a verb (the lexicon says Verb, or it has no part of speech for it) —
  *   never a sentence, never for a word the lexicon calls a noun / adjective…;
  * - low-confidence verdicts are never shown; AI pills carry `ai: true` (the UI adds ✨) and their
- *   sheet says "Suggested by AI — may be wrong" plus the register note.
+ *   sheet says "Suggested by AI — may be wrong" plus the register note;
+ * - "Everyday speech" (`spoken: 'everyday'`, v2): a word a learner hears regularly in daily life
+ *   (restaurants, shops, transport, home, chat). Shown only at HIGH `spoken_confidence`, never on
+ *   a sentence. It drops the "Rare" frequency pill — the frequency list counts mostly written
+ *   text, so it undercounts everyday speech (结账 ranks ~29,000) — and is only shown where the
+ *   list doesn't already call the word common (no Top 100 / 1,000 / 2,000 pill).
  *
  * Pure; ported to the Lab app (core/…/cards/WordTagsAi.kt) and parity-tested over the shipped
  * lexicon (android-lab/parity/fixtures/word-tags-ai.ts).
@@ -29,7 +34,11 @@ import {
   type WordTagOptions,
 } from './word-tags';
 
-export const WORD_TAGS_AI_VERSION = 1;
+/**
+ * The verdict's version (`v`). Notes tagged with an older one are re-tagged by the background
+ * fill (worker services/word-tags-ai.ts), newest notes first. 2 = + `spoken` (Everyday speech).
+ */
+export const WORD_TAGS_AI_VERSION = 2;
 
 export const TRANSITIVITIES = ['transitive', 'intransitive', 'both', 'n/a'] as const;
 export type Transitivity = (typeof TRANSITIVITIES)[number];
@@ -40,6 +49,13 @@ export type AiRegister = (typeof AI_REGISTERS)[number];
 export const AI_CONFIDENCES = ['high', 'medium', 'low'] as const;
 export type AiConfidence = (typeof AI_CONFIDENCES)[number];
 
+/** The model's answer for `spoken`; only 'everyday' is stored ('other' = the field is left out). */
+export const AI_SPOKEN = ['everyday', 'other'] as const;
+export type AiSpoken = (typeof AI_SPOKEN)[number];
+
+/** "Everyday speech" shows only at this `spoken_confidence` — it hides a "Rare" pill, so be sure. */
+export const EVERYDAY_MIN_CONFIDENCE: AiConfidence = 'high';
+
 /** The AI's verdict on one note (`notes.word_tags`). */
 export interface AiWordTags {
   v: number;
@@ -48,6 +64,11 @@ export interface AiWordTags {
   register?: AiRegister;
   /** ≤ 60 characters, e.g. "formal written; in speech use 告诉". */
   register_note?: string;
+  /** v2: heard regularly in everyday spoken Mandarin (absent = no / not asked). */
+  spoken?: 'everyday';
+  /** How sure the model is that `spoken` is right (only with `spoken`). */
+  spoken_confidence?: AiConfidence;
+  /** How sure the model is of the transitivity and register. */
   confidence: AiConfidence;
 }
 
@@ -128,7 +149,12 @@ export function pickAiWordTags(input: unknown): AiWordTags | null {
   if (register) out.register = register;
   const note = cleanRegisterNote(o.register_note);
   if (note) out.register_note = note;
-  // Fixed key order: v, transitivity, separable, register, register_note, confidence.
+  if (o.spoken === 'everyday') {
+    out.spoken = 'everyday';
+    const sc = oneOf(AI_CONFIDENCES, o.spoken_confidence);
+    if (sc) out.spoken_confidence = sc;
+  }
+  // Fixed key order: v, transitivity, separable, register, register_note, spoken, spoken_confidence, confidence.
   const { confidence: c, ...rest } = out;
   return { ...rest, confidence: c };
 }
@@ -151,6 +177,20 @@ export function visibleAiWordTags(ai: AiWordTags | null | undefined): AiWordTags
   return ai && ai.confidence !== 'low' ? ai : null;
 }
 
+/**
+ * The verdict says "Everyday speech" sure enough to show it (spoken: 'everyday' at
+ * EVERYDAY_MIN_CONFIDENCE). Independent of the overall `confidence`, which is about the
+ * transitivity and register.
+ */
+export function isEverydaySpeech(ai: AiWordTags | null | undefined): boolean {
+  return !!ai && ai.spoken === 'everyday' && ai.spoken_confidence === EVERYDAY_MIN_CONFIDENCE;
+}
+
+export const EVERYDAY_SPEECH_LABEL = 'Everyday speech';
+const EVERYDAY_SPEECH_BODY =
+  'A word you’ll hear all the time in daily life — ordering and paying, shops, getting around, at home, chatting with friends. ' +
+  'Frequency lists count mostly written text, so they can rank everyday spoken words low; that’s why this card isn’t marked Rare.';
+
 /** Display order of the kinds: the lexicon's order, with transitivity after part of speech. */
 const SLOT: Readonly<Record<string, number>> = {
   pos: 0,
@@ -161,6 +201,7 @@ const SLOT: Readonly<Record<string, number>> = {
   measure: 4,
   hsk: 5,
   frequency: 6,
+  spoken: 6,
   trad: 7,
 };
 
@@ -169,11 +210,18 @@ const SLOT: Readonly<Record<string, number>> = {
  * (rules in the file header). `base` = wordTags(hanzi, lexicon, …) WITHOUT an exclude.
  */
 export function mergeAiWordTags(hanzi: string, base: readonly WordTag[], ai: AiWordTags | null | undefined): WordTag[] {
-  const v = visibleAiWordTags(ai);
-  if (!v) return [...base];
   const key = wordTagKey(hanzi);
-  const added: WordTag[] = [];
   const sentence = SENTENCE_MARK.test(String(hanzi ?? '').normalize('NFC')) || !HAN.test(key);
+  const everyday = !sentence && isEverydaySpeech(ai);
+  const v = visibleAiWordTags(ai);
+  if (!v && !everyday) return [...base];
+  // Everyday speech: the written-text frequency list undercounts it — no "Rare" pill.
+  const kept = everyday ? base.filter((t) => !(t.kind === 'frequency' && t.tone === 'rare')) : [...base];
+  const added: WordTag[] = [];
+  if (everyday && !kept.some((t) => t.kind === 'frequency')) {
+    added.push({ kind: 'spoken', id: 'spoken:everyday', label: EVERYDAY_SPEECH_LABEL, tone: 'plain', ai: true });
+  }
+  if (!v) return sortTags(kept, added);
   const hasPos = base.some((t) => t.kind === 'pos');
   const verbish = !sentence && (base.some((t) => t.id === 'pos:v') || !hasPos);
   if (verbish && v.transitivity && v.transitivity !== 'n/a') {
@@ -186,8 +234,13 @@ export function mergeAiWordTags(hanzi: string, base: readonly WordTag[], ai: AiW
   if (code && !base.some((t) => t.kind === 'register')) {
     added.push({ kind: 'register', id: `register:${code}`, label: REGISTER_LABELS[code], tone: REGISTER_TONE[code] ?? 'plain', ai: true });
   }
-  if (added.length === 0) return [...base];
-  return [...base, ...added]
+  return sortTags(kept, added);
+}
+
+/** `kept` then `added`, stably sorted into the display slots (unchanged when nothing was added). */
+function sortTags(kept: readonly WordTag[], added: readonly WordTag[]): WordTag[] {
+  if (added.length === 0) return [...kept];
+  return [...kept, ...added]
     .map((t, i) => ({ t, i }))
     .sort((a, b) => (SLOT[a.t.kind] ?? 9) - (SLOT[b.t.kind] ?? 9) || a.i - b.i)
     .map(({ t }) => t);
@@ -221,18 +274,22 @@ export function explainWordTag(tag: WordTag, hanzi: string, lexicon: WordTagLexi
     const note = ai?.register_note ?? '';
     return { title: REGISTER_LABELS[code] ?? tag.label, body: REGISTER_EXPLAIN[code] ?? '', example: '', source: AI_SOURCE, ai: true, ...(note ? { note } : {}) };
   }
+  if (tag.kind === 'spoken') {
+    return { title: EVERYDAY_SPEECH_LABEL, body: EVERYDAY_SPEECH_BODY, example: '', source: AI_SOURCE, ai: true };
+  }
   return { ...wordTagExplanation(tag, hanzi, lexicon), source: AI_SOURCE, ai: true };
 }
 
 /**
- * Cost model of the AI pass in tokens (measured on real batches): the fixed prompt + tool sent
- * with every batch, input per word, output per word (every word gets a verdict). $1 / M input,
- * $5 / M output.
+ * Cost model of the AI pass in tokens (v1 measured on real batches, ~$0.22 per 1,000 notes;
+ * v2 adds the `spoken` field to the prompt and every verdict, ~+150 prompt and ~+8 output
+ * tokens per word → ~$0.26 per 1,000): the fixed prompt + tool sent with every batch, input per
+ * word, output per word (every word gets a verdict). $1 / M input, $5 / M output.
  */
 export const WORD_TAGS_COST = {
-  promptTokens: 1000,
+  promptTokens: 1150,
   inputTokensPerWord: 30,
-  outputTokensPerWord: 32,
+  outputTokensPerWord: 40,
   outputTokensPerBatch: 30,
   usdPerInputToken: 1 / 1_000_000,
   usdPerOutputToken: 5 / 1_000_000,
