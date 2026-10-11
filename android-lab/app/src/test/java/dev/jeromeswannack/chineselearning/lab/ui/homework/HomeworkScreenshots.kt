@@ -73,7 +73,8 @@ class HomeworkScreenshots : LabScreenshotTest() {
         )
         val deckAssignment = assignments[0]
         val progress = Homework.passProgress(Homework.passItemIds(deckAssignment), events)
-        fun deckPass(revealed: Boolean) = PassUi.Deck("餐厅点菜", "day 1 of 2", Homework.dueLabel("2026-09-25", TODAY), progress, note, revealed, "d1", oneOffOnly = true)
+        /** A word list's pass (the word itself is on the study card — PassStudyCardScreenshots). */
+        fun deckPass() = PassUi.Deck("餐厅点菜", "day 1 of 2", Homework.dueLabel("2026-09-25", TODAY), progress, note, assignmentId = "a1", deckId = "d1", oneOffOnly = true)
 
         val homeUi = HomeHomeworkUi(
             card = dev.jeromeswannack.chineselearning.lab.core.HomeHomework.build(
@@ -97,28 +98,19 @@ class HomeworkScreenshots : LabScreenshotTest() {
 
     @Test fun listEmpty() = shoot("homework-02-list-empty") { HomeworkListScreen(HomeworkListUi(true), onBack = {}, onOpen = {}) }
 
-    @Test fun passFront() = shoot("homework-03-pass-front") { HomeworkPassScreen(deckPass(false), PassActions()) }
-
-    @Test fun passRevealed() = shoot("homework-04-pass-revealed") { HomeworkPassScreen(deckPass(true), PassActions()) }
+    /** The next word hasn't reached the phone yet: the header and "Try again". */
+    @Test fun passWordNotHere() = shoot("homework-03-pass-word-not-here") { HomeworkPassScreen(deckPass().copy(note = null), PassActions()) }
 
     @Test fun passDone() = shoot("homework-05-pass-done") {
-        HomeworkPassScreen(deckPass(false).copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true)), PassActions())
+        HomeworkPassScreen(deckPass().copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true)), PassActions())
     }
 
     @Test fun passDoneAdded() = shoot("homework-06-pass-done-added", dark = true) {
-        HomeworkPassScreen(deckPass(false).copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true), addState = AddState.Done), PassActions())
+        HomeworkPassScreen(deckPass().copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true), addState = AddState.Done), PassActions())
     }
 
-    // "Add to my long-term review" (docs/HOMEWORK.md §3a).
-    private fun bothPass(n: PassNote) = deckPass(true).copy(note = n, oneOffOnly = false, deckInReview = true)
-
-    @Test fun passLongTermOff() = shoot("homework-26-pass-longterm-off") { HomeworkPassScreen(bothPass(note.copy(longTerm = 0)), PassActions()) }
-
-    @Test fun passLongTermOnOneOff() = shoot("homework-27-pass-longterm-on-oneoff", dark = true) {
-        HomeworkPassScreen(deckPass(true).copy(note = note.copy(longTerm = 1)), PassActions())
-    }
-
-    @Test fun passLongTermStarted() = shoot("homework-28-pass-longterm-started") { HomeworkPassScreen(bothPass(note.copy(started = true)), PassActions()) }
+    // "Add to my long-term review" (docs/HOMEWORK.md §3a) — the switch itself is on the study card's back.
+    private fun bothPass(n: PassNote) = deckPass().copy(note = n, oneOffOnly = false, deckInReview = true)
 
     @Test fun passDoneLongTerm() = shoot("homework-29-pass-done-longterm") {
         HomeworkPassScreen(
@@ -132,7 +124,7 @@ class HomeworkScreenshots : LabScreenshotTest() {
 
     @Test fun passDoneOneOffSomeAdded() = shoot("homework-30-pass-done-oneoff-some-added") {
         HomeworkPassScreen(
-            deckPass(false).copy(
+            deckPass().copy(
                 progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true),
                 longTermSummary = dev.jeromeswannack.chineselearning.lab.core.LongTerm.Summary(3, 9),
             ),
@@ -196,49 +188,4 @@ class HomeworkScreenshots : LabScreenshotTest() {
     @Test fun firstOpen() = shoot("homework-10-first-open") {
         FirstOpenScreen(FirstOpenUi(onboarding, "Jerome Swannack", totalDue = 15, hasSyncedOnce = true, online = true), FirstOpenActions())
     }
-
-    @Config(qualifiers = UNFOLDED)
-    @Test fun passUnfolded() = shoot("homework-11-pass-unfolded") { HomeworkPassScreen(deckPass(true), PassActions()) }
-
-    // The pass laid out like a study card (card fills the space, answer bar at the bottom):
-    // dark, font scale 1.3 and the unfolded Fold.
-    @Test fun passFrontDark() = shoot("homework-16-pass-front-dark", dark = true) { HomeworkPassScreen(deckPass(false), PassActions()) }
-
-    @Test fun passRevealedDark() = shoot("homework-17-pass-revealed-dark", dark = true) { HomeworkPassScreen(deckPass(true), PassActions()) }
-
-    @Test fun passFrontLargeFont() = shoot("homework-18-pass-front-font130") { LargeFont { HomeworkPassScreen(deckPass(false), PassActions()) } }
-
-    @Test fun passRevealedLargeFont() = shoot("homework-19-pass-revealed-font130", dark = true) { LargeFont { HomeworkPassScreen(deckPass(true), PassActions()) } }
-
-    @Config(qualifiers = UNFOLDED)
-    @Test fun passFrontUnfolded() = shoot("homework-20-pass-front-unfolded") { HomeworkPassScreen(deckPass(false), PassActions()) }
-
-    // The answer side's example sentence, as on the study card (folded, dark, font 1.3): the
-    // Chinese up; tapped open (pinyin + English + the tools); "What's going on here?" open;
-    // the generated set under "+ N more sentences".
-    @Test fun passSentenceClosed() = shoot("homework-22-pass-sentence-closed", dark = true) { LargeFont { HomeworkPassScreen(deckPass(true), PassActions()) } }
-
-    @Test fun passSentenceOpen() = shoot("homework-23-pass-sentence-open", dark = true) {
-        LargeFont { HomeworkPassScreen(deckPass(true), PassActions(), sentences = PassSentencesStart(steps = mapOf(clueRow.key to 3))) }
-    }
-
-    @Test fun passSentenceBreakdown() = shoot("homework-24-pass-sentence-breakdown", dark = true) {
-        LargeFont {
-            HomeworkPassScreen(deckPass(true), PassActions(), sentences = PassSentencesStart(explained = mapOf(clueRow.key to breakdown), steps = mapOf(clueRow.key to 3)))
-        }
-    }
-
-    @Test fun passSentenceMore() = shoot("homework-25-pass-sentence-more") {
-        HomeworkPassScreen(deckPass(true), PassActions(), sentences = PassSentencesStart(steps = mapOf("s2" to 2), more = true))
-    }
-
-    @Config(qualifiers = UNFOLDED)
-    @Test fun passRevealedUnfoldedLargeFont() = shoot("homework-21-pass-revealed-unfolded-font130") { LargeFont { HomeworkPassScreen(deckPass(true), PassActions()) } }
-}
-
-/** Android's font size setting at 130 %. */
-@androidx.compose.runtime.Composable
-private fun LargeFont(content: @androidx.compose.runtime.Composable () -> Unit) {
-    val d = androidx.compose.ui.platform.LocalDensity.current
-    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, 1.3f), content = content)
 }

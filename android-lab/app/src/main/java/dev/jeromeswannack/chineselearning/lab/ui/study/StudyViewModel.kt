@@ -47,6 +47,11 @@ class StudyViewModel(
     private val deckId: String?,
     /** The tutor-notes practice: just these cards, a rating counts only when the card is due. */
     private val practice: PracticeSpec? = null,
+    /**
+     * The homework pass on the study card: [showPassCard] deals each word's card, the answer is the
+     * pass's (Not yet / Got it, [passAnswered]) — no queue, no review event, no take kept, no study time.
+     */
+    private val pass: PassSpec? = null,
     /** The microphone (tests pass a fake: Robolectric's MediaRecorder writes nothing). */
     newRecorder: ((kotlinx.coroutines.CoroutineScope) -> VoiceRecorder)? = null,
     /** Where a typing card's spoken answer is transcribed (tests pass a fake; default: Soniox live + the upload). */
@@ -232,7 +237,7 @@ class StudyViewModel(
         viewModelScope.launch { app.noteAudio.updates.collect(::onAudioMade) }
         viewModelScope.launch {
             val none = withContext(Dispatchers.IO) { repo.dao.reviewsSince("0000") == 0 }
-            _ui.update { it.copy(showExplainer = none && !studyPrefs.explainerSeen) }
+            _ui.update { it.copy(showExplainer = pass == null && none && !studyPrefs.explainerSeen) }
         }
         viewModelScope.launch { load(resetRecent = true) }
     }
@@ -295,14 +300,74 @@ class StudyViewModel(
     }
     /** A card left the queue (orphaned / its note deleted): the next practice card, or the session's next item. */
     private suspend fun presentAfterRemoval() {
+        if (pass != null) { _ui.update { it.copy(phase = StudyPhase.Loading) }; return }
         if (practice == null) return presentNext(nextItem(null))
         practiceQueue = practiceQueue.filter { id -> queue.any { it.id == id } }
         present(practiceQueue.firstOrNull()?.let { practiceCards[it] })
     }
     // ---- end practice ----
 
+    // ---- the homework pass on the study card (ui/homework; web HomeworkPassPage DeckPass) ----
+    /** The word on screen and how many times it was answered before (a "Not yet" word coming back is a new attempt). */
+    private var passShown: Pair<String, Int>? = null
+
+    private suspend fun loadPassMode() {
+        cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
+        withContext(Dispatchers.IO) { deckNames = repo.dao.decks().associate { it.id to it.name } }
+        _ui.update { it.copy(showExplainer = false) }
+    }
+
+    /**
+     * The pass shows [noteId]: its read card (core Homework.passCardId — hanzi → meaning), or, when
+     * the note's cards aren't on the phone, a NEW read card for it (nothing is ever written for it).
+     */
+    fun showPassCard(noteId: String, attempt: Int) {
+        if (pass == null || passShown == noteId to attempt) return
+        passShown = noteId to attempt
+        viewModelScope.launch {
+            val card = withContext(Dispatchers.IO) {
+                val own = repo.dao.cardsOfNotes(listOf(noteId)).map { it.toQueueCard() }
+                val id = dev.jeromeswannack.chineselearning.lab.core.Homework.passCardId(own.map { it.id to it.cardType })
+                own.firstOrNull { it.id == id } ?: repo.dao.note(noteId)?.let { n ->
+                    QueueCard("pass:$noteId", noteId, n.deckId, dev.jeromeswannack.chineselearning.lab.core.Homework.PASS_CARD_TYPE, CardScheduler.initialCardState())
+                }
+            }
+            if (card == null) {
+                _ui.update { it.copy(phase = StudyPhase.Loading) }
+            } else {
+                queue = mutableListOf(card)
+                present(card)
+            }
+            busy = false
+        }
+    }
+
+    /**
+     * Not yet / Got it on a pass word: the pass writes its own event; here the card is let go —
+     * the tutor's note was seen, a "Say it again" under way is dropped and the take is DELETED
+     * (never queued for upload, never attached to anything). No review event, ever.
+     */
+    fun passAnswered(right: Boolean) {
+        if (pass == null || busy) return
+        busy = true
+        _ui.value.extras.spoken.let { if (it.phase != SpokenPhase.IDLE) cancelSpokenAnswer() }
+        val seenNotes = _ui.value.extras.tutorNotes.map { it.id }
+        if (seenNotes.isNotEmpty()) app.scope.launch { TutorNotes.markSeen(app.cache, app.outbox, seenNotes) }
+        _ui.update { it.copy(lastRating = if (right) dev.jeromeswannack.chineselearning.lab.core.Rating.GOOD else dev.jeromeswannack.chineselearning.lab.core.Rating.AGAIN) }
+        viewModelScope.launch {
+            if (recorder.recording) recorder.stop()?.delete()
+            take?.delete()
+            take = null
+        }
+    }
+
+    /** Analytics: the study events carry `where: homework` on a pass word. */
+    private fun where(): Map<String, Any?> = if (pass != null) mapOf("where" to "homework") else emptyMap()
+    // ---- end pass ----
+
     private suspend fun load(resetRecent: Boolean) {
         practice?.let { loadPractice(it); return }
+        if (pass != null) return loadPassMode()
         val now = System.currentTimeMillis()
         cutoff = StudyQueue.cutoff(now, zone)
         val bonus = app.prefs.bonus(scopeKey, today())
@@ -351,14 +416,15 @@ class StudyViewModel(
 
     /** A touch / key on the study screen: active study time. */
     fun onInteraction() {
-        if (leftAt == null) dayStore.interact()
+        // The homework pass isn't study time (the web counts the Study screen only).
+        if (leftAt == null && pass == null) dayStore.interact()
     }
 
     fun onForeground() = onInteraction()
 
     /** Backgrounded / screen off: the clock stops at once. */
     fun onBackground() {
-        dayStore.pause()
+        if (pass == null) dayStore.pause()
         saveResumePoint()
     }
 
@@ -370,7 +436,7 @@ class StudyViewModel(
         if (leftAt != null) return
         val now = System.currentTimeMillis()
         leftAt = now
-        dayStore.pause()
+        if (pass == null) dayStore.pause()
         // The time spent on the card so far travels with it; time away won't count.
         currentView()?.let { v -> setViewStart(v.presentation, ((if (progressPresentation == v.presentation) progress else null) ?: v.start).copy(elapsedMs = (now - shownAt).coerceAtLeast(0))) }
         saveResumePoint()
@@ -390,11 +456,13 @@ class StudyViewModel(
 
     /** Back in Study: same card, same state — unless the day rolled over or the card was answered elsewhere. */
     fun onReturn() {
-        dayStore.interact()
+        if (pass == null) dayStore.interact()
         val left = leftAt ?: return
         leftAt = null
         val now = System.currentTimeMillis()
         shownAt += now - left // time away doesn't count on the card
+        // The pass's word stays as it was (the coach and back): there is no queue to rebuild.
+        if (pass != null) return
         viewModelScope.launch {
             if (busy) return@launch
             when {
@@ -497,7 +565,7 @@ class StudyViewModel(
     }
 
     private fun saveResumePoint() {
-        if (practice != null) return // the practice isn't today's queue: nothing to resume
+        if (practice != null || pass != null) return // the practice / the pass isn't today's queue: nothing to resume
         val v = currentView() ?: return
         val p = (if (progressPresentation == v.presentation) progress else null) ?: v.start
         val end = leftAt ?: System.currentTimeMillis()
@@ -525,7 +593,8 @@ class StudyViewModel(
                     card = card,
                     note = it,
                     sentences = sentences,
-                    previews = CardScheduler.intervalPreviews(card.state, System.currentTimeMillis()),
+                    // A pass word has no ratings (Not yet / Got it): no intervals to work out.
+                    previews = if (pass != null) emptyList() else CardScheduler.intervalPreviews(card.state, System.currentTimeMillis()),
                     alternatives = alternatives,
                     presentation = ++presentation,
                     deckName = deckNames[card.deckId],
@@ -978,7 +1047,7 @@ class StudyViewModel(
                 "via" to (outcome.via ?: if (outcome.ui == TranscriptionUi.Offline) "offline" else "failed"),
                 "live_error" to if (live != null) SonioxProtocol.errorKind(outcome.liveError) else "none",
                 "ms" to ms,
-            ))
+            ) + where())
             if (gen == takeGeneration) updateTake(v) { it.copy(transcription = outcome.ui) }
         }
     }
@@ -1232,7 +1301,7 @@ class StudyViewModel(
                 "card_type" to v.card.cardType,
                 "verdict" to AnswerKey.verdictName(AnswerKey.checkSpoken(r.transcript, v.note.hanzi, v.alternatives, v.note.pinyin)),
                 "retry" to true, "reviewed" to r.reviewed, "practice" to true,
-            ))
+            ) + where())
         }
         updateSpoken(v) { SpokenUi(result = r.copy(seq = ++spokenSeq)) }
         // Then the card's own clip once, as the card turns back — like Record again.
@@ -1294,7 +1363,7 @@ class StudyViewModel(
      */
     fun onSpokenAnswerChecked(verdict: AnswerKey.Verdict, retry: Boolean, reviewed: Boolean) {
         val v = currentView() ?: return
-        app.analytics.track("study.spoken_answer_checked", mapOf("card_type" to v.card.cardType, "verdict" to AnswerKey.verdictName(verdict), "retry" to retry, "reviewed" to reviewed))
+        app.analytics.track("study.spoken_answer_checked", mapOf("card_type" to v.card.cardType, "verdict" to AnswerKey.verdictName(verdict), "retry" to retry, "reviewed" to reviewed) + where())
     }
 
     /**
@@ -1316,7 +1385,7 @@ class StudyViewModel(
             "reviewed" to reviewed,
             "edited" to edited,
             "practice" to _ui.value.extras.spoken.practice,
-        ))
+        ) + where())
     }
 
     // ---------------- multiple choice ----------------
@@ -1597,7 +1666,7 @@ class StudyViewModel(
 
     fun rate(rating: Int, timeSpentMs: Long, userAnswer: String?) {
         val showing = (_ui.value.phase as? StudyPhase.Showing)?.view ?: return
-        if (busy) return
+        if (busy || pass != null) return // a pass word is answered with Not yet / Got it (passAnswered), never rated
         // Rated while a "Say it again" is under way: it is dropped, the answer and take before it are kept.
         _ui.value.extras.spoken.let { if (it.again && it.phase != SpokenPhase.IDLE) cancelSpokenAnswer() }
         busy = true
@@ -1765,9 +1834,9 @@ class StudyViewModel(
     /** When this visit's study.session_start was recorded (null = none yet). */
     private var analyticsStartedAt: Long? = null
 
-    class Factory(private val app: LabApp, private val deckId: String?, private val practice: PracticeSpec? = null) : ViewModelProvider.Factory {
+    class Factory(private val app: LabApp, private val deckId: String?, private val practice: PracticeSpec? = null, private val pass: PassSpec? = null) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = StudyViewModel(app, deckId, practice) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = StudyViewModel(app, deckId, practice, pass) as T
     }
 }
 

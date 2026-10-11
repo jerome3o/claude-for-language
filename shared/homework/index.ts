@@ -12,3 +12,4 @@ export * from './library';
 export * from './link';
 export * from './send';
 export * from './summary';
+export * from './pass-card';

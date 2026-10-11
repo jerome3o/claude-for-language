@@ -15,6 +15,10 @@ import kotlinx.coroutines.withContext
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv
+import dev.jeromeswannack.chineselearning.lab.ui.study.PassCardUi
+import dev.jeromeswannack.chineselearning.lab.ui.study.StudyActions
+import dev.jeromeswannack.chineselearning.lab.ui.study.StudyRoute
+import dev.jeromeswannack.chineselearning.lab.core.LongTerm
 
 /** `/homework` (the list) and `/homework/:id` (the one-off pass, immersive). Package E. */
 fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
@@ -27,36 +31,83 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
         val id = entry.arguments?.getString("id").orEmpty()
         val vm: HomeworkPassViewModel = viewModel(factory = HomeworkPassViewModel.Factory(nav.app, id))
         val ui by vm.ui.collectAsStateWithLifecycle()
-        val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
-        val sentences = remember { passSentenceActions(nav.app) }
         val lessonEnv = rememberExerciseEnv(nav.app)
         val readerEnv = rememberReaderEnv(nav.app, (ui as? PassUi.Player)?.reader?.reader?.id.orEmpty())
         val context = androidx.compose.ui.platform.LocalContext.current
-        HomeworkPassScreen(
-            ui,
-            PassActions(
+        HomeworkPassContent(
+            app = nav.app,
+            vm = vm,
+            actions = PassActions(
                 onClose = nav::back,
-                onReveal = vm::reveal,
-                onAnswer = vm::answer,
-                onPlay = vm::play,
                 onAddToDaily = vm::addToDaily,
-                onLongTerm = vm::setLongTerm,
                 onRetrySync = vm::retrySync,
                 onAllHomework = { nav.open(Routes.homework()) },
                 onLessonComplete = vm::completeLesson,
                 onReaderFinished = vm::finishReader,
-                sentences = sentences,
-                onPlaySentence = vm::playSentence,
                 onOpenLink = { url -> vm.linkOpened(); openExternal(context, url) },
                 onLinkDone = vm::markLinkDone,
                 onLessonAgain = { nav.open(Routes.lessonPlay(it, "homework")) },
             ),
+            onOpen = { path -> nav.open(path) },
             lessonEnv = lessonEnv,
             readerEnv = readerEnv,
-            playingKey = playing,
         )
     }
 }
+
+/**
+ * `/homework/:id`: a word of a list is shown on the STUDY CARD, as in Study (StudyRoute's pass
+ * mode — the read card's 🎤 take, "You said", Show answer, the back), with Not yet / Got it where
+ * the ratings are and nothing reviewed; everything else (the finish, a word not here yet, a lesson,
+ * a reader, a link) is [HomeworkPassScreen].
+ */
+@androidx.compose.runtime.Composable
+fun HomeworkPassContent(
+    app: dev.jeromeswannack.chineselearning.lab.LabApp,
+    vm: HomeworkPassViewModel,
+    actions: PassActions,
+    onOpen: (String) -> Unit = {},
+    lessonEnv: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(),
+    readerEnv: dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv = dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv(),
+) {
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    val deck = ui as? PassUi.Deck
+    val word = deck?.note
+    if (deck != null && word != null && !deck.progress.complete) {
+        StudyRoute(
+            app = app,
+            deckId = null,
+            onExit = actions.onClose,
+            onOpen = onOpen,
+            pass = passCardUi(deck, word),
+            passActions = StudyActions(
+                onPassAnswer = vm::answer,
+                onPassLongTerm = vm::setLongTerm,
+                onPassBump = vm::setBump,
+            ),
+        )
+    } else {
+        HomeworkPassScreen(ui, actions, lessonEnv = lessonEnv, readerEnv = readerEnv)
+    }
+}
+
+/** What the study card shows around a pass word (StudyRoute's pass mode; web: DeckPass's `pass` prop). */
+fun passCardUi(deck: PassUi.Deck, word: PassNote): PassCardUi = PassCardUi(
+    assignmentId = deck.assignmentId,
+    noteId = word.id,
+    attempt = deck.attempt,
+    title = deck.title,
+    part = deck.part,
+    due = deck.due,
+    done = deck.progress.done,
+    total = deck.progress.total,
+    retrying = deck.progress.retrying,
+    longTermOn = LongTerm.isLongTerm(word.longTerm, deck.deckInReview, word.started),
+    started = word.started,
+    bumped = deck.bumped,
+    bumpedBy = deck.bumpedBy,
+    busy = deck.busy,
+)
 
 /**
  * The pass's example sentences use the study card's tools (CardTools): the breakdown from the

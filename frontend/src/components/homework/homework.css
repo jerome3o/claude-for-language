@@ -175,6 +175,15 @@
   flex-direction: column;
 }
 
+/* The pass on the study card: its title + counter where Study has the queue counts. */
+.hw-pass-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
 .hw-pass-topbar {
   display: flex;
   align-items: center;
@@ -221,59 +230,6 @@
 .hw-pass-retry {
   font-size: 0.8125rem;
   color: var(--color-text-light);
-}
-
-.hw-pass-card {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  /* Centred while it fits; a long answer (a breakdown open) scrolls from the top. */
-  justify-content: safe center;
-  text-align: center;
-  padding: 1rem;
-  gap: 0.75rem;
-}
-
-.hw-pass-hanzi {
-  font-size: 3rem;
-  font-weight: 600;
-  line-height: 1.2;
-  word-break: break-word;
-}
-
-.hw-pass-play {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  font-size: 1.125rem;
-  cursor: pointer;
-}
-
-.hw-pass-hint {
-  color: var(--color-text-light);
-  margin: 0;
-}
-
-.hw-pass-answer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-  width: 100%;
-  max-width: 32rem;
-}
-
-.hw-pass-pinyin {
-  font-size: 1.25rem;
-  color: #6d28d9;
-}
-
-.hw-pass-english {
-  font-size: 1.125rem;
 }
 
 /* "Add to my long-term review": a compact pill with a switch under the meaning. The input
@@ -366,12 +322,6 @@
   font-weight: 500;
 }
 
-/* The example sentences under the answer: the study card's rows (SentenceSet variant="pass"). */
-.hw-pass-sentences {
-  width: 100%;
-  margin-top: 0.75rem;
-}
-
 .sentence-set--pass .sentence-set-list {
   border-top: none;
 }
@@ -396,34 +346,71 @@
   right: calc(36px + 0.625rem + 0.625rem);
 }
 
-.hw-pass-actions {
+/* The pass on the study card: Not yet / Got it where the ratings are (PassAnswerButtons). */
+.hw-pass-rate {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.625rem;
-  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  gap: 0.5rem;
 }
 
-.hw-pass-actions .btn {
+.hw-pass-rate .btn {
   min-height: 52px;
   font-size: 1.0625rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  line-height: 1.15;
 }
 
-.hw-btn-show {
-  grid-column: 1 / -1;
-}
-
-.hw-pass-actions .hw-btn-notyet,
-.hw-pass-actions .hw-btn-notyet:hover {
+.hw-pass-rate .hw-btn-notyet,
+.hw-pass-rate .hw-btn-notyet:hover {
   background: #fff7ed;
   color: #c2410c;
   border: 1px solid #fdba74;
 }
 
-.hw-pass-actions .hw-btn-gotit,
-.hw-pass-actions .hw-btn-gotit:hover {
+.hw-pass-rate .hw-btn-gotit,
+.hw-pass-rate .hw-btn-gotit:hover {
   background: #16a34a;
   color: #fff;
   border: 1px solid #15803d;
+}
+
+/* What the card saw suggests this one: ringed and marked — he still chooses. */
+.hw-pass-rate .hw-btn--suggested {
+  box-shadow: 0 0 0 3px var(--color-surface, #fff), 0 0 0 5px currentColor;
+}
+
+.hw-pass-rate .hw-btn-gotit.hw-btn--suggested {
+  box-shadow: 0 0 0 3px var(--color-surface, #fff), 0 0 0 5px #16a34a;
+}
+
+.hw-btn-hint {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+/* The answer side's two choices under the meaning: long-term review · ⚡ Study it today. */
+.hw-pass-extras {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.hw-pass-extras .hw-longterm {
+  margin-top: 0;
+}
+
+.hw-pass-extras .bump-btn {
+  min-height: 44px;
 }
 
 .hw-pass-empty,
@@ -666,18 +653,6 @@
   color: #9ca3af;
   font-size: 1.25rem;
   line-height: 1;
-}
-
-@media (min-width: 640px) {
-  .hw-pass-hanzi {
-    font-size: 3.5rem;
-  }
-
-  .hw-pass-actions {
-    max-width: 32rem;
-    margin: 0 auto;
-    width: 100%;
-  }
 }
 
 /* ---- Link homework (docs/HOMEWORK.md §8) ---- */

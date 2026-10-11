@@ -1843,7 +1843,11 @@ review*); one-off-only lessons / readers are left out of the session mix / daily
 (`oneOffOnlyTargetIds`). **Student**: `services/homework.ts` syncs `homeworkAssignments` / `homeworkEvents`
 (Dexie v19) in every sync; Home shows the **Homework** card (overdue first, labels "overdue" / "due today" /
 "due in N days", `dueLabel`); `/homework` lists all; `/homework/:id` is the pass (immersive): a word list shows each
-word once, *Not yet* words come back until *Got it* (`passProgress`), a lesson / reader plays once in the regular
+word once ON THE STUDY CARD — `StudyCard` with `pass` (web) / `StudyRoute` pass mode (Lab): the read card's 🎤 take +
+"You said", Show answer, the back; *Not yet* / *Got it* where the ratings are (a right answer / matching take
+suggests one, `passSuggestion` in `shared/homework/pass-card.ts`, parity-tested), "Add to my long-term review" and
+**⚡ Study it today** (a bump toggle, source `homework_pass`) on the answer side, NO review event and the take kept
+nowhere — *Not yet* words come back until *Got it* (`passProgress`), a lesson / reader plays once in the regular
 player — finishing a lesson / reader anywhere records the `done` event (`recordTargetDone`). **Tutor**: the Send
 homework sheet has One-off / Long-term / Both + due date + "spread over N days" + "leave out words they already
 have" (`HomeworkModePicker`); the student page's Homework section shows the **load gauge** (`LoadGauge`,

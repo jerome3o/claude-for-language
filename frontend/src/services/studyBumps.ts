@@ -85,7 +85,10 @@ export async function clearBump(noteId: string, source: BumpSource = 'other'): P
   await db.transaction('rw', db.studyBumps, async () => {
     const rows = await db.studyBumps.where('note_id').equals(noteId).toArray();
     for (const r of rows) {
-      if (r.pending === 'add') await db.studyBumps.delete(r.id);
+      // A pending add not on its way yet is just dropped. One being sent right now (a quick
+      // on → off, e.g. the homework pass's ⚡ toggle) becomes a clear: else the server's list
+      // that answers the add would bring the bump back with nothing left to take it out.
+      if (r.pending === 'add' && !flushing) await db.studyBumps.delete(r.id);
       else await db.studyBumps.update(r.id, { pending: 'clear' });
     }
   });
@@ -94,14 +97,23 @@ export async function clearBump(noteId: string, source: BumpSource = 'other'): P
 }
 
 let flushing: Promise<void> | null = null;
+/** A bump / clear was written while a flush was on its way: one more round after it. */
+let flushAgain = false;
 
-/** Send every pending add / clear; then take the server's list. Single-flight. */
+/** Send every pending add / clear; then take the server's list. Single-flight; a change made meanwhile gets its own round. */
 export function flushPendingBumps(): Promise<void> {
-  if (!flushing) {
-    flushing = doFlush().finally(() => {
-      flushing = null;
-    });
+  if (flushing) {
+    flushAgain = true;
+    return flushing;
   }
+  flushing = (async () => {
+    do {
+      flushAgain = false;
+      await doFlush();
+    } while (flushAgain);
+  })().finally(() => {
+    flushing = null;
+  });
   return flushing;
 }
 

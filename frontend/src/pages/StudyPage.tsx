@@ -53,6 +53,7 @@ import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer'
 import { useTranscription } from '../hooks/useTranscription';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
 import { checkSpokenAnswer, checkTypedAnswer, spokenVerdictNote, type AnswerVerdict } from '@shared/cards/answer';
+import { passSuggestion, type PassAnsweredBy, type PassOutcome } from '@shared/homework/pass-card';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
@@ -90,6 +91,7 @@ import {
 import CardEditModal from '../components/CardEditModal';
 import { QueueCountsHeader } from '../components/QueueCountsHeader';
 import { RatingButtons } from '../components/RatingButtons';
+import { PassAnswerButtons } from '../components/homework/PassAnswerButtons';
 import { StudyReader } from '../components/StudyReader';
 import { StudyGrammar } from '../components/StudyGrammar';
 import { StudyCustomLesson } from '../components/StudyCustomLesson';
@@ -339,7 +341,33 @@ function McAnswerDiff({ slots, onCharacterClick }: { slots: McAnswerSlot[]; onCh
   );
 }
 
-/** The study card (front, reveal, back, rating). Also used by the tutor-notes practice (pages/TutorNotesPracticePage.tsx). */
+/**
+ * The homework pass on the study card (shared/homework/pass-card.ts, docs/HOMEWORK.md §3): the same
+ * card — the read card's 🎤 take + "You said", the typed cards' voice-first say / type flow — but the
+ * answer side ends in Not yet / Got it (the pass's own event) and NOTHING goes to review_events.
+ */
+export interface StudyCardPass {
+  /** The top bar's left side (the pass title + counter), in place of the queue counts and undo. */
+  header: ReactNode;
+  /** On the answer side under the meaning: the long-term switch and the ⚡ toggle. */
+  answerExtras?: ReactNode;
+  /** Got it / Not yet. The take is not passed on: it stays on this device and goes nowhere. */
+  onAnswer: (right: boolean, info: PassAnswerInfo) => void;
+  /** Where the Sentence Coach's "Back to your card" goes. */
+  coachReturn?: string;
+}
+
+export interface PassAnswerInfo {
+  cardType: string;
+  answered: PassAnsweredBy;
+  suggested: PassOutcome | null;
+  timeMs: number;
+}
+
+/**
+ * The study card (front, reveal, back, rating). Also used by the tutor-notes practice
+ * (pages/TutorNotesPracticePage.tsx) and, with `pass`, the homework pass (pages/HomeworkPassPage.tsx).
+ */
 export function StudyCard({
   card,
   cardIsSecondaryNew,
@@ -358,6 +386,7 @@ export function StudyCard({
   pinnedTutorNotes,
   banner,
   bumped,
+  pass,
 }: {
   card: CardWithNote;
   cardIsSecondaryNew: boolean;
@@ -381,7 +410,11 @@ export function StudyCard({
   banner?: ReactNode;
   /** From the "⚡ Study it today" pocket (shared/decks/bumps.ts): a small ⚡ badge. */
   bumped?: { fromName: string | null } | null;
+  /** A homework pass word: Not yet / Got it instead of the ratings, no review written. */
+  pass?: StudyCardPass;
 }) {
+  // Analytics only: the study events say when the card was a homework pass word.
+  const where = pass ? ('homework' as const) : undefined;
   const { isOnline } = useNetwork();
 
   // What this card was left with (resume point + in-memory extras), read once at mount.
@@ -578,7 +611,7 @@ export function StudyCard({
     error: transcriptionError,
     transcribe,
     retry: retryTranscription,
-  } = useTranscription(restored.recording ? restored.transcription : null);
+  } = useTranscription(restored.recording ? restored.transcription : null, where);
   // The take the card came back with already has its "You said": not transcribed again.
   const restoredTakeRef = useRef<Blob | null>(restored.transcription ? restored.recording : null);
 
@@ -614,6 +647,7 @@ export function StudyCard({
     cardType: card.card_type,
     online: aiAvailable,
     currentTake: audioBlob,
+    where,
     onResult: ({ text, transcript, submit, again, reviewed, practice }) => {
       if (practice) {
         // Practice: shown as "You said" (spoken check, the orange decal for a sentence), then the
@@ -908,6 +942,7 @@ export function StudyCard({
       retry,
       reviewed: spokenReviewedRef.current,
       practice,
+      ...(where ? { where } : {}),
     });
   }
   useEffect(() => {
@@ -1517,8 +1552,9 @@ export function StudyCard({
     if (!text) return;
     stopAudio();
     savePointRef.current();
-    track('study.you_said_coach', { card_type: card.card_type, source });
+    track('study.you_said_coach', { card_type: card.card_type, source, ...(where ? { where } : {}) });
     if (scope) setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
+    else if (pass?.coachReturn) setCoachReturn(pass.coachReturn);
     navigate(`/coach?text=${encodeURIComponent(text)}&action=check`);
   };
   const practiceVerdict = practiceSaid
@@ -1544,6 +1580,34 @@ export function StudyCard({
     const slots = mcAnswerSlots(shuffledMcOptions, mcSelections);
     return slots.every(s => s.status === 'right' || s.status === 'given') ? null : slots;
   })();
+
+  // The homework pass (shared/homework/pass-card.ts): what was tried before the reveal suggests
+  // Got it / Not yet — the same verdicts the back shows (AnswerDiff, the grid, "You said").
+  const passAnswered: PassAnsweredBy = isSpeakingCard
+    ? (audioBlob ? 'take' : 'none')
+    : isTypingCard && userAnswer.trim()
+      ? (mcAnswered ? 'choice' : answerWasSpoken ? 'spoken' : 'typed')
+      : 'none';
+  const passSuggested: PassOutcome | null = (() => {
+    if (!pass || !flipped) return null;
+    if (isTypingCard && userAnswer.trim()) {
+      if (mcBackSlots) return 'wrong';
+      const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [];
+      const verdict = answerWasSpoken
+        ? checkSpokenAnswer(userAnswer.trim(), card.note.hanzi, alts, card.note.pinyin)
+        : checkTypedAnswer(userAnswer.trim(), card.note.hanzi, alts);
+      return passSuggestion({ answerVerdict: verdict });
+    }
+    return passSuggestion({ take: isSpeakingCard && audioBlob ? transcriptionComparison : null });
+  })();
+  const handlePassAnswer = (right: boolean) => {
+    if (!pass) return;
+    doneWithCardRef.current = true;
+    for (const note of tutorNotes) markRecordingNoteSeen(note.id).catch(() => {});
+    // A "Say it again" under way is dropped. The take itself goes nowhere: no review, no upload.
+    if (sayingAgain) spoken.cancel();
+    pass.onAnswer(right, { cardType: card.card_type, answered: passAnswered, suggested: passSuggested, timeMs: Date.now() - startTime });
+  };
 
   const renderBackMain = () => {
     return (
@@ -2095,6 +2159,7 @@ export function StudyCard({
           savePointRef.current();
           track('study.sentence_coach');
           if (scope) setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
+          else if (pass?.coachReturn) setCoachReturn(pass.coachReturn);
           navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
         },
       },
@@ -2736,19 +2801,21 @@ export function StudyCard({
       <div className="study-fullscreen">
         {/* Top bar with close button, queue counts, sync status, and offline toggle */}
         <div className="study-topbar">
-          <QueueCountsHeader counts={counts} activeQueue={card.queue} activeIsSecondary={cardIsSecondaryNew} />
+          {pass ? pass.header : <QueueCountsHeader counts={counts} activeQueue={card.queue} activeIsSecondary={cardIsSecondaryNew} />}
           <div className="study-topbar-controls">
             {/* Offline, the pill already says so (and carries the pending count) */}
             {!effectiveOffline && <SyncBadge inline />}
-            <button
-              className="study-close-btn study-undo-btn"
-              onClick={onUndo}
-              disabled={!canUndo}
-              aria-label="Undo last review"
-              title="Undo last review"
-            >
-              ↺
-            </button>
+            {!pass && (
+              <button
+                className="study-close-btn study-undo-btn"
+                onClick={onUndo}
+                disabled={!canUndo}
+                aria-label="Undo last review"
+                title="Undo last review"
+              >
+                ↺
+              </button>
+            )}
             {/* D3: automatic from NetworkContext, manual override kept; label says which */}
             <OfflineModeToggle />
             <button
@@ -2782,7 +2849,7 @@ export function StudyCard({
             <div style={{ marginBottom: '0.75rem' }}>{dataError}</div>
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => { doneWithCardRef.current = true; onRate(0, Date.now() - startTime); }}
+              onClick={() => { if (pass) { handlePassAnswer(false); return; } doneWithCardRef.current = true; onRate(0, Date.now() - startTime); }}
               style={{ marginRight: '0.5rem' }}
             >
               Skip Card (Rate as "Again")
@@ -2799,6 +2866,7 @@ export function StudyCard({
         {/* Card content */}
         <div
           className={`study-card-content${!flipped && showMultipleChoice && isTypingCard && shuffledMcOptions ? ' study-card-content--mc' : ''}`}
+          data-testid={pass ? 'hw-pass-card' : undefined}
           ref={cardContentRef}
           onPointerDown={handleCardPointerDown}
           onClick={handleCardClick}
@@ -2928,10 +2996,14 @@ export function StudyCard({
               >
                 {renderBackMain()}
 
+                {/* The pass: "Add to my long-term review" and ⚡ Study it today, under the meaning. */}
+                {pass?.answerExtras}
+
                 {/* One list of sentences for this word, always there under
                     the meaning: the card's own example sentence first, then
                     the generated set. It scrolls under the action row and
-                    the ratings, which stay put in the footer. */}
+                    the ratings, which stay put in the footer. The pass keeps
+                    its calm version (the Chinese up, the set behind "+ N more"). */}
                 <div className="study-sentences" data-testid="study-sentences">
                   <SentenceSet
                     noteId={card.note.id}
@@ -2945,7 +3017,7 @@ export function StudyCard({
                           }
                         : null
                     }
-                    compact
+                    {...(pass ? { variant: 'pass' as const } : { compact: true })}
                   />
                 </div>
               </div>
@@ -2957,11 +3029,15 @@ export function StudyCard({
             <div className="study-card-actions study-card-actions--footer">
               {renderBackActions()}
             </div>
-            <RatingButtons
-              intervalPreviews={intervalPreviews}
-              onRate={handleRate}
-              disabled={isRating}
-            />
+            {pass ? (
+              <PassAnswerButtons suggested={passSuggested} onAnswer={handlePassAnswer} disabled={isRating} />
+            ) : (
+              <RatingButtons
+                intervalPreviews={intervalPreviews}
+                onRate={handleRate}
+                disabled={isRating}
+              />
+            )}
           </div>
         )}
       </div>

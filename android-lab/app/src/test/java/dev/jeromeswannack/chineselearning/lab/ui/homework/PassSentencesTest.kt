@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.ui.homework
 
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -16,7 +15,6 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.geometry.Offset
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
@@ -29,6 +27,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys
 import dev.jeromeswannack.chineselearning.lab.ui.study.BREAKDOWN_HANZI_TAG
+import dev.jeromeswannack.chineselearning.lab.ui.study.CARD_FRONT_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.study.CardTools
 import dev.jeromeswannack.chineselearning.lab.ui.study.SENTENCE_ROW_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
@@ -44,7 +43,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * The pass's example sentences are the study card's rows — play, tap to reveal, "What's going
+ * The pass's example sentences (on the study card's back, pass mode) are the study card's rows — play, tap to reveal, "What's going
  * on here?" (from the offline cache), the word rows, "+ N more sentences" — and
  * none of it records anything: no review event, no homework event, the card stays where it
  * is. Only Got it / Not yet write (a homework event, never a review).
@@ -102,47 +101,41 @@ class PassSentencesTest {
         }
     }
 
-    /** The question face is inert: taps and swipes on it never turn the card — Show answer only. */
+    /** The study card's read card: "Show answer" (once the word's card is dealt), then the answer side. */
+    private fun showAnswer() {
+        settle("the card's Show answer") { compose.onAllNodesWithText("Show answer").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Show answer").performClick()
+        settle("the answer side") { compose.onAllNodesWithTag("hw-gotit").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** The question face is inert (the study card's): taps and swipes on it never turn the card — Show answer only. */
     @Test
     fun faceTapsNeverRevealOnlyShowAnswerDoes() {
         val vm = HomeworkPassViewModel(app, "a1")
-        compose.setContent {
-            val ui by vm.ui.collectAsStateWithLifecycle()
-            LabTheme { HomeworkPassScreen(ui, PassActions(onReveal = vm::reveal, onAnswer = vm::answer)) }
-        }
-        settle("the first word to load", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.note != null }
+        compose.setContent { LabTheme { HomeworkPassContent(app, vm, PassActions()) } }
+        settle("the first word's card") { compose.onAllNodesWithText("Show answer").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("互动").performClick()
-        compose.onNodeWithTag("hw-pass-card").performTouchInput { click(Offset(centerX, 12f)) }
-        compose.onNodeWithTag("hw-pass-card").performTouchInput { click(Offset(centerX, bottom - 12f)) }
-        compose.onNodeWithTag("hw-pass-card").performTouchInput { swipeLeft() }
-        compose.onNodeWithTag("hw-pass-card").performTouchInput { swipeUp() }
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { click(Offset(centerX, 12f)) }
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { click(Offset(centerX, bottom - 12f)) }
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { swipeLeft() }
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { swipeUp() }
         compose.waitForIdle()
-        assertFalse((vm.ui.value as PassUi.Deck).revealed)
-        compose.onNodeWithTag("hw-show").assertExists()
+        compose.onNodeWithText("Show answer").assertExists()
         compose.onNodeWithTag("hw-gotit").assertDoesNotExist()
 
-        compose.onNodeWithTag("hw-show").performClick()
-        compose.waitForIdle()
-        assertTrue((vm.ui.value as PassUi.Deck).revealed)
+        showAnswer()
         compose.onNodeWithTag("hw-gotit").assertExists()
+        // The pass's choices, never the ratings.
+        compose.onNodeWithText("Again").assertDoesNotExist()
+        compose.onNodeWithText("Good").assertDoesNotExist()
         runBlocking { assertEquals(0, app.repo.dao.allEvents().size) }
     }
 
     @Test
     fun sentenceToolsRecordNothingAndLeaveTheCardAlone() {
         val vm = HomeworkPassViewModel(app, "a1")
-        compose.setContent {
-            val ui by vm.ui.collectAsStateWithLifecycle()
-            LabTheme {
-                HomeworkPassScreen(
-                    ui,
-                    PassActions(onReveal = vm::reveal, onAnswer = vm::answer, sentences = passSentenceActions(app), onPlaySentence = { _, _ -> }),
-                )
-            }
-        }
-        settle("the first word to load", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.note != null }
-        compose.onNodeWithTag("hw-show").performClick()
-        compose.waitForIdle()
+        compose.setContent { LabTheme { HomeworkPassContent(app, vm, PassActions()) } }
+        showAnswer()
 
         // The card's own sentence, Chinese up; two taps → pinyin, then English + the tools.
         compose.onNodeWithText(clue, substring = true).assertExists()
@@ -169,7 +162,7 @@ class PassSentencesTest {
         }
         val deck = vm.ui.value as PassUi.Deck
         assertEquals("n1", deck.note?.id)
-        assertTrue(deck.revealed)
+        compose.onNodeWithTag("hw-gotit").assertExists()
         assertEquals(0, deck.progress.done)
 
         // Got it still works as before: one homework event, no review.

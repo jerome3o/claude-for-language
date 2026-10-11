@@ -161,6 +161,28 @@ object Homework {
 
     fun nextPassItem(progress: PassProgress): String? = progress.remaining.firstOrNull()
 
+    // ---- the pass in the study card (shared/homework/pass-card.ts) ----
+
+    /** Port of PASS_CARD_TYPE: the pass shows each word's read card (hanzi → meaning). */
+    const val PASS_CARD_TYPE = CardTypes.HANZI_TO_MEANING
+
+    /** Port of passCardId: the note's hanzi → meaning card, else the first by type order, then id. */
+    fun passCardId(cards: List<Pair<String, String>>): String? {
+        val order = listOf(PASS_CARD_TYPE, CardTypes.MEANING_TO_HANZI, CardTypes.AUDIO_TO_HANZI)
+        return cards.minWithOrNull(compareBy<Pair<String, String>>({ order.indexOf(it.second).let { i -> if (i < 0) order.size else i } }).thenComparator { a, b -> a.first.compareTo(b.first) })?.first
+    }
+
+    /**
+     * Port of passSuggestion: what the answer side suggests (the button is highlighted; the learner
+     * still chooses). A typing card's verdict before the reveal decides; a read card's take suggests
+     * Got it when it matched (or was said inside a sentence), nothing on a miss; nothing tried → null.
+     */
+    fun passSuggestion(answerVerdict: AnswerKey.Verdict?, takeMatch: Boolean? = null, takeContains: Boolean? = null): String? {
+        if (answerVerdict != null) return if (AnswerKey.isAccepted(answerVerdict)) "right" else "wrong"
+        if (takeMatch == true || takeContains == true) return "right"
+        return null
+    }
+
     /** Port of passSummary: "12 words" / "5 of 12 words left" / "done". */
     fun passSummary(progress: PassProgress, kind: String): String {
         if (progress.complete) return "done"

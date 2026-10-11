@@ -43,6 +43,7 @@ export const BUMP_SOURCES = [
   'char_sheet',
   'explorer',
   'idioms',
+  'homework_pass',
   'deck',
   'mcp',
   'tutor',
