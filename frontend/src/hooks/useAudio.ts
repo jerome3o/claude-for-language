@@ -13,6 +13,8 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(initialBlob);
   const [error, setError] = useState<string | null>(null);
+  /** The getUserMedia / MediaRecorder error's name (NotAllowedError…), for `micErrorBlock` (shared/voice/dictation.ts). */
+  const [errorName, setErrorName] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -47,6 +49,7 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
   const startRecording = useCallback(async (deviceId?: string, live?: { onChunk: (chunk: Blob) => void; onStop: (take: Blob) => void; timesliceMs?: number }, keepPrevious = false): Promise<boolean> => {
     try {
       setError(null);
+      setErrorName(null);
       discardRef.current = false;
       if (!keepPrevious) setAudioBlob(null);
 
@@ -105,6 +108,7 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
       return true;
     } catch (err: unknown) {
       const e = err as DOMException;
+      setErrorName(typeof e?.name === 'string' ? e.name : 'Error');
       if (e.name === 'NotAllowedError') {
         setError('Microphone permission denied. Check browser settings.');
       } else if (e.name === 'NotFoundError') {
@@ -154,6 +158,7 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
     isRecording,
     audioBlob,
     error,
+    errorName,
     audioLevel,
     startRecording,
     stopRecording,
