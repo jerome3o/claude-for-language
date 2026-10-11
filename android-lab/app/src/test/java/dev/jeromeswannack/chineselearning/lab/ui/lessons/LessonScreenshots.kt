@@ -11,6 +11,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
@@ -103,7 +105,22 @@ class LessonScreenshots : LabScreenshotTest() {
         node.performClick()
         compose.mainClock.advanceTimeBy(300)
     }
-    private fun type(text: String) = compose.onNode(hasSetTextAction()).performTextInput(text)
+    /** Voice-first boxes open on 🎤 Say it: ✏️ Type first, then the keyboard box. */
+    private fun type(text: String) {
+        val typeButtons = compose.onAllNodesWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.TYPE)
+        if (typeButtons.fetchSemanticsNodes().isNotEmpty()) {
+            typeButtons.onFirst().performClick()
+            compose.mainClock.advanceTimeBy(300)
+        }
+        compose.onNode(hasSetTextAction()).performTextInput(text)
+    }
+    /** ✓ Check of a voice-first box. */
+    private fun submit() {
+        val node = compose.onAllNodesWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.SUBMIT).onLast()
+        runCatching { node.performScrollTo() }
+        node.performClick()
+        compose.mainClock.advanceTimeBy(300)
+    }
 
     // ---- question state of every type ----
     @Test fun note() = shoot("lessons-01-note", content = player(LessonSamples.note))
@@ -149,11 +166,11 @@ class LessonScreenshots : LabScreenshotTest() {
     }
     @Test fun sentenceMakingAnswered() = shootAfter("lessons-19-sentence-making-answered", content = player(LessonSamples.sentenceMaking)) {
         type("吃完饭我把碗洗干净")
-        tap("Check")
+        submit()
     }
     @Test fun writeTypedAnswered() = shootAfter("lessons-21-write-typed-answered", content = player(LessonSamples.writeTyped)) {
         type("冰相")
-        tap("Check")
+        submit()
     }
     @Test fun writeHandwritingAnswered() = shootAfter("lessons-23-write-handwriting-answered", content = player(LessonSamples.writeHand)) {
         compose.onNodeWithTag("sketch-pad").performTouchInput {
@@ -168,7 +185,7 @@ class LessonScreenshots : LabScreenshotTest() {
     }
     @Test fun dictationAnswered() = shootAfter("lessons-25-dictation-answered", content = player(LessonSamples.dictation)) {
         type("请把们关上")
-        tap("Check")
+        submit()
     }
     @Test fun oralAnswered() = shootAfter("lessons-27-oral-answered", content = player(LessonSamples.oral)) { tap("Say it without recording") }
     @Test fun conversationAnswered() = shootAfter("lessons-29-conversation-answered", content = player(LessonSamples.conversation)) {
