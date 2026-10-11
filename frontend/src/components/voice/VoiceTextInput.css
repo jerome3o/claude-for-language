@@ -1,0 +1,164 @@
+/* The voice-first text box (VoiceTextInput.tsx): the typing study cards' voice row, without the card.
+   Mobile first; every button ≥ 48px. */
+.voice-input {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.voice-input-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.voice-input-row .btn {
+  min-height: 48px;
+  white-space: nowrap;
+}
+.voice-input-side {
+  flex: 0 0 auto;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+.voice-input-wide {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.voice-input-wide:active { transform: scale(0.97); }
+.voice-input-wide.is-listening {
+  animation: voice-input-pulse 1.1s ease-in-out infinite;
+}
+.voice-input-row .btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: default;
+}
+.voice-input-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-color: white;
+  vertical-align: -3px;
+}
+
+/* What is being said, live: confirmed text black, the provisional tail grey. */
+.voice-input-live {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  min-height: 56px;
+  margin: 0;
+  border-color: rgba(239, 68, 68, 0.45);
+  font-size: 1.25rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.voice-input-final { color: var(--color-text); }
+.voice-input-interim { color: #9ca3af; }
+.voice-input-placeholder { color: var(--color-text-light); font-size: 1rem; }
+
+/* The review: what was heard, big and read-only, above Retry · Edit · Submit. */
+.voice-input-review {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem 0.7rem;
+  border-radius: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  text-align: center;
+  animation: voice-input-review-in 0.18s ease-out;
+}
+.voice-input-review-text {
+  color: var(--color-text);
+  font-size: 1.5rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.voice-input-review-text.hanzi { font-size: 2rem; }
+.voice-input-review-text.is-long { font-size: 1.375rem; }
+.voice-input-review-pinyin { font-size: 1rem; }
+
+/* Typing: the box with the 🎤 to go back to speaking. */
+.voice-input-typing-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.voice-input-box {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.125rem; /* ≥ 16px: no zoom on focus */
+}
+.voice-input-box--multi {
+  resize: vertical;
+  min-height: 5.5rem;
+  line-height: 1.5;
+}
+.voice-input-mic {
+  flex-shrink: 0;
+  align-self: flex-start;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.voice-input-mic:active { transform: scale(0.94); }
+
+.voice-input-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+/* "Couldn't transcribe — tap to retry" (the same take, upload only). */
+.voice-input-failed {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+}
+.voice-input-failed-note {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-text-light);
+  margin-top: 0.125rem;
+}
+
+@keyframes voice-input-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+@keyframes voice-input-review-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-input-wide.is-listening,
+  .voice-input-review { animation: none; }
+}

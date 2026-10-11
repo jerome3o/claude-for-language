@@ -83,6 +83,11 @@ export interface LiveTranscriberOptions {
    * learner speaks — a typing card's 🎤 shows them in the answer box (final black, tail grey).
    */
   onUpdate?: (transcript: SonioxTranscript) => void;
+  /**
+   * Language hints for this take instead of the server's (a voice-first box for an English answer
+   * puts `en` first: shared/voice/dictation.ts `dictationLanguageHints`).
+   */
+  languageHints?: string[];
 }
 
 const OPEN = 1;
@@ -117,7 +122,7 @@ export class LiveTranscriber {
     }
     this.socket = socket;
     socket.onopen = () => {
-      socket.send(JSON.stringify(buildSonioxConfig({ kind: 'auto' }, s.model, s.language_hints, auth.configApiKey)));
+      socket.send(JSON.stringify(buildSonioxConfig({ kind: 'auto' }, s.model, this.opts.languageHints?.length ? this.opts.languageHints : s.language_hints, auth.configApiKey)));
       for (const chunk of this.queue) socket.send(chunk);
       this.queue = [];
       if (this.ended) socket.send(SONIOX_END_OF_AUDIO);

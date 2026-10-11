@@ -61,6 +61,7 @@ export const ANALYTICS_EVENTS = {
   'app.open': e('app', 'The app was opened or came back after 30 min away (a new analytics session).', ['install_kind']),
   'app.screen_view': e('app', 'Left a screen; `screen` is the route pattern, duration_ms the time on it.', ['duration_ms', 'from']),
   'app.update_applied': e('app', 'A new app version was installed / reloaded.', []),
+  'voice_input.used': e('app', 'A voice-first text box (say it, or type it) settled one answer or take (surface = where: lesson_translate | lesson_dictation | coach | chat | …; outcome = submitted — said and submitted as heard | edit — ✏️ Edit put the transcript in the box | edited — an edited transcript submitted | typed — a typed answer submitted | retaken — 🔁 Retry | failed | empty | cancelled; via = live | upload | none; live_error as in study.take_transcribed; speech_ms = how long the mic was open; ms = stop → transcript; blocked = why speaking was off when typed: none | offline | denied | no_mic | unsupported | mic_error).', ['surface', 'outcome', 'via', 'live_error', 'speech_ms', 'ms', 'blocked']),
 
   // ── study ──────────────────────────────────────────────────────────────
   'study.session_start': e('study', 'Opened Study with cards to do.', ['scope', 'due', 'new_cards', 'offline']),
