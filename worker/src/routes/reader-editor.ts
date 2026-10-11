@@ -30,6 +30,7 @@ import {
 import { Env } from '../types';
 import * as db from '../db/queries';
 import { readerToSpec, applyReaderSpec, createReaderFromSpec } from '../db/reader-editor-queries';
+import { fixSpecPinyin, logPinyinFixes, pinyinSources } from '../services/pinyin-check';
 import { unreferencedImageKeys } from '../services/shared-readers';
 import { segmentReader } from '../services/reader-words';
 
@@ -113,6 +114,8 @@ readerEditor.post('/readers/import', async (c) => {
     throw err;
   }
   const spec = normalizeReaderSpec(body.spec as ReaderSpec);
+  const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(c.env));
+  logPinyinFixes('reader import', pinyinFixes);
   const { reader, imageJobs } = await createReaderFromSpec(c.env.DB, userId, spec);
   if (folderId) {
     await fileItem(c.env.DB, userId, 'reader', reader.id, folderId);
@@ -120,7 +123,7 @@ readerEditor.post('/readers/import', async (c) => {
   }
   const queued = await queueReaderImages(c.env, reader.id, imageJobs);
   wordsInBackground(c, reader.id);
-  return c.json({ ...reader, spec: readerToSpec(reader), image_jobs: queued, warnings: readerPageWarnings(body.spec as ReaderSpec).map(w => w.message) }, 201);
+  return c.json({ ...reader, spec: readerToSpec(reader), image_jobs: queued, warnings: readerPageWarnings(body.spec as ReaderSpec).map(w => w.message), pinyin_fixes: pinyinFixes }, 201);
 });
 
 // ============ Spec read / replace ============
@@ -146,6 +149,8 @@ readerEditor.put('/readers/:id/spec', async (c) => {
   const errors = validateReaderSpec(body.spec);
   if (errors.length > 0) return c.json({ error: 'Invalid reader spec', problems: errors }, 400);
   const spec = normalizeReaderSpec(body.spec as ReaderSpec);
+  const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(c.env));
+  logPinyinFixes('reader update', pinyinFixes);
 
   const applied = await applyReaderSpec(c.env.DB, existing, spec);
   await deleteImages(c.env, applied.removedImageKeys, existing.id);
@@ -169,6 +174,7 @@ readerEditor.put('/readers/:id/spec', async (c) => {
     spec: readerToSpec(updated),
     image_jobs: queued,
     warnings: readerPageWarnings(body.spec as ReaderSpec).map(w => w.message),
+    pinyin_fixes: pinyinFixes,
   });
 });
 

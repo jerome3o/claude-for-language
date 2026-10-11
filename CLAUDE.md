@@ -491,6 +491,25 @@ card that breaks them is refused with a message saying where the content belongs
   Existing notes are never mass-rewritten; the word check proposes fixes instead.
 Change the rules in `shared/cards/standard.ts` only; everything else reads from it.
 
+### Pinyin check on lessons and readers (`worker/src/services/pinyin-check.ts`, `services/pinyin-scan.ts`)
+Deterministic, no model / network: every hanzi + pinyin pair a mini lesson, library lesson, reader or audio-lesson
+plan carries (`hanzi`/`pinyin`, `reference_*`, `content_chinese`/`content_pinyin`, vocabulary — `fixSpecPinyin` walks
+any JSON) is lined up syllable by syllable (儿 folded in) and checked against the readings each character can have
+(pinyin-pro, then CC-CEDICT via `CHAR_DICT`). **Only the impossible is corrected, on write**: a syllable its character
+never has (扶梯 "fúqī" → "fútī"; only that syllable changes, the author's capitals / spacing kept), or syllables that
+don't line up with the characters (the line rebuilt). A reading the character really has is never touched (还 hái/huán,
+得, 长), nor 一 / 不 tones, 一 yāo, 喂 wéi, interjections (嗯 ǹg), lines mixing Latin letters / digits, or a
+multiple-choice exercise's WRONG options (deliberate tone distractors: 押金 "yàjǐn"). Runs in `createCustomLessonFromSpec`
+/ `updateCustomLessonFromSpec` (REST, Ask Claude, coach, MCP, companion lessons), the lesson editor / library routes,
+the session-notes agent's `create_mini_lesson` / `create_reader`, reader import / PUT spec / page edits / story
+generation, and audio-lesson `submit_lesson`; copies (assign, push, share) inherit the checked spec. Replies carry
+`pinyin_fixes: [{ path, where, hanzi, before, after, reason, words }]` (`shared/pinyin/fixes.ts`); the MCP create /
+update tools repeat them. TTS clips are keyed by the Chinese text + voice, so a pinyin fix never invalidates audio.
+Stored content: `POST /api/me/pinyin-scan { apply?, kinds? }` (dry run by default; `apply: true` writes in place — lesson
+ids / completions / FSRS kept, `updated_at` touched; library version not bumped; reader page ids kept) = MCP
+`scan_content_pinyin` (`dry_run` default true). The call board's tab-complete uses the same aligner
+(`services/calls/gloss-pinyin.ts`, which also replaces whole words and applies the 一 / 不 rule).
+
 ### Word checks — "⚠ Possible issue" (`worker/src/services/card-check.ts`, `routes/card-checks.ts`, `shared/cards/check.ts`)
 A cheap batched Haiku check (`structuredCall`, `CHECK_BATCH_SIZE` 40 words per call, forced `report_issues`
 tool) for likely-wrong pinyin (wrong tones, a missing 一/不 tone change, the wrong reading of a multi-reading
@@ -982,6 +1001,7 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `POST /api/ai/check-words` - `{ words: [{ hanzi, pinyin, english }] }` (≤ 60) → `{ issues: [{ index, field, kind, current, proposed, reason }] }`, nothing stored (Paste a list's preview)
 - `GET|POST /api/decks/:id/check` - per-deck "Check for errors": `{ estimate, job }` / start → 202 `{ job }`; `GET|POST /api/relationships/:relId/shared-decks/:id/check` the same on the student's copy (tutor; `can_fix_source`); `GET /api/deck-checks/:jobId`; `POST /api/deck-checks/:jobId/apply` `{ proposal_ids, also_source? }` → `{ applied, source_applied, failed, job }`
 - `PUT /api/profile/card-check` - `{ card_check: boolean | null }` "Check new words for mistakes"
+- `POST /api/me/pinyin-scan` - `{ apply?: boolean, kinds?: ['lesson','library','reader'] }` → `{ scanned, items: [{ kind, id, title, owner?, fixes, status? }], fix_count, applied, report }` — impossible pinyin in my stored lessons (+ copies I assigned), library lessons, readers; dry run unless `apply` (see "Pinyin check")
 - `PUT /api/notes/:id/long-term` - `{ long_term: true | false | null }` the learner's "Add to my long-term review" choice (idempotent; `long_term_at`, not `updated_at`)
 - `DELETE /api/notes/:id` - Delete note (tombstone; clips removed only if no copy references them)
 - `POST /api/notes/move` - `{ note_ids, deck_id }` move notes between your decks, cards and history kept
@@ -2070,6 +2090,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_note_history` | Get review history and Q&A for a note |
 | `backfill_word_tags` | AI word tags of the signed-in user's notes: progress + cost so far, and (unless `status_only`) queue up to `limit` untagged notes now (`POST /api/notes/word-tags/backfill`); the sync fills ≤ 200 an hour by itself |
 | `check_deck_for_errors` | Word check of a whole deck (yours, or a student's copy with `relationship_id` + `shared_deck_id`): waits for the run, returns proposals (current → proposed + reason) and the cost; changes nothing |
+| `scan_content_pinyin` | Scan the user's lessons (+ copies they assigned), library lessons and readers for impossible pinyin (扶梯 fúqī → fútī): a readable dry-run report by default; `dry_run: false` corrects it in place (ids, history, schedule kept) — only when the user asked (`tools/pinyin-scan.ts`) |
 | `apply_note_fixes` | Apply ONLY the fixes the user approved: `job_id` + `proposal_ids` (+ `also_source`), or `fixes: [{ note_id, issue_id }]` from a create tool's `check_warnings` |
 | `create_custom_lesson` | Author a custom mini lesson (sections of exercises) for the user's next study session |
 | `list_custom_lessons` | List custom mini lessons (pending and completed) |

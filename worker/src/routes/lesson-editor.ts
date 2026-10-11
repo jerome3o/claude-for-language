@@ -9,6 +9,7 @@
  * Editor chat                   /editor-chat/:targetType/:targetId…
  */
 
+import { fixSpecPinyin, logPinyinFixes, pinyinSources } from '../services/pinyin-check';
 import { Hono, Context } from 'hono';
 import { FolderError, fileItem, resolveFolderId } from '../services/folders';
 import {
@@ -274,6 +275,8 @@ async function createFromBody(c: Ctx, body: CreateLibraryBody) {
     if (errors.length > 0) return c.json({ error: 'Invalid lesson spec', problems: errors }, 400);
     spec = lessonToExportSpec(body.spec as CustomLessonSpec);
   }
+  const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(c.env));
+  logPinyinFixes('library lesson', pinyinFixes);
   const row = await lib.createLibraryItem(c.env.DB, userId, {
     title: spec.title,
     description: spec.description ?? null,
@@ -286,7 +289,7 @@ async function createFromBody(c: Ctx, body: CreateLibraryBody) {
     row.folder_id = folderId;
   }
   await prewarmLessonImages(c.env, spec);
-  return c.json(libraryItemJson(row, { assignment_count: 0 }), 201);
+  return c.json({ ...libraryItemJson(row, { assignment_count: 0 }), pinyin_fixes: pinyinFixes }, 201);
 }
 
 lessonEditor.post('/lesson-library', async (c) => {
@@ -317,6 +320,8 @@ lessonEditor.put('/lesson-library/:id', async (c) => {
   const errors = validateLessonSpec(body.spec);
   if (errors.length > 0) return c.json({ error: 'Invalid lesson spec', problems: errors }, 400);
   const spec = lessonToExportSpec(body.spec as CustomLessonSpec);
+  const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(c.env));
+  logPinyinFixes('library lesson update', pinyinFixes);
   const bump = !sameContent(parseSpec(existing.spec), spec);
   const row = await lib.updateLibraryItem(c.env.DB, existing.id, userId, {
     title: spec.title,
@@ -328,7 +333,7 @@ lessonEditor.put('/lesson-library/:id', async (c) => {
   if (!row) return c.json({ error: 'Library item not found' }, 404);
   await prewarmLessonImages(c.env, spec);
   const assignments = await lib.listAssignmentsForItem(c.env.DB, row.id);
-  return c.json(libraryItemJson(row, { assignment_count: assignments.length }));
+  return c.json({ ...libraryItemJson(row, { assignment_count: assignments.length }), pinyin_fixes: pinyinFixes });
 });
 
 lessonEditor.delete('/lesson-library/:id', async (c) => {
@@ -488,6 +493,8 @@ lessonEditor.put('/lessons/:id', async (c) => {
   const errors = validateLessonSpec(body.spec);
   if (errors.length > 0) return c.json({ error: 'Invalid lesson spec', problems: errors }, 400);
   const spec = mergeKeptImages(parseSpec(existing.spec), body.spec as CustomLessonSpec);
+  const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(c.env));
+  logPinyinFixes('lesson edit', pinyinFixes);
   const row = await lib.updateLessonSpecById(c.env.DB, existing.id, {
     title: spec.title,
     description: spec.description ?? null,
@@ -496,7 +503,7 @@ lessonEditor.put('/lessons/:id', async (c) => {
   });
   if (!row) return c.json({ error: 'Lesson not found' }, 404);
   const imageJobs = await queueLessonImages(c.env, row.id, spec);
-  return c.json(lessonJson(row, { is_owner: row.user_id === userId, image_jobs: imageJobs }));
+  return c.json({ ...lessonJson(row, { is_owner: row.user_id === userId, image_jobs: imageJobs }), pinyin_fixes: pinyinFixes });
 });
 
 lessonEditor.get('/lessons/:id/:file{export\\.(md|json|csv)}', async (c) => {

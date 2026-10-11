@@ -13,6 +13,7 @@ import { CustomLessonSpec, validateLessonSpec, LESSON_EXERCISE_DOC, LESSON_AUTHO
 import { Env } from '../types';
 import * as db from '../db/queries';
 import { queueLessonImages } from './lesson-images';
+import { fixSpecPinyin, logPinyinFixes, pinyinSources, type PinyinFix } from './pinyin-check';
 
 /**
  * JSON schema for the lesson spec, used as tool input by the in-app chat
@@ -48,7 +49,7 @@ ${LESSON_AUTHORING_RULES}`,
 };
 
 export type CreateCustomLessonResult =
-  | { ok: true; lesson: db.CustomLessonRow; imageJobs: number }
+  | { ok: true; lesson: db.CustomLessonRow; imageJobs: number; pinyinFixes: PinyinFix[] }
   | { ok: false; errors: string[] };
 
 export async function createCustomLessonFromSpec(
@@ -62,6 +63,9 @@ export async function createCustomLessonFromSpec(
   const errors = validateLessonSpec(rawSpec);
   if (errors.length > 0) return { ok: false, errors };
   const spec = rawSpec as CustomLessonSpec;
+  // A syllable its character can't have (扶梯 "fúqī") is corrected before storing (services/pinyin-check.ts).
+  const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(env));
+  logPinyinFixes(`lesson (${source})`, pinyinFixes);
 
   const lesson = await db.createCustomLesson(env.DB, userId, {
     title: spec.title,
@@ -75,11 +79,11 @@ export async function createCustomLessonFromSpec(
 
   const imageJobs = await queueLessonImages(env, lesson.id, spec);
   void trackServer('server.content_created', { kind: 'lesson', count: 1, via: source }, { env, userId });
-  return { ok: true, lesson, imageJobs };
+  return { ok: true, lesson, imageJobs, pinyinFixes };
 }
 
 export type UpdateCustomLessonResult =
-  | { ok: true; lesson: db.CustomLessonRow; imageJobs: number }
+  | { ok: true; lesson: db.CustomLessonRow; imageJobs: number; pinyinFixes: PinyinFix[] }
   | { ok: false; notFound: boolean; errors: string[] };
 
 /**
@@ -101,6 +105,8 @@ export async function updateCustomLessonFromSpec(
   const errors = validateLessonSpec(rawSpec);
   if (errors.length > 0) return { ok: false, notFound: false, errors };
   const spec = rawSpec as CustomLessonSpec;
+  const pinyinFixes = await fixSpecPinyin(spec, pinyinSources(env));
+  logPinyinFixes('lesson update', pinyinFixes);
 
   mergeKeptImages(JSON.parse(existing.spec) as CustomLessonSpec, spec);
 
@@ -113,7 +119,7 @@ export async function updateCustomLessonFromSpec(
   if (!lesson) return { ok: false, notFound: true, errors: ['Lesson not found'] };
 
   const imageJobs = await queueLessonImages(env, lesson.id, spec);
-  return { ok: true, lesson, imageJobs };
+  return { ok: true, lesson, imageJobs, pinyinFixes };
 }
 
 /**

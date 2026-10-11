@@ -8,9 +8,10 @@ import { z } from 'zod';
 import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from '../folders.js';
 import type { ToolContext } from '../context.js';
 import { jsonResult, textResult, errorResult, guard } from '../context.js';
-import { LESSON_SPEC_DOC, lessonSpecProblems, formatProblems } from './specs.js';
+import { LESSON_SPEC_DOC, lessonSpecProblems, formatProblems, pinyinReply, pinyinSuffix } from './specs.js';
 import { conversationIntroWarnings } from '../../../../shared/lesson/introWarnings';
 import type { CustomLessonSpec } from '../../../../shared/lesson/types';
+import type { PinyinFix } from '../../../../shared/pinyin/fixes';
 import { CONFIRM_SEND, NEEDS_CONFIRM, NOT_SENT, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_TODAY, assignLessonAsHomework, describeSend, resolveStudent, sentTo, type ResolvedStudent } from '../homework-send.js';
 import { UPDATE_STUDENT_COPIES, copiesForReply, updateStudentCopies } from '../student-copies.js';
 
@@ -43,6 +44,8 @@ interface LibraryItem {
   spec?: unknown;
   assignment_count?: number;
   exercise_count?: number;
+  /** Pinyin the API corrected on save (a syllable its character can't have). */
+  pinyin_fixes?: PinyinFix[];
   folder_id?: string | null;
 }
 
@@ -109,8 +112,9 @@ ${LESSON_SPEC_DOC}`,
         tags: item.tags,
         exercise_count: countExercises(item.spec),
         spec: spec ? undefined : item.spec,
+        ...pinyinReply(item.pinyin_fixes),
         sent: false,
-        message: `Added "${item.title}" to your lesson library (id=${item.id}).${filedNote(filed)} ${NOT_SENT} When the tutor asks, send it with assign_lesson_to_students(library_id="${item.id}", relationship_ids=[…], confirm: true).`,
+        message: `Added "${item.title}" to your lesson library (id=${item.id}).${filedNote(filed)} ${NOT_SENT} When the tutor asks, send it with assign_lesson_to_students(library_id="${item.id}", relationship_ids=[…], confirm: true).${pinyinSuffix(item.pinyin_fixes)}`,
       });
     }),
   );
@@ -137,6 +141,7 @@ ${LESSON_SPEC_DOC}`,
         version: item.version,
         tags: item.tags,
         assignment_count: item.assignment_count,
+        ...pinyinReply(item.pinyin_fixes),
         ...(copies ? { student_copies: copiesForReply(copies) } : {}),
         message: `Updated "${item.title}" (version ${item.version}).${
           copies && (copies.results.length > 0 || copies.error)
@@ -144,7 +149,7 @@ ${LESSON_SPEC_DOC}`,
             : !copies && item.assignment_count
               ? ` ${item.assignment_count} student copy/copies still have the previous content — push_lesson_update to bring them up to date.`
               : ''
-        }`,
+        }${pinyinSuffix(item.pinyin_fixes)}`,
       });
     }),
   );

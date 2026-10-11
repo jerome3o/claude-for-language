@@ -7,6 +7,7 @@
  */
 import { z } from 'zod';
 import { readerPageWarnings } from '../../../../shared/reader/standard';
+import type { PinyinFix } from '../../../../shared/pinyin/fixes';
 import type { ToolContext } from '../context.js';
 import { jsonResult, textResult, errorResult, guard } from '../context.js';
 import {
@@ -14,6 +15,8 @@ import {
   readerSpecProblems,
   formatProblems,
   filterReaders,
+  pinyinReply,
+  pinyinSuffix,
   type ReaderListRow,
 } from './specs.js';
 import { folderParams, resolveFolder, filedNote, listFolders, folderNames } from '../folders.js';
@@ -46,6 +49,8 @@ interface SpecResponse {
   created_at: string;
   spec: unknown;
   image_jobs?: number;
+  /** Pinyin the API corrected on save (a syllable its character can't have). */
+  pinyin_fixes?: PinyinFix[];
 }
 
 export function registerReaderTools(ctx: ToolContext): void {
@@ -92,15 +97,16 @@ ${READER_SPEC_DOC}`,
       const problems = readerSpecProblems(spec);
       if (problems.length > 0) return errorResult(formatProblems('Reader spec', problems));
       const filed = await resolveFolder(api, 'reader', { folder_id, folder });
-      const created = await api.post<{ id: string; status: string; image_jobs?: number; spec: unknown }>('/api/readers/import', { spec, folder_id: filed?.id });
+      const created = await api.post<{ id: string; status: string; image_jobs?: number; spec: unknown; pinyin_fixes?: PinyinFix[] }>('/api/readers/import', { spec, folder_id: filed?.id });
       const warnings = readerPageWarnings(spec).map(w => w.message);
       return jsonResult({
         id: created.id,
         status: created.status,
         image_jobs: created.image_jobs ?? 0,
         warnings,
+        ...pinyinReply(created.pinyin_fixes),
         sent: false,
-        message: `Created reader "${spec.title_english}" (id=${created.id}).${filedNote(filed)} ${NOT_SENT}${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}`,
+        message: `Created reader "${spec.title_english}" (id=${created.id}).${filedNote(filed)} ${NOT_SENT}${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}${pinyinSuffix(created.pinyin_fixes)}`,
       });
     }),
   );
@@ -127,8 +133,9 @@ ${READER_SPEC_DOC}`,
         ...(studentCopies ? { student_copies: studentCopies } : {}),
         image_jobs: res.image_jobs ?? 0,
         warnings,
+        ...pinyinReply(res.pinyin_fixes),
         page_count: Array.isArray((res.spec as { pages?: unknown[] })?.pages) ? (res.spec as { pages: unknown[] }).pages.length : undefined,
-        message: `Updated reader ${res.id}. The device picks up the new content on its next sync; reading history is unchanged.${res.image_jobs ? ` ${res.image_jobs} illustration(s) generating in the background.` : ''}${copies?.message ? ` ${copies.message}` : ''}`,
+        message: `Updated reader ${res.id}. The device picks up the new content on its next sync; reading history is unchanged.${res.image_jobs ? ` ${res.image_jobs} illustration(s) generating in the background.` : ''}${copies?.message ? ` ${copies.message}` : ''}${pinyinSuffix(res.pinyin_fixes)}`,
       });
     }),
   );
