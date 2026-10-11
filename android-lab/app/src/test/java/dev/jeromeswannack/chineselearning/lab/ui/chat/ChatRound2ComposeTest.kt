@@ -160,7 +160,8 @@ class ChatRound2ComposeTest {
     }
 
     @Test fun composerMicBecomesSend_emojiGoesInAtTheCaret_attachOpensTheSheet() {
-        show(two)
+        // The typing side of the voice-first composer (it opens on 🎤 Say it: VoiceFirstSurfacesTest).
+        show(two.copy(voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")))
         compose.onNodeWithTag("chat-mic").assertExists()
         compose.onAllNodesWithTag("chat-send").assertCountEquals(0)
         compose.onNodeWithTag("chat-attach").performClick()
