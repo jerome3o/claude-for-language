@@ -23,17 +23,30 @@ export interface PinyinFix {
   after: string;
   /**
    * `reading`: a syllable no reading of its character allows (扶梯 fúqī → fútī) — only those syllables
-   * change. `syllable_count`: the pinyin couldn't be lined up with the characters at all (a syllable
-   * missing or extra), so the whole line was rebuilt from the dictionary.
+   * change. `syllable_count`: one syllable was missing and was put back (only when that is clearly
+   * safe: the gap fits one place and its character has one reading) — a line is never rebuilt.
    */
   reason: 'reading' | 'syllable_count';
-  /** The words that changed (reason `reading`). */
+  /** The words that changed; a syllable put back has `from: ''`. */
   words: PinyinWordFix[];
+}
+
+/**
+ * A hanzi + pinyin pair left AS WRITTEN though something looks wrong — the syllables don't line up
+ * with the characters and putting it right would mean guessing. Shown as "needs a look".
+ */
+export interface PinyinWarning {
+  path: string;
+  where: string;
+  hanzi: string;
+  pinyin: string;
+  /** What looks wrong ("one syllable missing for 得 in “说得真好” (shuō zhēn hǎo) — left as written"). */
+  detail: string;
 }
 
 /** "扶梯: fúqī → fútī" — the changed words, else the whole line. */
 export function pinyinFixSummary(fix: PinyinFix): string {
-  if (fix.reason === 'reading' && fix.words.length) return fix.words.map((w) => `${w.hanzi}: ${w.from} → ${w.to}`).join('; ');
+  if (fix.words.length) return fix.words.map((w) => (w.from ? `${w.hanzi}: ${w.from} → ${w.to}` : `${w.hanzi}: missing → ${w.to}`)).join('; ');
   return `${fix.hanzi}: ${fix.before} → ${fix.after}`;
 }
 
@@ -42,5 +55,13 @@ export function pinyinFixesText(fixes: readonly PinyinFix[] | undefined, max = 2
   if (!fixes?.length) return '';
   const lines = fixes.slice(0, max).map((f) => `- ${pinyinFixSummary(f)} (${f.where})`);
   if (fixes.length > max) lines.push(`- …and ${fixes.length - max} more`);
-  return `Pinyin corrected automatically (a syllable its character can't have, or syllables that didn't line up with the characters):\n${lines.join('\n')}`;
+  return `Pinyin corrected automatically (only syllables their character can't have; a reading the character really has is never changed):\n${lines.join('\n')}`;
+}
+
+/** One line per warning ("" when none). */
+export function pinyinWarningsText(warnings: readonly PinyinWarning[] | undefined, max = 20): string {
+  if (!warnings?.length) return '';
+  const lines = warnings.slice(0, max).map((w) => `- ${w.where}: ${w.hanzi}\n    ${w.pinyin}\n    ${w.detail}`);
+  if (warnings.length > max) lines.push(`- …and ${warnings.length - max} more`);
+  return `Needs a look (not changed):\n${lines.join('\n')}`;
 }

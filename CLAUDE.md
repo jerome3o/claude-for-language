@@ -496,10 +496,18 @@ Deterministic, no model / network: every hanzi + pinyin pair a mini lesson, libr
 plan carries (`hanzi`/`pinyin`, `reference_*`, `content_chinese`/`content_pinyin`, vocabulary — `fixSpecPinyin` walks
 any JSON) is lined up syllable by syllable (儿 folded in) and checked against the readings each character can have
 (pinyin-pro, then CC-CEDICT via `CHAR_DICT`). **Only the impossible is corrected, on write**: a syllable its character
-never has (扶梯 "fúqī" → "fútī"; only that syllable changes, the author's capitals / spacing kept), or syllables that
-don't line up with the characters (the line rebuilt). A reading the character really has is never touched (还 hái/huán,
-得, 长), nor 一 / 不 tones, 一 yāo, 喂 wéi, interjections (嗯 ǹg), lines mixing Latin letters / digits, or a
-multiple-choice exercise's WRONG options (deliberate tone distractors: 押金 "yàjǐn"). Runs in `createCustomLessonFromSpec`
+never has (扶梯 "fúqī" → "fútī", 休息 "xiūxí" → "xiūxi"; only that syllable changes, the author's capitals / spacing /
+punctuation / line breaks kept; the word dictionary or pinyin-pro in context picks the replacement). A syllable that IS a
+reading of its character is never touched, whatever the word dictionary says (大人 dàrén, 还 hái/huán, 得, 长; a word is
+cut into syllables the way that fits its characters — dà|rén, not dàr|én), nor 一 / 不 tones, 一 yāo, 喂 wéi, colloquial
+reduplication (好好 hǎohāo, 慢慢 mànmān), interjections (嗯 ǹg), lines mixing Latin letters / digits, or a
+multiple-choice exercise's WRONG options (deliberate tone distractors: 押金 "yàjǐn"). Alternatives listed on purpose
+("piāo / piào", "zhè ge / zhèi ge", "xuě; xiě") are checked one by one, never collapsed. **A line is never rebuilt**:
+when the syllables don't line up with the characters, ONE missing syllable is put back only when clearly safe (one
+clause short by one, the gap fits one place only, the character has one reading: "Wǒ xǐhuan nǐ." → "Wǒ hěn xǐhuan
+nǐ."); anything else stays as written and comes back as a warning ("one syllable missing for 得 in “说得真好” …",
+"an extra syllable “le” …") — `checkSpecPinyin` → `{ fixes, warnings }` (`PinyinWarning`), the scan's "Needs a look
+(not changed)"; so does a line where most syllables don't fit (out of step, not misspelled). Runs in `createCustomLessonFromSpec`
 / `updateCustomLessonFromSpec` (REST, Ask Claude, coach, MCP, companion lessons), the lesson editor / library routes,
 the session-notes agent's `create_mini_lesson` / `create_reader`, reader import / PUT spec / page edits / story
 generation, and audio-lesson `submit_lesson`; copies (assign, push, share) inherit the checked spec. Replies carry
@@ -507,8 +515,9 @@ generation, and audio-lesson `submit_lesson`; copies (assign, push, share) inher
 update tools repeat them. TTS clips are keyed by the Chinese text + voice, so a pinyin fix never invalidates audio.
 Stored content: `POST /api/me/pinyin-scan { apply?, kinds? }` (dry run by default; `apply: true` writes in place — lesson
 ids / completions / FSRS kept, `updated_at` touched; library version not bumped; reader page ids kept) = MCP
-`scan_content_pinyin` (`dry_run` default true). The call board's tab-complete uses the same aligner
-(`services/calls/gloss-pinyin.ts`, which also replaces whole words and applies the 一 / 不 rule).
+`scan_content_pinyin` (`dry_run` default true; `needs_a_look` per item). The call board's tab-complete uses the same aligner
+(`services/calls/gloss-pinyin.ts`, which also replaces whole words, rebuilds its own short gloss when the count is off, and
+applies the 一 / 不 rule).
 
 ### Word checks — "⚠ Possible issue" (`worker/src/services/card-check.ts`, `routes/card-checks.ts`, `shared/cards/check.ts`)
 A cheap batched Haiku check (`structuredCall`, `CHECK_BATCH_SIZE` 40 words per call, forced `report_issues`
@@ -1001,7 +1010,7 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `POST /api/ai/check-words` - `{ words: [{ hanzi, pinyin, english }] }` (≤ 60) → `{ issues: [{ index, field, kind, current, proposed, reason }] }`, nothing stored (Paste a list's preview)
 - `GET|POST /api/decks/:id/check` - per-deck "Check for errors": `{ estimate, job }` / start → 202 `{ job }`; `GET|POST /api/relationships/:relId/shared-decks/:id/check` the same on the student's copy (tutor; `can_fix_source`); `GET /api/deck-checks/:jobId`; `POST /api/deck-checks/:jobId/apply` `{ proposal_ids, also_source? }` → `{ applied, source_applied, failed, job }`
 - `PUT /api/profile/card-check` - `{ card_check: boolean | null }` "Check new words for mistakes"
-- `POST /api/me/pinyin-scan` - `{ apply?: boolean, kinds?: ['lesson','library','reader'] }` → `{ scanned, items: [{ kind, id, title, owner?, fixes, status? }], fix_count, applied, report }` — impossible pinyin in my stored lessons (+ copies I assigned), library lessons, readers; dry run unless `apply` (see "Pinyin check")
+- `POST /api/me/pinyin-scan` - `{ apply?: boolean, kinds?: ['lesson','library','reader'] }` → `{ scanned, items: [{ kind, id, title, owner?, fixes, warnings, status? }], fix_count, warning_count, applied, report }` (warnings = "needs a look", never written) — impossible pinyin in my stored lessons (+ copies I assigned), library lessons, readers; dry run unless `apply` (see "Pinyin check")
 - `PUT /api/notes/:id/long-term` - `{ long_term: true | false | null }` the learner's "Add to my long-term review" choice (idempotent; `long_term_at`, not `updated_at`)
 - `DELETE /api/notes/:id` - Delete note (tombstone; clips removed only if no copy references them)
 - `POST /api/notes/move` - `{ note_ids, deck_id }` move notes between your decks, cards and history kept

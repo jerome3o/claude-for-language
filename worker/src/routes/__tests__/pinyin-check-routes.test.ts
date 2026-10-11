@@ -194,4 +194,29 @@ describe('POST /api/me/pinyin-scan', () => {
     expect((await api('/api/me/pinyin-scan', 'POST', { kinds: ['decks'] })).status).toBe(400);
     expect((await api('/api/me/pinyin-scan', 'POST', { apply: 'yes' })).status).toBe(400);
   });
+
+  it('lists lines whose syllables don\'t line up under "needs a look" and never writes them, even with apply', async () => {
+    const api = makeApp();
+    db.raw.exec(`INSERT INTO graded_readers (id, user_id, title_chinese, title_english, difficulty_level, source_deck_ids, vocabulary_used, status)
+      VALUES ('R2', 'u1', '朋友', 'Friends', 'beginner', '[]', '[{"hanzi":"漂","pinyin":"piāo / piào","english":"to float"},{"hanzi":"混血","pinyin":"hùnxuě","english":"mixed race"}]', 'ready')`);
+    const page = '李友说：「没关系。你的中文说得真好！」';
+    const pagePinyin = 'Lǐ Yǒu shuō: "Méi guānxi. Nǐ Zhōngwén shuō de zhēn hǎo!"';
+    db.raw.run('INSERT INTO reader_pages (id, reader_id, page_number, content_chinese, content_pinyin, content_english) VALUES (?, ?, ?, ?, ?, ?)', ['P9', 'R2', 1, page, pagePinyin, 'x']);
+
+    const dry = await (await api('/api/me/pinyin-scan', 'POST', {})).json() as {
+      items: Array<{ id: string; fixes: Fix[]; warnings: Array<{ where: string; detail: string }> }>; fix_count: number; warning_count: number; report: string;
+    };
+    expect(dry.fix_count).toBe(1);
+    expect(dry.warning_count).toBe(1);
+    expect(dry.items[0].fixes.map((f) => f.after)).toEqual(['hùnxuè']);
+    expect(dry.items[0].warnings).toEqual([expect.objectContaining({ where: 'page 1', detail: expect.stringContaining('one syllable missing for 的') })]);
+    expect(dry.report).toContain('Needs a look (not changed)');
+    expect(dry.report).not.toContain('line rebuilt');
+
+    await api('/api/me/pinyin-scan', 'POST', { apply: true });
+    expect(db.rows('SELECT content_pinyin FROM reader_pages WHERE id = ?', ['P9'])).toEqual([{ content_pinyin: pagePinyin }]);
+    const vocab = db.rows<{ vocabulary_used: string }>("SELECT vocabulary_used FROM graded_readers WHERE id = 'R2'")[0].vocabulary_used;
+    expect(vocab).toContain('piāo / piào');
+    expect(vocab).toContain('hùnxuè');
+  });
 });

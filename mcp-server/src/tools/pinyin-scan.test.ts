@@ -70,6 +70,19 @@ describe('scan_content_pinyin', () => {
     r.items[0].owner = 'student_copy';
     expect(shapeScan(r).items[0]).toMatchObject({ id: 'L1', student_copy: true });
   });
+
+  it('shapeScan passes on the lines that need a look (never written) with a note', () => {
+    const r = response(false);
+    const warning = { path: 'pages[0].content_pinyin', where: 'page 1', hanzi: '他长大了。', pinyin: 'Tā zhǎng le.', detail: 'one syllable missing for 大 in “他长大了” (Tā zhǎng le) — left as written' };
+    r.items[0].warnings = [warning];
+    r.warning_count = 1;
+    const out = shapeScan(r);
+    expect(out.needs_a_look_count).toBe(1);
+    expect(out.items[0].needs_a_look).toEqual([{ where: warning.where, hanzi: warning.hanzi, pinyin: warning.pinyin, detail: warning.detail }]);
+    expect(out.needs_a_look_note).toMatch(/never changed by this tool/);
+    // An older server without warnings: nothing extra.
+    expect(shapeScan(response(false))).not.toHaveProperty('needs_a_look_count');
+  });
 });
 
 describe('pinyin fixes in the create / update replies', () => {

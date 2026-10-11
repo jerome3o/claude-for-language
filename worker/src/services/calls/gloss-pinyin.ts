@@ -29,6 +29,8 @@ import {
   keepCapital,
   pinyinProLine,
   pinyinSlots,
+  proReadings,
+  syllableFits,
   type PinyinReadingSources,
 } from '../pinyin-check';
 
@@ -61,7 +63,8 @@ export async function checkGlossPinyin(hanzi: string, pinyin: string, sources: G
     return { pinyin: applyYiBuToneChanges(hanzi, pinyin), fixes: [] };
   }
   const nfc = pinyin.normalize('NFC');
-  const words = alignPinyin(han, nfc);
+  // A word that can be cut more than one way ("dàrén": dàr|én or dà|rén) is cut the way that fits.
+  const words = alignPinyin(han, nfc, (h, s) => syllableFits(han[h], s, proReadings(han[h])));
   if (!words) {
     const to = applyYiBuToneChanges(hanzi, pinyinProLine(hanzi));
     return { pinyin: to || pinyin, fixes: to ? [{ hanzi, from: pinyin, to }] : [] };

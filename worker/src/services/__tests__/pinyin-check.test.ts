@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkAuthoredPinyin, fixSpecPinyin } from '../pinyin-check';
-import { pinyinFixesText } from '@shared/pinyin/fixes';
+import { pinyinFixesText, pinyinFixSummary, pinyinWarningsText } from '@shared/pinyin/fixes';
+import { readFileSync, existsSync } from 'fs';
+import path from 'path';
+import { getCharRecords, getWordRecords } from '../char-dict';
+import { checkAuthoredPinyin, checkSpecPinyin, fixSpecPinyin, type PinyinReadingSources } from '../pinyin-check';
 import { validateLessonSpec, type CustomLessonSpec } from '@shared/lesson';
 import { validateReaderSpec, type ReaderSpec } from '@shared/reader';
 
@@ -69,10 +72,17 @@ describe('checkAuthoredPinyin', () => {
     }
   });
 
-  it('rebuilds a line whose syllables cannot be lined up, keeping the capital and the full stop', async () => {
+  it('never rebuilds a line whose syllables cannot be lined up: a warning, the text as written', async () => {
+    // 大 has several readings (dà / dài / tài): putting the missing one back would be a guess.
     const r = await checkAuthoredPinyin('他长大了。', 'Tā zhǎng le.');
-    expect(r.reason).toBe('syllable_count');
-    expect(r.pinyin).toBe('Tā zhǎngdà le.');
+    expect(r.reason).toBeNull();
+    expect(r.pinyin).toBe('Tā zhǎng le.');
+    expect(r.warnings).toEqual(['one syllable missing for 大 in “他长大了” (Tā zhǎng le) — left as written']);
+  });
+
+  it('puts ONE missing syllable back when it is clearly safe (one place, one reading), keeping the rest as written', async () => {
+    const r = await checkAuthoredPinyin('我很喜欢你。', 'Wǒ xǐhuan nǐ.');
+    expect(r).toEqual({ pinyin: 'Wǒ hěn xǐhuan nǐ.', reason: 'syllable_count', words: [{ hanzi: '很', from: '', to: 'hěn' }] });
   });
 
   it('skips mixed English / digits, empty pinyin and empty hanzi', async () => {
@@ -205,5 +215,118 @@ describe('fixSpecPinyin', () => {
     const spec = lesson();
     await fixSpecPinyin(spec);
     expect(await fixSpecPinyin(spec)).toEqual([]);
+  });
+});
+
+// The worker's real dictionaries (worker/char-dict, committed), read from disk the way the CHAR_DICT
+// binding serves them — so these cases run exactly as in production.
+const dictDir = path.resolve(__dirname, '../../../char-dict');
+const fsLoader = async (file: string) => {
+  const p = path.join(dictDir, file);
+  return existsSync(p) ? new Uint8Array(readFileSync(p)) : null;
+};
+const real: PinyinReadingSources = {
+  charReadings: async (chars) => {
+    const { records } = await getCharRecords(fsLoader, chars, 'test-fs');
+    return Object.fromEntries(Object.entries(records).map(([c, r]) => [c, r.readings.map((x) => x.pinyin)]));
+  },
+  wordPinyin: async (words) => {
+    const { records } = await getWordRecords(fsLoader, words, 'test-fs');
+    return Object.fromEntries(Object.entries(records).map(([w, r]) => [w, r.pinyin]));
+  },
+};
+const same = (pinyin: string) => ({ pinyin, reason: null, words: [] });
+
+describe('checkAuthoredPinyin on real content (the first scan of Jerome\'s lessons and readers)', () => {
+  it('still makes the good fixes: only the impossible syllable changes', async () => {
+    for (const [hz, py, to] of [
+      ['粢饭团', 'cífàntuán', 'zīfàntuán'],
+      ['混血', 'hùnxuě', 'hùnxuè'],
+      ['她是瑞士、英国和德国混血。', 'Tā shì Ruìshì, Yīngguó hé Déguó hùnxuě.', 'Tā shì Ruìshì, Yīngguó hé Déguó hùnxuè.'],
+      ['为什么', 'wèishéme', 'wèishénme'],
+      ['休息', 'xiūxí', 'xiūxi'],
+      ['我今天休息，所以不去公司。', 'Wǒ jīntiān xiūxí, suǒyǐ bù qù gōngsī.', 'Wǒ jīntiān xiūxi, suǒyǐ bù qù gōngsī.'],
+      ['裙子', 'qúnzì', 'qúnzi'],
+      ['突然', 'Túrán', 'Tūrán'],
+      ['小小', 'xiǎxiǎo', 'xiǎoxiǎo'],
+    ]) {
+      const r = await checkAuthoredPinyin(hz, py, real);
+      expect(r.pinyin, hz).toBe(to);
+      expect(r.reason, hz).toBe('reading');
+    }
+  });
+
+  it('checks alternatives listed on purpose one by one and never collapses them', async () => {
+    for (const py of ['piāo / piào']) expect(await checkAuthoredPinyin('漂', py, real)).toEqual(same(py));
+    expect(await checkAuthoredPinyin('数', 'shù / shǔ', real)).toEqual(same('shù / shǔ'));
+    expect(await checkAuthoredPinyin('乐', 'yuè / lè', real)).toEqual(same('yuè / lè'));
+    expect(await checkAuthoredPinyin('这个', 'zhè ge / zhèi ge', real)).toEqual(same('zhè ge / zhèi ge'));
+    expect(await checkAuthoredPinyin('那个', 'nà ge / nèi ge', real)).toEqual(same('nà ge / nèi ge'));
+    expect(await checkAuthoredPinyin('那', 'nà / nèi', real)).toEqual(same('nà / nèi'));
+    expect(await checkAuthoredPinyin('这个', 'zhè ge, zhèi ge', real)).toEqual(same('zhè ge, zhèi ge'));
+    // An impossible syllable inside one alternative is fixed; the other stays.
+    expect(await checkAuthoredPinyin('血', 'xuě / xiě', real)).toEqual({ pinyin: 'xuè / xiě', reason: 'reading', words: [{ hanzi: '血', from: 'xuě', to: 'xuè' }] });
+    expect((await checkAuthoredPinyin('血', 'xuě; xiě', real)).pinyin).toBe('xuè; xiě');
+    // Alternatives on both sides line up as they are.
+    for (const [hz, py] of [['星期/周/礼拜', 'xīngqī / zhōu / lǐbài'], ['总是 / 总 / 老是 / 老', 'zǒng shì / zǒng / lǎoshì / lǎo'], ['没事儿 / 别客气', 'méishìr / bié kèqi']]) {
+      expect(await checkAuthoredPinyin(hz, py, real), hz).toEqual(same(py));
+    }
+  });
+
+  it('never rebuilds a reader page that is a syllable short: unchanged, and the warning names the place', async () => {
+    const hz = '朱先生说：「我有点忙。我的公司很多人失业了。我担心。」\n李友说：「没关系。你的中文说得真好！」\n朱先生笑了：「我还不流利。」';
+    const py = 'Zhū xiānsheng shuō: "Wǒ yǒudiǎn máng. Wǒ de gōngsī hěn duō rén shīyè le. Wǒ dān xīn."\nLǐ Yǒu shuō: "Méi guānxi. Nǐ Zhōngwén shuō de zhēn hǎo!"\nZhū xiānsheng xiào le: "Wǒ hái bù liú lì."';
+    expect(await checkAuthoredPinyin(hz, py, real)).toEqual({
+      ...same(py),
+      warnings: ['one syllable missing for 的 in “你的中文说得真好” (Nǐ Zhōngwén shuō de zhēn hǎo) — left as written'],
+    });
+    // The same line missing the de of 得: 得 has several readings, so it isn't guessed (pinyin-pro would say dé).
+    const short = 'Zhū xiānsheng shuō: "Wǒ yǒudiǎn máng."\nLǐ Yǒu shuō: "Méi guānxi. Nǐ de Zhōngwén shuō zhēn hǎo!"';
+    const r = await checkAuthoredPinyin('朱先生说：「我有点忙。」\n李友说：「没关系。你的中文说得真好！」', short, real);
+    expect(r.pinyin).toBe(short);
+    expect(r.warnings).toEqual(['one syllable missing for 得 in “你的中文说得真好” (Nǐ de Zhōngwén shuō zhēn hǎo) — left as written']);
+  });
+
+  it('an extra syllable is reported, not removed', async () => {
+    const r = await checkAuthoredPinyin('我去加拿大玩，不是工作', 'wǒ qù jiānádà wán le! bù shì gōngzuò', real);
+    expect(r).toEqual({ ...same('wǒ qù jiānádà wán le! bù shì gōngzuò'), warnings: ['an extra syllable “le” in “我去加拿大玩” (wǒ qù jiānádà wán le) — left as written'] });
+  });
+
+  it('a syllable that IS a reading of its character is never changed, whatever the word dictionary says', async () => {
+    expect(await checkAuthoredPinyin('大人', 'dàrén', real)).toEqual(same('dàrén')); // the dictionary says dàren
+    expect(await checkAuthoredPinyin('我们今天逛逛，找找吃的。', 'Wǒmen jīntiān guàng guàng, zhǎo zhǎo chī de.', real)).toEqual(same('Wǒmen jīntiān guàng guàng, zhǎo zhǎo chī de.'));
+    // 哎 is only āi in both dictionaries, so àiya IS impossible — fixed; with ài known it would stay.
+    expect((await checkAuthoredPinyin('哎呀', 'àiya', real)).pinyin).toBe('āiya');
+    expect(await checkAuthoredPinyin('哎呀', 'àiya', { charReadings: async () => ({ 哎: ['āi', 'ài'] }) })).toEqual(same('àiya'));
+  });
+
+  it('leaves colloquial reduplication alone (好好 hǎohāo, 慢慢 mànmān)', async () => {
+    for (const [hz, py] of [['好好', 'hǎohāo'], ['好好学习', 'hǎohāo xuéxí'], ['好好儿', 'hǎohāor'], ['慢慢走', 'mànmān zǒu'], ['我只好好学了三年。', 'Wǒ zhǐ hǎohǎo xué le sān nián.']]) {
+      expect(await checkAuthoredPinyin(hz, py, real), hz).toEqual(same(py));
+    }
+  });
+
+  it('does not "fix" pinyin that is out of step with its characters syllable by syllable', async () => {
+    const r = await checkAuthoredPinyin('你好吗', 'wǒ shì shéi', real);
+    expect(r.reason).toBeNull();
+    expect(r.pinyin).toBe('wǒ shì shéi');
+    expect(r.warnings?.[0]).toMatch(/3 of 3 syllables aren't readings of their characters/);
+  });
+
+  it('checkSpecPinyin returns the fixes and the lines that need a look; the warnings change nothing', async () => {
+    const spec = {
+      vocabulary_used: [
+        { hanzi: '漂', pinyin: 'piāo / piào' },
+        { hanzi: '混血', pinyin: 'hùnxuě' },
+      ],
+      pages: [{ content_chinese: '他长大了。', content_pinyin: 'Tā zhǎng le.' }],
+    };
+    const { fixes, warnings } = await checkSpecPinyin(spec, real);
+    expect(fixes.map((f) => [f.where, f.after])).toEqual([['vocabulary 2', 'hùnxuè']]);
+    expect(warnings).toEqual([{ path: 'pages[0].content_pinyin', where: 'page 1', hanzi: '他长大了。', pinyin: 'Tā zhǎng le.', detail: 'one syllable missing for 大 in “他长大了” (Tā zhǎng le) — left as written' }]);
+    expect(spec.pages[0].content_pinyin).toBe('Tā zhǎng le.');
+    expect(spec.vocabulary_used[0].pinyin).toBe('piāo / piào');
+    expect(pinyinWarningsText(warnings)).toContain('Needs a look (not changed)');
+    expect(pinyinFixSummary({ path: '', where: '', hanzi: '我很喜欢你。', before: '', after: '', reason: 'syllable_count', words: [{ hanzi: '很', from: '', to: 'hěn' }] })).toBe('很: missing → hěn');
   });
 });

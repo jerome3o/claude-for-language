@@ -14,9 +14,9 @@
  * TTS clips are keyed by the Chinese text + voice, never the pinyin — nothing is regenerated.
  */
 
-import type { PinyinFix } from '@shared/pinyin/fixes';
+import type { PinyinFix, PinyinWarning } from '@shared/pinyin/fixes';
 import { pinyinFixSummary } from '@shared/pinyin/fixes';
-import { fixSpecPinyin, type PinyinReadingSources } from './pinyin-check';
+import { checkSpecPinyin, type PinyinReadingSources } from './pinyin-check';
 
 export const PINYIN_SCAN_KINDS = ['lesson', 'library', 'reader'] as const;
 export type PinyinScanKind = (typeof PINYIN_SCAN_KINDS)[number];
@@ -28,6 +28,8 @@ export interface PinyinScanItem {
   /** lesson: whose account it is in ('mine', or the student's copy the caller assigned). */
   owner?: 'mine' | 'student_copy';
   fixes: PinyinFix[];
+  /** Lines left as written that need a look (never written, also with apply). */
+  warnings: PinyinWarning[];
   /** apply: written / skipped because it changed since the scan. */
   status?: 'applied' | 'changed_since_scan';
 }
@@ -37,9 +39,11 @@ export interface PinyinScanResult {
   kinds: PinyinScanKind[];
   /** How many items of each kind were looked at. */
   scanned: Record<PinyinScanKind, number>;
-  /** Only the items with something to fix. */
+  /** Only the items with something to fix or to look at. */
   items: PinyinScanItem[];
   fix_count: number;
+  /** Lines that need a look (not changed). */
+  warning_count: number;
   applied: number;
   /** A readable summary, one line per fix. */
   report: string;
@@ -90,10 +94,10 @@ export async function scanContentPinyin(
       scanned.lesson++;
       const spec = parse(row.spec);
       if (!spec) continue;
-      const fixes = await fixSpecPinyin(spec, sources);
-      if (!fixes.length) continue;
-      const item: PinyinScanItem = { kind: 'lesson', id: row.id, title: row.title, owner: row.user_id === userId ? 'mine' : 'student_copy', fixes };
-      if (apply) {
+      const { fixes, warnings } = await checkSpecPinyin(spec, sources);
+      if (!fixes.length && !warnings.length) continue;
+      const item: PinyinScanItem = { kind: 'lesson', id: row.id, title: row.title, owner: row.user_id === userId ? 'mine' : 'student_copy', fixes, warnings };
+      if (apply && fixes.length) {
         const ok = await changed(db, `UPDATE custom_lessons SET spec = ?, updated_at = datetime('now') WHERE id = ? AND spec = ?`, [JSON.stringify(spec), row.id, row.spec]);
         item.status = ok ? 'applied' : 'changed_since_scan';
       }
@@ -110,10 +114,10 @@ export async function scanContentPinyin(
       scanned.library++;
       const spec = parse(row.spec);
       if (!spec) continue;
-      const fixes = await fixSpecPinyin(spec, sources);
-      if (!fixes.length) continue;
-      const item: PinyinScanItem = { kind: 'library', id: row.id, title: row.title, fixes };
-      if (apply) {
+      const { fixes, warnings } = await checkSpecPinyin(spec, sources);
+      if (!fixes.length && !warnings.length) continue;
+      const item: PinyinScanItem = { kind: 'library', id: row.id, title: row.title, fixes, warnings };
+      if (apply && fixes.length) {
         const ok = await changed(db, `UPDATE lesson_library SET spec = ?, updated_at = datetime('now') WHERE id = ? AND spec = ?`, [JSON.stringify(spec), row.id, row.spec]);
         item.status = ok ? 'applied' : 'changed_since_scan';
       }
@@ -142,10 +146,10 @@ export async function scanContentPinyin(
         vocabulary_used: Array.isArray(vocab) ? vocab : [],
         pages: own.map((p) => ({ content_chinese: p.content_chinese, content_pinyin: p.content_pinyin ?? '' })),
       };
-      const fixes = await fixSpecPinyin(spec, sources);
-      if (!fixes.length) continue;
-      const item: PinyinScanItem = { kind: 'reader', id: reader.id, title: reader.title_english || reader.title_chinese, fixes };
-      if (apply) {
+      const { fixes, warnings } = await checkSpecPinyin(spec, sources);
+      if (!fixes.length && !warnings.length) continue;
+      const item: PinyinScanItem = { kind: 'reader', id: reader.id, title: reader.title_english || reader.title_chinese, fixes, warnings };
+      if (apply && fixes.length) {
         let ok = true;
         const vocabFixed = fixes.some((f) => f.path.startsWith('vocabulary_used'));
         if (vocabFixed) {
@@ -164,23 +168,39 @@ export async function scanContentPinyin(
   }
 
   const fixCount = items.reduce((n, i) => n + i.fixes.length, 0);
+  const warningCount = items.reduce((n, i) => n + i.warnings.length, 0);
   const applied = items.filter((i) => i.status === 'applied').length;
-  return { apply, kinds, scanned, items, fix_count: fixCount, applied, report: scanReport(items, scanned, apply) };
+  return { apply, kinds, scanned, items, fix_count: fixCount, warning_count: warningCount, applied, report: scanReport(items, scanned, apply) };
 }
 
 const KIND_LABEL: Record<PinyinScanKind, string> = { lesson: 'Lesson', library: 'Library lesson', reader: 'Reader' };
 
-/** One block per item, one line per fix: where, hanzi, before → after. */
+/** One block per item with fixes (where, hanzi, before → after), then the lines that need a look. */
 export function scanReport(items: readonly PinyinScanItem[], scanned: Record<PinyinScanKind, number>, apply: boolean): string {
   const looked = `Scanned ${scanned.lesson} lesson(s), ${scanned.library} library lesson(s), ${scanned.reader} reader(s).`;
-  if (!items.length) return `${looked} Nothing to fix.`;
   const total = items.reduce((n, i) => n + i.fixes.length, 0);
-  const head = `${looked} ${total} pinyin line(s) in ${items.length} item(s) ${apply ? 'corrected' : 'would be corrected (dry run — nothing written)'}:`;
-  const blocks = items.map((item) => {
-    const owner = item.owner === 'student_copy' ? " (a student's copy you assigned)" : '';
+  const warned = items.reduce((n, i) => n + (i.warnings?.length ?? 0), 0);
+  if (!total && !warned) return `${looked} Nothing to fix.`;
+  const title = (item: PinyinScanItem) => `${KIND_LABEL[item.kind]} "${item.title}"${item.owner === 'student_copy' ? " (a student's copy you assigned)" : ''} [${item.id}]`;
+  const parts: string[] = [];
+  const withFixes = items.filter((i) => i.fixes.length);
+  parts.push(
+    total
+      ? `${looked} ${total} pinyin line(s) in ${withFixes.length} item(s) ${apply ? 'corrected' : 'would be corrected (dry run — nothing written)'}:`
+      : `${looked} Nothing to correct.`,
+  );
+  for (const item of withFixes) {
     const status = item.status === 'changed_since_scan' ? ' — NOT written: it changed since the scan, run again' : '';
-    const lines = item.fixes.map((f) => `  - ${f.where}: ${f.hanzi}\n      ${f.before}\n    → ${f.after}${f.reason === 'reading' ? `   (${pinyinFixSummary(f)})` : '   (syllables did not line up — line rebuilt)'}`);
-    return `${KIND_LABEL[item.kind]} "${item.title}"${owner} [${item.id}]${status}\n${lines.join('\n')}`;
-  });
-  return [head, ...blocks].join('\n\n');
+    const lines = item.fixes.map((f) => `  - ${f.where}: ${f.hanzi}\n      ${f.before}\n    → ${f.after}   (${pinyinFixSummary(f)})`);
+    parts.push(`${title(item)}${status}\n${lines.join('\n')}`);
+  }
+  if (warned) {
+    const withWarnings = items.filter((i) => i.warnings?.length);
+    parts.push(`Needs a look (not changed): ${warned} line(s) in ${withWarnings.length} item(s) whose syllables don't line up with the characters — nothing was guessed or rebuilt:`);
+    for (const item of withWarnings) {
+      const lines = item.warnings.map((w) => `  - ${w.where}: ${w.hanzi}\n      ${w.pinyin}\n      ${w.detail}`);
+      parts.push(`${title(item)}\n${lines.join('\n')}`);
+    }
+  }
+  return parts.join('\n\n');
 }
