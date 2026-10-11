@@ -15,6 +15,8 @@ describe('board gloss pinyin check', () => {
       ['我得走了', 'wǒ děi zǒu le'],
       ['一点儿', 'yìdiǎnr'],
       ['西安', "Xī'ān"],
+      // dà|rén, not dàr|én: a word is cut the way that fits its characters.
+      ['大人', 'dàrén'],
     ]) {
       const r = await checkGlossPinyin(hz, py);
       expect(r, hz).toEqual({ pinyin: py, fixes: [] });
