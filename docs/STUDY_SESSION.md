@@ -606,7 +606,40 @@ as a core resource.
 Rules: `shared/cards/word-tags.ts` (`wordTags`, `wordTagExplanation`; Lab `core/…/cards/WordTags.kt`,
 parity-tested over the shipped file by `android-lab/parity/fixtures/word-tags.ts`). Web
 `components/wordTags/WordTagPills.tsx`; Lab `ui/study/WordTagsUi.kt`. Event: `study.word_tag_open`
-`{ kind, tag, source }`; the switch: `settings.change { setting: 'word_tags' }`.
+`{ kind, tag, source, tag_source: lexicon | ai }`; the switch: `settings.change { setting: 'word_tags' }`.
+
+### AI tags (✨)
+
+What the lexicon can't say — whether a verb takes an object, and a register for the many words it
+has no label for — comes from a cheap AI pass per note, stored on the note (`notes.word_tags`, JSON
+`{ v, transitivity?: transitive | intransitive | both | n/a, separable?, register?: formal | neutral |
+informal | polite | rude | slang | literary, register_note? (≤ 60 chars), confidence: high | medium |
+low }`) and synced to the devices like everything else on a note, so it works offline.
+
+Shown only where the lexicon has nothing, and marked: the pill carries a small ✨ and its sheet says
+**"Suggested by AI — may be wrong"**, plus the register note ("formal written; in speech use 告诉").
+- **Transitivity** — "Takes an object" / "No object" / "Object optional" — only for a verb (the
+  lexicon says Verb, or has no part of speech for the card) and never for a sentence; placed after
+  the part of speech. `n/a` shows nothing.
+- **Register** — Formal / Polite / Informal / Slang / Rude / Literary, the lexicon's own colours —
+  only when the lexicon gave the card no register (it always wins); `neutral` shows nothing.
+- **Separable verb** from the AI only when the lexicon doesn't already say so (no split example).
+- **Low confidence is never shown**; a note the model said nothing about is stored as
+  `{ v: 1, confidence: 'low' }` (done, nothing shown).
+
+Rules: `shared/cards/word-tags-ai.ts` (`parseAiWordTags`, `mergeAiWordTags`, `wordTagsWithAi`,
+`explainWordTag`; Lab `core/…/cards/WordTagsAi.kt`, parity-tested by
+`android-lab/parity/fixtures/word-tags-ai.ts`). The pills take the note's `word_tags` on the answer
+side and, in the explorer's Word view, the learner's own card of that word.
+
+**Making them** (`worker/src/services/word-tags-ai.ts`): one Haiku call per 40 notes (forced
+`tag_words` tool, thinking off), on `card-check-queue`. A note is tagged when created and re-tagged
+when its hanzi or English changes (same trigger points and skips as the word check, for every
+account); a tutor's copy carries the source's tags. Existing notes fill themselves: every
+`/api/sync/changes` queues up to 200 of the user's untagged notes an hour (newest first, looked for
+at most every 15 minutes). On demand: `POST /api/notes/word-tags/backfill { limit }` / MCP
+`backfill_word_tags` (progress + cost). Cost ≈ $0.22 per 1,000 notes, ~$1.25 for 5,600 (`estimateWordTagsCost`);
+real token use is kept per user in `word_tag_runs` and reported as `server.word_tags_batch`.
 
 ## Ask Claude — answers in Chinese, the chat's look and tools
 

@@ -81,6 +81,8 @@ data class NoteDto(
     val long_term: Int? = null,
     /** Word checks: JSON string of NoteCheckIssue[] (shared/cards/check.ts), or null. */
     val check_issues: String? = null,
+    /** AI word tags: JSON string of AiWordTags (shared/cards/word-tags-ai.ts), or null. */
+    val word_tags: String? = null,
     val cards: List<CardDto> = emptyList(),
 )
 

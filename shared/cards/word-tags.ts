@@ -81,7 +81,8 @@ export function parseWordTagLexicon(text: string): WordTagLexicon {
   return { words, markers };
 }
 
-export type WordTagKind = 'pos' | 'separable' | 'register' | 'measure' | 'hsk' | 'frequency' | 'trad' | 'phrase';
+/** `transitivity` only ever comes from the AI pass (shared/cards/word-tags-ai.ts). */
+export type WordTagKind = 'pos' | 'separable' | 'transitivity' | 'register' | 'measure' | 'hsk' | 'frequency' | 'trad' | 'phrase';
 
 /** Colour family of a pill — all muted; register tags tint by how careful you need to be. */
 export type WordTagTone = 'plain' | 'grammar' | 'formal' | 'casual' | 'warning' | 'level' | FrequencyDecal;
@@ -92,6 +93,8 @@ export interface WordTag {
   id: string;
   label: string;
   tone: WordTagTone;
+  /** Suggested by the AI pass (word-tags-ai.ts), not the lexicon: the pill shows ✨. Absent = lexicon. */
+  ai?: true;
 }
 
 export const POS_LABELS: Readonly<Record<string, string>> = {
@@ -136,7 +139,7 @@ export const REGISTER_LABELS: Readonly<Record<string, string>> = {
   K: 'Cantonese',
 };
 
-const REGISTER_TONE: Readonly<Record<string, WordTagTone>> = {
+export const REGISTER_TONE: Readonly<Record<string, WordTagTone>> = {
   P: 'formal',
   F: 'formal',
   L: 'formal',
@@ -267,6 +270,10 @@ export interface WordTagExplanation {
   example: string;
   /** Where the tag comes from, one short line. */
   source: string;
+  /** An AI-suggested tag (the sheet says "Suggested by AI — may be wrong"). Absent = lexicon. */
+  ai?: true;
+  /** The AI's one-line usage note (register_note, e.g. "formal written; in speech use 告诉"). */
+  note?: string;
 }
 
 const POS_EXPLAIN: Readonly<Record<string, readonly [body: string, example: string]>> = {
@@ -294,7 +301,7 @@ const POS_EXPLAIN: Readonly<Record<string, readonly [body: string, example: stri
   k: ['Attaches to the end of a word.', '我们 · 桌子'],
 };
 
-const REGISTER_EXPLAIN: Readonly<Record<string, string>> = {
+export const REGISTER_EXPLAIN: Readonly<Record<string, string>> = {
   P: 'Shows respect — the word to use with strangers, older people, customers and teachers.',
   F: 'Formal: speeches, official letters, business and the news. Stiff in a chat with friends.',
   L: 'Literary or classical: met mostly in writing and set phrases, rare in everyday talk.',

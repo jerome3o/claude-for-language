@@ -326,6 +326,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `reader_pages.words` / `reader_word_explanations` - Reader word chips (migration 0087): the page split into `{ text, pinyin, gloss }` segments (JSON), and Haiku's cached "More about this word" answers keyed by a hash of word + sentence. See "Reader word chips"
 - `char_explanations` - "More about 字" on the character sheet: Haiku's short card-independent explanation per character, shared by everyone (migration 0108). The dictionary itself is static (`worker/char-dict/`, see "Character sheet")
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at; migration 0116: `answer_lang` zh|en, word chips `answer_words` / `question_words`, `answer_translation` / `question_translation`, `question_check` = the auto-check JSON of the question). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
+- `notes.word_tags` / `notes.word_tags_at` / `word_tag_runs` - AI word tags (migration 0120): the note's verdict (JSON `AiWordTags`, `shared/cards/word-tags-ai.ts`), when it last changed (synced like `check_at`), and per user the sync backfill's hourly window (`window_start`, `window_count`, `checked_at`) + tagged count and tokens. See "Word tags on the answer side"
 - `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0104): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
 - `audio_lessons` - Audio lessons (migration 0046 reused + 0111; docs/AUDIO_LESSONS.md): format dialogue|sleep|story (TEXT, no CHECK), status queued/writing/speaking/rendering/ready/failed, progress + clips done/total, input, the agent transcript, plan, script, timeline (chapters + transcript), words, `audio_key` (R2 `audio-lessons/`), usage, pinned `zh_provider`, `for_relationship_id` (a label only). Rows with `format` NULL are the removed first attempt
 - `podcast_feeds` - The private podcast feed of a user's audio lessons (migration 0112): one row per user, `token_hash` (SHA-256, how a feed request finds the user), `token_enc` (AES-GCM, so Settings can show the link again), created / rotated / last fetched, fetch count. Reset = new token; Turn off = row deleted
@@ -521,7 +522,22 @@ register, measure word, HSK level, how common, traditional form — from `shared
 (CC-CEDICT + HanLP + jieba + complete-hsk-vocabulary + the curated lists in `shared/cards/word-tags-curated.ts`;
 README there has sources and licences). Rebuild with `npm run build:word-tags`. Lab: `core/…/cards/WordTags.kt`
 over the same file, parity-tested. Settings → Study → "Word tags on the answer" (on by default, per device).
-No transitivity: HanLP's `vi` is wrong too often (喜欢).
+No transitivity from the lexicon: HanLP's `vi` is wrong too often (喜欢).
+
+**AI word tags** (`shared/cards/word-tags-ai.ts`, `worker/src/services/word-tags-ai.ts`, `routes/word-tags.ts`): a cheap
+batched Haiku `structuredCall` (forced `tag_words` tool, thinking off, `WORD_TAGS_BATCH_SIZE` 40 words per call) gives each
+note `{ v, transitivity?, separable?, register?, register_note? (≤ 60), confidence }`, stored as `notes.word_tags` with
+`word_tags_at` (migration 0120; `/api/sync/changes` returns notes by it — `updated_at` is never touched). The apps merge it
+under the lexicon's pills (`wordTagsWithAi` / Lab `core/…/cards/WordTagsAi.kt`, parity-tested): the lexicon always wins
+(an AI register only when it has none), transitivity ("Takes an object" / "No object" / "Object optional") only for a verb
+and never a sentence, low confidence never shown, AI pills marked ✨ and their sheet says "Suggested by AI — may be wrong" +
+the register note. Runs on **`card-check-queue`** (`{ kind: 'word_tags' }`): a created note, or an edit of hanzi / English
+(tags cleared + re-tagged), at the word check's trigger points with its skips (`check: false`, copies — which carry the
+source's tags —, the starter deck) but for every account; plus the backfill: every `/api/sync/changes` queues up to
+`WORD_TAGS_BACKFILL_PER_HOUR` (200) untagged notes an hour per user (looks at most every 15 min; `word_tag_runs`). A note the
+model skips is stored as `{ v: 1, confidence: 'low' }`; a failed call writes nothing (the next hour retries). Token use per
+user in `word_tag_runs`; events `server.word_tags_batch` / `server.word_tags_backfill`. E2E: `fakeWordTagsClient`
+(`services/card-check-fake.ts`: 告诉, 休息, 告知, 搞定). MCP `backfill_word_tags` (`tools/checks.ts`).
 
 ### Reader page standard
 `shared/reader/standard.ts` — `READER_STANDARD`: a page is one picture and one moment, 1–2 sentences
@@ -956,6 +972,7 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 - `PUT /api/notes/:id` - Update note (a changed hanzi gets a new word clip, a changed clue a new sentence clip)
 - `POST /api/notes/:id/check-issues/:issueId/apply` | `/dismiss` - a word check's "⚠ Possible issue" → `{ note }` (apply = the fix through updateNote)
 - `POST /api/notes/check` - `{ note_ids }` (≤ 100) run the word check now and store it → `{ issues: { [noteId]: NoteCheckIssue[] } }`
+- `GET /api/notes/word-tags/backfill` - AI word tags progress of my notes → `{ total, tagged, untagged, input_tokens, output_tokens, cost_usd, queued_this_hour, per_hour }`; `POST` `{ limit? }` (default 200, ≤ 1000) queues that many untagged notes now → `{ queued, …progress }` (503 without a model; the sync does this by itself, ≤ 200 an hour)
 - `POST /api/ai/check-words` - `{ words: [{ hanzi, pinyin, english }] }` (≤ 60) → `{ issues: [{ index, field, kind, current, proposed, reason }] }`, nothing stored (Paste a list's preview)
 - `GET|POST /api/decks/:id/check` - per-deck "Check for errors": `{ estimate, job }` / start → 202 `{ job }`; `GET|POST /api/relationships/:relId/shared-decks/:id/check` the same on the student's copy (tutor; `can_fix_source`); `GET /api/deck-checks/:jobId`; `POST /api/deck-checks/:jobId/apply` `{ proposal_ids, also_source? }` → `{ applied, source_applied, failed, job }`
 - `PUT /api/profile/card-check` - `{ card_check: boolean | null }` "Check new words for mistakes"
@@ -1205,7 +1222,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `coach-reply-queue` (Sentence Coach replies, docs/CHAT.md "Chat ↔ Coach"), `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue`, `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md), `idiom-queue` (docs/IDIOMS.md).
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `coach-reply-queue` (Sentence Coach replies, docs/CHAT.md "Chat ↔ Coach"), `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue` (word checks + AI word tags), `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md), `idiom-queue` (docs/IDIOMS.md).
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -2045,6 +2062,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `update_card_settings` | Fine-grained control over card scheduling |
 | `batch_set_familiarity` | Set familiarity for multiple notes at once |
 | `get_note_history` | Get review history and Q&A for a note |
+| `backfill_word_tags` | AI word tags of the signed-in user's notes: progress + cost so far, and (unless `status_only`) queue up to `limit` untagged notes now (`POST /api/notes/word-tags/backfill`); the sync fills ≤ 200 an hour by itself |
 | `check_deck_for_errors` | Word check of a whole deck (yours, or a student's copy with `relationship_id` + `shared_deck_id`): waits for the run, returns proposals (current → proposed + reason) and the cost; changes nothing |
 | `apply_note_fixes` | Apply ONLY the fixes the user approved: `job_id` + `proposal_ids` (+ `also_source`), or `fixes: [{ note_id, issue_id }]` from a create tool's `check_warnings` |
 | `create_custom_lesson` | Author a custom mini lesson (sections of exercises) for the user's next study session |

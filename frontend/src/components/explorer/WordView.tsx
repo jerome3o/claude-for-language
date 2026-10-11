@@ -209,7 +209,13 @@ export function WordView({
         <span className={`xp-freq xp-freq--${freq.tier}`} data-testid="explorer-word-freq">{freq.text}</span>
       </div>
       {/* The card's word tags (docs/STUDY_SESSION.md "Word tags"); how common it is is the chip above. */}
-      <WordTagPills hanzi={hanzi} source="explorer" exclude={['frequency']} className="word-tags--left" />
+      <WordTagPills
+        hanzi={hanzi}
+        aiTags={existing?.find((e) => e.note.word_tags)?.note.word_tags}
+        source="explorer"
+        exclude={['frequency']}
+        className="word-tags--left"
+      />
 
       {showIdiomLink(hanzi, { known: idiomKnown, senses: word.senses }) && (
         <button

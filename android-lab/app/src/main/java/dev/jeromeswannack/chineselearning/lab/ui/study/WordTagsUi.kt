@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -45,6 +46,7 @@ import dev.jeromeswannack.chineselearning.lab.core.cards.WordTag
 import dev.jeromeswannack.chineselearning.lab.core.cards.WordTagExplanation
 import dev.jeromeswannack.chineselearning.lab.core.cards.WordTagLexicon
 import dev.jeromeswannack.chineselearning.lab.core.cards.WordTags
+import dev.jeromeswannack.chineselearning.lab.core.cards.WordTagsAi
 import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyDecal
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.decalStyle
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.frequencyDecal
@@ -59,11 +61,15 @@ import kotlinx.coroutines.withContext
  * Word tags (docs/STUDY_SESSION.md "Word tags"; web components/wordTags/WordTagPills.tsx):
  * the quiet pills under the meaning on the answer side and in the explorer's Word view — part of
  * speech, separable verb, register, measure word, HSK level, how common, traditional form — from
- * the shipped lexicon (core WordTags, parity-tested). A tap opens the one-line explanation.
+ * the shipped lexicon (core WordTags, parity-tested). Where the lexicon has nothing, the note's
+ * AI verdict (notes.word_tags, core WordTagsAi) adds transitivity / a register, marked ✨.
+ * A tap opens the one-line explanation.
  */
 
 const val WORD_TAGS_TAG = "word-tags"
 const val WORD_TAG_SHEET_TAG = "word-tag-sheet"
+const val WORD_TAG_SHEET_AI_TAG = "word-tag-sheet-ai"
+const val WORD_TAG_SHEET_NOTE_TAG = "word-tag-sheet-note"
 fun wordTagTestTag(id: String) = "word-tag-$id"
 
 /** The web's tone tints (wordTags.css): background + text, light and dark. */
@@ -102,7 +108,7 @@ fun WordTagPill(tag: WordTag, onClick: (() -> Unit)?, modifier: Modifier = Modif
     val shape = RoundedCornerShape(50)
     val tappable = if (onClick != null) {
         modifier.bouncyClickable(pressedScale = 0.94f, onClick = onClick).testTag(wordTagTestTag(tag.id))
-            .semantics { role = Role.Button; contentDescription = "${tag.label} — what it means" }
+            .semantics { role = Role.Button; contentDescription = "${tag.label}${if (tag.ai) " (suggested by AI)" else ""} — what it means" }
     } else {
         modifier
     }
@@ -115,7 +121,11 @@ fun WordTagPill(tag: WordTag, onClick: (() -> Unit)?, modifier: Modifier = Modif
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(tag.label, color = fg, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // An AI-suggested pill (core WordTagsAi): the same tint, a small ✨ before the label.
+            if (tag.ai) Text("✨", fontSize = 10.sp, modifier = Modifier.padding(end = 3.dp))
+            Text(tag.label, color = fg, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        }
     }
 }
 
@@ -150,8 +160,28 @@ fun WordTagSheetContent(tag: WordTag, explanation: WordTagExplanation, onDismiss
             Spacer(Modifier.width(10.dp))
             Text(explanation.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         }
+        if (explanation.ai) {
+            Spacer(Modifier.height(12.dp))
+            val dark = Lab.colors.card.luminance() < 0.4f
+            Text(
+                "✨ ${WordTagsAi.AI_WORD_TAG_NOTICE}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (dark) Color(0xFFFDE68A) else Color(0xFF713F12),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                    .background(if (dark) Color(0xFF3A3210) else Color(0xFFFEF9C3))
+                    .padding(horizontal = 10.dp, vertical = 6.dp).testTag(WORD_TAG_SHEET_AI_TAG),
+            )
+        }
         Spacer(Modifier.height(12.dp))
         Text(explanation.body, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
+        if (explanation.note.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min).testTag(WORD_TAG_SHEET_NOTE_TAG)) {
+                Box(Modifier.width(3.dp).fillMaxHeight().background(Lab.colors.faint))
+                Spacer(Modifier.width(10.dp))
+                Text(explanation.note, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
+            }
+        }
         if (explanation.example.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             Text(
@@ -186,6 +216,8 @@ private fun rememberWordTagLexicon(): WordTagLexicon? {
 fun WordTagsFor(
     hanzi: String,
     source: String,
+    /** The note's AI word tags (notes.word_tags JSON); null = lexicon only. */
+    aiTags: String? = null,
     modifier: Modifier = Modifier,
     exclude: Set<String> = emptySet(),
     centred: Boolean = true,
@@ -195,17 +227,21 @@ fun WordTagsFor(
     val on by prefs.wordTagsOn.collectAsState()
     val lexicon = rememberWordTagLexicon()
     var open by rememberSaveable(hanzi) { mutableStateOf<String?>(null) }
+    val ai = remember(aiTags) { WordTagsAi.parse(aiTags) }
     if (!on || lexicon == null) return
-    val tags = remember(hanzi, lexicon, exclude) {
+    val tags = remember(hanzi, lexicon, exclude, ai) {
         val key = WordTags.key(hanzi)
         val freq = WordFrequency.shipped
         val rank = freq?.let { if (key.codePointCount(0, key.length) == 1) it.chars[key] else it.words[key] }
-        WordTags.tags(hanzi, lexicon, rankLoaded = freq != null, rank = rank, exclude = exclude)
+        WordTagsAi.tags(hanzi, lexicon, ai, rankLoaded = freq != null, rank = rank, exclude = exclude)
     }
     WordTagPillsRow(tags, onTap = { t ->
         open = t.id
-        (context.applicationContext as? LabApp)?.analytics?.track("study.word_tag_open", mapOf("kind" to t.kind, "tag" to t.id, "source" to source))
+        (context.applicationContext as? LabApp)?.analytics?.track(
+            "study.word_tag_open",
+            mapOf("kind" to t.kind, "tag" to t.id, "source" to source, "tag_source" to if (t.ai) "ai" else "lexicon"),
+        )
     }, centred = centred, modifier = modifier)
     val tag = tags.firstOrNull { it.id == open }
-    if (tag != null) WordTagSheet(tag, WordTags.explanation(tag, hanzi, lexicon)) { open = null }
+    if (tag != null) WordTagSheet(tag, WordTagsAi.explanation(tag, hanzi, lexicon, ai)) { open = null }
 }

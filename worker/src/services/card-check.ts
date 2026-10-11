@@ -38,10 +38,12 @@ import { normalizeHanzi } from '@shared/import/parse';
 import { fakeCheckClient } from './card-check-fake';
 
 export interface CardCheckMessage {
-  kind: 'notes' | 'deck';
+  /** word_tags = the AI word tags (services/word-tags-ai.ts), sharing this queue. */
+  kind: 'notes' | 'deck' | 'word_tags';
   userId?: string;
   noteIds?: string[];
   jobId?: string;
+  via?: 'create' | 'edit' | 'backfill';
 }
 
 export interface CheckDeps {

@@ -219,8 +219,10 @@ opened entries read offline. The explorer's Word view links a 成语 to its page
 The answer side of a card (and the explorer's Word view) shows small, muted pills about the word —
 part of speech, separable verb, register (polite / formal / colloquial / slang / rude…), measure word,
 HSK level, how common, traditional form — all from open dictionaries and curated lists, no AI, offline.
-A tap explains the tag in a line with an example. Settings → Study can turn them off. Details:
-docs/STUDY_SESSION.md "Word tags".
+A tap explains the tag in a line with an example. Settings → Study can turn them off. Where the
+dictionaries have nothing, a cheap AI pass per note adds whether a verb takes an object and a register
+verdict (with a short note), marked ✨ and "Suggested by AI — may be wrong"; low-confidence verdicts
+are never shown. Details: docs/STUDY_SESSION.md "Word tags".
 
 ## Future Features (Tutor System)
 

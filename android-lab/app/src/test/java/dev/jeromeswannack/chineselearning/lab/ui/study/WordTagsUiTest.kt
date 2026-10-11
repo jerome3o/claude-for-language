@@ -34,6 +34,7 @@ import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.core.WordFrequency
 import dev.jeromeswannack.chineselearning.lab.core.cards.WordTags
+import dev.jeromeswannack.chineselearning.lab.core.cards.WordTagsAi
 import dev.jeromeswannack.chineselearning.lab.data.NoteEntity
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
@@ -50,7 +51,9 @@ import org.junit.Test
 /**
  * Word tags on the answer side (web components/wordTags/WordTagPills.tsx): the pills under the
  * meaning from the shipped lexicon, a tap opens the explanation sheet and never peeks the card,
- * Settings → Study switches them off, the Word view of the explorer shows them too.
+ * Settings → Study switches them off, the Word view of the explorer shows them too. AI word tags
+ * (notes.word_tags, core WordTagsAi) add ✨ pills where the lexicon has nothing; their sheet says
+ * "Suggested by AI — may be wrong" with the register note; low confidence shows nothing.
  * Screenshots: word-tags-*.png.
  */
 class WordTagsUiTest : LabScreenshotTest() {
@@ -61,6 +64,10 @@ class WordTagsUiTest : LabScreenshotTest() {
     private val shuijiao = note("睡觉", "shuìjiào", "to sleep; to go to bed")
     private val shu = note("书", "shū", "book")
     private val nin = note("您", "nín", "you (polite)")
+    private val gaozhi = note("告知", "gàozhī", "to inform").copy(
+        wordTags = """{"v":1,"transitivity":"transitive","register":"formal","register_note":"formal written; in speech use 告诉","confidence":"high"}""",
+    )
+    private val xiuxi = note("休息", "xiūxi", "to rest").copy(wordTags = """{"v":1,"transitivity":"intransitive","register":"neutral","confidence":"medium"}""")
 
     @Before fun load() {
         // Read once like the app does after the first card (the UI then has them at once).
@@ -128,6 +135,35 @@ class WordTagsUiTest : LabScreenshotTest() {
         compose.onNodeWithText("Polite").assertIsDisplayed()
     }
 
+    @Test fun aiTagsAddSparkledPillsAndTheSheetSaysSo() {
+        showAnswer(gaozhi)
+        compose.onNodeWithText("Takes an object").assertIsDisplayed()
+        compose.onNodeWithText("Formal").assertIsDisplayed()
+        compose.onNodeWithTag(wordTagTestTag("register:F")).performClick()
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithTag(WORD_TAG_SHEET_AI_TAG).assertExists()
+        compose.onNodeWithText("✨ Suggested by AI — may be wrong").assertExists()
+        compose.onNodeWithTag(WORD_TAG_SHEET_NOTE_TAG).assertExists()
+        compose.onNodeWithText("formal written; in speech use 告诉").assertExists()
+        assertEquals(0, peeks)
+    }
+
+    @Test fun aLexiconPillHasNoAiNotice() {
+        showAnswer(shuijiao.copy(wordTags = """{"v":1,"transitivity":"intransitive","confidence":"high"}"""))
+        compose.onNodeWithText("No object").assertIsDisplayed()
+        compose.onNodeWithTag(wordTagTestTag("separable")).performClick()
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithTag(WORD_TAG_SHEET_TAG).assertExists()
+        assertEquals(0, compose.onAllNodes(hasTestTag(WORD_TAG_SHEET_AI_TAG)).fetchSemanticsNodes().size)
+    }
+
+    @Test fun lowConfidenceShowsNothingExtra() {
+        showAnswer(gaozhi.copy(wordTags = """{"v":1,"transitivity":"transitive","register":"formal","confidence":"low"}"""))
+        compose.onNodeWithText("Verb").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(hasTestTag(wordTagTestTag("transitivity:transitive"))).fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodes(hasTestTag(wordTagTestTag("register:F"))).fetchSemanticsNodes().size)
+    }
+
     @Test fun theSettingsRowFlipsThePref() {
         var on = true
         compose.setContent { LabTheme { SpokenAnswerSection(on = false, wordTagsOn = true, onWordTagsChange = { on = it }) {} } }
@@ -152,6 +188,10 @@ class WordTagsUiTest : LabScreenshotTest() {
     @Test fun shotSheet() = shoot("word-tags-05-sheet") { overCard(shuijiao) { sheetFor("睡觉", "separable") } }
     @Test fun shotSheetDark() = shoot("word-tags-06-sheet-dark", dark = true) { overCard(shu) { sheetFor("书", "measure") } }
     @Test fun shotExplorer() = shoot("word-tags-07-explorer-word") { Box(Modifier.fillMaxSize().background(Lab.colors.card).padding(top = 24.dp)) { WordViewContent(ExplorerSamples.wordUi(), WordViewActions()) } }
+    @Test fun shotAiAnswer() = shootAnswer("word-tags-10-answer-ai", gaozhi)
+    @Test fun shotAiAnswerDark() = shootAnswer("word-tags-11-answer-ai-dark", xiuxi, dark = true)
+    @Test fun shotAiSheet() = shoot("word-tags-12-sheet-ai") { overCard(gaozhi) { aiSheetFor(gaozhi, "register:F") } }
+    @Test fun shotAiSheetDark() = shoot("word-tags-13-sheet-ai-dark", dark = true) { overCard(gaozhi) { aiSheetFor(gaozhi, "transitivity:transitive") } }
     @Test fun shotSettings() = shoot("word-tags-08-settings") {
         Column(Modifier.fillMaxSize().background(Lab.colors.background).padding(16.dp)) { SpokenAnswerSection(on = false, wordTagsOn = true) {} }
     }
@@ -165,6 +205,14 @@ class WordTagsUiTest : LabScreenshotTest() {
         val freq = WordFrequency.shipped
         val tag = WordTags.tags(hanzi, lex, rankLoaded = freq != null, rank = freq?.words?.get(hanzi)).first { it.id == id }
         WordTagSheetContent(tag, WordTags.explanation(tag, hanzi, lex)) {}
+    }
+
+    @Composable
+    private fun aiSheetFor(n: NoteEntity, id: String) {
+        val lex = WordTags.shipped!!
+        val ai = WordTagsAi.parse(n.wordTags)
+        val tag = WordTagsAi.tags(n.hanzi, lex, ai).first { it.id == id }
+        WordTagSheetContent(tag, WordTagsAi.explanation(tag, n.hanzi, lex, ai)) {}
     }
 
     /** A card behind (dimmed), the sheet over it — the way it looks on the phone. */
