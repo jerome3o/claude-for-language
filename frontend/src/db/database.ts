@@ -120,6 +120,8 @@ export interface LocalNote {
   long_term?: LongTermPref;
   /** Open word-check issues (JSON NoteCheckIssue[], shared/cards/check.ts), synced from the server. */
   check_issues?: string | null;
+  /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts), synced from the server. */
+  word_tags?: string | null;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;

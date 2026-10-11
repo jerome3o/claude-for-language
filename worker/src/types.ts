@@ -319,6 +319,9 @@ export interface Note {
   /** Open word-check issues, JSON NoteCheckIssue[] (shared/cards/check.ts; migration 0104). */
   check_issues?: string | null;
   check_at?: string | null;
+  /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts; migration 0120). */
+  word_tags?: string | null;
+  word_tags_at?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -34,13 +34,21 @@ data class WordTagMarker(val text: String, val register: String, val clauseStart
 class WordTagLexicon(val words: Map<String, WordTagEntry>, val markers: List<WordTagMarker>)
 
 /**
- * Port of `WordTag`. [kind]: pos | separable | register | measure | hsk | frequency | trad | phrase.
+ * Port of `WordTag`. [kind]: pos | separable | transitivity | register | measure | hsk | frequency | trad | phrase.
  * [tone]: plain | grammar | formal | casual | warning | level | top100 | top1000 | top2000 | rare.
+ * [ai]: suggested by the AI pass (WordTagsAi), not the lexicon — the pill shows ✨.
  */
-data class WordTag(val kind: String, val id: String, val label: String, val tone: String)
+data class WordTag(val kind: String, val id: String, val label: String, val tone: String, val ai: Boolean = false)
 
-/** Port of `WordTagExplanation`. */
-data class WordTagExplanation(val title: String, val body: String, val example: String, val source: String)
+/** Port of `WordTagExplanation`. [ai] = an AI suggestion (the sheet says so); [note] = the AI's register note ("" = none). */
+data class WordTagExplanation(
+    val title: String,
+    val body: String,
+    val example: String,
+    val source: String,
+    val ai: Boolean = false,
+    val note: String = "",
+)
 
 object WordTags {
     const val MAX_POS_TAGS = 2
@@ -63,7 +71,7 @@ object WordTags {
         "T" to "Taiwan", "K" to "Cantonese",
     )
 
-    private val REGISTER_TONE: Map<String, String> = mapOf(
+    val REGISTER_TONE: Map<String, String> = mapOf(
         "P" to "formal", "F" to "formal", "L" to "formal", "C" to "casual", "I" to "casual", "S" to "casual",
         "H" to "casual", "R" to "warning", "D" to "warning", "E" to "plain", "O" to "plain", "G" to "plain",
         "T" to "plain", "K" to "plain",
@@ -76,7 +84,7 @@ object WordTags {
     private const val EDGE_CHARS = "${JS_SPACE}。！？!?.,，、；;：:…~～\"'“”‘’「」『』《》()（）"
     private val EDGE = Regex("^[$EDGE_CHARS]+|[$EDGE_CHARS]+\\z")
     private val CLAUSE_BREAK = Regex("[$EDGE_CHARS]")
-    private val SENTENCE_MARK = Regex("[。！？!?，,；;]")
+    internal val SENTENCE_MARK = Regex("[。！？!?，,；;]")
 
     /** Port of parseWordTagLexicon(). */
     fun parse(text: String): WordTagLexicon {
@@ -143,7 +151,7 @@ object WordTags {
 
     private fun cpCount(s: String): Int = s.codePointCount(0, s.length)
 
-    private fun isAllHan(s: String): Boolean {
+    internal fun isAllHan(s: String): Boolean {
         if (s.isEmpty()) return false
         var i = 0
         while (i < s.length) {
@@ -254,7 +262,7 @@ object WordTags {
         "k" to ("Attaches to the end of a word." to "我们 · 桌子"),
     )
 
-    private val REGISTER_EXPLAIN: Map<String, String> = mapOf(
+    val REGISTER_EXPLAIN: Map<String, String> = mapOf(
         "P" to "Shows respect — the word to use with strangers, older people, customers and teachers.",
         "F" to "Formal: speeches, official letters, business and the news. Stiff in a chat with friends.",
         "L" to "Literary or classical: met mostly in writing and set phrases, rare in everyday talk.",

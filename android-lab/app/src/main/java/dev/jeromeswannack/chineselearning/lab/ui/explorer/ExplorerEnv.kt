@@ -22,7 +22,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** The learner's own card of the word ("📚 You have this in <deck>"). */
-data class MyWordCard(val noteId: String, val deckName: String, val pinyin: String, val english: String)
+data class MyWordCard(
+    val noteId: String,
+    val deckName: String,
+    val pinyin: String,
+    val english: String,
+    /** The note's AI word tags (notes.word_tags JSON) for the Word view's pills. */
+    val wordTags: String? = null,
+)
 
 /** A line of the learner's own cards that uses the word (the note itself, else its card sentence). */
 data class MyExample(val noteId: String, val text: String, val translation: String?)
@@ -90,7 +97,7 @@ object ExplorerData {
                 n.sentenceClue?.contains(hanzi) == true -> examples += MyExample(n.id, n.sentenceClue.trim(), n.sentenceClueTranslation?.ifBlank { null })
             }
         }
-        MyWord(own?.let { MyWordCard(it.id, decks[it.deckId].orEmpty(), it.pinyin, it.english) }, examples)
+        MyWord(own?.let { MyWordCard(it.id, decks[it.deckId].orEmpty(), it.pinyin, it.english, it.wordTags) }, examples)
     }
 }
 

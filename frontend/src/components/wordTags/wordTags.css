@@ -151,6 +151,34 @@
   font-size: 1.125rem;
 }
 
+/* An AI-suggested pill (shared/cards/word-tags-ai.ts): the same tint, a small ✨ before the label. */
+.word-tag-ai-mark {
+  font-size: 0.75em;
+  margin-right: 0.25em;
+}
+
+.word-tag-sheet-ai {
+  margin: 0.75rem 0 0;
+  padding: 0.375rem 0.625rem;
+  border-radius: 8px;
+  background: #fef9c3;
+  color: #713f12;
+  font-size: 0.875rem;
+}
+
+:root[data-theme='dark'] .word-tag-sheet-ai {
+  background: #3a3210;
+  color: #fde68a;
+}
+
+.word-tag-sheet-note {
+  margin: 0.625rem 0 0;
+  padding-left: 0.625rem;
+  border-left: 3px solid var(--color-border, #e5e7eb);
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
 .word-tag-sheet-source {
   margin: 0.625rem 0 0;
   font-size: 0.8125rem;

@@ -840,17 +840,18 @@ export async function createNote(db: D1Database, deckId: string, input: NoteRowI
  * go through deleteUnreferencedAudio. Used for tutor → student copies.
  */
 /**
- * Notes changed since a sync cursor (`/api/sync/changes`): edited (updated_at) or given a
- * long-term choice (long_term_at, which deliberately leaves updated_at alone).
+ * Notes changed since a sync cursor (`/api/sync/changes`): edited (updated_at), given a
+ * long-term choice (long_term_at), a word check (check_at) or AI word tags (word_tags_at) —
+ * the last three deliberately leave updated_at alone.
  */
 export async function getNotesChangedSince(db: D1Database, userId: string, sinceDate: string) {
   return db
     .prepare(
       `SELECT n.* FROM notes n
         JOIN decks d ON n.deck_id = d.id
-       WHERE d.user_id = ? AND (n.updated_at >= ? OR n.long_term_at >= ? OR n.check_at >= ?)`
+       WHERE d.user_id = ? AND (n.updated_at >= ? OR n.long_term_at >= ? OR n.check_at >= ? OR n.word_tags_at >= ?)`
     )
-    .bind(userId, sinceDate, sinceDate, sinceDate)
+    .bind(userId, sinceDate, sinceDate, sinceDate, sinceDate)
     .all<Record<string, unknown>>();
 }
 
@@ -891,6 +892,10 @@ export async function insertNoteCopy(db: D1Database, targetDeckId: string, note:
       .prepare(`UPDATE notes SET ${prov.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
       .bind(...prov.map((k) => (note[k] as string | null | undefined) ?? null), newNoteId)
       .run();
+  }
+  // The AI word tags are about the word, so the copy shares them (shared/cards/word-tags-ai.ts).
+  if (note.word_tags != null) {
+    await db.prepare("UPDATE notes SET word_tags = ?, word_tags_at = datetime('now') WHERE id = ?").bind(note.word_tags as string, newNoteId).run();
   }
   await insertCardsForNote(db, newNoteId);
   return newNoteId;

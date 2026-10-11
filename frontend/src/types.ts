@@ -152,6 +152,8 @@ export interface Note {
   long_term?: 0 | 1 | null;
   /** Open word-check issues, JSON NoteCheckIssue[] (shared/cards/check.ts) — "⚠ Possible issue". */
   check_issues?: string | null;
+  /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts; migration 0120). */
+  word_tags?: string | null;
   created_at: string;
   updated_at: string;
 }

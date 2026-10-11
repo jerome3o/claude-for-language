@@ -120,6 +120,8 @@ import studentProfileRoutes from './routes/student-profile';
 import studentStudyBudgetRoutes from './routes/student-study-budget';
 import cardCheckRoutes from './routes/card-checks';
 import { cardCheckEnabled, runDeckCheckJob, runNotesCheck, type CardCheckMessage } from './services/card-check';
+import wordTagsRoutes from './routes/word-tags';
+import { maybeBackfillWordTags, runWordTags } from './services/word-tags-ai';
 import { enqueueRecordingCheck, runRecordingCheck, RetryLater, type RecordingCheckMessage } from './services/recording-checks';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
@@ -648,6 +650,8 @@ app.route('/api', studentProfileRoutes);
 app.route('/api', studentStudyBudgetRoutes);
 // Word checks: ⚠ Possible issue on notes, Paste-a-list preview, per-deck "Check for errors" (routes/card-checks.ts)
 app.route('/api', cardCheckRoutes);
+// AI word tags: the backfill's progress + on-demand run (routes/word-tags.ts)
+app.route('/api', wordTagsRoutes);
 
 // Conversation voices: the catalogue, this account's selection, cached voice samples (routes/conversation-voices.ts)
 app.route('/api', conversationVoicesRoutes);
@@ -5395,6 +5399,15 @@ app.get('/api/sync/changes', async (c) => {
     card_ids: [] as string[],
   };
 
+  // AI word tags: the user's untagged notes fill themselves in the background, ≤ 200 an
+  // hour (services/word-tags-ai.ts); the tags come down by word_tags_at on a later sync.
+  try {
+    const ctx = c.executionCtx;
+    ctx.waitUntil(maybeBackfillWordTags(c.env, userId, ctx).catch((err) => console.error('[word-tags] backfill failed', err)));
+  } catch {
+    /* no execution context (tests): nothing to do in the background */
+  }
+
   console.log('[API sync/changes] Returning:', {
     decks: decksResult.results?.length || 0,
     notes: notesResult.results?.length || 0,
@@ -6682,6 +6695,11 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
             console.log('[Queue] deck check', body.jobId, await runDeckCheckJob(env, body.jobId));
           } else if (body.kind === 'notes' && body.userId && body.noteIds?.length) {
             await runNotesCheck(env, body.userId, body.noteIds);
+          } else if (body.kind === 'word_tags' && body.userId && body.noteIds?.length) {
+            // AI word tags (services/word-tags-ai.ts): a failed model call writes nothing and
+            // the next hour's backfill tries again, so the message is acked either way.
+            const via = body.via ?? 'create';
+            console.log('[Queue] word tags', via, JSON.stringify(await runWordTags(env, body.userId, body.noteIds, {}, via)));
           }
           message.ack();
         } catch (err) {
