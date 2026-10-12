@@ -90,6 +90,9 @@ data class DeckActions(
     /** "⚡ Study today" / "Remove from today" on a word (null = not offered). */
     val onBump: ((String) -> Unit)? = null,
     val onUnbump: (String) -> Unit = {},
+    /** "Up next" on a row (null = not offered) / take it off. */
+    val onUpNext: ((String) -> Unit)? = null,
+    val onRemoveUpNext: (String) -> Unit = {},
 )
 
 /** The deck page (web: DeckDetailPage.tsx). */
@@ -214,6 +217,22 @@ fun DeckScreen(ui: DeckUi, actions: DeckActions) {
                                 .clickable(onClickLabel = if (row.bumped) "Remove from today" else "Study today") { if (row.bumped) actions.onUnbump(row.id) else onBump(row.id) }
                                 .padding(top = 8.dp)
                                 .testTag("deck-bump-${row.id}"),
+                        )
+                    }
+                    // "↑ Up next" (tap again: take it off) — only while the word still has a new card.
+                    val onUpNext = actions.onUpNext
+                    if (onUpNext != null && !selecting && !ui.isTutorAccount && (row.canUpNext || row.upNextPlace > 0)) {
+                        Text(
+                            if (row.upNextPlace > 0) "#${row.upNextPlace}" else "↑",
+                            fontSize = if (row.upNextPlace > 0) 13.sp else 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = if (row.upNextPlace > 0) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color(0xFF4338CA),
+                            modifier = Modifier.padding(start = 2.dp).size(40.dp).clip(CircleShape)
+                                .background(if (row.upNextPlace > 0) androidx.compose.ui.graphics.Color(0xFF4338CA) else androidx.compose.ui.graphics.Color.Transparent)
+                                .clickable(onClickLabel = if (row.upNextPlace > 0) "Take it off Up next" else "Learn it next") { if (row.upNextPlace > 0) actions.onRemoveUpNext(row.id) else onUpNext(row.id) }
+                                .padding(top = if (row.upNextPlace > 0) 10.dp else 8.dp)
+                                .testTag("deck-upnext-${row.id}"),
                         )
                     }
                     if (row.audioUrl != null) {

@@ -154,6 +154,25 @@ data class StudyBumpEntity(
     val outboxId: String? = null,
 )
 
+/**
+ * "Up next" (core UpNext.kt, server up_next): one entry of the account's ORDERED list of chosen
+ * notes, introduced first within the daily budget. Changes made here are applied at once and wait
+ * in the Outbox (kinds `up-next-*`, data/upnext/UpNextStore.kt); the server's list replaces these
+ * rows whenever none is waiting. v8.
+ */
+@Entity(tableName = "up_next")
+data class UpNextEntity(
+    @PrimaryKey val noteId: String,
+    /** The server row id (the client id of the add that made it). */
+    val id: String,
+    /** 0-based place in the list. */
+    val position: Int,
+    val createdAt: String,
+    val source: String,
+    /** Who added it when it was the tutor ("added by Minghui"), else null. */
+    val addedByName: String? = null,
+)
+
 /** A synced review the learner undid: DELETE /api/reviews/:id on the next sync. */
 @Entity(tableName = "pending_deletions")
 data class PendingDeletionEntity(@PrimaryKey val eventId: String)
@@ -261,6 +280,11 @@ interface LabDao {
     suspend fun reviewSpans(cardIds: List<String>): List<ReviewSpan>
     @Query("SELECT * FROM cards WHERE noteId IN (:noteIds)") suspend fun cardsOfNotes(noteIds: List<String>): List<CardEntity>
 
+    // "Up next" (data/upnext/UpNextStore.kt)
+    @Query("SELECT * FROM up_next ORDER BY position") suspend fun upNext(): List<UpNextEntity>
+    @Query("DELETE FROM up_next") suspend fun clearUpNext()
+    @Upsert suspend fun upsertUpNext(rows: List<UpNextEntity>)
+
     // pending deletions
     @Query("SELECT * FROM pending_deletions") suspend fun pendingDeletions(): List<PendingDeletionEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun addPendingDeletion(p: PendingDeletionEntity)
@@ -274,8 +298,10 @@ interface LabDao {
         JsonCacheEntity::class, OutboxEntity::class,
         // v6: "⚡ Study it today".
         StudyBumpEntity::class,
+        // v8: "Up next".
+        UpNextEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

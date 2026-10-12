@@ -122,6 +122,8 @@ data class ChangesDto(
     val folders: List<dev.jeromeswannack.chineselearning.lab.data.api.FolderDto>? = null,
     /** "⚡ Study it today": the FULL active bump list, replaces the synced rows (null from an older server). */
     val bumps: List<dev.jeromeswannack.chineselearning.lab.data.api.StudyBumpDto>? = null,
+    /** "Up next": the ordered list of chosen notes, sent whole (data/upnext/UpNextStore.kt). */
+    val up_next: List<dev.jeromeswannack.chineselearning.lab.data.api.UpNextDto>? = null,
 )
 
 @Serializable

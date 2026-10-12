@@ -70,6 +70,8 @@ data class CardHubActions(
     val onDismissNotice: () -> Unit = {},
     val onBump: () -> Unit = {},
     val onUnbump: () -> Unit = {},
+    val onUpNext: () -> Unit = {},
+    val onRemoveUpNext: () -> Unit = {},
 )
 
 /** The card hub (web: CardHubPage.tsx, the student's own card). */
@@ -115,6 +117,18 @@ fun CardHubScreen(ui: CardHubUi, actions: CardHubActions, nowMs: Long = System.c
                 }
             } else {
                 dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill(dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.fillMaxWidth(), onClick = actions.onBump)
+            }
+        }
+
+        // "Up next": learn this word next, within the daily budget (or take it off the list).
+        if (ui.canUpNext) item {
+            if (ui.upNextPlace > 0) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("↑ #${ui.upNextPlace} on Up next", color = androidx.compose.ui.graphics.Color(0xFF4338CA), fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill("Take it off", onClick = actions.onRemoveUpNext)
+                }
+            } else {
+                dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill("↑ Up next — learn it next", Modifier.fillMaxWidth(), onClick = actions.onUpNext)
             }
         }
 

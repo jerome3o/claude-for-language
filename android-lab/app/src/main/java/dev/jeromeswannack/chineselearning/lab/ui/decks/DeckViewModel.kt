@@ -48,6 +48,10 @@ data class NoteRowUi(
     val issues: List<NoteCheckIssue> = emptyList(),
     /** "⚡ Study it today": its cards are in today's pocket. */
     val bumped: Boolean = false,
+    /** "Up next": its 1-based place on the list (0 = not on it). */
+    val upNextPlace: Int = 0,
+    /** It still has a NEW card, so it can go on the Up next list. */
+    val canUpNext: Boolean = false,
 )
 
 data class DeckHeaderUi(
@@ -242,16 +246,18 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
         val introduced = StudyQueue.introducedToday(queueCards, first, StudyQueue.startOfDay(now, zone))
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
-        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, env.budget(), env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId, longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao))
+        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, env.budget(), env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId, longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao), upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao))
 
         val bumpedNotes = env.bumps?.let { b -> runCatching { b.openNoteIds() }.getOrDefault(emptySet()) }.orEmpty()
+        val places = env.upNext?.let { u -> runCatching { u.places() }.getOrDefault(emptyMap()) }.orEmpty()
+        val freshNotes = queueCards.filter { it.queue == dev.jeromeswannack.chineselearning.lab.core.CardQueue.NEW }.mapTo(HashSet()) { it.noteId }
         return DeckUi(
             loaded = true,
             deck = DeckHeaderUi(d.id, d.name, d.description, d.newCardsPerDay, d.secondaryCardsPerDay),
             due = q.dueCards.size,
             completion = DeckStats.completion(cards),
             breakdown = DeckStats.breakdown(cards),
-            notes = rows.map { r -> if (r.id in bumpedNotes) r.copy(bumped = true) else r },
+            notes = rows.map { r -> r.copy(bumped = r.id in bumpedNotes, upNextPlace = places[r.id] ?: 0, canUpNext = env.upNext != null && r.id in freshNotes) },
             isTutorAccount = env.isTutorAccount(),
         )
     }
@@ -396,6 +402,17 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
     }
 
     /** "Remove from today". */
+    /** "Up next": learn this word next (end of the list), or take it off (source deck). */
+    fun upNext(noteId: String) {
+        val u = env.upNext ?: return
+        viewModelScope.launch { runCatching { u.add(listOf(noteId), "deck") }.onSuccess { say(it); env.fx.success() }.onFailure { say(it.message ?: "Couldn't add that word", error = true) } }
+    }
+
+    fun removeUpNext(noteId: String) {
+        val u = env.upNext ?: return
+        viewModelScope.launch { runCatching { u.remove(noteId, "deck") }.onSuccess { say("Taken off Up next"); env.fx.tick() } }
+    }
+
     fun unbump(noteId: String) {
         val b = env.bumps ?: return
         viewModelScope.launch {

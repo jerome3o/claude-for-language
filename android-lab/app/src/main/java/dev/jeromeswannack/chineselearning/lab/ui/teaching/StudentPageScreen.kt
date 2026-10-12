@@ -351,6 +351,13 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
                 MutedLine(longTermIntro(name))
                 // The student's ONE daily new-card budget — what decides how fast these decks are introduced.
                 ui.dailyBudget?.invoke()
+                // "Up next": the words introduced first within that budget, in order (the tutor's view of the list).
+                dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard {
+                    dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow(
+                        "↑", "Up next", Modifier.testTag("student-upnext-link"), desc = "Choose the words $name learns next, in order",
+                        onClick = { actions.open(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.studentUpNext(ui.relId, name)) },
+                    )
+                }
                 if (longTermDecks.isEmpty()) MutedLine("No long-term decks yet — a deck sent as Long-term or Both lands here.")
             }
         }

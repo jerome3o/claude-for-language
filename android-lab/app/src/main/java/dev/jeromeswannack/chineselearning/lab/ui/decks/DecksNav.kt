@@ -181,6 +181,8 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
             onCheckErrors = { checkErrors = true },
             onBump = vm::bump,
             onUnbump = vm::unbump,
+            onUpNext = vm::upNext,
+            onRemoveUpNext = vm::removeUpNext,
         ),
     )
     if (checkErrors) {

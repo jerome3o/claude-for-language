@@ -1,0 +1,374 @@
+/* "Up next" page (components/upNext/UpNextBoard.tsx, pages/UpNextPage.tsx). Mobile first. */
+.upnext-page h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.upnext-intro {
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.upnext-board {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.upnext-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem;
+}
+
+.upnext-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.upnext-section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.upnext-count {
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+}
+
+.upnext-hint,
+.upnext-muted,
+.upnext-readonly {
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.upnext-readonly {
+  color: #92400e;
+  background: #fffbeb;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+}
+
+.upnext-list,
+.upnext-results,
+.upnext-today-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.upnext-list--dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.upnext-row,
+.upnext-result,
+.upnext-today-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 56px;
+  padding: 0.5rem 0.5rem 0.5rem 0.625rem;
+  border-radius: var(--radius-md);
+  background: #fafafa;
+  border: 1px solid var(--color-border);
+  transition: box-shadow 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  -webkit-touch-callout: none;
+}
+
+.upnext-row,
+.upnext-result {
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.upnext-row--lifted,
+.upnext-result--lifted {
+  background: #fff;
+  box-shadow: var(--shadow-lg);
+  transform: scale(1.02);
+  border-color: #6366f1;
+  position: relative;
+  z-index: 2;
+}
+
+.upnext-row--placeholder {
+  border: 2px dashed #6366f1;
+  background: #eef2ff;
+}
+
+.upnext-pos {
+  flex: 0 0 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upnext-grip {
+  color: #9ca3af;
+  font-size: 1.1rem;
+  flex: 0 0 auto;
+}
+
+.upnext-word {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.5rem;
+}
+
+.upnext-hanzi {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.upnext-pinyin {
+  color: #4b5563;
+  font-size: 0.9rem;
+}
+
+.upnext-english {
+  flex-basis: 100%;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upnext-meta {
+  flex-basis: 100%;
+  color: var(--color-text-light);
+  font-size: 0.78rem;
+}
+
+.upnext-added-by {
+  color: #7c3aed;
+}
+
+.upnext-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+
+.upnext-icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  font-size: 1.1rem;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.upnext-icon-btn:hover {
+  background: #f3f4f6;
+}
+
+.upnext-remove {
+  color: #9ca3af;
+}
+
+.upnext-chip-btn {
+  min-height: 44px;
+  padding: 0 0.625rem;
+  border: 1px solid var(--color-border);
+  background: #fff;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.upnext-add {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.upnext-on-list {
+  color: #4338ca;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.upnext-empty {
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+  padding: 1rem 0.5rem;
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.upnext-search-input {
+  width: 100%;
+  font-size: 16px;
+  min-height: 44px;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.upnext-results {
+  margin-top: 0.25rem;
+}
+
+.upnext-drag-hint {
+  margin-top: 0.25rem;
+}
+
+.upnext-today {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.upnext-today-row {
+  background: #fff;
+}
+
+.upnext-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--tab-bar-total, 0px) + 1rem);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: calc(100vw - 2rem);
+  background: #1f2937;
+  color: #fff;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  border-radius: 999px;
+  box-shadow: var(--shadow-lg);
+  font-size: 0.9rem;
+}
+
+.upnext-toast-undo {
+  min-height: 40px;
+  padding: 0 0.875rem;
+  border: none;
+  border-radius: 999px;
+  background: #fbbf24;
+  color: #1f2937;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* "↑ Up next" on deck rows / the card hub / Home. */
+.upnext-btn {
+  min-height: 44px;
+  padding: 0 0.875rem;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.upnext-btn--compact {
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.upnext-btn--on {
+  background: #4338ca;
+  color: #fff;
+  border-color: #4338ca;
+}
+
+.upnext-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.home-up-next {
+  display: inline-block;
+  margin: 0 0 0.5rem;
+  color: #3730a3;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+@media (min-width: 640px) {
+  .upnext-section {
+    padding: 1.25rem;
+  }
+
+  .upnext-english {
+    flex-basis: auto;
+  }
+}
+
+/* The deck page's per-word up arrow: quiet until used (it shows the place once listed). */
+.upnext-btn.deck-note-upnext {
+  flex-shrink: 0;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 0.55rem;
+  align-self: center;
+}
+
+.upnext-btn.deck-note-upnext:not(.upnext-btn--on) {
+  background: transparent;
+  font-weight: 500;
+}
+
+/* The tutor's student page: "↑ Up next · 4 words" (StudentUpNextLink). */
+.upnext-student-link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 0.5rem;
+  min-height: 56px;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #c7d2fe;
+  border-radius: var(--radius-md);
+  background: #eef2ff;
+  color: inherit;
+  text-decoration: none;
+}
+
+.upnext-student-link-title {
+  font-weight: 700;
+  color: #3730a3;
+}
+
+.upnext-student-link-desc {
+  grid-column: 1;
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+}
+
+.upnext-student-link .nav-row-chevron {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.upnext-bolt {
+  color: #b45309;
+}

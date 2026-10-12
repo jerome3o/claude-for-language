@@ -45,6 +45,7 @@ export const BUMP_SOURCES = [
   'idioms',
   'homework_pass',
   'deck',
+  'up_next',
   'mcp',
   'tutor',
   'other',

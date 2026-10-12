@@ -381,6 +381,7 @@ class StudyViewModel(
             StudyQueue.build(
                 decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm(),
                 bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
+                upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
             )
         }
@@ -489,6 +490,7 @@ class StudyViewModel(
             StudyQueue.build(
                 decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm(),
                 bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
+                upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
             )
         }

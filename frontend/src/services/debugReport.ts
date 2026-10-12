@@ -22,6 +22,7 @@ import {
 import {
   db,
   getRawQueueCounts,
+  loadQueueUpNext,
   allocateQueueCounts,
   sumQueueCounts,
   getStudyQueue,
@@ -191,6 +192,7 @@ export async function buildDebugReport(): Promise<DebugReport> {
       'derived from review events: a card\'s first-ever review at/after local midnight (shared/decks/study-queue.ts introducedToday)',
     budget: { ...budget },
     new_card_order: readNewCardOrder(),
+    up_next: await loadQueueUpNext(),
     bonus: { all: bonusAll, by_deck: byDeckBonus, day_key: bonusKey(undefined).split('_').pop() ?? '' },
     sync: {
       sync_meta: syncMeta,

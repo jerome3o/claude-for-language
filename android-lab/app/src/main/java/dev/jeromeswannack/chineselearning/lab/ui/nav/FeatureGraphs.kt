@@ -33,6 +33,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.profile.profileGraph
 import dev.jeromeswannack.chineselearning.lab.ui.picturehunt.pictureHuntGraph
 import dev.jeromeswannack.chineselearning.lab.ui.audiolessons.audioLessonsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.idioms.idiomsGraph
+import dev.jeromeswannack.chineselearning.lab.ui.upnext.upNextGraph
 
 /**
  * THE registry of screens — one line per feature, nothing else. Each feature registers its
@@ -45,6 +46,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     studyGraph(nav)         // "/study"       A
     tutorNotesGraph(nav)    // "/tutor-notes", "/tutor-notes/practice"  A
     decksGraph(nav)         // "/decks"       C
+    upNextGraph(nav)        // "/up-next", "/connections/:relId/up-next"  (Up next)
     progressGraph(nav)      // "/progress"    D
     connectionsGraph(nav)   // "/connections" E (+ F dashboard)
     editorGraph(nav)        // editors, Try it, catalogue trials, print views  G

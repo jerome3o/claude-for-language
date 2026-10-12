@@ -57,6 +57,7 @@ fun NavGraphBuilder.homeGraph(nav: LabNav) {
                     onSync = { app.scope.launch { app.repo.sync() } },
                     onSignIn = nav.onSignIn,
                     onAllDecks = { nav.open(Routes.DECKS) },
+                    onUpNext = { nav.open(Routes.UP_NEXT) },
                     onTodayLessons = { nav.open(Routes.todayLessons()) },
                     onTodayReader = {
                         // Today's story to read → read it; otherwise the readers list.

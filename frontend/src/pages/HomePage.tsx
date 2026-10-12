@@ -10,6 +10,7 @@ import { StudyTodayCard } from '../components/home/StudyTodayCard';
 import { HomeworkHomeCard, TutorNotesHomeRow } from '../components/home/HomeworkHomeCard';
 import { DeckList, HOME_DECK_LIMIT } from '../components/home/DeckList';
 import { NextUpLine } from '../components/home/NextUpLine';
+import { UpNextHomeLine } from '../components/home/UpNextHomeLine';
 import { moveDeckInQueue } from '../services/deckOrder';
 import { AddDeckModal } from '../components/home/AddDeckModal';
 import { TutorHome } from '../components/home/TutorHome';
@@ -194,6 +195,7 @@ function StudyHome() {
           ) : (
             <>
               <NextUpLine decks={decks} raw={rawByDeck} />
+              <UpNextHomeLine />
               <DeckList
                 decks={decks}
                 counts={perDeck}

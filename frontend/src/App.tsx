@@ -26,6 +26,8 @@ const HomeworkLibraryPage = lazy(() => import('./pages/tutor/HomeworkLibraryPage
 const HomeworkDraftPage = lazy(() => import('./pages/tutor/HomeworkDraftPage').then(m => ({ default: m.HomeworkDraftPage })));
 const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
 const TutorNotesPage = lazy(() => import('./pages/TutorNotesPage').then(m => ({ default: m.TutorNotesPage })));
+const UpNextPage = lazy(() => import('./pages/UpNextPage').then(m => ({ default: m.UpNextPage })));
+const StudentUpNextPage = lazy(() => import('./pages/tutor/StudentUpNextPage').then(m => ({ default: m.StudentUpNextPage })));
 const TutorNotesPracticePage = lazy(() => import('./pages/TutorNotesPracticePage').then(m => ({ default: m.TutorNotesPracticePage })));
 const HomeworkPassPage = lazy(() => import('./pages/HomeworkPassPage').then(m => ({ default: m.HomeworkPassPage })));
 const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
@@ -543,6 +545,8 @@ function AppRoutes() {
       />
       <Route path="/homework" element={<ProtectedRoute><Header /><HomeworkPage /></ProtectedRoute>} />
       <Route path="/tutor-notes" element={<ProtectedRoute><Header /><TutorNotesPage /></ProtectedRoute>} />
+      <Route path="/up-next" element={<ProtectedRoute><Header /><UpNextPage /></ProtectedRoute>} />
+      <Route path="/connections/:relId/up-next" element={<ProtectedRoute><Header /><StudentUpNextPage /></ProtectedRoute>} />
       <Route
         path="/tutor-notes/practice"
         element={

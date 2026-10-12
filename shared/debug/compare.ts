@@ -80,6 +80,8 @@ export interface DebugComparison {
     budget: ValuePair<string>;
     /** "Order new cards by" switches on (e.g. "chars,words,common,sentences-last"; "-" = none, "?" = not reported). */
     new_card_order: ValuePair<string>;
+    /** "Up next": "<count>:<hash of the ordered ids>" ("?" = not reported). */
+    up_next: ValuePair<string>;
     bonus_all: ValuePair<number>;
     introduced_basis: ValuePair<string>;
   };
@@ -205,6 +207,7 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
       b: `${b.budget.new_cards_per_day}+${b.budget.secondary_cards_per_day}`,
     },
     new_card_order: { a: orderLabel(a.new_card_order), b: orderLabel(b.new_card_order) },
+    up_next: { a: upNextLabel(a.up_next), b: upNextLabel(b.up_next) },
     bonus_all: { a: a.bonus.all, b: b.bonus.all },
     introduced_basis: { a: a.introduced_basis, b: b.introduced_basis },
   };
@@ -215,6 +218,9 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
   if (context.budget.a !== context.budget.b) hints.push(`Daily budget differs: ${A} ${context.budget.a} vs ${B} ${context.budget.b}.`);
   if (context.new_card_order.a !== context.new_card_order.b) {
     hints.push(`"Order new cards by" differs: ${A} ${context.new_card_order.a} vs ${B} ${context.new_card_order.b} — different new words are picked.`);
+  }
+  if (context.up_next.a !== context.up_next.b && context.up_next.a !== '?' && context.up_next.b !== '?') {
+    hints.push(`The "Up next" list differs: ${A} ${context.up_next.a} vs ${B} ${context.up_next.b} (count:order hash) — a sync brings them together.`);
   }
   if (a.bonus.all !== b.bonus.all) hints.push(`"Study 10 more" bonus differs: ${A} ${a.bonus.all} vs ${B} ${b.bonus.all}.`);
 
@@ -447,6 +453,12 @@ export function serverTruthFromRows(
   const map = new Map<string, { id: string; card_id: string; reviewed_at: string }>();
   for (const e of events) map.set(eventIdHash(e.id), { id: e.id, card_id: e.card_id, reviewed_at: e.reviewed_at });
   return { events: map, ...(cardIds ? { card_ids: new Set(cardIds) } : {}) };
+}
+
+/** "Up next" as "<count>:<hash of the ordered ids>"; "?" not in the report. */
+function upNextLabel(ids: DebugReport['up_next']): string {
+  if (!ids) return '?';
+  return ids.length === 0 ? '0' : `${ids.length}:${eventIdHash(ids.join(','))}`;
 }
 
 /** "chars,words,common,sentences-last" for the switches that are on; "-" none; "?" not in the report. */

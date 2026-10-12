@@ -1,5 +1,7 @@
 import { BumpButton } from '../components/bumps/BumpButton';
 import { bumpStudentCardsApi } from '../api/bumps';
+import { addUpNextApi } from '../api/upNext';
+import { UpNextButton } from '../components/upNext/UpNextButton';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -162,6 +164,8 @@ function HubCardBox({ hub, relId }: { hub: NoteHub; relId: string | null }) {
       <div className="hub-actions">
         {/* "⚡ Study it today": first in today's session (shared/decks/bumps.ts). */}
         {relId ? <TutorBumpButton relId={relId} noteId={n.id} studentName={hub.owner.name} /> : <BumpButton noteIds={[n.id]} source="card_hub" removable />}
+        {/* "Up next": learn it next, within the daily budget (shared/decks/up-next.ts). */}
+        {relId ? <TutorUpNextButton relId={relId} noteId={n.id} studentName={hub.owner.name} /> : <UpNextButton noteId={n.id} source="card_hub" removable />}
         {n.audio_url && (
           <button type="button" className="btn btn-secondary" onClick={() => noteAudio.play(n.audio_url, n.hanzi, API_BASE)}>
             {noteAudio.isPlaying ? '⏹ Stop' : '▶ Play'}
@@ -194,6 +198,29 @@ function TutorBumpButton({ relId, noteId, studentName }: { relId: string; noteId
       }}
     >
       {state === 'done' ? '⚡ In their study today ✓' : state === 'error' ? 'Couldn’t bump — try again' : `⚡ ${studentName ? `${studentName} studies it` : 'Study it'} today`}
+    </button>
+  );
+}
+
+/** The tutor puts the student's card on THEIR Up next list ("added by <tutor>"). */
+function TutorUpNextButton({ relId, noteId, studentName }: { relId: string; noteId: string; studentName: string | null }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done' | 'studied' | 'error'>('idle');
+  return (
+    <button
+      type="button"
+      className={`upnext-btn${state === 'done' ? ' upnext-btn--on' : ''}`}
+      disabled={state === 'busy' || state === 'done' || state === 'studied'}
+      onClick={async () => {
+        setState('busy');
+        try {
+          const r = await addUpNextApi({ note_ids: [noteId] }, relId);
+          setState(r.no_new_cards.length && !r.added.length && !r.already.length ? 'studied' : 'done');
+        } catch {
+          setState('error');
+        }
+      }}
+    >
+      {state === 'done' ? `↑ On ${studentName ? `${studentName}’s` : 'their'} Up next ✓` : state === 'studied' ? 'Already studied' : state === 'error' ? 'Couldn’t add — try again' : '↑ Up next for them'}
     </button>
   );
 }

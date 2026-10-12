@@ -114,6 +114,9 @@ export function MorePage() {
             desc={role.isTutorAccount || role.isTutorOnly ? 'Homework decks you write · search every card' : 'Your decks, the study queue · search every card'}
             to="/decks"
           />
+          {!role.isTutorAccount && (
+            <NavRow icon="↑" label="Up next" desc="The words you learn next, in your order · today’s ⚡" to="/up-next" />
+          )}
         </NavSection>
 
         {role.isTutorAccount ? (

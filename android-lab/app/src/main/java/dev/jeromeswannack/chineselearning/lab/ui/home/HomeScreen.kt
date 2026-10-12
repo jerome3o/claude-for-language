@@ -68,6 +68,8 @@ class HomeActions(
     val onSignIn: () -> Unit = {},
     /** "All decks" under the queue → the Decks page (`/decks`, under More). */
     val onAllDecks: () -> Unit = {},
+    /** "↑ 4 up next" → the Up next screen. */
+    val onUpNext: () -> Unit = {},
     /** Lab "today split": today's mini lessons (`/today/lessons`) and today's story (`/today/reader`). */
     val onTodayLessons: () -> Unit = {},
     val onTodayReader: () -> Unit = {},
@@ -122,6 +124,16 @@ fun HomeScreen(
                     Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Your deck queue", style = MaterialTheme.typography.titleSmall, color = Lab.colors.muted, modifier = Modifier.weight(1f))
                         TextButton(onClick = actions.onAllDecks) { Text(if (ui.decks.size > HOME_DECK_LIMIT) "All ${ui.decks.size} decks" else "All decks", color = Lab.colors.accent) }
+                    }
+                }
+                // "Up next" (web components/home/UpNextHomeLine.tsx): the chosen words, or a quiet way in.
+                item(key = "up-next") {
+                    val label = dev.jeromeswannack.chineselearning.lab.core.UpNext.label(ui.upNextCount)
+                    TextButton(onClick = actions.onUpNext, modifier = Modifier.testTag("home-up-next")) {
+                        Text(
+                            if (ui.upNextCount > 0) "$label: ${ui.upNextFirst.joinToString("、")}${if (ui.upNextCount > ui.upNextFirst.size) "…" else ""} ›" else "↑ Choose what comes next ›",
+                            color = Color(0xFF4338CA), fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
                 // One compact card of slim rows (web DeckList: the top 5 of the queue).

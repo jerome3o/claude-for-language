@@ -64,6 +64,9 @@ data class CardHubUi(
     /** "⚡ Study it today": offered (the app's bump is there) and whether the note is in today's pocket. */
     val canBump: Boolean = false,
     val bumped: Boolean = false,
+    /** "Up next": offered (a NEW card is left) and its 1-based place on the list (0 = not on it). */
+    val canUpNext: Boolean = false,
+    val upNextPlace: Int = 0,
 )
 
 /**
@@ -103,11 +106,14 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
         refreshJob = viewModelScope.launch {
             val local = withContext(Dispatchers.IO) { localHub() }
             val bumped = env.bumps?.let { b -> withContext(Dispatchers.IO) { runCatching { noteId in b.openNoteIds() }.getOrDefault(false) } } ?: false
+            val place = env.upNext?.let { u -> withContext(Dispatchers.IO) { runCatching { u.places()[noteId] ?: 0 }.getOrDefault(0) } } ?: 0
+            val fresh = withContext(Dispatchers.IO) { runCatching { env.dao.cardsOfNotes(listOf(noteId)).any { it.queue == dev.jeromeswannack.chineselearning.lab.core.CardQueue.NEW } }.getOrDefault(false) }
             val state = hub.state.value
             _ui.update { s ->
                 build(state, local).copy(
                     tutors = s.tutors, flagBusy = s.flagBusy, notice = s.notice, noticeIsError = s.noticeIsError, online = s.online,
                     canBump = env.bumps != null && local != null, bumped = bumped,
+                    canUpNext = env.upNext != null && local != null && (fresh || place > 0), upNextPlace = place,
                 )
             }
         }
@@ -206,6 +212,17 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
     fun bump() {
         val b = env.bumps ?: return
         viewModelScope.launch { runCatching { b.bump(listOf(noteId), "card_hub") }.onSuccess { say(it); env.fx.success() }.onFailure { say(it.message ?: "Couldn't bump this card", true) } }
+    }
+
+    /** "Up next" (source card_hub): learn this word next / take it off the list. */
+    fun upNext() {
+        val u = env.upNext ?: return
+        viewModelScope.launch { runCatching { u.add(listOf(noteId), "card_hub") }.onSuccess { say(it); env.fx.success() }.onFailure { say(it.message ?: "Couldn't add this card", true) } }
+    }
+
+    fun removeUpNext() {
+        val u = env.upNext ?: return
+        viewModelScope.launch { runCatching { u.remove(noteId, "card_hub") }.onSuccess { say("Taken off Up next"); env.fx.tick() } }
     }
 
     /** "Remove from today". */

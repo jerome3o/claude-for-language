@@ -111,12 +111,13 @@ object DebugReportBuilder {
         val bonusAll = prefs.bonus("all", today)
         val longTerm = dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
+        val upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao)
         // The queue a session would get: with the notes' hanzi and "Order new cards by" (HomeViewModel's `all`).
         val order = prefs.newCardOrder
-        val all: BuiltQueue = StudyQueue.build(queueDecks, cards, budget, bonusAll, introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, order = order, frequency = WordFrequency.shipped)
+        val all: BuiltQueue = StudyQueue.build(queueDecks, cards, budget, bonusAll, introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, upNext = upNext, order = order, frequency = WordFrequency.shipped)
         val homeCounts = StudyQueue.counts(all.dueCards, all.reviewedNoteIds)
         val perDeck = decks.associate { d ->
-            val q = StudyQueue.build(queueDecks, cards, budget, prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps)
+            val q = StudyQueue.build(queueDecks, cards, budget, prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext)
             d.id to (StudyQueue.counts(q.dueCards, q.reviewedNoteIds) to q.hasMoreNew)
         }
 
@@ -170,6 +171,7 @@ object DebugReportBuilder {
                 put("most_common_first", order.mostCommonFirst)
                 put("sentences_last", order.sentencesLast)
             }
+            putJsonArray("up_next") { for (id in upNext.orEmpty()) add(id) }
             putJsonObject("bonus") {
                 put("all", bonusAll)
                 putJsonObject("by_deck") { for (d in decks) prefs.bonus(d.id, today).takeIf { it > 0 }?.let { put(d.id, it) } }

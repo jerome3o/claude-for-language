@@ -39,6 +39,8 @@ class DecksEnv(
     val folderFeel: dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel = dev.jeromeswannack.chineselearning.lab.ui.folders.FolderFeel.None,
     /** "⚡ Study it today" on a word (data/bumps/BumpStore.kt); null = none (old tests / previews). */
     val bumps: DeckBumps? = null,
+    /** "Up next" on a word (data/upnext/UpNextStore.kt); null = none (old tests / previews). */
+    val upNext: DeckUpNext? = null,
 ) {
     companion object {
         fun from(app: LabApp): DecksEnv {
@@ -80,6 +82,11 @@ class DecksEnv(
                     clear = { id, source -> dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.clear(app, id, source) },
                     openNoteIds = { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.openNoteIds(app.repo.dao) },
                 ),
+                upNext = DeckUpNext(
+                    add = { ids, source -> dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.add(app, ids, null, source).message },
+                    remove = { id, source -> dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.remove(app, id, source) },
+                    places = { app.repo.dao.upNext().mapIndexed { i, r -> r.noteId to i + 1 }.toMap() },
+                ),
             )
         }
 
@@ -97,6 +104,16 @@ class DecksFx(
     val success: () -> Unit = {},
     val failure: () -> Unit = {},
     val playAudio: (key: String?, text: String) -> Unit = { _, _ -> },
+)
+
+/** "Up next" for the deck page and the card hub (data/upnext/UpNextStore.kt). */
+class DeckUpNext(
+    /** Put these notes at the end of the list → the confirmation (core UpNext.addedMessage). */
+    val add: suspend (noteIds: List<String>, source: String) -> String,
+    /** Take one off the list. */
+    val remove: suspend (noteId: String, source: String) -> Unit,
+    /** note id → its 1-based place on the list. */
+    val places: suspend () -> Map<String, Int>,
 )
 
 /** "⚡ Study it today" for the deck page and Paste a list (data/bumps/BumpStore.kt). */

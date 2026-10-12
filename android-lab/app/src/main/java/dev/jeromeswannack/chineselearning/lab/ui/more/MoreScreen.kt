@@ -102,7 +102,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                         if (role.isTutorAccount) "Word lists you send as homework · search every word" else "Your deck queue, search and every word",
                         Routes.DECKS,
                     ),
-                ),
+                ) + (if (role.isTutorAccount) emptyList() else listOf(row("↑", "Up next", "The words you learn next, in your order · today’s ⚡", Routes.UP_NEXT))),
             )
         }
 

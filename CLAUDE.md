@@ -2606,6 +2606,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
 - `/connections/:relId/homework/:jobId` - Review a homework draft made from lesson notes (tutor): load gauge, words / skipped, modes, split, Claude chat, Assign
 - `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
+- `/up-next`, `/connections/:relId/up-next` - "Up next" (docs/STUDY_SESSION.md "Up next"): ⚡ Today + search (＋ Top / ＋ Bottom / press-and-hold a result and drag it into place) + the ordered list (drag, ↑, ⚡, ✕ with Undo) — offline-first (`services/upNext.ts`, IndexedDB `upNext` / `upNextOps`); the tutor's view of a student's list (online). More → Up next, Home's "↑ N up next" line, "↑" on deck rows / the card hub
 - `/tutor-notes`, `/tutor-notes/practice?cards=&notes=` - Notes from your tutor (More → From your tutor, Home row) / practising those cards in the study card (immersive; a rating counts only when due)
 - `/audio-lessons`, `/audio-lessons/:id` - Audio lessons: list + New audio lesson (Dialogue / Sleep / Story; More → Practice), the player (immersive; offline once opened)
 - `/idioms`, `/idioms/:hanzi` - 成语 Idioms (beta): look one up / browse the starter list, and one idiom's page (More → Practice; tutors More → Tools; the explorer's "📜 Story & usage")
