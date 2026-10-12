@@ -25,16 +25,22 @@
  * Bumped notes ("⚡ Study it today", bumps.ts) come FIRST: their pocket cards head
  * the queue, NEW ones outside the budget (they never take from or wait for it).
  *
+ * "Up next" (up-next.ts): the account's ordered list of chosen notes takes the
+ * budget BEFORE the deck queue and "Order new cards by" — one blue card per
+ * unstarted note, the started notes' NEW cards from the purple budget — ignoring
+ * deck caps but counting against them for the rest of the deck's words.
+ *
  * "Introduced today" is derived from review events (a card counts on the day of
  * its first-ever review; secondary when a sibling card of the same note had
  * been reviewed before it) — never from a counter that can drift.
  */
 
-import { allocateNewCards, primaryCapLeft, respreadPrimary, sortDecksForQueue, type DeckAllocation, type DeckNewPool, type StudyBudget } from './budget';
+import { allocateNewCards, newBudgetLeft, primaryCapLeft, respreadPrimary, sortDecksForQueue, type DeckAllocation, type DeckNewPool, type StudyBudget } from './budget';
 import { DEFAULT_NEW_CARD_ORDER, orderWithinDeck, pickNewCardsByOrder, studiedFrom, type NewCardOrder, type StudiedIndex } from './new-card-order';
 import type { FrequencyIndex } from './frequency';
 import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } from './long-term';
 import { bumpPocket, type QueueBumps } from './bumps';
+import { takeUpNext, upNextSlots } from './up-next';
 
 /** CardQueue values (shared/scheduler): NEW 0, LEARNING 1, REVIEW 2, RELEARNING 3. */
 export const QUEUE_NEW = 0;
@@ -113,6 +119,10 @@ export interface StudyQueueResult<C extends QueueCardInput> {
   bumped: C[];
   /** Bumped notes with cards in the pocket (in scope). */
   bumpedNoteIds: string[];
+  /** The Up next cards today's budget takes (up-next.ts), list order: blue ones, then purple ones. */
+  upNext: C[];
+  /** Up next notes that hold cards in scope today (taken or still waiting for budget), list order. */
+  upNextNoteIds: string[];
 }
 
 export function isLearningQueue(q: number): boolean {
@@ -185,7 +195,9 @@ export function selectStudyQueue<C extends QueueCardInput>(
   /** note id → the learner's long-term choice (only notes that have one). */
   longTerm?: ReadonlyMap<string, LongTermPref> | null,
   /** The active bumps ("⚡ Study it today") with their cards' review times. */
-  bumps?: QueueBumps | null
+  bumps?: QueueBumps | null,
+  /** The account's "Up next" list: note ids in order (up-next.ts). */
+  upNext?: ReadonlyArray<string> | null
 ): StudyQueueResult<C> {
   const reviewed = collectReviewedNoteIds(cards);
   const inScope = deckId ? decks.filter(d => d.id === deckId) : decks;
@@ -193,17 +205,19 @@ export function selectStudyQueue<C extends QueueCardInput>(
   const inReview = new Map(inScope.map(d => [d.id, deckInDailyReview(d.cap_primary, d.cap_secondary)]));
   const pocket = bumpPocket(cards.filter(c => scopeIds.has(c.deck_id)), bumps, cutoffMs);
   const pocketIds = new Set(pocket.cards.map(c => c.id));
+  // Up next: its notes never feed the regular pools; it takes the budget first.
+  const slots = upNextSlots(cards.filter(c => scopeIds.has(c.deck_id)), upNext, reviewed, pocketIds, longTerm);
 
   const newByDeck = new Map<string, C[]>();
   for (const c of cards) {
-    if (c.queue !== QUEUE_NEW || !scopeIds.has(c.deck_id) || pocketIds.has(c.id)) continue;
+    if (c.queue !== QUEUE_NEW || !scopeIds.has(c.deck_id) || pocketIds.has(c.id) || slots.noteIds.has(c.note_id)) continue;
     if (!admitsNewCards(longTerm?.get(c.note_id) ?? null, inReview.get(c.deck_id)!, reviewed.has(c.note_id))) continue;
     const list = newByDeck.get(c.deck_id);
     if (list) list.push(c);
     else newByDeck.set(c.deck_id, [c]);
   }
 
-  const pools: DeckNewPool[] = inScope.map(d => {
+  let pools: DeckNewPool[] = inScope.map(d => {
     const list = newByDeck.get(d.id) ?? [];
     let secondary = 0;
     for (const c of list) if (reviewed.has(c.note_id)) secondary++;
@@ -222,14 +236,22 @@ export function selectStudyQueue<C extends QueueCardInput>(
     };
   });
   const spent = { primary: 0, secondary: 0 };
+  const studiedAll = { primary: 0, secondary: 0 };
   for (const [id, v] of introduced) {
+    studiedAll.primary += v.primary;
+    studiedAll.secondary += v.secondary;
     if (scopeIds.has(id)) continue;
     spent.primary += v.primary;
     spent.secondary += v.secondary;
   }
+  const taken = takeUpNext({ primary: slots.primary.length, secondary: slots.secondary.length }, newBudgetLeft(budget, bonus, studiedAll));
+  const upPrimary = slots.primary.slice(0, taken.primary);
+  const upSecondary = slots.secondary.slice(0, taken.secondary);
+  // What Up next takes counts as introduced today in its deck (caps) and in the budget.
+  pools = withUpNextPicks(pools, upPrimary.map(c => c.deck_id), upSecondary.map(c => c.deck_id));
   let allocation = allocateNewCards(pools, budget, bonus, spent);
 
-  const due: C[] = [...pocket.cards];
+  const due: C[] = [...pocket.cards, ...upPrimary, ...upSecondary];
   // What has been studied (characters + word pieces), built once; every global pick adds to it.
   const hanziOf = (c: C) => noteText?.hanzi.get(c.note_id) ?? '';
   const order = noteText ? noteText.order ?? DEFAULT_NEW_CARD_ORDER : null;
@@ -277,11 +299,40 @@ export function selectStudyQueue<C extends QueueCardInput>(
     if (scopeIds.has(c.deck_id) && isDueByCutoff(c, cutoffMs) && !pocketIds.has(c.id)) due.push(c);
   }
 
-  const hasMoreNew = pools.some(p => {
-    const a = allocation.get(p.deckId) ?? { primary: 0, secondary: 0 };
-    return p.totalNew + p.totalSecondaryNew > a.primary + a.secondary;
-  });
-  return { due, reviewedNoteIds: reviewed, hasMoreNew, pools, allocation, bumped: pocket.cards, bumpedNoteIds: pocket.activeNoteIds };
+  const hasMoreNew =
+    slots.primary.length > taken.primary ||
+    slots.secondary.length > taken.secondary ||
+    pools.some(p => {
+      const a = allocation.get(p.deckId) ?? { primary: 0, secondary: 0 };
+      return p.totalNew + p.totalSecondaryNew > a.primary + a.secondary;
+    });
+  return {
+    due,
+    reviewedNoteIds: reviewed,
+    hasMoreNew,
+    pools,
+    allocation,
+    bumped: pocket.cards,
+    bumpedNoteIds: pocket.activeNoteIds,
+    upNext: [...upPrimary, ...upSecondary],
+    upNextNoteIds: [...slots.noteIds],
+  };
+}
+
+/**
+ * The pools with Up next's picks counted as introduced today in their decks (one deck id
+ * per picked card): the deck's caps then hold for the rest of its words exactly as they
+ * will once those cards are reviewed. Other pools are returned as they are.
+ */
+export function withUpNextPicks(pools: DeckNewPool[], primaryDeckIds: Iterable<string>, secondaryDeckIds: Iterable<string>): DeckNewPool[] {
+  const p = picksPerDeck(primaryDeckIds);
+  const s = picksPerDeck(secondaryDeckIds);
+  if (p.size === 0 && s.size === 0) return pools;
+  return pools.map(pool =>
+    p.has(pool.deckId) || s.has(pool.deckId)
+      ? { ...pool, studiedPrimary: pool.studiedPrimary + (p.get(pool.deckId) ?? 0), studiedSecondary: pool.studiedSecondary + (s.get(pool.deckId) ?? 0) }
+      : pool
+  );
 }
 
 /**

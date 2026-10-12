@@ -226,6 +226,14 @@ are never shown. Details: docs/STUDY_SESSION.md "Word tags".
 
 ## Future Features (Tutor System)
 
+### 17. "Up next" (choose the words that come next)
+
+An ordered list of words the learner already has, filled by the learner or their tutor (the Up next page,
+"↑ Up next" on deck rows and the card hub, the MCP server). Within the ONE daily new-card budget the list's
+words are introduced FIRST, in its order, from any deck (deck caps don't hold them back); a word drops off
+by itself once every card of it has been studied, and taking one off never deletes the card. The page also
+shows today's ⚡ pocket. Rules: `shared/decks/up-next.ts`; details in docs/STUDY_SESSION.md "Up next".
+
 ### Tutor Capabilities
 - View all assigned students
 - See student progress and statistics

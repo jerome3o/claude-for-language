@@ -16,6 +16,12 @@
  *   - selectStudyQueue(..., { order, frequency })      (`ordered`: "Order new cards by" — every combination
  *                                                         of the four switches, with / without the shipped
  *                                                         word-frequency list — shared/decks/new-card-order.ts)
+ *   - selectStudyQueue(..., upNext)                    (`upNext`: the "Up next" list takes the budget first —
+ *                                                         one blue card per unstarted note, purple for started
+ *                                                         ones, caps ignored but counted, with bumps, long-term
+ *                                                         choices, one-off decks and "Order new cards by" —
+ *                                                         shared/decks/up-next.ts; `upNextHelpers`: the list
+ *                                                         helpers the page / API use)
  * Writes study-queue.json; core StudyQueueParityTest asserts StudyQueue.kt reproduces them.
  */
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
@@ -30,6 +36,14 @@ import {
   type QueueDeckInput,
 } from '../../../shared/decks/study-queue';
 import { bumpPocket, type QueueBumps } from '../../../shared/decks/bumps';
+import {
+  insertIntoOrder,
+  reorderUpNext,
+  upNextAddedMessage,
+  upNextLabel,
+  upNextStatus,
+  upNextStatusLabel,
+} from '../../../shared/decks/up-next';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: study-queue <out-dir>');
@@ -419,5 +433,115 @@ for (let i = 0; i < 320; i++) {
   });
 }
 
-writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty, bumped, globalNovelty, ordered }));
-console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) + ${bumped.length} (bumps) + ${globalNovelty.length} (across decks) + ${ordered.length} (order new cards by) scenarios`);
+// "Up next": an ordered list of chosen notes (unstarted, started, done, unknown, listed twice,
+// opted out, bumped) over decks with caps incl. one-off 0 + 0 copies, cards introduced today,
+// bonus rounds, sometimes "Order new cards by" with the shipped frequency list.
+const upNext: unknown[] = [];
+for (let i = 0; i < 320; i++) {
+  const dayStart = Date.parse('2026-10-11T23:00:00.000Z');
+  const now = dayStart + int(6, 22) * H;
+  const cutoff = Math.max(dayStart + DAY - 1, now + H);
+  const decks: QueueDeckInput[] = [];
+  for (let d = 0; d < int(1, 4); d++) {
+    const oneOff = rand() < 0.15;
+    decks.push({
+      id: `u${i}-${d}`,
+      priority: pick([0, 1, 2, 5]),
+      created_at: `2026-0${int(1, 9)}-${String(int(10, 28))}T10:00:00.000Z`,
+      cap_primary: oneOff ? 0 : pick([0, 1, 2, 3, 5, 20]),
+      cap_secondary: oneOff ? 0 : pick([0, 1, 2, 6]),
+    });
+  }
+  const cards: QueueCardInput[] = [];
+  const firstReviewAt: Record<string, number> = {};
+  const lastReviewAt: Record<string, number> = {};
+  const noteHanzi: Record<string, string> = {};
+  const longTerm: Record<string, 0 | 1> = {};
+  const noteIds: string[] = [];
+  for (let n = 0; n < int(0, 24); n++) {
+    const noteId = `u${i}-n${String(n).padStart(2, '0')}`;
+    noteIds.push(noteId);
+    noteHanzi[noteId] = pick(ORDER_POOL);
+    const deckId = rand() < 0.04 ? `gone-${i}` : pick(decks).id;
+    const reviewed = rand() < 0.4;
+    if (rand() < 0.12) longTerm[noteId] = pick([0, 1] as const);
+    const types = rand() < 0.1 ? TYPES.slice(1, 3) : TYPES.slice(0, int(1, 3));
+    for (const t of types) {
+      const id = `u${i}-c${n}-${t[0]}-${int(0, 9)}`;
+      const queue = reviewed ? pick([0, 0, 1, 2, 2, 3]) : 0;
+      let due: number | null = null;
+      if (queue !== 0) {
+        due = now + int(-48, 48) * H;
+        firstReviewAt[id] = rand() < 0.35 ? dayStart + int(0, 5) * H : dayStart - int(1, 40) * DAY;
+        lastReviewAt[id] = Math.max(firstReviewAt[id], now - int(0, 30) * H);
+      }
+      cards.push({ id, note_id: noteId, deck_id: deckId, card_type: t, queue, due_ms: due });
+    }
+  }
+  const list = noteIds.filter(() => rand() < 0.5).sort(() => rand() - 0.5);
+  if (list.length && rand() < 0.2) list.push(list[0]); // listed twice: the first place counts
+  if (rand() < 0.2) list.splice(int(0, list.length), 0, `unknown-${i}`);
+  const bumpList = rand() < 0.3 ? noteIds.filter(() => rand() < 0.2).map(note_id => ({ note_id, created_ms: now - int(0, 5) * H })) : [];
+  const bumpsIn: QueueBumps | null = bumpList.length
+    ? { bumps: bumpList, lastReviewMs: new Map(Object.entries(lastReviewAt)), firstReviewMs: new Map(Object.entries(firstReviewAt)) }
+    : null;
+  const withText = rand() < 0.4;
+  const useFrequency = withText && rand() < 0.5;
+  const budget = { new_cards_per_day: pick([0, 1, 2, 3, 5, 10]), secondary_cards_per_day: pick([0, 1, 3, 6]) };
+  const bonus = pick([0, 0, 0, 2, 10]);
+  const intro = introducedToday(cards, new Map(Object.entries(firstReviewAt)), dayStart);
+  const longTermMap = new Map(Object.entries(longTerm));
+  const scopes: Array<string | null> = [null, pick(decks).id];
+  const queues = scopes.map(deckId => {
+    const q = selectStudyQueue(decks, cards, budget, bonus, intro, cutoff, deckId,
+      withText ? { hanzi: new Map(Object.entries(noteHanzi)), frequency: useFrequency ? shipped : null } : null,
+      longTermMap, bumpsIn, list);
+    return {
+      deckId,
+      due: q.due.map(c => c.id).sort(),
+      newOrder: q.due.filter(c => c.queue === 0).map(c => c.id),
+      bumped: q.bumped.map(c => c.id),
+      upNext: q.upNext.map(c => c.id),
+      upNextNoteIds: q.upNextNoteIds,
+      counts: countQueue(q.due, q.reviewedNoteIds),
+      hasMoreNew: q.hasMoreNew,
+      allocation: [...q.allocation.entries()].map(([id, a]) => ({ deckId: id, primary: a.primary, secondary: a.secondary })),
+    };
+  });
+  upNext.push({
+    now, dayStart, cutoff, decks, cards, firstReviewAt, lastReviewAt, budget, bonus, longTerm, useFrequency,
+    noteHanzi: withText ? noteHanzi : undefined,
+    seenNoteIds: null,
+    bumps: bumpsIn ? bumpList : undefined,
+    upNextList: list,
+    introduced: [...intro.entries()].map(([deckId, v]) => ({ deckId, ...v })),
+    queues,
+  });
+}
+
+// The list helpers (page, API, MCP).
+const upNextHelpers: unknown[] = [];
+for (let i = 0; i < 200; i++) {
+  const ids = Array.from({ length: int(0, 8) }, (_, k) => `x${k}`);
+  const add = Array.from({ length: int(0, 3) }, () => (rand() < 0.4 && ids.length ? pick(ids) : `y${int(0, 4)}`));
+  const index = rand() < 0.2 ? null : int(-2, ids.length + 2);
+  const requested = Array.from({ length: int(0, 6) }, () => (rand() < 0.8 && ids.length ? pick(ids) : `z${int(0, 3)}`));
+  const queues = Array.from({ length: int(0, 3) }, () => pick([0, 0, 1, 2, 3]));
+  const hanzi = Array.from({ length: int(0, 4) }, () => pick(HANZI));
+  const already = int(0, 2);
+  const noNew = int(0, 1);
+  const count = int(0, 12);
+  const status = upNextStatus(queues.map(queue => ({ queue })));
+  upNextHelpers.push({
+    ids, add, index, requested, queues, hanzi, already, noNew, count,
+    inserted: insertIntoOrder(ids, add, index),
+    reordered: reorderUpNext(ids, requested),
+    status,
+    statusLabel: upNextStatusLabel(status, queues.filter(q => q === 0).length),
+    label: upNextLabel(count),
+    message: upNextAddedMessage(hanzi, already, noNew),
+  });
+}
+
+writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty, bumped, globalNovelty, ordered, upNext, upNextHelpers }));
+console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) + ${bumped.length} (bumps) + ${globalNovelty.length} (across decks) + ${ordered.length} (order new cards by) + ${upNext.length} (up next) scenarios`);

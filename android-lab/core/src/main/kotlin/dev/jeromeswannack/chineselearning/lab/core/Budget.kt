@@ -72,6 +72,18 @@ object Budget {
         return out
     }
 
+    /**
+     * Port of `newBudgetLeft`: what is left of the global budget given what was introduced
+     * today across ALL decks ([studied]); secondary beyond its budget counts against primary.
+     */
+    fun newBudgetLeft(budget: StudyBudget, bonus: Int, studied: Spent): Spent {
+        val overflow = Math.max(0, studied.secondary - budget.secondaryCardsPerDay)
+        return Spent(
+            Math.max(0, budget.newCardsPerDay + bonus - studied.primary - overflow),
+            Math.max(0, budget.secondaryCardsPerDay - studied.secondary),
+        )
+    }
+
     /** `allocateNewCards(pools, budget, bonus, spentElsewhere)`. Iteration order of the result = queue order. */
     fun allocateNewCards(
         pools: List<DeckNewPool>,
@@ -80,11 +92,12 @@ object Budget {
         spentElsewhere: Spent = Spent(),
     ): LinkedHashMap<String, DeckAllocation> {
         val ordered = sortForQueue(pools, { it.priority }, { it.createdAt })
-        val studiedPrimary = pools.sumOf { it.studiedPrimary } + spentElsewhere.primary
-        val studiedSecondary = pools.sumOf { it.studiedSecondary } + spentElsewhere.secondary
-        val overflow = Math.max(0, studiedSecondary - budget.secondaryCardsPerDay)
-        var primaryLeft = Math.max(0, budget.newCardsPerDay + bonus - studiedPrimary - overflow)
-        var secondaryLeft = Math.max(0, budget.secondaryCardsPerDay - studiedSecondary)
+        val left = newBudgetLeft(
+            budget, bonus,
+            Spent(pools.sumOf { it.studiedPrimary } + spentElsewhere.primary, pools.sumOf { it.studiedSecondary } + spentElsewhere.secondary),
+        )
+        var primaryLeft = left.primary
+        var secondaryLeft = left.secondary
 
         val primary = HashMap<String, Int>()
         val secondary = HashMap<String, Int>()

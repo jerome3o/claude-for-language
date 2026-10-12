@@ -11,3 +11,4 @@ export * from './bumps';
 export * from './sentence-bumps';
 export * from './frequency';
 export * from './new-card-order';
+export * from './up-next';

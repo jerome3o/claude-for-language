@@ -140,6 +140,8 @@ import revisitRoutes from './routes/revisit';
 import { getRevisitSettingsInfo, listRevisitEvents } from './services/revisit';
 import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order';
 import { listActiveBumps } from './services/study-bumps';
+import upNextRoutes from './routes/up-next';
+import { listUpNext } from './services/up-next';
 import { FolderError, fileItem, listFolders, resolveFolderId } from './services/folders';
 import analyticsRoutes from './routes/analytics';
 import pinyinScanRoutes from './routes/pinyin-scan';
@@ -642,6 +644,7 @@ app.route('/api', adminRoutes);
 app.route('/api', foldersRoutes);
 app.route('/api', revisitRoutes); // "Revisit later" for lessons — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
 app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
+app.route('/api', upNextRoutes); // "Up next" — GET/POST/DELETE /api/me/up-next, PUT /api/me/up-next/order, /api/relationships/:relId/student-up-next…
 app.route('/api', audioBackfillRoutes); // /api/admin/audio/* (docs/AUDIO.md)
 app.route('/api', audioSettingsRoutes); // /api/admin/audio/settings|sample (docs/AUDIO.md "Providers")
 
@@ -5449,6 +5452,9 @@ app.get('/api/sync/changes', async (c) => {
     // "⚡ Study it today": every active bump (a short list, sent whole like folders;
     // the device keeps its own not-yet-uploaded ones on top). shared/decks/bumps.ts.
     bumps: await listActiveBumps(c.env.DB, userId).catch(() => null),
+    // "Up next": the ordered list of chosen notes introduced first within the budget (sent whole,
+    // in order; the device keeps its own not-yet-uploaded changes on top). shared/decks/up-next.ts.
+    up_next: await listUpNext(c.env.DB, userId).catch(() => null),
     // "Revisit later" for lessons: the gaps + new lessons a day, and every Done-for-good / Bring-back
     // event (a short list, sent whole; the device keeps its own not-yet-uploaded ones on top).
     revisit_settings: await getRevisitSettingsInfo(c.env.DB, userId).catch(() => null),

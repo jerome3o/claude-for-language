@@ -71,6 +71,23 @@ export function primaryCapLeft(p: DeckNewPool): number {
 }
 
 /**
+ * What is left of the global budget today, given what was introduced today across ALL
+ * decks. Secondary cards studied beyond their budget were funded by the primary budget
+ * (spillover), so they count against it. Up next (up-next.ts) takes from exactly this.
+ */
+export function newBudgetLeft(
+  budget: StudyBudget,
+  bonus: number,
+  studied: { primary: number; secondary: number }
+): { primary: number; secondary: number } {
+  const overflow = Math.max(0, studied.secondary - budget.secondary_cards_per_day);
+  return {
+    primary: Math.max(0, budget.new_cards_per_day + bonus - studied.primary - overflow),
+    secondary: Math.max(0, budget.secondary_cards_per_day - studied.secondary),
+  };
+}
+
+/**
  * How many new cards each deck may introduce right now.
  *
  * - The global primary budget (+ bonus) is spent walking decks in queue order;
@@ -88,11 +105,12 @@ export function allocateNewCards(
   spentElsewhere: { primary: number; secondary: number } = { primary: 0, secondary: 0 }
 ): Map<string, DeckAllocation> {
   const ordered = sortDecksForQueue(pools);
-  const studiedPrimary = pools.reduce((s, p) => s + p.studiedPrimary, 0) + spentElsewhere.primary;
-  const studiedSecondary = pools.reduce((s, p) => s + p.studiedSecondary, 0) + spentElsewhere.secondary;
-  const overflow = Math.max(0, studiedSecondary - budget.secondary_cards_per_day);
-  let primaryLeft = Math.max(0, budget.new_cards_per_day + bonus - studiedPrimary - overflow);
-  let secondaryLeft = Math.max(0, budget.secondary_cards_per_day - studiedSecondary);
+  const left = newBudgetLeft(budget, bonus, {
+    primary: pools.reduce((s, p) => s + p.studiedPrimary, 0) + spentElsewhere.primary,
+    secondary: pools.reduce((s, p) => s + p.studiedSecondary, 0) + spentElsewhere.secondary,
+  });
+  let primaryLeft = left.primary;
+  let secondaryLeft = left.secondary;
 
   const out = new Map<string, DeckAllocation>();
   const capLeft = new Map<string, { primary: number; secondary: number }>();
