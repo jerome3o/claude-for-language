@@ -319,3 +319,16 @@ describe('selectNextItem with bumped cards ("⚡ Study it today")', () => {
     expect(pick && 'card' in pick && pick.card.id).toBe(other.id);
   });
 });
+
+describe('selectNextItem: a word of known characters starts with English → Chinese (shared/decks/lead-card.ts)', () => {
+  it('offers the note’s meaning_to_hanzi card first, its hanzi_to_meaning card otherwise', () => {
+    const read = makeCard({ queue: CardQueue.NEW, note_id: 'n-known', card_type: 'hanzi_to_meaning' });
+    const write = makeCard({ queue: CardQueue.NEW, note_id: 'n-known', card_type: 'meaning_to_hanzi' });
+    for (let i = 0; i < 20; i++) {
+      const pick = selectNextItem([read, write], [], [], false, null, [], new Set(), undefined, undefined, new Set(), new Set(['n-known']));
+      expect(pick && 'card' in pick && pick.card.id).toBe(write.id);
+    }
+    const usual = selectNextItem([read, write], [], [], false, null, [], new Set(), undefined, undefined, new Set(), new Set());
+    expect(usual && 'card' in usual && usual.card.id).toBe(read.id);
+  });
+});

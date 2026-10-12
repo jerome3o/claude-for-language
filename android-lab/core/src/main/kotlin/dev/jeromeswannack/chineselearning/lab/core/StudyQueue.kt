@@ -64,6 +64,8 @@ data class BuiltQueue(
     val upNext: List<QueueCard> = emptyList(),
     /** Up next notes that hold cards in scope today (taken or still waiting for budget), list order. */
     val upNextNoteIds: List<String> = emptyList(),
+    /** Unseen notes that start with meaning_to_hanzi (every character known, LeadCard.kt). */
+    val knownCharacterNoteIds: Set<String> = emptySet(),
 )
 
 object StudyQueue {
@@ -103,8 +105,29 @@ object StudyQueue {
         return (primary.keys + secondary.keys).associateWith { Introduced(primary[it] ?: 0, secondary[it] ?: 0) }
     }
 
-    private fun tier(card: QueueCard, reviewed: Set<String>): Int =
-        (if (card.noteId !in reviewed) 0 else 2) + (if (card.cardType == CardTypes.HANZI_TO_MEANING) 0 else 1)
+    /** Best first: unseen notes before started ones; the lead card (LeadCard.kt) / hanzi_to_meaning first. */
+    private fun tier(card: QueueCard, reviewed: Set<String>, lead: Set<String>): Int =
+        if (card.noteId in reviewed) 2 + (if (card.cardType == CardTypes.HANZI_TO_MEANING) 0 else 1)
+        else if (LeadCard.isLead(card, lead)) 0 else 1
+
+    /**
+     * Port of `knownCharacterNotesInQueue` (study-queue.ts): the unseen notes among [newCards] that
+     * lead with meaning_to_hanzi — every Han character known (in a note with a known card: [knownNoteIds],
+     * default the notes of [cards] with a mature card), the switch on. Empty without the notes' text.
+     */
+    fun knownCharacterNotesInQueue(
+        newCards: Iterable<QueueCard>,
+        reviewed: Set<String>,
+        cards: Collection<QueueCard>,
+        noteHanzi: Map<String, String>?,
+        order: NewCardOrder,
+        knownNoteIds: Collection<String>? = null,
+    ): Set<String> {
+        if (noteHanzi == null || !order.knownCharactersEnglishFirst) return emptySet()
+        val known = LeadCard.knownCharacters((knownNoteIds ?: LeadCard.knownNoteIds(cards)).map { noteHanzi[it] ?: "" })
+        if (known.isEmpty()) return emptySet()
+        return LeadCard.knownCharacterNotes(newCards.filter { it.noteId !in reviewed }, { noteHanzi[it] ?: "" }, known)
+    }
 
     /**
      * `getStudyQueue(deckId)`: learning/relearning cards due by the cutoff, review cards
@@ -146,6 +169,8 @@ object StudyQueue {
         order: NewCardOrder = NewCardOrder.DEFAULT,
         frequency: FrequencyIndex? = null,
         upNext: List<String>? = null,
+        /** Notes with a known card across ALL decks (LeadCard.kt); default: from [cards]. */
+        knownNoteIds: Collection<String>? = null,
     ): BuiltQueue {
         val reviewed = reviewedNoteIds(cards)
         val inScope = if (deckId == null) decks else decks.filter { it.id == deckId }
@@ -181,8 +206,12 @@ object StudyQueue {
         val elsewhere = introduced.filterKeys { it !in scopeIds }.values
         val spent = Spent(elsewhere.sumOf { it.primary }, elsewhere.sumOf { it.secondary })
         val studiedAll = Spent(introduced.values.sumOf { it.primary }, introduced.values.sumOf { it.secondary })
+        // Which card each unseen note leads with (hanzi_to_meaning, or meaning_to_hanzi for a word of
+        // known characters, LeadCard.kt) — the pools' notes and Up next's alike.
+        val scopeNew = cards.filter { it.queue == CardQueue.NEW && it.deckId in scopeIds && it.id !in pocketIds }
+        val lead = runCatching { knownCharacterNotesInQueue(scopeNew, reviewed, cards, noteHanzi, order, knownNoteIds) }.getOrDefault(emptySet())
         val taken = UpNext.take(slots.primary.size, slots.secondary.size, Budget.newBudgetLeft(budget, bonus, studiedAll))
-        val upPrimary = slots.primary.take(taken.primary)
+        val upPrimary = withLeadCards(slots.primary.take(taken.primary), scopeNew, lead)
         val upSecondary = slots.secondary.take(taken.secondary)
         // What Up next takes counts as introduced today in its deck (caps) and in the budget.
         val pools = UpNext.withPicks(basePools, upPrimary.map { it.deckId }, upSecondary.map { it.deckId })
@@ -214,7 +243,7 @@ object StudyQueue {
         var pickedIn: Map<String, Int> = emptyMap()
         if (studied != null) {
             runCatching {
-                val picked = pickNewCardsFirst(pools, newByDeck, reviewed, alloc.values.sumOf { it.primary }, hanziOf, studied, ordering!!, frequency)
+                val picked = pickNewCardsFirst(pools, newByDeck, reviewed, alloc.values.sumOf { it.primary }, hanziOf, studied, ordering!!, frequency, lead)
                 if (picked.isNotEmpty()) {
                     val per = picked.groupingBy { it.deckId }.eachCount()
                     val respread = Budget.respreadPrimary(pools, alloc, per)
@@ -225,16 +254,16 @@ object StudyQueue {
                 }
             }.onFailure { globalPicks.clear(); newCards.clear(); pickedIn = emptyMap() }
         }
-        val byTierThenId = compareBy<QueueCard> { tier(it, reviewed) }.thenBy { it.id }
+        val byTierThenId = compareBy<QueueCard> { tier(it, reviewed, lead) }.thenBy { it.id }
         for ((id, a) in alloc) {
             val all = newByDeck[id].orEmpty()
             val take = a.primary - (pickedIn[id] ?: 0)
             if (take > 0) {
                 val primaryList = all.filter { it.noteId !in reviewed && it.id !in globalPicks }.sortedWith(byTierThenId)
                 if (ordering != null) {
-                    val firstType = primaryList.filter { it.cardType == CardTypes.HANZI_TO_MEANING }
+                    val firstType = primaryList.filter { LeadCard.isLead(it, lead) }
                     val first = runCatching { NewCardOrdering.orderWithinDeck(firstType, hanziOf, ordering, frequency) }.getOrDefault(firstType).take(take)
-                    val others = primaryList.filter { it.cardType != CardTypes.HANZI_TO_MEANING }.take(Math.max(0, take - first.size))
+                    val others = primaryList.filter { !LeadCard.isLead(it, lead) }.take(Math.max(0, take - first.size))
                     newCards += first
                     newCards += others
                 } else {
@@ -250,12 +279,25 @@ object StudyQueue {
             val a = alloc[p.deckId] ?: DeckAllocation(0, 0)
             p.totalNew + p.totalSecondaryNew > a.primary + a.secondary
         }
-        return BuiltQueue(due, reviewed, hasMoreNew, pools, alloc, pocket.cards, pocket.activeNoteIds, upPrimary + upSecondary, slots.noteIds.toList())
+        return BuiltQueue(due, reviewed, hasMoreNew, pools, alloc, pocket.cards, pocket.activeNoteIds, upPrimary + upSecondary, slots.noteIds.toList(), lead)
+    }
+
+    /**
+     * Port of `withLeadCards` (study-queue.ts): Up next's blue card per unstarted note swapped for
+     * the note's meaning_to_hanzi card when the note leads with it ([lead]); the first such card of
+     * a note in [candidates] wins.
+     */
+    fun withLeadCards(primary: List<QueueCard>, candidates: List<QueueCard>, lead: Set<String>): List<QueueCard> {
+        if (lead.isEmpty() || primary.isEmpty()) return primary
+        val english = HashMap<String, QueueCard>()
+        for (c in candidates) if (c.cardType == LeadCard.KNOWN_CHARACTERS_TYPE && c.noteId in lead && c.noteId !in english) english[c.noteId] = c
+        return primary.map { english[it.noteId] ?: it }
     }
 
     /**
      * Port of `pickNewCardsFirst` (study-queue.ts): the first [take] primary picks —
-     * hanzi_to_meaning cards of unseen notes in ANY deck of [pools] that fall in one of the
+     * the lead cards of unseen notes (LeadCard.kt: hanzi_to_meaning, or meaning_to_hanzi for
+     * [knownCharacterNoteIds]) in ANY deck of [pools] that fall in one of the
      * account's tiers (NewCardOrdering.pickByOrder), each deck within min(unseen cards, primary
      * cap left); ties by deck queue position, shorter, card id. Mutates [studied].
      */
@@ -268,6 +310,7 @@ object StudyQueue {
         studied: StudiedIndex,
         order: NewCardOrder = NewCardOrder.DEFAULT,
         frequency: FrequencyIndex? = null,
+        knownCharacterNoteIds: Set<String>? = null,
     ): List<QueueCard> {
         if (take <= 0) return emptyList()
         val position = Budget.sortForQueue(pools, { it.priority }, { it.createdAt }).withIndex().associate { (i, p) -> p.deckId to i }
@@ -275,7 +318,7 @@ object StudyQueue {
         val candidates = ArrayList<QueueCard>()
         for ((deckId, list) in newByDeck) {
             if ((room[deckId] ?: 0) <= 0) continue
-            for (c in list) if (c.cardType == CardTypes.HANZI_TO_MEANING && c.noteId !in reviewed) candidates += c
+            for (c in list) if (LeadCard.isLead(c, knownCharacterNoteIds) && c.noteId !in reviewed) candidates += c
         }
         return NewCardOrdering.pickByOrder(candidates, take, hanziOf, { it.deckId }, { position[it] ?: 0 }, room, { it.id }, order, studied, frequency)
     }
@@ -309,6 +352,8 @@ object StudyQueue {
         cutoff: StudyCutoff,
         random: Random,
         bumpedCardIds: Set<String> = emptySet(),
+        /** Unseen notes that start with meaning_to_hanzi (BuiltQueue.knownCharacterNoteIds). */
+        knownCharacterNoteIds: Set<String> = emptySet(),
     ): QueueCard? {
         if (queue.isEmpty()) return null
         val available = queue.filter { CardQueue.isLearning(it.queue) || it.noteId !in recentNoteIds }
@@ -322,9 +367,9 @@ object StudyQueue {
         val reviewCards = choose.filter { it.queue == CardQueue.REVIEW }
         if (newCards.size + reviewCards.size > 0) {
             val newProbability = newCards.size.toDouble() / (newCards.size + reviewCards.size)
-            if (random.nextDouble() < newProbability && newCards.isNotEmpty()) return pickPrioritizedNew(newCards, reviewedNoteIds, random)
+            if (random.nextDouble() < newProbability && newCards.isNotEmpty()) return pickPrioritizedNew(newCards, reviewedNoteIds, random, knownCharacterNoteIds)
             if (reviewCards.isNotEmpty()) return reviewCards[random.nextInt(reviewCards.size)]
-            if (newCards.isNotEmpty()) return pickPrioritizedNew(newCards, reviewedNoteIds, random)
+            if (newCards.isNotEmpty()) return pickPrioritizedNew(newCards, reviewedNoteIds, random, knownCharacterNoteIds)
         }
 
         val cooldown = choose.filter { CardQueue.isLearning(it.queue) && (it.state.dueTimestamp == null || it.state.dueTimestamp <= cutoff.ts) }
@@ -346,9 +391,9 @@ object StudyQueue {
         return cards.last()
     }
 
-    private fun pickPrioritizedNew(cards: List<QueueCard>, reviewedNoteIds: Set<String>, random: Random): QueueCard {
+    private fun pickPrioritizedNew(cards: List<QueueCard>, reviewedNoteIds: Set<String>, random: Random, knownCharacterNoteIds: Set<String>): QueueCard {
         val tiers = listOf<(QueueCard) -> Boolean>(
-            { it.noteId !in reviewedNoteIds && it.cardType == CardTypes.HANZI_TO_MEANING },
+            { it.noteId !in reviewedNoteIds && LeadCard.isLead(it, knownCharacterNoteIds) },
             { it.noteId !in reviewedNoteIds },
             { it.cardType == CardTypes.HANZI_TO_MEANING },
             { true },

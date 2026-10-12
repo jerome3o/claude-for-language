@@ -17,7 +17,7 @@ import {
 import { frequencyRank, parseFrequencyList, NO_HAN_RANK, UNKNOWN_WORD_BASE, UNRANKED_CHAR } from './frequency';
 import { selectStudyQueue, type QueueCardInput, type QueueDeckInput } from './study-queue';
 
-const ALL_OFF: NewCardOrder = { new_characters_first: false, new_words_first: false, most_common_first: false, sentences_last: false };
+const ALL_OFF: NewCardOrder = { new_characters_first: false, new_words_first: false, most_common_first: false, sentences_last: false, known_characters_english_first: false };
 const only = (k: keyof NewCardOrder, extra: Partial<NewCardOrder> = {}): NewCardOrder => ({ ...ALL_OFF, [k]: true, ...extra });
 
 describe('settings', () => {
@@ -33,8 +33,9 @@ describe('settings', () => {
     expect(pickNewCardOrderUpdate({ new_words_first: 'yes' }).problems).toEqual(['new_words_first must be true, false or null']);
     expect(pickNewCardOrderUpdate(null).problems.length).toBe(1);
     expect(pickNewCardOrderUpdate({ reset: true }).update).toEqual({
-      new_characters_first: null, new_words_first: null, most_common_first: null, sentences_last: null,
+      new_characters_first: null, new_words_first: null, most_common_first: null, sentences_last: null, known_characters_english_first: null,
     });
+    expect(pickNewCardOrderUpdate({ known_characters_english_first: false }).update).toEqual({ known_characters_english_first: false });
   });
 
   it('applies and parses (garbage → defaults per field)', () => {

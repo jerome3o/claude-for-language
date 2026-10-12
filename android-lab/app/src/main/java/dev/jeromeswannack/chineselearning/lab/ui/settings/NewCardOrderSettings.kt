@@ -57,7 +57,7 @@ private val NewBlueSoft = Color(0xFFDBEAFE)
 /**
  * Settings → New cards → "Order new cards by" (the web's NewCardOrderSection; core NewCardOrder):
  * which brand-new words the daily budget introduces first. Four switches applied in order as
- * tiers, then the deck order. Stateless for screenshots; [NewCardOrderSettingsCard] wires it up.
+ * tiers, then the deck order; under them the "known characters → English first" switch (LeadCard). Stateless for screenshots; [NewCardOrderSettingsCard] wires it up.
  */
 @Composable
 fun NewCardOrderSection(
@@ -93,6 +93,17 @@ fun NewCardOrderSection(
                     Text("The rest come deck by deck, top of your deck list first.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
                 }
             }
+        }
+        // Not an order: which card a word made only of known characters starts with (core LeadCard).
+        val known = NewCardOrder.KNOWN_CHARACTERS_OPTION
+        val knownOn = order[known.key]
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Lab.colors.background),
+        ) {
+            OrderRow("写", known.label, known.hint, knownOn, !busy, Modifier.testTag("nco-${known.key}")) { onToggle(known.key, it) }
         }
         Text(
             "⚡ Bumped words, your decks' daily limits and homework from your tutor work as before.",
@@ -158,6 +169,7 @@ fun NewCardOrderSettingsCard(app: LabApp) {
             put("new_words_first", saved.newWordsFirst)
             put("most_common_first", saved.mostCommonFirst)
             put("sentences_last", saved.sentencesLast)
+            put("known_characters_english_first", saved.knownCharactersEnglishFirst)
         },
     )
     fun save(next: NewCardOrder, field: String?, call: suspend () -> NewCardOrder) {

@@ -22,6 +22,9 @@
  *                                                         choices, one-off decks and "Order new cards by" —
  *                                                         shared/decks/up-next.ts; `upNextHelpers`: the list
  *                                                         helpers the page / API use)
+ *   - selectStudyQueue(..., { knownNoteIds })          (`leadCard`: a word made only of known characters leads
+ *                                                         with meaning_to_hanzi — in the pools and on the Up next
+ *                                                         list — shared/decks/lead-card.ts)
  * Writes study-queue.json; core StudyQueueParityTest asserts StudyQueue.kt reproduces them.
  */
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
@@ -543,5 +546,97 @@ for (let i = 0; i < 200; i++) {
   });
 }
 
-writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty, bumped, globalNovelty, ordered, upNext, upNextHelpers }));
-console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) + ${bumped.length} (bumps) + ${globalNovelty.length} (across decks) + ${ordered.length} (order new cards by) + ${upNext.length} (up next) scenarios`);
+// "Words made of characters I know: start with English → Chinese" (shared/decks/lead-card.ts): reviewed
+// notes with stabilities around the 21-day line (known vs learning), unseen words / sentences of known,
+// partly known and non-Han characters, notes without a meaning_to_hanzi card, the switch on and off, every
+// order switch, known notes passed in (a one-deck session) or read from the cards, budgets above the unseen
+// notes, sometimes an Up next list (its blue card follows the same rule).
+const LEAD_KNOWN = ['大学', '生活', '你好', '我们', '学校', '中国人', '老师', '喝茶', '工作', '银行', '朋友', '很好', '明天见'];
+const LEAD_UNSEEN = [
+  '学生', '大学生', '好人', '我们好', '学校生活', '中国', '国人', '老', '师生', '茶', '喝咖啡', '行人', '银', '朋友们',
+  '我们是中国人。', '你好吗？', '明天我们去学校。', 'OK', '', 'T恤', '卡拉OK', '𠮷', '熊猫', '明天', '天天', '见面', '生日快乐',
+];
+const leadCard: unknown[] = [];
+for (let i = 0; i < 320; i++) {
+  const dayStart = Date.parse('2026-10-12T23:00:00.000Z');
+  const now = dayStart + int(6, 22) * H;
+  const cutoff = Math.max(dayStart + DAY - 1, now + H);
+  const decks: QueueDeckInput[] = [];
+  for (let d = 0; d < int(1, 4); d++) {
+    const oneOff = rand() < 0.1;
+    decks.push({
+      id: `l${i}-${d}`,
+      priority: pick([0, 1, 2, 5]),
+      created_at: `2026-0${int(1, 9)}-${String(int(10, 28))}T10:00:00.000Z`,
+      cap_primary: oneOff ? 0 : pick([0, 1, 3, 5, 20]),
+      cap_secondary: oneOff ? 0 : pick([0, 2, 6]),
+    });
+  }
+  const cards: QueueCardInput[] = [];
+  const firstReviewAt: Record<string, number> = {};
+  const noteHanzi: Record<string, string> = {};
+  const longTerm: Record<string, 0 | 1> = {};
+  const noteIds: string[] = [];
+  for (let n = 0; n < int(0, 30); n++) {
+    const noteId = `l${i}-n${String(n).padStart(2, '0')}`;
+    noteIds.push(noteId);
+    const reviewed = rand() < 0.5;
+    noteHanzi[noteId] = reviewed ? (rand() < 0.8 ? pick(LEAD_KNOWN) : pick(LEAD_UNSEEN)) : (rand() < 0.85 ? pick(LEAD_UNSEEN) : pick(LEAD_KNOWN));
+    const deckId = rand() < 0.04 ? `gone-${i}` : pick(decks).id;
+    if (rand() < 0.06) longTerm[noteId] = pick([0, 1] as const);
+    const roll = rand();
+    const types = roll < 0.1 ? [TYPES[0], TYPES[2]] : roll < 0.18 ? TYPES.slice(1, 3) : roll < 0.24 ? [TYPES[0]] : TYPES.slice(0, int(2, 3));
+    for (const t of types) {
+      const id = `l${i}-c${n}-${t[0]}-${int(0, 9)}`;
+      const queue = reviewed ? pick([0, 1, 2, 2, 2, 2, 3]) : 0;
+      let due: number | null = null;
+      let stability: number | undefined;
+      if (queue !== 0) {
+        due = now + int(-48, 24 * 30) * H;
+        firstReviewAt[id] = dayStart - int(1, 90) * DAY;
+        stability = pick([0.5, 12, 21, 21.0001, 22, 45, 90, 180, 365]);
+      }
+      cards.push({ id, note_id: noteId, deck_id: deckId, card_type: t, queue, due_ms: due, ...(stability !== undefined ? { stability } : {}) });
+    }
+  }
+  // Known characters from a deck the device holds only by hanzi (a one-deck session's other decks).
+  noteHanzi[`elsewhere-${i}`] = pick(LEAD_KNOWN);
+  const order: NewCardOrder = {
+    new_characters_first: rand() < 0.6, new_words_first: rand() < 0.6, most_common_first: rand() < 0.6, sentences_last: rand() < 0.6,
+    known_characters_english_first: i % 5 !== 4,
+  };
+  const useFrequency = rand() < 0.5;
+  const budget = { new_cards_per_day: pick([1, 3, 5, 10, 40]), secondary_cards_per_day: pick([0, 6]) };
+  const bonus = pick([0, 0, 10]);
+  const intro = introducedToday(cards, new Map(Object.entries(firstReviewAt)), dayStart);
+  const hanziMap = new Map(Object.entries(noteHanzi));
+  const longTermMap = new Map(Object.entries(longTerm));
+  const knownFromCards = [...new Set(cards.filter(c => c.queue === 2 && (c.stability ?? 0) > 21).map(c => c.note_id))];
+  const knownNoteIds = rand() < 0.3 ? [...knownFromCards.filter(() => rand() < 0.7), `elsewhere-${i}`, `missing-${i}`] : null;
+  const list = rand() < 0.35 ? noteIds.filter(() => rand() < 0.4).sort(() => rand() - 0.5) : null;
+  const scopes: Array<string | null> = [null, pick(decks).id];
+  const queues = scopes.map(deckId => {
+    const q = selectStudyQueue(decks, cards, budget, bonus, intro, cutoff, deckId,
+      { hanzi: hanziMap, order, frequency: useFrequency ? shipped : null, ...(knownNoteIds ? { knownNoteIds } : {}) }, longTermMap, null, list);
+    return {
+      deckId,
+      due: q.due.map(c => c.id).sort(),
+      newOrder: q.due.filter(c => c.queue === 0).map(c => c.id),
+      upNext: q.upNext.map(c => c.id),
+      upNextNoteIds: q.upNextNoteIds,
+      counts: countQueue(q.due, q.reviewedNoteIds),
+      hasMoreNew: q.hasMoreNew,
+      allocation: [...q.allocation.entries()].map(([id, a]) => ({ deckId: id, primary: a.primary, secondary: a.secondary })),
+      knownCharacterNoteIds: [...q.knownCharacterNoteIds].sort(),
+    };
+  });
+  leadCard.push({
+    now, dayStart, cutoff, decks, cards, firstReviewAt, budget, bonus, noteHanzi, seenNoteIds: null, longTerm, order, useFrequency, knownNoteIds,
+    ...(list ? { upNextList: list } : {}),
+    introduced: [...intro.entries()].map(([deckId, v]) => ({ deckId, ...v })),
+    queues,
+  });
+}
+
+writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty, bumped, globalNovelty, ordered, upNext, upNextHelpers, leadCard }));
+console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) + ${bumped.length} (bumps) + ${globalNovelty.length} (across decks) + ${ordered.length} (order new cards by) + ${upNext.length} (up next) + ${leadCard.length} (known characters → English first) scenarios`);

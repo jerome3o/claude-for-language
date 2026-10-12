@@ -144,6 +144,21 @@ rate.
   account's **"Order new cards by"** (below); after its tiers the budget is walked deck by deck in
   queue order: the first deck takes as many as it can, the next deck gets the rest.
 
+  **Words made of characters I know: start with English → Chinese** (Settings → New cards, the
+  switch under "Order new cards by", ON by default; Oct 2026, `shared/decks/lead-card.ts`, Lab
+  `core/…/LeadCard.kt`, parity-tested by the `leadCard` study-queue vectors). Jerome: "Notes with
+  characters I should know should present, in the blue queue, English → Chinese first." An unseen
+  note whose Han characters are ALL known leads with its **meaning_to_hanzi** card instead of
+  hanzi_to_meaning (falls back to hanzi_to_meaning when it has none; a note with no Han characters is
+  unchanged; sentences follow the same rule). Known = the Progress page's definition read from the
+  cards' current state: a card in Review with stability > 21 days; a character is known when it is in
+  the hanzi of a note with a known card (any deck — a one-deck session passes `knownNoteIds`).
+  Only the card TYPE changes: the same notes come, in the same order and counts (the tiers rank
+  notes; a note of known characters is never in the "new characters" tier anyway); the note's other
+  cards follow through the purple pool. The session's own pick (`pickPrioritizedNewCard`, Lab
+  `StudyQueue.selectNext`) treats that card as the note's first. Bumps and homework passes are
+  unchanged. Stored in the same `users.new_card_order` JSON (`known_characters_english_first`).
+
   **Order new cards by** (Settings → New cards, Oct 2026; `shared/decks/new-card-order.ts`, Lab
   `core/…/NewCardOrder.kt`, parity-tested by `parity/fixtures/new-card-order.ts` and the
   `ordered` study-queue vectors). Jerome: "I'm getting a bunch of sentences in my flashcards that
@@ -287,7 +302,8 @@ the deck queue and "Order new cards by". It is persistent (not just today) — t
 
 - **Inside the daily budget, first** — before the deck allocation, the list takes what is left of the
   ONE budget (`newBudgetLeft`, `budget.ts`) in list order: a note with no card reviewed yet takes ONE
-  blue card (its best NEW card: hanzi_to_meaning → meaning_to_hanzi → audio_to_hanzi; its other cards
+  blue card (its best NEW card: hanzi_to_meaning → meaning_to_hanzi → audio_to_hanzi — meaning_to_hanzi
+  first for a word made only of known characters, "Words made of characters I know" above; its other cards
   wait and become purple once that one is reviewed); a started note offers each of its NEW cards to the
   PURPLE budget (never a spill of blue budget into them). "Study 10 more" (bonus) takes the next Up next
   words first. The budget is never raised — a list longer than today's budget waits for the next days.

@@ -32,6 +32,7 @@ class NewCardOrderParityTest {
         o["new_words_first"]!!.jsonPrimitive.boolean,
         o["most_common_first"]!!.jsonPrimitive.boolean,
         o["sentences_last"]!!.jsonPrimitive.boolean,
+        o["known_characters_english_first"]?.jsonPrimitive?.boolean ?: true,
     )
 
     @Test
@@ -45,6 +46,8 @@ class NewCardOrderParityTest {
         // Round trip through the stored shape.
         val off = NewCardOrder.DEFAULT.copy(sentencesLast = false)
         assertEquals(off, NewCardOrder.parse(off.toJson()))
+        val englishOff = NewCardOrder.DEFAULT.copy(knownCharactersEnglishFirst = false)
+        assertEquals(englishOff, NewCardOrder.parse(englishOff.toJson()))
     }
 
     @Test
@@ -53,6 +56,11 @@ class NewCardOrderParityTest {
         assertEquals(
             options.map { Triple(it["key"]!!.jsonPrimitive.content, it["label"]!!.jsonPrimitive.content, it["hint"]!!.jsonPrimitive.content) },
             NewCardOrder.OPTIONS.map { Triple(it.key, it.label, it.hint) },
+        )
+        val known = fixture["knownCharactersOption"]!!.jsonObject
+        assertEquals(
+            Triple(known["key"]!!.jsonPrimitive.content, known["label"]!!.jsonPrimitive.content, known["hint"]!!.jsonPrimitive.content),
+            NewCardOrder.KNOWN_CHARACTERS_OPTION.let { Triple(it.key, it.label, it.hint) },
         )
     }
 

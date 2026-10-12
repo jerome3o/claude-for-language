@@ -78,6 +78,8 @@ class StudyViewModel(
     private var recentNoteIds: List<String> = emptyList()
     /** "⚡ Study it today": the pocket's cards still to rate this session (core Bumps.kt), and who bumped which note. */
     private var bumpedCardIds: MutableSet<String> = HashSet()
+    /** Unseen notes whose first card is meaning_to_hanzi (every character known, core LeadCard). */
+    private var knownCharacterNoteIds: Set<String> = emptySet()
     private var bumpedBy: Map<String, String> = emptyMap()
     private var presentation = 0
     private var cutoff = StudyCutoff(0)
@@ -156,7 +158,7 @@ class StudyViewModel(
     }
 
     private fun nextItem(lastRatedCardId: String?) =
-        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds)
+        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds, knownCharacterNoteIds)
 
     /** "Flashcards done ✓ — 2 mini lessons and today's story left · Continue / Later" (celebrates the cards once a day). */
     private fun showExtrasBreak() {
@@ -388,6 +390,7 @@ class StudyViewModel(
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
         bumpedCardIds = built.bumped.mapTo(HashSet()) { it.id }
+        knownCharacterNoteIds = built.knownCharacterNoteIds
         // Usage analytics: once per visit to Study with cards to do.
         if (analyticsStartedAt == null && queue.isNotEmpty()) {
             analyticsStartedAt = now
@@ -497,6 +500,7 @@ class StudyViewModel(
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
         bumpedCardIds = built.bumped.mapTo(HashSet()) { it.id }
+        knownCharacterNoteIds = built.knownCharacterNoteIds
         // Lessons / the story may have been done from Home meanwhile (Lab today split).
         val phase = _ui.value.phase
         if (phase is StudyPhase.Showing || phase is StudyPhase.Lesson) extras.reload()

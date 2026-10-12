@@ -5,7 +5,8 @@ package dev.jeromeswannack.chineselearning.lab.core
  * shared/decks/up-next.ts (parity-tested through parity/fixtures/up-next.ts → UpNextParityTest).
  *
  * Inside the daily budget, before the deck queue and "Order new cards by" (StudyQueue.build):
- *   - an unstarted note takes ONE blue card (its best NEW card, card-type order); its other NEW
+ *   - an unstarted note takes ONE blue card (its best NEW card, card-type order — meaning_to_hanzi for
+ *     a word of known characters, LeadCard.kt / StudyQueue.withLeadCards); its other NEW
  *     cards wait until that card is reviewed;
  *   - a started note offers each NEW card to the PURPLE budget (never a spill from blue);
  *   - deck caps do not limit it (one-off 0 + 0 copies included) but its picks count against

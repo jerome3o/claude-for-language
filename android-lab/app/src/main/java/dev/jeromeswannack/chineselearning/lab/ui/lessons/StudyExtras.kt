@@ -96,9 +96,10 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         cutoff: StudyCutoff,
         random: Random,
         bumpedCardIds: Set<String> = emptySet(),
+        knownCharacterNoteIds: Set<String> = emptySet(),
     ): SessionItem? = SessionMix.next(
         queue, lessons.map { it.item }, readers.map { it.item }, false,
-        reviewedNoteIds, recentNoteIds, lastRatedCardId, lastRatedReaderId, nowMs, cutoff, random, bumpedCardIds,
+        reviewedNoteIds, recentNoteIds, lastRatedCardId, lastRatedReaderId, nowMs, cutoff, random, bumpedCardIds, knownCharacterNoteIds,
     )
 
     /** The reader for a [SessionItem.Reader]. */

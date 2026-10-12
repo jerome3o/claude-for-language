@@ -3,7 +3,7 @@ import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
 import { bumpPocket, type QueueBump, type QueueBumps } from '@shared/decks';
-import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
+import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, isLeadCard, knownCharacterNotesInQueue, isKnownCardState, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { newBudgetLeft, takeUpNext, upNextSlots, withUpNextPicks } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
@@ -1480,6 +1480,7 @@ export function queueInput(card: LocalCard): QueueCardInput {
     card_type: card.card_type,
     queue: card.queue,
     due_ms: due !== null && Number.isFinite(due) ? due : null,
+    stability: card.stability,
   };
 }
 
@@ -1790,6 +1791,7 @@ function countRawQueues(
     unseenByDeck.set(d.id, new Set());
   }
   const newByDeck = new Map<string, QueueCardInput[]>();
+  const unseenNew: QueueCardInput[] = [];
   const bumpedNotesByDeck = new Map<string, Set<string>>();
   for (const c of pocket.cards) {
     const bucket = byDeck.get(c.deck_id);
@@ -1823,12 +1825,7 @@ function countRawQueues(
       else {
         bucket.totalNew++;
         unseenByDeck.get(card.deck_id)!.add(card.note_id);
-        if (card.card_type === 'hanzi_to_meaning') {
-          const row = queueInput(card);
-          const list = newByDeck.get(card.deck_id);
-          if (list) list.push(row);
-          else newByDeck.set(card.deck_id, [row]);
-        }
+        unseenNew.push(queueInput(card));
       }
     } else if (isDueByCutoff(queueInput(card), cutoff.ts)) {
       // Learning / relearning / review cards the session will show: due by the
@@ -1842,6 +1839,16 @@ function countRawQueues(
   for (const [id, set] of unseenByDeck) byDeck.get(id)!.unseenNotes = set.size;
   slots.primary.forEach((c, i) => { const raw = byDeck.get(c.deck_id); if (raw) (raw.upNextPrimary ??= []).push(i); });
   slots.secondary.forEach((c, i) => { const raw = byDeck.get(c.deck_id); if (raw) (raw.upNextSecondary ??= []).push(i); });
+
+  // Each unseen note's lead card (hanzi_to_meaning; meaning_to_hanzi for a word of known
+  // characters, shared/decks/lead-card.ts) — the candidates of the global picks, like the session.
+  const lead = noteText ? knownCharacterNotesInQueue(unseenNew, reviewedNoteIds, cards, noteText) : new Set<string>();
+  for (const row of unseenNew) {
+    if (!isLeadCard(row, lead)) continue;
+    const list = newByDeck.get(row.deck_id);
+    if (list) list.push(row);
+    else newByDeck.set(row.deck_id, [row]);
+  }
 
   // "Order new cards by" across all decks — the same greedy picks the session
   // makes (selectStudyQueue), run far enough for the budget plus a few "Study
@@ -1859,7 +1866,7 @@ function countRawQueues(
     const secondaryTaken = takeUpNext({ primary: 0, secondary: slots.secondary.length }, newBudgetLeft(budget, 0, studiedAll)).secondary;
     const pools = withUpNextPicks(basePools, slots.primary.map(c => c.deck_id), slots.secondary.slice(0, secondaryTaken).map(c => c.deck_id));
     const picks = pickNewCardsFirst(pools, newByDeck, reviewedNoteIds, budget.new_cards_per_day + NOVELTY_PICKS_AHEAD,
-      c => noteText.hanzi.get(c.note_id) ?? '', studied, order, noteText.frequency);
+      c => noteText.hanzi.get(c.note_id) ?? '', studied, order, noteText.frequency, lead);
     picks.forEach((c, i) => {
       const raw = byDeck.get(c.deck_id)!;
       (raw.noveltyPicks ??= []).push(i);
@@ -1904,7 +1911,7 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
 /**
  * The notes' hanzi + the account's "Order new cards by" (shared/decks/new-card-order.ts):
  * which brand-new words come first. Studied = every note with a reviewed card in ANY deck,
- * so a one-deck session loads those separately. The order is the device's cached copy
+ * so a one-deck session loads those separately (and the known ones among them, lead-card.ts). The order is the device's cached copy
  * (services/newCardOrder.ts) and the frequency list a precached chunk — both offline.
  */
 async function loadQueueNoteText(deckId?: string): Promise<QueueNoteText> {
@@ -1916,8 +1923,12 @@ async function loadQueueNoteText(deckId?: string): Promise<QueueNoteText> {
   ]);
   const hanzi = new Map<string, string>();
   for (const n of notes) hanzi.set(n.id, n.hanzi ?? '');
+  // A one-deck session still knows the characters of every deck (lead-card.ts); all decks: from the cards.
   return reviewedCards
-    ? { hanzi, reviewedNoteIds: reviewedCards.map(c => c.note_id), order, frequency }
+    ? {
+      hanzi, reviewedNoteIds: reviewedCards.map(c => c.note_id), order, frequency,
+      knownNoteIds: reviewedCards.filter(c => isKnownCardState(c.queue, c.stability)).map(c => c.note_id),
+    }
     : { hanzi, order, frequency };
 }
 
@@ -1927,7 +1938,7 @@ function selectDueCards(
   noteText: QueueNoteText | null,
   bonusNewCards: number,
   cutoff: { iso: string; ts: number }
-): { cards: LocalCard[]; bumpedCardIds: string[] } {
+): { cards: LocalCard[]; bumpedCardIds: string[]; knownCharacterNoteIds: Set<string> } {
   const decks: QueueDeckInput[] = inputs.decks.map(d => ({
     id: d.id,
     priority: d.study_priority ?? 0,
@@ -1939,7 +1950,7 @@ function selectDueCards(
   // `studied` covers every deck; a one-deck session still spends the global
   // budget other decks used today (selectStudyQueue does the spent-elsewhere sum).
   const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm, inputs.bumps, inputs.upNext);
-  return { cards: result.due.map(r => r.card), bumpedCardIds: result.bumped.map(r => r.id) };
+  return { cards: result.due.map(r => r.card), bumpedCardIds: result.bumped.map(r => r.id), knownCharacterNoteIds: result.knownCharacterNoteIds };
 }
 
 /** What a study session needs to start, from ONE load of decks, cards and counters. */
@@ -1949,6 +1960,8 @@ export interface StudyQueue {
   reviewedNoteIds: Set<string>;
   /** "⚡ Study it today" pocket cards (also the head of dueCards): shown first. */
   bumpedCardIds: Set<string>;
+  /** Unseen notes that start with meaning_to_hanzi (every character known, shared/decks/lead-card.ts). */
+  knownCharacterNoteIds: Set<string>;
 }
 
 /**
@@ -1961,11 +1974,11 @@ export async function getStudyQueue(deckId?: string, bonusNewCards = 0): Promise
   const cutoff = getStudyCutoff();
   const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
   const reviewedNoteIds = collectReviewedNoteIds(inputs.cards);
-  const { cards: dueCards, bumpedCardIds } = selectDueCards(inputs, noteText, bonusNewCards, cutoff);
+  const { cards: dueCards, bumpedCardIds, knownCharacterNoteIds } = selectDueCards(inputs, noteText, bonusNewCards, cutoff);
   const raw = countRawQueues(inputs, reviewedNoteIds, cutoff, noteText);
   const applied = allocateQueueCounts(raw, bonusNewCards, inputs.budget, inputs.spentElsewhere);
   const counts = deckId ? applied.get(deckId) ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied.values());
-  return { dueCards, counts, reviewedNoteIds, bumpedCardIds: new Set(bumpedCardIds) };
+  return { dueCards, counts, reviewedNoteIds, bumpedCardIds: new Set(bumpedCardIds), knownCharacterNoteIds };
 }
 
 /**

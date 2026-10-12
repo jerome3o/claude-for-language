@@ -205,7 +205,7 @@ object AnalyticsEvents {
         ev("folder.move_items", "decks", listOf("kind", "count", "unfiled")),
         ev("settings.change", "settings", listOf("setting", "value")),
         ev("settings.revisit_changed", "settings", listOf("fields", "reset", "new_lessons_per_day")),
-        ev("settings.new_card_order", "settings", listOf("field", "reset", "new_characters_first", "new_words_first", "most_common_first", "sentences_last")),
+        ev("settings.new_card_order", "settings", listOf("field", "reset", "new_characters_first", "new_words_first", "most_common_first", "sentences_last", "known_characters_english_first")),
         ev("settings.analytics", "settings", listOf("on")),
         ev("settings.full_sync", "settings", emptyList()),
         ev("settings.debug_report", "settings", emptyList()),
