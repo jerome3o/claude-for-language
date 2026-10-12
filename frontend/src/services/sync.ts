@@ -4,6 +4,8 @@ import { replaceLocalBumps, syncBumps, uploadPendingBumps } from './studyBumps';
 import { replaceLocalRevisitEvents, syncRevisit, uploadRevisitEvents, writeRevisitSettings } from './revisit';
 import type { RevisitSettingsInfo } from '@shared/study/revisit';
 import type { ApiStudyBump } from '../api/bumps';
+import type { ApiUpNext } from '../api/upNext';
+import { replaceLocalUpNext, syncUpNext, uploadPendingUpNext } from './upNext';
 import type { NewCardOrderInfo, StudyBudgetInfo } from '@shared/decks';
 import { writeStudyBudget } from './studyBudget';
 import { writeNewCardOrder } from './newCardOrder';
@@ -103,6 +105,8 @@ interface SyncChangesResponse {
   folders?: Folder[] | null;
   /** "⚡ Study it today": every active bump, sent whole (shared/decks/bumps.ts). */
   bumps?: ApiStudyBump[] | null;
+  /** "Up next": the ordered list of chosen notes, sent whole (shared/decks/up-next.ts). */
+  up_next?: ApiUpNext[] | null;
   /** "Revisit later" for lessons: the gaps, new lessons a day and every Done-for-good / Bring-back event. */
   revisit_settings?: RevisitSettingsInfo | null;
   revisit_events?: Array<{ id: string; item_kind: 'lesson' | 'reader'; item_id: string; action: 'retire' | 'restore'; created_at: string }> | null;
@@ -447,6 +451,8 @@ class SyncService {
     await syncFolders();
     // "⚡ Study it today": pending bumps up, the pocket down (never throws).
     await syncBumps();
+    // "Up next": waiting changes up, the list down (never throws).
+    await syncUpNext();
 
     // Sync graded readers (content + pages) so they can be studied offline
     this.notifyProgress({ phase: 'decks', message: 'Syncing readers...' });
@@ -652,6 +658,7 @@ class SyncService {
     this.notifyProgress({ phase: 'decks', message: 'Fetching changes...' });
     // Bumps made offline go up first, so the list that comes back already has them.
     await uploadPendingBumps();
+    await uploadPendingUpNext();
     const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
       headers: getAuthHeaders(),
     });
@@ -673,6 +680,8 @@ class SyncService {
     if (changes.folders) await replaceLocalFolders(changes.folders).catch(err => console.error('[Sync] Folders failed:', err));
     // "⚡ Study it today": the server's pocket, this device's pending changes on top.
     if (Array.isArray(changes.bumps)) await replaceLocalBumps(changes.bumps).catch(err => console.error('[Sync] Bumps failed:', err));
+    // "Up next": the server's list, unless a change made here is still waiting.
+    if (Array.isArray(changes.up_next)) await replaceLocalUpNext(changes.up_next).catch(err => console.error('[Sync] Up next failed:', err));
     // "Revisit later": the gaps (recomputes the schedules when changed) and the Done-for-good events.
     if (changes.revisit_settings) writeRevisitSettings(changes.revisit_settings);
     if (Array.isArray(changes.revisit_events)) await replaceLocalRevisitEvents(changes.revisit_events).catch(err => console.error('[Sync] Revisit events failed:', err));

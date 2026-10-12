@@ -22,7 +22,7 @@ const MORE: TabSpec = {
   to: '/more',
   match: [
     // Decks moved from the tab bar into More (its first row), so a deck page lights More up.
-    '/more', '/decks', '/generate', '/search', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
+    '/more', '/decks', '/up-next', '/generate', '/search', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
     '/quests', '/picture-hunt', '/idioms', '/audio-lessons', '/library', '/duplicate-finder', '/admin',
   ],
 };

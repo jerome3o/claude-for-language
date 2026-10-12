@@ -11,6 +11,7 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.LabPlatform
 import dev.jeromeswannack.chineselearning.lab.data.homework.LongTermStore
 import dev.jeromeswannack.chineselearning.lab.data.api.folders
 import dev.jeromeswannack.chineselearning.lab.data.api.studyBumps
+import dev.jeromeswannack.chineselearning.lab.data.api.upNext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -277,6 +278,16 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         } catch (e: Exception) {
             android.util.Log.w("LabSync", "bumps not synced", e)
         }
+        // "Up next": the ordered list, whole (an older server without it must not fail the sync).
+        try {
+            dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.replaceFromServer(db, db.platform(), api.upNext())
+        } catch (e: UnauthorizedException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("LabSync", "up next not synced", e)
+        }
         prefs.lastFullSync = System.currentTimeMillis()
         prefs.changesCursor = snapshotAt
         prefs.fullRefreshVersion = FULL_REFRESH_VERSION
@@ -300,6 +311,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         changes.study_budget?.let { prefs.budgetInfo = it.toInfo() }
         changes.new_card_order?.let { prefs.newCardOrder = dev.jeromeswannack.chineselearning.lab.core.NewCardOrder.parse(it.toString()) }
         changes.bumps?.let { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.replaceFromServer(db, db.platform(), it) }
+        changes.up_next?.let { dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.replaceFromServer(db, db.platform(), it) }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).
         changes.cards.mapTo(dirty.ids) { it.id }

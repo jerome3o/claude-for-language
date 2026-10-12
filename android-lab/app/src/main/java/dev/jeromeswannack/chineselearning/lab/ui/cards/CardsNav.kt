@@ -33,6 +33,8 @@ fun NavGraphBuilder.cardsGraph(nav: LabNav) {
                 onDismissNotice = vm::dismissNotice,
                 onBump = vm::bump,
                 onUnbump = vm::unbump,
+                onUpNext = vm::upNext,
+                onRemoveUpNext = vm::removeUpNext,
             ),
         )
         NoteEditorSheets(vm.editor, nav)

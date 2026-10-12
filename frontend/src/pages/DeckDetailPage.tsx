@@ -1,4 +1,5 @@
 import { BumpButton } from '../components/bumps/BumpButton';
+import { UpNextButton } from '../components/upNext/UpNextButton';
 import { OneOffDeckBanner } from '../components/homework/OneOffDeckBanner';
 import { UpdateCopiesPrompt } from '../components/tutor/library/UpdateCopiesSheet';
 import { useQuery, useMutation, useQueryClient, QueryClient } from '@tanstack/react-query';
@@ -324,6 +325,7 @@ function NoteHistoryModal({
 
         <div className="modal-actions sheet-footer" style={{ marginTop: '1rem' }}>
           <BumpButton noteIds={[note.id]} source="deck" removable />
+          <UpNextButton noteId={note.id} source="deck" removable />
           <Link to={`/cards/${note.id}`} className="btn btn-secondary">
             Card page: flags &amp; Claude chats
           </Link>
@@ -2295,6 +2297,10 @@ export function DeckDetailPage() {
                       {/* "⚡ Study it today": first in today's session (shared/decks/bumps.ts). */}
                       {!selectMode && user?.role !== 'tutor' && (
                         <BumpButton noteIds={[noteProgress.noteId]} source="deck" compact removable label="⚡" className="deck-note-bump" />
+                      )}
+                      {/* "Up next": learn it next, within the budget (shared/decks/up-next.ts). */}
+                      {!selectMode && user?.role !== 'tutor' && (
+                        <UpNextButton noteId={noteProgress.noteId} source="deck" compact removable className="deck-note-upnext" />
                       )}
                       {!selectMode && <span className="deck-note-chevron" aria-hidden="true">›</span>}
                         {noteData?.check_issues && !selectMode && (

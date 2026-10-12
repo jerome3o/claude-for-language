@@ -98,6 +98,8 @@ export interface DebugReport {
   budget: { new_cards_per_day: number; secondary_cards_per_day: number };
   /** "Order new cards by" (shared/decks/new-card-order.ts) as this device applies it; absent in older reports. */
   new_card_order?: { new_characters_first: boolean; new_words_first: boolean; most_common_first: boolean; sentences_last: boolean };
+  /** "Up next" (shared/decks/up-next.ts): the list's note ids in order as this device holds it; absent in older reports. */
+  up_next?: string[];
   /** "Study 10 more" bonuses in effect: all-decks bonus + per deck, and the day key they are stored under. */
   bonus: { all: number; by_deck: Record<string, number>; day_key: string };
   /** Client-specific sync cursors / state (free-form). */

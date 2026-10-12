@@ -306,6 +306,18 @@ the deck queue and "Order new cards by". It is persistent (not just today) — t
   (`/api/relationships/:relId/student-up-next`, `added_by` → "added by Minghui"); no chat message.
 - **Session order** — Up next decides WHICH new cards today brings; inside the session new cards are
   still mixed with reviews as before.
+- **The page** (`/up-next`, More → Up next, Home's "↑ N up next: 银行、学生… ›" line; web
+  `pages/UpNextPage.tsx` + `components/upNext/UpNextBoard.tsx`, Lab `ui/upnext/`): ⚡ Today (the pocket, each word
+  with ✕ and "↑ Up next" = not today, next instead), a search over the cards on the device (the server's search when it
+  finds nothing) whose results go on the list with ＋ Top / ＋ Bottom or by **press-and-hold and drag into place**
+  (`services/upNextDrag.ts`, Lab `UpNextDrag.kt` — a dashed "Drop it here" row follows the finger while it is over the
+  list), then the list: press-and-hold drag to reorder, ↑ to the top, ⚡ (study it today instead), ✕ off the list with
+  **Undo**. Every change applies at once offline (IndexedDB `upNext` + `upNextOps`, Dexie v33; Lab Room `up_next` v8 +
+  the Outbox) and uploads in order; a sync's list replaces the device's only when no change is waiting. "↑ Up next" /
+  "↑ #3" also sits on deck page rows and the card hub (`components/upNext/UpNextButton.tsx`). The tutor: student page →
+  Long-term learning → "↑ Up next · N words" → `/connections/:relId/up-next` (online, searches the student's cards).
+  Home counts and the session agree (`allocateQueueCounts` gives the Up next slots the same budget first; tested over
+  random lists, caps, budgets and bonuses in `services/upNext.test.ts`). E2E: `e2e/tests/up-next.spec.ts`.
 - **API** — `GET|POST /api/me/up-next` (`position` 'top' | 'bottom' | 0-based index; a note already
   on the list moves there when a position is given; client ids for the offline outbox), `PUT
   /api/me/up-next/order { note_ids }`, `DELETE /api/me/up-next/:noteId`; `/api/sync/changes` carries the

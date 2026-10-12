@@ -81,6 +81,16 @@ object LabMigrations {
         }
     }
 
+    /**
+     * v8: up_next — "Up next" (server up_next, migration 0121; core UpNext.kt): the account's
+     * ordered list of chosen notes, one row per note, `position` = the place in the list.
+     */
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `up_next` (`noteId` TEXT NOT NULL, `id` TEXT NOT NULL, `position` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, `source` TEXT NOT NULL, `addedByName` TEXT, PRIMARY KEY(`noteId`))")
+        }
+    }
+
     /** Every migration, oldest first. Append new ones here. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
 }

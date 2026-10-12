@@ -37,6 +37,7 @@ import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
 import { LessonNotesSection } from '../components/tutor/LessonNotesSection';
 import { StudentProfileSection } from '../components/tutor/StudentProfileSection';
 import { DailyBudgetSection } from '../components/tutor/DailyBudgetSection';
+import { StudentUpNextLink } from '../components/upNext/StudentUpNextLink';
 import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
 import { HomeworkRow } from '../components/homework/HomeworkRow';
 import { useHomeworkItems } from '../components/homework/useHomeworkItems';
@@ -596,6 +597,8 @@ export function ConnectionDetailPage() {
               <p className="td-muted td-long-term-intro">Decks in {otherName.split(' ')[0] || 'their'}’s daily review, introduced at their daily new-card budget. Not counted as homework.</p>
               {/* The student's ONE daily new-card budget — what decides how fast these decks are introduced */}
               <DailyBudgetSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} initial={overview?.study_budget} />
+              {/* "Up next": the words introduced first within that budget, in order (shared/decks/up-next.ts) */}
+              <StudentUpNextLink relId={relId!} studentName={otherName.split(' ')[0] || 'them'} />
               {longTermDecks.length > 0 ? (
                 <div className="td-list" style={{ gap: '0.5rem' }}>
                   {longTermDecks.map(renderDeckRow)}

@@ -5,6 +5,7 @@ import Dexie, { Table } from 'dexie';
 import { bumpPocket, type QueueBump, type QueueBumps } from '@shared/decks';
 import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
+import { newBudgetLeft, takeUpNext, upNextSlots, withUpNextPicks } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
 import { readNewCardOrder } from '../services/newCardOrder';
 import { loadWordFrequency } from '../services/wordFrequency';
@@ -149,6 +150,32 @@ export interface LocalStudyBump {
   /** Set when the tutor bumped it ("⚡ from Minghui"). */
   bumped_by_name: string | null;
   pending?: 'add' | 'clear' | null;
+}
+
+/**
+ * "Up next" — one entry of the account's ordered list (shared/decks/up-next.ts,
+ * services/upNext.ts). Changes made here apply at once and wait in `upNextOps` to upload;
+ * the server's list replaces these rows whenever no change is waiting.
+ */
+export interface LocalUpNext {
+  note_id: string;
+  /** The server row id (the client id of the add that made it). */
+  id: string;
+  /** 0-based place in the list. */
+  position: number;
+  created_at: string;
+  source: string;
+  /** Set when the tutor added it ("added by Minghui"). */
+  added_by_name: string | null;
+}
+
+/** A change to the Up next list waiting to upload, in order (services/upNext.ts). */
+export interface LocalUpNextOp {
+  seq?: number;
+  kind: 'add' | 'order' | 'remove';
+  /** add: { id, note_id, created_at, position, source }; order: { note_ids }; remove: { note_id }. */
+  body: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface LocalCard {
@@ -714,6 +741,8 @@ export class ChineseLearningDB extends Dexie {
   // Folders (decks / lessons / readers), replaced whole on each sync
   folders!: Table<Folder, string>;
   studyBumps!: Table<LocalStudyBump, string>;
+  upNext!: Table<LocalUpNext, string>;
+  upNextOps!: Table<LocalUpNextOp, number>;
   revisitEvents!: Table<LocalRevisitEvent, string>;
   lessonUnlocks!: Table<LocalLessonUnlock, string>;
   // The character dictionary (services/charDict.ts): records + "More about 字" per character
@@ -1195,6 +1224,13 @@ export class ChineseLearningDB extends Dexie {
     this.version(32).stores({
       lessonUnlocks: 'lesson_id, _synced',
     });
+
+    // Version 33: "Up next" (shared/decks/up-next.ts) — the ordered list of chosen notes, and
+    // this device's changes to it still to upload (services/upNext.ts).
+    this.version(33).stores({
+      upNext: 'note_id, position',
+      upNextOps: '++seq',
+    });
   }
 }
 
@@ -1466,6 +1502,8 @@ interface StudyInputs {
   longTerm: Map<string, LongTermPref>;
   /** "⚡ Study it today": the active bumps with their cards' review times. */
   bumps: QueueBumps | null;
+  /** "Up next": the account's ordered list (note ids). */
+  upNext: string[];
 }
 
 /** The notes with a long-term choice (shared/decks/long-term.ts), with this device's pending ones on top. */
@@ -1517,16 +1555,26 @@ export async function loadQueueBumps(): Promise<QueueBumps | null> {
   return { bumps, lastReviewMs, firstReviewMs };
 }
 
+/** "Up next" (services/upNext.ts): the list's note ids in order, for selectStudyQueue / the Home counts. */
+export async function loadQueueUpNext(): Promise<string[]> {
+  try {
+    return (await db.upNext.orderBy('position').toArray()).map((r) => r.note_id);
+  } catch {
+    return [];
+  }
+}
+
 async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
   const allDecks = await db.decks.toArray();
   const decks = deckId ? allDecks.filter(d => d.id === deckId) : allDecks;
   // The daily budget is shared by every deck, so a single-deck session still
   // has to know what was introduced elsewhere today.
-  const [cards, studied, longTerm, bumps] = await Promise.all([
+  const [cards, studied, longTerm, bumps, upNext] = await Promise.all([
     loadCards(deckId),
     getNewCardsStudiedTodayMap(allDecks.map(d => d.id)),
     loadLongTermPrefs(),
     loadQueueBumps(),
+    loadQueueUpNext(),
   ]);
   const spentElsewhere = { primary: 0, secondary: 0 };
   if (deckId) {
@@ -1536,7 +1584,7 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
       spentElsewhere.secondary += s.secondary;
     }
   }
-  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere, deckId, longTerm, bumps };
+  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere, deckId, longTerm, bumps, upNext };
 }
 
 /** Notes with at least one reviewed card (queue != NEW). */
@@ -1575,6 +1623,14 @@ export interface DeckQueueRaw {
   bumpedReview?: number;
   /** Bumped notes with cards in the pocket ("⚡ 2 bumped for today"). */
   bumpedNotes?: number;
+  /**
+   * "Up next" (shared/decks/up-next.ts): this deck's places in the GLOBAL list of Up next
+   * slots — blue ones (one per unstarted note) and purple ones (each NEW card of a started
+   * note). allocateQueueCounts gives the budget to the first slots, like the session, before
+   * the decks; these notes' cards are left out of the counts above.
+   */
+  upNextPrimary?: number[];
+  upNextSecondary?: number[];
   /**
    * "Order new cards by" across all decks: positions in the global pick
    * sequence (shared/decks/study-queue.ts `pickNewCardsFirst`) that this
@@ -1632,7 +1688,27 @@ export function allocateQueueCounts(
   budget: StudyBudget = readStudyBudget(),
   spentElsewhere: { primary: number; secondary: number } = { primary: 0, secondary: 0 }
 ): Map<string, DeckQueueCounts> {
-  const pools = [...rawByDeck].map(([id, raw]) => poolOf(id, raw));
+  const basePools = [...rawByDeck].map(([id, raw]) => poolOf(id, raw));
+  // "Up next" takes the budget first, in list order (selectStudyQueue does the same).
+  const primarySlots: Array<[number, string]> = [];
+  const secondarySlots: Array<[number, string]> = [];
+  for (const [id, raw] of rawByDeck) {
+    for (const i of raw.upNextPrimary ?? []) primarySlots.push([i, id]);
+    for (const i of raw.upNextSecondary ?? []) secondarySlots.push([i, id]);
+  }
+  primarySlots.sort((a, b) => a[0] - b[0]);
+  secondarySlots.sort((a, b) => a[0] - b[0]);
+  const studiedAll = {
+    primary: basePools.reduce((n, p) => n + p.studiedPrimary, 0) + spentElsewhere.primary,
+    secondary: basePools.reduce((n, p) => n + p.studiedSecondary, 0) + spentElsewhere.secondary,
+  };
+  const taken = takeUpNext({ primary: primarySlots.length, secondary: secondarySlots.length }, newBudgetLeft(budget, bonus, studiedAll));
+  const upPrimary = primarySlots.slice(0, taken.primary).map(s => s[1]);
+  const upSecondary = secondarySlots.slice(0, taken.secondary).map(s => s[1]);
+  const pools = withUpNextPicks(basePools, upPrimary, upSecondary);
+  const countIn = (ids: string[], deck: string) => ids.reduce((n, d) => n + (d === deck ? 1 : 0), 0);
+  const waitingIn = (deck: string) =>
+    primarySlots.slice(taken.primary).some(s => s[1] === deck) || secondarySlots.slice(taken.secondary).some(s => s[1] === deck);
   let alloc = allocateNewCards(pools, budget, bonus, spentElsewhere);
   let total = 0;
   for (const a of alloc.values()) total += a.primary;
@@ -1646,11 +1722,11 @@ export function allocateQueueCounts(
   for (const [id, raw] of rawByDeck) {
     const a = alloc.get(id) ?? { primary: 0, secondary: 0 };
     out.set(id, {
-      new: a.primary + (raw.bumpedNew ?? 0),
-      secondaryNew: a.secondary + (raw.bumpedSecondaryNew ?? 0),
+      new: a.primary + (raw.bumpedNew ?? 0) + countIn(upPrimary, id),
+      secondaryNew: a.secondary + (raw.bumpedSecondaryNew ?? 0) + countIn(upSecondary, id),
       learning: raw.learning + (raw.bumpedLearning ?? 0),
       review: raw.review + (raw.bumpedReview ?? 0),
-      hasMoreNew: raw.totalNew + raw.totalSecondaryNew > a.primary + a.secondary,
+      hasMoreNew: raw.totalNew + raw.totalSecondaryNew > a.primary + a.secondary || waitingIn(id),
       bumped: raw.bumpedNotes ?? 0,
     });
   }
@@ -1676,7 +1752,7 @@ export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCoun
  * can serve multiple views with different bonuses.
  */
 function countRawQueues(
-  { decks, cards, studied, longTerm, bumps, budget }: StudyInputs,
+  { decks, cards, studied, longTerm, bumps, budget, upNext, spentElsewhere }: StudyInputs,
   reviewedNoteIds: Set<string>,
   cutoff: { iso: string; ts: number },
   noteText?: QueueNoteText | null
@@ -1685,6 +1761,8 @@ function countRawQueues(
   const deckIds = new Set(decks.map(d => d.id));
   const pocket = bumpPocket(cards.filter(c => deckIds.has(c.deck_id)).map(queueInput), bumps, cutoff.ts);
   const pocketIds = new Set(pocket.cards.map(c => c.id));
+  // "Up next": its notes leave the pools; their slots are allocated in allocateQueueCounts.
+  const slots = upNextSlots(cards.filter(c => deckIds.has(c.deck_id)).map(queueInput), upNext, reviewedNoteIds, pocketIds, longTerm);
   const byDeck = new Map<string, DeckQueueRaw>();
   const unseenByDeck = new Map<string, Set<string>>();
   const inReview = new Map<string, boolean>();
@@ -1731,6 +1809,11 @@ function countRawQueues(
     if (!bucket) continue;
     // Bumped NEW cards are counted above, outside the budget's pools.
     if (card.queue === CardQueue.NEW && pocketIds.has(card.id)) continue;
+    // Up next notes: their slots are counted below; still "words to go" while unseen.
+    if (card.queue === CardQueue.NEW && slots.noteIds.has(card.note_id)) {
+      if (!reviewedNoteIds.has(card.note_id)) unseenByDeck.get(card.deck_id)!.add(card.note_id);
+      continue;
+    }
     if (card.queue === CardQueue.NEW) {
       // Words left out of long-term review (or a one-off deck's words nobody opted in)
       // are never introduced, so they are not "to go" either.
@@ -1757,6 +1840,8 @@ function countRawQueues(
   }
 
   for (const [id, set] of unseenByDeck) byDeck.get(id)!.unseenNotes = set.size;
+  slots.primary.forEach((c, i) => { const raw = byDeck.get(c.deck_id); if (raw) (raw.upNextPrimary ??= []).push(i); });
+  slots.secondary.forEach((c, i) => { const raw = byDeck.get(c.deck_id); if (raw) (raw.upNextSecondary ??= []).push(i); });
 
   // "Order new cards by" across all decks — the same greedy picks the session
   // makes (selectStudyQueue), run far enough for the budget plus a few "Study
@@ -1764,7 +1849,15 @@ function countRawQueues(
   if (noteText) {
     const order = noteText.order ?? DEFAULT_NEW_CARD_ORDER;
     const studied = studiedFrom([...(noteText.reviewedNoteIds ?? reviewedNoteIds)].map(id => noteText.hanzi.get(id) ?? ''), order.new_words_first);
-    const pools = [...byDeck].map(([id, raw]) => poolOf(id, raw));
+    // The pools as the session sees them once Up next has taken its share: novelty picks only
+    // count when every blue Up next slot was taken, and the purple take doesn't depend on the bonus.
+    const basePools = [...byDeck].map(([id, raw]) => poolOf(id, raw));
+    const studiedAll = {
+      primary: basePools.reduce((n, p) => n + p.studiedPrimary, 0) + spentElsewhere.primary,
+      secondary: basePools.reduce((n, p) => n + p.studiedSecondary, 0) + spentElsewhere.secondary,
+    };
+    const secondaryTaken = takeUpNext({ primary: 0, secondary: slots.secondary.length }, newBudgetLeft(budget, 0, studiedAll)).secondary;
+    const pools = withUpNextPicks(basePools, slots.primary.map(c => c.deck_id), slots.secondary.slice(0, secondaryTaken).map(c => c.deck_id));
     const picks = pickNewCardsFirst(pools, newByDeck, reviewedNoteIds, budget.new_cards_per_day + NOVELTY_PICKS_AHEAD,
       c => noteText.hanzi.get(c.note_id) ?? '', studied, order, noteText.frequency);
     picks.forEach((c, i) => {
@@ -1845,7 +1938,7 @@ function selectDueCards(
   const rows = inputs.cards.map(c => ({ ...queueInput(c), card: c }));
   // `studied` covers every deck; a one-deck session still spends the global
   // budget other decks used today (selectStudyQueue does the spent-elsewhere sum).
-  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm, inputs.bumps);
+  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm, inputs.bumps, inputs.upNext);
   return { cards: result.due.map(r => r.card), bumpedCardIds: result.bumped.map(r => r.id) };
 }
 
@@ -1955,7 +2048,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps, db.revisitEvents], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps, db.upNext, db.upNextOps, db.revisitEvents], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -1974,6 +2067,8 @@ export async function clearAllData(): Promise<void> {
     await db.tutorNotes.clear();
     await db.boardPages.clear();
     await db.studyBumps.clear();
+    await db.upNext.clear();
+    await db.upNextOps.clear();
     await db.revisitEvents.clear();
   });
 }
