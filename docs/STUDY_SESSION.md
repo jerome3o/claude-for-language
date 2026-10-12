@@ -276,6 +276,43 @@ today's session. One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-teste
   every word of a sentence; the MCP server has `bump_cards`, `list_bumped_cards`,
   `clear_bumped_card` and the tutor's `bump_student_cards`.
 
+## "Up next" — words chosen to come next
+
+Jerome (Oct 2026): "Add a way for my tutor and me to manually add stuff to the learning queue … see
+the specially-chosen queue, add stuff to it, remove stuff from it." **Up next** is a per-account
+ORDERED list of notes he already has (`up_next`, migration 0121) that are introduced next, ahead of
+the deck queue and "Order new cards by". It is persistent (not just today) — the ⚡ pocket above is
+"today, over the budget"; Up next is "next, in this order, within the budget". One rule,
+`shared/decks/up-next.ts` (Lab `core/…/UpNext.kt`, parity-tested by the `upNext` study-queue vectors):
+
+- **Inside the daily budget, first** — before the deck allocation, the list takes what is left of the
+  ONE budget (`newBudgetLeft`, `budget.ts`) in list order: a note with no card reviewed yet takes ONE
+  blue card (its best NEW card: hanzi_to_meaning → meaning_to_hanzi → audio_to_hanzi; its other cards
+  wait and become purple once that one is reviewed); a started note offers each of its NEW cards to the
+  PURPLE budget (never a spill of blue budget into them). "Study 10 more" (bonus) takes the next Up next
+  words first. The budget is never raised — a list longer than today's budget waits for the next days.
+- **Deck caps don't hold it back** — the person chose these words, so a deck's cap (and a one-off
+  homework copy's 0 + 0) doesn't stop them; what the list takes still counts against its deck's cap for
+  the rest of that deck's words (`withUpNextPicks`, the same numbers `introducedToday` gives once the
+  card is reviewed — so Home and the session agree all day).
+- **Exceptions** — a word left out of long-term review (`notes.long_term = 0`) and never started is
+  skipped (that "no" is explicit too); a note in the ⚡ pocket belongs to the pocket. A note on the list
+  never also feeds its deck's pool (no double introduction).
+- **Leaving the list** — a note drops off by itself once EVERY card of it has a review
+  (`upNextStatus` 'done'; the server writes `done_at` lazily, the device hides it from its own cards).
+  Removing by hand only takes it off the list; nothing is deleted. Notes with no NEW card left can't be
+  added (`no_new_cards` — ⚡ Study it today is the tool for those).
+- **Who** — the learner, and the tutor of an active relationship on the student's list
+  (`/api/relationships/:relId/student-up-next`, `added_by` → "added by Minghui"); no chat message.
+- **Session order** — Up next decides WHICH new cards today brings; inside the session new cards are
+  still mixed with reviews as before.
+- **API** — `GET|POST /api/me/up-next` (`position` 'top' | 'bottom' | 0-based index; a note already
+  on the list moves there when a position is given; client ids for the offline outbox), `PUT
+  /api/me/up-next/order { note_ids }`, `DELETE /api/me/up-next/:noteId`; `/api/sync/changes` carries the
+  whole list as `up_next`. MCP: `get_up_next`, `add_to_up_next`, `move_in_up_next`, `remove_from_up_next`,
+  and the tutor's `get_student_up_next`, `add_to_student_up_next`, `move_in_student_up_next`,
+  `remove_from_student_up_next`.
+
 ## Mini lessons: "revisit later", not FSRS
 
 Mini lessons are big chunks, not flashcards: FSRS's short learning steps brought a Hard / Good

@@ -60,6 +60,10 @@ data class BuiltQueue(
     val bumped: List<QueueCard> = emptyList(),
     /** Bumped notes with cards in the pocket (in scope), oldest bump first. */
     val bumpedNoteIds: List<String> = emptyList(),
+    /** The "Up next" cards today's budget takes (UpNext.kt), list order: blue ones, then purple ones. */
+    val upNext: List<QueueCard> = emptyList(),
+    /** Up next notes that hold cards in scope today (taken or still waiting for budget), list order. */
+    val upNextNoteIds: List<String> = emptyList(),
 )
 
 object StudyQueue {
@@ -121,6 +125,11 @@ object StudyQueue {
      * [bumps] ("⚡ Study it today", Bumps.kt): the pocket over the cards in scope heads the
      * queue; its NEW cards are outside the budget (removed from the pools, never taking from
      * them) and its learning / review cards are not repeated below.
+     *
+     * [upNext] ("Up next", UpNext.kt — the account's ordered note ids) takes the budget FIRST:
+     * one blue card per unstarted note, the started notes' NEW cards from the purple budget,
+     * ignoring deck caps but counted against them for the rest of the deck's words; its notes
+     * never feed the regular pools.
      */
     fun build(
         decks: List<QueueDeck>,
@@ -136,6 +145,7 @@ object StudyQueue {
         bumps: QueueBumps? = null,
         order: NewCardOrder = NewCardOrder.DEFAULT,
         frequency: FrequencyIndex? = null,
+        upNext: List<String>? = null,
     ): BuiltQueue {
         val reviewed = reviewedNoteIds(cards)
         val inScope = if (deckId == null) decks else decks.filter { it.id == deckId }
@@ -143,14 +153,16 @@ object StudyQueue {
         val inReview = inScope.associate { it.id to LongTerm.deckInDailyReview(it.capPrimary, it.capSecondary) }
         val pocket = Bumps.bumpPocket(cards.filter { it.deckId in scopeIds }, bumps, cutoff.ts)
         val pocketIds = pocket.cards.mapTo(HashSet()) { it.id }
+        // Up next: its notes never feed the regular pools; it takes the budget first.
+        val slots = UpNext.slots(cards.filter { it.deckId in scopeIds }, upNext, reviewed, pocketIds, longTerm)
         // The NEW cards each deck may introduce (opted-out words and a one-off copy's words
         // nobody opted in are left out; bumped cards are over the budget).
         val newByDeck = cards.filter {
-            it.queue == CardQueue.NEW && it.deckId in scopeIds && it.id !in pocketIds &&
+            it.queue == CardQueue.NEW && it.deckId in scopeIds && it.id !in pocketIds && it.noteId !in slots.noteIds &&
                 LongTerm.admitsNewCards(longTerm?.get(it.noteId), inReview.getValue(it.deckId), it.noteId in reviewed)
         }.groupBy { it.deckId }
 
-        val pools = inScope.map { d ->
+        val basePools = inScope.map { d ->
             val newCards = newByDeck[d.id].orEmpty()
             val intro = introduced[d.id] ?: Introduced(0, 0)
             val (capPrimary, capSecondary) = LongTerm.caps(d.capPrimary, d.capSecondary)
@@ -168,6 +180,12 @@ object StudyQueue {
         }
         val elsewhere = introduced.filterKeys { it !in scopeIds }.values
         val spent = Spent(elsewhere.sumOf { it.primary }, elsewhere.sumOf { it.secondary })
+        val studiedAll = Spent(introduced.values.sumOf { it.primary }, introduced.values.sumOf { it.secondary })
+        val taken = UpNext.take(slots.primary.size, slots.secondary.size, Budget.newBudgetLeft(budget, bonus, studiedAll))
+        val upPrimary = slots.primary.take(taken.primary)
+        val upSecondary = slots.secondary.take(taken.secondary)
+        // What Up next takes counts as introduced today in its deck (caps) and in the budget.
+        val pools = UpNext.withPicks(basePools, upPrimary.map { it.deckId }, upSecondary.map { it.deckId })
         var alloc: Map<String, DeckAllocation> = Budget.allocateNewCards(pools, budget, bonus, spent)
 
         val due = ArrayList<QueueCard>(pocket.cards)
@@ -225,12 +243,14 @@ object StudyQueue {
             }
             if (a.secondary > 0) newCards += all.filter { it.noteId in reviewed }.sortedWith(byTierThenId).take(a.secondary)
         }
+        due += upPrimary
+        due += upSecondary
         due += newCards
-        val hasMoreNew = pools.any { p ->
+        val hasMoreNew = slots.primary.size > taken.primary || slots.secondary.size > taken.secondary || pools.any { p ->
             val a = alloc[p.deckId] ?: DeckAllocation(0, 0)
             p.totalNew + p.totalSecondaryNew > a.primary + a.secondary
         }
-        return BuiltQueue(due, reviewed, hasMoreNew, pools, alloc, pocket.cards, pocket.activeNoteIds)
+        return BuiltQueue(due, reviewed, hasMoreNew, pools, alloc, pocket.cards, pocket.activeNoteIds, upPrimary + upSecondary, slots.noteIds.toList())
     }
 
     /**

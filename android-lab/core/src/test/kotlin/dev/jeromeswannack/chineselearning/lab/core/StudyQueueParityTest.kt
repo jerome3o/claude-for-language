@@ -75,6 +75,41 @@ class StudyQueueParityTest {
         assertTrue(cases.any { it["pocket"]!!.jsonObject["active"]!!.jsonArray.isNotEmpty() })
     }
 
+    /** "Up next" (shared/decks/up-next.ts): the list takes the budget first, in list order. */
+    @Test
+    fun upNextMatchesTypeScript() {
+        val cases = fixture["upNext"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 300)
+        assertTrue(check(cases, "upNext") >= 600)
+        // Exercised: blue and purple picks, and a list still waiting for budget.
+        val queues = cases.flatMap { c -> c["queues"]!!.jsonArray.map { it.jsonObject } }
+        assertTrue(queues.any { it["upNext"]!!.jsonArray.isNotEmpty() })
+        assertTrue(queues.any { it["upNextNoteIds"]!!.jsonArray.size > it["upNext"]!!.jsonArray.size })
+    }
+
+    /** The list helpers the page / API / MCP share: insert, reorder, status, labels. */
+    @Test
+    fun upNextHelpersMatchTypeScript() {
+        val cases = fixture["upNextHelpers"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 200)
+        for ((n, c) in cases.withIndex()) {
+            val ids = strings(c["ids"])
+            val index = c["index"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.int }
+            assertEquals(strings(c["inserted"]), UpNext.insertIntoOrder(ids, strings(c["add"]), index), "$n insert")
+            assertEquals(strings(c["reordered"]), UpNext.reorder(ids, strings(c["requested"])), "$n reorder")
+            val queues = c["queues"]!!.jsonArray.map { it.jsonPrimitive.int }
+            val status = UpNext.status(queues)
+            assertEquals(c["status"]!!.jsonPrimitive.content, status, "$n status")
+            assertEquals(c["statusLabel"]!!.jsonPrimitive.content, UpNext.statusLabel(status, queues.count { it == 0 }), "$n status label")
+            assertEquals(c["label"]!!.jsonPrimitive.content, UpNext.label(c["count"]!!.jsonPrimitive.int), "$n label")
+            assertEquals(
+                c["message"]!!.jsonPrimitive.content,
+                UpNext.addedMessage(strings(c["hanzi"]), c["already"]!!.jsonPrimitive.int, c["noNew"]!!.jsonPrimitive.int),
+                "$n message",
+            )
+        }
+    }
+
     private fun strings(e: kotlinx.serialization.json.JsonElement?) = e!!.jsonArray.map { it.jsonPrimitive.content }
 
     private fun check(cases: List<JsonObject>, label: String): Int {
@@ -112,6 +147,7 @@ class StudyQueueParityTest {
             val bonus = c["bonus"]!!.jsonPrimitive.int
             val cutoff = StudyCutoff(c["cutoff"]!!.jsonPrimitive.long)
 
+            val upNext = c["upNextList"]?.let { strings(it) }
             val bumps = c["bumps"]?.let { b ->
                 QueueBumps(
                     b.jsonArray.map { it.jsonObject }.map { QueueBump(it["note_id"]!!.jsonPrimitive.content, it["created_ms"]!!.jsonPrimitive.long) },
@@ -135,7 +171,9 @@ class StudyQueueParityTest {
             for (q in c["queues"]!!.jsonArray.map { it.jsonObject }) {
                 val deckId = q["deckId"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
                 val where = "$i deck=$deckId"
-                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, longTerm = longTerm, bumps = bumps, order = order, frequency = frequency)
+                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, longTerm = longTerm, bumps = bumps, order = order, frequency = frequency, upNext = upNext)
+                q["upNext"]?.let { assertEquals(strings(it), built.upNext.map { c -> c.id }, "$where up next cards in order") }
+                q["upNextNoteIds"]?.let { assertEquals(strings(it), built.upNextNoteIds, "$where up next note ids") }
                 q["bumped"]?.let { assertEquals(strings(it), built.bumped.map { c -> c.id }, "$where bumped cards in order") }
                 q["bumpedNoteIds"]?.let { assertEquals(strings(it), built.bumpedNoteIds, "$where bumped note ids") }
                 if (q["bumped"] != null) assertEquals(built.bumped, built.dueCards.take(built.bumped.size), "$where pocket heads the queue")

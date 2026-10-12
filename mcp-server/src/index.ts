@@ -55,6 +55,7 @@ import { registerPictureHuntTools } from './tools/picture-hunts.js';
 import { registerIdiomTools } from './tools/idioms.js';
 import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerBumpTools } from './tools/bumps.js';
+import { registerUpNextTools } from './tools/up-next.js';
 import { registerPinyinScanTools } from './tools/pinyin-scan.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerTutorApps } from './tools/apps.js';
@@ -770,7 +771,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
 
     this.server.tool(
       "search_notes",
-      "Search notes by hanzi, pinyin, or english across all decks (or one deck). Use this before adding a note to check whether the word is already covered anywhere, instead of fetching entire decks. If the user already has the word and wanted to add / study it, do NOT add a duplicate: bump_cards puts it first in today's study (“⚡ Study it today”).",
+      "Search notes by hanzi, pinyin, or english across all decks (or one deck). Use this before adding a note to check whether the word is already covered anywhere, instead of fetching entire decks. If the user already has the word and wanted to add / study it, do NOT add a duplicate: bump_cards puts it first in today's study (“⚡ Study it today”), add_to_up_next puts it on the ordered “Up next” list introduced first within the daily budget.",
       {
         query: z.string().describe("Text to search for (matched against hanzi, pinyin, and english with substring matching)"),
         deck_id: z.string().optional().describe("Restrict the search to a single deck ID. If omitted, searches across all of the user's decks."),
@@ -812,7 +813,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
 
     this.server.tool(
       "batch_search_notes",
-      "Check many candidate words against existing notes in a single call. Use this instead of calling search_notes once per word when deduplicating a whole homework list before adding notes — one round trip per candidate adds up fast on a 30-50 word list. Matches hanzi, pinyin, and english with substring matching, across all decks (or one deck). Words the user already has can go to bump_cards (first in today's study) instead of becoming duplicates.",
+      "Check many candidate words against existing notes in a single call. Use this instead of calling search_notes once per word when deduplicating a whole homework list before adding notes — one round trip per candidate adds up fast on a 30-50 word list. Matches hanzi, pinyin, and english with substring matching, across all decks (or one deck). Words the user already has can go to bump_cards (first in today's study) or add_to_up_next (introduced next, in order) instead of becoming duplicates.",
       {
         queries: z.array(z.string()).min(1).max(100).describe("Words/phrases to check, one per candidate vocabulary item"),
         deck_id: z.string().optional().describe("Restrict the search to a single deck ID. If omitted, searches across all of the user's decks."),
@@ -1983,6 +1984,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     // Audio lessons: an agent-written listening lesson rendered to one audio file (docs/AUDIO_LESSONS.md).
     registerAudioLessonTools(ctx);
     registerBumpTools(ctx);
+    registerUpNextTools(ctx);
     registerPinyinScanTools(ctx);
     registerMaterialTools(ctx);
   }
