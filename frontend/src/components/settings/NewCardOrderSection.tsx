@@ -1,7 +1,8 @@
 /**
  * Settings → New cards → "Order new cards by" (shared/decks/new-card-order.ts): which
  * brand-new words the daily budget introduces first — new characters, new words, the most
- * common, sentences last — before the deck order decides. Each switch saves at once
+ * common, sentences last — before the deck order decides; and, under it, which card a word
+ * made only of characters he already knows starts with (shared/decks/lead-card.ts). Each switch saves at once
  * (PUT /api/profile/new-card-order) and is mirrored on the device so the study queue
  * follows it offline (services/newCardOrder.ts). Homework passes are not affected.
  */
@@ -9,6 +10,7 @@ import { useEffect, useState } from 'react';
 import {
   DEFAULT_NEW_CARD_ORDER,
   isDefaultNewCardOrder,
+  KNOWN_CHARACTERS_OPTION,
   NEW_CARD_ORDER_OPTIONS,
   type NewCardOrder,
   type NewCardOrderKey,
@@ -44,6 +46,7 @@ export function NewCardOrderSection() {
         new_words_first: saved.new_words_first,
         most_common_first: saved.most_common_first,
         sentences_last: saved.sentences_last,
+        known_characters_english_first: saved.known_characters_english_first,
       });
     } catch (err) {
       setOrder(before);
@@ -98,6 +101,27 @@ export function NewCardOrderSection() {
           </span>
         </li>
       </ol>
+      <div className={`nco-list nco-extra nco-row${order.known_characters_english_first ? ' is-on' : ''}`}>
+        <label className="nco-label" data-testid={`nco-${KNOWN_CHARACTERS_OPTION.key}`}>
+          <span className="nco-step nco-step--write" aria-hidden="true">写</span>
+          <span className="nco-text">
+            <span className="nco-title">{KNOWN_CHARACTERS_OPTION.label}</span>
+            <span className="nco-hint">{KNOWN_CHARACTERS_OPTION.hint}</span>
+          </span>
+          <span className="nco-switch">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={order.known_characters_english_first}
+              disabled={saving !== null}
+              onChange={e => void save({ ...order, known_characters_english_first: e.target.checked }, KNOWN_CHARACTERS_OPTION.key)}
+              aria-label={KNOWN_CHARACTERS_OPTION.label}
+              data-testid={`nco-switch-${KNOWN_CHARACTERS_OPTION.key}`}
+            />
+            <span className="nco-track" aria-hidden="true"><span className="nco-thumb" /></span>
+          </span>
+        </label>
+      </div>
       <p className="nco-note">
         ⚡ Bumped words, your decks&apos; daily limits and homework from your tutor work as before.
       </p>

@@ -11,8 +11,9 @@
  *   - INSIDE the daily new-card budget (budget.ts): an Up next note takes the budget
  *     FIRST, in list order, before the deck queue and "Order new cards by".
  *       · a note with no card reviewed yet takes ONE primary (blue) card — its best NEW
- *         card (hanzi_to_meaning, then meaning_to_hanzi, then audio_to_hanzi); its other
- *         NEW cards wait (they are secondary once that card has been reviewed);
+ *         card (hanzi_to_meaning, then meaning_to_hanzi, then audio_to_hanzi — or
+ *         meaning_to_hanzi for a word made only of known characters, lead-card.ts, swapped in
+ *         by study-queue.ts `withLeadCards`); its other NEW cards wait (they are secondary once that card has been reviewed);
  *       · a started note offers each of its NEW cards to the SECONDARY (purple) budget,
  *         in card-type order. Up next never spills primary budget into purple cards.
  *   - Per-deck caps do not limit it (the person chose these words), one-off 0 + 0 copies

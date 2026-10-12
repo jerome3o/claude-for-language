@@ -144,3 +144,12 @@
   margin-top: 0.75rem;
   min-height: 44px;
 }
+
+/* The switch under the order: which card a word of known characters starts with. */
+.new-card-order .nco-extra {
+  margin-top: 0.625rem;
+}
+
+.nco-extra:not(.is-on) .nco-title {
+  color: var(--color-text-light);
+}

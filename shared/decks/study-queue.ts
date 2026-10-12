@@ -41,6 +41,7 @@ import type { FrequencyIndex } from './frequency';
 import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } from './long-term';
 import { bumpPocket, type QueueBumps } from './bumps';
 import { takeUpNext, upNextSlots } from './up-next';
+import { isLeadCard, knownCharacterNotes, knownCharactersFrom, knownNoteIdsFrom, KNOWN_CHARACTERS_LEAD_CARD_TYPE } from './lead-card';
 
 /** CardQueue values (shared/scheduler): NEW 0, LEARNING 1, REVIEW 2, RELEARNING 3. */
 export const QUEUE_NEW = 0;
@@ -62,6 +63,11 @@ export interface QueueCardInput {
    * review = next_review_at. null = due now. Ignored for NEW cards.
    */
   due_ms: number | null;
+  /**
+   * The card's FSRS stability (days), when the caller has it: a Review card above 21 days is
+   * known (lead-card.ts), so its note's characters are known.
+   */
+  stability?: number | null;
 }
 
 export interface QueueDeckInput {
@@ -102,6 +108,11 @@ export interface QueueNoteText {
   order?: NewCardOrder | null;
   /** Word frequency for "Most common first" (frequency.ts); without it that switch does nothing. */
   frequency?: FrequencyIndex | null;
+  /**
+   * Notes with a KNOWN card (mature, lead-card.ts) across ALL decks — their characters are known.
+   * Defaults to the ones in `cards` (from their `stability`; pass it when `cards` is one deck's).
+   */
+  knownNoteIds?: Iterable<string>;
 }
 
 export interface StudyQueueResult<C extends QueueCardInput> {
@@ -123,6 +134,11 @@ export interface StudyQueueResult<C extends QueueCardInput> {
   upNext: C[];
   /** Up next notes that hold cards in scope today (taken or still waiting for budget), list order. */
   upNextNoteIds: string[];
+  /**
+   * Unseen notes that lead with meaning_to_hanzi ("Words made of characters I know: start with
+   * English → Chinese", lead-card.ts) — the session shows that card first for them.
+   */
+  knownCharacterNoteIds: Set<string>;
 }
 
 export function isLearningQueue(q: number): boolean {
@@ -175,8 +191,32 @@ export function introducedToday(
   return out;
 }
 
-const tierOf = (card: QueueCardInput, reviewed: Set<string>) =>
-  (reviewed.has(card.note_id) ? 2 : 0) + (card.card_type === 'hanzi_to_meaning' ? 0 : 1);
+/**
+ * The unseen notes among `newCards` that lead with meaning_to_hanzi (lead-card.ts): every Han
+ * character known (in a note with a known card), the switch on (a missing switch = on, its
+ * default). Empty without the notes' text.
+ */
+export function knownCharacterNotesInQueue(
+  newCards: Iterable<QueueCardInput>,
+  reviewed: ReadonlySet<string>,
+  /** Every card (all decks) — read only when `noteText.knownNoteIds` is absent. */
+  cards: Iterable<{ note_id: string; queue: number; stability?: number | null }>,
+  noteText: QueueNoteText | null | undefined
+): Set<string> {
+  if (!noteText || noteText.order?.known_characters_english_first === false) return new Set();
+  const knownIds = noteText.knownNoteIds ?? knownNoteIdsFrom(cards);
+  const known = knownCharactersFrom([...knownIds].map(id => noteText.hanzi.get(id) ?? ''));
+  if (known.size === 0) return new Set();
+  const unseen: QueueCardInput[] = [];
+  for (const c of newCards) if (!reviewed.has(c.note_id)) unseen.push(c);
+  return knownCharacterNotes(unseen, id => noteText.hanzi.get(id) ?? '', known);
+}
+
+/** Best first: unseen notes before started ones; the lead card (lead-card.ts) / hanzi_to_meaning first. */
+const tierOf = (card: QueueCardInput, reviewed: ReadonlySet<string>, lead: ReadonlySet<string>) =>
+  reviewed.has(card.note_id)
+    ? 2 + (card.card_type === 'hanzi_to_meaning' ? 0 : 1)
+    : isLeadCard(card, lead) ? 0 : 1;
 
 /**
  * The queue a session gets: `deckId` null / undefined = all decks. `introduced`
@@ -244,8 +284,12 @@ export function selectStudyQueue<C extends QueueCardInput>(
     spent.primary += v.primary;
     spent.secondary += v.secondary;
   }
+  // Which card each unseen note leads with (hanzi_to_meaning, or meaning_to_hanzi for a word of
+  // known characters, lead-card.ts) — the pools' notes and Up next's alike.
+  const scopeNew = cards.filter(c => c.queue === QUEUE_NEW && scopeIds.has(c.deck_id) && !pocketIds.has(c.id));
+  const lead = knownCharacterNotesInQueue(scopeNew, reviewed, cards, noteText);
   const taken = takeUpNext({ primary: slots.primary.length, secondary: slots.secondary.length }, newBudgetLeft(budget, bonus, studiedAll));
-  const upPrimary = slots.primary.slice(0, taken.primary);
+  const upPrimary = withLeadCards(slots.primary.slice(0, taken.primary), scopeNew, lead);
   const upSecondary = slots.secondary.slice(0, taken.secondary);
   // What Up next takes counts as introduced today in its deck (caps) and in the budget.
   pools = withUpNextPicks(pools, upPrimary.map(c => c.deck_id), upSecondary.map(c => c.deck_id));
@@ -268,7 +312,7 @@ export function selectStudyQueue<C extends QueueCardInput>(
   if (studied && order) {
     let total = 0;
     for (const a of allocation.values()) total += a.primary;
-    const picked = pickNewCardsFirst(pools, newByDeck, reviewed, total, hanziOf, studied, order, frequency);
+    const picked = pickNewCardsFirst(pools, newByDeck, reviewed, total, hanziOf, studied, order, frequency, lead);
     if (picked.length > 0) {
       for (const c of picked) globalPicks.add(c.id);
       pickedIn = picksPerDeck(picked.map(c => c.deck_id));
@@ -277,17 +321,17 @@ export function selectStudyQueue<C extends QueueCardInput>(
     }
   }
   // New cards: deck queue order (the allocation's order); within a deck the
-  // primary cards (best tier first; the hanzi_to_meaning cards sentences-last /
+  // primary cards (best tier first; the lead cards sentences-last /
   // most-common-first when ordering), then the secondary ones (best tier first, then id).
-  const byTierThenId = (x: C, y: C) => tierOf(x, reviewed) - tierOf(y, reviewed) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+  const byTierThenId = (x: C, y: C) => tierOf(x, reviewed, lead) - tierOf(y, reviewed, lead) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
   for (const [id, a] of allocation) {
     const all = newByDeck.get(id) ?? [];
     const take = a.primary - (pickedIn.get(id) ?? 0);
     if (take > 0) {
       const primaryList = all.filter(c => !reviewed.has(c.note_id) && !globalPicks.has(c.id)).sort(byTierThenId);
       if (order) {
-        const first = orderWithinDeck(primaryList.filter(c => c.card_type === 'hanzi_to_meaning'), hanziOf, order, frequency).slice(0, take);
-        const others = primaryList.filter(c => c.card_type !== 'hanzi_to_meaning').slice(0, take - first.length);
+        const first = orderWithinDeck(primaryList.filter(c => isLeadCard(c, lead)), hanziOf, order, frequency).slice(0, take);
+        const others = primaryList.filter(c => !isLeadCard(c, lead)).slice(0, take - first.length);
         due.push(...first, ...others);
       } else {
         due.push(...primaryList.slice(0, take));
@@ -316,7 +360,22 @@ export function selectStudyQueue<C extends QueueCardInput>(
     bumpedNoteIds: pocket.activeNoteIds,
     upNext: [...upPrimary, ...upSecondary],
     upNextNoteIds: [...slots.noteIds],
+    knownCharacterNoteIds: lead,
   };
+}
+
+/**
+ * Up next's blue card per unstarted note (its first card by type, up-next.ts) swapped for the
+ * note's meaning_to_hanzi card when the note leads with it (`lead`, lead-card.ts). `candidates`:
+ * the NEW cards in scope (the first meaning_to_hanzi card of a note wins).
+ */
+export function withLeadCards<C extends QueueCardInput>(primary: C[], candidates: Iterable<C>, lead: ReadonlySet<string>): C[] {
+  if (lead.size === 0 || primary.length === 0) return primary;
+  const english = new Map<string, C>();
+  for (const c of candidates) {
+    if (c.card_type === KNOWN_CHARACTERS_LEAD_CARD_TYPE && lead.has(c.note_id) && !english.has(c.note_id)) english.set(c.note_id, c);
+  }
+  return primary.map(c => english.get(c.note_id) ?? c);
 }
 
 /**
@@ -337,7 +396,8 @@ export function withUpNextPicks(pools: DeckNewPool[], primaryDeckIds: Iterable<s
 
 /**
  * "Order new cards by" across all decks (new-card-order.ts `pickNewCardsByOrder`): the
- * first `take` primary (blue) picks — hanzi_to_meaning cards of unseen notes, in ANY deck
+ * first `take` primary (blue) picks — the lead cards of unseen notes (hanzi_to_meaning, or
+ * meaning_to_hanzi for the notes in `knownCharacterNoteIds`, lead-card.ts), in ANY deck
  * of `pools`, that fall in one of the account's tiers — each deck within min(its unseen
  * cards, what is left of its cap). Ties: deck queue position, shorter, card id. Greedy,
  * so the first N of a longer run are the run with take = N. Mutates `studied`.
@@ -350,7 +410,8 @@ export function pickNewCardsFirst<C extends QueueCardInput>(
   hanziOf: (card: C) => string,
   studied: StudiedIndex,
   order: NewCardOrder = DEFAULT_NEW_CARD_ORDER,
-  frequency?: FrequencyIndex | null
+  frequency?: FrequencyIndex | null,
+  knownCharacterNoteIds?: ReadonlySet<string> | null
 ): C[] {
   if (take <= 0) return [];
   const position = new Map(sortDecksForQueue([...pools]).map((p, i) => [p.deckId, i]));
@@ -358,7 +419,7 @@ export function pickNewCardsFirst<C extends QueueCardInput>(
   const candidates: C[] = [];
   for (const [deckId, list] of newByDeck) {
     if ((room.get(deckId) ?? 0) <= 0) continue;
-    for (const c of list) if (c.card_type === 'hanzi_to_meaning' && !reviewed.has(c.note_id)) candidates.push(c);
+    for (const c of list) if (isLeadCard(c, knownCharacterNoteIds) && !reviewed.has(c.note_id)) candidates.push(c);
   }
   return pickNewCardsByOrder(
     candidates, take, hanziOf, c => c.deck_id, id => position.get(id) ?? 0, room, c => c.id, order, studied, frequency

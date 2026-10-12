@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -64,6 +65,17 @@ class StudyQueueParityTest {
         assertTrue(check(cases, "ordered") >= 600)
     }
 
+    /** "Words made of characters I know: start with English → Chinese" (shared/decks/lead-card.ts). */
+    @Test
+    fun knownCharactersLeadWithEnglishMatchesTypeScript() {
+        val cases = fixture["leadCard"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 300)
+        assertTrue(check(cases, "leadCard") >= 600)
+        // Exercised: some queue gives a word of known characters its meaning_to_hanzi card.
+        assertTrue(cases.any { c -> c["queues"]!!.jsonArray.any { q -> q.jsonObject["knownCharacterNoteIds"]!!.jsonArray.isNotEmpty() } })
+        assertTrue(cases.any { c -> c["queues"]!!.jsonArray.any { q -> q.jsonObject["newOrder"]!!.jsonArray.any { it.jsonPrimitive.content.contains("-m-") } } })
+    }
+
     /** "⚡ Study it today" (shared/decks/bumps.ts): the pocket heads the queue, NEW over the budget. */
     @Test
     fun bumpPocketMatchesTypeScript() {
@@ -119,6 +131,7 @@ class StudyQueueParityTest {
             val noteHanzi = c["noteHanzi"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content }
             val longTerm = c["longTerm"]?.jsonObject?.mapValues { it.value.jsonPrimitive.int }
             val seenNoteIds = c["seenNoteIds"]?.let { if (it is JsonNull) null else it.jsonArray.map { e -> e.jsonPrimitive.content } }
+            val knownNoteIds = c["knownNoteIds"]?.let { if (it is JsonNull) null else it.jsonArray.map { e -> e.jsonPrimitive.content } }
             val order = c["order"]?.let { NewCardOrder.parse(it.toString()) } ?: NewCardOrder.DEFAULT
             val frequency = if (c["useFrequency"]?.jsonPrimitive?.boolean == true) WordFrequency.shipped else null
             val decks = c["decks"]!!.jsonArray.map { it.jsonObject }.map {
@@ -137,7 +150,7 @@ class StudyQueueParityTest {
                     it["note_id"]!!.jsonPrimitive.content,
                     it["deck_id"]!!.jsonPrimitive.content,
                     it["card_type"]!!.jsonPrimitive.content,
-                    blank.copy(queue = it["queue"]!!.jsonPrimitive.int, dueTimestamp = due),
+                    blank.copy(queue = it["queue"]!!.jsonPrimitive.int, dueTimestamp = due, stability = it["stability"]?.jsonPrimitive?.double ?: blank.stability),
                 )
             }
             val first = c["firstReviewAt"]!!.jsonObject.mapValues { it.value.jsonPrimitive.long }
@@ -171,9 +184,10 @@ class StudyQueueParityTest {
             for (q in c["queues"]!!.jsonArray.map { it.jsonObject }) {
                 val deckId = q["deckId"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
                 val where = "$i deck=$deckId"
-                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, longTerm = longTerm, bumps = bumps, order = order, frequency = frequency, upNext = upNext)
+                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, longTerm = longTerm, bumps = bumps, order = order, frequency = frequency, upNext = upNext, knownNoteIds = knownNoteIds)
                 q["upNext"]?.let { assertEquals(strings(it), built.upNext.map { c -> c.id }, "$where up next cards in order") }
                 q["upNextNoteIds"]?.let { assertEquals(strings(it), built.upNextNoteIds, "$where up next note ids") }
+                q["knownCharacterNoteIds"]?.let { assertEquals(strings(it), built.knownCharacterNoteIds.sorted(), "$where known-character notes") }
                 q["bumped"]?.let { assertEquals(strings(it), built.bumped.map { c -> c.id }, "$where bumped cards in order") }
                 q["bumpedNoteIds"]?.let { assertEquals(strings(it), built.bumpedNoteIds, "$where bumped note ids") }
                 if (q["bumped"] != null) assertEquals(built.bumped, built.dueCards.take(built.bumped.size), "$where pocket heads the queue")

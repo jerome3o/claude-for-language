@@ -193,14 +193,16 @@ object SessionMix {
         cutoff: StudyCutoff,
         random: Random,
         bumpedCardIds: Set<String> = emptySet(),
+        /** Unseen notes that start with meaning_to_hanzi (LeadCard.kt). */
+        knownCharacterNoteIds: Set<String> = emptySet(),
     ): SessionItem? {
         if (bumpedCardIds.isNotEmpty()) {
-            StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, bumpedCardIds)
+            StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, bumpedCardIds, knownCharacterNoteIds)
                 ?.takeIf { it.id in bumpedCardIds }?.let { return SessionItem.Card(it) }
         }
         val learningDueNow = queue.any { CardQueue.isLearning(it.queue) && it.state.dueTimestamp.let { d -> d != null && d != 0L && d <= nowMs } }
         if (lessonBreakDue && lessons.isNotEmpty() && !learningDueNow) return SessionItem.Lesson(lessons[0])
-        StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random)?.let { return SessionItem.Card(it) }
+        StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, knownCharacterNoteIds = knownCharacterNoteIds)?.let { return SessionItem.Card(it) }
         if (lessons.isNotEmpty()) return SessionItem.Lesson(lessons[0])
         return nextReader(readers, lastRatedReaderId, nowMs, cutoff, random)?.let { SessionItem.Reader(it) }
     }

@@ -21,6 +21,8 @@ data class NewCardOrder(
     val newWordsFirst: Boolean = true,
     val mostCommonFirst: Boolean = true,
     val sentencesLast: Boolean = true,
+    /** Not an order: a word made only of known characters starts with English → Chinese (LeadCard.kt). */
+    val knownCharactersEnglishFirst: Boolean = true,
 ) {
     val isDefault: Boolean get() = this == DEFAULT
 
@@ -29,6 +31,7 @@ data class NewCardOrder(
         "new_words_first" -> newWordsFirst
         "most_common_first" -> mostCommonFirst
         "sentences_last" -> sentencesLast
+        "known_characters_english_first" -> knownCharactersEnglishFirst
         else -> false
     }
 
@@ -37,6 +40,7 @@ data class NewCardOrder(
         "new_words_first" -> copy(newWordsFirst = on)
         "most_common_first" -> copy(mostCommonFirst = on)
         "sentences_last" -> copy(sentencesLast = on)
+        "known_characters_english_first" -> copy(knownCharactersEnglishFirst = on)
         else -> this
     }
 
@@ -47,8 +51,8 @@ data class NewCardOrder(
 
     companion object {
         val DEFAULT = NewCardOrder()
-        val ALL_OFF = NewCardOrder(false, false, false, false)
-        val KEYS = listOf("new_characters_first", "new_words_first", "most_common_first", "sentences_last")
+        val ALL_OFF = NewCardOrder(false, false, false, false, false)
+        val KEYS = listOf("new_characters_first", "new_words_first", "most_common_first", "sentences_last", "known_characters_english_first")
 
         /** NEW_CARD_ORDER_OPTIONS — the settings rows, same words as the web (parity-tested). */
         val OPTIONS = listOf(
@@ -56,6 +60,13 @@ data class NewCardOrder(
             Option("new_words_first", "New words first", "Then words you haven't met anywhere yet — not even inside a sentence."),
             Option("most_common_first", "Most common first", "Within each group, the words Chinese speakers use most come first, and the most common new characters before rare ones."),
             Option("sentences_last", "Sentences last", "Sentence cards wait until the words are in."),
+        )
+
+        /** KNOWN_CHARACTERS_OPTION — the switch under the order (LeadCard.kt), same words as the web (parity-tested). */
+        val KNOWN_CHARACTERS_OPTION = Option(
+            "known_characters_english_first",
+            "Words made of characters I know: start with English → Chinese",
+            "When you already know every character of a new word, its first card asks you to write it from the English instead of reading it.",
         )
 
         /** Port of parseNewCardOrder(): stored JSON (maybe partial / garbage) → a full set. */

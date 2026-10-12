@@ -86,6 +86,11 @@ class StudyCardScreenshots : LabScreenshotTest() {
         study(ui(view(CardTypes.HANZI_TO_MEANING), CardExtras(tutorNotes = notes, flagTutors = tutors, voices = listOf("a", "b", "c"))), CardStartState(flipped = true))
     }
 
+    /** A brand-new word made of characters he knows starts with English → Chinese (core LeadCard). */
+    @Test fun newWordOfKnownCharactersFront() = shoot("study-a17-new-word-english-first") {
+        study(ui(view(CardTypes.MEANING_TO_HANZI, queue = CardQueue.NEW)))
+    }
+
     @Test fun typedAnswerWithPinyin() = shoot("study-a02-typed-pinyin") {
         study(ui(view(CardTypes.MEANING_TO_HANZI)), CardStartState(flipped = true, answer = "打蒜"))
     }

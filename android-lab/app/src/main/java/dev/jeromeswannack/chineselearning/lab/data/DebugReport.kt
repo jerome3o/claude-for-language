@@ -170,6 +170,7 @@ object DebugReportBuilder {
                 put("new_words_first", order.newWordsFirst)
                 put("most_common_first", order.mostCommonFirst)
                 put("sentences_last", order.sentencesLast)
+                put("known_characters_english_first", order.knownCharactersEnglishFirst)
             }
             putJsonArray("up_next") { for (id in upNext.orEmpty()) add(id) }
             putJsonObject("bonus") {

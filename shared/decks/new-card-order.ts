@@ -41,9 +41,15 @@ export interface NewCardOrder {
   new_words_first: boolean;
   most_common_first: boolean;
   sentences_last: boolean;
+  /**
+   * Not an order: WHICH card of a word made only of characters he already knows comes first —
+   * meaning_to_hanzi instead of hanzi_to_meaning (lead-card.ts). Stored with the order (one
+   * "New cards" preference, synced and cached alike).
+   */
+  known_characters_english_first: boolean;
 }
 
-export const NEW_CARD_ORDER_KEYS = ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last'] as const;
+export const NEW_CARD_ORDER_KEYS = ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first'] as const;
 export type NewCardOrderKey = (typeof NEW_CARD_ORDER_KEYS)[number];
 
 export const DEFAULT_NEW_CARD_ORDER: Readonly<NewCardOrder> = Object.freeze({
@@ -51,6 +57,7 @@ export const DEFAULT_NEW_CARD_ORDER: Readonly<NewCardOrder> = Object.freeze({
   new_words_first: true,
   most_common_first: true,
   sentences_last: true,
+  known_characters_english_first: true,
 });
 
 /** The settings rows, in order (web Settings and the Lab app show the same words). */
@@ -60,6 +67,13 @@ export const NEW_CARD_ORDER_OPTIONS: ReadonlyArray<{ key: NewCardOrderKey; label
   { key: 'most_common_first', label: 'Most common first', hint: 'Within each group, the words Chinese speakers use most come first, and the most common new characters before rare ones.' },
   { key: 'sentences_last', label: 'Sentences last', hint: 'Sentence cards wait until the words are in.' },
 ];
+
+/** The switch under the order (lead-card.ts): which card a word of known characters starts with. */
+export const KNOWN_CHARACTERS_OPTION: Readonly<{ key: 'known_characters_english_first'; label: string; hint: string }> = Object.freeze({
+  key: 'known_characters_english_first',
+  label: 'Words made of characters I know: start with English → Chinese',
+  hint: 'When you already know every character of a new word, its first card asks you to write it from the English instead of reading it.',
+});
 
 // ============ Settings ============
 

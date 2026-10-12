@@ -3,6 +3,7 @@
  * web app's own TypeScript:
  *   - parseNewCardOrder(raw)                 (stored JSON → a full set; garbage → defaults per field)
  *   - NEW_CARD_ORDER_OPTIONS                 (the settings rows' words)
+ *   - KNOWN_CHARACTERS_OPTION                (the switch under them: known characters → English first)
  *   - frequencyRank(hanzi, the SHIPPED list) (shared/data/frequency/word-freq.txt — the Lab reads the
  *                                             same file as a core resource; proves both parse it alike)
  *   - wordPieces / isNewWord                 (what "met" means for "New words first")
@@ -15,6 +16,7 @@
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import {
+  KNOWN_CHARACTERS_OPTION,
   NEW_CARD_ORDER_OPTIONS,
   isNewWord,
   parseNewCardOrder,
@@ -53,11 +55,12 @@ const RAW = [
   null, '', 'not json', '[]', '{}', '[true]', '{"new_words_first":false}', '{"sentences_last":"false"}',
   '{"most_common_first":0}', '{"new_characters_first":false,"new_words_first":false,"most_common_first":false,"sentences_last":false}',
   '{"new_characters_first":true,"extra":1}', 'null', '"x"', '{"sentences_last":null}',
+  '{"known_characters_english_first":false}', '{"known_characters_english_first":"false"}', '{"known_characters_english_first":null,"sentences_last":false}',
 ];
 const settings = RAW.map(raw => ({ raw, order: parseNewCardOrder(raw) }));
 for (let i = 0; i < 20; i++) {
   const obj: Record<string, unknown> = {};
-  for (const k of ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last']) {
+  for (const k of ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first']) {
     if (rand() < 0.7) obj[k] = pick([true, false, 'true', 1, null]);
   }
   const raw = JSON.stringify(obj);
@@ -164,6 +167,6 @@ for (let i = 0; i < 80; i++) {
 }
 
 writeFileSync(join(OUT, 'new-card-order.json'), JSON.stringify({
-  settings, options: NEW_CARD_ORDER_OPTIONS, frequency, studied, pieces, picker,
+  settings, options: NEW_CARD_ORDER_OPTIONS, knownCharactersOption: KNOWN_CHARACTERS_OPTION, frequency, studied, pieces, picker,
 }));
 console.log(`new-card-order: ${settings.length} settings + ${frequency.ranks.length} ranks + ${studied.length} studied + ${picker.length} picker cases`);
