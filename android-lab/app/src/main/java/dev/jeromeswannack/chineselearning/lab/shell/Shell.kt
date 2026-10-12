@@ -92,7 +92,9 @@ object Shell {
 
     suspend fun reveal(app: LabApp, cardId: String) {
         val content = NotificationReview.content(app.repo.dao, cardId) ?: return ShellNotifier.cancelCard(app)
-        ShellNotifier.showBack(app, content, NotificationReview.previews(app.repo.dao, cardId))
+        // Bare rating actions rather than no answer side when the card's state can't be scheduled.
+        val previews = app.safely("notification rating previews") { NotificationReview.previews(app.repo.dao, cardId) }.orEmpty()
+        ShellNotifier.showBack(app, content, previews)
     }
 
     suspend fun rate(app: LabApp, cardId: String, rating: Int) {

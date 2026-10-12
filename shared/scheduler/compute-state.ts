@@ -243,34 +243,70 @@ export function applyReview(
   return fsrsCardToComputedState(newCard, reviewedAt);
 }
 
+// ---- Unusable stored state ----
+
+/**
+ * FSRS's own bounds on a REVIEWED card (ts-fsrs S_MIN / S_MAX and its difficulty clamp): every
+ * state the scheduler produces lies inside them, so clamping never changes a valid state.
+ */
+const STABILITY_MIN = 0.001;
+const STABILITY_MAX = 36500;
+const DIFFICULTY_MIN = 1;
+const DIFFICULTY_MAX = 10;
+/** The middle of the difficulty scale, for a reviewed card whose difficulty is not a number at all. */
+const FALLBACK_DIFFICULTY = 5;
+
+/** `x` clamped to [min, max]; not a finite number (NaN, ±Infinity, null, undefined) → `fallback`. */
+function usableNumber(x: unknown, min: number, max: number, fallback: number): number {
+  if (typeof x !== 'number' || !Number.isFinite(x)) return fallback;
+  return Math.min(Math.max(x, min), max);
+}
+
+/** A stored timestamp as a Date, or undefined when it is missing or unparseable. */
+function usableDate(iso: string | null | undefined): Date | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+function isCardQueue(q: unknown): q is CardQueue {
+  return q === CardQueue.NEW || q === CardQueue.LEARNING || q === CardQueue.REVIEW || q === CardQueue.RELEARNING;
+}
+
 /**
  * Convert ComputedCardState back to FSRS Card for processing.
+ *
+ * Card state is derived from review events, so a stored state is normally valid — but a corrupt /
+ * legacy row (a reviewed card with stability 0, NaN, Infinity or missing, a queue that is no FSRS
+ * state, a garbage date) made ts-fsrs return NaN intervals ("NaNy" on the rating buttons) and
+ * `applyReview` throw "Invalid time value", and made the Lab app's port throw while showing the
+ * card (its study screen froze). Such a card is scheduled from the nearest usable values instead:
+ * stability clamped to [0.001, 36500] (not a finite number → 0.001, i.e. "forgotten": short intervals, never a
+ * far-off due date), difficulty to [1, 10] (not finite → 5), an unknown queue = NEW, an unparseable
+ * date = missing. A NEW card's stability / difficulty are not used by FSRS and pass through.
+ * Valid states are untouched. Lab: CardScheduler.toFsrsCard (parity/fixtures/fsrs-degenerate.ts).
  */
 function computedStateToFsrsCard(state: ComputedCardState, currentTime: string): FSRSCard {
   const now = new Date(currentTime);
+  const queue = isCardQueue(state.queue) ? state.queue : CardQueue.NEW;
+  const isNew = queue === CardQueue.NEW;
 
   // For new cards, due is now
-  const due = state.queue === CardQueue.NEW
-    ? now
-    : state.next_review_at
-      ? new Date(state.next_review_at)
-      : now;
+  const due = isNew ? now : usableDate(state.next_review_at) ?? now;
 
   // Use last_reviewed_at for proper elapsed_days calculation
-  const lastReview = state.last_reviewed_at
-    ? new Date(state.last_reviewed_at)
-    : undefined;
+  const lastReview = usableDate(state.last_reviewed_at);
 
   return {
     due,
-    stability: state.stability,
-    difficulty: state.difficulty,
+    stability: isNew ? state.stability : usableNumber(state.stability, STABILITY_MIN, STABILITY_MAX, STABILITY_MIN),
+    difficulty: isNew ? state.difficulty : usableNumber(state.difficulty, DIFFICULTY_MIN, DIFFICULTY_MAX, FALLBACK_DIFFICULTY),
     elapsed_days: 0, // Will be computed by FSRS based on last_review
     scheduled_days: state.scheduled_days,
     learning_steps: 0, // Not used with enable_short_term=false
     reps: state.reps,
     lapses: state.lapses,
-    state: state.queue as number as State,
+    state: queue as number as State,
     last_review: lastReview,
   };
 }
@@ -445,6 +481,9 @@ export function getRetrievability(
 
   const f = settings === DEFAULT_DECK_SETTINGS ? defaultFsrs : createFsrs(settings);
   const fsrsCard = computedStateToFsrsCard(state, now.toISOString());
+  // A reviewed card with no (usable) last review: ts-fsrs throws "Invalid date". Count it as just
+  // reviewed (0 days elapsed → R = 1), like the Lab port.
+  if (fsrsCard.state !== State.New && !fsrsCard.last_review) return 1;
 
   return f.get_retrievability(fsrsCard, now, false);
 }

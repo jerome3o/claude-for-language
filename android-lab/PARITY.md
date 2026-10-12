@@ -65,7 +65,7 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 
 | Feature | Status | Web source | Lab source |
 |---|---|---|---|
-| FSRS scheduling (event replay, live review, interval previews) | ✅ parity-tested | `shared/scheduler/compute-state.ts` | `core/…/Fsrs.kt`, `CardState.kt` |
+| FSRS scheduling (event replay, live review, interval previews) | ✅ parity-tested (incl. unusable stored states: `fsrs-degenerate`) | `shared/scheduler/compute-state.ts` | `core/…/Fsrs.kt`, `CardState.kt` |
 | Global new-card budget, deck queue, per-deck caps | ✅ parity-tested | `shared/decks/budget.ts` | `core/…/Budget.kt` |
 | Queue building (cutoff, due cards, tiers), introduced today, Home counts | ✅ parity-tested (`parity/fixtures/study-queue.ts`) | `shared/decks/study-queue.ts` (`getStudyQueue`, Home) | `core/…/StudyQueue.kt` |
 | Order new cards by (Settings → New cards: new characters first → new words first → sentences last, most common first inside each tier — the shipped wordfreq list; in the new-character tier by the most common NEVER-SEEN character — then the deck order; greedy across ALL decks within caps; setting synced on /auth/me + /sync/changes, cached in Prefs) | ✅ parity-tested (`parity/fixtures/new-card-order.ts`: settings, rows' words, ranks from the SHIPPED list, met words, picker incl. the most-common-new-character cases; `study-queue.ts` `novelty` + `globalNovelty` + `ordered`, pick order + allocation compared) | `shared/decks/new-card-order.ts`, `frequency.ts`, `novelty.ts`, `frontend/src/components/settings/NewCardOrderSection.tsx` | `core/…/NewCardOrder.kt`, `StudyQueue.build(…, noteHanzi, order, frequency)`, `ui/settings/NewCardOrderSettings.kt` |
