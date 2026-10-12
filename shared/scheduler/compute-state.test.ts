@@ -17,6 +17,7 @@ import {
   getRetrievability,
   CardQueue,
   ReviewEvent,
+  type ComputedCardState,
   DEFAULT_DECK_SETTINGS,
 } from './compute-state';
 
@@ -622,5 +623,73 @@ describe('FSRS 4x Easy - Interval Growth Bug Regression', () => {
     // Stability should have grown significantly (because 10 days elapsed)
     // If last_reviewed_at was null, elapsed_days would be 0 and stability growth would be minimal
     expect(state.stability).toBeGreaterThan(10);
+  });
+});
+
+describe('unusable stored state (corrupt / legacy rows)', () => {
+  const now = new Date('2026-10-11T10:00:00.000Z');
+  const review = (over: Partial<ComputedCardState>): ComputedCardState => ({
+    queue: CardQueue.REVIEW,
+    stability: 4,
+    difficulty: 5,
+    scheduled_days: 3,
+    reps: 4,
+    lapses: 0,
+    next_review_at: '2026-10-10T10:00:00.000Z',
+    due_timestamp: null,
+    last_reviewed_at: '2026-10-07T10:00:00.000Z',
+    ease_factor: 2.5,
+    interval: 3,
+    repetitions: 4,
+    learning_step: 0,
+    ...over,
+  });
+  const finitePreviews = (s: ComputedCardState) =>
+    getIntervalPreviews(s, DEFAULT_DECK_SETTINGS, now).map((p) => {
+      expect(Number.isFinite(p.intervalDays)).toBe(true);
+      expect(p.intervalText).not.toContain('NaN');
+      return p.intervalText;
+    });
+
+  it('a REVIEW card with stability 0 gets real previews and can be rated (it used to show "NaNy" and throw)', () => {
+    const s = review({ stability: 0 });
+    expect(finitePreviews(s)).toEqual(['10m', '1d', '2d', '3d']);
+    for (const r of [0, 1, 2, 3] as const) {
+      const next = applyReview(s, r, DEFAULT_DECK_SETTINGS, now.toISOString());
+      expect(Number.isFinite(next.stability)).toBe(true);
+      expect(next.next_review_at).not.toBeNull();
+    }
+    expect(Number.isFinite(getRetrievability(s, DEFAULT_DECK_SETTINGS, now))).toBe(true);
+  });
+
+  it('stability that is not a positive finite number is scheduled as the FSRS minimum ("forgotten")', () => {
+    const atMin = finitePreviews(review({ stability: 0.001 }));
+    for (const bad of [0, -1, NaN, Infinity, -Infinity, null as unknown as number, undefined as unknown as number]) {
+      expect(finitePreviews(review({ stability: bad }))).toEqual(atMin);
+    }
+  });
+
+  it('a difficulty that is not a number, or outside 1–10, is clamped; learning cards are guarded too', () => {
+    for (const d of [NaN, Infinity, -3, 0, 12, null as unknown as number]) finitePreviews(review({ difficulty: d }));
+    finitePreviews(review({ queue: CardQueue.LEARNING, stability: 0 }));
+    finitePreviews(review({ queue: CardQueue.RELEARNING, stability: NaN }));
+  });
+
+  it('an unknown queue is treated as NEW, garbage dates as missing', () => {
+    expect(finitePreviews(review({ queue: 7 as CardQueue }))).toEqual(finitePreviews({ ...initialCardState(), difficulty: 5, stability: 4 }));
+    finitePreviews(review({ next_review_at: 'not a date', last_reviewed_at: 'garbage' }));
+    expect(getRetrievability(review({ last_reviewed_at: null }), DEFAULT_DECK_SETTINGS, now)).toBe(1);
+    expect(getRetrievability(review({ last_reviewed_at: 'garbage' }), DEFAULT_DECK_SETTINGS, now)).toBe(1);
+  });
+
+  it('valid states are untouched', () => {
+    const events = [
+      createEvent('c', 2, '2026-09-01T10:00:00.000Z'),
+      createEvent('c', 2, '2026-09-01T10:15:00.000Z'),
+      createEvent('c', 2, '2026-09-04T10:00:00.000Z'),
+    ];
+    const state = computeCardState(events);
+    const next = applyReview(state, 2, DEFAULT_DECK_SETTINGS, '2026-10-01T10:00:00.000Z');
+    expect(computeCardState([...events, createEvent('c', 2, '2026-10-01T10:00:00.000Z')])).toEqual(next);
   });
 });

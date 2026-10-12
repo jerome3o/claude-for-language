@@ -99,20 +99,49 @@ object CardScheduler {
         return Math.max(1.3, Math.min(3.0, ease))
     }
 
+    // FSRS's own bounds on a REVIEWED card: every state the scheduler produces lies inside them,
+    // so clamping never changes a valid state.
+    private const val STABILITY_MIN = S_MIN
+    private const val STABILITY_MAX = 36500.0
+    private const val DIFFICULTY_MIN = 1.0
+    private const val DIFFICULTY_MAX = 10.0
+    private const val FALLBACK_DIFFICULTY = 5.0
+
+    /** [x] clamped to [min, max]; not a finite number (NaN, ±Infinity) → [fallback]. */
+    private fun usableNumber(x: Double, min: Double, max: Double, fallback: Double): Double =
+        if (!x.isFinite()) fallback else Math.min(Math.max(x, min), max)
+
+    /** A stored timestamp, or null when it is missing or unparseable. */
+    private fun usableDate(iso: String?): Long? =
+        if (iso.isNullOrEmpty()) null else try { Js.parseDate(iso) } catch (_: RuntimeException) { null }
+
+    /**
+     * `computedStateToFsrsCard` (shared/scheduler/compute-state.ts). A corrupt / legacy stored row —
+     * a reviewed card with stability 0, negative, NaN or ±Infinity, a queue that is no FSRS state, a
+     * garbage date — threw here (`Js.toFixed8` of NaN, `FsrsState.of`, the date parser) while the
+     * study screen worked out the card's rating previews, so the card never appeared. Such a card is
+     * scheduled from the nearest usable values instead, exactly like the web: stability clamped to
+     * [0.001, 36500] (not finite → 0.001: "forgotten", short intervals), difficulty to [1, 10] (not
+     * finite → 5), an unknown queue = NEW, an unparseable date = missing. A NEW card's stability /
+     * difficulty are not used by FSRS and pass through. Valid states are untouched (parity-tested:
+     * parity/fixtures/fsrs-degenerate.ts → FsrsDegenerateParityTest).
+     */
     private fun toFsrsCard(state: ComputedCardState, currentTime: String): FsrsCard {
         val now = Js.parseDate(currentTime)
-        val due = if (state.queue == CardQueue.NEW) now else state.nextReviewAt?.let { Js.parseDate(it) } ?: now
+        val fsrsState = FsrsState.entries.firstOrNull { it.value == state.queue } ?: FsrsState.New
+        val isNew = fsrsState == FsrsState.New
+        val due = if (isNew) now else usableDate(state.nextReviewAt) ?: now
         return FsrsCard(
             due = due,
-            stability = state.stability,
-            difficulty = state.difficulty,
+            stability = if (isNew) state.stability else usableNumber(state.stability, STABILITY_MIN, STABILITY_MAX, STABILITY_MIN),
+            difficulty = if (isNew) state.difficulty else usableNumber(state.difficulty, DIFFICULTY_MIN, DIFFICULTY_MAX, FALLBACK_DIFFICULTY),
             elapsedDays = 0,
             scheduledDays = state.scheduledDays,
             learningSteps = 0,
             reps = state.reps,
             lapses = state.lapses,
-            state = FsrsState.of(state.queue),
-            lastReview = state.lastReviewedAt?.let { Js.parseDate(it) },
+            state = fsrsState,
+            lastReview = usableDate(state.lastReviewedAt),
         )
     }
 

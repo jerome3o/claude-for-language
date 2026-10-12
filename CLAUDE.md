@@ -635,6 +635,8 @@ pack. The story generator carries it in its prompt and gets ONE repair round whe
 
 - **State mismatches indicate bugs**: If computed state differs from stored state, the computed state is correct. Use `fixAllCardStates()` to repair.
 
+- **An unusable stored state never breaks study**: `computedStateToFsrsCard` (Lab `CardScheduler.toFsrsCard`) schedules a reviewed card with stability 0 / negative / NaN / ±∞ / missing as stability 0.001 ("forgotten"), clamps difficulty to 1–10 (not finite → 5), reads an unknown queue as NEW and a garbage date as missing — valid states are untouched. Before, such a row showed "NaNy" on the web's rating buttons and threw on a rating, and froze the Lab's study screen. Parity-tested (`parity/fixtures/fsrs-degenerate.ts`); the Lab session also computes a card's previews through `app.safely` (bare buttons + a crash report rather than no card).
+
 #### Future: State Override Events
 
 For manual state adjustments (e.g., admin resetting a card), we may add a `set_card_state` event type that explicitly sets state. This maintains the event-sourced model while allowing overrides.

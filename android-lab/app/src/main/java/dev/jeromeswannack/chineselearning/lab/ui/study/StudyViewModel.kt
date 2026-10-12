@@ -588,13 +588,20 @@ class StudyViewModel(
             val alternatives = note?.alternatives?.let {
                 runCatching { repo.api.json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrDefault(emptyList())
             }.orEmpty()
+            // A pass word has no ratings (Not yet / Got it): no intervals to work out. The labels are
+            // a nicety: if one card's stored state can't be scheduled, the card still shows (bare
+            // rating buttons) and the failure is reported — it must never stop the session.
+            val previews = if (pass != null || note == null) {
+                emptyList()
+            } else {
+                app.safely("rating previews for card ${card.id}") { CardScheduler.intervalPreviews(card.state, System.currentTimeMillis()) }.orEmpty()
+            }
             note?.let {
                 CardView(
                     card = card,
                     note = it,
                     sentences = sentences,
-                    // A pass word has no ratings (Not yet / Got it): no intervals to work out.
-                    previews = if (pass != null) emptyList() else CardScheduler.intervalPreviews(card.state, System.currentTimeMillis()),
+                    previews = previews,
                     alternatives = alternatives,
                     presentation = ++presentation,
                     deckName = deckNames[card.deckId],
