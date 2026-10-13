@@ -63,7 +63,7 @@ import { StudyActionRow, NEEDS_INTERNET } from '../components/study/StudyActionR
 import { StudyMenuItem } from '../components/study/StudyMoreMenu';
 import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
 import { TutorNoteLine } from '../components/study/TutorNoteLine';
-import { YouSaid, spokenYouSaid } from '../components/study/YouSaid';
+import { YouSaid, YouSaidFailed, YouSaidOffline, YouSaidPending, spokenYouSaid } from '../components/study/YouSaid';
 import { WordTagPills } from '../components/wordTags/WordTagPills';
 import { OfflineModeToggle } from '../components/study/OfflineModeToggle';
 import { isPeekTap, type PressPoint } from '../components/study/peekFlip';
@@ -159,7 +159,7 @@ function formatAddedDate(createdAt: string | null | undefined): string | null {
  * characters green with "Sounded right ✓ — written 由"; other tones are `close` (the diff + a note).
  * The answer said inside a sentence (`contains`: 他长得很好。 for 长得) shows the answer green —
  * nothing red. Every spoken answer then gets the read card's "You said" box (`YouSaid`: orange
- * "Answer found in your sentence" for `contains`), and a wrong one's diff is lined up, not positional.
+ * "Contains the answer" for `contains`), and a wrong one's diff is lined up, not positional.
  */
 function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; spoken?: boolean; notePinyin?: string; onCoach?: (sentence: string) => void; newChars?: ReadonlySet<string> }) {
   const { userAnswer, correctAnswer, alternatives, spoken, notePinyin, onCoach } = props;
@@ -1476,54 +1476,27 @@ export function StudyCard({
   const renderTranscriptionResult = () => {
     if (!isSpeakingCard || !audioBlob) return null;
 
-    if (isTranscribing) {
-      return (
-        <div className="transcription-result transcription-loading" style={{
-          padding: '0.5rem 0.75rem',
-          borderRadius: '6px',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
-          fontSize: '0.875rem',
-          marginBottom: '0.5rem',
-        }}>
-          Transcribing...
-        </div>
-      );
-    }
+    if (isTranscribing) return <YouSaidPending />;
 
-    if (transcriptionOffline) {
-      return (
-        <div className="transcription-result" style={{
-          padding: '0.5rem 0.75rem',
-          borderRadius: '6px',
-          backgroundColor: 'rgba(156, 163, 175, 0.15)',
-          fontSize: '0.8125rem',
-          color: '#6b7280',
-          marginBottom: '0.5rem',
-        }}>
-          Recording saved, will transcribe when online
-        </div>
-      );
-    }
+    if (transcriptionOffline) return <YouSaidOffline />;
 
-    if (transcriptionError) {
-      // Never silent: the recording is saved either way, and a tap sends the same take again.
-      return (
-        <button
-          type="button"
-          className="transcription-result transcription-failed"
-          data-testid="transcription-retry"
-          onClick={(e) => { e.stopPropagation(); retryTranscription(); }}
-        >
-          Couldn’t transcribe — tap to retry
-          <span className="transcription-failed-note">Your recording is saved</span>
-        </button>
-      );
-    }
+    // Never silent: the recording is saved either way, and a tap sends the same take again.
+    if (transcriptionError) return <YouSaidFailed onRetry={retryTranscription} />;
 
     if (transcriptionComparison) {
       const { transcribedHanzi, transcribedPinyin, isMatch, containsExpected } = transcriptionComparison;
-      // The same box as a spoken answer on a typing card ("Record again" under the meaning covers the retry).
-      return <YouSaid hanzi={transcribedHanzi} pinyin={transcribedPinyin} isMatch={isMatch} containsExpected={containsExpected} onCoach={() => openYouSaidInCoach(transcribedHanzi, 'read')} />;
+      // The same box as a spoken answer on a typing card ("Record again" under the meaning covers the retry);
+      // ▶ plays the take it was transcribed from.
+      return (
+        <YouSaid
+          hanzi={transcribedHanzi}
+          pinyin={transcribedPinyin}
+          isMatch={isMatch}
+          containsExpected={containsExpected}
+          onPlay={() => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); }}
+          onCoach={() => openYouSaidInCoach(transcribedHanzi, 'read')}
+        />
+      );
     }
 
     return null;
@@ -1559,7 +1532,7 @@ export function StudyCard({
     setSayAgainHint(false);
     spoken.startPractice();
   };
-  // ✏️ Check on the orange "You said" box (a sentence said around the answer): that sentence in the
+  // ✎ (Check in Coach) on the orange "You said" box (a sentence said around the answer): that sentence in the
   // Sentence Coach's ✏️ Check my sentence, then "Back to your card" — the same resume path as
   // ⋯ → Sentence coach (resume point + in-memory extras keep the card revealed with its "You said").
   const openYouSaidInCoach = (sentence: string, source: 'read' | 'spoken' | 'practice') => {
@@ -2228,15 +2201,7 @@ export function StudyCard({
 
   // "Couldn't transcribe — tap to retry" (the same take, upload only).
   const renderSpokenRetry = (note: string) => (
-    <button
-      type="button"
-      className="transcription-result transcription-failed"
-      data-testid="spoken-retry"
-      onClick={(e) => { e.stopPropagation(); spoken.retry(); }}
-    >
-      Couldn’t transcribe — tap to retry
-      <span className="transcription-failed-note">{note}</span>
-    </button>
+    <YouSaidFailed onRetry={spoken.retry} note={note} testId="spoken-retry" />
   );
 
   // The review step (docs/STUDY_SESSION.md "Say the answer"): what he said, big and clear — the

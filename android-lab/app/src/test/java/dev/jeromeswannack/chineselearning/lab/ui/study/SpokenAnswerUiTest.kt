@@ -91,7 +91,10 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.onNodeWithText("Sounded right ✓ — written 由").assertExists()
         // The read card's "You said" box, green.
         compose.onNodeWithTag("$YOU_SAID_TAG-match").assertExists()
-        compose.onNodeWithText("You said: yóu (油) ✅").assertExists()
+        val inBox = androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$YOU_SAID_TAG-match"))
+        compose.onNode(androidx.compose.ui.test.hasText("油") and inBox).assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("yóu") and inBox).assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("Match") and inBox).assertExists()
     }
 
     // Jerome's card: 长得 said inside 他长得很好。 came back with every character red.
@@ -116,8 +119,9 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         assertEquals(listOf(AnswerKey.Verdict.CONTAINS), checked)
         compose.onNodeWithTag(SPOKEN_CONTAINS_TAG).assertExists()
         compose.onNodeWithTag("$YOU_SAID_TAG-contains").assertExists()
-        compose.onNodeWithText("Answer found in your sentence", substring = true).assertExists()
-        compose.onNodeWithText("(他长得很好。) ✅", substring = true).assertExists()
+        val inBox = androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$YOU_SAID_TAG-contains"))
+        compose.onNode(androidx.compose.ui.test.hasText("Contains the answer") and inBox).assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("他长得很好。") and inBox).assertExists()
         // Nothing marked wrong: no red diff at all.
         assertEquals(0, compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(", wrong", substring = true)).fetchSemanticsNodes().size)
         assertEquals(0, compose.onAllNodes(hasTestTag(EXPECTED_CHAR_TAG)).fetchSemanticsNodes().size)
@@ -131,6 +135,7 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(listOf(AnswerKey.Verdict.WRONG), reveals)
         compose.onNodeWithTag("$YOU_SAID_TAG-miss").assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("Didn’t match") and androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$YOU_SAID_TAG-miss"))).assertExists()
     }
 
     @Test fun theReviewShowsWhatWasSaidReadOnlyWithRetryEditSubmit() {

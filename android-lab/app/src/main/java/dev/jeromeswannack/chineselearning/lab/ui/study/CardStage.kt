@@ -689,7 +689,7 @@ private fun CardBack(
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar, newChars = newChars)
             }
-            KeepTaps { TranscriptionLine(ui.extras.take.transcription, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }) }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }) }
             if (canSayPractice && practiceSaid != null) {
                 Spacer(Modifier.height(6.dp))
                 Box(Modifier.testTag(PRACTICE_YOU_SAID_TAG)) {
@@ -876,7 +876,7 @@ private fun FrontHanzi(hanzi: String, newChars: Set<String>) {
  * character-by-character diff with the pinyin of what was typed — wrong characters red and
  * underlined, missing ones a "?" with a dashed underline ([AnswerMarks]). Characters are tappable.
  * A [spoken] answer also gets the read card's "You said" box ([YouSaidBox]) under it — the answer
- * said inside a sentence is orange "Answer found in your sentence" with the answer in green above,
+ * said inside a sentence is the orange "Contains the answer" with the answer in green above,
  * never a red diff; a wrong spoken answer's diff is aligned (AnswerMarks.spokenDiff), not positional.
  */
 @Composable
@@ -924,7 +924,7 @@ private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Ve
         }
         AnswerKey.Verdict.CONTAINS -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.testTag(SPOKEN_CONTAINS_TAG)) {
             // Said inside a sentence (他长得很好。 for 长得): the answer in green; the read card's orange
-            // "You said … ✅ Answer found in your sentence" box follows — nothing marked red.
+            // "You said · Contains the answer" box follows — nothing marked red.
             TappableHanzi(correct, size, Palette.Good, onChar, newChars = newChars)
             // No automatic pinyin here (it may read 长得 otherwise): the card's own pinyin follows.
         }
@@ -1517,127 +1517,25 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
                     else -> "Didn’t catch anything — tap 🎤 to try again, or type it."
                 },
             )
-        spoken.phase == SpokenPhase.FAILED -> Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Palette.Again.copy(alpha = 0.10f))
-                .border(1.dp, Palette.Again.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                .clickable(onClick = actions.onRetrySpoken)
-                .heightIn(min = 44.dp)
-                .padding(horizontal = 14.dp, vertical = 7.dp)
-                .testTag(SPOKEN_RETRY_TAG),
-        ) {
-            Text("Couldn’t transcribe — tap to retry", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
-            Text(if (spoken.practice) "Or cancel — it’s only practice" else if (again) "Or keep your first answer" else "Or type your answer", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
-        }
+        spoken.phase == SpokenPhase.FAILED -> YouSaidFailed(
+            if (spoken.practice) "Or cancel — it’s only practice" else if (again) "Or keep your first answer" else "Or type your answer",
+            actions.onRetrySpoken,
+            Modifier.padding(top = 8.dp).testTag(SPOKEN_RETRY_TAG),
+        )
         spoken.offlineHint && !online -> hint("Saying the answer needs a connection — type it instead.")
     }
 }
 
-/** "You said: …" under the answer (the web's renderTranscriptionResult). */
+/** "You said" under the answer (the web's renderTranscriptionResult): every state is the same box ([YouSaidBox]). */
 @Composable
-private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}, onCoach: ((String) -> Unit)? = null) {
-    val (text, tint) = when (t) {
-        null -> return
-        TranscriptionUi.Failed -> {
-            // Never silent: both paths failed, the recording is saved, a tap sends it again.
-            Spacer(Modifier.height(6.dp))
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Palette.Again.copy(alpha = 0.10f))
-                    .border(1.dp, Palette.Again.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                    .clickable(onClick = onRetry)
-                    .heightIn(min = 44.dp)
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-            ) {
-                Text("Couldn’t transcribe — tap to retry", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
-                Text("Your recording is saved", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
-            }
-            return
-        }
-        TranscriptionUi.Working -> "Transcribing…" to Palette.Easy
-        TranscriptionUi.Offline -> "Recording saved, will transcribe when online" to Lab.colors.muted
-        is TranscriptionUi.Done -> {
-            Spacer(Modifier.height(6.dp))
-            YouSaidBox(t.result, onCoach?.let { open -> { open(t.result.transcribedHanzi) } })
-            return
-        }
-    }
+private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}, onCoach: ((String) -> Unit)? = null, onPlay: (() -> Unit)? = null) {
+    if (t == null) return
     Spacer(Modifier.height(6.dp))
-    TintedBox(text, tint)
-}
-
-@Composable
-private fun TintedBox(text: String, tint: Color, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = Lab.colors.ink,
-        textAlign = TextAlign.Center,
-        modifier = modifier.clip(RoundedCornerShape(10.dp)).background(tint.copy(alpha = 0.12f)).border(1.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
-    )
-}
-
-/** Test tag prefix of the "You said" box: `you-said-match` / `you-said-contains` / `you-said-miss`. */
-const val YOU_SAID_TAG = "you-said"
-/** ✏️ Check on the orange box: the sentence in the Sentence Coach. */
-const val YOU_SAID_COACH_TAG = "you-said-coach"
-const val YOU_SAID_COACH_LABEL = "Check this sentence in the Sentence Coach"
-
-/**
- * "You said: pīnyīn (汉字) ✅" — ONE box for what was said, on the read card's back and under a
- * spoken answer on a typing card (the web's `YouSaid`): green = it matched, orange + "Answer found
- * in your sentence" = the answer was said inside a longer sentence, red ❌ = not.
- */
-@Composable
-fun YouSaidBox(r: TranscriptionComparison, onCoach: (() -> Unit)? = null) {
-    val mark = if (r.isMatch || r.containsExpected) "✅" else "❌"
-    val color = if (r.isMatch) Palette.Good else if (r.containsExpected) Palette.Hard else Palette.Again
-    val state = if (r.isMatch) "match" else if (r.containsExpected) "contains" else "miss"
-    val text = "You said: ${r.transcribedPinyin} (${r.transcribedHanzi}) $mark" + (if (r.containsExpected && !r.isMatch) "\nAnswer found in your sentence" else "")
-    if (state != "contains" || onCoach == null) {
-        TintedBox(text, color, Modifier.testTag("$YOU_SAID_TAG-$state"))
-        return
-    }
-    // The orange box (a sentence said around the answer): ✏️ Check on its far right opens the sentence
-    // in the Sentence Coach. Equal room on both sides keeps the text centred.
-    Box(
-        Modifier
-            .testTag("$YOU_SAID_TAG-$state")
-            .clip(RoundedCornerShape(10.dp))
-            .background(color.copy(alpha = 0.12f))
-            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-            .padding(vertical = 7.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = Lab.colors.ink,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 52.dp),
-        )
-        Column(
-            Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 4.dp)
-                .size(width = 44.dp, height = 48.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Lab.colors.card.copy(alpha = 0.7f))
-                .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                .clickable(onClick = onCoach)
-                .semantics { contentDescription = YOU_SAID_COACH_LABEL }
-                .testTag(YOU_SAID_COACH_TAG),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text("✏️", fontSize = 15.sp)
-            Text("Check", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = color)
-        }
+    when (t) {
+        // Never silent: both paths failed, the recording is saved, a tap sends it again.
+        TranscriptionUi.Failed -> YouSaidFailed("Your recording is saved", onRetry)
+        TranscriptionUi.Working -> YouSaidPending()
+        TranscriptionUi.Offline -> YouSaidOffline()
+        is TranscriptionUi.Done -> YouSaidBox(t.result, onCoach?.let { open -> { open(t.result.transcribedHanzi) } }, onPlay)
     }
 }

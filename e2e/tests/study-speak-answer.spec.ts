@@ -220,7 +220,9 @@ test('say the answer: live text, then the review (no keyboard), Submit — a hom
   // The read card's "You said" box, green.
   const said = page.getByTestId('you-said');
   await expect(said).toHaveAttribute('data-state', 'match');
-  await expect(said).toContainText('You said: yóu (油) ✅');
+  await expect(said.getByTestId('you-said-hanzi')).toHaveText('油');
+  await expect(said.getByTestId('you-said-pinyin')).toHaveText('yóu');
+  await expect(said.getByTestId('you-said-verdict')).toHaveText('Match');
   expect(uploads).toBe(0);
   const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; ended: boolean } }).__soniox);
   expect(stats.config).not.toHaveProperty('context'); // the answer never biases the recogniser
@@ -233,7 +235,7 @@ test('say the answer: live text, then the review (no keyboard), Submit — a hom
   expect(typed.recording).toBe(true);
 });
 
-test('the answer said inside a sentence is right — the read card\'s orange "Answer found in your sentence", nothing red', async ({ page, request }) => {
+test('the answer said inside a sentence is right — the read card\'s orange "Contains the answer", nothing red', async ({ page, request }) => {
   // Jerome said 他长得很好。 for 长得 and every character came back red; same rule here with 由.
   await fakeSoniox(page, 'ok', ['这件事由我负责。']);
   await seed(page, request);
@@ -249,8 +251,8 @@ test('the answer said inside a sentence is right — the read card\'s orange "An
   await expect(contains).toContainText('由');
   const said = page.getByTestId('you-said');
   await expect(said).toHaveAttribute('data-state', 'contains');
-  await expect(said).toContainText('(这件事由我负责。) ✅');
-  await expect(said).toContainText('Answer found in your sentence');
+  await expect(said.getByTestId('you-said-hanzi')).toHaveText('这件事由我负责。');
+  await expect(said.getByTestId('you-said-verdict')).toHaveText('Contains the answer');
   await expect(page.getByTestId('study-card-back').locator('.diff-wrong')).toHaveCount(0);
   await expect(page.getByTestId('typed-answer-diff')).toHaveCount(0);
 });
@@ -407,7 +409,7 @@ test('say it again: the question while the new take is said, its review there, t
   await page.getByTestId('spoken-mic').click();
   await page.getByTestId('spoken-review-submit').click();
   await expect(page.getByTestId('spoken-answer-sound')).toBeVisible({ timeout: 8000 });
-  await expect(page.getByTestId('you-said')).toContainText('(油)');
+  await expect(page.getByTestId('you-said-hanzi')).toHaveText('油');
   // The reveal's auto-play has happened; from here on only "Say it again" may add one.
   await expect.poll(() => cardPlays(page)).toBeGreaterThan(0);
   await page.waitForTimeout(800);
@@ -484,7 +486,7 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 8000 });
   const said = page.getByTestId('practice-you-said').getByTestId('you-said');
   await expect(said).toHaveAttribute('data-state', 'contains');
-  await expect(said).toContainText('Answer found in your sentence');
+  await expect(said.getByTestId('you-said-verdict')).toHaveText('Contains the answer');
   await expect(page.locator('.answer-diff')).toHaveCount(0);
   await expect.poll(() => cardPlays(page)).toBe(afterReveal + 1);
   await expect(practice).toHaveText(/Say it again$/);
@@ -505,7 +507,7 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   expect(typed.recording).toBe(true);
 });
 
-test('the orange "You said" box: ✏️ Check opens the sentence in the Sentence Coach (Check my sentence), and "Back to your card" brings the card back as it was', async ({ page, request }) => {
+test('the orange "You said" box: the round ✎ Check in Coach opens the sentence in the Sentence Coach (Check my sentence), and "Back to your card" brings the card back as it was', async ({ page, request }) => {
   await fakeSoniox(page, 'ok', ['它的作业由我写的。']);
   const started: Array<{ text?: string; action?: string }> = [];
   await page.route(/\/api\/coach\/conversations$/, (route) => {
@@ -524,11 +526,17 @@ test('the orange "You said" box: ✏️ Check opens the sentence in the Sentence
   await expect(said).toHaveAttribute('data-state', 'contains', { timeout: 8000 });
   const coach = said.getByTestId('you-said-coach');
   await expect(coach).toBeVisible();
-  // On the far right, at least 44px.
+  // A round 44px button on the far right, named for screen readers.
+  await expect(coach).toHaveAccessibleName('Check in Coach');
   const [box, btn] = [await said.boundingBox(), await coach.boundingBox()];
   expect(btn!.height).toBeGreaterThanOrEqual(44);
   expect(btn!.width).toBeGreaterThanOrEqual(44);
   expect(box!.x + box!.width - (btn!.x + btn!.width)).toBeLessThan(12);
+  expect(Math.abs(btn!.width - btn!.height)).toBeLessThan(1);
+  expect(await coach.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('50%');
+  // The button never pushes what was said off-centre (equal side columns).
+  const hanzi = await said.getByTestId('you-said-hanzi').boundingBox();
+  expect(Math.abs((hanzi!.x + hanzi!.width / 2) - (box!.x + box!.width / 2))).toBeLessThan(2);
 
   await coach.click();
   await expect(page).toHaveURL(/\/coach/);
