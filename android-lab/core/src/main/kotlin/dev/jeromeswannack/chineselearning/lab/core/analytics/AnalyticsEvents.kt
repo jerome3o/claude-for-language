@@ -48,6 +48,7 @@ object AnalyticsEvents {
         ev("study.answer_spoken", "study", listOf("card_type", "result", "via", "live_error", "speech_ms", "ms", "auto_submit", "retry", "reviewed", "edited", "practice", "where")),
         ev("study.spoken_answer_checked", "study", listOf("card_type", "verdict", "retry", "reviewed", "practice", "where")),
         ev("study.you_said_coach", "study", listOf("card_type", "source", "where")),
+        ev("study.you_said_play", "study", listOf("card_type", "where")),
         ev("study.char_sheet_open", "study", listOf("found", "words")),
         ev("study.char_word_tap", "study", listOf("status", "current")),
         ev("study.char_word_added", "study", emptyList()),

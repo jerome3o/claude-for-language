@@ -117,7 +117,11 @@ test.describe('Live pronunciation transcription', () => {
 
     await recordOneTake(page);
 
-    await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible({ timeout: 5000 });
+    // What was said is the hero (hanzi, pinyin under it), the verdict a chip; ▶ plays the take.
+    await expect(page.getByTestId('you-said-pinyin')).toHaveText('shì');
+    await expect(page.getByTestId('you-said-verdict')).toHaveText('Match');
+    await expect(page.getByRole('button', { name: 'Play my recording' })).toBeVisible();
     const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; chunks: number; ended: boolean; protocols: string[] | null } }).__soniox);
     expect(stats.protocols).toEqual(['soniox-api-key', 'snx_temp_e2e']); // the key with the connection
     expect(stats.config).toMatchObject({ model: 'stt-rt-v5', audio_format: 'auto' });
@@ -137,7 +141,7 @@ test.describe('Live pronunciation transcription', () => {
 
     await recordOneTake(page);
 
-    await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible({ timeout: 5000 });
     expect(uploads).toBe(1);
   });
 
@@ -177,7 +181,7 @@ test.describe('Live pronunciation transcription', () => {
 
     failUploads = false;
     await retry.click();
-    await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible({ timeout: 5000 });
     expect(uploads).toHaveLength(2);
     expect(uploads[1].liveError).toBeNull(); // the retry goes straight to the upload
     expect(uploads[1].size).toBe(uploads[0].size); // …with the same saved take

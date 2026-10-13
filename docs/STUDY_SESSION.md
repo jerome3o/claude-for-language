@@ -942,7 +942,7 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   The expected answer is never sent to Soniox (no context) — it would bias recognition.
 - **Said inside a sentence** (`contains`, the read card's rule — Jerome said 他长得很好。 for
   长得 and got every character red): a spoken answer that CONTAINS the answer is right, exactly like
-  the read card's "You said … ✅ Answer found in your sentence". `spokenAnswerWithin`
+  the read card's orange "You said · Contains the answer". `spokenAnswerWithin`
   (`shared/cards/answer.ts`, Lab `AnswerKey.answerWithin`, parity-tested) finds it either by hanzi —
   the answer's (or an alternative's) answer key as one contiguous stretch of the transcript's
   (numbers → hanzi, 两 → 二, punctuation / spaces dropped, common traditional characters →
@@ -956,10 +956,18 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   (web) / `Transcription.compare` (Lab) uses `spokenAnswerWithin` too, so both card types follow one
   rule (it also feeds the worker's recording check). Typed (keyboard) answers keep exact matching.
 - **One "You said" box for both card types** (web `components/study/YouSaid.tsx` `YouSaid` +
-  `spokenYouSaid`; Lab `YouSaidBox` in `CardStage.kt`): the read card's box is now shared, and a
-  spoken answer on a typing card shows it under the answer — green "You said: yóu (油) ✅" when
-  right, the read card's orange "You said: tā cháng dé hěn hǎo (他长得很好。) ✅ · Answer found in
-  your sentence" for `contains` (the answer above in green, nothing red), red ❌ when wrong. A wrong
+  `spokenYouSaid`; Lab `YouSaidBox.kt`): the read card's box is now shared, and a
+  spoken answer on a typing card shows it under the answer — green "✓ Match" when right, the read
+  card's orange "✓ Contains the answer" for `contains` (the answer above in green, nothing red), red
+  "✕ Didn't match" when wrong. **Design** (Oct 2026, "less janky"): what he said is the hero — the
+  hanzi (22 px) with the pinyin under it — and "You said" + the verdict chip (icon + short label in the
+  tone's colour) sit small above it; a softly tinted 14 px rounded box in the theme's success / warning /
+  error colours (light and dark). Round 44 px buttons sit in EQUAL side columns, so the text stays centred:
+  **▶ Play my recording** on the left of a read card's box (the take it was transcribed from; analytics
+  `study.you_said_play`) and **✎ Check in Coach** on the right of the orange box. "Transcribing…" (three
+  pulsing dots), "Recording saved, will transcribe when online" and "Couldn't transcribe — tap to retry"
+  (↻ circle on the left, the whole box is the button — also the say-it flow's retry) are the same shell
+  with the same minimum height (88 px), so the result replaces them without a jump. A wrong
   spoken answer's character diff is lined up with the answer by longest common subsequence
   (`spokenAnswerDiff` / `AnswerMarks.spokenDiff`), so extra words around it don't push every
   character red; typed answers keep the positional diff. Tests: unit `answer.test.ts`,
@@ -994,7 +1002,7 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   when he didn't know it. It runs the Say it again flow (question side, live transcript, ⏹, the
   review — without ✏️ Edit, since it is shown as said — 🔁 Retry, ✕ Cancel), and the result is
   shown ONLY as the read card's "You said" box under the hanzi, checked with `checkSpokenAnswer`
-  (green / orange "Answer found in your sentence" / red). It is never the card's answer: no
+  (green Match / orange Contains the answer / red Didn't match). It is never the card's answer: no
   verdict, no diff, no glow, `user_answer` stays empty and the rating buttons work as usual
   (revealing already says he didn't know it). The pill then reads "Say it again" (practice) and can
   be used any number of times; the card's clip plays once after each, like Say it again. **The
@@ -1006,9 +1014,10 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   practice, e2e `study-speak-answer.spec.ts` "Say it practice". Lab: `StudyViewModel.sayItPractice`,
   `SpokenUi.practice` / `SpokenResult.practice`, `practiceSaid` + `SayAgainPill(practice = true)` in
   `CardStage.kt`; `SayItAgainTest` (practice), `SayItPracticeUiTest` (+ Roborazzi `study-practice01…05`).
-- **✏️ Check on the orange "You said" box** (`contains`: he said a whole sentence around the answer —
-  read cards, spoken answers on the typing cards and Say it practice alike): a compact 44 px button
-  on the box's far right (the box pads both sides equally, so the text stays centred) opens the
+- **✎ Check in Coach on the orange "You said" box** (`contains`: he said a whole sentence around the
+  answer — read cards, spoken answers on the typing cards and Say it practice alike; ✏️ Check until Oct
+  2026): a round 44 px button in the box's right column (tooltip / long-press label "Check in Coach";
+  the left column is ▶ or kept empty, so the text stays centred) opens the
   hanzi he said in the Sentence Coach straight into ✏️ Check my sentence (`/coach?text=…&action=check`,
   `coachDeepLinkAction`; Lab `Routes.coach(text, action = "check")`), so he sees whether his sentence
   was actually good. Back to your card returns to the same card as it was — the ⋯ → Sentence coach

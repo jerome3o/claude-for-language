@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -16,9 +17,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ✏️ Check on the orange "You said … Answer found in your sentence" box (read cards and spoken answers
- * on the typing cards): the hanzi said opens in the Sentence Coach's Check my sentence. Only the orange
- * (contains) box has it. Screenshots: study-yousaid-coach*.png.
+ * The round ✎ (Check in Coach) on the orange "You said · Contains the answer" box (read cards and spoken
+ * answers on the typing cards): the hanzi said opens in the Sentence Coach's Check my sentence. Only the
+ * orange (contains) box has it; a read card's box also has ▶ (its take). Screenshots: study-yousaid-coach*.png.
  */
 class YouSaidCoachUiTest : LabScreenshotTest() {
     private val now = Js.parseDate("2026-10-11T09:30:00.000Z")
@@ -36,7 +37,8 @@ class YouSaidCoachUiTest : LabScreenshotTest() {
         return StudyUi(StudyPhase.Showing(view), Samples.counts, SessionStats(reviews = 14, correct = 12), canUndo = true, online = true, forcedOffline = false, extras = CardExtras(take = take, spoken = spoken))
     }
 
-    private val actions = StudyActions(onYouSaidCoach = { text, source -> opened += text to source })
+    private var plays = 0
+    private val actions = StudyActions(onYouSaidCoach = { text, source -> opened += text to source }, onYouSaidPlay = { plays++ })
 
     private fun readTake(text: String) = TakeUi(hasTake = true, transcription = TranscriptionUi.Done(Transcription.compare(text, note.hanzi)))
 
@@ -47,8 +49,12 @@ class YouSaidCoachUiTest : LabScreenshotTest() {
         compose.setContent { LabTheme { StudyScreen(ui(CardTypes.HANZI_TO_MEANING, take = readTake(sentence)), playingKey = null, actions = actions, autoplay = false) } }
         compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithTag("$YOU_SAID_TAG-contains", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag(YOU_SAID_COACH_TAG, useUnmergedTree = true).assertContentDescriptionEquals(YOU_SAID_COACH_LABEL)
         compose.onNodeWithTag(YOU_SAID_COACH_TAG, useUnmergedTree = true).performClick()
         assertEquals(listOf(sentence to "read"), opened)
+        // ▶ plays the take it was transcribed from.
+        compose.onNodeWithTag(YOU_SAID_PLAY_TAG, useUnmergedTree = true).performClick()
+        assertEquals(1, plays)
     }
 
     @Test fun onlyTheOrangeBoxHasIt() {
@@ -56,6 +62,7 @@ class YouSaidCoachUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(1, count("$YOU_SAID_TAG-match"))
         assertEquals(0, count(YOU_SAID_COACH_TAG))
+        assertEquals(1, count(YOU_SAID_PLAY_TAG))
     }
 
     @Test fun aSpokenAnswerSaidInASentenceOpensInTheCoach() {

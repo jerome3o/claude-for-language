@@ -10,7 +10,7 @@
  * still matches; a different tone does not). Numbers (digits, Roman numerals, English
  * words) are normalised to hanzi on both sides, and 两 / 二 count as the same.
  *
- * "Answer found in your sentence" (`containsExpected`): the answer's pinyin inside the
+ * "Contains the answer" (`containsExpected`): the answer's pinyin inside the
  * transcript's, or `spokenAnswerWithin` (shared/cards/answer.ts) — the SAME rule the typing
  * cards use for a spoken answer (`contains`): the hanzi inside, or a syllable window that sounds
  * like it (a neutral syllable of the answer — 得 de — matching any tone). Lab: Transcription.compare.

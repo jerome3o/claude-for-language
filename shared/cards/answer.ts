@@ -166,7 +166,7 @@ function soundsLike(heard: readonly string[], targets: SpokenTargets): boolean {
  * transcript's syllables sounds like it (tones count; a neutral syllable of the answer matches
  * any tone). null = not found. A window may be the whole transcript, so callers check the
  * whole-answer verdicts first. The typing cards' spoken check (`contains`) and the read card's
- * "Answer found in your sentence" (shared/recordings/transcript.ts) both use it.
+ * "Contains the answer" (shared/recordings/transcript.ts) both use it.
  */
 export function spokenAnswerWithin(
   transcript: string,
