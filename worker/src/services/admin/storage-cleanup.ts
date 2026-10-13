@@ -186,6 +186,13 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     protectedReason: PERSON_MADE + ' (a learner\'s lesson; the lesson delete path and account deletion remove it)',
   },
   {
+    prefix: 'podcast-episodes/',
+    what: 'Podcast episodes copied for transcription (`podcast-episodes/<episode>.<ext>`), shared by every account (docs/PODCASTS.md)',
+    writtenBy: 'services/podcasts/job.ts copyEnclosureToR2 (PODCAST_AUDIO_PREFIX)',
+    referencedBy: ['podcast_episodes.audio_key'],
+    collectable: true,
+  },
+  {
     prefix: 'screenshots/',
     what: 'Feature-request screenshots (uploaded before the request row exists)',
     writtenBy: 'index.ts POST /api/feature-requests/screenshot',
@@ -262,6 +269,7 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'homework_feedback.audio_feedback_url', sql: 'SELECT audio_feedback_url AS v FROM homework_feedback WHERE audio_feedback_url IS NOT NULL' },
   { source: 'tutor_recording_marks.model_audio_key', sql: 'SELECT model_audio_key AS v FROM tutor_recording_marks WHERE model_audio_key IS NOT NULL' },
   { source: 'audio_lessons.audio_key', sql: 'SELECT audio_key AS v FROM audio_lessons WHERE audio_key IS NOT NULL' },
+  { source: 'podcast_episodes.audio_key', sql: 'SELECT audio_key AS v FROM podcast_episodes WHERE audio_key IS NOT NULL' },
 ];
 
 export const DEFAULT_MIN_AGE_DAYS = 7;

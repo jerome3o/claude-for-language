@@ -25,7 +25,7 @@ export interface Env {
   GROUP_CLASSES?: string;
   TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
   /** Audio lessons: write → speak → render one MP3 (services/audio-lessons/job.ts, docs/AUDIO_LESSONS.md). */
-  AUDIO_LESSON_QUEUE: Queue<import('./services/audio-lessons/job').AudioLessonJobMessage | import('./services/companion-lesson').CompanionJobMessage>;
+  AUDIO_LESSON_QUEUE: Queue<import('./services/audio-lessons/job').AudioLessonJobMessage | import('./services/companion-lesson').CompanionJobMessage | import('./services/podcasts/job').PodcastEpisodeMessage | import('./services/podcasts/lesson').PodcastLessonMessage>;
   /** Workers rate-limit binding for the podcast feed (wrangler.toml [[ratelimits]]); absent in tests. */
   PODCAST_RATE_LIMITER?: import('./services/podcast-feed').RateLimiterBinding;
   /** Word checks (services/card-check.ts): new / edited notes and per-deck "Check for errors" runs. */
