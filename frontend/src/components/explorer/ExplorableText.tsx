@@ -2,6 +2,7 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { explorableSegments, type ExplorerItem, type WordSegmentInput } from '@shared/explorer';
 import { sentenceAround } from '@shared/reader/words';
 import { useExplorer, type ExplorerOpenOptions, type ExplorerSource } from './ExplorerContext';
+import { shimmerText } from '../study/NewCharShimmer';
 
 /**
  * Any Chinese text, tappable into the language explorer (docs/LANGUAGE_EXPLORER.md): by word
@@ -19,6 +20,7 @@ export function ExplorableText({
   highlight,
   cardHanzi,
   onWrite,
+  newChars,
 }: {
   text: string;
   segments?: readonly WordSegmentInput[] | null;
@@ -30,6 +32,8 @@ export function ExplorableText({
   highlight?: string;
   cardHanzi?: string | null;
   onWrite?: ExplorerOpenOptions['onWrite'];
+  /** Never-seen characters to shimmer (the study card, services/newCharacters.ts). */
+  newChars?: ReadonlySet<string>;
 }) {
   const explorer = useExplorer();
   const pieces = explorableSegments(text, segments, (s, e) => sentenceAround(text, s, e));
@@ -41,6 +45,7 @@ export function ExplorableText({
     }
   }
   let offset = 0;
+  let charIndex = 0; // code points so far: staggers the new-character sweep across pieces
 
   const go = (item: ExplorerItem, e: MouseEvent | KeyboardEvent) => {
     e.stopPropagation();
@@ -55,6 +60,9 @@ export function ExplorableText({
         const start = offset;
         offset += p.text.length;
         const hl = marked.has(start);
+        const at = charIndex;
+        charIndex += [...p.text].length;
+        const shown = shimmerText(p.text, newChars, at);
         return p.item ? (
           <span
             key={i}
@@ -66,10 +74,10 @@ export function ExplorableText({
               if (e.key === 'Enter' || e.key === ' ') go(p.item!, e);
             }}
           >
-            {p.text}
+            {shown}
           </span>
         ) : (
-          <span key={i}>{p.text}</span>
+          <span key={i}>{shown}</span>
         );
       })}
     </span>

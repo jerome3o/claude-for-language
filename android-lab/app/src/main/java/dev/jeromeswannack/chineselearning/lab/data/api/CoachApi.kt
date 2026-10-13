@@ -68,6 +68,8 @@ data class CoachStartBody(
 
 @Serializable
 data class CoachResultDto(
+    /** What he wrote (the mistake lesson compares it with [corrected]). */
+    val originalInput: String = "",
     val isCorrect: Boolean = false,
     val corrected: CoachLine = CoachLine(),
     val critique: String = "",
@@ -155,6 +157,23 @@ suspend fun Api.sendCoachMessage(id: String, message: String): CoachReplyDto =
 /** Retry a reply that failed: back on the server's queue → 202 the whole thread. */
 suspend fun Api.retryCoachReply(id: String, messageId: String): CoachThreadDto =
     post("/api/coach/conversations/${enc(id)}/messages/${enc(messageId)}/retry")
+/** `POST …/mistake-lesson`: 202 the lesson message pending (polled), 200 `existing` when the conversation has one. */
+@Serializable
+data class CoachMistakeLessonRes(val conversation: CoachConversationDto? = null, val messages: List<CoachMessageDto> = emptyList(), val existing: Boolean = false)
+
+/** "Save to my mini lessons" (+ this run's completion when he just did it; `lesson_id` is ignored there). */
+@Serializable data class CoachSaveLessonBody(val completion: CompletionUpload? = null)
+
+@Serializable
+data class CoachSaveLessonRes(val lesson_id: String = "", val title: String = "", val completed: Boolean = false, val message: CoachMessageDto? = null)
+
+/** "🎯 Mini lesson on this mistake" (shared/coach/mistakeLesson.ts): written in the background, never twice. */
+suspend fun Api.requestCoachMistakeLesson(id: String): CoachMistakeLessonRes =
+    post("/api/coach/conversations/${enc(id)}/mistake-lesson")
+/** The lesson into "my mini lessons" (once), with [completion] when he just did it (idempotent by its id). */
+suspend fun Api.saveCoachMistakeLesson(id: String, messageId: String, completion: CompletionUpload?): CoachSaveLessonRes =
+    post("/api/coach/conversations/${enc(id)}/messages/${enc(messageId)}/save-lesson", CoachSaveLessonBody(completion))
+
 suspend fun Api.deleteCoachConversation(id: String) {
     val r = send("DELETE", "/api/coach/conversations/${enc(id)}")
     if (!r.ok && r.code != 404) throw dev.jeromeswannack.chineselearning.lab.data.HttpException(r.code, r.body.take(200), r.body)

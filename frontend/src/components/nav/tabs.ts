@@ -70,6 +70,7 @@ const IMMERSIVE = [
   /^\/library\/catalogue\/[^/]+\/?$/,
   /^\/decks\/[^/]+\/try\/?$/,
   /^\/lessons\/[^/]+\/(edit|print|play)\/?$/,
+  /^\/coach\/[^/]+\/lesson\/[^/]+\/?$/,
   /^\/connections\/[^/]+\/chat(\/|$)/,
   /^\/join\//,
   /^\/calls\/[^/]+\/?$/,

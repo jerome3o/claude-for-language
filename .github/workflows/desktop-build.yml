@@ -1,0 +1,241 @@
+name: Desktop Build
+
+# The desktop app (desktop/, Electron): the web app in a window + drawing on a shared screen.
+# PRs: type check, bundle, a headless smoke test on Linux and a real macOS package (artifact).
+# main: the same, then a GitHub PRE-release tagged desktop-v0.N with the .dmg / .zip (and a
+# Windows installer). Signing (desktop/README.md "Signing"): with the CSC_* secrets the Mac app
+# is signed with a Developer ID, and with the APPLE_* secrets also notarized; without them it is
+# ad-hoc signed and the README's first-open steps apply.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'desktop/**'
+      - 'shared/desktop/**'
+      - 'shared/calls/**'
+      - 'frontend/src/services/calls/annotations.ts'
+      - '.github/workflows/desktop-build.yml'
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'shared/desktop/**'
+      - 'shared/calls/**'
+      - 'frontend/src/services/calls/annotations.ts'
+      - '.github/workflows/desktop-build.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# 0.<run number>: only ever goes up, so every release is newer than the one before.
+env:
+  APP_VERSION: 0.${{ github.run_number }}.0
+  RELEASE_NAME: 0.${{ github.run_number }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    name: Type check, bundle, smoke test (Linux)
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Bundle
+        run: npm run build
+
+      # Starts the real app against the deployed web app under a virtual display: the page asks
+      # for a screen share, the picker answers, the overlay opens through window.desktopBridge and
+      # an overlay event comes back (desktop/src/smoke.ts). Screen capture under Xvfb is flaky, so
+      # this is informative only — screenshots + smoke.json are attached to the run.
+      - name: Smoke test (Xvfb)
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
+          for attempt in 1 2; do
+            if CHINESE_LEARNING_SMOKE="$RUNNER_TEMP/smoke" timeout 120 xvfb-run -a -s "-screen 0 1440x900x24" \
+                 npx electron --no-sandbox --disable-gpu . ; then
+              echo "smoke test passed"; exit 0
+            fi
+            echo "attempt $attempt failed"
+          done
+          cat "$RUNNER_TEMP/smoke/smoke.json" || true
+          exit 1
+
+      - name: Upload smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-smoke
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
+          retention-days: 14
+
+  mac:
+    runs-on: macos-latest
+    name: macOS app (.dmg / .zip, universal)
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      HAS_SIGNING: ${{ secrets.CSC_LINK != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Version
+        run: npm version "$APP_VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Bundle
+        run: npm run typecheck && npm run build
+
+      # Developer ID certificate present: signed (hardened runtime), and notarized when the
+      # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID secrets are set too (electron-builder
+      # notarizes by itself when they are in the environment).
+      - name: Package (Developer ID)
+        if: env.HAS_SIGNING == 'true'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --mac --publish never
+
+      # No certificate yet: an ad-hoc signature (valid, so macOS offers "Open Anyway" instead of
+      # calling the download damaged). README: first-open steps.
+      - name: Package (ad-hoc signature)
+        if: env.HAS_SIGNING != 'true'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # electron-builder skips ALL signing on PR builds; this step has no secrets (ad-hoc only), so force it.
+          CSC_FOR_PULL_REQUEST: 'true'
+        run: |
+          echo "::notice title=Unsigned desktop build::No CSC_LINK secret: the Mac app is ad-hoc signed (see desktop/README.md, Signing)."
+          npx electron-builder --mac --publish never -c.mac.identity=-
+
+      - name: Check the signature
+        run: |
+          app="$(ls -d release/mac-universal/*.app | head -n 1)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature|TeamIdentifier|Authority' || true
+          ls -la release
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-mac
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    runs-on: windows-latest
+    name: Windows installer (unsigned)
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Version
+        run: npm version "$env:APP_VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run build
+          npx electron-builder --win --publish never
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: desktop/release/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [check, mac, windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    name: Publish desktop pre-release
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the Mac app
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-mac
+          path: dist
+
+      - name: Download the Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-windows
+          path: dist
+
+      - name: Publish GitHub pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-v${{ env.RELEASE_NAME }}
+          name: Desktop v${{ env.RELEASE_NAME }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Chinese Learning for the desktop (prototype, desktop/), version ${{ env.APP_VERSION }}, built from ${{ github.sha }}.
+
+            **Mac**: download `Chinese-Learning-${{ env.APP_VERSION }}-mac.dmg` (Apple silicon and Intel), open it and drag Chinese Learning to Applications. First open: see [desktop/README.md](https://github.com/${{ github.repository }}/blob/main/desktop/README.md#install-on-a-mac) — the app is not notarized yet, so macOS asks once (System Settings → Privacy & Security → Open Anyway).
+
+            **Windows**: `Chinese-Learning-${{ env.APP_VERSION }}-windows.exe` (unsigned: "More info → Run anyway").
+
+            The app is the web app in a window; sharing a whole screen in a video call lets you draw and type on your real screen, and you see the other person's drawings there too.
+          files: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe

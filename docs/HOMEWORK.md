@@ -356,3 +356,36 @@ started cards + completed lessons over everything the tutor ever sent. Now:
   simply decks in the queue (Home's "Next up", the Decks tab); Home's homework card no longer lists them.
 - The Lab app follows the same rules (dashboard pill and student page from the server's summary; core
   `HomeworkLibrary.kt` / `HomeHomework.kt` parity-tested).
+
+## 12. Homework e-mails (Minghui, Oct 2026)
+
+Two e-mails to the STUDENT, **bilingual** (Jerome: simple Chinese first, the English under it; item titles as they are; due labels in both — "明天 (周四) 到期 · due tomorrow, Thu 16 Oct"; subject "Minghui老师给你留了作业 · Minghui sent you homework" with the tutor's first name; the plain-text part too), through the same SendGrid sender, template style and sign-in-free unsubscribe machinery as
+the chat e-mails (docs/CHAT.md "E-mail opt-out"). Code: `worker/src/services/homework-emails/` (`copy.ts` = the pure
+part: time zones, which rows, lines, the templates; `index.ts` = D1 + sending), migration 0122.
+
+- **"<Tutor> sent you homework"** — `assignHomework` (every send path: Send homework sheet, library Assign, session-notes
+  send, drafts, MCP send tools) puts `{ kind: 'assigned', student_id }` on **`homework-email-queue`** delayed 120 s. The
+  consumer waits while the student's newest un-e-mailed assignment is younger than ~2 min (that send's own message
+  comes later), then CLAIMS every un-e-mailed row with one `UPDATE assignments SET notified_at … RETURNING` — two
+  deliveries can never e-mail the same rows — and sends ONE e-mail: each item once (a deck split over days is one line,
+  "over 3 days, Thu 16 Oct – Sat 18 Oct"), "12 words" / "Mini lesson" / "Story" / "Link", the due date ("due tomorrow
+  (Thursday 16 Oct)"), a button to `/homework/<id>` (one item) or `/homework`. Decks sent for **long-term review only**
+  are one quiet line ("Also added to your daily reviews: … nothing to finish by a date"); a send of ONLY long-term decks
+  sends no e-mail. Cancelled rows are left out. A failed send hands the rows back.
+- **"Due tomorrow"** — the hourly cron (`37 * * * *`, shared with the audio pump's keep-alive) from **18:00 in the
+  student's local time** the evening before (so ~18:37; later runs that evening catch a missed hour): every ACTIVE
+  one-off pass (`one_off` / `both`) due on their local tomorrow, with progress ("5 of 12 done"). 18:00 = after work /
+  school, still time to do it tonight or plan the morning. Time zone = `users.time_zone`, else the tutor's, else
+  Europe/London; `Intl` handles DST. One per student per due day (`homework_email_log`, UNIQUE (student, kind, key =
+  the due date) — `INSERT OR IGNORE` claims it; a failed send frees it for the next hour). Rows assigned in the last
+  6 h are left out (the "sent you homework" e-mail just told them). Done / cancelled / long-term rows never remind.
+- The same cron sweeps assignments a lost queue message left un-e-mailed (≤ 24 h old; older ones are marked without
+  an e-mail — also every assignment that existed before migration 0122).
+- **Opt-out**: `users.email_homework` (1 = on, the default; covers both e-mails). Settings → Notifications → **Homework
+  e-mails** (web `NotificationsSection`, Lab `ui/homework/HomeworkEmailsSettings.kt`), `PUT /api/profile/email-prefs
+  { email_homework }`, `email_homework` on `/api/auth/me`. Every e-mail carries "Turn off homework emails" +
+  RFC 8058 `List-Unsubscribe` headers → `/api/email/unsubscribe?t=…&k=homework` (a token signed for the `homework`
+  purpose; chat links have no `k` and can't flip it).
+- **Never**: the tutor herself, no address, test accounts (`@test.e2e`, `google_id` `test-…`, `E2E_TEST_MODE`), no
+  `SENDGRID_API_KEY` (then nothing is claimed). Logs carry ids and outcome counts only — no addresses, no titles.
+  Analytics: `server.email_sent { kind: homework_assigned | homework_reminder, ok }`.

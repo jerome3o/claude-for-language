@@ -25,7 +25,7 @@ import { lockStatusOf, unlockLesson } from '../services/lessonUnlock';
 import { Confetti } from '../components/Confetti';
 import './StudyPage.css';
 
-const FROM = new Set(['lessons_page', 'homework', 'today', 'player']);
+const FROM = new Set(['lessons_page', 'homework', 'today', 'player', 'coach']);
 
 export function LessonReplayPage() {
   const { id = '' } = useParams();

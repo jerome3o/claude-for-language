@@ -850,6 +850,38 @@ The Lab app is a second client of the same API, room protocol and upload routes
 - **Background**: a foreground service (microphone / camera / mediaProjection) keeps the call and
   its recording alive with the screen off; screen sharing uses MediaProjection.
 
+## The desktop app (desktop/, prototype): drawing on the real screen
+
+A browser can't draw on the sharer's real screen; the **desktop app** (Electron, `desktop/README.md`)
+can. It is the deployed web app in a window plus three small native pieces:
+
+- **Share picker** — Electron answers the page's `getDisplayMedia()` itself
+  (`session.setDisplayMediaRequestHandler`, `desktop/src/share.ts`): Entire screen / Window tabs with
+  thumbnails, and on macOS the Screen Recording permission steps when it is missing. It remembers
+  what was picked (`lastSharedSource`: kind + display id).
+- **Overlay** — when she shares a whole SCREEN, a transparent, frameless, always-on-top window covers
+  that display (`desktop/src/overlay.ts`), click-through by default (`setIgnoreMouseEvents(true,
+  { forward: true })`), and draws the call's annotations with the web app's own drawing code
+  (`services/calls/annotations.ts`, same keep / fade rules). A toolbar (🖍️ Draw on screen → ✏️ Pen /
+  T Text / colours / 🗑 Clear / ✋ Done, Esc) switches it to draw mode: her strokes, taps (pings) and
+  texts go back to the call page and out through the normal `annot` / `annot_ping` / `annot_text` /
+  `annot_clear` messages, so the student sees them on the shared video exactly as if she had drawn in
+  the call window. The overlay is **excluded from capture** (`setContentProtection(true)`): the student
+  sees the strokes once, drawn by their own page — never also burnt into the video.
+- **Bridge** — the page talks to the app only through `window.desktopBridge` (preload, contextIsolation +
+  sandbox; contract and pure rules in `shared/desktop/bridge.ts`, unit-tested): `lastSharedSource()`,
+  `overlay.show(displayId)` / `hide()` / `annotations(snapshot)` / `setDrawMode(on)` / `onEvent(fn)`.
+  The call page's side is `services/calls/desktopOverlay.ts` (`useDesktopOverlay`): opens the overlay
+  for a shared screen, sends a snapshot of the annotation store on every change (≤ 30/s), relays
+  overlay events, and adds **🖍️ Draw on my real screen** to the share bar. Inert in a browser.
+- **Coordinates** — a captured screen IS the display, so 0..1 of the shared picture = 0..1 of the
+  display's bounds. Electron reports bounds in DIPs, so Retina scale factors never enter the mapping;
+  if the OS gives the overlay less than the display (macOS menu bar), the canvas is offset by the
+  difference (`overlayCanvasRect`). A shared WINDOW gets no overlay (it moves under it): drawing on it
+  works in the call window as before.
+
+Analytics: `call.desktop_overlay { on | draw }`; every event from the app has platform `desktop`.
+
 ## Setup — what needs a key
 
 **Nothing new is required.** With the secrets the app already has:

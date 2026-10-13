@@ -94,6 +94,25 @@ export interface PlayableLesson {
   spec: CustomLessonSpec;
 }
 
+/**
+ * A preview that may be KEPT (the Sentence Coach's "🎯 Mini lesson on this mistake"): played with
+ * nothing recorded, then "Save to my mini lessons" — the rating saves it with this run as its
+ * first completion (so it comes back when the rating says), or Save without a rating / Not now.
+ */
+export interface PreviewSave {
+  /** Rating-button labels for a lesson finished for the first time. */
+  intervalPreviews: Record<Rating, IntervalPreview>;
+  /** Already in his mini lessons (saved before, or with ＋ Save just now): the end still asks for a rating — this run's completion. */
+  saved: boolean;
+  busy: boolean;
+  /** Why the last save failed (offline, the server…). */
+  error: string | null;
+  /** Save from the top bar, mid-lesson (no completion). */
+  onSaveNow: () => void;
+  /** Save at the end with this run as its completion. */
+  onSaveRated: (result: { correct: number; total: number; rating: Rating; attempt: LessonAttemptData }) => void;
+}
+
 export function StudyCustomLesson({
   lesson,
   intervalPreviews,
@@ -104,6 +123,7 @@ export function StudyCustomLesson({
   lessonId,
   replay,
   onPracticeDone,
+  previewSave,
 }: {
   lesson: PlayableLesson;
   intervalPreviews?: Record<Rating, IntervalPreview>;
@@ -120,6 +140,8 @@ export function StudyCustomLesson({
   replay?: { practice: boolean };
   /** "Practice only": the replay ends with nothing recorded. */
   onPracticeDone?: () => void;
+  /** With `preview`: offer to keep the lesson (PreviewSave). */
+  previewSave?: PreviewSave;
 }) {
   const speak = useOfflineSpeak();
   const items = useMemo(() => flattenSpec(lesson.spec), [lesson]);
@@ -199,7 +221,8 @@ export function StudyCustomLesson({
               {score.correct}/{score.total} correct ({pct}%)
             </div>
           )}
-          {preview && <p className="text-light">Preview — nothing was recorded.</p>}
+          {preview && !previewSave && <p className="text-light">Preview — nothing was recorded.</p>}
+          {preview && previewSave?.saved && <p className="text-light" data-testid="lesson-preview-saved">✓ In your mini lessons.</p>}
         </div>
       );
     }
@@ -220,8 +243,21 @@ export function StudyCustomLesson({
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
-        {preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : replay ? <span className="study-topbar-label">Mini lesson · again</span> : counts ? <QueueCountsHeader counts={counts} /> : <span className="study-topbar-label">Homework</span>}
+        {preview && previewSave ? (
+          <span className="lesson-preview-badge">{previewSave.saved ? '✓ In your mini lessons' : 'Trying it · not saved yet'}</span>
+        ) : preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : replay ? <span className="study-topbar-label">Mini lesson · again</span> : counts ? <QueueCountsHeader counts={counts} /> : <span className="study-topbar-label">Homework</span>}
         <div className="study-topbar-controls">
+          {preview && previewSave && !previewSave.saved && !done && (
+            <button
+              type="button"
+              className="lesson-preview-save"
+              onClick={previewSave.onSaveNow}
+              disabled={previewSave.busy}
+              data-testid="lesson-preview-save-now"
+            >
+              {previewSave.busy ? 'Saving…' : '＋ Save'}
+            </button>
+          )}
           <button className="study-close-btn" onClick={onEnd} aria-label={preview ? 'Close preview' : 'End session'}>
             ✕
           </button>
@@ -303,7 +339,30 @@ export function StudyCustomLesson({
           )}
         </div>
       )}
-      {done && preview && (
+      {done && preview && previewSave && (
+        <div className="study-rating-sticky" data-testid="lesson-preview-save">
+          <div className="study-reader-rating-header">
+            <div className="study-reader-rating-prompt" style={{ marginRight: 0 }}>
+              {previewSave.saved
+                ? 'How well do you know this now? Your rating decides when it comes back.'
+                : 'Save it to your mini lessons? How well do you know this now?'}
+            </div>
+          </div>
+          <RatingButtons
+            intervalPreviews={previewSave.intervalPreviews}
+            onRate={rating => previewSave.onSaveRated({ correct: score.correct, total: score.total, rating, attempt: attemptData() })}
+            disabled={previewSave.busy}
+          />
+          {previewSave.error && <div className="lesson-preview-save-error" role="alert">{previewSave.error}</div>}
+          <div className="exercise-actions" style={{ padding: '0.5rem 1rem 0' }}>
+            <button className="practice-btn" onClick={restart} disabled={previewSave.busy}>↻ Try again</button>
+            <button className="practice-btn" onClick={onEnd} disabled={previewSave.busy} data-testid="lesson-preview-not-now">
+              {previewSave.saved ? 'Done' : 'Not now'}
+            </button>
+          </div>
+        </div>
+      )}
+      {done && preview && !previewSave && (
         <div className="study-rating-sticky">
           <div className="exercise-actions" style={{ padding: '0 1rem 1rem' }}>
             <button className="practice-btn" onClick={restart}>↻ Try again</button>

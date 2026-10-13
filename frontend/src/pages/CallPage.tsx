@@ -18,6 +18,7 @@ import { Whiteboard } from '../components/calls/Whiteboard';
 import { TextBoard } from '../components/calls/TextBoard';
 import { AnnotationLayer, type AnnotTool } from '../components/calls/AnnotationLayer';
 import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
+import { useDesktopOverlay } from '../services/calls/desktopOverlay';
 import { ANNOT_COLORS, defaultAnnotColor, myShareTile, myShareHint, shareAudioNote, theirShareSoundLabel, HIDE_MY_SHARE_LABEL, ANNOT_PIP_LABEL, ANNOT_PIP_HINT, DRAW_ON_MY_SHARE_LABEL, canControlTimer, callSoundsLabel, TIMER_UP_LABEL, TIMER_BUTTON_LABEL } from '@shared/calls';
 import { loadCallSounds, playChime, saveCallSounds } from '../services/calls/callSounds';
 import { CallTimerPill } from '../components/calls/CallTimerPill';
@@ -285,6 +286,10 @@ export function CallPage() {
     }
   }, [call.screenStream, annotPip]);
   useEffect(() => () => annotPip?.close(), [annotPip]);
+  // The desktop app (desktop/) draws the annotations over the real screen I share; inert in a browser.
+  const desktopOverlay = useDesktopOverlay(call.screenStream, call.annotations, {
+    stroke: call.sendAnnotation, ping: call.sendPing, text: call.sendAnnotText, clear: call.clearAnnotations,
+  });
 
   /** The Document Picture-in-Picture mini window (Chrome desktop): my share + both people's drawings over my other windows. */
   const openPip = async () => {
@@ -699,7 +704,7 @@ export function CallPage() {
                 <span className="annot-hint">{annotTool === 'text' ? 'Tap to type · drag a text to move · tap it again to edit' : 'Drag to circle · tap to point'}</span>
               </>
             )}
-            {!remoteSharing && !annotating && annotationPipSupported() && !annotPip && (
+            {!remoteSharing && !annotating && annotationPipSupported() && !desktopOverlay.shown && !annotPip && (
               <button type="button" className="annot-toggle" onClick={() => void openPip()} title={ANNOT_PIP_HINT} data-testid="annot-pip-tile">{ANNOT_PIP_LABEL}</button>
             )}
             {!remoteSharing && !annotating && (
@@ -880,7 +885,12 @@ export function CallPage() {
           >
             ✏️ Draw on it
           </button>
-          {annotationPipSupported() && (
+          {desktopOverlay.shown && (
+            <button type="button" className="call-share-btn" data-testid="desktop-overlay-draw" onClick={() => desktopOverlay.setDrawing(!desktopOverlay.drawing)}>
+              {desktopOverlay.drawing ? '✋ Stop drawing on my screen' : '🖍️ Draw on my real screen'}
+            </button>
+          )}
+          {annotationPipSupported() && !desktopOverlay.shown && (
             annotPip ? (
               <button type="button" className="call-share-btn" onClick={() => { annotPip.close(); setAnnotPip(null); }}>Close mini window</button>
             ) : (
