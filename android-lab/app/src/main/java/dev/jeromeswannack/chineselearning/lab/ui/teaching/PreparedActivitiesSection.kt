@@ -224,8 +224,8 @@ fun CoverageSection(studentName: String, coverage: StudentCoverage?, loading: Bo
                         }
                         MutedLine(
                             (if (l.source == "call") "📹 Video lesson" else "📝 Lesson notes") +
-                                (if (l.newWords > 0) " · ${l.newWords} new words" else "") +
-                                (if (l.corrections > 0) " · ${l.corrections} corrections" else ""),
+                                (if (l.newWords > 0) " · ${l.newWords} new word${if (l.newWords == 1) "" else "s"}" else "") +
+                                (if (l.corrections > 0) " · ${l.corrections} correction${if (l.corrections == 1) "" else "s"}" else ""),
                         )
                     }
                 }

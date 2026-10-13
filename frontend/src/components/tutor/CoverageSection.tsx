@@ -53,8 +53,8 @@ export function CoverageSection({ relId, studentName }: { relId: string; student
                     )}
                     <span className="cov-meta">
                       {l.source === 'call' ? '📹 Video lesson' : '📝 Lesson notes'}
-                      {l.new_words > 0 ? ` · ${l.new_words} new words` : ''}
-                      {l.corrections > 0 ? ` · ${l.corrections} corrections` : ''}
+                      {l.new_words > 0 ? ` · ${l.new_words} new word${l.new_words === 1 ? '' : 's'}` : ''}
+                      {l.corrections > 0 ? ` · ${l.corrections} correction${l.corrections === 1 ? '' : 's'}` : ''}
                     </span>
                   </span>
                 </li>

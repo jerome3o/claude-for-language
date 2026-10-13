@@ -60,6 +60,29 @@ test('the tutor prepares activities from earlier lessons, previews and dismisses
   const rel = await api<{ data: { id: string } }>(request, '/api/relationships', { method: 'POST', token: tutor.token, data: { recipient_email: student.email, role: 'tutor' } });
   await api(request, `/api/relationships/${rel.data.id}/accept`, { method: 'POST', token: student.token });
   const relId = rel.data.id;
+  // Last lesson's report (a recorded video lesson) — what the activities follow up on.
+  await api(request, '/api/test/call-lesson-report', {
+    method: 'POST',
+    data: {
+      relationship_id: relId,
+      report: {
+        summary: 'Talked about being ill and seeing a doctor.',
+        topics: ['Health & body vocabulary', 'Seeing a doctor'],
+        vocabulary: [
+          { hanzi: '头疼', pinyin: 'tóuténg', english: 'headache' },
+          { hanzi: '发烧', pinyin: 'fāshāo', english: 'to have a fever' },
+          { hanzi: '咳嗽', pinyin: 'késou', english: 'to cough' },
+          { hanzi: '感冒', pinyin: 'gǎnmào', english: 'a cold' },
+          { hanzi: '嗓子', pinyin: 'sǎngzi', english: 'throat' },
+        ],
+        corrections: [
+          { said: '我很头疼', better: '我头很疼', explanation: 'The body part is the subject' },
+          { said: '我有发烧', better: '我发烧了', explanation: '发烧 is a verb' },
+          { said: '我吃药了把', better: '我把药吃了', explanation: '把 + object before the verb' },
+        ],
+      },
+    },
+  });
   // A logged lesson: what the coverage lists (a lesson without a recorded call).
   await api(request, `/api/relationships/${relId}/lesson-log`, { method: 'POST', token: tutor.token, data: { lesson_at: new Date().toISOString(), notes: '看病: 头疼, 发烧, 咳嗽 — 我头很疼 not 我很头疼' } });
   // The student can't read (or make) the tutor's prepared list.
@@ -71,7 +94,8 @@ test('the tutor prepares activities from earlier lessons, previews and dismisses
   const section = tp.getByTestId('prepared-activities');
   await expect(section).toBeVisible({ timeout: 20000 });
   await expect(tp.getByTestId('prepared-headline')).toHaveText(/No activities ready/);
-  await expect(tp.getByTestId('coverage-section')).toContainText('1 lesson');
+  await expect(tp.getByTestId('coverage-section')).toContainText('2 lessons');
+  await expect(tp.getByTestId('coverage-section')).toContainText('Health & body vocabulary');
 
   await tp.getByTestId('prepared-make').click();
   await expect(tp.getByTestId('prepared-headline')).toHaveText(/Ready for next lesson: 5 activities/, { timeout: 20000 });
