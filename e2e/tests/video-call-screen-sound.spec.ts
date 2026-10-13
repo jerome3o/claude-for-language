@@ -6,9 +6,10 @@ import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test
  *
  * The tutor shares a fake "tab" (a canvas picture + an oscillator's sound — headless Chromium has
  * no screen picker): the student's call page gets the screen's sound on its own audio element and
- * its track carries packets; the tutor's own screen tile is the compact "You're sharing your
- * screen" card, not a mirror (👁 Show it here brings the screen back). A share without sound tells
- * the sharer how to share it.
+ * its track carries packets. Round 7 (Minghui, 12 Oct): the tutor's own share is VISIBLE on her
+ * stage, ready to draw / type on; Hide my screen collapses it to the compact "You're sharing your
+ * screen" card (👁 Show it here brings it back); a whole screen starts as the card (it would mirror
+ * itself). A share without sound tells the sharer how to share it.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
@@ -43,7 +44,7 @@ async function seedUser(request: APIRequestContext, tag: string, name: string): 
  * The options the page asked for are kept on `window.__displayOptions`.
  */
 function fakeTab() {
-  const w = window as unknown as { __shareNoSound?: boolean; __displayOptions?: unknown };
+  const w = window as unknown as { __shareNoSound?: boolean; __displayOptions?: unknown; __surface?: string };
   (navigator.mediaDevices as MediaDevices & { getDisplayMedia: unknown }).getDisplayMedia = async (options: unknown) => {
     w.__displayOptions = options;
     const c = document.createElement('canvas');
@@ -60,6 +61,10 @@ function fakeTab() {
     };
     draw();
     const stream = c.captureStream(10);
+    // What was picked: a tab unless the test says otherwise (window.__surface).
+    const video = stream.getVideoTracks()[0];
+    const settings = video.getSettings.bind(video);
+    video.getSettings = () => ({ ...settings(), displaySurface: w.__surface ?? 'browser' }) as MediaTrackSettings;
     if (!w.__shareNoSound) {
       const ac = new AudioContext();
       void ac.resume();
@@ -100,7 +105,7 @@ async function screenSound(page: Page): Promise<{ tracks: number; live: boolean 
   });
 }
 
-test('a shared tab\'s sound reaches the other person; the sharer sees a card, not their own screen', async ({ browser, request }) => {
+test('a shared tab\'s sound reaches the other person; the sharer sees her share, ready to draw on, or the card', async ({ browser, request }) => {
   test.setTimeout(150_000);
   const tutor = await seedUser(request, 'tutor', '明慧 Minghui');
   const student = await seedUser(request, 'student', 'Jerome');
@@ -122,14 +127,20 @@ test('a shared tab\'s sound reaches the other person; the sharer sees a card, no
   expect(asked.audio).toMatchObject({ suppressLocalAudioPlayback: false });
   expect(asked.systemAudio).toBe('include');
 
-  // The sharer: the screen tile is on her stage, as a compact card — no mirror of her own screen.
+  // The sharer: her shared tab is on her stage (round 7), with the drawing tools offered.
   await expect(tp.getByTestId('call-tiles')).toHaveAttribute('data-stage', 'screen', { timeout: 10000 });
+  await expect.poll(() => tp.getByTestId('my-screen').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 20000 }).toBeGreaterThan(0);
+  await expect(tp.getByTestId('sharing-card')).toHaveCount(0);
+  await expect(tp.getByTestId('annot-toggle')).toHaveText('✏️ Draw or type on your screen');
+  await expect(tp.getByTestId('myshare-hint')).toContainText('Jerome sees this');
+  await expect(tp.getByTestId('share-audio-note')).toHaveCount(0);
+  // Hide my screen → the compact card.
+  await tp.getByTestId('sharing-hide').click();
   await expect(tp.getByTestId('sharing-card')).toBeVisible();
   await expect(tp.getByTestId('sharing-card')).toContainText('You’re sharing your screen');
   await expect(tp.getByTestId('sharing-card')).toContainText('Jerome sees it');
   await expect(tp.getByTestId('sharing-audio')).toContainText('Sound is shared too');
   await expect(tp.getByTestId('my-screen')).toHaveCount(0);
-  await expect(tp.getByTestId('share-audio-note')).toHaveCount(0);
 
   // The viewer: the share on the stage, and its sound on its own element, with packets arriving.
   await expect(sp.getByTestId('call-tiles')).toHaveAttribute('data-stage', 'screen', { timeout: 20000 });
@@ -148,6 +159,7 @@ test('a shared tab\'s sound reaches the other person; the sharer sees a card, no
 
   // 👁 Show it here: the sharer's own screen comes back; Hide → the card again.
   await tp.getByTestId('sharing-show').click();
+  await expect(tp.getByTestId('sharing-card')).toHaveCount(0);
   await expect.poll(() => tp.getByTestId('my-screen').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 20000 }).toBeGreaterThan(0);
   await tp.getByTestId('sharing-hide').click();
   await expect(tp.getByTestId('sharing-card')).toBeVisible();
@@ -169,7 +181,23 @@ test('a shared tab\'s sound reaches the other person; the sharer sees a card, no
   await tp.evaluate(() => { (window as unknown as { __shareNoSound: boolean }).__shareNoSound = true; });
   await tp.getByLabel('Share screen').click();
   await expect(tp.getByTestId('share-audio-note')).toContainText('Also share tab audio', { timeout: 10000 });
+  await expect(tp.getByTestId('my-screen')).toBeVisible(); // a new share is shown again
+  await tp.getByTestId('sharing-hide').click();
   await expect(tp.getByTestId('sharing-audio')).toContainText('Sound isn’t shared');
   await expect.poll(() => sp.getByTestId('remote-screen').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30000 }).toBeGreaterThan(0);
   await expect(sp.getByTestId('share-sound-badge')).toHaveCount(0);
+});
+
+test('a whole screen starts as the card (it would mirror itself); Show it here shows it anyway', async ({ browser, request }) => {
+  test.setTimeout(90_000);
+  const me = await seedUser(request, 'solo', 'Minghui');
+  const call = await api<{ call: { id: string } }>(request, '/api/calls', { method: 'POST', token: me.token, data: {} });
+  const page = await openAs(browser, me.token);
+  await join(page, call.call.id);
+  await page.evaluate(() => { (window as unknown as { __surface: string }).__surface = 'monitor'; });
+  await page.getByLabel('Share screen').click();
+  await expect(page.getByTestId('sharing-card')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('sharing-mirror-note')).toContainText('mirror itself');
+  await page.getByTestId('sharing-show').click();
+  await expect.poll(() => page.getByTestId('my-screen').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 20000 }).toBeGreaterThan(0);
 });

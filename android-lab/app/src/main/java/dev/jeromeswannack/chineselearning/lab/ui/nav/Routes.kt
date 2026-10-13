@@ -56,7 +56,10 @@ object Routes {
     fun duplicateFinder() = "/duplicate-finder"
 
     // ---- tutor tab for students (package E) ----
-    fun connection(relId: String) = "/connections/${seg(relId)}"
+    /** The student / tutor page; [section] scrolls to it and flashes it (web `#homework`). */
+    fun connection(relId: String, section: String? = null) = "/connections/${seg(relId)}" + query("section" to section)
+    /** The student page's Homework section: the dashboard's homework pill / recent line land there. */
+    const val SECTION_HOMEWORK = "homework"
     fun chat(relId: String, convId: String) = "/connections/${seg(relId)}/chat/${seg(convId)}"
     /** THE chat with the person of a relationship (one chat per pair; resolved by `/conversations/open`). */
     fun theChat(relId: String) = "/connections/${seg(relId)}/chat"

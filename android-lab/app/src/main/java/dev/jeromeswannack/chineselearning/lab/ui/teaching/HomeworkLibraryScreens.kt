@@ -416,7 +416,7 @@ fun MostRecentHomeworkCard(items: List<LibraryItem>, today: String, onSeeAll: ()
         if (recent.isEmpty()) MutedLine("Nothing sent yet.")
         recent.forEach { item -> RecentRow(item, today) { onOpen(item) } }
         Text(
-            "See all homework ›", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold,
+            "All homework ↓", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).bouncyClickable(pressedScale = 0.98f, onClick = onSeeAll).padding(vertical = 12.dp).testTag("hw-see-all"),
         )
     }
@@ -463,10 +463,4 @@ fun RecentHomeworkLine(item: LibraryItem, today: String, onClick: () -> Unit) {
         Text(if (showsPercent(item)) " · ${item.percent}% · " else " · ", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, maxLines = 1)
         Text(HomeworkLibrary.statusLabel(item.status), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = tone, maxLines = 1)
     }
-}
-
-/** "📋 Homework library" link (dashboard header, student page). */
-@Composable
-fun HomeworkLibraryLink(desc: String, onClick: () -> Unit) {
-    LabCard { NavRow("📋", "Homework library", desc = desc, onClick = onClick) }
 }

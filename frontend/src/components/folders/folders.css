@@ -60,3 +60,13 @@
   .folder-sheet-overlay { align-items: center; }
   .folder-sheet { border-radius: 1rem; }
 }
+
+/* Nested folders (any depth, MAX_FOLDER_DEPTH): each level is its own drag list. */
+.folder-subgroups { display: flex; flex-direction: column; gap: 0.375rem; margin: 0.125rem 0 0.5rem; }
+.folder-subgroups .folder-group--sub { margin: 0; }
+.folder-breadcrumb { margin: 0 0 0.625rem; font-size: 0.875rem; color: var(--color-text-light, #6b7280); overflow-wrap: anywhere; }
+.folder-breadcrumb strong { color: var(--color-text, #1f2937); }
+.folder-option-hint { font-size: 0.75rem; color: #9ca3af; white-space: nowrap; }
+.folder-option:disabled { opacity: 0.55; cursor: not-allowed; }
+.folder-new-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.folder-new-form .folder-field { margin-bottom: 0; }

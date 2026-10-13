@@ -74,8 +74,9 @@ sealed interface FolderRow<out T> {
 }
 
 /**
- * The tree as rows: each top-level folder (header, its items, then its subfolders, each a
- * header + items, indented), then Unfiled last. A collapsed group shows only its header.
+ * The tree as rows: each top-level folder (header, its items, then its subfolders — any
+ * depth, each a header + items, indented one more step), then Unfiled last. A collapsed
+ * group shows only its header (and hides everything below it).
  */
 fun <T> folderRows(tree: FolderTree<T>, collapsed: Set<String>, keyOf: (T) -> String): List<FolderRow<T>> {
     val out = ArrayList<FolderRow<T>>()
@@ -248,10 +249,32 @@ fun androidx.compose.foundation.layout.BoxScope.FolderOverlays(ui: FolderUi, act
     FolderSheets(ui, actions)
 }
 
+/** Header key → the folder it is drawn under (null = top level), for "same level" drags. */
+fun headerParents(folders: List<dev.jeromeswannack.chineselearning.lab.core.Folder>): Map<String, String?> =
+    folders.associate { FolderRow.headerKey(it.id) to it.parentId?.takeIf { p -> p.isNotEmpty() } }
+
+/** A header may take another header's slot only among its siblings (same parent, any level). */
+fun sameFolderLevel(parents: Map<String, String?>, a: String, b: String): Boolean =
+    FolderRow.isHeaderKey(a) && FolderRow.isHeaderKey(b) && a in parents && b in parents && parents[a] == parents[b]
+
 /**
- * Press-and-hold a top-level folder header to drag it among the other folders (the Library and
- * Readers lists; the Decks list also drags decks, see DecksScreen). Commits the new order of
- * the top-level folders through [FolderActions.onReorder].
+ * The end of a header drag: the one level whose sibling order changed, as folder ids (for
+ * [FolderActions.onReorder] = `reorderFolders`), or null when nothing moved.
+ */
+fun changedFolderLevel(final: List<String>, before: List<String>, parents: Map<String, String?>): List<String>? {
+    val headersAfter = final.filter { FolderRow.isHeaderKey(it) && it in parents }
+    val headersBefore = before.filter { FolderRow.isHeaderKey(it) && it in parents }
+    for (p in headersAfter.map { parents[it] }.distinct()) {
+        val after = headersAfter.filter { parents[it] == p }
+        if (after != headersBefore.filter { parents[it] == p }) return after.mapNotNull { FolderRow.folderIdOfKey(it) }
+    }
+    return null
+}
+
+/**
+ * Press-and-hold a folder header to drag it among its sibling folders, at any level (the
+ * Library and Readers lists; the Decks list also drags decks, see DecksScreen). Commits that
+ * level's new order through [FolderActions.onReorder].
  */
 @Composable
 fun rememberFolderHeaderDrag(
@@ -262,10 +285,12 @@ fun rememberFolderHeaderDrag(
     onLift: () -> Unit,
     onSlot: () -> Unit,
 ): dev.jeromeswannack.chineselearning.lab.ui.decks.DragReorderState {
-    val ids = if (ui == null || ui.selecting) emptyList() else rows.filter { it is FolderRow.Header && it.depth == 0 && it.folder != null }.map { it.key }
+    val ids = if (ui == null || ui.selecting) emptyList() else rows.filter { it is FolderRow.Header && it.folder != null }.map { it.key }
+    val parents = headerParents(ui?.folders.orEmpty())
     return dev.jeromeswannack.chineselearning.lab.ui.decks.rememberDragReorderState(
         listState, ids, onLift = onLift, onSlot = onSlot,
-        onCommit = { final -> actions.onReorder(final.mapNotNull { FolderRow.folderIdOfKey(it) }) },
+        onCommit = { final -> changedFolderLevel(final, ids, parents)?.let(actions.onReorder) },
+        sameGroup = { a, b -> sameFolderLevel(parents, a, b) },
     )
 }
 

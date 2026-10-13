@@ -14,6 +14,7 @@ import type { CallDiagEvent } from './connection';
 import type { BoardPageMeta } from './pages';
 import type { ShowView, ShownState } from './follow';
 import type { SharedView, StageView, ViewMode } from './view';
+import type { CallTimer, CallTimerAction } from './timer';
 
 export interface CallPeer {
   client_id: string;
@@ -128,6 +129,8 @@ export type ClientMessage =
   | { type: 'view'; view: StageView; cid: string; bring?: boolean }
   /** The tutor stops the other person's screen share (refused for anyone else). */
   | { type: 'stop_share' }
+  /** The call timer (./timer.ts): set / start / pause / reset / clear — the tutor only (solo: anyone). */
+  | { type: 'timer'; action: CallTimerAction }
   | { type: 'state'; state: PeerMediaState }
   | { type: 'ping'; t: number }
   /** I'm leaving (the call goes on for the other person): I stop counting as present at once. */
@@ -173,6 +176,8 @@ export type ServerMessage =
       shown?: ShownState | null;
       /** The shared view (./view.ts): what is on the stage for everyone on "Same view" (null = nobody set one yet). */
       view?: SharedView | null;
+      /** The call timer (./timer.ts; absent / null = none), in room time — `server_time` / pongs give the offset. */
+      timer?: CallTimer | null;
     }
   | { type: 'peer_joined'; peer: CallPeer }
   | { type: 'peer_left'; client_id: string }
@@ -213,6 +218,8 @@ export type ServerMessage =
   | { type: 'view'; view: SharedView }
   /** To the person sharing: the tutor stopped your screen share — stop capturing. */
   | { type: 'share_stopped'; by: string; name: string }
+  /** The call timer after a change (null = taken away). `server_time`: the room's clock when it was sent. */
+  | { type: 'timer'; timer: CallTimer | null; server_time: number }
   | { type: 'pong'; t: number; server_time: number }
   | { type: 'ended'; by: string }
   | { type: 'replaced' }
