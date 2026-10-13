@@ -150,10 +150,12 @@ class StudyActions(
     /** ⋯ → Sentence coach, prefilled with [text]; back returns to this card as it is. */
     val onOpenCoach: (text: String) -> Unit = {},
     /**
-     * ✏️ Check on the orange "You said … Answer found in your sentence" box: [text] (the hanzi said)
+     * ✎ Check in Coach on the orange "You said · Contains the answer" box: [text] (the hanzi said)
      * in the Sentence Coach's Check my sentence; [source] = read | spoken | practice (analytics).
      */
     val onYouSaidCoach: (text: String, source: String) -> Unit = { _, _ -> },
+    /** ▶ on a read card's "You said" box: play the take it was transcribed from. */
+    val onYouSaidPlay: () -> Unit = {},
     /** CardStage reports a spoken answer's transcript / a practice transcript, so the card comes back from the coach as it was. */
     val onCardSpoken: (presentation: Int, spokenText: String?, spokenReviewed: Boolean, practiceSaid: String?) -> Unit = { _, _, _, _ -> },
     val sendFlag: suspend (FlagTutor, String) -> Boolean = { _, _ -> false },
@@ -273,6 +275,11 @@ fun StudyRoute(
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()
                 vm.currentCardType()?.let { app.analytics.track("study.you_said_coach", mapOf("card_type" to it, "source" to source) + where) }
                 onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(text = text, action = "check"))
+            },
+            onYouSaidPlay = {
+                val where = if (pass != null) mapOf("where" to "homework") else emptyMap()
+                vm.currentCardType()?.let { app.analytics.track("study.you_said_play", mapOf("card_type" to it) + where) }
+                vm.playMyRecording()
             },
             onCardSpoken = vm::onCardSpoken,
             onPlayMyRecording = vm::playMyRecording,

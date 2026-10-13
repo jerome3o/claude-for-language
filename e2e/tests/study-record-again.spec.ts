@@ -70,7 +70,7 @@ async function firstTakeOnTheBack(page: Page) {
   await expect(page.getByTestId('study-card-back')).toHaveCount(0);
   await page.getByRole('button', { name: 'Check Answer' }).click();
   await expect(page.getByTestId('study-card-back')).toBeVisible();
-  await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible({ timeout: 5000 });
 }
 
 async function startRecordAgain(page: Page) {
@@ -110,7 +110,7 @@ test.describe('Record again flips to the question', () => {
 
     await expect(page.getByTestId('study-card-back')).toBeVisible();
     await expect(page.getByTestId('study-rerecord')).toHaveCount(0);
-    await expect(page.getByText(/You said: dà \(大\)/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '大' })).toBeVisible({ timeout: 5000 });
     expect(uploads.length).toBe(2);
     await expect(page.getByRole('button', { name: 'Record again' })).toBeVisible();
     // The card's clip plays again, straight after his take — once.
@@ -136,20 +136,20 @@ test.describe('Record again flips to the question', () => {
     await page.goBack();
     await expect(page.getByTestId('study-card-back')).toBeVisible();
     await expect(page.getByTestId('study-rerecord')).toHaveCount(0);
-    await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible();
+    await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible();
     expect(page.url()).toBe(url);
 
     // Cancel button: same.
     await startRecordAgain(page);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.getByTestId('study-card-back')).toBeVisible();
-    await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible();
+    await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible();
 
     // Esc: same.
     await startRecordAgain(page);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('study-card-back')).toBeVisible();
-    await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible();
+    await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible();
     await page.waitForTimeout(500);
     expect(uploads.length).toBe(1);
     // Cancelled every time: no new take, so the card didn't play.
@@ -160,7 +160,7 @@ test.describe('Record again flips to the question', () => {
     await page.waitForTimeout(1200);
     await page.getByRole('button', { name: 'Stop', exact: true }).click();
     await expect(page.getByTestId('study-card-back')).toBeVisible();
-    await expect(page.getByText(/You said: dà \(大\)/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '大' })).toBeVisible({ timeout: 5000 });
     expect(uploads.length).toBe(2);
     await expect.poll(() => cardPlays(page)).toBe(afterReveal + 1);
     expect(page.url()).toBe(url);

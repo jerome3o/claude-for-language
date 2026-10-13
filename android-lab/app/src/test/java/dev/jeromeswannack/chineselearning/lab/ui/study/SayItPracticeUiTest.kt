@@ -90,7 +90,7 @@ class SayItPracticeUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SPOKEN_REVIEW_SUBMIT_TAG).performClick()
         assertEquals(listOf("practice", "retake", "submit"), calls)
 
-        // The result: "You said" with the orange "Answer found in your sentence", nothing else changes.
+        // The result: "You said" with the orange "Contains the answer", nothing else changes.
         state = ui(SpokenUi(result = SpokenResult("这件事由他负责", submit = true, seq = 1, again = true, reviewed = true, practice = true)))
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(1_000)

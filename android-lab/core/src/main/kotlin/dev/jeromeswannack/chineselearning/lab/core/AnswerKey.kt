@@ -243,7 +243,7 @@ object AnswerKey {
      * Port of `spokenAnswerWithin`: the answer's (or an alternative's) hanzi as one stretch of the
      * transcript's answer key (traditional → simplified for the common characters), else a
      * syllable window that sounds like it. null = not found. Used by [checkSpoken] (CONTAINS) and
-     * the read card's "Answer found in your sentence" (ui/study Transcription.compare).
+     * the read card's "Contains the answer" (ui/study Transcription.compare).
      */
     fun answerWithin(transcript: String, correct: String, alternatives: List<String> = emptyList(), notePinyin: String = ""): Within? {
         if (!hasHan(transcript)) return null
