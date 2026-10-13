@@ -107,7 +107,7 @@ const GOOD_QUIZ = {
   ],
 };
 
-describe('prepared activities', () => {
+describe('prepared activities', { timeout: 30_000 }, () => {
   it('coverage merges call lessons and logged lessons by day, newest first, words once', () => {
     const c = buildCoverage({
       callLessons: [

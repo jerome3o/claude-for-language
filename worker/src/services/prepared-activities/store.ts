@@ -4,6 +4,7 @@
  * for the rules.
  */
 
+import { validateActivitySpec } from '@shared/call-activities';
 import type { ActivitySpec, PrepareJob, PrepareJobStatus, PreparedActivity, PreparedStatus, PrepareTrigger } from '@shared/call-activities';
 
 interface ActivityRow {
@@ -114,7 +115,8 @@ export async function takePreparedForCall(db: D1Database, rowId: string, relatio
     .bind(rowId, relationshipId)
     .first<ActivityRow>();
   const a = r ? toActivity(r) : null;
-  if (!a) return null;
+  // A row the engine can't play (shouldn't happen — checked when written) is never started.
+  if (!a || validateActivitySpec(a.spec).length > 0) return null;
   await db
     .prepare(`UPDATE prepared_activities SET status = 'used', used_at = COALESCE(used_at, ?), used_in_call_id = COALESCE(used_in_call_id, ?), updated_at = datetime('now') WHERE id = ?`)
     .bind(sqlNow(), callId, rowId)
