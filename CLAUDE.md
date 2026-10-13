@@ -181,6 +181,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── docs/UI_KIT.md     # Shared Compose pieces + screenshot helper
 │   └── PARITY.md          # Parity checklist, split into work packages A–J with file ownership
 │
+├── desktop/               # Electron desktop app (prototype, see desktop/README.md): the web app in a window + native share picker + a click-through overlay that draws call annotations on the real shared screen; bridge contract shared/desktop/bridge.ts, page side frontend/src/services/calls/desktopOverlay.ts
+│
 ├── native/                # Capacitor Android wrapper (see native/README.md)
 │   ├── capacitor.config.json  # Remote server.url points at the deployed PWA
 │   ├── android/           # Native project: widget, PROCESS_TEXT, deep links
@@ -202,7 +204,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── deploy.yml        # Auto-deploy all services on push to main
 │   ├── e2e-tests.yml     # E2E tests on PRs and main
 │   ├── android-build.yml # Builds the sideloadable Android APK (native/)
-│   └── android-lab-build.yml # Tests (incl. TS parity) + builds the Lab app; pre-releases lab-v* on main
+│   ├── android-lab-build.yml # Tests (incl. TS parity) + builds the Lab app; pre-releases lab-v* on main
+│   └── desktop-build.yml # Desktop app: typecheck + Linux smoke + macOS (.dmg/.zip) / Windows packages; pre-releases desktop-v* on main
 │
 └── package.json          # Root package.json (workspaces)
 ```

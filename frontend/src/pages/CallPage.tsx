@@ -18,6 +18,7 @@ import { Whiteboard } from '../components/calls/Whiteboard';
 import { TextBoard } from '../components/calls/TextBoard';
 import { AnnotationLayer, type AnnotTool } from '../components/calls/AnnotationLayer';
 import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
+import { useDesktopOverlay } from '../services/calls/desktopOverlay';
 import { ANNOT_COLORS, defaultAnnotColor, myShareTile, shareAudioNote, theirShareSoundLabel, HIDE_MY_SHARE_LABEL } from '@shared/calls';
 import {
   arrangeTiles,
@@ -250,6 +251,10 @@ export function CallPage() {
     }
   }, [call.screenStream, annotPip]);
   useEffect(() => () => annotPip?.close(), [annotPip]);
+  // The desktop app (desktop/) draws the annotations over the real screen I share; inert in a browser.
+  const desktopOverlay = useDesktopOverlay(call.screenStream, call.annotations, {
+    stroke: call.sendAnnotation, ping: call.sendPing, text: call.sendAnnotText, clear: call.clearAnnotations,
+  });
 
   const detail = callQuery.data;
   const other = detail?.participants.find((p) => p.id !== user!.id);
@@ -806,7 +811,12 @@ export function CallPage() {
           >
             ✏️ Draw on it
           </button>
-          {annotationPipSupported() && (
+          {desktopOverlay.shown && (
+            <button type="button" className="call-share-btn" data-testid="desktop-overlay-draw" onClick={() => desktopOverlay.setDrawing(!desktopOverlay.drawing)}>
+              {desktopOverlay.drawing ? '✋ Stop drawing on my screen' : '🖍️ Draw on my real screen'}
+            </button>
+          )}
+          {annotationPipSupported() && !desktopOverlay.shown && (
             annotPip ? (
               <button type="button" className="call-share-btn" onClick={() => { annotPip.close(); setAnnotPip(null); }}>Close mini window</button>
             ) : (

@@ -1,0 +1,51 @@
+# Packaging (desktop/README.md). The app is small: everything is bundled into dist/ by build.mjs,
+# so no node_modules ship. Signing: with CSC_LINK (+ CSC_KEY_PASSWORD) a Developer ID signs it and
+# APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID notarize it; without them the workflow
+# passes `-c.mac.identity=-` (ad-hoc signature, no hardened runtime) — see .github/workflows/desktop-build.yml.
+appId: dev.jeromeswannack.chineselearning.desktop
+productName: Chinese Learning
+copyright: Jerome Swannack
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/*.js
+  - static/**/*
+  - package.json
+protocols:
+  - name: Chinese Learning sign-in
+    schemes:
+      - chineselearning-desktop
+mac:
+  category: public.app-category.education
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSCameraUsageDescription: Chinese Learning uses the camera for video lessons with your tutor or student.
+    NSMicrophoneUsageDescription: Chinese Learning uses the microphone for video lessons and pronunciation practice.
+    NSAudioCaptureUsageDescription: Chinese Learning can share your computer's sound in a video lesson.
+  artifactName: Chinese-Learning-${version}-mac.${ext}
+dmg:
+  title: Chinese Learning ${version}
+  artifactName: Chinese-Learning-${version}-mac.${ext}
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: x64
+  artifactName: Chinese-Learning-${version}-windows.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+linux:
+  icon: build/icon.png
+  category: Education
+  target: dir

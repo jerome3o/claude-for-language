@@ -142,6 +142,7 @@ export const ANALYTICS_EVENTS = {
   'call.board_gloss': e('calls', 'Accepted a board tab-complete (direction = zh: pinyin + meaning after Chinese | en: Chinese + pinyin after English; via = tab | chip).', ['direction', 'via']),
   'call.screen_share': e('calls', 'Started or stopped sharing the screen (sound = the share carries a tab or system sound).', ['on', 'sound']),
   'call.annotate': e('calls', 'Drew on a shared screen or material.', ['target']),
+  'call.desktop_overlay': e('calls', 'Desktop app: the drawing overlay on the shared screen opened / closed (on), or drawing on the real screen was switched on / off (draw).', ['on', 'draw']),
   'call.material_present': e('calls', 'Presented a lesson material.', ['material_kind', 'pages']),
   'material.contents_open': e('calls', 'Opened a lesson material’s Contents (in a call or the material viewer).', ['where', 'source', 'entries']),
   'material.contents_jump': e('calls', 'Jumped to a section from a lesson material’s Contents.', ['where', 'source']),
@@ -306,8 +307,8 @@ export const SCREEN_REPLACED_BY: Readonly<Record<string, string>> = {
   '/search': '/decks',
 };
 
-/** Where each app runs. `android-hybrid` is the Capacitor shell, `lab` the native app. */
-export const ANALYTICS_PLATFORMS = ['web', 'pwa', 'android-hybrid', 'lab'] as const;
+/** Where each app runs. `android-hybrid` is the Capacitor shell, `lab` the native app, `desktop` the Electron app (desktop/). */
+export const ANALYTICS_PLATFORMS = ['web', 'pwa', 'android-hybrid', 'lab', 'desktop'] as const;
 export type AnalyticsPlatform = (typeof ANALYTICS_PLATFORMS)[number];
 
 /** off = nothing recorded; basic = no screen views / no per-card events; verbose = everything. */

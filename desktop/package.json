@@ -1,0 +1,24 @@
+{
+  "name": "chinese-learning-desktop",
+  "productName": "Chinese Learning",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop app (macOS / Windows) for Chinese Learning: the web app plus drawing on a shared screen.",
+  "author": "Jerome Swannack",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run build && electron-builder --linux dir --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.27.3",
+    "typescript": "5.9.3"
+  }
+}
