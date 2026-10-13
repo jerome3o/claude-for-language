@@ -99,7 +99,11 @@ export function CallTimerPill({ timer, roomNow, canControl, myUserId, onAction, 
 
   const act = (a: CallTimerAction) => {
     onAction(a);
-    if (a.kind === 'set') setSetup(false);
+    // A new timer starts and the panel gets out of the way: the pill counts.
+    if (a.kind === 'set') {
+      setSetup(false);
+      setOpen(false);
+    }
   };
 
   return (

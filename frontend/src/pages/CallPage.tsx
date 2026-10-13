@@ -227,8 +227,8 @@ export function CallPage() {
     const last = fresh[fresh.length - 1];
     if (soundsRef.current) playChime(last.kind, call.devicePrefs.speakerId ?? null);
     track('call.presence_alert', { kind: last.kind, sound: soundsRef.current });
-    const timers = fresh.map((a) => setTimeout(() => call.dismissPresenceAlert(a.id), 4500));
-    return () => timers.forEach(clearTimeout);
+    // Each toast goes by itself (not cleared by the next alert's render; dismissing a gone one is a no-op).
+    for (const a of fresh) setTimeout(() => call.dismissPresenceAlert(a.id), 4500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presenceAlerts]);
   const onTimerFinished = useCallback(() => {

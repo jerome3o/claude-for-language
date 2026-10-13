@@ -133,6 +133,7 @@ class CallControllerTest {
         val alive = ArrayList<Boolean>()
         var screenPrepared = 0
         val instances = ArrayList<String>()
+        val chimes = ArrayList<dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind>()
         val controller = CallController(
             "call1", "me",
             CallDeps(
@@ -150,6 +151,7 @@ class CallControllerTest {
                 layout = layout,
                 viewModes = viewModes,
                 newViewCid = { "cid${++cids}" },
+                chime = { chimes += it },
             ),
             scope.backgroundScope,
         )
@@ -1611,5 +1613,72 @@ class CallControllerTest {
         assertEquals("Minghui stopped your screen share", s.shareStoppedNote?.text)
         rig.controller.dismissShareStopped()
         assertNull(rig.controller.state.value.shareStoppedNote)
+    }
+
+    // ------------------------------------------------------------ the call timer and call sounds
+
+    @Test fun theOtherPersonJoiningAndLeavingChimesButAReconnectDoesNot() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(emptyList())
+        // My own join (the welcome) is silent.
+        assertTrue(rig.chimes.isEmpty())
+        rig.room.handlers.onMessage(ServerMessage.PeerJoined(peer("c-a", instance = "tab1")))
+        runCurrent()
+        assertEquals(listOf(dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind.JOIN), rig.chimes)
+        assertEquals("王老师 joined", rig.controller.state.value.presenceToasts.single().text)
+        // A reconnect (left, back within the grace): nothing.
+        rig.room.handlers.onMessage(ServerMessage.PeerLeft("c-a"))
+        runCurrent()
+        advanceTimeBy(2_000)
+        rig.room.handlers.onMessage(ServerMessage.PeerJoined(peer("c-b", instance = "tab1")))
+        runCurrent()
+        advanceTimeBy(20_000)
+        assertEquals(1, rig.chimes.size)
+        // Gone for good: "… left" after the grace, with the softer chime; the toasts go by themselves.
+        rig.room.handlers.onMessage(ServerMessage.PeerLeft("c-b"))
+        runCurrent()
+        advanceTimeBy(9_000)
+        assertEquals(dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind.LEAVE, rig.chimes.last())
+        assertEquals("王老师 left", rig.controller.state.value.presenceToasts.last().text)
+        advanceTimeBy(5_000)
+        assertTrue(rig.controller.state.value.presenceToasts.isEmpty())
+        // Sounds off: the toast still shows, no chime.
+        rig.controller.setCallSounds(false)
+        assertFalse(rig.prefs.callSounds)
+        rig.room.handlers.onMessage(ServerMessage.PeerJoined(peer("c-c")))
+        runCurrent()
+        assertEquals(2, rig.chimes.size)
+        assertEquals(1, rig.controller.state.value.presenceToasts.size)
+    }
+
+    @Test fun theTimerFollowsTheRoomAndChimesOnceAtZero() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        val offset = rig.room.clockOffset
+        assertEquals(currentTime + offset, rig.controller.roomNow())
+        // The tutor sets a 1-minute countdown, running (room time).
+        val start = rig.controller.roomNow()
+        val t = dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.Timer("t1", dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.Mode.COUNTDOWN, 60_000, true, start, 0, 1, 1, "u2", "王老师")
+        rig.room.handlers.onMessage(ServerMessage.Timer(t, start))
+        runCurrent()
+        assertEquals(t, rig.controller.state.value.timer)
+        advanceTimeBy(59_000)
+        assertTrue(rig.chimes.isEmpty())
+        advanceTimeBy(1_500)
+        assertEquals(listOf(dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind.TIMER), rig.chimes)
+        assertNotNull(rig.controller.state.value.timeUp)
+        advanceTimeBy(10_000)
+        assertEquals(1, rig.chimes.size)
+        // Taken away.
+        rig.room.handlers.onMessage(ServerMessage.Timer(null, start))
+        runCurrent()
+        assertNull(rig.controller.state.value.timer)
+        // Joining into a countdown already at zero is silent.
+        val old = t.copy(id = "t2", startedAt = start - 120_000)
+        rig.room.handlers.onMessage(ServerMessage.Timer(old, start))
+        runCurrent()
+        advanceTimeBy(2_000)
+        assertEquals(1, rig.chimes.size)
+        // The student's actions go to the room (it refuses them); the tutor check is the room's.
+        assertTrue(rig.controller.timerAction(dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.Action.Pause))
+        assertEquals("pause", rig.sentOf("timer").last()["action"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
     }
 }

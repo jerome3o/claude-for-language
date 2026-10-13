@@ -482,6 +482,68 @@ shares." Rules in `shared/calls/view.ts` (Lab `core/…/calls/CallView.kt`, pari
   browsers: both ways, a preset, page turns, the double 📝, My own view, Bring + Join, reload, a share on
   both stages, Stop their share).
 
+## Round 7: the timer, call sounds, and the sharer's own screen (Oct 2026)
+
+Three requests from Minghui (she teaches from the web app on a desktop browser):
+
+**The call timer** — "I sometimes need to time students' tests". ONE timer per call, both people see
+it (`shared/calls/timer.ts`, Lab `core/…/calls/CallTimer.kt`, parity-tested by
+`parity/fixtures/calls-timer.ts`):
+- A **countdown** (quick 1 / 2 / 3 / 5 / 10 min, or a typed length — "7", "1:30", "90s", "2m30s";
+  5 s – 3 h, `parseTimerInput`) or a **stopwatch**; Start / Pause / Reset / New timer / Remove.
+- The **CallRoom** holds it in ROOM time (`{ type: 'timer', action }` → `{ type: 'timer', timer,
+  server_time }` to everyone, the sender included; `welcome.timer` for a (re)join; storage key `timer`,
+  nothing kept after the call). `reduceTimer` is the one rule; a start on a finished countdown runs it
+  again. Each device shows it through its clock offset from the room's pings (`roomNow()`), so both
+  screens show the same second and a reconnect picks it up where it is.
+- **Who runs it**: the relationship's tutor (a test is timed by the teacher); in a solo call, the
+  caller (`canControlTimer`, enforced by the room: "Only the tutor can run the timer"). The student's
+  pill opens a read-only view ("set by Minghui", "Only your tutor can start or stop it").
+- **The pill** sits in the top bar (web `components/calls/CallTimerPill.tsx`: a popover; Lab
+  `ui/calls/CallTimerUi.kt`: a bottom sheet). The tutor sees a quiet ⏱ before any timer and ⋯ → ⏱
+  Timer; the student sees nothing until one is set. Paused = dimmed.
+- **At zero**: the pill flashes and reads "Time's up", a "⏱ Time's up" toast, and a soft bell — once
+  per run (`timerFinishKey` = id + run) and only on a device that watched it run (`shouldChimeTimer`:
+  joining into a finished countdown is silent).
+- New timers and Remove are written to the call's connection log ("Minghui set a 5 min countdown").
+- Analytics `call.timer { action, mode, minutes }`.
+
+**Join / leave sounds** (`shared/calls/chime.ts`, Lab `CallChime.kt`, parity-tested by
+`parity/fixtures/calls-chime.ts`): when the OTHER person enters, a soft rising chime and "👋 Minghui
+joined"; when they leave, a lower, quieter one and "🚪 Minghui left". From the room's presence events:
+`welcome` only takes note of who is there (my own join / reconnect never chimes); `peer_left` is
+announced only after `PEER_LEAVE_GRACE_MS` (8 s), so their reconnect (the room sends `peer_left` then
+`peer_joined` for a new socket) is silent; their return after an announced leave is announced again;
+someone who left while my own connection was down is noticed on my rejoin. The tones are synthesised
+on the device from `CHIME_TONES` (sines with a soft attack and exponential decay — web WebAudio,
+`services/calls/callSounds.ts`, played on the chosen speaker where the browser allows; Lab PCM through
+`AudioTrack` with the call's audio, `data/calls/CallChimePlayer.kt`): nothing to license. ⋯ →
+**🔔 Call sounds: on / off** (per device: web localStorage `call-sounds-v1`, Lab SharedPreferences)
+switches the chimes and the timer bell off; the toasts stay. Analytics `call.presence_alert { kind,
+sound }`, `call.sounds { on }`.
+
+**The sharer sees her share** — "when the teacher shares their screen, the shared content can't be
+seen in the video interface; could it be visible there with the ability to draw and type on top of
+it". Round 6 had replaced the sharer's own screen with a compact card; now (`myShareTile({ annotating,
+shown, surface })`, `shared/calls/share.ts`):
+- A shared **tab or window** is shown on her stage by default, Zoom-like, with the drawing layer and
+  a prominent **✏️ Draw or type on your screen** (pen and T Text, as the viewer has) and a hint "Jerome
+  sees this — draw or type on it, you both see it". **Hide my screen** collapses it to the card;
+  **👁 Show it here** brings it back.
+- A **whole screen** starts as the card ("Your whole screen is shared — shown here it would mirror
+  itself"); Show it here shows it anyway. The browser says which (`getSettings().displaySurface`,
+  `shareSurfaceOf`); the Lab app always shares the whole phone screen, so it keeps the card.
+- A browser can't draw on the real screen, so the **🪟 Mini window over your other windows** (the
+  Document Picture-in-Picture window, Chrome desktop, `services/calls/annotationPip.ts`) is offered on
+  her visible share as well as on the share bar. Analytics `call.annot_pip`.
+
+Tests: `shared/calls/{timer,chime,share}.test.ts`, `worker/src/durable/__tests__/call-room-timer.test.ts`,
+`e2e/tests/video-call-timer.spec.ts` (two browsers: join toast + chime, a 6 s countdown on both pages,
+the student's read-only panel, the bell once each, a stopwatch paused, sounds off, the leave toast),
+`video-call-screen-sound.spec.ts` (the sharer's tab visible, Hide / Show, a whole screen as the card),
+Lab `CallsTimerParityTest`, `CallsChimeParityTest`, `CallsShareParityTest`, `CallProtocolTest`
+(`timer` messages), `CallControllerTest` (chimes, reconnect silence, the countdown's bell once).
+
 ## Screen share: sound, and no mirror for the sharer (round 6)
 
 Jerome's lesson with Minghui (5 Oct 2026): she shared a Chrome tab with his recordings page and played
@@ -512,7 +574,8 @@ screen". Rules + words in `shared/calls/share.ts` (Lab `core/…/calls/CallShare
   calls it, so playback capture can't be mixed in without a custom audio device module): it says
   "Sound isn't shared from the app — …". It RECEIVES a browser's screen sound: WebRTC plays every remote
   audio track, and its offers carry the fourth m-line too (receive only).
-- **No mirror for the sharer** — since Same view a share is on both stages. The SHARER's screen tile is a
+- **No mirror for the sharer** (superseded by round 7: her tab / window is shown by default, the card
+  is one tap away — see "Round 7") — since Same view a share is on both stages. The SHARER's screen tile was a
   compact card: **"You're sharing your screen"**, "Jerome sees it on their screen.", the sound line,
   **⏹ Stop sharing · ✏️ Draw on it · 👁 Show it here** (`myShareTile`: the card unless I draw on it or
   asked to see it; *Hide my screen* goes back). In a rail / floating tile only the title and Stop. The
