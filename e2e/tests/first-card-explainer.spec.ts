@@ -28,18 +28,23 @@ test('a brand-new learner sees the explainer over the first card; Got it dismiss
   await page.goto(`/decks?session_token=${token}`);
   await page.locator('.header').waitFor({ timeout: 30000 });
   await expect(page.getByText('第一课')).toBeVisible({ timeout: 30000 });
-  await page.goto(`/study?deck=${deck.id}&autostart=true`);
+  // The session can be built before the sync has the deck's cards on the device: open it again then.
+  const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first();
+  await expect(async () => {
+    await page.goto(`/study?deck=${deck.id}&autostart=true`);
+    await expect(reveal).toBeVisible({ timeout: 5000 });
+  }).toPass({ timeout: 60000 });
 
   // It appears over the card (a moment after it: it waits for the device's review count).
   const explainer = page.getByRole('dialog', { name: 'Before your first card' });
   await expect(explainer).toBeVisible({ timeout: 30000 });
   await explainer.getByRole('button', { name: 'Got it' }).click();
   await expect(explainer).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first()).toBeVisible();
+  await expect(reveal).toBeVisible();
 
   // Seen once is seen: a reload of the session doesn't bring it back.
   await page.reload();
-  await expect(page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first()).toBeVisible({ timeout: 30000 });
+  await expect(reveal).toBeVisible({ timeout: 30000 });
   await page.waitForTimeout(1000);
   await expect(explainer).toHaveCount(0);
 });

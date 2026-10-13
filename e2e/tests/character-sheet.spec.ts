@@ -55,6 +55,13 @@ test('card back → tap 行 → the sheet shows its words with Known / In your d
   await page.goto(`/decks?session_token=${token}`);
   await page.locator('.header').waitFor({ timeout: 30000 });
   await expect(page.getByText('Older words')).toBeVisible({ timeout: 30000 });
+  // 进行 is "Known" from the review events ON THE DEVICE, which the background sync downloads after
+  // the decks: wait for them, or the sheet (rightly) says "In your decks" (flaky in CI).
+  await expect.poll(() => page.evaluate(() => new Promise<number>((resolve) => {
+    const open = indexedDB.open('ChineseLearningDB');
+    open.onsuccess = () => { const r = open.result.transaction('reviewEvents').objectStore('reviewEvents').count(); r.onsuccess = () => resolve(r.result); };
+    open.onerror = () => resolve(0);
+  })), { timeout: 30000 }).toBeGreaterThanOrEqual(events.length);
   await page.goto(`/study?deck=${study.id}&autostart=true`);
   const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first();
   await reveal.waitFor({ timeout: 30000 });
