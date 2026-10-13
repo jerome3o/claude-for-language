@@ -118,6 +118,10 @@ data class StudentPageUi(
     val dailyBudget: (@Composable () -> Unit)? = null,
     /** "Most recent homework" (docs/HOMEWORK.md §9) — the first thing on the page. */
     val recentHomework: (@Composable () -> Unit)? = null,
+    /** "🎲 Ready for next lesson" (PreparedActivitiesSection) — after Needs attention. */
+    val preparedActivities: (@Composable () -> Unit)? = null,
+    /** "What <student> has covered" (CoverageSection) — after the student profile. */
+    val coverage: (@Composable () -> Unit)? = null,
     /** Bring a section into view and flash it (`?section=homework` from the dashboard, "All homework ↓"). */
     val focus: SectionFocus? = null,
 )
@@ -300,6 +304,8 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
             NeedsAttentionCard(ui.relId, o.needs_attention, o.pills.recordings_to_hear, ui.playingKey, actions.playRecording, actions.open)
         }
     }
+    // Activities prepared for the next call from this student's previous lessons (docs/VIDEO_CALLS.md "Prepared activities").
+    ui.preparedActivities?.let { section -> item(key = "prepared-activities") { section() } }
     item(key = "flags") { FlaggedCardsSection(ui.flags.data?.flags, ui.flags.error, actions.flags, now) }
     val claude = ui.claude.data
     if (o != null && !(o.is_new && (claude?.total ?: 0) == 0)) item(key = "claude") {
@@ -322,6 +328,7 @@ private fun DeckRowFor(ui: StudentPageUi, actions: StudentPageActions, now: Inst
 private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, showStudentDecks: Boolean, name: String, flash: SectionFocus? = null) {
     val o = ui.overview.data
     ui.studentProfile?.let { section -> item(key = "student-profile") { section() } }
+    ui.coverage?.let { section -> item(key = "coverage") { section() } }
     ui.lessonNotes?.let { section -> item(key = "lesson-notes") { section() } }
     // Homework = ONE-OFF homework only: the headline, the dated items, decks sent one-off only,
     // lessons and readers. Long-term decks get their own quieter section below (docs/HOMEWORK.md §11).

@@ -36,6 +36,8 @@ import { FlaggedCardsSection } from '../components/tutor/FlaggedCardsSection';
 import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
 import { LessonNotesSection } from '../components/tutor/LessonNotesSection';
 import { StudentProfileSection } from '../components/tutor/StudentProfileSection';
+import { PreparedActivitiesSection } from '../components/tutor/PreparedActivitiesSection';
+import { CoverageSection } from '../components/tutor/CoverageSection';
 import { DailyBudgetSection } from '../components/tutor/DailyBudgetSection';
 import { StudentUpNextLink } from '../components/upNext/StudentUpNextLink';
 import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
@@ -533,6 +535,9 @@ export function ConnectionDetailPage() {
             </section>
           )}
 
+          {/* Activities prepared for the next call from this student's previous lessons (docs/VIDEO_CALLS.md "Prepared activities") */}
+          <PreparedActivitiesSection relId={relId!} studentName={otherName} />
+
           {/* Cards the student flagged for me, with a reply box */}
           <FlaggedCardsSection relId={relId!} role="tutor" />
 
@@ -551,6 +556,9 @@ export function ConnectionDetailPage() {
 
           {/* The tutor's private profile of the student: every homework / lesson / reader agent reads it */}
           <StudentProfileSection relId={relId!} studentName={otherName} />
+
+          {/* What the student has covered: lessons, words met / known, recent words — from what the app already records */}
+          <CoverageSection relId={relId!} studentName={otherName} />
 
           {/* Lesson notes → the assistant drafts homework → the tutor reviews and assigns (docs/HOMEWORK.md) */}
           <LessonNotesSection relId={relId!} studentName={otherName} />

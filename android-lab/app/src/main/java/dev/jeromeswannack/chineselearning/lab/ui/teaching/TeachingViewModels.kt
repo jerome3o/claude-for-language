@@ -313,6 +313,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     val lessonNotes = LessonNotesController(app, this, relId)
     val profile = StudentProfileController(app, this, relId) { overview.refresh() }
     val budget = StudentBudgetController(app, this, relId) { overview.refresh() }
+    val prepared = PreparedActivitiesController(app, viewModelScope, relId, source = "student_page", withCoverage = true)
 
     init {
         // Offline-first: the dashboard already holds this student's card — show it at once.

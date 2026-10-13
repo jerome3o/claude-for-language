@@ -198,3 +198,51 @@ describe('CallRoom: in-call activities', () => {
     expect(q.roles).toEqual({ a: TUTOR, b: STUDENT });
   });
 });
+
+describe('CallRoom: prepared activities (docs/VIDEO_CALLS.md "Prepared activities")', () => {
+  const spec = {
+    id: 'job-1-1', kind: 'dictation', title: "Dictation: last lesson's words", level: 'elementary', topic: 'Last lesson', summary: 's',
+    role_names: { a: 'Reader', b: 'Writer' }, tutor_role: 'a',
+    items: [{ hanzi: '头疼', pinyin: 'tóuténg', english: 'headache' }, { hanzi: '发烧', pinyin: 'fāshāo', english: 'fever' }, { hanzi: '感冒', pinyin: 'gǎnmào', english: 'a cold' }],
+  };
+  const prepare = (id: string, rel: string, json: unknown = spec) =>
+    exec(
+      "INSERT INTO prepared_activities (id, relationship_id, tutor_id, student_id, job_id, kind, title, why, spec_json, status) VALUES (?, ?, ?, ?, 'job-1', 'dictation', 't', 'why', ?, 'ready')",
+      id, rel, TUTOR, STUDENT, JSON.stringify(json),
+    );
+
+  it('only the tutor starts one, only from this relationship; it plays like a catalogue activity and is marked used', async () => {
+    exec("INSERT INTO users (id, email, name) VALUES ('other', 'o@example.com', 'Other')");
+    exec("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-2', 'other', ?, 'student', 'active')", TUTOR);
+    prepare('job-1-1', 'rel-1');
+    prepare('job-9-1', 'rel-2');
+    prepare('job-1-2', 'rel-1', { ...spec, items: [] }); // broken: refused, never started
+    const { join, say } = await openRoom('c1');
+    const t = join(TUTOR, 'ct');
+    const s = join(STUDENT, 'cs');
+    // The student can't start the tutor's prepared material.
+    await say(s, { type: 'activity_start', activity_id: 'prepared:job-1-1' });
+    expect(s.of('error').at(-1)?.message).toMatch(/Only the tutor/);
+    expect(t.of('activity')).toHaveLength(0);
+    // Another student's / a broken one: not available.
+    await say(t, { type: 'activity_start', activity_id: 'prepared:job-9-1' });
+    expect(t.of('error').at(-1)?.message).toMatch(/isn’t available/);
+    await say(t, { type: 'activity_start', activity_id: 'prepared:job-1-2' });
+    expect(t.of('error').at(-1)?.message).toMatch(/isn’t available/);
+    expect(db.rows<{ status: string }>("SELECT status FROM prepared_activities WHERE id = 'job-1-2'")[0].status).toBe('ready');
+
+    await say(t, { type: 'activity_start', activity_id: 'prepared:job-1-1' });
+    const started = s.of('activity').at(-1)!.session!;
+    expect(started.spec.id).toBe('prepared:job-1-1');
+    expect(started.roles).toEqual({ a: TUTOR, b: STUDENT }); // the tutor reads, the student writes
+    await say(t, { type: 'activity_action', session_id: started.session_id, action: { type: 'ask' } });
+    await say(s, { type: 'activity_action', session_id: started.session_id, action: { type: 'draft', text: '头疼' } });
+    await say(s, { type: 'activity_action', session_id: started.session_id, action: { type: 'submit' } });
+    await say(t, { type: 'activity_action', session_id: started.session_id, action: { type: 'reveal' } });
+    expect(t.of('activity').at(-1)!.session).toMatchObject({ phase: 'reveal', results: [{ round: 0, correct: true }] });
+    const row = db.rows<{ status: string; used_in_call_id: string }>("SELECT status, used_in_call_id FROM prepared_activities WHERE id = 'job-1-1'")[0];
+    expect(row).toEqual({ status: 'used', used_in_call_id: 'c1' });
+    await say(t, { type: 'activity_close', session_id: started.session_id });
+    expect(db.rows<{ activity_id: string }>('SELECT activity_id FROM call_activities')).toEqual([{ activity_id: 'prepared:job-1-1' }]);
+  });
+});

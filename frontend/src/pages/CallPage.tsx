@@ -68,6 +68,7 @@ import { MaterialTile } from '../components/calls/MaterialTile';
 import { PresentMaterialSheet } from '../components/calls/PresentMaterialSheet';
 import { ActivityTile } from '../components/calls/activities/ActivityTile';
 import { ActivityPickerSheet } from '../components/calls/activities/ActivityPickerSheet';
+import { usePreparedActivities } from '../hooks/usePreparedActivities';
 import './CallPage.css';
 
 function Initials({ name }: { name: string }) {
@@ -327,6 +328,9 @@ export function CallPage() {
 
   // ---- "Same view" (shared/calls/view.ts): the stage is shared — either of us changes it, both screens follow.
   const iLead = !!call.tutorId && call.tutorId === user!.id;
+  // Activities prepared for this student from their earlier lessons — the tutor's list (docs/VIDEO_CALLS.md "Prepared activities").
+  const callRelId = detail?.call.relationship_id ?? null;
+  const prep = usePreparedActivities(callRelId, { enabled: iLead && !!callRelId, source: 'call' });
   // The board page I'm on (the text board's session changes it).
   const [boardPage, setBoardPage] = useState(call.textBoard.page);
   useEffect(() => call.textBoard.subscribe(() => setBoardPage(call.textBoard.page)), [call.textBoard]);
@@ -917,12 +921,31 @@ export function CallPage() {
       {activitiesOpen && (
         <ActivityPickerSheet
           running={call.activity && call.activity.phase !== 'done' ? call.activity.spec.title : null}
-          onPick={(id) => {
+          prepared={
+            iLead && callRelId
+              ? {
+                  studentName: otherName,
+                  activities: prep.activities,
+                  loading: prep.query.isLoading,
+                  preparing: prep.preparing,
+                  canPrepare: prep.data?.can_prepare !== false && !prep.prepare.isPending,
+                  onMakeMore: () => prep.prepare.mutate(),
+                  error: prep.prepare.isError
+                    ? prep.prepare.error instanceof Error ? prep.prepare.error.message : 'Could not start'
+                    : prep.data?.job?.status === 'failed' ? 'The last try failed — try again.' : null,
+                }
+              : null
+          }
+          onPick={(id, prepared) => {
             call.startActivity(id);
             track('call.activity_start', {
-              activity_kind: id === REVIEW_ACTIVITY_ID ? 'review' : ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null,
+              activity_kind: prepared ? prepared.spec.kind : id === REVIEW_ACTIVITY_ID ? 'review' : ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null,
               role: !call.remote ? 'solo' : call.tutorId === call.myUserId ? 'tutor' : 'student',
             });
+            if (prepared) {
+              prep.markUsed(prepared.id);
+              track('call.prepared_activity_start', { activity_kind: prepared.spec.kind, position: prep.activities.indexOf(prepared) });
+            }
             setActivitiesOpen(false);
           }}
           onClose={() => setActivitiesOpen(false)}
