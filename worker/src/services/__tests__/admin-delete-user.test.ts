@@ -114,6 +114,10 @@ function seed(db: SqliteD1) {
   exec(db, "INSERT INTO study_sessions (id, user_id, deck_id) VALUES ('ss-study', ?, 't-deck')", TUTOR);
   exec(db, "INSERT INTO sync_metadata (user_id, last_event_at, last_sync_at) VALUES (?, 'a', 'b')", TUTOR);
   exec(db, "INSERT INTO lesson_notes (id, user_id, raw_text) VALUES ('ln-1', ?, 'notes')", TUTOR);
+  // Group classes (prototype): a group she teaches, its member and a session.
+  exec(db, "INSERT INTO class_groups (id, tutor_id, name) VALUES ('grp-1', ?, 'Tuesday group')", TUTOR);
+  exec(db, "INSERT INTO class_group_members (group_id, student_id, relationship_id) VALUES ('grp-1', ?, 'rel-1')", STUDENT);
+  exec(db, "INSERT INTO group_class_sessions (id, group_id, tutor_id, created_at) VALUES ('gs-1', 'grp-1', ?, 1)", TUTOR);
 
   // Bystander.
   exec(db, "INSERT INTO decks (id, user_id, name) VALUES ('o-deck', ?, 'Other')", OTHER);

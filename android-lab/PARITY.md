@@ -320,6 +320,7 @@ Owns `ui/calls/`, `data/api/CallsApi.kt`, `data/calls/` (upload queue, recorder 
 |---|---|
 | Admin page: account inspect / role / delete | ➖ (admin is web + MCP only; More → Advanced → Admin opens the main app) |
 | Invites / sign-up (`/join/:token`) | ➖ (sign-in only; accounts are made on the web) |
+| 🧪 Group classes (`/group-classes`, `/group-class/:id`; docs/GROUP_CLASSES.md): a tutor's group of 2–6 students, a mesh group video call with the shared board, chat, tutor controls and a quick quiz | ➖ EXPERIMENTAL web-only prototype — deliberately not ported while it is an experiment; the Lab app would join through the same `GroupRoom` protocol (`shared/group`) if the real version goes ahead (phase 3 of the plan). The 9 `group.*` analytics events are mirrored in `AnalyticsEvents.kt` only to keep the catalogue parity test green |
 
 ## Deliberate differences
 

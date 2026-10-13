@@ -73,6 +73,7 @@ const IMMERSIVE = [
   /^\/connections\/[^/]+\/chat(\/|$)/,
   /^\/join\//,
   /^\/calls\/[^/]+\/?$/,
+  /^\/group-class\/[^/]+\/?$/,
   /^\/homework\/[^/]+\/?$/,
   /^\/tutor-notes\/practice\/?$/,
 ];

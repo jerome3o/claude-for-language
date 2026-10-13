@@ -19,6 +19,10 @@ export interface Env {
   CALL_QUEUE: Queue<CallProcessingMessage>;
   /** Chat live delivery: one ChatHub Durable Object per user (docs/CHAT.md §4). */
   CHAT_HUB: DurableObjectNamespace<import('./durable/chat-hub').ChatHub>;
+  /** Group classes (EXPERIMENTAL prototype, docs/GROUP_CLASSES.md): one GroupRoom per live group session. Optional = absent in tests. */
+  GROUP_ROOM?: DurableObjectNamespace<import('./durable/group-room').GroupRoom>;
+  /** 'off' switches the group-class prototype off (every /api/groups route answers 404). */
+  GROUP_CLASSES?: string;
   TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
   /** Audio lessons: write → speak → render one MP3 (services/audio-lessons/job.ts, docs/AUDIO_LESSONS.md). */
   AUDIO_LESSON_QUEUE: Queue<import('./services/audio-lessons/job').AudioLessonJobMessage | import('./services/companion-lesson').CompanionJobMessage>;
