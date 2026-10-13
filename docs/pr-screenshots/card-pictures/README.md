@@ -24,3 +24,23 @@ Edit card → Picture: ↻ Regenerate, 📷 Take photo, 🖼 Choose photo, Remov
 
 ![Crop the picture](06-upload-crop.png)
 Choose photo → square crop (resized to ≤ 800 px JPEG on the device).
+
+## Lab app
+
+![Lab: meaning → hanzi question](lab-01-meaning-to-hanzi-question.png)
+Meaning → hanzi: the picture with the English on the question side.
+
+![Lab: hanzi → meaning question](lab-02-hanzi-to-meaning-question.png)
+Hanzi → meaning, question side: no picture.
+
+![Lab: hanzi → meaning answer](lab-03-hanzi-to-meaning-answer.png)
+Hanzi → meaning, answer side: the picture under the meaning and word tags.
+
+![Lab: edit card → Picture](lab-04-editor-section.png)
+Edit card → Picture: Regenerate, Take photo, Choose photo, Remove.
+
+![Lab: Illustrate this deck](lab-05-illustrate-deck.png)
+Deck ⋯ → Illustrate this deck: the cost first, the "Illustrate new cards automatically" switch.
+
+![Lab: Illustrate while drawing](lab-06-illustrate-drawing.png)
+While the pictures are being drawn: progress.
