@@ -45,6 +45,12 @@ export async function setChatEmails(on: boolean): Promise<boolean> {
   return r.email_chat_messages;
 }
 
+/** Homework e-mails on / off: "<tutor> sent you homework" + "due tomorrow" (docs/HOMEWORK.md §12). */
+export async function setHomeworkEmails(on: boolean): Promise<boolean> {
+  const r = await api<{ email_homework: boolean }>('/profile/email-prefs', { method: 'PUT', body: JSON.stringify({ email_homework: on }) });
+  return r.email_homework;
+}
+
 const MODE_KEY = 'call-alerts-mode';
 
 /** The account's setting, mirrored on the device so the ring decision works before /auth/me answers. */

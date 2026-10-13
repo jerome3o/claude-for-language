@@ -31,6 +31,8 @@ export interface Env {
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
   /** 成语 Idioms (beta): one generated entry per idiom (services/idioms.ts, docs/IDIOMS.md). */
   IDIOM_QUEUE?: Queue<import('./services/idioms').IdiomQueueMessage>;
+  /** "<Tutor> sent you homework" e-mails, delayed ~2 min so a burst of sends is one e-mail (services/homework-emails, docs/HOMEWORK.md §12). */
+  HOMEWORK_EMAIL_QUEUE?: Queue<import('./services/homework-emails').HomeworkEmailMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
   TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
   /** One rate limiter per TTS provider (idFromName = minimax | azure | google; docs/AUDIO.md). Optional so tests run without it. */

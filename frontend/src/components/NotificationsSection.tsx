@@ -15,6 +15,7 @@ import {
   sendTestPush,
   setCallAlerts,
   setChatEmails,
+  setHomeworkEmails,
   type CallAlertsMode,
   type PushState,
 } from '../services/push';
@@ -34,9 +35,25 @@ export function NotificationsSection() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [emails, setEmails] = useState<boolean>(user?.email_chat_messages !== false);
+  const [homeworkEmails, setHomeworkEmailsOn] = useState<boolean>(user?.email_homework !== false);
   useEffect(() => {
-    if (user) setEmails(user.email_chat_messages !== false);
+    if (user) {
+      setEmails(user.email_chat_messages !== false);
+      setHomeworkEmailsOn(user.email_homework !== false);
+    }
   }, [user]);
+
+  const toggleHomeworkEmails = async (next: boolean) => {
+    setHomeworkEmailsOn(next);
+    setNote(null);
+    try {
+      await setHomeworkEmails(next);
+      track('settings.change', { setting: 'email_homework', value: next });
+    } catch (err) {
+      setHomeworkEmailsOn(!next);
+      setNote(err instanceof Error ? err.message : 'Could not save');
+    }
+  };
 
   const toggleEmails = async (next: boolean) => {
     setEmails(next);
@@ -126,6 +143,17 @@ export function NotificationsSection() {
         {emails
           ? 'Every chat e-mail has a “Turn off chat emails” link too. Notifications on your devices are separate and stay on.'
           : 'Off — no e-mails for chat messages. Notifications on your devices still arrive.'}
+      </p>
+
+      <h3 style={{ fontSize: '1rem', margin: '1rem 0 0.4rem' }}>Homework e-mails</h3>
+      <label className="settings-toggle-row" data-testid="homework-emails-toggle">
+        <input type="checkbox" checked={homeworkEmails} onChange={(e) => void toggleHomeworkEmails(e.target.checked)} />
+        <span>E-mail me about homework</span>
+      </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
+        {homeworkEmails
+          ? 'When your tutor sends homework, and a reminder around 6 pm the evening before it’s due (only if it isn’t done yet). Every one has a “Turn off homework emails” link.'
+          : 'Off — no homework e-mails. Your homework is still on Home and in Homework.'}
       </p>
 
       <h3 style={{ fontSize: '1rem', margin: '1rem 0 0.4rem' }}>Video calls</h3>
