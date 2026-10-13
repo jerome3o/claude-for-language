@@ -1911,7 +1911,7 @@ have" (`HomeworkModePicker`); the student page's Homework section shows the **lo
 light / moderate / heavy) and the open one-off assignments with the student's progress (tap: move date / cancel).
 Lesson types and future kinds plug into this model — never a second queue (contract in docs/HOMEWORK.md §2).
 - `GET /api/me/homework` - The student's assignments + events of active ones (offline sync)
-- `POST /api/me/homework/events` - `{ events: [{ id, assignment_id, item_id, result, created_at }] }` → `{ accepted, assignments }` (idempotent; progress recomputed)
+- `POST /api/me/homework/events` - `{ events: [{ id, assignment_id, item_id, result, created_at, undoes? }] }` → `{ accepted, assignments }` (idempotent; progress recomputed). `result: 'undo'` + `undoes` takes an answer back — the pass's ↺ (docs/HOMEWORK.md §3b, migration 0126; every rule reads `livePassEvents`)
 - `GET /api/relationships/:relId/homework?today=` - tutor: `{ assignments, load }`
 - `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors, copies }` (`copies`: the student's copy + share id per item). Every tutor send path defaults to `both`, due at the next logged lesson else in two days (`DEFAULT_SEND_MODE`, `defaultHomeworkDueDate`; docs/HOMEWORK.md §4a): the Send homework sheet, the library Assign sheet, the MCP send tools (`mcp-server/src/tools/homework-send.ts`)
 - `PATCH /api/relationships/:relId/homework/:id` - tutor: `{ due_date?, status?: 'cancelled' | 'active' }`

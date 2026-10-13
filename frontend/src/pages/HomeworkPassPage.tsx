@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { dueLabel, localDate, nextPassItem, passCardId, passItemIds, passProgress, hasFsrs, PASS_CARD_TYPE } from '@shared/homework';
+import { dueLabel, lastPassAnswer, localDate, nextPassItem, passCardId, passItemIds, passProgress, hasFsrs, PASS_CARD_TYPE } from '@shared/homework';
 import { DEFAULT_DECK_SETTINGS, deckInDailyReview, isLongTerm, longTermSummary, prefForToggle, toLongTermPref } from '@shared/decks';
 import { CardQueue, type CardWithNote, type IntervalPreview, type QueueCounts, type Rating } from '../types';
 import { setNoteLongTerm } from '../services/longTerm';
 import { LongTermSwitch, longTermLine } from '../components/homework/LongTermSwitch';
-import { db, type LocalCard, type LocalNote } from '../db/database';
-import { recordPassEvent, syncHomework, titleParts } from '../services/homework';
+import { db, type LocalCard, type LocalHomeworkEvent, type LocalNote } from '../db/database';
+import { recordPassEvent, recordPassUndo, syncHomework, titleParts } from '../services/homework';
 import { track } from '../services/analytics';
 import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
 import { recordReaderFinish } from '../services/reader-study';
@@ -149,7 +149,7 @@ function DeckPass({
   deckId: string;
   oneOffOnly: boolean;
   itemIds: string[];
-  events: ReadonlyArray<{ item_id: string }>;
+  events: ReadonlyArray<LocalHomeworkEvent>;
   progress: ReturnType<typeof passProgress>;
   onExit: () => void;
 }) {
@@ -219,6 +219,22 @@ function DeckPass({
     }
   }, [assignmentId, currentId, busy]);
 
+  // ↺ Undo (docs/HOMEWORK.md §3b): takes back the last Got it / Not yet with an `undo` event, one
+  // further back each time; the word comes back as it was before the answer (a fresh card), and a
+  // pass the undone Got it finished is open again. The long-term switch / ⚡ stay as they are.
+  const canUndo = !busy && lastPassAnswer(events) !== null;
+  const undo = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const wasComplete = progress.complete;
+      const undone = await recordPassUndo(assignmentId);
+      if (undone) track('homework.pass_undo', { result: undone.result, reopened: wasComplete });
+    } finally {
+      setBusy(false);
+    }
+  }, [assignmentId, busy, progress.complete]);
+
   const counter = <span className="hw-pass-count" data-testid="hw-pass-count">{progress.done}/{progress.total}</span>;
 
   if (progress.complete) {
@@ -239,6 +255,7 @@ function DeckPass({
               : undefined
           }
           onExit={onExit}
+          onUndo={canUndo ? () => void undo() : undefined}
         />
       </div>
     );
@@ -283,9 +300,9 @@ function DeckPass({
       counts={NO_COUNTS}
       tutors={tutors}
       isRating={busy}
-      canUndo={false}
+      canUndo={canUndo}
       onRate={() => {}}
-      onUndo={() => {}}
+      onUndo={() => void undo()}
       onEnd={onExit}
       onUpdateNote={() => {}}
       onDeleteCurrentCard={() => {}}
@@ -355,6 +372,7 @@ function PassDone({
   longTerm,
   onExit,
   onAgain,
+  onUndo,
 }: {
   title: string;
   words?: number;
@@ -364,6 +382,8 @@ function PassDone({
   onExit: () => void;
   /** A lesson: "▶ Do it again" (the replay page). */
   onAgain?: () => void;
+  /** A word list: "↺ Undo last answer" — the last Got it finished it by mistake. */
+  onUndo?: () => void;
 }) {
   const { isOnline } = useNetwork();
   const [added, setAdded] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
@@ -409,6 +429,9 @@ function PassDone({
       )}
       {onAgain && (
         <button type="button" className="btn btn-secondary" style={{ minHeight: 44 }} onClick={onAgain} data-testid="hw-lesson-again">▶ Do it again</button>
+      )}
+      {onUndo && (
+        <button type="button" className="btn btn-secondary" style={{ minHeight: 44 }} onClick={onUndo} data-testid="hw-pass-undo">↺ Undo last answer</button>
       )}
       <button type="button" className="btn btn-primary" onClick={onExit}>Done</button>
     </div>

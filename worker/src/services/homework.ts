@@ -17,6 +17,7 @@ import {
   isHomeworkMode,
   passItemIds,
   passProgress,
+  livePassEvents,
   type HomeworkAssignment,
   type HomeworkEvent,
   type HomeworkLoad,
@@ -221,9 +222,19 @@ export async function recordEvents(db: D1Database, studentId: string, raw: unkno
   for (const r of raw) {
     const e = (r ?? {}) as Record<string, unknown>;
     if (typeof e.id !== 'string' || typeof e.assignment_id !== 'string' || typeof e.item_id !== 'string') continue;
-    if (e.result !== 'right' && e.result !== 'wrong' && e.result !== 'done') continue;
+    if (e.result !== 'right' && e.result !== 'wrong' && e.result !== 'done' && e.result !== 'undo') continue;
+    // An undo names the event it takes back (docs/HOMEWORK.md §3b); without one it means nothing.
+    if (e.result === 'undo' && (typeof e.undoes !== 'string' || !e.undoes)) continue;
     const createdAt = typeof e.created_at === 'string' && !isNaN(Date.parse(e.created_at)) ? new Date(e.created_at).toISOString() : new Date().toISOString();
-    events.push({ id: e.id.slice(0, 64), assignment_id: e.assignment_id, item_id: e.item_id, result: e.result, created_at: createdAt, note: e.result === 'done' ? cleanLinkNote(e.note) : null });
+    events.push({
+      id: e.id.slice(0, 64),
+      assignment_id: e.assignment_id,
+      item_id: e.item_id,
+      result: e.result,
+      created_at: createdAt,
+      note: e.result === 'done' ? cleanLinkNote(e.note) : null,
+      undoes: e.result === 'undo' ? (e.undoes as string).slice(0, 64) : null,
+    });
   }
   const ids = Array.from(new Set(events.map((e) => e.assignment_id)));
   const owned = (await hw.getAssignmentsByIds(db, ids)).filter((a) => a.student_id === studentId);
@@ -248,7 +259,9 @@ export async function recomputeProgress(db: D1Database, assignments: HomeworkAss
     const list = byAssignment.get(a.id) ?? [];
     const progress = passProgress(passItemIds(a), list);
     const status = a.status === 'cancelled' ? 'cancelled' : progress.complete ? 'done' : 'active';
-    const completedAt = status === 'done' ? a.completed_at ?? list[list.length - 1]?.created_at ?? new Date().toISOString() : null;
+    // An undo can take a finished pass back to active (completed_at cleared).
+    const live = livePassEvents(list);
+    const completedAt = status === 'done' ? a.completed_at ?? live[live.length - 1]?.created_at ?? new Date().toISOString() : null;
     if (progress.done !== a.done_count || status !== a.status || completedAt !== a.completed_at) {
       await hw.setProgress(db, a.id, progress.done, status, completedAt);
     }

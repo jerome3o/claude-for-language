@@ -9,6 +9,10 @@
  */
 
 import {
+  lastPassAnswer,
+  livePassEvents,
+  passItemIds,
+  passProgress,
   localDate,
   oneOffOnlyTargets,
   homeworkPassTargets,
@@ -34,7 +38,7 @@ async function uploadEvents(): Promise<number> {
     method: 'POST',
     headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      events: pending.map(({ id, assignment_id, item_id, result, created_at, note }) => ({ id, assignment_id, item_id, result, created_at, note: note ?? null })),
+      events: pending.map(({ id, assignment_id, item_id, result, created_at, note, undoes }) => ({ id, assignment_id, item_id, result, created_at, note: note ?? null, undoes: undoes ?? null })),
     }),
   });
   if (!response.ok) throw new Error(`Failed to upload homework progress: ${response.status}`);
@@ -86,6 +90,40 @@ export async function recordPassEvent(assignmentId: string, itemId: string, resu
 }
 
 /**
+ * ↺ in the pass (docs/HOMEWORK.md §3b): take back the most recent live Got it / Not yet of the
+ * assignment (`lastPassAnswer`) with an `undo` event — never by deleting the answer, which may
+ * already be on the server or another device. Repeated calls walk further back. The word comes
+ * back as it was before the answer; a pass that the undone Got it finished is open again here at
+ * once (the server recomputes the same when the undo uploads). Returns the answer taken back.
+ */
+export async function recordPassUndo(assignmentId: string): Promise<LocalHomeworkEvent | null> {
+  const events = await db.homeworkEvents.where('assignment_id').equals(assignmentId).toArray();
+  const target = lastPassAnswer(events);
+  if (!target) return null;
+  const undo: LocalHomeworkEvent = {
+    id: crypto.randomUUID(),
+    assignment_id: assignmentId,
+    item_id: target.item_id,
+    result: 'undo',
+    created_at: new Date().toISOString(),
+    note: null,
+    undoes: target.id,
+    _synced: 0,
+  };
+  await db.transaction('rw', [db.homeworkEvents, db.homeworkAssignments], async () => {
+    await db.homeworkEvents.put(undo);
+    const a = await db.homeworkAssignments.get(assignmentId);
+    if (a && a.status === 'done' && !passProgress(passItemIds(a), [...events, undo]).complete) {
+      await db.homeworkAssignments.update(assignmentId, { status: 'active', completed_at: null });
+    }
+  });
+  if (!isEffectivelyOffline()) {
+    uploadEvents().catch((err) => console.warn('[homework] upload deferred to the next sync', err));
+  }
+  return target;
+}
+
+/**
  * A lesson or reader was finished (in the pass or in the study session): mark
  * every open one-off assignment on it done. Never throws — study must not fail
  * because of homework bookkeeping.
@@ -96,7 +134,7 @@ export async function recordTargetDone(kind: 'lesson' | 'reader', targetId: stri
     for (const a of list) {
       if (a.kind !== kind || a.status !== 'active' || a.mode === 'fsrs') continue;
       const events = await db.homeworkEvents.where('assignment_id').equals(a.id).toArray();
-      if (events.some((e) => e.result === 'done')) continue;
+      if (livePassEvents(events).some((e) => e.result === 'done')) continue;
       await recordPassEvent(a.id, targetId, 'done');
     }
   } catch (err) {

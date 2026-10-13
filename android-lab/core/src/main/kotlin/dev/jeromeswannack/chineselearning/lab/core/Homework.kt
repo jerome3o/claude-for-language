@@ -59,11 +59,13 @@ data class HomeworkEvent(
     val assignment_id: String,
     /** Deck: a note id. Lesson / reader: the target id. */
     val item_id: String,
-    /** 'right' | 'wrong' | 'done'. */
+    /** 'right' | 'wrong' | 'done' | 'undo'. */
     val result: String,
     val created_at: String,
     /** Optional note back to the tutor (a `done` event on link homework, ≤ 1000 chars). */
     val note: String? = null,
+    /** An `undo` event: the id of the event it takes back (docs/HOMEWORK.md §3b, [Homework.livePassEvents]). */
+    val undoes: String? = null,
 )
 
 data class DueLabel(val text: String, val tone: String, val days: Int?)
@@ -139,12 +141,35 @@ object Homework {
     /** Port of passItemIds. */
     fun passItemIds(a: HomeworkAssignment): List<String> = if (a.kind == "deck") a.item_ids ?: emptyList() else listOf(a.target_id)
 
-    /** Port of passProgress: unseen first (in order), then "Not yet" items oldest-wrong first. */
+    /** Port of undonePassEventIds: the ids taken back by `undo` events. */
+    fun undonePassEventIds(events: List<HomeworkEvent>): Set<String> =
+        events.mapNotNullTo(HashSet()) { e -> e.undoes?.takeIf { e.result == "undo" && it.isNotEmpty() } }
+
+    /** Port of livePassEvents: no `undo` events, and none an undo took back (order kept). */
+    fun livePassEvents(events: List<HomeworkEvent>): List<HomeworkEvent> {
+        val undone = undonePassEventIds(events)
+        return events.filter { it.result != "undo" && !(it.id.isNotEmpty() && it.id in undone) }
+    }
+
+    /**
+     * Port of lastPassAnswer: what the pass's ↺ takes back — the most recent live right / wrong
+     * (by created_at, a tie going to the later one in the list); null = nothing to undo.
+     */
+    fun lastPassAnswer(events: List<HomeworkEvent>): HomeworkEvent? {
+        var best: HomeworkEvent? = null
+        for (e in livePassEvents(events)) {
+            if (e.id.isEmpty() || (e.result != "right" && e.result != "wrong")) continue
+            if (best == null || e.created_at >= best.created_at) best = e
+        }
+        return best
+    }
+
+    /** Port of passProgress: unseen first (in order), then "Not yet" items oldest-wrong first (live events only). */
     fun passProgress(itemIds: List<String>, events: List<HomeworkEvent>): PassProgress {
         val wanted = itemIds.toHashSet()
         val right = HashSet<String>()
         val lastWrong = HashMap<String, String>()
-        for (e in events) {
+        for (e in livePassEvents(events)) {
             if (e.item_id !in wanted) continue
             if (e.result == "right" || e.result == "done") right += e.item_id
             else if (e.result == "wrong") {

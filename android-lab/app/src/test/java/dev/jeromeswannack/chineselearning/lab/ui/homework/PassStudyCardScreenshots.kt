@@ -49,10 +49,10 @@ class PassStudyCardScreenshots : LabScreenshotTest() {
         fun ui(take: TakeUi = TakeUi(), online: Boolean = true) =
             StudyUi(StudyPhase.Showing(view()), QueueCounts(0, 0, 0, 0), online = online, extras = CardExtras(take = take))
 
-        fun pass(longTermOn: Boolean = false, started: Boolean = false, bumped: Boolean = false, bumpedBy: String? = null, done: Int = 5, retrying: Int = 1) = PassCardUi(
+        fun pass(longTermOn: Boolean = false, started: Boolean = false, bumped: Boolean = false, bumpedBy: String? = null, done: Int = 5, retrying: Int = 1, canUndo: Boolean = true) = PassCardUi(
             assignmentId = "a1", noteId = "n1", attempt = 0, title = "餐厅点菜", part = "day 1 of 2",
             due = Homework.dueLabel("2026-09-28", "2026-09-27"), done = done, total = 12, retrying = retrying,
-            longTermOn = longTermOn, started = started, bumped = bumped, bumpedBy = bumpedBy,
+            longTermOn = longTermOn, started = started, bumped = bumped, bumpedBy = bumpedBy, canUndo = canUndo,
         )
 
         val said = TranscriptionComparison("服务员", "fú wù yuán", isMatch = true, containsExpected = false)

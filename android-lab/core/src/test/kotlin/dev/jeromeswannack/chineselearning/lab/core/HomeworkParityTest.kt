@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -77,6 +78,24 @@ class HomeworkParityTest {
             assertEquals(o["progress"]!!.jsonObject["remaining"]!!.jsonArray.firstOrNull()?.str, Homework.nextPassItem(p), "pass[$i] next")
         }
         assertTrue(passes.size >= 300)
+    }
+
+    /** Undo in the pass (docs/HOMEWORK.md §3b): live events, the answer ↺ takes back, progress. */
+    @Test
+    fun passUndoMatchesTypeScript() {
+        val undos = fixture("homework.json")["undos"]!!.jsonArray
+        for ((i, c) in undos.withIndex()) {
+            val o = c.jsonObject
+            val events = json.decodeFromJsonElement(ListSerializer(HomeworkEvent.serializer()), JsonArray(o["events"]!!.jsonArray.map { e ->
+                JsonObject(e.jsonObject + ("assignment_id" to JsonPrimitive("a")))
+            }))
+            val p = Homework.passProgress(o["item_ids"]!!.strings(), events)
+            assertProgress(o["progress"]!!.jsonObject, p, "undo[$i]")
+            assertEquals(o["last"]!!.str, Homework.lastPassAnswer(events)?.id, "undo[$i] last")
+            assertEquals(o["live"]!!.strings(), Homework.livePassEvents(events).map { it.id }, "undo[$i] live")
+            assertEquals(o["undone"]!!.strings(), Homework.undonePassEventIds(events).sorted(), "undo[$i] undone")
+        }
+        assertTrue(undos.size >= 200)
     }
 
     @Test

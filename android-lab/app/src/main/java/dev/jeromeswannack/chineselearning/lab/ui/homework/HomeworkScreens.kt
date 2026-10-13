@@ -172,6 +172,8 @@ sealed interface PassUi {
         val addState: AddState = AddState.Idle,
         val online: Boolean = true,
         val busy: Boolean = false,
+        /** ↺: there is a Got it / Not yet to take back (core `Homework.lastPassAnswer`). */
+        val canUndo: Boolean = false,
         /** The deck's own default for the long-term switch (a one-off-only copy, caps 0 + 0, is off). */
         val deckInReview: Boolean = !oneOffOnly,
         /** What the pass decided, for the finish screen ("12 words added to daily review · 4 left out"). */
@@ -213,6 +215,8 @@ class PassActions(
     val onLinkDone: (String?) -> Unit = {},
     /** A finished lesson pass: "▶ Do it again" (the replay route, `/lessons/:id/play`). */
     val onLessonAgain: (lessonId: String) -> Unit = {},
+    /** A word list: ↺ takes back the last Got it / Not yet (docs/HOMEWORK.md §3b). */
+    val onUndo: () -> Unit = {},
 )
 
 /** The lesson a pass plays (the web's `db.customLessons.get(target_id)` + its interval previews). */
@@ -267,7 +271,10 @@ private fun DeckPass(ui: PassUi.Deck, actions: PassActions) {
     val counter: @Composable () -> Unit = { Text("${p.done}/${p.total}", color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("hw-pass-count")) }
     PassTopBar(ui.title, actions.onClose, counter)
     if (p.complete) {
-        PassDone(if (ui.part != null) "${ui.title} · ${ui.part}" else ui.title, p.total, ui.oneOffOnly, ui.addState, ui.online, actions, ui.longTermSummary, ui.deckInReview)
+        PassDone(
+            if (ui.part != null) "${ui.title} · ${ui.part}" else ui.title, p.total, ui.oneOffOnly, ui.addState, ui.online, actions, ui.longTermSummary, ui.deckInReview,
+            onUndo = if (ui.canUndo) actions.onUndo else null,
+        )
         return
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -297,6 +304,8 @@ private fun PassDone(
     deckInReview: Boolean = !oneOffOnly,
     /** A finished lesson: "▶ Do it again". */
     onAgain: (() -> Unit)? = null,
+    /** A finished word list: "↺ Undo last answer" (the last Got it finished it by mistake). */
+    onUndo: (() -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -332,6 +341,7 @@ private fun PassDone(
                 }
             }
             if (onAgain != null) SecondaryPill("▶ Do it again", Modifier.fillMaxWidth().height(52.dp).testTag("hw-lesson-again")) { onAgain() }
+            if (onUndo != null) SecondaryPill("↺ Undo last answer", Modifier.fillMaxWidth().height(52.dp).testTag("hw-pass-undo")) { onUndo() }
             PrimaryPill("Done", Modifier.fillMaxWidth().height(56.dp)) { actions.onClose() }
         }
         ConfettiRain(key = title, colors = Palette.Confetti)

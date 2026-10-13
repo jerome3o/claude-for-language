@@ -6,14 +6,52 @@
  * The client walks the pass with `passProgress` / `nextPassItem`; the server
  * recomputes `done_count` / `status` from the uploaded events with the same
  * function, so both agree.
+ *
+ * Undo (docs/HOMEWORK.md §3b): events are never edited or deleted — an answer is
+ * taken back by a further event `{ result: 'undo', undoes: <its id> }`. Every rule
+ * here reads the LIVE events (`livePassEvents`: undo events and the events they
+ * take back left out), so the order the two arrive in never matters and a
+ * device that never saw the answer is not confused by the undo.
  */
 
 import type { HomeworkResult } from './types';
 
 export interface PassEvent {
+  /** The event's id (an undo names it in `undoes`). Absent = can't be undone. */
+  id?: string;
   item_id: string;
   result: HomeworkResult;
   created_at: string;
+  /** An `undo` event: the id of the event it takes back. */
+  undoes?: string | null;
+}
+
+/** The ids taken back by `undo` events. */
+export function undonePassEventIds(events: readonly PassEvent[]): Set<string> {
+  const out = new Set<string>();
+  for (const e of events) if (e.result === 'undo' && e.undoes) out.add(e.undoes);
+  return out;
+}
+
+/** The events that count: no `undo` events, and none an undo took back. Order kept. */
+export function livePassEvents<E extends PassEvent>(events: readonly E[]): E[] {
+  const undone = undonePassEventIds(events);
+  return events.filter((e) => e.result !== 'undo' && !(e.id && undone.has(e.id)));
+}
+
+/**
+ * What the pass's ↺ takes back: the most recent live *Got it* / *Not yet* (right / wrong) of
+ * the assignment — by `created_at`, a tie going to the later one in the list. Repeated undos
+ * walk back through the answers. `done` (a lesson / reader / link finished) is never undone
+ * here. Null = nothing to undo.
+ */
+export function lastPassAnswer<E extends PassEvent>(events: readonly E[]): E | null {
+  let best: E | null = null;
+  for (const e of livePassEvents(events)) {
+    if (!e.id || (e.result !== 'right' && e.result !== 'wrong')) continue;
+    if (!best || e.created_at >= best.created_at) best = e;
+  }
+  return best;
 }
 
 export interface PassProgress {
@@ -31,7 +69,7 @@ export function passProgress(itemIds: readonly string[], events: readonly PassEv
   const wanted = new Set(itemIds);
   const right = new Set<string>();
   const lastWrong = new Map<string, string>();
-  for (const e of events) {
+  for (const e of livePassEvents(events)) {
     if (!wanted.has(e.item_id)) continue;
     if (e.result === 'right' || e.result === 'done') right.add(e.item_id);
     else if (e.result === 'wrong') {

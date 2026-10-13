@@ -4,6 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent
+import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.data.api.PassEventsBody
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.OnboardingDto
@@ -71,13 +72,39 @@ object HomeworkStore {
      * [note]: link homework's optional note back to the tutor on its `done` event (§8).
      */
     suspend fun recordPassEvent(app: LabApp, assignmentId: String, itemId: String, result: String, now: Instant = Instant.now(), note: String? = null): HomeworkEvent {
-        val event = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, itemId, result, now.toString(), note)
+        // created_at as the web writes it (toISOString: always milliseconds) — the pass's rules compare
+        // these strings, and Instant.toString() drops trailing zeros ("…06Z" vs "…06.5Z" sorts wrong).
+        val event = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, itemId, result, Js.toIsoString(now.toEpochMilli()), note)
         val cache = app.cache
         // Queue first: a sync merging events in between keeps anything still in the outbox.
         app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(event)), id = event.id)
         cache.put(HomeworkKeys.EVENTS, HomeworkKeys.KIND, cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty() + event)
         if (app.online.value) app.scope.launch { runCatching { app.outbox.drain() } } else app.scheduleBackgroundUpload()
         return event
+    }
+
+    /**
+     * ↺ in the pass (docs/HOMEWORK.md §3b; web recordPassUndo): take back the most recent live
+     * Got it / Not yet of [assignmentId] (core `Homework.lastPassAnswer`) with an `undo` event —
+     * never by deleting the answer, which may already be on the server or another device. Repeated
+     * calls walk further back. A pass the undone Got it had finished is open again here at once (the
+     * server recomputes the same when the undo uploads). Returns the answer taken back, or null.
+     */
+    suspend fun recordPassUndo(app: LabApp, assignmentId: String, now: Instant = Instant.now()): HomeworkEvent? {
+        val cache = app.cache
+        val all = cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
+        val mine = all.filter { it.assignment_id == assignmentId }
+        val target = Homework.lastPassAnswer(mine) ?: return null
+        val undo = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, target.item_id, "undo", Js.toIsoString(now.toEpochMilli()), undoes = target.id)
+        app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(undo)), id = undo.id)
+        cache.put(HomeworkKeys.EVENTS, HomeworkKeys.KIND, all + undo)
+        val assignments = cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty()
+        val a = assignments.firstOrNull { it.id == assignmentId }
+        if (a != null && a.status == "done" && !Homework.passProgress(Homework.passItemIds(a), mine + undo).complete) {
+            cache.put(HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND, assignments.map { if (it.id == assignmentId) it.copy(status = "active", completed_at = null) else it })
+        }
+        if (app.online.value) app.scope.launch { runCatching { app.outbox.drain() } } else app.scheduleBackgroundUpload()
+        return target
     }
 
     /**
@@ -91,7 +118,7 @@ object HomeworkStore {
             val events = app.cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
             for (a in list) {
                 if (a.target_id != targetId || a.kind != kind || a.status != "active" || a.mode == "fsrs") continue
-                if (events.any { it.assignment_id == a.id && it.result == "done" }) continue
+                if (Homework.livePassEvents(events.filter { it.assignment_id == a.id }).any { it.result == "done" }) continue
                 recordPassEvent(app, a.id, targetId, "done")
             }
         }

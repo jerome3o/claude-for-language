@@ -110,6 +110,8 @@ data class PassCardUi(
     val bumpedBy: String? = null,
     /** The answer is being written. */
     val busy: Boolean = false,
+    /** ↺ in the top bar: a Got it / Not yet to take back (docs/HOMEWORK.md §3b). */
+    val canUndo: Boolean = false,
 )
 
 data class StudyUi(

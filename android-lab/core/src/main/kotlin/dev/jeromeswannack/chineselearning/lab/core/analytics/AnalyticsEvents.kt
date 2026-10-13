@@ -78,6 +78,7 @@ object AnalyticsEvents {
         ev("homework.pass_start", "homework", listOf("kind", "items")),
         ev("homework.pass_item", "homework", listOf("result", "card_type", "answered", "suggested", "followed")),
         ev("homework.pass_done", "homework", listOf("kind", "items")),
+        ev("homework.pass_undo", "homework", listOf("result", "reopened")),
         ev("chat.open", "chat", listOf("is_ai", "unread")),
         ev("chat.send", "chat", listOf("kind", "is_ai", "reply", "offline")),
         ev("chat.menu_action", "chat", listOf("action", "kind")),

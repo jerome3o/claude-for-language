@@ -10,6 +10,10 @@ import {
   suggestSplitDays,
   clampSplitDays,
   passProgress,
+  lastPassAnswer,
+  livePassEvents,
+  undonePassEventIds,
+  type PassEvent,
   nextPassItem,
   passSummary,
   dedupeWords,
@@ -119,6 +123,58 @@ describe('the one-off pass', () => {
     expect(p.complete).toBe(true);
     expect(p.remaining).toEqual([]);
     expect(passSummary(p, 'deck')).toBe('done');
+  });
+
+  it('undo: an undone answer no longer counts, whatever order the events arrive in', () => {
+    const answers = [
+      { id: 'e1', item_id: 'a', result: 'right' as const, created_at: '2026-09-27T10:00:00Z' },
+      { id: 'e2', item_id: 'b', result: 'wrong' as const, created_at: '2026-09-27T10:01:00Z' },
+    ];
+    const undoB = { id: 'u1', item_id: 'b', result: 'undo' as const, created_at: '2026-09-27T10:02:00Z', undoes: 'e2' };
+    // Before: b is to try again after c.
+    expect(passProgress(items, answers).remaining).toEqual(['c', 'b']);
+    // Undo the "Not yet" on b: b is unseen again — first up, as it was before the answer.
+    const p = passProgress(items, [...answers, undoB]);
+    expect(p.remaining).toEqual(['b', 'c']);
+    expect(p.retrying).toBe(0);
+    expect(passProgress(items, [undoB, ...answers])).toEqual(p);
+    // Undo the "Got it" on a: not done any more.
+    const undoA = { id: 'u2', item_id: 'a', result: 'undo' as const, created_at: '2026-09-27T10:03:00Z', undoes: 'e1' };
+    const q = passProgress(items, [...answers, undoB, undoA]);
+    expect(q.done).toBe(0);
+    expect(q.remaining).toEqual(['a', 'b', 'c']);
+  });
+
+  it('undo: a finished pass is not finished once its last Got it is taken back', () => {
+    const evs = [
+      { id: 'e1', item_id: 'a', result: 'right' as const, created_at: '1' },
+      { id: 'e2', item_id: 'b', result: 'right' as const, created_at: '2' },
+      { id: 'e3', item_id: 'c', result: 'right' as const, created_at: '3' },
+    ];
+    expect(passProgress(items, evs).complete).toBe(true);
+    const p = passProgress(items, [...evs, { id: 'u', item_id: 'c', result: 'undo', created_at: '4', undoes: 'e3' }]);
+    expect(p.complete).toBe(false);
+    expect(p.done).toBe(2);
+    expect(p.remaining).toEqual(['c']);
+  });
+
+  it('lastPassAnswer walks back through the answers, never a done or an undo', () => {
+    const evs: PassEvent[] = [
+      { id: 'e1', item_id: 'a', result: 'wrong', created_at: '1' },
+      { id: 'e2', item_id: 'b', result: 'right', created_at: '2' },
+      { id: 'e3', item_id: 'a', result: 'right', created_at: '2' },
+      { id: 'd', item_id: 'l', result: 'done', created_at: '9' },
+      { item_id: 'x', result: 'right', created_at: '9' },
+    ];
+    expect(lastPassAnswer(evs)?.id).toBe('e3'); // a tie goes to the later one in the list
+    evs.push({ id: 'u1', item_id: 'a', result: 'undo', created_at: '5', undoes: 'e3' });
+    expect(lastPassAnswer(evs)?.id).toBe('e2');
+    evs.push({ id: 'u2', item_id: 'b', result: 'undo', created_at: '6', undoes: 'e2' });
+    expect(lastPassAnswer(evs)?.id).toBe('e1');
+    evs.push({ id: 'u3', item_id: 'a', result: 'undo', created_at: '7', undoes: 'e1' });
+    expect(lastPassAnswer(evs)).toBeNull();
+    expect(livePassEvents(evs).map((e) => e.id)).toEqual(['d', undefined]);
+    expect(undonePassEventIds(evs)).toEqual(new Set(['e1', 'e2', 'e3']));
   });
 
   it('ignores events for other items and treats done as right', () => {

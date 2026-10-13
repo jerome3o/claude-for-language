@@ -29,7 +29,8 @@ export const HOMEWORK_MODES: readonly HomeworkMode[] = ['one_off', 'fsrs', 'both
 export type HomeworkStatus = 'active' | 'done' | 'cancelled';
 
 /** A pass event: a word marked right / wrong, or a lesson / reader completed. */
-export type HomeworkResult = 'right' | 'wrong' | 'done';
+/** `undo` takes back an earlier event (`undoes`) — docs/HOMEWORK.md §3b. */
+export type HomeworkResult = 'right' | 'wrong' | 'done' | 'undo';
 
 export interface HomeworkAssignment {
   id: string;
@@ -74,6 +75,8 @@ export interface HomeworkEvent {
   created_at: string;
   /** Optional note back to the tutor (a `done` event, e.g. on link homework). */
   note?: string | null;
+  /** An `undo` event: the id of the event it takes back (`livePassEvents`). */
+  undoes?: string | null;
 }
 
 export function isHomeworkMode(value: unknown): value is HomeworkMode {

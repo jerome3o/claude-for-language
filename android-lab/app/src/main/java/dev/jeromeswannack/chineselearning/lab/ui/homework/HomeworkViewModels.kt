@@ -97,6 +97,8 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         val parts = Homework.titleParts(a)
         val current = Homework.nextPassItem(progress)
         val attempt = current?.let { c -> data.second.count { it.assignment_id == a.id && it.item_id == c } } ?: 0
+        // ↺: the last live Got it / Not yet can be taken back (docs/HOMEWORK.md §3b).
+        val canUndo = !l.busy && Homework.lastPassAnswer(data.second.filter { it.assignment_id == a.id }) != null
         PassUi.Deck(
             title = parts.base,
             part = parts.part,
@@ -112,6 +114,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             addState = l.add,
             online = online,
             busy = l.busy,
+            canUndo = canUndo,
             deckInReview = deckInReview ?: Homework.hasFsrs(a.mode),
             longTermSummary = notes?.let { n ->
                 LongTerm.summary(Homework.passItemIds(a).map { id -> LongTerm.Word(n[id]?.longTerm, n[id]?.started == true) }, deckInReview ?: Homework.hasFsrs(a.mode))
@@ -260,6 +263,28 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         viewModelScope.launch {
             try {
                 HomeworkStore.recordPassEvent(app, id, note.id, if (right) "right" else "wrong")
+            } finally {
+                local.value = local.value.copy(busy = false)
+            }
+        }
+    }
+
+    /**
+     * ↺ Undo (web DeckPass `undo`, docs/HOMEWORK.md §3b): takes back the last Got it / Not yet with an
+     * `undo` event, one further back each time; the word comes back as it was before the answer (a
+     * fresh card — its attempt count moves on), and a pass the undone Got it finished is open again.
+     * The long-term switch and ⚡ are separate actions and stay as they are.
+     */
+    fun undo() {
+        val d = current() ?: return
+        if (local.value.busy || !d.canUndo) return
+        val wasComplete = d.progress.complete
+        local.value = local.value.copy(busy = true)
+        app.haptics.tick()
+        viewModelScope.launch {
+            try {
+                val undone = HomeworkStore.recordPassUndo(app, id)
+                if (undone != null) app.analytics.track("homework.pass_undo", mapOf("result" to undone.result, "reopened" to wasComplete))
             } finally {
                 local.value = local.value.copy(busy = false)
             }

@@ -24,6 +24,7 @@ import dev.jeromeswannack.chineselearning.lab.data.study.StudyDayStore
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.ui.bumps.BUMP_TOGGLE_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.study.CardStartState
+import dev.jeromeswannack.chineselearning.lab.ui.study.PASS_UNDO_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.study.PassSpec
 import dev.jeromeswannack.chineselearning.lab.ui.study.RecordAgainAutoplayTest
 import dev.jeromeswannack.chineselearning.lab.ui.study.StudyActions
@@ -180,6 +181,49 @@ class PassStudyCardTest {
         settle("the done screen") { compose.onAllNodesWithTag("hw-pass-done").fetchSemanticsNodes().isNotEmpty() }
 
         assertEquals(listOf("wrong", "right", "right"), events().map { it.result })
+        runBlocking { assertEquals(0, app.repo.dao.allEvents().size) }
+    }
+
+    /**
+     * ↺ (docs/HOMEWORK.md §3b, e2e homework.spec.ts): the top bar's undo takes back the last Not yet /
+     * Got it with an `undo` event — that word is dealt again as a fresh card — and "↺ Undo last
+     * answer" on the finish reopens a pass (also one the sync already marked done). Never a review.
+     */
+    @Test
+    fun undoTakesBackTheLastAnswerAndReopensTheFinish() {
+        val vm = HomeworkPassViewModel(app, "a1")
+        // As HomeworkNav wires it.
+        compose.setContent { LabTheme { HomeworkPassContent(app, vm, PassActions(onUndo = vm::undo)) } }
+        settle("the first card") { compose.onAllNodesWithText("Show answer").fetchSemanticsNodes().isNotEmpty() }
+        assertFalse((vm.ui.value as PassUi.Deck).canUndo)
+        showAnswer()
+        compose.onNodeWithTag("hw-notyet").performClick()
+        settle("the second word", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.let { it.note?.id == "n2" && it.canUndo } == true }
+
+        compose.onNodeWithTag(PASS_UNDO_TAG).performClick()
+        settle("the first word back", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.let { it.note?.id == "n1" && it.progress.retrying == 0 && !it.canUndo } == true }
+        assertEquals(listOf("wrong", "undo"), events().map { it.result })
+        assertEquals(events()[0].id, events()[1].undoes)
+
+        showAnswer()
+        compose.onNodeWithTag("hw-gotit").performClick()
+        settle("the second word", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.note?.id == "n2" }
+        showAnswer()
+        compose.onNodeWithTag("hw-gotit").performClick()
+        settle("the done screen") { compose.onAllNodesWithTag("hw-pass-done").fetchSemanticsNodes().isNotEmpty() }
+        // The sync has the pass done by now.
+        runBlocking {
+            val list = app.cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty()
+            app.cache.put(HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND, list.map { it.copy(status = "done", completed_at = "2026-10-13T10:00:00.000Z") })
+        }
+
+        compose.onNodeWithTag("hw-pass-undo").performScrollTo().performClick()
+        settle("the last word back", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.let { it.note?.id == "n2" && !it.progress.complete && it.progress.done == 1 } == true }
+        val a = runBlocking { app.cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty().single() }
+        assertEquals("active", a.status)
+        assertEquals(null, a.completed_at)
+        assertEquals(listOf("wrong", "undo", "right", "right", "undo"), events().map { it.result })
+        assertTrue(runBlocking { app.outbox.all() }.count { it.path == "/api/me/homework/events" } >= 5)
         runBlocking { assertEquals(0, app.repo.dao.allEvents().size) }
     }
 
