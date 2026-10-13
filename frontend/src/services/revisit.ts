@@ -191,6 +191,15 @@ export function revisitButtonPreviews(row: Parameters<typeof rowRevisitState>[0]
   return out;
 }
 
+/** Rating-button labels for a lesson finished for the first time (a coach mistake lesson saved after doing it). */
+export function firstFinishButtonPreviews(): Record<Rating, IntervalPreview> {
+  const settings = readRevisitSettings();
+  const gaps = revisitPreviews(computeRevisitState([], settings), settings);
+  const out = {} as Record<Rating, IntervalPreview>;
+  for (const r of [0, 1, 2, 3] as Rating[]) out[r] = { intervalText: revisitGapLabel(gaps[r]), queue: CardQueue.REVIEW };
+  return out;
+}
+
 /** "Back 20 Oct" / "Due today" / "Done for good" / "New" — the Mini Lessons chip. */
 export function revisitChip(state: RevisitState, cutoffMs: number): { label: string; cls: 'active' | 'learning' | 'done' | 'retired' } {
   if (state.status === 'retired') return { label: 'Done for good', cls: 'retired' };

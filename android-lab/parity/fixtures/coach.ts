@@ -9,6 +9,8 @@ import { join } from 'node:path';
 import {
   coachButtons, conversationAction, breakdownSentenceCard, resolveCoachAction, coachDeepLinkAction,
   newWordsInSentence, newWordCards, addNewWordsButton, COACH_NEW_WORDS_LABEL, COACH_SENTENCE_CARD_LABEL, COACH_SKIP_WORDS, MAX_COACH_NEW_WORDS,
+  coachMistakeLessonOffered, sentenceCore, mistakeLessonCardLine, parseMistakeLessonContent,
+  COACH_MISTAKE_LESSON_LABEL, COACH_MISTAKE_LESSON_BUSY, MISTAKE_LESSON_CONTENT_TYPE,
 } from '../../../shared/coach';
 
 const OUT = process.argv[2];
@@ -92,7 +94,48 @@ const wordCards = [
 ].map((c) => ({ ...c, result: newWordCards(c.words, c.sentence) }));
 const newWordLabels = [-1, 0, 1, 2, 7, 20].map((n) => ({ n, label: COACH_NEW_WORDS_LABEL(n), button: addNewWordsButton(n) }));
 
+// "🎯 Mini lesson on this mistake": when it is offered, the sentence core, the card line, the stored content.
+const mistakeChecks = ([
+  ['我昨天去了商店买东西了', '我昨天去商店买东西了', false],
+  ['我去商店', '我去商店', false],
+  ['我去商店', '我去了商店', true],
+  ['我 去商店', '我去商店。', false],
+  ['你好!', '你好！', false],
+  ['“你好”，  朋友～', '你好朋友', false],
+  ["I'm late", '我迟到了', false],
+  ['', '我', false],
+  ['我', '', false],
+  ['他很高', '他很高兴', false],
+  ['我有三个书', '我有三本书', false],
+  ['我　喜欢 你', '我喜欢你', false],
+  ['abc 我', 'abc 你', false],
+  ['价格$5+', '价格5', false],
+] as Array<[string, string, boolean]>).map(([originalInput, corrected, isCorrect]) => ({
+  originalInput, corrected, isCorrect,
+  offered: coachMistakeLessonOffered({ originalInput, isCorrect, corrected: { hanzi: corrected } }),
+  core: sentenceCore(originalInput),
+}));
+const mistakeCardLines = [0, 1, 2, 10].map((n) => ({ n, line: mistakeLessonCardLine(n) }));
+const lessonSpec = {
+  title: 'One 了',
+  icon: '🎯',
+  sections: [
+    { title: 'A', exercises: [{ type: 'note', title: 'x' }, { type: 'choice', question: 'q', options: [{ hanzi: '了' }, { hanzi: '过' }], correct: 0 }] },
+    { exercises: [{ type: 'translate', english: 'e', reference_hanzi: '我去了。' }] },
+  ],
+};
+const mistakeContents = [
+  JSON.stringify({ spec: lessonSpec }),
+  JSON.stringify({ spec: lessonSpec, lesson_id: 'l1', saved_at: '2026-10-13T09:00:00.000Z', completed: true }),
+  '', 'nope', '{"spec":{}}', '{"lesson_id":"x"}',
+].map((raw) => {
+  const c = parseMistakeLessonContent(raw);
+  return { raw, parsed: c ? { lesson_id: c.lesson_id ?? null, completed: c.completed === true, title: c.spec.title, exercises: c.spec.sections.reduce((n, s) => n + s.exercises.length, 0) } : null };
+});
+
 writeFileSync(join(OUT, 'coach.json'), JSON.stringify({
+  mistakeChecks, mistakeCardLines, mistakeContents,
+  mistakeLabel: COACH_MISTAKE_LESSON_LABEL, mistakeBusy: COACH_MISTAKE_LESSON_BUSY, mistakeContentType: MISTAKE_LESSON_CONTENT_TYPE,
   buttons, actions, cards, deepLinks, newWords, wordCards, newWordLabels,
   sentenceCardLabel: COACH_SENTENCE_CARD_LABEL, skipWords: [...COACH_SKIP_WORDS], maxNewWords: MAX_COACH_NEW_WORDS,
 }));

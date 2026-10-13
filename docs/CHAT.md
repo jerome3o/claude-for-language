@@ -701,3 +701,46 @@ voice transcripts get the mark and the sheet ("You wrote" = the caption / transc
   Analytics `coach.sentence_card`.
 - Lab: core `SayBetter.kt` / `MessageMenu.kt` / `CoachActions.kt` / `CoachNewWords.kt`, parity-tested
   (`parity/fixtures/chat-round2.ts`, `coach.ts`).
+
+**"🎯 Mini lesson on this mistake"** (Jerome: "From the coach menu, I want to start a mini lesson that's just for the
+thing I typed in wrong … a few variants, a few different exercise types … then optionally save that to my mini lesson
+queue"; `shared/coach/mistakeLesson.ts`, `worker/src/services/mistake-lesson.ts`):
+- The chip leads the Coach's direct quick actions after a ✏️ Check my sentence that found a mistake —
+  `coachMistakeLessonOffered`: not `isCorrect` and the correction differs from what he wrote beyond spaces / punctuation
+  (a seeded "Open in Coach" check counts too). Nothing for a sentence that was already right, for Explain or Translate.
+- `POST /api/coach/conversations/:id/mistake-lesson` → 202 with a pending assistant message `content_type =
+  'mistake_lesson'`, written by the SAME `coach-reply-queue` job (`runCoachReply` → `writeMistakeLesson`): claim,
+  retries on a busy model, failed → a readable reason + Retry (asking again re-queues the same row), the 10-minute sweep.
+  ONE per conversation: asking again returns it (200 `existing`), so reopening never regenerates it. A lesson being
+  written doesn't block follow-ups (the 409 and the clients' "reply pending" ignore it). The chat history gets one line
+  ("I wrote a mini lesson on this mistake: …"), never the spec.
+- The writer: forced `create_lesson_spec`, thinking off, the lesson writer model (`LESSON_WRITER_MODEL`, as the
+  companion lessons), `validateLessonSpec` + `mistakeLessonProblems` (a note first; 8–11 exercises after it; ≥ 4 types; a
+  recognition exercise; a production exercise; no conversation / describe_image / oral_expression) with up to two repair
+  rounds, then the 一 / 不 rule and the pinyin checker (`fixSpecPinyin`) before it is stored. The prompt gets what he
+  wrote, the correction, the critique (+ issues, alternatives) and asks for: ONE note (✗ what he wrote / ✓ what a native
+  says, why, the pattern with a real example, 3–4 examples: the corrected sentence then VARIANTS), then exercises chosen by
+  the kind of mistake — word order → scramble (the misplaced word its own tile); wrong word / measure word / particle /
+  collocation → choice with HIS OWN mistake among the wrong options; a sound-alike character → listen_choice + a choice;
+  always a "Which sentence is correct?" — then production: 2 translate (EN → ZH) of variants, a write_typed or dictation,
+  one sentence_making. Variants change subject / object / time / place at his level; wrong Chinese only in the note (✗)
+  and as wrong options. A refusal / an invalid spec after the repairs is not retried (it would cost the same).
+  E2E_TEST_MODE: `fakeMistakeLessonSpec` (and the fake check corrects 我昨天去了商店买东西了).
+- The card in the conversation: "🎯 Mini lesson · N exercises", title, ▶ Do it, Save to my mini lessons (→ "✓ In your
+  mini lessons"). ▶ Do it opens `/coach/:conversationId/lesson/:messageId` (immersive): the real lesson player in
+  PREVIEW — nothing recorded while he plays — with "＋ Save" in the top bar and, at the end, "Save it to your mini
+  lessons? How well do you know this now?" + the four ratings (labels of a first finish) + ↻ Try again / Not now.
+- `POST …/messages/:messageId/save-lesson { completion? }` → the normal create path (`createCustomLessonFromSpec`,
+  source `coach`, so the queue / "New lessons a day" / "revisit later" treat it like any lesson), ONCE (the lesson id is
+  stored on the message; a lesson deleted since is made again). A rating at the end sends `completion { id, correct,
+  total, rating, completed_at, attempt }`, recorded exactly like an offline completion (idempotent by id): **he just did
+  it, so it is scheduled from that rating** (Good → back in 2 weeks) instead of waiting as a new lesson. Like any lesson
+  first finished today it counts toward today's "New lessons a day". Save without a rating = a NEW lesson in the queue.
+  Once saved and on the device, ▶ Do it opens the lesson's own `/lessons/:id/play?from=coach` (its rating counts).
+- Offline: asking needs a connection (says so); a lesson already written plays offline — the web keeps the last lesson
+  per conversation in localStorage (`services/coachLessons.ts`; the card shows even when the conversation can't be
+  fetched), the Lab app has the conversation in its JsonCache. Saving needs a connection.
+- Analytics `coach.mistake_lesson_generate { existing }`, `coach.mistake_lesson_play { exercises, saved }`,
+  `coach.mistake_lesson_save { done, rating }`, server `coach.mistake_lesson_written { exercises, types, rounds }`.
+- Lab: core `CoachMistakeLesson.kt` (parity-tested in `parity/fixtures/coach.ts`), `ui/coach/CoachMistakeLessonUi.kt`,
+  `LessonPlayer(previewSave = …)`.

@@ -3517,7 +3517,7 @@ export async function addCoachMessage(
   db: D1Database,
   conversationId: string,
   role: 'user' | 'assistant',
-  contentType: 'text' | 'analysis',
+  contentType: CoachMessage['content_type'],
   content: string,
   toolResults: string | null = null,
   status: 'pending' | null = null,
