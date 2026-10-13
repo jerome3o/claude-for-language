@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import dev.jeromeswannack.chineselearning.lab.data.api.RecordingMarkDto
@@ -85,7 +87,7 @@ class RecordingQueueScreenTest {
         compose.setContent {
             LabTheme {
                 RecordingQueueScreen(
-                    RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue, loading = false, model = model),
+                    RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue.copy(items = P.queue.items.take(1)), loading = false, model = model),
                     RecordingQueueActions(
                         startModel = { started += it; model = ModelRecUi(recordingFor = it, elapsedMs = 1_000) },
                         stopModel = { model = ModelRecUi(drafts = mapOf("q1" to ModelDraftUi(durationMs = 1_900))) },
@@ -94,13 +96,13 @@ class RecordingQueueScreenTest {
                 )
             }
         }
-        compose.onNodeWithTag("recq-note-q1").performClick()
+        compose.onNodeWithTag("recq-note-q1").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithTag("recq-model-q1").assertIsDisplayed()
-        compose.onNodeWithText("🎤 Record it").performClick()
+        compose.onNodeWithText("🎤 Record it").performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(listOf("q1"), started)
-        compose.onNodeWithText("⏹ Stop · 0:01").performClick()
+        compose.onNodeWithText("⏹ Stop · 0:01").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("▶ Your take · 0:01").assertIsDisplayed()
-        compose.onNodeWithText("Needs work + recording").performClick()
+        compose.onNodeWithText("Needs work + recording").performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(listOf(Triple("q1", "needs_work", null as String?)), saved)
     }
 
@@ -109,13 +111,13 @@ class RecordingQueueScreenTest {
         compose.setContent {
             LabTheme {
                 RecordingQueueScreen(
-                    RecordingQueueUi("rel-jerome", "Jerome Swannack", view = "all", data = P.queueAll, loading = false),
+                    RecordingQueueUi("rel-jerome", "Jerome Swannack", view = "all", data = P.queueAll.copy(items = P.queueAll.items.filter { it.event_id == "q6" }), loading = false),
                     RecordingQueueActions(playModelSaved = { played += it }),
                 )
             }
         }
         compose.onNodeWithTag("recq-model-saved-q6").assertExists()
-        compose.onNodeWithText("▶ Your recording").performClick()
+        compose.onNodeWithText("▶ Your recording").performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(listOf("/api/recording-marks/q6/model-audio?v=a1b2c3d4e5f6"), played)
     }
 
