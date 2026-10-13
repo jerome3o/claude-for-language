@@ -102,9 +102,14 @@ private data class CachedClip(val size: Long, val version: Int, val durationMs: 
  * decoded once per clip, kept in the JsonCache so the blocks show instantly and offline.
  * A different file size = a regenerated clip; a new [AudioBlocks.VERSION] = re-segment.
  */
-class ReaderClipAnalyzer(private val cache: JsonCache, private val decode: (File) -> ClipAnalysis? = ::decodeClip) {
+class ReaderClipAnalyzer(
+    private val cache: JsonCache,
+    private val decode: (File) -> ClipAnalysis? = ::decodeClip,
+    /** Where the analyses live in the cache (the chat's listening bubbles use their own). */
+    private val prefix: String = "readers/audio-blocks/",
+) {
     suspend fun analyze(key: String, file: File): ClipAnalysis? {
-        val cacheKey = "readers/audio-blocks/$key"
+        val cacheKey = "$prefix$key"
         val size = file.length()
         runCatching { cache.get(cacheKey, CachedClip.serializer()) }.getOrNull()
             ?.takeIf { it.size == size && it.version == AudioBlocks.VERSION && it.blocks.isNotEmpty() }

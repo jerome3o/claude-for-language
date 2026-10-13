@@ -3,6 +3,8 @@ package dev.jeromeswannack.chineselearning.lab.ui.chat
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.core.AudioBlocks
+import dev.jeromeswannack.chineselearning.lab.data.readers.ClipAnalysis
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListLastMessage
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListPerson
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListRow
@@ -54,6 +56,9 @@ class ChatListeningAppTest {
 
     private val played = mutableListOf<String>()
     private var restarts = 0
+    /** The fake player's position (ms) and what the controller asked of it. */
+    private var position = 0
+    private val asked = mutableListOf<String>()
 
     private fun idle(what: String = "", check: () -> Boolean = { true }) {
         repeat(500) {
@@ -71,9 +76,14 @@ class ChatListeningAppTest {
         ListeningPlayer.factory = {
             object : ListeningPlayer {
                 override fun play(file: File, speed: Float, onDone: () -> Unit) { played += "${file.name}@$speed" }
+                override fun play(file: File, speed: Float, fromMs: Int, onDone: () -> Unit) { played += "${file.name}@$speed"; asked += "play from $fromMs"; position = fromMs }
                 override fun restart() { restarts++ }
                 override fun setSpeed(speed: Float) { played += "speed $speed" }
                 override fun stop() {}
+                override fun positionMs(): Int = position
+                override fun seekTo(ms: Int) { asked += "seek $ms"; position = ms }
+                override fun pause() { asked += "pause" }
+                override fun resume() { asked += "resume" }
             }
         }
         runBlocking {
@@ -87,7 +97,10 @@ class ChatListeningAppTest {
     @After
     fun tearDown() {
         ListeningPlayer.factory = { MediaListeningPlayer() }
+        ChatListeningMode.analyzer = defaultAnalyzer
     }
+
+    private val defaultAnalyzer = ChatListeningMode.analyzer
 
     private fun open(): ChatViewModel {
         val vm = ChatViewModel(app, "rel1", "c1")
@@ -103,7 +116,67 @@ class ChatListeningAppTest {
         assertFalse(ui.isHidden(mine), "my own never hide")
     }
 
-    @Test fun tapPlaysTheReadAloudClipAndATapWhilePlayingReplays() {
+    /** The Read-aloud clip of [fresh] put on the phone (what a tap plays). */
+    private fun cacheClip(vm: ChatViewModel): File {
+        val (voice, speed) = runBlocking { vm.readAloudVoice(fresh) }
+        val media = LessonRuntime.of(app).media
+        val key = media.ttsKey(fresh.content, speed, voice)
+        return File(app.filesDir, "lesson-tts/" + key.replace(Regex("[^A-Za-z0-9._-]"), "_")).apply { parentFile!!.mkdirs(); writeBytes(ByteArray(64) { 1 }) }
+    }
+
+    /**
+     * The parts (the readers' phrase blocks, split at the pauses): the clip's analysis shows on the
+     * bubble; a tap on a part plays from its start; ⏸ keeps the clip loaded and ▶ resumes from the
+     * part he was in; a drag moves the restart point (and seeks while playing); the end = stopped.
+     */
+    @Test fun partsPlayFromATappedPartPauseResumeAndScrub() {
+        val blocks = listOf(AudioBlocks.Block(0, 1200), AudioBlocks.Block(1200, 2600), AudioBlocks.Block(2600, 4000))
+        ChatListeningMode.analyzer = { _, _ -> ClipAnalysis(4000, List(96) { 0.5f }, blocks) }
+        val vm = open()
+        cacheClip(vm)
+
+        // The first tap plays from the start; the clip is analysed into its parts.
+        vm.listening.tap(fresh)
+        idle("playing") { vm.ui.value.listening.playing == "m3" }
+        assertEquals("play from 0", asked.last())
+        idle("analysed") { "m3" in vm.ui.value.listening.analyses }
+
+        // A tap on the second part: plays from its start.
+        vm.listening.seek(fresh, 1500.0, true)
+        assertEquals("seek 1200", asked.last())
+        assertEquals(1200.0, vm.ui.value.listening.block.anchorMs)
+
+        // Playback moves into part 3 → ⏸ after the grace = part 3 is the restart point.
+        position = 3900
+        repeat(20) { if (vm.ui.value.listening.block.anchorMs != 2600.0) shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(ChatListeningMode.TICK_MS)) }
+        assertEquals(2600.0, vm.ui.value.listening.block.anchorMs)
+        vm.listening.tap(fresh)
+        assertNull(vm.ui.value.listening.playing, "a tap while playing pauses")
+        assertEquals("pause", asked.last())
+        assertEquals(2600.0, vm.ui.value.listening.block.anchorMs)
+
+        // ▶ again: the same clip, from the part he was in.
+        vm.listening.tap(fresh)
+        assertEquals("m3", vm.ui.value.listening.playing)
+        assertEquals(listOf("seek 2600", "resume"), asked.takeLast(2))
+        assertEquals(1, played.count { it.endsWith("@1.0") }, "the clip is not fetched again")
+
+        // Drag while playing: the restart point follows the finger and the clip seeks there.
+        vm.listening.seek(fresh, 300.0, false)
+        vm.listening.seekDone()
+        assertEquals(300.0, vm.ui.value.listening.block.anchorMs)
+        assertEquals("seek 300", asked.last())
+
+        // Paused, a drag only moves the point; ▶ plays from it.
+        vm.listening.tap(fresh)
+        vm.listening.seek(fresh, 2000.0, false)
+        assertNull(vm.ui.value.listening.playing)
+        assertEquals(2000.0, vm.ui.value.listening.block.anchorMs)
+        vm.listening.tap(fresh)
+        assertEquals(listOf("seek 2000", "resume"), asked.takeLast(2))
+    }
+
+    @Test fun tapPlaysTheReadAloudClipAndATapWhilePlayingPauses() {
         val vm = open()
         // The clip Read aloud would play (same voice rule, same device cache), already on the phone.
         val (voice, speed) = runBlocking { vm.readAloudVoice(fresh) }
@@ -116,7 +189,8 @@ class ChatListeningAppTest {
         idle("playing") { vm.ui.value.listening.playing == "m3" }
         assertEquals(listOf("${file.name}@1.0"), played)
         vm.listening.tap(fresh)
-        assertEquals(1, restarts, "a tap while playing starts it again")
+        assertNull(vm.ui.value.listening.playing, "a tap while playing pauses")
+        assertEquals(0, restarts)
         vm.listening.toggleSlow()
         assertEquals("speed ${ChatListeningMode.SLOW}", played.last())
     }
