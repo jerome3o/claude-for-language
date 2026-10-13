@@ -38,6 +38,7 @@ import noteImageRoutes from './routes/note-images';
 import { generateNoteImage, handleNoteImageMessage, type NoteImageMessage } from './services/note-images';
 import audioLessonRoutes from './routes/audio-lessons';
 import { podcastPublic, podcastMe } from './routes/podcast';
+import { podcastsRoutes, podcastSourcePublic, handlePodcastQueueMessage } from './routes/podcasts';
 import { runPictureHuntJob } from './services/picture-hunt';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
@@ -572,6 +573,8 @@ mountLiveSocket(app);
 app.route('/api/email', emailPublic);
 // The private podcast feed of audio lessons: the token in the path is the credential (routes/podcast.ts).
 app.route('/api/podcast', podcastPublic);
+// Podcasts (docs/PODCASTS.md): an episode's audio for the transcription service, by a signed, expiring link.
+app.route('/api/podcast-source', podcastSourcePublic);
 
 app.use('/api/*', authMiddleware);
 // Hand the signed-in user + route pattern to analytics (server events, AI calls).
@@ -685,6 +688,8 @@ app.route('/api', noteImageRoutes);
 app.route('/api', audioLessonRoutes);
 // Settings → Audio lessons → Podcast feed: the feed link (made on first use), Reset, Turn off.
 app.route('/api', podcastMe);
+// Podcasts (docs/PODCASTS.md): subscribe to Chinese podcasts, transcribe an episode into segments (routes/podcasts.ts)
+app.route('/api', podcastsRoutes);
 // Active study time per local day and device: PUT|GET /api/me/study-time (routes/study-time.ts)
 app.route('/api', studyTimeRoutes);
 // Usage analytics: event upload, the opt-out, admin usage questions (routes/analytics.ts)
@@ -6840,6 +6845,18 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
       // Audio lessons: write → speak → render (services/audio-lessons/job.ts). The job
       // checkpoints in D1 and re-enqueues itself, so every message is acked.
       for (const message of batch.messages) {
+        // Podcast episodes (docs/PODCASTS.md) ride this queue too: transcription jobs and their mini lessons.
+        const podcast = message.body as { kind?: string; episodeId?: string };
+        if (podcast.kind === 'podcast_episode' || podcast.kind === 'podcast_lesson') {
+          try {
+            console.log('[Queue] podcast', podcast.kind, podcast.episodeId, await handlePodcastQueueMessage(env, message.body as never));
+            message.ack();
+          } catch (err) {
+            console.error('[Queue] podcast job crashed:', podcast.episodeId, err);
+            message.retry({ delaySeconds: 60 });
+          }
+          continue;
+        }
         const { lessonId, companion } = message.body as AudioLessonJobMessage & { companion?: boolean };
         try {
           // Its companion mini lesson (services/companion-lesson.ts): one Claude call + repairs; failures land on the row.

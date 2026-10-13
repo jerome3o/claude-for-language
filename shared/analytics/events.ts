@@ -229,6 +229,16 @@ export const ANALYTICS_EVENTS = {
   'audio_lesson.download': e('lessons', 'Saved an audio lesson on the device for offline listening.', ['format']),
   'audio_lesson.podcast_feed': e('lessons', 'Settings → Audio lessons → Podcast feed (action: copy, open, open_apple, reset, off).', ['action']),
   'audio_lesson.music': e('lessons', 'Turned the soft music under an audio lesson on / off or changed its volume (docs/AUDIO_LESSONS.md "Music").', ['on', 'format', 'volume_pct']),
+  'podcast.subscribe': e('lessons', 'Subscribed to a Chinese podcast (docs/PODCASTS.md; suggested = from the Suggested list, episodes = how many the feed has).', ['suggested', 'episodes'], { server: true }),
+  'podcast.unsubscribe': e('lessons', 'Unsubscribed from a podcast (docs/PODCASTS.md).', []),
+  'podcast.transcribe': e('lessons', 'Asked for an episode to be transcribed (docs/PODCASTS.md; shared = someone had already asked, status = its status then).', ['shared', 'status'], { server: true }),
+  'podcast.open': e('lessons', 'Opened a podcast episode\'s segment player (docs/PODCASTS.md; status = the transcription\'s, offline = from the phone).', ['status', 'offline', 'segments']),
+  'podcast.download': e('lessons', 'Saved a transcribed episode\'s audio on the phone (docs/PODCASTS.md).', ['mb']),
+  'podcast.segment_play': e('lessons', 'Played one segment of a podcast episode (slow = 0.75×, replay = the same segment again, auto = continuous listening).', ['slow', 'replay', 'auto']),
+  'podcast.reveal': e('lessons', 'Revealed the next line of a podcast segment (step = hanzi / pinyin / english).', ['step']),
+  'podcast.add_card': e('lessons', 'Added words from a podcast segment as cards (count = cards made, existing = words already in a deck).', ['count', 'existing']),
+  'podcast.make_lesson': e('lessons', 'Asked for a mini lesson made from a stretch of a podcast episode (docs/PODCASTS.md; from = the first segment).', ['from']),
+  'podcast.lesson_created': e('lessons', 'A mini lesson was written from a podcast episode (exercises, segments it was written from).', ['exercises', 'segments'], { server: true }),
 
   // ── lessons ────────────────────────────────────────────────────────────
   'lesson.start': e('lessons', 'Started a mini lesson.', ['source', 'exercises']),
@@ -307,6 +317,7 @@ export const ANALYTICS_EVENTS = {
   // ── server (written by the worker) ─────────────────────────────────────
   'server.content_created': e('server', 'A deck / notes / lesson / reader was created through the API.', ['kind', 'count', 'via'], { server: true }),
   'server.audio_lesson_built': e('server', 'An audio lesson finished rendering.', ['format', 'minutes', 'clips'], { server: true }),
+  'server.podcast_transcribed': e('server', 'A podcast episode finished transcribing, or failed (docs/PODCASTS.md; stage = where it failed).', ['ok', 'stage', 'minutes', 'segments'], { server: true }),
   'server.podcast_feed_fetched': e('server', "A podcast app fetched a user's private audio-lesson feed.", ['items'], { server: true }),
   'server.homework_assigned': e('server', 'Homework assignments were written for a student.', ['kind', 'mode', 'count'], { server: true }),
   'server.ai_call': e('server', 'One model call: model, tokens and an estimated cost.', ['provider', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cost_usd', 'status', 'route'], { server: true }),
