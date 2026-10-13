@@ -35,7 +35,7 @@ Dark theme: a paler gold band.
 The answer side.
 
 ![Lab with animations off](lab-04-static.png)
-"Remove animations" (animator duration scale 0): the static tint.
+"Remove animations" (animator duration scale 0): the static tint, on the answer side (the question face too).
 
 ![Lab settings](lab-05-settings.png)
 Settings → Study → "Shimmer new characters".

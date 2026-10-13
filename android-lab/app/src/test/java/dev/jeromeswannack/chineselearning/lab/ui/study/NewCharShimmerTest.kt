@@ -7,6 +7,8 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
@@ -74,9 +76,10 @@ class NewCharShimmerTest : LabScreenshotTest() {
 
     @Test fun readCardQuestion() {
         render(view())
+        // The question stays ONE text (银行); only 行 carries the sheen, said for screen readers.
         shimmering.assertCountEquals(1)
-        shimmering[0].assertTextEquals("行")
-        shimmering[0].assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, NEW_CHAR_STATE))
+        shimmering[0].assertTextEquals("银行")
+        shimmering[0].assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "New character: 行"))
         compose.onRoot().captureRoboImage("screenshots/study-newchar-01-front.png")
     }
 
@@ -88,10 +91,11 @@ class NewCharShimmerTest : LabScreenshotTest() {
 
     @Test fun answerSide() {
         render(view(flipped = true))
-        // The flip card keeps the question face composed behind the answer: 行 once on each face.
+        // The flip card keeps the question face composed behind the answer; on the answer side
+        // only 行 is its own shimmering glyph (银 is a plain tap target).
         shimmering.assertCountEquals(2)
-        shimmering[0].assertTextEquals("行")
-        shimmering[1].assertTextEquals("行")
+        compose.onAllNodes(hasTestTag(NEW_CHAR_TAG) and hasText("行", substring = false), useUnmergedTree = true).assertCountEquals(1)
+        compose.onAllNodes(hasTestTag(NEW_CHAR_TAG) and hasText("银", substring = false), useUnmergedTree = true).assertCountEquals(0)
         compose.onRoot().captureRoboImage("screenshots/study-newchar-03-back.png")
     }
 
@@ -109,9 +113,10 @@ class NewCharShimmerTest : LabScreenshotTest() {
     /** "Remove animations" (animator duration scale 0): the static tint, still marked for screen readers. */
     @Test fun staticWithAnimationsOff() {
         Settings.Global.putFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
-        render(view(), phase = null)
-        shimmering.assertCountEquals(1)
-        shimmering[0].assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, NEW_CHAR_STATE))
+        render(view(flipped = true), phase = null)
+        compose.onAllNodes(hasTestTag(NEW_CHAR_TAG) and hasText("行", substring = false), useUnmergedTree = true)
+            .assertCountEquals(1)[0]
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, NEW_CHAR_STATE))
         compose.onRoot().captureRoboImage("screenshots/study-newchar-04-static.png")
     }
 

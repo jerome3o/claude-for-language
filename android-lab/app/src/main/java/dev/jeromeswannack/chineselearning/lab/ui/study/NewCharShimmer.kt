@@ -31,9 +31,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
+import dev.jeromeswannack.chineselearning.lab.core.Known
+import dev.jeromeswannack.chineselearning.lab.core.NewCharacters
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /*
@@ -44,7 +50,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
  * animations": ANIMATOR_DURATION_SCALE = 0) it is a static warm tint + the glow instead.
  */
 
-/** Test tag on every shimmering character. */
+/** Test tag on every shimmering character (or the question's hanzi holding them). */
 const val NEW_CHAR_TAG = "new-char"
 
 /** What screen readers add to a shimmering character. */
@@ -79,12 +85,20 @@ fun rememberShimmerChars(chars: List<String>): Set<String> {
 @Composable
 private fun sheenColor(): Color = if (Lab.colors.ink.luminance() > 0.5f) Color(0xFFFCD34D) else Color(0xFFF59E0B)
 
-/** A narrow sheen band across one glyph at [progress] (0 → off the left edge, 1 → off the right). */
-private class SheenBrush(private val base: Color, private val sheen: Color, private val progress: Float) : ShaderBrush() {
+/**
+ * A narrow sheen band at [progress] (0 → off the left edge, 1 → off the right). [bandPx] null = the
+ * band is sized to the shape (one glyph); else a band [bandPx] wide crossing the whole text.
+ */
+private class SheenBrush(
+    private val base: Color,
+    private val sheen: Color,
+    private val progress: Float,
+    private val bandPx: Float? = null,
+) : ShaderBrush() {
     override fun createShader(size: Size): Shader {
         val w = size.width
-        val centre = -0.7f * w + progress * 2.4f * w
-        val half = 0.45f * w
+        val half = (bandPx ?: (0.9f * w)) / 2f
+        val centre = -2f * half + progress * (w + 4f * half)
         return LinearGradientShader(
             from = Offset(centre - half, 0f),
             to = Offset(centre + half, size.height * 0.35f),
@@ -95,14 +109,39 @@ private class SheenBrush(private val base: Color, private val sheen: Color, priv
     }
 
     override fun equals(other: Any?): Boolean =
-        other is SheenBrush && other.base == base && other.sheen == sheen && other.progress == progress
+        other is SheenBrush && other.base == base && other.sheen == sheen && other.progress == progress && other.bandPx == bandPx
 
-    override fun hashCode(): Int = (base.hashCode() * 31 + sheen.hashCode()) * 31 + progress.hashCode()
+    override fun hashCode(): Int = ((base.hashCode() * 31 + sheen.hashCode()) * 31 + progress.hashCode()) * 31 + bandPx.hashCode()
 }
 
 /** Where the band is at [cycle] (0..1 of one cycle): the sweep eases across, then rests off the glyph. */
 private fun sweepAt(cycle: Float): Float =
     if (cycle < SWEEP_PART) FastOutSlowInEasing.transform(cycle / SWEEP_PART) else 1f
+
+/** The sweep's position now, or null = still (animations off: the static tint). */
+@Composable
+private fun shimmerProgress(index: Int): Float? {
+    val context = LocalContext.current
+    val fixed = LocalNewCharShimmerPhase.current
+    if (fixed != null) return fixed
+    val still = remember(context) { animationsDisabled(context) }
+    if (still) return null
+    val transition = rememberInfiniteTransition(label = "new-char")
+    val cycle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(CYCLE_MS, easing = LinearEasing),
+            initialStartOffset = StartOffset(FIRST_DELAY_MS + STAGGER_MS * index),
+        ),
+        label = "new-char-sweep",
+    )
+    return sweepAt(cycle)
+}
+
+@Composable
+private fun glowFor(sheen: Color, fontSize: TextUnit): Shadow =
+    with(LocalDensity.current) { Shadow(sheen.copy(alpha = 0.45f), Offset.Zero, blurRadius = fontSize.toPx() * 0.14f) }
 
 /**
  * One character of the study card's hanzi: plain when [isNew] is false; else shimmering (or the
@@ -123,31 +162,14 @@ fun NewCharGlyph(
         Text(ch, fontSize = fontSize, fontWeight = fontWeight, color = color, lineHeight = lineHeight, modifier = modifier)
         return
     }
-    val context = LocalContext.current
     val sheen = sheenColor()
-    val glow = with(LocalDensity.current) { Shadow(sheen.copy(alpha = 0.45f), Offset.Zero, blurRadius = fontSize.toPx() * 0.14f) }
+    val glow = glowFor(sheen, fontSize)
     val tagged = modifier.testTag(NEW_CHAR_TAG).semantics { stateDescription = NEW_CHAR_STATE }
-    val fixed = LocalNewCharShimmerPhase.current
-    val still = remember(context) { animationsDisabled(context) }
-    if (fixed == null && still) {
+    val progress = shimmerProgress(index)
+    if (progress == null) {
         // "Remove animations": no movement — a warm tint and the glow.
         Text(ch, fontSize = fontSize, fontWeight = fontWeight, color = lerp(color, sheen, 0.3f), lineHeight = lineHeight, style = TextStyle(shadow = glow), modifier = tagged)
         return
-    }
-    val progress = if (fixed != null) {
-        fixed
-    } else {
-        val transition = rememberInfiniteTransition(label = "new-char")
-        val cycle by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                tween(CYCLE_MS, easing = LinearEasing),
-                initialStartOffset = StartOffset(FIRST_DELAY_MS + STAGGER_MS * index),
-            ),
-            label = "new-char-sweep",
-        )
-        sweepAt(cycle)
     }
     Text(
         ch,
@@ -156,5 +178,52 @@ fun NewCharGlyph(
         lineHeight = lineHeight,
         style = TextStyle(brush = SheenBrush(color, sheen, progress), shadow = glow),
         modifier = tagged,
+    )
+}
+
+/**
+ * A whole hanzi line in ONE Text (the read card's question, which wraps like text) with its
+ * never-seen characters shimmering: one band, about a glyph wide, crosses the line and lights the
+ * new characters as it passes; the rest of the text is plain [color].
+ */
+@Composable
+fun NewCharText(
+    text: String,
+    newChars: Set<String>,
+    fontSize: TextUnit,
+    color: Color,
+    modifier: Modifier = Modifier,
+    fontWeight: FontWeight = FontWeight.Medium,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    textAlign: TextAlign = TextAlign.Center,
+) {
+    val fresh = remember(text, newChars) { Known.hanCharacters(text).filter { it in newChars } }
+    if (fresh.isEmpty()) {
+        Text(text, fontSize = fontSize, fontWeight = fontWeight, color = color, lineHeight = lineHeight, textAlign = textAlign, modifier = modifier)
+        return
+    }
+    val sheen = sheenColor()
+    val glow = glowFor(sheen, fontSize)
+    val progress = shimmerProgress(0)
+    val bandPx = with(LocalDensity.current) { fontSize.toPx() * 0.9f }
+    val newStyle = if (progress == null) {
+        SpanStyle(color = lerp(color, sheen, 0.3f), shadow = glow)
+    } else {
+        SpanStyle(brush = SheenBrush(color, sheen, progress, bandPx), shadow = glow)
+    }
+    val annotated = buildAnnotatedString {
+        for (cp in text.codePoints().toArray()) {
+            val ch = String(Character.toChars(cp))
+            if (ch in newChars) withStyle(newStyle) { append(ch) } else append(ch)
+        }
+    }
+    Text(
+        annotated,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        color = color,
+        lineHeight = lineHeight,
+        textAlign = textAlign,
+        modifier = modifier.testTag(NEW_CHAR_TAG).semantics { stateDescription = NewCharacters.label(fresh) },
     )
 }

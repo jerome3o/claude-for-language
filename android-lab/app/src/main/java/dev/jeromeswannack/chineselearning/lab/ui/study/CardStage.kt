@@ -841,23 +841,13 @@ private fun TappableHanzi(
 }
 
 /**
- * The read card's question: the hanzi in one Text — or, when it has never-seen characters, one
- * glyph per character so those shimmer ([NewCharGlyph]), wrapping like the answer side.
+ * The read card's question: the hanzi in one Text (it wraps like text, and stays one text node);
+ * its never-seen characters shimmer ([NewCharText]).
  */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun FrontHanzi(hanzi: String, newChars: Set<String>) {
     val size = hanziSize(hanzi)
-    if (newChars.isEmpty()) {
-        Text(hanzi, fontSize = size, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = size * 1.2f)
-        return
-    }
-    val chars = hanzi.codePoints().toArray().map { String(Character.toChars(it)) }
-    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.Center) {
-        chars.forEachIndexed { i, ch ->
-            NewCharGlyph(ch, isNew = ch in newChars, fontSize = size, color = Lab.colors.ink, lineHeight = size * 1.2f, index = i)
-        }
-    }
+    NewCharText(hanzi, newChars, fontSize = size, color = Lab.colors.ink, lineHeight = size * 1.2f)
 }
 
 /**
