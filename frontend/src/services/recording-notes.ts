@@ -27,6 +27,8 @@ export interface ServerRecordingNote {
   comment: string;
   tutor_name: string | null;
   updated_at: string;
+  recording_url?: string | null;
+  model_audio_url?: string | null;
 }
 
 async function fetchUnseenNotes(): Promise<ServerRecordingNote[]> {
@@ -101,6 +103,8 @@ export async function syncRecordingNotes(): Promise<{ downloaded: number; upload
         comment: n.comment,
         tutor_name: n.tutor_name,
         updated_at: n.updated_at,
+        recording_url: n.recording_url ?? null,
+        model_audio_url: n.model_audio_url ?? null,
         seen_at: null,
         _synced: 1,
       }));

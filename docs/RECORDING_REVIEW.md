@@ -68,6 +68,39 @@ works from transcripts, ratings and flags (`scoring: false` in the response).
 - Dashboard / student page: `pills.recordings_need_ear`.
 - MCP: `list_student_recordings` `queue: true`.
 
+## Model recordings — "how it should sound"
+
+When the tutor marks a take **needs work** she can also record her own pronunciation (a model
+answer) beside the note. The student hears it next to their own take and compares.
+
+- **Tutor** (web `components/recordings/ModelRecorder.tsx` inside `RecordingsInboxPage`'s note box —
+  "+ Note · 🎤"; Lab `ModelRecorderBox` in `ui/teaching/RecordingQueueScreen.kt`): 🎤 Record it → ⏹ Stop · 0:03
+  (+ level, stops by itself at a minute) → ▶ Your take · 🔁 Record again · Discard; nothing is uploaded until
+  **Needs work + recording** (a take makes the mark needs-work). A saved clip shows as ▶ Your recording on the
+  card and in the box (Record again replaces it, Remove takes it off on Save). Optional — a mark can still be
+  words only. Not in the call's "Review together" (the live call is the model there).
+- **Storage**: R2 `tutor-recordings/<relId>/<eventId>-<id>.<ext>` (person-made, `STORAGE_PREFIXES`, never
+  collected), `tutor_recording_marks.model_audio_key` / `model_audio_mime` / `model_audio_ms` (migration 0123).
+  The object is deleted when the mark is cleared, when it becomes **listened** (from the recordings page or
+  MCP `mark_recording`), when a new clip replaces it, and by account deletion (the tutor's or the student's).
+  A new clip clears `student_seen_at`, so the note shows on the card back again.
+- **API** (`routes/insights.ts`, `services/model-recordings.ts`): `PUT /api/relationships/:relId/recordings/:eventId/mark/audio`
+  (raw audio body ≤ 2 MB, sniffed webm / ogg / mp4 / wav / mp3, `?duration_ms=` ≤ 60 s; 409 without a needs-work
+  mark) → `{ mark }`; `DELETE …/mark/audio` → `{ removed, mark }`. Marks carry `model_audio_url`
+  (`/api/recording-marks/<eventId>/model-audio?v=<clip id>` — a new URL per clip) on the queue, the student's
+  unseen feed (`GET /api/me/recording-notes`, which also carries `recording_url` = his take) and the Tutor notes
+  page (`GET /api/me/tutor-notes`). `GET /api/recording-marks/:eventId/model-audio` (routes/recording-notes.ts)
+  serves the bytes ONLY to the tutor who made the mark and the student whose take it is (404 otherwise);
+  `/api/audio/tutor-recordings/…` is refused. A needs-work mark with a clip and no words is still a note.
+- **Student**: "▶ 明慧老师 says it" · "▶ You" (`tutorSaysItLabel`, `shared/tutor-notes`; web
+  `components/recordings/ModelRecordingButtons.tsx`, Lab `ModelRecordingPills`) under "From <tutor>: …" on the
+  card back (once, like the note), on the Tutor notes page and pinned in its Practice route. Offline: the sync
+  downloads the clips of my notes with the session (web `services/modelRecordings.ts` → the `cachedAudio`
+  table under `model-recording:<url>`, with my take; Lab `data/audio/ModelRecordings.kt` → `files/model-recordings/`).
+- Analytics: `tutor.model_recording_saved { replaced, duration_ms, source }`, `tutor.model_recording_removed`,
+  `study.tutor_model_play { where: card | notes | practice, which: tutor | mine }`. MCP `list_student_recordings`
+  marks carry `has_model_recording` (no upload through MCP).
+
 ## Mix-ups
 
 `shared/recordings/mixups.ts` (`deriveMixUps`): pairs of characters the learner confuses (买 ↔ 卖),

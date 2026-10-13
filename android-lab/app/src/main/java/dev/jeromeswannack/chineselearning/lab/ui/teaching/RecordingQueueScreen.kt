@@ -127,6 +127,13 @@ object RecordingQueueRules {
     }
 
     /** "买 ↔ 卖" */
+    /** The note box's Save label (web RecordingCard): a take makes the mark needs-work. */
+    fun saveNoteLabel(status: String?, hasTake: Boolean): String = when {
+        hasTake -> "Needs work + recording"
+        status == "listened" -> "Save note"
+        else -> "Needs work + note"
+    }
+
     fun mixUpPair(m: MixUpDto): String = "${m.a} ↔ ${m.b}"
 
     /** "买东西 → 卖东西 · 买菜 → 卖菜" */
@@ -147,6 +154,31 @@ object RecordingQueueRules {
     }
 }
 
+// ---------------- the tutor's model recording ----------------
+
+/** One recording's model-recording draft: a take waiting for Save, or the saved clip marked for removal. */
+data class ModelDraftUi(val durationMs: Long? = null, val removeSaved: Boolean = false, val mime: String? = null) {
+    val hasTake: Boolean get() = durationMs != null
+}
+
+/** The recorder's state on the recordings page (web components/recordings/ModelRecorder.tsx). */
+data class ModelRecUi(
+    /** The recording (event id) whose model answer is being recorded now. */
+    val recordingFor: String? = null,
+    val elapsedMs: Long = 0,
+    val level: Float = 0f,
+    val drafts: Map<String, ModelDraftUi> = emptyMap(),
+    val error: String? = null,
+) {
+    companion object {
+        /** A model answer is a word or a sentence: it stops by itself after a minute (the server's cap). */
+        const val MAX_MS = 60_000L
+
+        /** "0:07" */
+        fun clock(ms: Long): String { val s = ms / 1000; return "${s / 60}:${(s % 60).toString().padStart(2, '0')}" }
+    }
+}
+
 // ---------------- the screen ----------------
 
 data class RecordingQueueUi(
@@ -162,6 +194,7 @@ data class RecordingQueueUi(
     /** Event ids with a mark being saved. */
     val saving: Set<String> = emptySet(),
     val markError: String? = null,
+    val model: ModelRecUi = ModelRecUi(),
 )
 
 data class RecordingQueueActions(
@@ -176,6 +209,15 @@ data class RecordingQueueActions(
     /** status null = clear the mark. */
     val mark: (RecordingQueueItemDto, String?, String?) -> Unit = { _, _, _ -> },
     val retry: () -> Unit = {},
+    /** The note box's Save: mark + the model recording draft (upload / remove). */
+    val saveNote: (RecordingQueueItemDto, String, String?) -> Unit = { _, _, _ -> },
+    val startModel: (String) -> Unit = {},
+    val stopModel: () -> Unit = {},
+    val cancelModel: () -> Unit = {},
+    val playModelDraft: (String) -> Unit = {},
+    val playModelSaved: (String) -> Unit = {},
+    val discardModel: (String) -> Unit = {},
+    val removeSavedModel: (String, Boolean) -> Unit = { _, _ -> },
 )
 
 val RECORDING_RANGES = listOf("lesson" to "Since last lesson", "30d" to "Last 30 days", "90d" to "Last 90 days", "365d" to "Last year")
@@ -216,7 +258,7 @@ fun RecordingQueueScreen(ui: RecordingQueueUi, actions: RecordingQueueActions, n
         }
         items(data?.items.orEmpty(), key = { it.event_id }) { r ->
             QueueCard(
-                r, ui.view, ui.playingKey, r.event_id in ui.saving, actions, now,
+                r, ui.view, ui.playingKey, r.event_id in ui.saving, ui.model, actions, now,
                 Modifier.animateItem(
                     fadeInSpec = null,
                     fadeOutSpec = tween(220),
@@ -286,8 +328,10 @@ fun heardText(hanzi: String, heard: String): AnnotatedString = buildAnnotatedStr
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun QueueCard(r: RecordingQueueItemDto, view: String, playingKey: String?, saving: Boolean, actions: RecordingQueueActions, now: Instant, modifier: Modifier) {
-    var showComment by remember { mutableStateOf(false) }
+private fun QueueCard(r: RecordingQueueItemDto, view: String, playingKey: String?, saving: Boolean, model: ModelRecUi, actions: RecordingQueueActions, now: Instant, modifier: Modifier) {
+    var showComment by remember { mutableStateOf(model.drafts.containsKey(r.event_id) || model.recordingFor == r.event_id) }
+    val savedModel = r.mark?.model_audio_url
+    val draft = model.drafts[r.event_id]
     var comment by remember(r.mark?.comment) { mutableStateOf(r.mark?.comment ?: "") }
     val status = r.mark?.status
     val edge = when {
@@ -338,19 +382,98 @@ private fun QueueCard(r: RecordingQueueItemDto, view: String, playingKey: String
         if (!r.mark?.comment.isNullOrBlank() && !showComment) {
             Text(r.mark!!.comment!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.Hard.copy(alpha = 0.08f)).padding(10.dp))
         }
+        if (savedModel != null && !showComment) {
+            Row(Modifier.testTag("recq-model-saved-${r.event_id}")) { AudioPill("Your recording", playingKey == savedModel, Palette.Hard) { actions.playModelSaved(savedModel) } }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MarkButton("✓ Listened", status == "listened", Palette.Good, !saving, Modifier.weight(1f).testTag("recq-listened-${r.event_id}")) { actions.mark(r, if (status == "listened") null else "listened", r.mark?.comment) }
             MarkButton("⚠ Needs work", status == "needs_work", Palette.Hard, !saving, Modifier.weight(1.3f)) { actions.mark(r, if (status == "needs_work") null else "needs_work", r.mark?.comment) }
-            MarkButton(if (!r.mark?.comment.isNullOrBlank()) "Edit note" else "+ Note", false, Lab.colors.accent, true, Modifier.weight(0.9f)) { showComment = !showComment }
+            MarkButton(if (!r.mark?.comment.isNullOrBlank() || savedModel != null) "Edit note" else "+ Note · 🎤", false, Lab.colors.accent, true, Modifier.weight(1.1f).testTag("recq-note-${r.event_id}")) { showComment = !showComment }
         }
         if (showComment) {
             OutlinedTextField(comment, { comment = it }, Modifier.fillMaxWidth(), minLines = 2, placeholder = { Text("What to tell them — e.g. second tone sounds like fourth") })
+            ModelRecorderBox(r.event_id, savedModel, draft, model, playingKey, enabled = !saving, actions)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TeachButton("Save note", Modifier.weight(1f), primary = true, enabled = !saving) { actions.mark(r, status ?: "needs_work", comment.trim().ifEmpty { null }); showComment = false }
-                TeachButton("Cancel", Modifier.weight(1f)) { showComment = false }
+                val label = RecordingQueueRules.saveNoteLabel(status, draft?.hasTake == true)
+                TeachButton(label, Modifier.weight(1.4f).testTag("recq-save-${r.event_id}"), primary = true, enabled = !saving && model.recordingFor == null) {
+                    actions.saveNote(r, status ?: "needs_work", comment.trim().ifEmpty { null }); showComment = false
+                }
+                TeachButton("Cancel", Modifier.weight(1f)) {
+                    if (model.recordingFor == r.event_id) actions.cancelModel()
+                    actions.discardModel(r.event_id); showComment = false
+                }
             }
+            MutedLine("The note and your recording show once on the back of this card the next time they study it.")
         }
     }
+}
+
+/**
+ * "Your recording — how it should sound" (web components/recordings/ModelRecorder.tsx): 🎤 Record it →
+ * ⏹ Stop · 0:03 (+ level) → ▶ Your take · 🔁 Record again · Discard; a saved clip: ▶ · Record again · Remove.
+ */
+@Composable
+private fun ModelRecorderBox(eventId: String, savedUrl: String?, draft: ModelDraftUi?, model: ModelRecUi, playingKey: String?, enabled: Boolean, actions: RecordingQueueActions) {
+    val recording = model.recordingFor == eventId
+    val busyElsewhere = model.recordingFor != null && !recording
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.Hard.copy(alpha = 0.06f))
+            .border(1.dp, Palette.Hard.copy(alpha = 0.35f), RoundedCornerShape(14.dp)).padding(12.dp).testTag("recq-model-$eventId"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Your recording — how it should sound", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.Hard)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            when {
+                recording -> {
+                    RecPill("⏹ Stop · ${ModelRecUi.clock(model.elapsedMs)}", active = true, enabled = true) { actions.stopModel() }
+                    LevelBar(model.level, Modifier.weight(1f))
+                    LinkText("Cancel") { actions.cancelModel() }
+                }
+                draft?.hasTake == true -> {
+                    AudioPill("Your take · ${ModelRecUi.clock(draft.durationMs ?: 0)}", playingKey == "model-draft:$eventId", Palette.Hard) { actions.playModelDraft(eventId) }
+                    LinkText("🔁 Again", enabled && !busyElsewhere) { actions.startModel(eventId) }
+                    LinkText("Discard", enabled) { actions.discardModel(eventId) }
+                }
+                savedUrl != null && draft?.removeSaved != true -> {
+                    AudioPill("Your recording", playingKey == savedUrl, Palette.Hard) { actions.playModelSaved(savedUrl) }
+                    LinkText("🔁 Again", enabled && !busyElsewhere) { actions.startModel(eventId) }
+                    LinkText("Remove", enabled) { actions.removeSavedModel(eventId, true) }
+                }
+                else -> {
+                    RecPill("🎤 Record it", active = false, enabled = enabled && !busyElsewhere) { actions.startModel(eventId) }
+                    if (savedUrl != null) LinkText("Undo remove") { actions.removeSavedModel(eventId, false) }
+                }
+            }
+        }
+        model.error?.takeIf { recording || draft == null }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.Again) }
+        MutedLine("Optional. They hear it next to their own take.")
+    }
+}
+
+@Composable
+private fun RecPill(label: String, active: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Text(
+        label, color = if (active) Color.White else Palette.Again, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1,
+        modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(50)).bouncyClickable(enabled, 0.92f, onClick = onClick)
+            .background(if (active) Palette.Again else Palette.Again.copy(alpha = 0.1f)).padding(horizontal = 16.dp, vertical = 12.dp),
+    )
+}
+
+@Composable
+private fun LevelBar(level: Float, modifier: Modifier) {
+    Row(modifier.heightIn(min = 6.dp).clip(RoundedCornerShape(3.dp)).background(Palette.Again.copy(alpha = 0.12f))) {
+        val f = (level * 3f).coerceIn(0.02f, 1f)
+        Spacer(Modifier.fillMaxWidth(f).heightIn(min = 6.dp).background(Palette.Again))
+    }
+}
+
+@Composable
+private fun LinkText(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Text(
+        label, color = if (enabled) Lab.colors.muted else Lab.colors.muted.copy(alpha = 0.4f), fontSize = 14.sp, maxLines = 1,
+        textDecoration = TextDecoration.Underline,
+        modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp)).bouncyClickable(enabled, 0.94f, onClick = onClick).padding(horizontal = 6.dp, vertical = 12.dp),
+    )
 }
 
 @Composable

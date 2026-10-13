@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import dev.jeromeswannack.chineselearning.lab.data.api.RecordingMarkDto
@@ -76,6 +78,47 @@ class RecordingQueueScreenTest {
         compose.onNodeWithTag("recq-item-q3").assertIsDisplayed()
         compose.onNodeWithText("▶ Their recording").assertIsDisplayed()
         compose.onNodeWithText("▶ Reference").assertDoesNotExist()
+    }
+
+    @Test fun theNoteBoxRecordsAModelAnswerAndSavesItAsNeedsWork() {
+        val started = mutableListOf<String>()
+        val saved = mutableListOf<Triple<String, String, String?>>()
+        var model by mutableStateOf(ModelRecUi())
+        compose.setContent {
+            LabTheme {
+                RecordingQueueScreen(
+                    RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue.copy(items = P.queue.items.take(1)), loading = false, model = model),
+                    RecordingQueueActions(
+                        startModel = { started += it; model = ModelRecUi(recordingFor = it, elapsedMs = 1_000) },
+                        stopModel = { model = ModelRecUi(drafts = mapOf("q1" to ModelDraftUi(durationMs = 1_900))) },
+                        saveNote = { r, s, c -> saved += Triple(r.event_id, s, c) },
+                    ),
+                )
+            }
+        }
+        compose.onNodeWithTag("recq-note-q1").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithTag("recq-model-q1").assertIsDisplayed()
+        compose.onNodeWithText("🎤 Record it").performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(listOf("q1"), started)
+        compose.onNodeWithText("⏹ Stop · 0:01").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("▶ Your take · 0:01").assertIsDisplayed()
+        compose.onNodeWithText("Needs work + recording").performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(listOf(Triple("q1", "needs_work", null as String?)), saved)
+    }
+
+    @Test fun aSavedModelRecordingPlaysFromTheCard() {
+        val played = mutableListOf<String>()
+        compose.setContent {
+            LabTheme {
+                RecordingQueueScreen(
+                    RecordingQueueUi("rel-jerome", "Jerome Swannack", view = "all", data = P.queueAll.copy(items = P.queueAll.items.filter { it.event_id == "q6" }), loading = false),
+                    RecordingQueueActions(playModelSaved = { played += it }),
+                )
+            }
+        }
+        compose.onNodeWithTag("recq-model-saved-q6").assertExists()
+        compose.onNodeWithText("▶ Your recording").performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(listOf("/api/recording-marks/q6/model-audio?v=a1b2c3d4e5f6"), played)
     }
 
     @Test fun referencePlaysTheCardClipAndTabsSwitch() {

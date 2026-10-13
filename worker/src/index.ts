@@ -2792,6 +2792,8 @@ app.get('/api/audio/*', async (c) => {
   if (key.startsWith('chat-media/')) return c.json({ error: 'Audio not found' }, 404);
   // An audio lesson is its learner's: only GET /api/audio-lessons/:id/audio serves it.
   if (key.startsWith('audio-lessons/')) return c.json({ error: 'Audio not found' }, 404);
+  // A tutor's model recording: only GET /api/recording-marks/:eventId/model-audio serves it (the two people of the mark).
+  if (key.startsWith('tutor-recordings/')) return c.json({ error: 'Audio not found' }, 404);
 
   // <audio> streams media with Range requests. Answering every one with the
   // full body (200) forces the element to re-buffer from zero whenever it

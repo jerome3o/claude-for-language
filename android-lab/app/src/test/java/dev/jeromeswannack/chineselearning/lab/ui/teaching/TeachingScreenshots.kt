@@ -148,6 +148,30 @@ class TeachingScreenshots : LabScreenshotTest() {
         RecordingQueueScreen(RecordingQueueUi("rel-jerome", "Jerome Swannack", view = "all", data = P.queueAll, loading = false), RecordingQueueActions(), S.now)
     }
 
+    /** The note box with the tutor's model recording: a take waiting for Save. */
+    @Test fun recordingsModelTake() = shoot("teaching-23g-recordings-model-take") {
+        RecordingQueueScreen(
+            RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue, loading = false, model = ModelRecUi(drafts = mapOf("q1" to ModelDraftUi(durationMs = 2_400, mime = "audio/webm")))),
+            RecordingQueueActions(), S.now,
+        )
+    }
+
+    /** Recording the model answer: ⏹ Stop with the clock and the level. */
+    @Test fun recordingsModelRecording() = shoot("teaching-23h-recordings-model-recording") {
+        RecordingQueueScreen(
+            RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue, loading = false, model = ModelRecUi(recordingFor = "q1", elapsedMs = 3_200, level = 0.22f)),
+            RecordingQueueActions(), S.now,
+        )
+    }
+
+    @Config(qualifiers = LabScreenshotTest.UNFOLDED)
+    @Test fun recordingsModelUnfolded() = shoot("teaching-23i-recordings-model-unfolded") {
+        RecordingQueueScreen(
+            RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue, loading = false, model = ModelRecUi(drafts = mapOf("q1" to ModelDraftUi(durationMs = 2_400, mime = "audio/webm")))),
+            RecordingQueueActions(), S.now,
+        )
+    }
+
     @Test fun recordingsEmpty() = shoot("teaching-23d-recordings-empty") {
         RecordingQueueScreen(RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queueEmpty, loading = false), RecordingQueueActions(), S.now)
     }

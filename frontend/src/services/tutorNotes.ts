@@ -54,6 +54,8 @@ export function unseenFromLocal(rows: LocalRecordingNote[]): UnseenTutorNote[] {
       comment: r.comment,
       tutor_name: r.tutor_name,
       updated_at: r.updated_at,
+      recording_url: r.recording_url ?? null,
+      model_audio_url: r.model_audio_url ?? null,
     }));
 }
 

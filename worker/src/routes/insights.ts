@@ -10,6 +10,8 @@
  *   GET    /relationships/:relId/insights/summaries
  *   PUT    /relationships/:relId/recordings/:eventId/mark {status,comment?}
  *   DELETE /relationships/:relId/recordings/:eventId/mark
+ *   PUT    /relationships/:relId/recordings/:eventId/mark/audio   raw audio body (?duration_ms=) — her model recording on a needs-work mark
+ *   DELETE /relationships/:relId/recordings/:eventId/mark/audio
  *   GET    /relationships/:relId/recordings/queue?from&to&view=queue|all  ("Needs your ear")
  *   GET    /relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit
  *
@@ -26,6 +28,14 @@ import { buildRecordingQueue } from '../services/recording-queue';
 import { enqueueMissingChecks } from '../services/recording-checks';
 import { azureConfig } from '../services/pronunciation/azure';
 import type { RecordingQueueResponse } from '@shared/recordings/queue';
+import {
+  ModelRecordingError,
+  deleteModelRecordingObject,
+  modelRecordingKeyOf,
+  parseModelDurationMs,
+  removeModelRecording,
+  saveModelRecording,
+} from '../services/model-recordings';
 
 const insights = new Hono<{ Bindings: Env }>();
 
@@ -230,6 +240,8 @@ insights.put('/relationships/:relId/recordings/:eventId/mark', async (c) => {
       throw new HttpError(400, "status must be 'listened' or 'needs_work'");
     }
     const comment = typeof body.comment === 'string' && body.comment.trim() ? body.comment.trim().slice(0, 2000) : null;
+    // A model recording goes with "needs work" only: "listened" takes it off.
+    if (body.status === 'listened') await removeModelRecording(c.env, eventId);
     const mark = await q.upsertRecordingMark(c.env.DB, {
       review_event_id: eventId,
       tutor_id: tutor.id,
@@ -249,10 +261,48 @@ insights.delete('/relationships/:relId/recordings/:eventId/mark', async (c) => {
     const { studentId } = await requireTutor(c.env.DB, relId, c.get('user').id);
     const owner = await q.getReviewEventOwner(c.env.DB, eventId);
     if (!owner || owner.user_id !== studentId) throw new HttpError(404, 'Recording not found');
+    const modelKey = await modelRecordingKeyOf(c.env.DB, eventId);
     await q.deleteRecordingMark(c.env.DB, eventId);
+    await deleteModelRecordingObject(c.env.AUDIO_BUCKET, modelKey);
     return c.json({ success: true });
   } catch (error) {
     return errorResponse(c, error, 'Failed to clear mark');
+  }
+});
+
+// ============ The tutor's model recording on a needs-work mark ============
+
+insights.put('/relationships/:relId/recordings/:eventId/mark/audio', async (c) => {
+  try {
+    const relId = c.req.param('relId');
+    const eventId = c.req.param('eventId');
+    const tutor = c.get('user');
+    const { studentId } = await requireTutor(c.env.DB, relId, tutor.id);
+    const owner = await q.getReviewEventOwner(c.env.DB, eventId);
+    if (!owner || owner.user_id !== studentId) throw new HttpError(404, 'Recording not found');
+    const durationMs = parseModelDurationMs(c.req.query('duration_ms'));
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    await saveModelRecording(c.env, { relId, eventId, tutorId: tutor.id, bytes, durationMs });
+    const mark = await q.getRecordingMark(c.env.DB, eventId);
+    return c.json({ mark });
+  } catch (error) {
+    if (error instanceof ModelRecordingError) return c.json({ error: error.message }, error.status);
+    return errorResponse(c, error, 'Failed to save the recording');
+  }
+});
+
+insights.delete('/relationships/:relId/recordings/:eventId/mark/audio', async (c) => {
+  try {
+    const relId = c.req.param('relId');
+    const eventId = c.req.param('eventId');
+    const { studentId } = await requireTutor(c.env.DB, relId, c.get('user').id);
+    const owner = await q.getReviewEventOwner(c.env.DB, eventId);
+    if (!owner || owner.user_id !== studentId) throw new HttpError(404, 'Recording not found');
+    const removed = await removeModelRecording(c.env, eventId);
+    const mark = await q.getRecordingMark(c.env.DB, eventId);
+    return c.json({ removed, mark });
+  } catch (error) {
+    return errorResponse(c, error, 'Failed to remove the recording');
   }
 });
 

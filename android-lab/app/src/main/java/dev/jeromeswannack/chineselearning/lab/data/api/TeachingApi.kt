@@ -605,7 +605,14 @@ data class GoingWellDto(
 )
 
 @Serializable
-data class RecordingMarkDto(val review_event_id: String = "", val status: String = "listened", val comment: String? = null, val updated_at: String = "")
+data class RecordingMarkDto(
+    val review_event_id: String = "",
+    val status: String = "listened",
+    val comment: String? = null,
+    val updated_at: String = "",
+    /** The tutor's own recording of how it should sound (needs-work marks; fetched with the session). */
+    val model_audio_url: String? = null,
+)
 
 @Serializable
 data class InsightRecordingDto(
@@ -696,6 +703,20 @@ suspend fun Api.markRecording(relId: String, eventId: String, body: MarkBody): R
     put<MarkBody, MarkDto>("${rel(relId)}/recordings/${enc(eventId)}/mark", body).mark
 
 suspend fun Api.clearRecordingMark(relId: String, eventId: String) = delete<Unit>("${rel(relId)}/recordings/${enc(eventId)}/mark")
+
+/**
+ * `PUT …/recordings/:eventId/mark/audio` — the tutor's model recording on a NEEDS-WORK mark (save the
+ * mark first), raw audio body; replaces any earlier clip (docs/RECORDING_REVIEW.md "Model recordings").
+ */
+suspend fun Api.uploadModelRecording(relId: String, eventId: String, take: java.io.File, mime: String, durationMs: Long?): RecordingMarkDto {
+    val q = durationMs?.let { "?duration_ms=$it" } ?: ""
+    val res = sendFile("PUT", "${rel(relId)}/recordings/${enc(eventId)}/mark/audio$q", take, mime)
+    if (!res.ok) throw dev.jeromeswannack.chineselearning.lab.data.HttpException(res.code, res.body.take(200), res.body)
+    return json.decodeFromString(MarkDto.serializer(), res.body).mark
+}
+
+/** `DELETE …/recordings/:eventId/mark/audio` — take the model recording off the mark. */
+suspend fun Api.removeModelRecording(relId: String, eventId: String) = delete<Unit>("${rel(relId)}/recordings/${enc(eventId)}/mark/audio")
 
 @Serializable
 data class HistoryEventDto(

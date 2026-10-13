@@ -497,7 +497,7 @@ export function compactQueueItem(i: RecordingQueueItem, apiBase: string) {
     pronunciation_score: i.check?.score ?? null,
     sounded_off: (i.check?.weak_chars ?? []).map((w) => ({ char: w.char, kind: w.kind, score: w.score })),
     flag: i.flag ? i.flag.message : null,
-    mark: i.mark ? { status: i.mark.status, comment: i.mark.comment, updated_at: i.mark.updated_at } : null,
+    mark: i.mark ? { status: i.mark.status, comment: i.mark.comment, updated_at: i.mark.updated_at, has_model_recording: !!i.mark.model_audio_url } : null,
     in_queue: i.in_queue,
   };
 }

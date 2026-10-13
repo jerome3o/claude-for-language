@@ -99,6 +99,21 @@ class TutorNotesScreenshots : LabScreenshotTest() {
         TutorNotesScreen(TutorNotesUi(true, fresh, earlier), playingKey = null, actions = TutorNotesActions(), nowMs = nowMs)
     }
 
+    private val withModel = fresh.map { if (it.id == "r1") it.copy(comment = "国 is second tone — listen to mine, then yours.", model_audio_url = "/api/recording-marks/r1/model-audio?v=1") else it }
+
+    /** A note with the tutor's model recording: "▶ Mandarin Home 明慧老师 says it" · "▶ You". */
+    @Test fun notesPageModel() = shootInShell("tutor-notes-08-model-recording", active = TabId.MORE) {
+        TutorNotesScreen(TutorNotesUi(true, withModel.drop(1), earlier), playingKey = "/api/recording-marks/r1/model-audio?v=1", actions = TutorNotesActions(), nowMs = nowMs)
+    }
+
+    /** The card back with the note and both clips to compare. */
+    @Test fun cardBackModel() = shoot("tutor-notes-09-card-back-model") {
+        StudyScreen(
+            practiceUi(counts = true).copy(extras = CardExtras(tutorNotes = listOf(TutorNotes.asCardNote(withModel[1])))),
+            playingKey = null, actions = StudyActions(), cardStart = CardStartState(flipped = true), autoplay = false,
+        )
+    }
+
     @Test fun notesEmpty() = shoot("tutor-notes-04-empty") { TutorNotesScreen(TutorNotesUi(true), null, TutorNotesActions(), nowMs) }
 
     private fun practiceView(queue: Int): CardView {

@@ -37,6 +37,7 @@ import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRA
 import { syncCustomLessons, uploadCustomLessonCompletions, uploadLessonAttemptMedia, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncRecordingNotes } from './recording-notes';
 import { syncTutorNotes } from './tutorNotes';
+import { prefetchModelRecordings } from './modelRecordings';
 import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
 import { applyPendingNotePrefs, uploadPendingNotePrefs } from './longTerm';
@@ -590,6 +591,12 @@ class SyncService {
       await syncRecordingNotes();
       // Every note, seen ones too, for the Tutor notes page offline.
       await syncTutorNotes();
+      // The tutor's model recordings ("▶ 明慧老师 says it") + my take beside each, so the card back
+      // and the notes page play them offline (services/modelRecordings.ts).
+      const [unseenNotes, allNotes] = await Promise.all([db.recordingNotes.toArray(), db.tutorNotes.toArray()]);
+      prefetchModelRecordings([...unseenNotes, ...allNotes]).catch(err =>
+        console.error('[Sync] Model recording prefetch failed:', err)
+      );
     } catch (err) {
       console.error('[Sync] Recording notes sync failed:', err);
     }

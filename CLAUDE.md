@@ -374,7 +374,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `messages.album_id` / `album_index` / `album_notified_at` - photo albums (migration 0118, docs/CHAT.md "Photo albums"): photos picked together share the album id (client-chosen), their 0-based index, and the one photo that sent the album's notification
 - `chat_listening` / `users.chat_listening_default` - Chat listening mode (migration 0099, docs/CHAT.md "Listening mode"): per person + conversation `{ listening, since }` (messages after `since` arrive hidden) and the Settings default
 - `users.email_chat_messages` - 1 (default) = a new chat message also sends an e-mail, 0 = off (migration 0093)
-- `users.email_homework` / `assignments.notified_at` / `homework_email_log` - Homework e-mails (migration 0122, docs/HOMEWORK.md §12, `services/homework-emails/`): 1 (default) = "<tutor> sent you homework" (`assignHomework` → `homework-email-queue`, 2-min debounce, rows claimed by `notified_at`) + "due tomorrow" from 18:00 in the student's time zone (hourly cron :37, one per student per due day = the log's UNIQUE key); 0 = off (Settings → Notifications, or the e-mail's `/api/email/unsubscribe?t=&k=homework` link)
+- `users.email_homework` / `assignments.notified_at` / `homework_email_log` - Homework e-mails (migration 0123, docs/HOMEWORK.md §12, `services/homework-emails/`): 1 (default) = "<tutor> sent you homework" (`assignHomework` → `homework-email-queue`, 2-min debounce, rows claimed by `notified_at`) + "due tomorrow" from 18:00 in the student's time zone (hourly cron :37, one per student per due day = the log's UNIQUE key); 0 = off (Settings → Notifications, or the e-mail's `/api/email/unsubscribe?t=&k=homework` link)
 - `messages.auto_check` / `users.chat_auto_check` - the background "check my Chinese" of a learner's chat message — the text, a photo / file / video caption, or a voice transcript once it exists (`autoCheckText`) — (JSON per `shared/chats/autoCheck.ts`, sender-only) and the per-account switch (NULL = on for the learner side; migration 0101; docs/CHAT.md "Auto-check", "Chat ↔ Coach")
 - `coach_messages.status` / `error` / `attempts` / `checkpoint` / `started_at`, `coach_conversations.source_message_id` - Sentence Coach replies written in the background (NULL = done, pending, failed; migration 0114; `services/coach-replies.ts`, docs/CHAT.md "Chat ↔ Coach") and the chat message an "Open in Coach" conversation came from
 - `conversation_reads` - Per person, how far each conversation is read (unread counts, receipts, clearing notifications)
@@ -1709,15 +1709,19 @@ paginated history explorer. Pages: `/connections/:relId/insights`, `/history`, `
 - `POST /api/relationships/:relId/insights/summary` - `{ from?, to? }` → narrative from the
   structured report (never raw events), persisted; 503 when `ANTHROPIC_API_KEY` is missing
 - `GET /api/relationships/:relId/insights/summaries` - Past narratives
-- `PUT /api/relationships/:relId/recordings/:eventId/mark` - `{ status: listened|needs_work, comment? }`
-- `DELETE /api/relationships/:relId/recordings/:eventId/mark`
+- `PUT /api/relationships/:relId/recordings/:eventId/mark` - `{ status: listened|needs_work, comment? }` ("listened" removes a model recording)
+- `DELETE /api/relationships/:relId/recordings/:eventId/mark` (and its model recording)
+- `PUT|DELETE /api/relationships/:relId/recordings/:eventId/mark/audio` - the tutor's **model recording** on a needs-work mark ("how it should sound": raw audio ≤ 2 MB / 60 s, R2 `tutor-recordings/<relId>/<eventId>-<id>.<ext>`, `tutor_recording_marks.model_audio_key`, migration 0123) → `{ mark }` with `model_audio_url`; `GET /api/recording-marks/:eventId/model-audio` serves it ONLY to that tutor and the student (docs/RECORDING_REVIEW.md "Model recordings"; web `components/recordings/ModelRecorder.tsx`, Lab `ModelRecorderBox`)
 - `GET /api/relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit` -
   Flat review events newest first (keyset cursor); the "by word" view groups client-side
 
 Student side of the marks (`worker/src/routes/recording-notes.ts`; migration 0066 adds
 `tutor_recording_marks.student_seen_at`): a needs-work comment is shown once under the pinyin
 on the back of that card ("From <tutor>: …"), cached in IndexedDB (`recordingNotes`) by
-`services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md.
+`services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md. With a model
+recording the note also has "▶ <tutor> says it" · "▶ You" (her clip next to his take; feeds carry
+`model_audio_url` + `recording_url`; clips prefetched with the session by `services/modelRecordings.ts` /
+Lab `data/audio/ModelRecordings.kt`).
 - `GET /api/me/recording-notes` - Unseen needs-work notes on my recordings (event, card, note, hanzi, comment, tutor name) **plus** unseen tutor replies to my flagged cards (`kind: 'flag'`, `event_id` = the flag id, `card_id` may be null → matched on note_id)
 - `POST /api/me/recording-notes/:eventId/seen` - I have seen this note (idempotent, scoped to my own events; a flag id marks that reply seen)
 - `GET /api/me/tutor-notes?include_seen=1&limit=&before=` - The **Tutor notes page** (`/tutor-notes`): every note, new AND seen, newest first, keyset paged (`next_cursor`), with the card's pinyin / meaning / card type, `seen_at`, my `recording_url` and, for a flag, my `student_message`. Cached by each sync (IndexedDB `tutorNotes`, Dexie v22; Lab JSON cache) so the page works offline; the unseen feed still decides what is NEW (`mergeTutorNotes`, `shared/tutor-notes`). Viewing marks the new ones seen. Home shows "🗒 N new notes from <tutor>" while any is unseen. **Practice this card / Practice all** → `/tutor-notes/practice?cards=&notes=` (immersive): the study card, the note pinned on the back; **a rating is a review only when the card is due today** (`practiceRatingCounts` = `isDueByCutoff`), otherwise practice only — no review event (docs/STUDY_SESSION.md)

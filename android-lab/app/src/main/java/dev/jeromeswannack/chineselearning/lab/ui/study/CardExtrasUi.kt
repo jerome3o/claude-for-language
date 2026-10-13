@@ -167,9 +167,16 @@ fun StudyMoreList(items: List<StudyMenuItem>, footer: String?, onDismiss: () -> 
 /**
  * "From Wang Laoshi: second tone, not fourth" / "Wang Laoshi replied to your flag: …"
  * (components/study/TutorNoteLine.tsx) — under the pinyin, once; rating marks it seen.
+ * When the tutor recorded how it should sound: "▶ Wang Laoshi says it" · "▶ You" to compare.
  */
 @Composable
-fun TutorNoteLine(notes: List<TutorNote>, modifier: Modifier = Modifier) {
+fun TutorNoteLine(
+    notes: List<TutorNote>,
+    modifier: Modifier = Modifier,
+    playingKey: String? = null,
+    /** which = "tutor" (her model recording) | "mine" (my take the note is on). */
+    onPlay: (TutorNote, String) -> Unit = { _, _ -> },
+) {
     if (notes.isEmpty()) return
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         for (note in notes) {
@@ -184,8 +191,40 @@ fun TutorNoteLine(notes: List<TutorNote>, modifier: Modifier = Modifier) {
                     .border(1.dp, Palette.Hard.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 12.dp, vertical = 9.dp),
             )
+            if (note.kind != "flag" && note.modelAudioUrl != null) {
+                ModelRecordingPills(note.tutorName, note.modelAudioUrl, note.recordingUrl, playingKey) { which -> onPlay(note, which) }
+            }
         }
     }
+}
+
+/** "▶ 明慧老师 says it" · "▶ You" (web components/recordings/ModelRecordingButtons.tsx). */
+@Composable
+fun ModelRecordingPills(tutorName: String?, modelAudioUrl: String, recordingUrl: String?, playingKey: String?, onPlay: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().testTag(MODEL_RECORDING_TAG), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ModelPill(dev.jeromeswannack.chineselearning.lab.core.TutorNotesRules.saysItLabel(tutorName), playingKey == modelAudioUrl, tutor = true) { onPlay("tutor") }
+        if (recordingUrl != null) ModelPill("You", playingKey == recordingUrl, tutor = false) { onPlay("mine") }
+    }
+}
+
+const val MODEL_RECORDING_TAG = "tutor-model-recording"
+
+@Composable
+private fun ModelPill(label: String, playing: Boolean, tutor: Boolean, onClick: () -> Unit) {
+    val color = if (tutor) Palette.Hard else Lab.colors.accent
+    Text(
+        (if (playing) "■ " else "▶ ") + label,
+        color = if (playing) androidx.compose.ui.graphics.Color.White else color,
+        fontWeight = if (tutor) FontWeight.SemiBold else FontWeight.Medium,
+        style = MaterialTheme.typography.labelLarge,
+        maxLines = 1,
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(50))
+            .bouncyClickable(pressedScale = 0.92f, onClick = onClick)
+            .background(if (playing) color else color.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    )
 }
 
 private fun buildTutorNote(note: TutorNote) = androidx.compose.ui.text.buildAnnotatedString {
@@ -194,7 +233,7 @@ private fun buildTutorNote(note: TutorNote) = androidx.compose.ui.text.buildAnno
     append(CardExtrasLogic.tutorNoteFrom(note))
     pop()
     append(" ")
-    append(note.comment)
+    append(note.comment.ifBlank { if (note.modelAudioUrl != null) "listen to how it should sound, then compare with yours." else "" })
 }
 
 /**

@@ -227,7 +227,7 @@ describe('buildRecordingQueue', () => {
   const base = {
     card_id: 'c', card_type: 'hanzi_to_meaning', note_id: 'n', hanzi: '银行', pinyin: 'yínháng', english: 'bank',
     note_audio_url: 'generated/n.mp3', deck_name: 'D', reviewed_at: '2026-10-01T10:00:00Z', recording_url: 'recordings/e.webm',
-    user_answer: null, mark_status: null, mark_comment: null, mark_updated_at: null, check_status: 'done',
+    user_answer: null, mark_status: null, mark_comment: null, mark_updated_at: null, mark_model_audio_key: null, check_status: 'done',
     transcript: '银行', transcript_match: 1, score: 95, char_scores: '[]', score_note: null,
   } as const;
   it('splits the queue from the rest and explains each item', () => {

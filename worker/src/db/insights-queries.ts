@@ -11,6 +11,7 @@ import type {
   InsightActivity,
   RecordingMark,
 } from '../services/insights';
+import { modelAudioUrl } from '../services/model-recordings';
 
 // ---------- Lesson log ----------
 
@@ -149,11 +150,24 @@ export async function upsertRecordingMark(
     )
     .bind(mark.review_event_id, mark.tutor_id, mark.status, mark.comment)
     .run();
+  return (await getRecordingMark(db, mark.review_event_id)) ?? {
+    review_event_id: mark.review_event_id,
+    status: mark.status,
+    comment: mark.comment,
+    updated_at: new Date().toISOString(),
+    model_audio_url: null,
+  };
+}
+
+/** One mark with its model recording's URL (services/model-recordings.ts). */
+export async function getRecordingMark(db: D1Database, eventId: string): Promise<RecordingMark | null> {
   const row = await db
-    .prepare(`SELECT review_event_id, status, comment, updated_at FROM tutor_recording_marks WHERE review_event_id = ?`)
-    .bind(mark.review_event_id)
-    .first<RecordingMark>();
-  return row ?? { review_event_id: mark.review_event_id, status: mark.status, comment: mark.comment, updated_at: new Date().toISOString() };
+    .prepare(`SELECT review_event_id, status, comment, updated_at, model_audio_key FROM tutor_recording_marks WHERE review_event_id = ?`)
+    .bind(eventId)
+    .first<Omit<RecordingMark, 'model_audio_url'> & { model_audio_key: string | null }>();
+  if (!row) return null;
+  const { model_audio_key, ...rest } = row;
+  return { ...rest, model_audio_url: modelAudioUrl(eventId, model_audio_key) };
 }
 
 export async function deleteRecordingMark(db: D1Database, eventId: string): Promise<void> {
@@ -164,14 +178,14 @@ export async function deleteRecordingMark(db: D1Database, eventId: string): Prom
 export async function fetchRecordingMarks(db: D1Database, studentId: string, from: string, to: string): Promise<RecordingMark[]> {
   const res = await db
     .prepare(
-      `SELECT m.review_event_id, m.status, m.comment, m.updated_at
+      `SELECT m.review_event_id, m.status, m.comment, m.updated_at, m.model_audio_key
        FROM tutor_recording_marks m
        JOIN review_events re ON re.id = m.review_event_id
        WHERE re.user_id = ? AND re.reviewed_at >= ? AND re.reviewed_at <= ? AND re.recording_url IS NOT NULL`
     )
     .bind(studentId, from, to)
-    .all<RecordingMark>();
-  return res.results || [];
+    .all<Omit<RecordingMark, 'model_audio_url'> & { model_audio_key: string | null }>();
+  return (res.results || []).map(({ model_audio_key, ...m }) => ({ ...m, model_audio_url: modelAudioUrl(m.review_event_id, model_audio_key) }));
 }
 
 // ---------- Review rows for the insights report ----------
@@ -379,6 +393,7 @@ export interface RecordingQueueRow {
   mark_status: 'listened' | 'needs_work' | null;
   mark_comment: string | null;
   mark_updated_at: string | null;
+  mark_model_audio_key: string | null;
   check_status: string | null;
   transcript: string | null;
   transcript_match: number | null;
@@ -393,7 +408,7 @@ export async function fetchRecordingQueueRows(db: D1Database, studentId: string,
     .prepare(
       `SELECT re.id AS event_id, re.card_id, c.card_type, n.id AS note_id, n.hanzi, n.pinyin, n.english,
               n.audio_url AS note_audio_url, d.name AS deck_name, re.rating, re.reviewed_at, re.recording_url,
-              re.user_answer, m.status AS mark_status, m.comment AS mark_comment, m.updated_at AS mark_updated_at,
+              re.user_answer, m.status AS mark_status, m.comment AS mark_comment, m.updated_at AS mark_updated_at, m.model_audio_key AS mark_model_audio_key,
               rc.status AS check_status, rc.transcript, rc.transcript_match, rc.score, rc.char_scores, rc.score_note
        FROM review_events re
        JOIN cards c ON c.id = re.card_id

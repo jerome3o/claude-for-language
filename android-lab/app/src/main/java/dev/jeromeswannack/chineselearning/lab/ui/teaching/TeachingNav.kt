@@ -151,8 +151,14 @@ private fun RecordingsRoute(nav: LabNav, relId: String, name: String) {
     val t by vm.transient.collectAsStateWithLifecycle()
     val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
     val online by nav.app.online.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pendingModel by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    val micPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        pendingModel?.let { if (ok) vm.startModel(it) }
+        pendingModel = null
+    }
     RecordingQueueScreen(
-        RecordingQueueUi(relId, name, t.view, t.range, state.data, state.loading, state.error, state.offline, playing, t.saving, t.markError),
+        RecordingQueueUi(relId, name, t.view, t.range, state.data, state.loading, state.error, state.offline, playing, t.saving, t.markError, t.model),
         RecordingQueueActions(
             back = nav::back, open = nav::open, setView = vm::setView, setRange = vm::setRange, play = playToggle(nav),
             playReference = { key, hanzi ->
@@ -160,6 +166,15 @@ private fun RecordingsRoute(nav: LabNav, relId: String, name: String) {
                 else { vm.trackReferencePlay(); nav.app.audio.play(key, hanzi, online) }
             },
             mark = { r, s, c -> vm.mark(r, s, c) }, retry = vm::retry,
+            saveNote = { r, s, c -> vm.saveNote(r, s, c) },
+            startModel = { id ->
+                val granted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (granted) vm.startModel(id) else { pendingModel = id; micPermission.launch(android.Manifest.permission.RECORD_AUDIO) }
+            },
+            stopModel = vm::stopModel, cancelModel = vm::cancelModel,
+            playModelDraft = { id -> if (playing == "model-draft:$id") nav.app.audio.stop() else vm.playModelDraft(id) },
+            playModelSaved = vm::playModelSaved, discardModel = vm::discardModel,
+            removeSavedModel = { id, remove -> vm.removeSavedModel(id, remove) },
         ),
     )
 }

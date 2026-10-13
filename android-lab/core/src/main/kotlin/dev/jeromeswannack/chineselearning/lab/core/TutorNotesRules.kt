@@ -26,6 +26,8 @@ data class TutorNoteRow(
     val seen_at: String? = null,
     val recording_url: String? = null,
     val student_message: String? = null,
+    /** The tutor's model recording (GET /api/recording-marks/<id>/model-audio?v=…); null = none. */
+    val model_audio_url: String? = null,
 )
 
 @Serializable
@@ -41,6 +43,10 @@ data class UnseenTutorNote(
     val comment: String,
     val tutorName: String?,
     val updatedAt: String,
+    /** My take the note is on (R2 key) — recording notes only. */
+    val recordingUrl: String? = null,
+    /** The tutor's model recording; the feed is newer than the full list, so it wins. */
+    val modelAudioUrl: String? = null,
 )
 
 data class TutorNotesList(val fresh: List<TutorNoteRow>, val earlier: List<TutorNoteRow>)
@@ -59,11 +65,16 @@ object TutorNotesRules {
         for (u in unseen) {
             if (!freshIds.add(u.id)) continue
             val full = byId[u.id]
-            fresh += full?.copy(comment = u.comment, tutor_name = u.tutorName ?: full.tutor_name, updated_at = u.updatedAt, seen_at = null)
+            fresh += full?.copy(
+                comment = u.comment, tutor_name = u.tutorName ?: full.tutor_name, updated_at = u.updatedAt, seen_at = null,
+                recording_url = full.recording_url ?: u.recordingUrl,
+                model_audio_url = u.modelAudioUrl ?: full.model_audio_url,
+            )
                 ?: TutorNoteRow(
                     id = u.id, kind = u.kind, card_id = u.cardId, card_type = null, note_id = u.noteId, deck_id = null,
                     hanzi = u.hanzi, pinyin = "", english = "", comment = u.comment, tutor_name = u.tutorName,
-                    updated_at = u.updatedAt, seen_at = null, recording_url = null, student_message = null,
+                    updated_at = u.updatedAt, seen_at = null, recording_url = u.recordingUrl, student_message = null,
+                    model_audio_url = u.modelAudioUrl,
                 )
         }
         val earlier = all.filter { it.id !in freshIds }
@@ -78,6 +89,9 @@ object TutorNotesRules {
         val n = freshTutorNames.size
         return "$n new ${if (n == 1) "note" else "notes"} from $from"
     }
+
+    /** Port of tutorSaysItLabel: "明慧老师 says it" — the button that plays the tutor's model recording. */
+    fun saysItLabel(tutorName: String?): String = "${tutorName?.trim().orEmpty().ifEmpty { "Your tutor" }} says it"
 
     /** Port of tutorNoteLabel. */
     fun label(kind: String): String = if (kind == "flag") "Reply to your flag" else "On your recording"

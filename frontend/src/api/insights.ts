@@ -107,6 +107,24 @@ export async function clearRecordingMark(relId: string, eventId: string): Promis
   await request<{ success: boolean }>(`/relationships/${relId}/recordings/${eventId}/mark`, { method: 'DELETE' });
 }
 
+/**
+ * The tutor's own recording of how it should sound, on a NEEDS-WORK mark (save the mark first).
+ * Raw audio body; replaces any earlier clip. → the mark with its `model_audio_url`.
+ */
+export async function uploadModelRecording(relId: string, eventId: string, blob: Blob, durationMs?: number | null): Promise<RecordingMark> {
+  const q = durationMs != null && Number.isFinite(durationMs) ? `?duration_ms=${Math.round(durationMs)}` : '';
+  const res = await request<{ mark: RecordingMark }>(`/relationships/${relId}/recordings/${eventId}/mark/audio${q}`, {
+    method: 'PUT',
+    body: blob,
+    headers: { 'Content-Type': blob.type || 'audio/webm' },
+  });
+  return res.mark;
+}
+
+export async function removeModelRecording(relId: string, eventId: string): Promise<void> {
+  await request<{ removed: boolean }>(`/relationships/${relId}/recordings/${eventId}/mark/audio`, { method: 'DELETE' });
+}
+
 // ---------- "Needs your ear" queue ----------
 
 export async function getRecordingQueue(

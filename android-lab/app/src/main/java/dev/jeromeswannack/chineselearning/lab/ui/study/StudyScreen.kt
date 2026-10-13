@@ -105,6 +105,8 @@ class StudyActions(
     val onNewVoice: () -> Unit = {},
     val onRoleplay: () -> Unit = {},
     val onPlayMyRecording: () -> Unit = {},
+    /** A tutor note's "▶ <tutor> says it" (which = "tutor") or "▶ You" (which = "mine"). */
+    val onPlayTutorModel: (TutorNote, String) -> Unit = { _, _ -> },
     // my pronunciation (read cards)
     val onStartRecording: (skipDelay: Boolean) -> Unit = {},
     val onStopRecording: (flipped: Boolean) -> Unit = {},
@@ -274,6 +276,7 @@ fun StudyRoute(
             },
             onCardSpoken = vm::onCardSpoken,
             onPlayMyRecording = vm::playMyRecording,
+            onPlayTutorModel = vm::playTutorModel,
             onStartRecording = vm::startRecording,
             onStopRecording = vm::stopRecording,
             onClearRecording = vm::clearRecording,
