@@ -1,4 +1,8 @@
 import { test, expect, APIRequestContext, Page } from '@playwright/test';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * Say the answer on a typing card (docs/STUDY_SESSION.md "Say the answer"): 🎤 streams to the

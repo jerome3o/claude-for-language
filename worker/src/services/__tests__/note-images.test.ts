@@ -143,8 +143,8 @@ describe('generated pictures', () => {
     expect(note('nT').image_status).toBe('pending');
   });
 
-  it('E2E_TEST_MODE draws the fake picture inline', async () => {
-    const e2e = { ...env, GEMINI_API_KEY: '', E2E_TEST_MODE: 'true' };
+  it.each([['no key', ''], ['a real key (the E2E workflow has one)', 'real-key']])('E2E_TEST_MODE draws the fake picture inline, with %s', async (_label, key) => {
+    const e2e = { ...env, GEMINI_API_KEY: key, E2E_TEST_MODE: 'true' };
     const view = await requestNoteImage(e2e as never, 'tutor', 'nT');
     expect(view?.image_key).toMatch(/^note-images\/[0-9a-f]{32}\.png$/);
     expect(r2.store.has(view!.image_key!)).toBe(true);

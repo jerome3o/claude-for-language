@@ -1,4 +1,8 @@
 import { test, expect } from './fixtures/auth';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * Pronunciation takes stream to Soniox while the learner speaks (services/liveTranscription.ts),

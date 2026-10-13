@@ -312,8 +312,9 @@ export async function ensureNoteImages(
   out.queued = messages.length;
   if (messages.length === 0) return out;
 
-  if (!env.GEMINI_API_KEY && env.E2E_TEST_MODE === 'true') {
-    // E2E: draw the fixed fake picture right away (no queue consumer, no image model).
+  if (env.E2E_TEST_MODE === 'true') {
+    // E2E: draw the fixed fake picture right away (no queue consumer, no image model) — even when
+    // the E2E workflow has a real GEMINI_API_KEY: a real drawing on the queue made the spec flaky.
     for (const msg of messages) await handleNoteImageMessage(env, msg, opts.generate ?? fakeNoteImage(env.AUDIO_BUCKET));
     return out;
   }

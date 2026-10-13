@@ -1,4 +1,8 @@
 import { test, expect, APIRequestContext, Locator, Page } from '@playwright/test';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * Ask Claude, immersion (docs/STUDY_SESSION.md "Ask Claude"): on the card back, Ask Claude

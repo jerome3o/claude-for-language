@@ -1,4 +1,8 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * The character sheet (docs/STUDY_SESSION.md "Character sheet"): tap a character on the card

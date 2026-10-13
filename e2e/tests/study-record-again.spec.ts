@@ -1,4 +1,8 @@
 import { test, expect, type Page } from './fixtures/auth';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * Record again on the answer side of a read card: the card turns back to the question while the

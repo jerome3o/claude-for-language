@@ -1,4 +1,8 @@
 import { test, expect, APIRequestContext, Page } from '@playwright/test';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * Multiple choice on the typing cards: ONE tap flips the card, with whatever

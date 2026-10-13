@@ -163,7 +163,8 @@ test.describe('AI Deck Generation', () => {
     // Navigate back to home (use gotoAuthenticated to maintain auth)
     await page.gotoAuthenticated('/');
 
-    // The new deck should appear in the deck list
-    await expect(page.getByText(deckName)).toBeVisible({ timeout: 10000 });
+    // The new deck should appear in the deck list (Home's "Next up" line may name it too, once the
+    // queue is counted — so look in the list itself, not for any text match).
+    await expect(page.locator('.home-deck-name', { hasText: deckName })).toBeVisible({ timeout: 10000 });
   });
 });
