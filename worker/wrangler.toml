@@ -226,7 +226,8 @@ head_sampling_rate = 1
 
 # Daily at 03:17 UTC: prune usage_events older than 180 days (docs/ANALYTICS.md).
 # 23:00 + 00:00 UTC: the nightly audio backfill, acting only at London midnight
-# (so DST is handled); :37 hourly keeps the daytime drain going (docs/AUDIO.md).
+# (so DST is handled); :37 hourly keeps the daytime drain going (docs/AUDIO.md) and
+# sends the homework e-mails: the evening-before reminders + the assigned-e-mail sweep (docs/HOMEWORK.md §12).
 [triggers]
 crons = ["17 3 * * *", "0 23 * * *", "0 0 * * *", "37 * * * *"]
 
@@ -273,6 +274,20 @@ queue = "idiom-queue"
 max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
+
+# Homework e-mails (services/homework-emails, docs/HOMEWORK.md §12): one message per
+# send, delayed ~2 minutes so a burst of sends becomes ONE "sent you homework" e-mail.
+# The hourly cron (:37) sweeps what a lost message left and sends the reminders.
+# Create with: `wrangler queues create homework-email-queue`
+[[queues.producers]]
+queue = "homework-email-queue"
+binding = "HOMEWORK_EMAIL_QUEUE"
+
+[[queues.consumers]]
+queue = "homework-email-queue"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 2
 
 # Queue for the tutor's "Needs your ear" recording checks (services/recording-checks.ts):
 # transcribe each pronunciation take and score it with Azure Pronunciation Assessment.

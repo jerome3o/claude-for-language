@@ -27,6 +27,8 @@ data class CardView(
     val bumpedBy: String? = null,
     /** Screenshots only: the card picture drawn from this bitmap instead of the note's file. */
     val picturePreview: androidx.compose.ui.graphics.ImageBitmap? = null,
+    /** Never-seen characters of the hanzi (core NewCharacters), worked out when shown: they shimmer. */
+    val newChars: List<String> = emptyList(),
 )
 
 /** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */

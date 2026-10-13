@@ -53,6 +53,8 @@ export interface AuthUser {
   call_alerts?: 'ring' | 'silent';
   /** A new chat message also sends an e-mail (default true; Settings → Notifications, or the e-mail's own link). */
   email_chat_messages?: boolean;
+  /** Homework e-mails: "<tutor> sent you homework" + the evening-before "due tomorrow" (default true; docs/HOMEWORK.md §12). */
+  email_homework?: boolean;
   /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account). */
   chat_auto_check?: boolean | null;
   /** "Ask Claude answers in" on the study card: 'zh' | 'en', null = the default (Chinese; shared/study/askClaude.ts). */
@@ -154,7 +156,7 @@ export interface Note {
   check_issues?: string | null;
   /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts; migration 0120). */
   word_tags?: string | null;
-  /** The note's picture (shared/cards/note-image.ts; migration 0122): R2 key (served by /api/audio/<key>), where it came from, drawing state. */
+  /** The note's picture (shared/cards/note-image.ts; migration 0123): R2 key (served by /api/audio/<key>), where it came from, drawing state. */
   image_key?: string | null;
   image_source?: 'generated' | 'upload' | null;
   image_status?: 'pending' | 'failed' | null;
@@ -901,7 +903,7 @@ export interface CoachMessage {
   id: string;
   conversation_id: string;
   role: 'user' | 'assistant';
-  content_type: 'text' | 'analysis';
+  content_type: 'text' | 'analysis' | 'mistake_lesson';
   content: string;
   tool_results: string | null;
   created_at: string;

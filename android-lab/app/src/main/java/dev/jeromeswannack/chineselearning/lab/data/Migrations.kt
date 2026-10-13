@@ -93,7 +93,7 @@ object LabMigrations {
 
     /**
      * v9: notes.imageKey / imageSource / imageStatus — the note's picture (server notes.image_*,
-     * migration 0122; core cards/NoteImage.kt). Nullable text, no index.
+     * migration 0123; core cards/NoteImage.kt). Nullable text, no index.
      */
     val MIGRATION_8_9 = object : Migration(8, 9) {
         override fun migrate(db: SupportSQLiteDatabase) {

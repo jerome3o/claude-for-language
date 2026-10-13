@@ -6,6 +6,7 @@ import { bumpPocket, type QueueBump, type QueueBumps } from '@shared/decks';
 import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, isLeadCard, knownCharacterNotesInQueue, isKnownCardState, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { newBudgetLeft, takeUpNext, upNextSlots, withUpNextPicks } from '@shared/decks';
+import { seenCharactersOf } from '@shared/study/newCharacters';
 import { readStudyBudget } from '../services/studyBudget';
 import { readNewCardOrder } from '../services/newCardOrder';
 import { loadWordFrequency } from '../services/wordFrequency';
@@ -123,7 +124,7 @@ export interface LocalNote {
   check_issues?: string | null;
   /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts), synced from the server. */
   word_tags?: string | null;
-  /** The note's picture (shared/cards/note-image.ts; migration 0122): R2 key (served by /api/audio/<key>), where it came from, drawing state. */
+  /** The note's picture (shared/cards/note-image.ts; migration 0123): R2 key (served by /api/audio/<key>), where it came from, drawing state. */
   image_key?: string | null;
   image_source?: 'generated' | 'upload' | null;
   image_status?: 'pending' | 'failed' | null;
@@ -1966,6 +1967,8 @@ export interface StudyQueue {
   bumpedCardIds: Set<string>;
   /** Unseen notes that start with meaning_to_hanzi (every character known, shared/decks/lead-card.ts). */
   knownCharacterNoteIds: Set<string>;
+  /** Han characters of every note with a reviewed card, any deck (the shimmer: shared/study/newCharacters.ts). */
+  seenCharacters: Set<string>;
 }
 
 /**
@@ -1982,7 +1985,10 @@ export async function getStudyQueue(deckId?: string, bonusNewCards = 0): Promise
   const raw = countRawQueues(inputs, reviewedNoteIds, cutoff, noteText);
   const applied = allocateQueueCounts(raw, bonusNewCards, inputs.budget, inputs.spentElsewhere);
   const counts = deckId ? applied.get(deckId) ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied.values());
-  return { dueCards, counts, reviewedNoteIds, bumpedCardIds: new Set(bumpedCardIds), knownCharacterNoteIds };
+  // Seen = the queue's own "studied" notes (every deck, also in a one-deck session).
+  const seenIds = noteText.reviewedNoteIds ?? reviewedNoteIds;
+  const seenCharacters = seenCharactersOf([...seenIds].map(id => noteText.hanzi.get(id) ?? ''));
+  return { dueCards, counts, reviewedNoteIds, bumpedCardIds: new Set(bumpedCardIds), knownCharacterNoteIds, seenCharacters };
 }
 
 /**

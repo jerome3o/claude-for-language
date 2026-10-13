@@ -252,7 +252,7 @@ class MigrationTest {
         room.close()
     }
 
-    /** v9 adds notes.imageKey / imageSource / imageStatus (pictures on cards, migration 0122): none to start; everything else stays. */
+    /** v9 adds notes.imageKey / imageSource / imageStatus (pictures on cards, migration 0123): none to start; everything else stays. */
     @Test fun v8ToV9AddsNotePicturesAndKeepsEverything() {
         createFromExportedSchema(8).use { db ->
             db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId) VALUES ('d1', 'Fruit', NULL, 3, 6, 2, '2026-10-13 10:00:00', NULL)")

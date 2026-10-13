@@ -31,6 +31,8 @@ export interface Env {
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
   /** 成语 Idioms (beta): one generated entry per idiom (services/idioms.ts, docs/IDIOMS.md). */
   IDIOM_QUEUE?: Queue<import('./services/idioms').IdiomQueueMessage>;
+  /** "<Tutor> sent you homework" e-mails, delayed ~2 min so a burst of sends is one e-mail (services/homework-emails, docs/HOMEWORK.md §12). */
+  HOMEWORK_EMAIL_QUEUE?: Queue<import('./services/homework-emails').HomeworkEmailMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */
   TTS_QUEUE: Queue<import('./services/tts/queue').TtsQueueMessage>;
   /** One rate limiter per TTS provider (idFromName = minimax | azure | google; docs/AUDIO.md). Optional so tests run without it. */
@@ -322,7 +324,7 @@ export interface Note {
   /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts; migration 0120). */
   word_tags?: string | null;
   word_tags_at?: string | null;
-  /** The note's picture (shared/cards/note-image.ts; migration 0122): R2 key, where it came from, drawing state. */
+  /** The note's picture (shared/cards/note-image.ts; migration 0123): R2 key, where it came from, drawing state. */
   image_key?: string | null;
   image_source?: 'generated' | 'upload' | null;
   image_status?: 'pending' | 'failed' | null;
@@ -971,7 +973,7 @@ export interface CoachMessage {
   id: string;
   conversation_id: string;
   role: 'user' | 'assistant';
-  content_type: 'text' | 'analysis';
+  content_type: 'text' | 'analysis' | 'mistake_lesson';
   content: string;
   tool_results: string | null;
   created_at: string;

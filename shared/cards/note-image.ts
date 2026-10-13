@@ -1,5 +1,5 @@
 /**
- * Pictures on cards — one optional picture per note (migration 0122; docs/STUDY_SESSION.md
+ * Pictures on cards — one optional picture per note (migration 0123; docs/STUDY_SESSION.md
  * "Pictures on cards"). Pure rules shared by the worker, the web app and the Lab app
  * (`core/…/cards/NoteImage.kt`, parity-tested by `android-lab/parity/fixtures/note-image.ts`).
  *

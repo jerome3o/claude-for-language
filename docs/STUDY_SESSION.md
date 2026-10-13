@@ -633,6 +633,41 @@ Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRe
 `replayAfterReRecordRef` in `StudyPage.tsx` (plays when the new take's blob lands); Lab
 `recordingAgain` / `playWordAfterRecordAgain` in `StudyViewModel.kt` (`RecordAgainAutoplayTest`).
 
+## New characters shimmer
+
+Jerome: "When a card arrives with a character I've never seen before, the character should be
+lightly shimmering, so it looks new."
+
+- **Never seen** is the queue's own "New characters first" rule (`shared/decks/novelty.ts`,
+  `new-card-order.ts`): seen = the Han characters in the hanzi of every note with at least one
+  REVIEWED card, any deck (not the example sentence). A character of the card's hanzi outside that
+  set is new. Pure rules: `shared/study/newCharacters.ts` (`seenCharactersOf`, `markCharactersSeen`,
+  `newCharactersIn`, `newCharacterMask`, `newCharactersLabel`); Lab `core/…/NewCharacters.kt`,
+  parity-tested (`parity/fixtures/new-characters.ts` → `NewCharactersParityTest`).
+- **Once per card**: the seen set is built once per session from what the queue already loads (web
+  `getStudyQueue` → `seenCharacters`, kept by `services/newCharacters.ts`; the homework pass /
+  tutor-notes practice load it once from IndexedDB; Lab `StudyViewModel.seenChars`). A card works
+  out its new characters when it is shown (`useNewCharacters` / `CardView.newChars`); rating it adds
+  its characters, so the NEXT card with 行 is plain while the card on screen keeps its shimmer.
+- **Where**: the study card's big hanzi only — the read card's question, the answer side's hanzi
+  (the explorer's per-character tap targets unchanged), the correct-answer rows of a typed / spoken /
+  multiple-choice answer. The homework pass and tutor-notes practice use the same card. Not in
+  sentence rows, chips or the explorer.
+- **Look**: a narrow warm band (amber; paler gold on a dark card) sweeps across the glyph every
+  3.6 s (the sweep takes the first 45 %, staggered 140 ms per character), with a faint warm glow;
+  the glyph keeps its own colour (the gradient is built on it), so green answer boxes stay green.
+  Reduced motion (web `prefers-reduced-motion`; Lab: animator duration scale 0, "Remove
+  animations") = a static warm tint + the glow. Screen readers: "New character: 行" beside the
+  hanzi (web, visually hidden) / the glyph's state "New character" (Lab).
+- **Switch**: Settings → Study → "Shimmer new characters" (on by default, per device: web
+  localStorage `new-char-shimmer-v1`, Lab `StudyPrefs.newCharShimmerOn`); `settings.change`
+  `setting: new_char_shimmer`.
+- Web: `components/study/NewCharShimmer.tsx` + `newCharShimmer.css`, `ExplorableText newChars`,
+  `StudyPage.tsx`; test `NewCharShimmer.test.tsx`. Lab: `ui/study/NewCharShimmer.kt`
+  (`NewCharGlyph`: a `ShaderBrush` band on the Text, `rememberInfiniteTransition`;
+  `LocalNewCharShimmerPhase` freezes it for screenshots), `CardStage.kt`, `AnswerMarks.kt`,
+  `McGrid.kt`; test `NewCharShimmerTest` (Roborazzi `study-newchar-*`).
+
 ## Word tags
 
 Under the meaning on the answer side sits a quiet row of small pills — **metadata about the word,
@@ -729,7 +764,7 @@ as `server.word_tags_batch` (with `everyday` = notes called Everyday speech).
 
 ## Pictures on cards
 
-One optional picture per note (migration 0122; rules `shared/cards/note-image.ts`, Lab
+One optional picture per note (migration 0123; rules `shared/cards/note-image.ts`, Lab
 `core/…/cards/NoteImage.kt`, parity-tested by `android-lab/parity/fixtures/note-image.ts`). Asked
 for by Jerome's tutor: "Can images be generated for the words in a deck?"
 

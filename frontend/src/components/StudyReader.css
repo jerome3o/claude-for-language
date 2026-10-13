@@ -316,3 +316,34 @@
   color: var(--color-text-light, #6b7280);
   text-align: center;
 }
+
+/* A preview that may be kept (Sentence Coach mistake lessons, StudyCustomLesson `previewSave`). */
+.lesson-preview-save {
+  min-height: 44px;
+  padding: 0 0.875rem;
+  border-radius: 999px;
+  border: 1px solid #8b5cf6;
+  background: transparent;
+  color: #7c3aed;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.lesson-preview-save:disabled {
+  opacity: 0.6;
+}
+.study-topbar .lesson-preview-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.lesson-preview-save-error {
+  margin: 0.5rem 1rem 0;
+  font-size: 0.875rem;
+  color: #b91c1c;
+  text-align: center;
+}

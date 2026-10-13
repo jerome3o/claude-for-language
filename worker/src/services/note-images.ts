@@ -1,5 +1,5 @@
 /**
- * Pictures on cards: one optional picture per note (migration 0122; rules in
+ * Pictures on cards: one optional picture per note (migration 0123; rules in
  * shared/cards/note-image.ts; docs/STUDY_SESSION.md "Pictures on cards").
  *
  * Generated pictures work like lesson pictures (services/lesson-images.ts):

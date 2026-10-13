@@ -74,7 +74,7 @@ data class NoteEntity(
      */
     val wordTags: String? = null,
     /**
-     * The note's picture (notes.image_key / image_source / image_status, migration 0122; core
+     * The note's picture (notes.image_key / image_source / image_status, migration 0123; core
      * cards/NoteImage.kt): R2 key, generated | upload, pending | failed. v9.
      */
     val imageKey: String? = null,

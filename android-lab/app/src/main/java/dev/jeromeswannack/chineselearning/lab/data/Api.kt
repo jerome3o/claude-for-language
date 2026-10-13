@@ -39,6 +39,8 @@ data class MeDto(
     val voice_gender: String? = null,
     /** A new chat message also sends an e-mail (Settings → Notifications → Chat e-mails; docs/CHAT.md). */
     val email_chat_messages: Boolean = true,
+    /** Homework e-mails: "<tutor> sent you homework" + the evening-before reminder (Settings → Notifications; docs/HOMEWORK.md §12). */
+    val email_homework: Boolean = true,
     /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account; core SayBetter.settingShown). */
     val chat_auto_check: Boolean? = null,
     /** "Ask Claude answers in": 'zh' | 'en', null = the default (Chinese; core AskClaude). */
