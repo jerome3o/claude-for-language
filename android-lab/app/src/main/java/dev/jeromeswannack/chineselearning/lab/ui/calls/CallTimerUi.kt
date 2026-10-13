@@ -120,7 +120,7 @@ fun CallTimerPill(timer: CallTimer.Timer?, runsTimer: Boolean, flashing: Boolean
         if (timer != null) Text(
             if (done) CallTimer.TIMER_UP_LABEL else CallTimer.timerLabel(timer, now),
             color = if (done) Color.White else Color(0xFFFEF3C7), fontSize = 14.sp, fontWeight = FontWeight.Bold,
-            fontFeatureSettings = "tnum",
+            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
         )
     }
 }
@@ -139,7 +139,7 @@ fun ColumnScope.CallTimerSheet(timer: CallTimer.Timer?, runsTimer: Boolean, myUs
             val done = CallTimer.timerDone(timer, now)
             Text(
                 CallTimer.timerLabel(timer, now), fontSize = 56.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                color = if (done) Color(0xFFDC2626) else Lab.colors.ink, fontFeatureSettings = "tnum",
+                color = if (done) Color(0xFFDC2626) else Lab.colors.ink, style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
                 modifier = Modifier.fillMaxWidth().testTag("call-timer-big"),
             )
             Text(CallTimer.timerByLine(timer, myUserId, now), color = Lab.colors.muted, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
