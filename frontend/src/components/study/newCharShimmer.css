@@ -1,0 +1,63 @@
+/*
+ * "New characters shimmer" (shared/study/newCharacters.ts, docs/STUDY_SESSION.md): a character
+ * the learner has never seen gets a soft sheen that sweeps across the glyph every few seconds,
+ * with a faint warm glow. The glyph keeps its own colour (the gradient is built on currentColor),
+ * so it works on the plain card, the green / grey answer boxes and in a dark theme.
+ * Reduced motion: no movement — a static warm tint and the faint glow instead.
+ */
+:root {
+  --new-char-sheen: #f59e0b;
+  --new-char-glow: rgba(245, 158, 11, 0.3);
+}
+
+:root[data-theme='dark'] {
+  --new-char-sheen: #fcd34d;
+  --new-char-glow: rgba(252, 211, 77, 0.32);
+}
+
+.new-char {
+  /* currentColor = the glyph's own colour; the sheen is a narrow warm band across it. */
+  background-image: linear-gradient(
+    110deg,
+    currentColor 0%,
+    currentColor 38%,
+    var(--new-char-sheen) 50%,
+    currentColor 62%,
+    currentColor 100%
+  );
+  background-size: 250% 100%;
+  background-position: 150% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 0.12em var(--new-char-glow));
+  animation: new-char-sheen 3.6s ease-in-out infinite;
+  animation-delay: calc(var(--nc-i, 0) * 0.14s + 0.4s);
+}
+
+@keyframes new-char-sheen {
+  0% { background-position: 150% 0; }
+  45%, 100% { background-position: -50% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-char {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+    color: color-mix(in srgb, currentColor 72%, var(--new-char-sheen));
+  }
+}
+
+/* The screen-reader line beside the hanzi ("New character: 行"). */
+.new-char-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
