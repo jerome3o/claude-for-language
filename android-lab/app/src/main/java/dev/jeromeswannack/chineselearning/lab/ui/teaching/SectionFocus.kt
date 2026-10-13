@@ -57,13 +57,17 @@ fun FlashSection(trigger: SectionFocus?, modifier: Modifier = Modifier, content:
     }
     val a = alpha.value
     val shape = RoundedCornerShape(12.dp)
-    Box(
-        modifier
-            .then(if (a > 0f) Modifier.testTag("section-flash") else Modifier)
-            .background(FLASH_WASH.copy(alpha = FLASH_WASH.alpha * a), shape)
-            .border(3.dp, FLASH_RING.copy(alpha = a), shape)
-            .padding(if (trigger != null) 6.dp else 0.dp),
-    ) { content() }
+    // The caller's modifier (and test tag) on the outer box; the flash and its tag on an inner
+    // one — two test tags on one node would hide the second.
+    Box(modifier) {
+        Box(
+            Modifier
+                .then(if (a > 0f) Modifier.testTag("section-flash") else Modifier)
+                .background(FLASH_WASH.copy(alpha = FLASH_WASH.alpha * a), shape)
+                .border(3.dp, FLASH_RING.copy(alpha = a), shape)
+                .padding(if (trigger != null) 6.dp else 0.dp),
+        ) { content() }
+    }
 }
 
 // The homework blue (web td-pill-homework / .section-flash), readable on both themes.

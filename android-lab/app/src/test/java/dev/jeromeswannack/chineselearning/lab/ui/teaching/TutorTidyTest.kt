@@ -57,8 +57,10 @@ class TutorTidyTest {
 
     @Test fun focusScrollsToTheHomeworkSectionAndFlashesIt() {
         compose.mainClock.autoAdvance = false
+        // One request (as TeachingNav remembers it): a new SectionFocus per recomposition would restart the scroll.
+        val ui = S.studentPage().copy(focus = SectionFocus(Routes.SECTION_HOMEWORK))
         compose.setContent {
-            LabTheme { StudentPageScreen(S.studentPage().copy(focus = SectionFocus(Routes.SECTION_HOMEWORK)), StudentPageActions(), S.now) }
+            LabTheme { StudentPageScreen(ui, StudentPageActions(), S.now) }
         }
         // The scroll walks the list a screen per frame until the Homework item is laid out.
         var shown = false
