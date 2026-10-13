@@ -19,6 +19,7 @@ import {
 import type { Background, CreateNoteOptions, NoteInput, NotePatch, UpdateNoteOptions } from './types';
 import { dropStaleIssues, queueNoteCheck } from '../card-check';
 import { clearWordTags, queueWordTags } from '../word-tags-ai';
+import { deleteUnreferencedNoteImages, illustrateNewNotes } from '../note-images';
 import { cardTextProblems } from '@shared/cards';
 import { toLongTermPref } from '@shared/decks/long-term';
 
@@ -92,6 +93,8 @@ export async function createNote(
     await queueNoteCheck(env, userId, [note.id], options.bg);
     await queueWordTags(env, userId, [note.id], options.bg, 'create');
   }
+  // A deck with "Illustrate new cards" on draws the new card's picture (shared/cards/note-image.ts).
+  { const p = illustrateNewNotes(env, userId, deckId, [note.id]); if (options.bg) options.bg.waitUntil(p); else await p; }
   void trackServer('server.content_created', { kind: 'note', count: 1 }, { env, userId });
   return note;
 }
@@ -136,6 +139,10 @@ export async function createNotes(
   if (result.created.length && (options.check ?? true)) {
     await queueNoteCheck(env, userId, result.created.map(n => n.id), options.bg);
     await queueWordTags(env, userId, result.created.map(n => n.id), options.bg, 'create');
+  }
+  if (result.created.length) {
+    const p = illustrateNewNotes(env, userId, deckId, result.created.map(n => n.id));
+    if (options.bg) options.bg.waitUntil(p); else await p;
   }
   if (result.created.length) void trackServer('server.content_created', { kind: 'note', count: result.created.length }, { env, userId });
   return result;
@@ -227,7 +234,10 @@ export async function deleteNote(env: Env, userId: string, noteId: string, bg?: 
     .all<{ audio_url: string }>();
   const keys = [note.audio_url, note.sentence_clue_audio_url, ...(sentences.results || []).map(s => s.audio_url)];
   await db.deleteNote(env.DB, noteId, userId);
-  const cleanup = deleteUnreferencedAudio(env, keys).catch(err => console.error('[deleteNote] audio cleanup failed', err));
+  const cleanup = Promise.all([
+    deleteUnreferencedAudio(env, keys),
+    deleteUnreferencedNoteImages(env, [note.image_key]),
+  ]).catch(err => console.error('[deleteNote] audio cleanup failed', err));
   if (bg) bg.waitUntil(cleanup); else await cleanup;
   return true;
 }

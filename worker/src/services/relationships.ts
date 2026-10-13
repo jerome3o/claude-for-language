@@ -1249,6 +1249,14 @@ export async function updateSharedDeckCopy(
         existing.audio_url = note.audio_url;
         audioFilled++;
       }
+      // A picture the tutor added after the copy was made (the copy has none): same key, image_at only.
+      const src = note as unknown as { image_key?: string | null; image_source?: string | null; image_hash?: string | null };
+      if (src.image_key) {
+        await db
+          .prepare("UPDATE notes SET image_key = ?, image_source = ?, image_hash = ?, image_status = NULL, image_at = datetime('now') WHERE id = ? AND image_key IS NULL")
+          .bind(src.image_key, src.image_source ?? null, src.image_hash ?? null, existing.id)
+          .run();
+      }
       // The tutor edited the word after the copy was last touched (a fixed
       // pinyin, a better gloss, a new example sentence): carry the text over.
       // A copy the student edited more recently keeps their version. Cards and
