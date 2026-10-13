@@ -1184,10 +1184,10 @@ private fun UnknownBody(v: ActivityView) {
 @Composable
 fun ActivityPickerSheet(
     running: ActivitySession?,
-    onPick: (String) -> Unit,
     /** The tutor's "For <student> · from last lesson" (null for the student / a solo call). */
     prepared: PickerPreparedUi? = null,
     preparedActions: PickerPreparedActions = PickerPreparedActions(),
+    onPick: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         if (running != null && running.phase != ActivityPhases.DONE) {

@@ -122,7 +122,7 @@ class PreparedActivitiesScreenshots : LabScreenshotTest() {
     @Test fun picker() = shoot("lab-prepared-04-call-picker") {
         LabCard {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                ActivityPickerSheet(null, {}, prepared = PickerPreparedUi("Jerome Swannack", list.sortedBy { if (it.status == "ready") 0 else 1 }))
+                ActivityPickerSheet(null, onPick = {}, prepared = PickerPreparedUi("Jerome Swannack", list.sortedBy { if (it.status == "ready") 0 else 1 }))
             }
         }
     }
@@ -131,7 +131,7 @@ class PreparedActivitiesScreenshots : LabScreenshotTest() {
     @Test fun pickerUnfolded() = shoot("lab-prepared-05-call-picker-unfolded") {
         LabCard {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                ActivityPickerSheet(null, {}, prepared = PickerPreparedUi("Jerome Swannack", list.sortedBy { if (it.status == "ready") 0 else 1 }, preparing = true))
+                ActivityPickerSheet(null, onPick = {}, prepared = PickerPreparedUi("Jerome Swannack", list.sortedBy { if (it.status == "ready") 0 else 1 }, preparing = true))
             }
         }
     }
