@@ -550,24 +550,23 @@ private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActio
     val rowState = rememberLazyListState()
     val hasBumpChip = ui.bumpExact != null || ui.bumpWords.isNotEmpty()
     LaunchedEffect(hasBumpChip) { if (hasBumpChip && rowState.firstVisibleItemIndex <= 1) rowState.scrollToItem(0) }
-    androidx.compose.foundation.lazy.LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // "🎯 Mini lesson on this mistake": write one, open the one there is, or say it's being written.
-        if (ui.mistakeLessonOffered) {
-            item(key = "mistake-lesson") {
-                val lesson = ui.lessonMessage
-                val writing = ui.lessonRequesting || lesson?.isPending == true
-                val ready = lesson != null && lesson.status == null
-                LabChip(
-                    if (writing) CoachMistakeLesson.BUSY else CoachMistakeLesson.LABEL,
-                    modifier = Modifier.testTag(CoachLessonTags.CHIP).alpha(if (writing) 0.6f else 1f),
-                    selected = true,
-                    enabled = !writing,
-                ) {
-                    val content = if (ready) CoachMistakeLesson.parse(lesson!!.content) else null
-                    if (content != null) actions.onPlayLesson(lesson!!.id, content) else actions.onMistakeLesson()
-                }
-            }
+    // "🎯 Mini lesson on this mistake": its own row above the chips (write one, open the one there is,
+    // or say it's being written) — first, and never pushing the direct actions off the row.
+    if (ui.mistakeLessonOffered) {
+        val lesson = ui.lessonMessage
+        val writing = ui.lessonRequesting || lesson?.isPending == true
+        val ready = lesson != null && lesson.status == null
+        LabChip(
+            if (writing) CoachMistakeLesson.BUSY else CoachMistakeLesson.LABEL,
+            modifier = Modifier.testTag(CoachLessonTags.CHIP).alpha(if (writing) 0.6f else 1f),
+            selected = true,
+            enabled = !writing,
+        ) {
+            val content = if (ready) CoachMistakeLesson.parse(lesson!!.content) else null
+            if (content != null) actions.onPlayLesson(lesson!!.id, content) else actions.onMistakeLesson()
         }
+    }
+    androidx.compose.foundation.lazy.LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         // "⚡ Study … today" (core SentenceBumps): the sentence's own card, else a picker over its
         // words he already has (nothing ticked) — one tap never bumps a pile of words.
         val exact = ui.bumpExact

@@ -45,8 +45,8 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
     }
 
     @Test fun pendingLessonDoesNotHoldUpTheChat() {
-        val ui = CoachMistakeLessonSamples.pending
-        assertFalse(ui.replyPending)
+        assertFalse(CoachMistakeLessonSamples.pending.replyPending)
+        val ui = CoachMistakeLessonSamples.pendingLean
         compose.setContent { LabTheme { CoachChatScreen(ui, CoachChatActions()) } }
         compose.onNodeWithTag(CoachLessonTags.PENDING).assertExists()
     }
@@ -55,7 +55,7 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
         var played: String? = null
         var saved: String? = null
         compose.setContent {
-            LabTheme { CoachChatScreen(CoachMistakeLessonSamples.ready, CoachChatActions(onPlayLesson = { id, _ -> played = id }, onSaveLesson = { saved = it })) }
+            LabTheme { CoachChatScreen(CoachMistakeLessonSamples.readyLean, CoachChatActions(onPlayLesson = { id, _ -> played = id }, onSaveLesson = { saved = it })) }
         }
         compose.onNodeWithTag(CoachLessonTags.CARD).assertExists()
         compose.onNodeWithTag(CoachLessonTags.PLAY).performClick()
@@ -65,7 +65,7 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
     }
 
     @Test fun savedCardSaysSo() {
-        compose.setContent { LabTheme { CoachChatScreen(CoachMistakeLessonSamples.saved, CoachChatActions()) } }
+        compose.setContent { LabTheme { CoachChatScreen(CoachMistakeLessonSamples.savedLean, CoachChatActions()) } }
         compose.onNodeWithTag(CoachLessonTags.SAVED).assertExists()
     }
 
@@ -116,4 +116,10 @@ object CoachMistakeLessonSamples {
     val pending = withLesson(CoachMessageDto("ml1", "c9", "assistant", CoachMistakeLesson.CONTENT_TYPE, "", status = "pending"))
     val ready = withLesson(CoachMessageDto("ml1", "c9", "assistant", CoachMistakeLesson.CONTENT_TYPE, CONTENT))
     val saved = withLesson(CoachMessageDto("ml1", "c9", "assistant", CoachMistakeLesson.CONTENT_TYPE, CONTENT.replaceFirst("{\"spec\"", "{\"lesson_id\":\"l1\",\"spec\"")))
+
+    /** The lesson message right under the sentence (no tall analysis above it): what the UI tests look at. */
+    private fun lean(ui: CoachChatUi) = ui.copy(thread = Loadable(B.ready.copy(messages = listOf(B.ready.messages[0]) + ui.thread.data!!.messages.drop(2))))
+    val pendingLean = lean(pending)
+    val readyLean = lean(ready)
+    val savedLean = lean(saved)
 }
