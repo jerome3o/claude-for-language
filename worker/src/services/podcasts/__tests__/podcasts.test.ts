@@ -1,14 +1,16 @@
 import { describe, expect, it, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Hono } from 'hono';
 import { applePodcastId, discoverFeedLink, fetchFeed, parseDuration, parseFeed, plainText, safeFetch, FeedError, type Fetcher } from '../rss';
 import { pinyinLine, segmentLang, tokensToSegments, untranslated, withPinyin, type SttToken } from '../segments';
 import { signSource, sourceUrl, verifySource } from '../source-url';
-import { copyEnclosureToR2, fakeTokens, MAX_AUDIO_BYTES, runPodcastEpisodeJob, type PodcastEpisodeMessage, type SttClient } from '../job';
+import { copyEnclosureToR2, fakeTokens, MAX_AUDIO_BYTES, runPodcastEpisodeJob, sonioxClient, type PodcastEpisodeMessage, type SttClient } from '../job';
 import { lessonSource, lessonStretch } from '../lesson';
 import { checkSegmentBatch } from '../translate';
-import { episodeIdFor, getEpisode, insertEpisode, parseSegments } from '../store';
+import { episodeIdFor, getEpisode, insertEpisode, parseSegments, storeFeed } from '../store';
 import { createSqliteD1, type SqliteD1 } from '../../__tests__/sqlite-d1';
-import { podcastSourcePublic } from '../../../routes/podcasts';
+import { podcastSourcePublic, podcastsRoutes } from '../../../routes/podcasts';
 import { podcastPublic } from '../../../routes/podcast';
 
 const RSS = `<?xml version="1.0" encoding="UTF-8"?>
@@ -411,6 +413,125 @@ describe('runPodcastEpisodeJob', () => {
     expect(ranged.status).toBe(206);
     expect(ranged.headers.get('Content-Range')).toMatch(/^bytes 0-99\//);
     expect((await app.request(`/api/podcast-source/${id}?exp=1&sig=x`, {}, env)).status).toBe(404);
+  });
+});
+
+// A real feed (Cozy Mandarin on Anchor / Spotify for Podcasters, Oct 2026), cut to its first three
+// episodes: CDATA everywhere, HTML show notes, `HH:MM:SS` durations, GUIDs that are not URLs, and
+// enclosures behind Anchor's tracking redirect (anchor.fm/…/play/<n>/<url-encoded CloudFront URL>).
+const COZY_URL = 'https://anchor.fm/s/f0108330/podcast/rss';
+const COZY_RSS = fs.readFileSync(path.resolve(__dirname, 'fixtures/cozy-mandarin.rss'), 'utf8');
+const COZY_GUID = '52c6e459-cab6-499b-8375-e43f3575a681';
+const COZY_CDN = 'https://d3ctxlq1ktw2nl.cloudfront.net/staging/2026-9-9/45b24332-05bb-9195-c2fa-b830c329c34b.mp3';
+
+describe('a real episode, from Transcribe to segments (Cozy Mandarin)', () => {
+  let db: SqliteD1;
+  let store: ReturnType<typeof fakeBucket>;
+  let sent: PodcastEpisodeMessage[];
+  let env: Record<string, unknown>;
+  let app: Hono;
+  const ctx = { waitUntil: () => {}, passThroughOnException: () => {}, props: {} } as unknown as ExecutionContext;
+
+  beforeEach(async () => {
+    db = await createSqliteD1();
+    db.raw.exec("INSERT INTO users (id, email, name) VALUES ('u1', 'u1@example.com', 'U'), ('u2', 'u2@example.com', 'V')");
+    store = fakeBucket();
+    sent = [];
+    env = { DB: db, AUDIO_BUCKET: store.bucket, SESSION_SECRET: 's3cret', SONIOX_API_KEY: 'k', AUDIO_LESSON_QUEUE: { send: async (m: PodcastEpisodeMessage) => { sent.push(m); } } };
+    // The feed as the server read and cached it (the route never refetches a fresh cache).
+    await storeFeed(db, parseFeed(COZY_RSS, COZY_URL));
+    app = new Hono();
+    app.use('/api/*', async (c, next) => { c.set('user' as never, { id: c.req.header('X-User') ?? 'u1' } as never); await next(); });
+    app.route('/api', podcastsRoutes);
+  });
+
+  const post = (body: unknown, user = 'u1') => app.request('/api/podcasts/episodes', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-User': user }, body: JSON.stringify(body) }, env, ctx);
+
+  it('reads the real feed', () => {
+    const feed = parseFeed(COZY_RSS, COZY_URL);
+    expect(feed.title).toMatch(/^Cozy Mandarin/);
+    expect(feed.episodes).toHaveLength(3);
+    expect(feed.episodes[0]).toMatchObject({ guid: COZY_GUID, title: '186. Shoes 鞋子 | Intermediate', duration_s: 598, enclosure_bytes: 9568256 });
+    expect(feed.episodes[0].enclosure_url).toMatch(/^https:\/\/anchor\.fm\/s\/f0108330\/podcast\/play\/127176429\/https%3A%2F%2F/);
+  });
+
+  it('starts a NEW episode (the link to the user is written after the episode row — it references it)', async () => {
+    const res = await post({ feed_url: COZY_URL, guid: COZY_GUID });
+    expect(res.status).toBe(202);
+    const { episode } = (await res.json()) as { episode: { id: string; status: string } };
+    expect(episode.status).toBe('queued');
+    expect(sent).toEqual([{ kind: 'podcast_episode', episodeId: episode.id }]);
+    expect((await db.prepare('SELECT user_id FROM podcast_episode_users WHERE episode_id = ?').bind(episode.id).all()).results).toEqual([{ user_id: 'u1' }]);
+    // A second person gets the same (shared) episode and their own link.
+    const again = await post({ feed_url: COZY_URL, guid: COZY_GUID }, 'u2');
+    expect(again.status).toBe(202);
+    expect(((await again.json()) as { episode: { id: string } }).episode.id).toBe(episode.id);
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM podcast_episode_users WHERE episode_id = ?').bind(episode.id).first()).toEqual({ n: 2 });
+    // Unknown episode / no key: readable 4xx / 503, no rows.
+    expect((await post({ feed_url: COZY_URL, guid: 'nope' })).status).toBe(404);
+    env.SONIOX_API_KEY = '';
+    const other = parseFeed(COZY_RSS, COZY_URL).episodes[1];
+    const off = await post({ feed_url: COZY_URL, guid: other.guid });
+    expect(off.status).toBe(503);
+    expect(((await off.json()) as { error: string }).error).toMatch(/not set up/);
+  });
+
+  it('downloads through the tracking redirect, transcribes with Soniox, translates, and serves the segments', async () => {
+    const res = await post({ feed_url: COZY_URL, guid: COZY_GUID });
+    const id = ((await res.json()) as { episode: { id: string } }).episode.id;
+
+    const AUDIO = 3 * 1024 * 1024 + 17;
+    const soniox: Array<{ method: string; url: string; body?: unknown; auth: string | null }> = [];
+    let polls = 0;
+    const fetcher: Fetcher = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      if (url.startsWith('https://anchor.fm/')) {
+        expect(init?.redirect).toBe('manual');
+        return new Response('Found', { status: 302, headers: { Location: COZY_CDN } });
+      }
+      if (url === COZY_CDN) return new Response(streamOf(AUDIO, 65536), { headers: { 'Content-Type': 'audio/mpeg' } }); // no Content-Length
+      if (url.startsWith('https://api.soniox.com/v1/')) {
+        soniox.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined, auth: new Headers(init?.headers).get('Authorization') });
+        if (method === 'POST' && url.endsWith('/transcriptions')) return Response.json({ id: 'tx-1', status: 'queued' }, { status: 201 });
+        if (method === 'GET' && url.endsWith('/transcriptions/tx-1')) return Response.json(polls++ ? { id: 'tx-1', status: 'completed', audio_duration_ms: 598_000 } : { id: 'tx-1', status: 'processing' });
+        if (method === 'GET' && url.endsWith('/transcriptions/tx-1/transcript')) return Response.json({ id: 'tx-1', text: '…', tokens: fakeTokens().map((t) => ({ ...t, confidence: 0.9, language: 'zh' })) });
+        if (method === 'DELETE') return new Response(null, { status: 204 });
+      }
+      return new Response('unexpected ' + url, { status: 599 });
+    };
+    const translate = async (req: { segments: Array<{ i: number }> }) => ({ items: req.segments.map((s) => ({ i: s.i, english: `E${s.i}` })) });
+    const deps = { fetch: fetcher, stt: sonioxClient('k', fetcher), translate, requeue: async () => {} };
+
+    expect(await runPodcastEpisodeJob(env as never, id, deps)).toBe('waiting');
+    let row = (await getEpisode(db, id))!;
+    expect(row).toMatchObject({ status: 'transcribing', stt_job_id: 'tx-1', audio_bytes: AUDIO, audio_mime: 'audio/mpeg', error: null });
+    expect(store.objects.get(row.audio_key!)!.bytes.byteLength).toBe(AUDIO);
+    const create = soniox[0];
+    expect(create).toMatchObject({ method: 'POST', auth: 'Bearer k', body: { language_hints: ['zh', 'en'], enable_speaker_diarization: true, enable_language_identification: true, client_reference_id: id } });
+    expect((create.body as { audio_url: string }).audio_url).toMatch(new RegExp(`^http://localhost/api/podcast-source/${id}\\?exp=\\d+&sig=`));
+
+    expect(await runPodcastEpisodeJob(env as never, id, deps)).toBe('waiting'); // processing
+    expect(await runPodcastEpisodeJob(env as never, id, deps)).toBe('done');
+    row = (await getEpisode(db, id))!;
+    expect(row).toMatchObject({ status: 'ready', duration_ms: 598_000, error: null });
+    expect(soniox.filter((r) => r.method === 'DELETE').map((r) => r.url)).toEqual(['https://api.soniox.com/v1/transcriptions/tx-1']);
+
+    const got = await app.request(`/api/podcasts/episodes/${id}`, {}, env, ctx);
+    expect(got.status).toBe(200);
+    const { episode } = (await got.json()) as { episode: { status: string; segments: Array<{ text: string; english: string }> } };
+    expect(episode.status).toBe('ready');
+    expect(episode.segments).toHaveLength(6);
+    expect(episode.segments[0]).toMatchObject({ text: '你好，欢迎收听今天的节目。', english: 'E0' });
+    const list = (await (await app.request('/api/podcasts', {}, env, ctx)).json()) as { episodes: Array<{ id: string }> };
+    expect(list.episodes.map((e) => e.id)).toEqual([id]);
+  });
+
+  it('a server fault comes back as JSON with a readable error, never a bare 500 page', async () => {
+    const broken = { ...env, DB: { prepare: () => { throw new Error('D1_ERROR: boom'); } } };
+    const res = await app.request('/api/podcasts', {}, broken, ctx);
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/try again/);
   });
 });
 

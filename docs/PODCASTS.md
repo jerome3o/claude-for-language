@@ -132,6 +132,11 @@ Signed in (`routes/podcasts.ts`):
 
 Public: `GET|HEAD /api/podcast-source/:id?exp=&sig=` (the transcription service's audio link).
 
+Every failure is JSON `{ error }` with a sentence the app shows as is — a fault on the server too
+(the router's `onError`: 500 "Something went wrong on the server…"), never Hono's bare text page.
+`podcast_episode_users` references `podcast_episodes`, so a new episode's row is inserted before
+the asker's link (the first real Transcribe, 13 Oct 2026, failed on that foreign key).
+
 ## Analytics
 
 `podcast.subscribe`, `podcast.transcribe`, `podcast.lesson_created`, `server.podcast_transcribed`

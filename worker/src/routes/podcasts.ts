@@ -51,6 +51,12 @@ import {
 
 const routes = new Hono<{ Bindings: Env }>();
 
+// Never a bare "Internal Server Error": the apps show `error` as it is.
+routes.onError((err, c) => {
+  console.error(`[podcasts] ${c.req.method} ${c.req.routePath} failed:`, err);
+  return c.json({ error: 'Something went wrong on the server with that podcast request — try again in a moment' }, 500);
+});
+
 function userId(c: { get: (k: 'user') => { id: string } | undefined }): string | null {
   return c.get('user')?.id ?? null;
 }
@@ -233,8 +239,9 @@ routes.post('/podcasts/episodes', async (c) => {
   if (!ep) return c.json({ error: 'That episode is no longer in the feed' }, 404);
   const id = await episodeIdFor(feed.feed_url, ep.guid);
   const existing = await getEpisode(c.env.DB, id);
-  await linkEpisodeUser(c.env.DB, uid, id);
   if (existing) {
+    // The link row references the episode row (FK), so it is written only once the episode exists.
+    await linkEpisodeUser(c.env.DB, uid, id);
     if (existing.status === 'failed') {
       await resetFailedEpisode(c.env.DB, existing);
       await startEpisodeJob(c, id);
@@ -250,6 +257,7 @@ routes.post('/podcasts/episodes', async (c) => {
     return c.json({ error: `This episode is ${Math.round(ep.duration_s / 60)} minutes long — episodes up to ${MAX_EPISODE_MINUTES} minutes can be transcribed` }, 400);
   }
   await insertEpisode(c.env.DB, id, feed, ep, uid, apiOrigin(c.env, c.req.url));
+  await linkEpisodeUser(c.env.DB, uid, id);
   await startEpisodeJob(c, id);
   void trackServer('podcast.transcribe', { shared: false, status: 'queued' }, { env: c.env, userId: uid });
   return c.json({ episode: episodeDetail((await getEpisode(c.env.DB, id))!, await getEpisodeUser(c.env.DB, uid, id)), existing: false }, 202);
