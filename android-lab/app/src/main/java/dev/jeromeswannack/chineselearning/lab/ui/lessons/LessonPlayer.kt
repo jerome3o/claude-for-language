@@ -127,6 +127,28 @@ class LessonResumeHandle(
  * the rating bar (its gap sets when the lesson comes back — "revisit later") and Done for good. [PlayerContext.Preview] records nothing
  * and offers Try again / Done instead of a rating.
  */
+/**
+ * A preview that may be KEPT (the Sentence Coach's "🎯 Mini lesson on this mistake"; web
+ * StudyCustomLesson `previewSave`): played with nothing recorded, then "Save to my mini lessons" —
+ * the rating saves it with this run as its first completion, "＋ Save" in the top bar saves it
+ * without one, "Not now" leaves.
+ */
+class PreviewSave(
+    /** Rating-bar labels for a lesson finished for the first time. */
+    val previews: List<IntervalPreview>,
+    /** Already in his mini lessons (saved before, or with ＋ Save just now): the end still asks for a rating. */
+    val saved: Boolean,
+    val busy: Boolean = false,
+    val error: String? = null,
+    val onSaveNow: () -> Unit = {},
+    val onSaveRated: (LessonResult) -> Unit = {},
+)
+
+/** Test tags of the keepable preview. */
+const val PREVIEW_SAVE_NOW_TAG = "lesson-preview-save-now"
+const val PREVIEW_SAVE_TAG = "lesson-preview-save"
+const val PREVIEW_NOT_NOW_TAG = "lesson-preview-not-now"
+
 /** `lesson.start` / `lesson.complete` source: where the player sits. */
 private fun lessonSource(context: PlayerContext): String = when (context) {
     is PlayerContext.Session -> "session"
@@ -156,6 +178,8 @@ fun LessonPlayer(
     resume: LessonResumeHandle? = null,
     /** [PlayerContext.Replay]'s "Practice only": the run ends with nothing recorded. */
     onPracticeDone: () -> Unit = {},
+    /** With [PlayerContext.Preview]: offer to keep the lesson ([PreviewSave]). */
+    previewSave: PreviewSave? = null,
 ) {
     val items = remember(spec) { flattenSpec(spec) }
     var run by remember { mutableIntStateOf(0) }
@@ -208,9 +232,14 @@ fun LessonPlayer(
                         PlayerContext.Homework -> Text("Homework", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
                         PlayerContext.Today -> Text("Today's mini lesson", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
                         is PlayerContext.Replay -> Text("Mini lesson · again", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
-                        PlayerContext.Preview -> Text("Preview · nothing is recorded", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                        PlayerContext.Preview -> Text(
+                            when { previewSave == null -> "Preview · nothing is recorded"; previewSave.saved -> "✓ In your mini lessons"; else -> "Trying it · not saved yet" },
+                            color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                             modifier = Modifier.clip(CircleShape).background(Violet.copy(alpha = 0.12f)).padding(horizontal = 12.dp, vertical = 6.dp))
                     }
+                }
+                if (preview && previewSave != null && !previewSave.saved && !done) {
+                    SecondaryPill(if (previewSave.busy) "Saving…" else "＋ Save", Modifier.heightIn(min = 44.dp).testTag(PREVIEW_SAVE_NOW_TAG), enabled = !previewSave.busy, onClick = previewSave.onSaveNow)
                 }
                 IconButton(onClick = onEnd) { Icon(Icons.Filled.Close, if (preview) "Close preview" else "End session", tint = Lab.colors.muted) }
             }
@@ -250,7 +279,7 @@ fun LessonPlayer(
                     ) { i ->
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (i >= items.size) {
-                                DoneBody(icon, title, correct, total, preview)
+                                DoneBody(icon, title, correct, total, preview && previewSave == null)
                             } else {
                                 val item = items[i]
                                 if (item.sectionStart) {
@@ -301,7 +330,24 @@ fun LessonPlayer(
                     }
                 }
             }
-            if (done && preview) {
+            if (done && preview && previewSave != null) {
+                Column(Modifier.fillMaxWidth().background(Lab.colors.card).padding(horizontal = 16.dp, vertical = 12.dp).testTag(PREVIEW_SAVE_TAG), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        if (previewSave.saved) "How well do you know this now? Your rating decides when it comes back." else "Save it to your mini lessons? How well do you know this now?",
+                        color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                    )
+                    RatingBar(previewSave.previews, enabled = !previewSave.busy) { r ->
+                        val attempt = LessonAttemptData(Js.toIsoString(startedAt), System.currentTimeMillis() - startedAt, attempts.toList())
+                        previewSave.onSaveRated(LessonResult(correct, total, r, attempt, emptyList()))
+                    }
+                    previewSave.error?.let { Text(it, color = Palette.Again, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SecondaryPill("↻ Try again", Modifier.weight(1f).height(48.dp), enabled = !previewSave.busy) { run++ }
+                        SecondaryPill(if (previewSave.saved) "Done" else "Not now", Modifier.weight(1f).height(48.dp).testTag(PREVIEW_NOT_NOW_TAG), enabled = !previewSave.busy, onClick = onEnd)
+                    }
+                }
+            }
+            if (done && preview && previewSave == null) {
                 Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SecondaryPill("↻ Try again", Modifier.weight(1f).height(54.dp)) { run++ }
                     PrimaryPill("Done", Modifier.weight(1f).height(54.dp), onClick = onEnd)

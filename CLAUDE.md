@@ -1204,6 +1204,8 @@ How-to-say-it-better sheet) → `/coach?text=&action=check|explain&from_message=
 - `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools); `background: true` → 202 `[user, pending]` (409 while one is pending)
 - `POST /api/coach/conversations/:id/messages/:messageId/retry` - Re-queue a failed reply → 202
 - `DELETE /api/coach/conversations/:id` - Delete a conversation
+- `POST /api/coach/conversations/:id/mistake-lesson` - "🎯 Mini lesson on this mistake" (only after a check that found a mistake, `coachMistakeLessonOffered` in `shared/coach/mistakeLesson.ts`): 202 a pending `content_type: 'mistake_lesson'` message written by coach-reply-queue (`services/mistake-lesson.ts`: forced tool, thinking off, validateLessonSpec + shape checks, 2 repair rounds, pinyin checker), 200 `existing` — one per conversation, never regenerated. Played at `/coach/:c/lesson/:m` in the lesson player as a preview (nothing recorded); docs/CHAT.md
+- `POST /api/coach/conversations/:id/messages/:messageId/save-lesson` - `{ completion? }` → `{ lesson_id, title, completed, message }`: the lesson into Mini Lessons once (source `coach`); `completion` (a rating at the end of the preview) is recorded like an offline completion so it is scheduled from that rating
 
 ### Audio lessons (`worker/src/routes/audio-lessons.ts`, `services/audio-lessons/`, page at `/audio-lessons`; read docs/AUDIO_LESSONS.md)
 Agent-written listening lessons rendered to ONE MP3 each. **dialogue** = English host + a Chinese dialogue
