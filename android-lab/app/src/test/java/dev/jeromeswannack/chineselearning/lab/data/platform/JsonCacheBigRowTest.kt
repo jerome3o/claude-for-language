@@ -3,6 +3,8 @@ package dev.jeromeswannack.chineselearning.lab.data.platform
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.builtins.ListSerializer
@@ -94,8 +96,8 @@ class JsonCacheBigRowTest {
         repeat(5) { round ->
             db.platform().putCache(listOf(JsonCacheEntity("readers/list", "readers", json.encodeToString(ser, value), round.toLong())))
             val cache = JsonCache(db.platform(), json, dir = dir)
-            val reads = (0 until 6).map { kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { cache.get("readers/list", ser) } }
-            val puts = (0 until 3).map { kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { cache.put("readers/list", "readers", value, ser) } }
+            val reads = (0 until 6).map { async(Dispatchers.IO) { cache.get("readers/list", ser) } }
+            val puts = (0 until 3).map { async(Dispatchers.IO) { cache.put("readers/list", "readers", value, ser) } }
             reads.forEach { assertEquals(value, it.await(), "round $round") }
             puts.forEach { it.await() }
             assertEquals(value, cache.get("readers/list", ser), "round $round: still readable afterwards")
