@@ -69,8 +69,16 @@ class TutorTidyTest {
             }
         }
         assertTrue("the Homework section scrolled into view", shown)
-        compose.mainClock.advanceTimeBy(200)
-        compose.onNodeWithTag("section-flash", useUnmergedTree = true).assertExists()
+        // Once the scroll settles the section flashes.
+        var flashed = false
+        repeat(200) {
+            if (!flashed) {
+                compose.mainClock.advanceTimeByFrame()
+                flashed = runCatching { compose.onNodeWithTag("section-flash", useUnmergedTree = true).assertExists() }.isSuccess
+            }
+        }
+        assertTrue("the Homework section flashed", flashed)
+        compose.onNodeWithTag("student-homework-section").assertIsDisplayed()
         compose.mainClock.advanceTimeBy(4_000)
         compose.onNodeWithTag("section-flash", useUnmergedTree = true).assertDoesNotExist()
     }
