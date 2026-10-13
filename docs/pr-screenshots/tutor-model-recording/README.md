@@ -24,5 +24,19 @@ Student, Notes from your tutor: "▶ Minghui Wang says it" · "▶ You" under th
 ![Card back](07-student-card-back.png)
 Student, the back of that card (Practice route): the note with both clips to compare.
 
-Lab app (Roborazzi, `android-lab/app/screenshots/`): `teaching-23g/h/i` (the recorder: take, recording,
-unfolded), `tutor-notes-08` (notes page), `tutor-notes-09` (card back).
+## Lab app (Roborazzi)
+
+![Lab recorder: take](lab-teaching-23g-recordings-model-take.png)
+Lab, recordings: a take waiting for Save — "Needs work + recording".
+
+![Lab recorder: recording](lab-teaching-23h-recordings-model-recording.png)
+Lab, recordings: ⏹ Stop · 0:03 with the level.
+
+![Lab recorder: unfolded](lab-teaching-23i-recordings-model-unfolded.png)
+Lab, unfolded.
+
+![Lab tutor notes](lab-tutor-notes-08-model-recording.png)
+Lab, Notes from your tutor: "▶ <tutor> says it" · "▶ You".
+
+![Lab card back](lab-tutor-notes-09-card-back-model.png)
+Lab, the card back with both clips.
