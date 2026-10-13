@@ -166,6 +166,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   // Everything else the user owns.
   { label: 'folders', sql: `DELETE FROM folders WHERE user_id = ?1` },
   { label: 'study_bumps', sql: `DELETE FROM study_bumps WHERE user_id = ?1 OR note_id IN ${NOTES}` },
+  { label: 'homework_email_log', sql: `DELETE FROM homework_email_log WHERE student_id = ?1` },
   { label: 'up_next', sql: `DELETE FROM up_next WHERE user_id = ?1 OR note_id IN ${NOTES}` },
   { label: 'revisit_events', sql: `DELETE FROM revisit_events WHERE user_id = ?1` },
   { label: 'lesson_note_files', sql: `DELETE FROM lesson_note_files WHERE lesson_note_id IN (SELECT id FROM lesson_notes WHERE user_id = ?1)` },
@@ -195,10 +196,12 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'student_summaries', sql: `DELETE FROM student_summaries WHERE relationship_id IN ${REL}` },
   { label: 'tutor_lesson_log', sql: `DELETE FROM tutor_lesson_log WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'student_profiles', sql: `DELETE FROM student_profiles WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
-  // Group classes (experimental prototype, migration 0122): groups the user teaches, their memberships elsewhere.
+  // Group classes (experimental prototype, migration 0124): groups the user teaches, their memberships elsewhere.
   { label: 'group_class_sessions', sql: `DELETE FROM group_class_sessions WHERE tutor_id = ?1 OR group_id IN (SELECT id FROM class_groups WHERE tutor_id = ?1)` },
   { label: 'class_group_members', sql: `DELETE FROM class_group_members WHERE student_id = ?1 OR relationship_id IN ${REL} OR group_id IN (SELECT id FROM class_groups WHERE tutor_id = ?1)` },
   { label: 'class_groups', sql: `DELETE FROM class_groups WHERE tutor_id = ?1` },
+  { label: 'prepared_activities', sql: `DELETE FROM prepared_activities WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
+  { label: 'prepared_activity_jobs', sql: `DELETE FROM prepared_activity_jobs WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'tutor_relationships', sql: `DELETE FROM tutor_relationships WHERE requester_id = ?1 OR recipient_id = ?1` },
 
   // Sign-in, invites.

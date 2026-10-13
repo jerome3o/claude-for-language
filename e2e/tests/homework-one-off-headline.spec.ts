@@ -85,6 +85,13 @@ test('a long-term deck is not homework progress: one-off done → "all done this
   await expect(page.getByTestId('td-pill-homework')).toHaveText('Homework ✓ all done this week', { timeout: 30_000 });
   await expect(page.getByText(/Homework \d+%/)).toHaveCount(0);
 
+  // ---- The pill goes straight to the student's Homework section (not the homework library)
+  await page.getByTestId('td-pill-homework').click();
+  await expect(page).toHaveURL(new RegExp(`/connections/${relId}#homework$`));
+  await expect(page.getByTestId('homework-headline')).toBeInViewport({ timeout: 30_000 });
+  await expect(page.locator('#homework')).toHaveClass(/section-flash/);
+  await expect(page.getByRole('link', { name: 'Homework library' })).toHaveCount(0);
+
   // ---- Student page: the headline, and the long-term deck in its own section
   await page.goto(`/connections/${relId}`);
   await expect(page.getByTestId('homework-headline')).toHaveText('✓ All done this week', { timeout: 30_000 });

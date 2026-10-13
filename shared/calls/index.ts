@@ -15,3 +15,5 @@ export * from './follow';
 export * from './devices';
 export * from './view';
 export * from './share';
+export * from './timer';
+export * from './chime';

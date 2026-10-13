@@ -74,6 +74,8 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
     val layout = CallLayoutHolder(PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)))
     /** In-call activities: Chinese said on this phone (cache-first `/api/practice/tts`, the device voice offline). */
     val speaker = dev.jeromeswannack.chineselearning.lab.ui.editor.LessonSpeaker(app, viewModelScope)
+    /** Join / leave chimes and the timer's bell (core CallChime). */
+    private val chimes = dev.jeromeswannack.chineselearning.lab.data.calls.CallChimePlayer()
 
     val controller: CallController = CallController(
         callId, "",
@@ -97,6 +99,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             playClip = { key, text -> app.audio.play(key, text, app.online.value) },
             layout = layout,
             viewModes = PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
+            chime = { kind -> chimes.play(kind) },
         ),
         viewModelScope,
     )
@@ -129,6 +132,16 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
     }
 
     fun selectRoute(r: AudioRoute) = audio.choose(r)
+
+    /** The tutor's activities prepared for this student (⋯ → 🎲 Activities' first section; docs/VIDEO_CALLS.md "Prepared activities"). */
+    private val _prepared = MutableStateFlow<dev.jeromeswannack.chineselearning.lab.ui.teaching.PreparedActivitiesController?>(null)
+    val prepared: StateFlow<dev.jeromeswannack.chineselearning.lab.ui.teaching.PreparedActivitiesController?> = _prepared.asStateFlow()
+
+    /** Made once the call is known to be the tutor's call with this relationship's student. */
+    fun preparedFor(relId: String?) {
+        if (relId == null || _prepared.value?.relId == relId) return
+        _prepared.value = dev.jeromeswannack.chineselearning.lab.ui.teaching.PreparedActivitiesController(app, viewModelScope, relId, source = "call")
+    }
 
     /** Round 4 PR 5: lesson materials in the call — the material tile's pages and the "📑 Present material" sheet. */
     val materials = dev.jeromeswannack.chineselearning.lab.ui.materials.CallMaterials(app, viewModelScope)
@@ -289,6 +302,9 @@ fun CallRoute(nav: LabNav, id: String) {
     BackHandler(enabled = s.phase == CallPhase.LIVE) { confirmLeave = true }
 
     val other = d?.participants?.firstOrNull { it.id != myId }
+    LaunchedEffect(d?.call?.relationship_id, s.isTutor) { if (s.isTutor) vm.preparedFor(d?.call?.relationship_id) }
+    val preparedCtl by vm.prepared.collectAsStateWithLifecycle()
+    val preparedUi = preparedPickerUi(preparedCtl?.takeIf { s.isTutor }, other?.displayName)
     val eglContext = vm.media.egl.eglBaseContext
     CallScreen(
         s.copy(myUserId = myId.ifEmpty { s.myUserId }),
@@ -307,6 +323,7 @@ fun CallRoute(nav: LabNav, id: String) {
             boardGlossOn = glossOn,
             materialSource = vm.materials,
             presentSheet = presentSheet,
+            prepared = preparedUi,
         ),
         CallActions(
             onBack = nav::back,
@@ -371,6 +388,14 @@ fun CallRoute(nav: LabNav, id: String) {
                 onDismissShareStopped = vm.controller::dismissShareStopped,
                 onStageWidth = vm.controller::setStageWidth,
             ),
+            // The call timer, "… joined / left" toasts and call sounds (core CallTimer / CallChime).
+            timer = TimerActions(
+                onAction = { vm.controller.timerAction(it) },
+                onDismissTimeUp = vm.controller::dismissTimeUp,
+                onDismissToast = vm.controller::dismissPresenceToast,
+                onSounds = { on -> vm.controller.setCallSounds(on); nav.app.haptics.tick() },
+                roomNow = vm.controller::roomNow,
+            ),
             // "Same view" (core CallView): the top bar chip's menu and the invitation.
             view = ViewActions(
                 onMode = vm.controller::setViewMode,
@@ -391,7 +416,15 @@ fun CallRoute(nav: LabNav, id: String) {
             onOpenPresent = { vm.materials.openSheet() },
             onPresent = { mid -> vm.controller.presentMaterial(mid) },
             onAddMaterial = { runCatching { pickMaterial.launch(dev.jeromeswannack.chineselearning.lab.data.materials.MaterialUploader.ACCEPT) } },
-            onStartActivity = vm.controller::startActivity,
+            onStartActivity = { id -> vm.controller.startActivity(id) },
+            prepared = PickerPreparedActions(
+                start = { a ->
+                    vm.controller.startActivity(dev.jeromeswannack.chineselearning.lab.core.calls.PreparedActivities.activityId(a.id), a.spec.kind)
+                    preparedCtl?.markUsed(a)
+                },
+                makeMore = { preparedCtl?.prepare() },
+                previewed = { a -> preparedCtl?.previewed(a) },
+            ),
             activity = ActivityActions(
                 act = vm.controller::act,
                 close = vm.controller::closeActivity,

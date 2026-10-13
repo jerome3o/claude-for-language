@@ -101,6 +101,7 @@ import groupClassesRoutes, { mountGroupSocket } from './routes/group-classes';
 import boardPagesRoutes from './routes/board-pages';
 import pushRoutes from './routes/push';
 import { emailPublic, emailPrefs } from './routes/email-prefs';
+import { HOMEWORK_EMAIL_CRON, runAssignedEmail, runHomeworkEmailCron, type HomeworkEmailMessage } from './services/homework-emails';
 import linkPreview from './routes/link-preview';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
 import chatListeningRoutes from './routes/chat-listening';
@@ -119,11 +120,13 @@ import { getConversationVoiceSettings } from './services/conversation-voices';
 import { conversationAudioSource, getConversationAudioPrefs } from './services/conversation-audio';
 import { conversationVoiceProvider, isConversationDelivery } from '@shared/tts';
 import studentProfileRoutes from './routes/student-profile';
+import preparedActivitiesRoutes from './routes/prepared-activities';
 import studentStudyBudgetRoutes from './routes/student-study-budget';
 import cardCheckRoutes from './routes/card-checks';
 import { cardCheckEnabled, runDeckCheckJob, runNotesCheck, type CardCheckMessage } from './services/card-check';
 import wordTagsRoutes from './routes/word-tags';
 import { maybeBackfillWordTags, runWordTags } from './services/word-tags-ai';
+import { prepareNightly } from './services/prepared-activities/run';
 import { enqueueRecordingCheck, runRecordingCheck, RetryLater, type RecordingCheckMessage } from './services/recording-checks';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
@@ -507,6 +510,8 @@ app.get('/api/auth/me', async (c) => {
     call_alerts: (user as { call_alerts?: string | null }).call_alerts === 'silent' ? 'silent' : 'ring',
     // A new chat message also sends an e-mail (Settings → Notifications; the e-mail's own "Turn off" link).
     email_chat_messages: (user as { email_chat_messages?: number | null }).email_chat_messages !== 0,
+    // Homework e-mails: "<tutor> sent you homework" + "due tomorrow" (docs/HOMEWORK.md §12; Settings → Notifications).
+    email_homework: (user as { email_homework?: number | null }).email_homework !== 0,
     // "Check my Chinese automatically" in the chat: true / false, null = the default (on for the learner side).
     chat_auto_check: (() => {
       const v = (user as { chat_auto_check?: number | null }).chat_auto_check;
@@ -659,6 +664,8 @@ app.route('/api', debugReportsRoutes);
 app.route('/api', lessonImagesRoutes);
 // The tutor's private profile of a student, read by the tutor-side content agents (routes/student-profile.ts; tutor only)
 app.route('/api', studentProfileRoutes);
+// Prepared in-call activities + what the student has covered (tutor only; docs/VIDEO_CALLS.md "Prepared activities")
+app.route('/api', preparedActivitiesRoutes);
 app.route('/api', studentStudyBudgetRoutes);
 // Word checks: ⚠ Possible issue on notes, Paste-a-list preview, per-deck "Check for errors" (routes/card-checks.ts)
 app.route('/api', cardCheckRoutes);
@@ -6375,6 +6382,16 @@ export default {
   // Daily cron (wrangler.toml [triggers]): prune usage events past retention.
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     await runInScope({ env, userId: null, route: 'cron', waitUntil: (p) => ctx.waitUntil(p) }, async () => {
+      // Homework e-mails (docs/HOMEWORK.md §12): the evening-before reminders in each
+      // student's time zone + any "sent you homework" e-mail a queue message missed.
+      if (event.cron === HOMEWORK_EMAIL_CRON) {
+        try {
+          const homework = await runHomeworkEmailCron(env, { now: () => event.scheduledTime || Date.now() });
+          console.log(JSON.stringify({ type: 'cron', job: 'homework_emails', cron: event.cron, ...homework }));
+        } catch (err) {
+          console.error('[cron] homework e-mails failed:', err);
+        }
+      }
       // Audio backfill (docs/AUDIO.md): nightly at London midnight, kept alive hourly.
       const audio = await runAudioCron(env, event.cron, new Date(event.scheduledTime || Date.now()));
       if (audio !== 'not_audio') {
@@ -6387,16 +6404,23 @@ export default {
       } catch (err) {
         console.error('[cron] prune usage events failed:', err);
       }
+      // Prepared in-call activities: catch up students whose newest lesson has none yet.
+      try {
+        const queued = await prepareNightly(env, new Date(event.scheduledTime || Date.now()));
+        console.log(JSON.stringify({ type: 'cron', job: 'prepare_activities', queued }));
+      } catch (err) {
+        console.error('[cron] prepare activities failed:', err);
+      }
     });
   },
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage | HomeworkEmailMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
     return runInScope({ env, userId: null, route: `queue:${batch.queue}`, waitUntil: (p) => ctx.waitUntil(p) }, () => handleQueueBatch(batch, env));
   },
 };
 
-async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage>, env: Env): Promise<void> {
+async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage | HomeworkEmailMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6740,6 +6764,19 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
         } catch (err) {
           console.error('[Queue] card check crashed:', body, err);
           message.retry();
+        }
+      }
+    } else if (queueName === 'homework-email-queue') {
+      // "<Tutor> sent you homework" (services/homework-emails): the rows are claimed before the
+      // e-mail goes, so a redelivery never sends twice; a crash retries (the hourly sweep backs it up).
+      for (const message of batch.messages) {
+        const body = message.body as HomeworkEmailMessage;
+        try {
+          console.log('[Queue] homework e-mail', body.kind, body.student_id, await runAssignedEmail(env, body.student_id));
+          message.ack();
+        } catch (err) {
+          console.error('[Queue] homework e-mail crashed:', body.student_id, err);
+          message.retry({ delaySeconds: 60 });
         }
       }
     } else if (queueName === 'idiom-queue') {

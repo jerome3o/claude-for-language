@@ -142,15 +142,21 @@ export const ANALYTICS_EVENTS = {
   'call.board_gloss': e('calls', 'Accepted a board tab-complete (direction = zh: pinyin + meaning after Chinese | en: Chinese + pinyin after English; via = tab | chip).', ['direction', 'via']),
   'call.screen_share': e('calls', 'Started or stopped sharing the screen (sound = the share carries a tab or system sound).', ['on', 'sound']),
   'call.annotate': e('calls', 'Drew on a shared screen or material.', ['target']),
+  'call.desktop_overlay': e('calls', 'Desktop app: the drawing overlay on the shared screen opened / closed (on), or drawing on the real screen was switched on / off (draw).', ['on', 'draw']),
   'call.material_present': e('calls', 'Presented a lesson material.', ['material_kind', 'pages']),
   'material.contents_open': e('calls', 'Opened a lesson material’s Contents (in a call or the material viewer).', ['where', 'source', 'entries']),
   'material.contents_jump': e('calls', 'Jumped to a section from a lesson material’s Contents.', ['where', 'source']),
   'call.activity_start': e('calls', 'Started an in-call activity (either person may; role = the starter’s side: tutor / student / solo).', ['activity_kind', 'role']),
   'call.activity_word_add': e('calls', 'In-call activity "Words you needed": added a word as a card.', ['activity_kind', 'word_kind', 'where']),
+  'call.prepared_activity_start': e('calls', 'The tutor started one of the activities prepared for this student from earlier lessons (⋯ → 🎲 Activities → "For <student> · from last lesson").', ['activity_kind', 'position']),
   'call.layout': e('calls', 'Changed the call layout (▦).', ['preset']),
   'call.view_mode': e('calls', 'Switched between "Same view" and "My own view" in a call.', ['mode']),
   'call.view_bring': e('calls', '"Bring <name> to my view": made my view the shared one and invited the other person.', ['mode']),
   'call.view_join': e('calls', 'Joined the other person’s view from their invitation.', []),
+  'call.timer': e('calls', 'Ran the call timer (action = set | start | pause | reset | clear; mode = countdown | stopwatch on set; minutes = the countdown length).', ['action', 'mode', 'minutes']),
+  'call.presence_alert': e('calls', 'The other person joined / left the call: the toast showed (sound = the chime played).', ['kind', 'sound']),
+  'call.sounds': e('calls', 'Switched call sounds (join / leave chimes, the timer bell) on or off.', ['on']),
+  'call.annot_pip': e('calls', 'Opened the mini window of my shared screen with the drawings over my other windows (Chrome desktop).', []),
   'call.review_open': e('calls', 'Opened a call review / lesson report.', []),
   'call.homework_from_call': e('calls', 'Make homework from this lesson.', []),
   'group.create': e('calls', 'Group class (prototype): created a group of students.', ['students']),
@@ -176,6 +182,9 @@ export const ANALYTICS_EVENTS = {
   'tutor.catalogue_copy': e('tutor', 'Copied a catalogue sample into the library.', ['exercise_type']),
   'tutor.budget_change': e('tutor', "Changed a student's daily new cards.", ['new_cards', 'secondary_cards', 'reset']),
   'tutor.student_profile_save': e('tutor', 'Saved the private student profile.', []),
+  'tutor.prepared_activities_prepare': e('tutor', 'Asked for in-call activities for the next lesson ("Prepare activities" / "↻ Make more"; source = student_page | call).', ['source', 'ready']),
+  'tutor.prepared_activity_preview': e('tutor', 'Opened the preview of a prepared in-call activity (source = student_page | call).', ['activity_kind', 'source']),
+  'tutor.prepared_activity_dismiss': e('tutor', 'Dismissed a prepared in-call activity (source = student_page | call).', ['activity_kind', 'source']),
   'tutor.recording_mark': e('tutor', 'Marked a recording (listened / needs work).', ['status', 'source']),
   'tutor.recording_queue_open': e('tutor', 'Opened the "Needs your ear" recording queue (or All recordings).', ['view', 'items', 'scoring']),
   'tutor.recording_reference_play': e('tutor', "Played the reference clip next to the student's recording.", ['source']),
@@ -268,6 +277,7 @@ export const ANALYTICS_EVENTS = {
   'folder.rename': e('decks', 'Renamed a folder.', ['kind']),
   'folder.delete': e('decks', 'Deleted a folder (its items go to Unfiled).', ['kind', 'items']),
   'folder.move_items': e('decks', 'Moved items into a folder (or Unfiled).', ['kind', 'count', 'unfiled']),
+  'folder.move_folder': e('decks', 'Moved a folder inside another folder (or to the top level).', ['kind', 'depth']),
 
   // ── settings ───────────────────────────────────────────────────────────
   'settings.change': e('settings', 'Changed a setting (`setting` names it, `value` an enum).', ['setting', 'value']),
@@ -293,6 +303,7 @@ export const ANALYTICS_EVENTS = {
   'server.email_sent': e('server', 'An e-mail was sent.', ['kind', 'ok'], { server: true }),
   'server.word_tags_batch': e('server', 'One batch of the AI word tags (transitivity + register + Everyday speech) was run: batch_size = notes in it, notes tagged, tags shown (not low confidence, or Everyday speech), everyday = notes called Everyday speech, tokens, estimated cost; via = create | edit | backfill.', ['batch_size', 'tagged', 'shown', 'everyday', 'input_tokens', 'output_tokens', 'cost_usd', 'via'], { server: true }),
   'server.word_tags_backfill': e('server', "Untagged (or outdated-version) notes were queued for the AI word tags (via = sync — the hourly background fill — or api — POST /api/notes/word-tags/backfill / MCP).", ['queued', 'via'], { server: true }),
+  'server.prepared_activities': e('server', 'In-call activities were prepared for a student\'s next lesson (trigger = lesson | nightly | manual; count written, refused after repair, model rounds, tokens, ms).', ['trigger', 'count', 'refused', 'rounds', 'input_tokens', 'output_tokens', 'ms'], { server: true }),
   'server.recording_check': e('server', 'A pronunciation recording was checked (transcript + Azure score).', ['scored', 'match', 'note', 'audio_ms'], { server: true }),
   'server.coach_auto_detect': e('server', 'A coach conversation started WITHOUT an action (old clients).', [], { server: true, replacedBy: 'coach.start' }),
   'server.study_session_api': e('server', 'POST /api/study/sessions — kept only for old clients.', [], { server: true, replacedBy: 'study.session_start' }),
@@ -319,8 +330,8 @@ export const SCREEN_REPLACED_BY: Readonly<Record<string, string>> = {
   '/search': '/decks',
 };
 
-/** Where each app runs. `android-hybrid` is the Capacitor shell, `lab` the native app. */
-export const ANALYTICS_PLATFORMS = ['web', 'pwa', 'android-hybrid', 'lab'] as const;
+/** Where each app runs. `android-hybrid` is the Capacitor shell, `lab` the native app, `desktop` the Electron app (desktop/). */
+export const ANALYTICS_PLATFORMS = ['web', 'pwa', 'android-hybrid', 'lab', 'desktop'] as const;
 export type AnalyticsPlatform = (typeof ANALYTICS_PLATFORMS)[number];
 
 /** off = nothing recorded; basic = no screen views / no per-card events; verbose = everything. */

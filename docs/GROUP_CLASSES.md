@@ -11,7 +11,7 @@ No Lab app work (`android-lab/PARITY.md` → "Not native").
 
 | Piece | How |
 |---|---|
-| **Groups** | `/group-classes`: the tutor picks 2–6 of her **active** students and a name. Tables `class_groups`, `class_group_members` (each member row keeps the 1:1 `relationship_id` it came from; every read re-checks the relationship is still active, so a group never grants more than the relationships already do), migration 0122. Edit / delete (archive). Students see "Groups you're in" on the same page (by URL; there is no student entry point). |
+| **Groups** | `/group-classes`: the tutor picks 2–6 of her **active** students and a name. Tables `class_groups`, `class_group_members` (each member row keeps the 1:1 `relationship_id` it came from; every read re-checks the relationship is still active, so a group never grants more than the relationships already do), migration 0124. Edit / delete (archive). Students see "Groups you're in" on the same page (by URL; there is no student entry point). |
 | **Starting a class** | "📹 Start class & send the link" creates a `group_class_sessions` row (one live per group) and posts the link **into each student's existing 1:1 chat** (the normal `sendMessage` path, idempotent per class + student); "Start without sending" for testing. No group chat, no new notification channel. |
 | **The call** | `/group-class/:id` (immersive). **Full-mesh WebRTC**: every browser holds one `PeerLink` (the 1:1 call's link class, unchanged) to every other browser; the lower client id of each pair makes the offer (`isPolite`). Signalling goes through a NEW Durable Object, **`GroupRoom`** (`worker/src/durable/group-room.ts`, binding `GROUP_ROOM`, migration tag `v4-group-room`), never through the 1:1 `CallRoom`. Same join tickets (scope `group:<session>`), STUN + the existing Cloudflare TURN key. Cameras are asked for small (640×360 / 320×180 at 15 fps, `groupCameraConstraints`) because each one is uploaded N−1 times. |
 | **Layout** | Gallery grid sized for the biggest 16:9 tiles (`galleryGrid`), tutor first, me last; the **active speaker** gets a green ring (Web Audio levels every 250 ms, `nextSpeaker` with hysteresis); a shared screen or the spotlight goes big on top (`stageOf`). Side panel from 1024 px, a bottom sheet on phones. |
@@ -95,7 +95,7 @@ mesh will not carry 6 students on phones.
 `shared/group/` (room rules, quiz, layout, protocol; tests `group.test.ts`) ·
 `worker/src/durable/group-room.ts` (+ `__tests__/group-room.test.ts`) ·
 `worker/src/routes/group-classes.ts`, `worker/src/services/group-classes.ts` (+ `__tests__/group-classes.test.ts`) ·
-`worker/src/db/migrations/0122_group_classes.sql` · `frontend/src/api/groupClasses.ts`,
+`worker/src/db/migrations/0124_group_classes.sql` · `frontend/src/api/groupClasses.ts`,
 `frontend/src/services/group/groupRoomSocket.ts`, `frontend/src/pages/group/` ·
 `e2e/tests/group-class.spec.ts` (three browsers).
 

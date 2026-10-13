@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:" />
+  <title>Share your screen</title>
+  <link rel="stylesheet" href="picker.css" />
+</head>
+<body>
+  <header>
+    <h1>Share your screen</h1>
+    <div class="tabs" role="tablist">
+      <button type="button" data-tab="screen" role="tab">Entire screen</button>
+      <button type="button" data-tab="window" role="tab">Window</button>
+    </div>
+  </header>
+  <section id="permission" class="permission" hidden>
+    <strong>Allow screen recording</strong>
+    <p>macOS needs your permission before Chinese Learning can share your screen:
+      <b>System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording</b> → turn on <b>Chinese Learning</b>, then quit and reopen the app.</p>
+    <div class="row">
+      <button type="button" id="open-settings">Open System Settings</button>
+      <button type="button" id="relaunch">Quit &amp; reopen</button>
+    </div>
+  </section>
+  <main id="grid" class="grid"></main>
+  <footer>
+    <p id="hint" class="hint"></p>
+    <div class="row">
+      <button type="button" id="cancel">Cancel</button>
+      <button type="button" id="share" class="primary" disabled>Share</button>
+    </div>
+  </footer>
+  <script src="../dist/picker.js"></script>
+</body>
+</html>

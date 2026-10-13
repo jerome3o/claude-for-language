@@ -1,5 +1,65 @@
 import { describe, expect, it, vi } from 'vitest';
-import { alignPinyin, checkGlossPinyin, pinyinProLine, syllableFits } from '../calls/gloss-pinyin';
+import { readFileSync, existsSync } from 'fs';
+import path from 'path';
+import { getCharRecords, getWordRecords } from '../char-dict';
+import { alignPinyin, checkGlossPinyin, dictionaryLine, pinyinProLine, syllableFits, type GlossReadingSources } from '../calls/gloss-pinyin';
+
+// The worker's real dictionaries (worker/char-dict, committed), read from disk the way the CHAR_DICT binding serves them.
+const dictDir = path.resolve(__dirname, '../../../char-dict');
+const fsLoader = async (file: string) => {
+  const p = path.join(dictDir, file);
+  return existsSync(p) ? new Uint8Array(readFileSync(p)) : null;
+};
+const real: GlossReadingSources = {
+  charReadings: async (chars) => {
+    const { records } = await getCharRecords(fsLoader, chars, 'test-fs');
+    return Object.fromEntries(Object.entries(records).map(([c, r]) => [c, r.readings.map((x) => x.pinyin)]));
+  },
+  wordPinyin: async (words) => {
+    const { records } = await getWordRecords(fsLoader, words, 'test-fs');
+    return Object.fromEntries(Object.entries(records).map(([w, r]) => [w, r.pinyin]));
+  },
+};
+
+describe("board gloss pinyin on Minghui's board (11 Oct 2026, the model's answers before the dictionary check)", () => {
+  it('fixes them with the real dictionaries', async () => {
+    for (const [hz, py, to] of [
+      // A reading the character has, but not in this word: the dictionary and pinyin-pro agree against it.
+      ['直觉', 'zhíjiào', 'zhíjué'],
+      ['睡觉', 'shuìjué', 'shuìjiào'],
+      // 一 / 不 tone changes.
+      ['建一条路', 'jiàn yī tiáo lù', 'jiàn yì tiáo lù'],
+      ['我一有时间就听播客', 'wǒ yī yǒu shíjiān jiù tīng bōkè', 'wǒ yì yǒu shíjiān jiù tīng bōkè'],
+      ['我不太了解西班牙。', 'wǒ bùtài liǎojiě Xībānyá', 'wǒ bútài liǎojiě Xībānyá'],
+      ['一般般', 'yībānbān', 'yìbānbān'],
+      // Impossible syllables.
+      ['人工智能是人性的放大器。', 'rénggōng zhìnéng shì rénxìng de fàngdà qì', 'réngōng zhìnéng shì rénxìng de fàngdà qì'],
+      ['脑容量', 'nǎo rónliàng', 'nǎo róngliàng'],
+      // A syllable left out (and a Latin alpha): the line is rebuilt from the dictionaries, words joined, 儿 folded.
+      ['你玩儿得怎么样？', 'nǐ wáner de zěnyɑ̀ng?', 'nǐ wánr de zěnmeyàng?'],
+    ]) {
+      expect((await checkGlossPinyin(hz, py, real)).pinyin, hz).toBe(to);
+    }
+  });
+
+  it('leaves right readings alone, also where the word dictionary picks another one', async () => {
+    for (const [hz, py] of [
+      ['大夫', 'dàifu'], ['觉得', 'juéde'], ['地方', 'dìfang'], ['长大', 'zhǎngdà'], ['了解', 'liǎojiě'], ['便宜', 'piányi'],
+      ['头发', 'tóufa'], ['暖和', 'nuǎnhuo'], ['睡着', 'shuìzháo'], ['教室', 'jiàoshì'], ['一会儿', 'yíhuìr'], ['地道', 'dìdao'],
+      ['种子', 'zhǒngzi'], ['种地', 'zhòngdì'], ['重新', 'chóngxīn'], ['差不多', 'chàbuduō'], ['出差', 'chūchāi'], ['好学', 'hàoxué'],
+      ['还是', 'háishi'], ['首都', 'shǒudū'], ['行业', 'hángyè'], ['得到', 'dédào'], ['还钱', 'huán qián'], ['我得走了', 'wǒ děi zǒu le'],
+      ['朝代', 'cháodài'], ['调整', 'tiáozhěng'], ['调查', 'diàochá'], ['第一节课前半小时', 'dì yī jié kè qián bàn xiǎoshí'],
+    ]) {
+      expect(await checkGlossPinyin(hz, py, real), hz).toEqual({ pinyin: py, fixes: [] });
+    }
+  });
+
+  it('dictionaryLine: dictionary words joined, a lone particle neutral, 女儿 keeps its ér', async () => {
+    expect(await dictionaryLine('你玩儿得怎么样？', real)).toBe('nǐ wánr de zěnmeyàng?');
+    expect(await dictionaryLine('我女儿跑得很快', real)).toBe("wǒ nǚ'ér pǎo de hěn kuài");
+    expect(await dictionaryLine('你好', {})).toBe('');
+  });
+});
 
 const han = (s: string) => Array.from(s).filter((c) => /\p{Script=Han}/u.test(c));
 

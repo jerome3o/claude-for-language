@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -116,6 +118,12 @@ data class StudentPageUi(
     val dailyBudget: (@Composable () -> Unit)? = null,
     /** "Most recent homework" (docs/HOMEWORK.md §9) — the first thing on the page. */
     val recentHomework: (@Composable () -> Unit)? = null,
+    /** "🎲 Ready for next lesson" (PreparedActivitiesSection) — after Needs attention. */
+    val preparedActivities: (@Composable () -> Unit)? = null,
+    /** "What <student> has covered" (CoverageSection) — after the student profile. */
+    val coverage: (@Composable () -> Unit)? = null,
+    /** Bring a section into view and flash it (`?section=homework` from the dashboard, "All homework ↓"). */
+    val focus: SectionFocus? = null,
 )
 
 data class StudentPageActions(
@@ -177,6 +185,16 @@ fun StudentPageScreen(ui: StudentPageUi, actions: StudentPageActions, now: Insta
     ) {
         BoxWithConstraints(Modifier.fillMaxSize().widthIn(max = 1180.dp)) {
             val wide = maxWidth >= 640.dp
+            // The column holding the work (homework…): the right pane unfolded, the only one folded.
+            val singleState = rememberLazyListState()
+            val workState = rememberLazyListState()
+            var flash by remember { mutableStateOf<SectionFocus?>(null) }
+            val ready = ui.overview.data != null
+            LaunchedEffect(ui.focus, ready, wide) {
+                val f = ui.focus ?: return@LaunchedEffect
+                if (!ready) return@LaunchedEffect
+                if ((if (wide) workState else singleState).scrollToKey(f.section)) flash = f
+            }
             Column(Modifier.fillMaxSize()) {
                 ScreenTitle(name, subtitle = headerLine(ui, now), onBack = actions.back) {
                     IconButton(onClick = { menu = true }) { Text("⋯", fontSize = 24.sp, color = Lab.colors.ink) }
@@ -187,14 +205,14 @@ fun StudentPageScreen(ui: StudentPageUi, actions: StudentPageActions, now: Insta
                         LazyColumn(Modifier.weight(1f), contentPadding = pad, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             studentColumn(ui, actions, now, onShowQr = { showQr = true })
                         }
-                        LazyColumn(Modifier.weight(1f), contentPadding = pad, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            workColumn(ui, actions, now, showStudentDecks, name)
+                        LazyColumn(Modifier.weight(1f), state = workState, contentPadding = pad, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            workColumn(ui, actions, now, showStudentDecks, name, flash)
                         }
                     }
                 } else {
-                    LazyColumn(Modifier.fillMaxSize(), contentPadding = pad, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    LazyColumn(Modifier.fillMaxSize().testTag("student-page-list"), state = singleState, contentPadding = pad, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         studentColumn(ui, actions, now, onShowQr = { showQr = true })
-                        workColumn(ui, actions, now, showStudentDecks, name)
+                        workColumn(ui, actions, now, showStudentDecks, name, flash)
                     }
                 }
             }
@@ -286,6 +304,8 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
             NeedsAttentionCard(ui.relId, o.needs_attention, o.pills.recordings_to_hear, ui.playingKey, actions.playRecording, actions.open)
         }
     }
+    // Activities prepared for the next call from this student's previous lessons (docs/VIDEO_CALLS.md "Prepared activities").
+    ui.preparedActivities?.let { section -> item(key = "prepared-activities") { section() } }
     item(key = "flags") { FlaggedCardsSection(ui.flags.data?.flags, ui.flags.error, actions.flags, now) }
     val claude = ui.claude.data
     if (o != null && !(o.is_new && (claude?.total ?: 0) == 0)) item(key = "claude") {
@@ -305,9 +325,10 @@ private fun DeckRowFor(ui: StudentPageUi, actions: StudentPageActions, now: Inst
     )
 }
 
-private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, showStudentDecks: Boolean, name: String) {
+private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, showStudentDecks: Boolean, name: String, flash: SectionFocus? = null) {
     val o = ui.overview.data
     ui.studentProfile?.let { section -> item(key = "student-profile") { section() } }
+    ui.coverage?.let { section -> item(key = "coverage") { section() } }
     ui.lessonNotes?.let { section -> item(key = "lesson-notes") { section() } }
     // Homework = ONE-OFF homework only: the headline, the dated items, decks sent one-off only,
     // lessons and readers. Long-term decks get their own quieter section below (docs/HOMEWORK.md §11).
@@ -315,6 +336,7 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
     val oneOffDecks = decks.filter { !it.isLongTerm }
     val longTermDecks = decks.filter { it.isLongTerm }
     item(key = "homework") {
+        FlashSection(flash?.takeIf { it.section == "homework" }, Modifier.testTag("student-homework-section")) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             TeachSectionTitle("Homework")
             HomeworkHeadline(o?.homework?.one_off)
@@ -326,6 +348,7 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
                     EmptyState("📚", "No homework yet", body = "Send a deck or a lesson — it lands on their home screen after their next sync.", actionLabel = "Send homework", onAction = actions.sendHomework)
                 }
             }
+        }
         }
     }
     // Decks sent one-off only: their copy lives in the pass, not in long-term review.

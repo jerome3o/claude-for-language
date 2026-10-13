@@ -36,6 +36,8 @@ import { FlaggedCardsSection } from '../components/tutor/FlaggedCardsSection';
 import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
 import { LessonNotesSection } from '../components/tutor/LessonNotesSection';
 import { StudentProfileSection } from '../components/tutor/StudentProfileSection';
+import { PreparedActivitiesSection } from '../components/tutor/PreparedActivitiesSection';
+import { CoverageSection } from '../components/tutor/CoverageSection';
 import { DailyBudgetSection } from '../components/tutor/DailyBudgetSection';
 import { StudentUpNextLink } from '../components/upNext/StudentUpNextLink';
 import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
@@ -54,6 +56,7 @@ import '../components/tutor/tutor-dashboard.css';
 import './ConnectionDetailPage.css';
 import { lastMessagePreview } from '../services/chatThread';
 import { track } from '../services/analytics';
+import { useScrollToHash } from '../hooks/useScrollToHash';
 
 function formatConversationDate(dateStr: string) {
   const date = new Date(dateStr);
@@ -209,6 +212,9 @@ export function ConnectionDetailPage() {
     enabled: !!relId && tutorView,
     staleTime: 30_000,
   });
+  // The dashboard's homework pill / recent line land here as #homework: scroll to it and flash it
+  // (her "homework progress" — the student's Homework section, not the homework library).
+  const focusSection = useScrollToHash(tutorView && !overviewQuery.isLoading);
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations', relId],
@@ -491,7 +497,7 @@ export function ConnectionDetailPage() {
 
           {/* Most recent homework: %, due date, status colour (docs/HOMEWORK.md §9) */}
           {libraryQuery.data && (
-            <RecentHomeworkCard items={libraryQuery.data.items} today={libraryQuery.data.today} relId={relId!} onSend={() => setShowHomeworkSheet(true)} />
+            <RecentHomeworkCard items={libraryQuery.data.items} today={libraryQuery.data.today} onSeeAll={() => focusSection('homework')} onSend={() => setShowHomeworkSheet(true)} />
           )}
 
           {liveCallBanner}
@@ -529,6 +535,9 @@ export function ConnectionDetailPage() {
             </section>
           )}
 
+          {/* Activities prepared for the next call from this student's previous lessons (docs/VIDEO_CALLS.md "Prepared activities") */}
+          <PreparedActivitiesSection relId={relId!} studentName={otherName} />
+
           {/* Cards the student flagged for me, with a reply box */}
           <FlaggedCardsSection relId={relId!} role="tutor" />
 
@@ -543,11 +552,13 @@ export function ConnectionDetailPage() {
               {recordingsLinkLabel(overview?.pills)}
             </Link>
             <Link to={`/connections/${relId}/progress`}>Progress</Link>
-            <Link to={`/connections/${relId}/homework`}>Homework library</Link>
           </nav>
 
           {/* The tutor's private profile of the student: every homework / lesson / reader agent reads it */}
           <StudentProfileSection relId={relId!} studentName={otherName} />
+
+          {/* What the student has covered: lessons, words met / known, recent words — from what the app already records */}
+          <CoverageSection relId={relId!} studentName={otherName} />
 
           {/* Lesson notes → the assistant drafts homework → the tutor reviews and assigns (docs/HOMEWORK.md) */}
           <LessonNotesSection relId={relId!} studentName={otherName} />

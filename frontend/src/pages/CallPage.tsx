@@ -18,7 +18,10 @@ import { Whiteboard } from '../components/calls/Whiteboard';
 import { TextBoard } from '../components/calls/TextBoard';
 import { AnnotationLayer, type AnnotTool } from '../components/calls/AnnotationLayer';
 import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
-import { ANNOT_COLORS, defaultAnnotColor, myShareTile, shareAudioNote, theirShareSoundLabel, HIDE_MY_SHARE_LABEL } from '@shared/calls';
+import { useDesktopOverlay } from '../services/calls/desktopOverlay';
+import { ANNOT_COLORS, defaultAnnotColor, myShareTile, myShareHint, shareAudioNote, theirShareSoundLabel, HIDE_MY_SHARE_LABEL, ANNOT_PIP_LABEL, ANNOT_PIP_HINT, DRAW_ON_MY_SHARE_LABEL, canControlTimer, callSoundsLabel, TIMER_UP_LABEL, TIMER_BUTTON_LABEL } from '@shared/calls';
+import { loadCallSounds, playChime, saveCallSounds } from '../services/calls/callSounds';
+import { CallTimerPill } from '../components/calls/CallTimerPill';
 import {
   arrangeTiles,
   boardButton,
@@ -65,6 +68,7 @@ import { MaterialTile } from '../components/calls/MaterialTile';
 import { PresentMaterialSheet } from '../components/calls/PresentMaterialSheet';
 import { ActivityTile } from '../components/calls/activities/ActivityTile';
 import { ActivityPickerSheet } from '../components/calls/activities/ActivityPickerSheet';
+import { usePreparedActivities } from '../hooks/usePreparedActivities';
 import './CallPage.css';
 
 function Initials({ name }: { name: string }) {
@@ -194,8 +198,17 @@ export function CallPage() {
   const [myScreenSize, setMyScreenSize] = useState<VideoSize | null>(null);
   const [annotPip, setAnnotPip] = useState<AnnotationPip | null>(null);
   const [theyDrawAt, setTheyDrawAt] = useState(0);
-  /** While I share: show my own screen in its tile anyway ("👁 Show it here"; otherwise a compact card). */
-  const [peekMine, setPeekMine] = useState(false);
+  /**
+   * While I share: my own screen in its tile (true), the compact card (false), or not chosen (null —
+   * shown, except a whole screen, which would mirror itself; shared/calls/share.ts `myShareTile`).
+   */
+  const [shownMine, setShownMine] = useState<boolean | null>(null);
+  // Call sounds (shared/calls/chime.ts): on unless switched off on this device.
+  const [soundsOn, setSoundsOn] = useState(loadCallSounds);
+  const soundsRef = useRef(soundsOn);
+  soundsRef.current = soundsOn;
+  const [timerOpenSignal, setTimerOpenSignal] = useState(0);
+  const [timeUpAt, setTimeUpAt] = useState(0);
   const remoteSharing = !!call.remote?.peer.state.screen;
   const iShare = !!call.screenStream && !remoteSharing;
   const pen = annotColor ?? defaultAnnotColor(iShare);
@@ -204,8 +217,32 @@ export function CallPage() {
     if (!sharing) setAnnotating(false);
   }, [sharing]);
   useEffect(() => {
-    if (!call.screenStream) setPeekMine(false);
+    if (!call.screenStream) setShownMine(null);
   }, [call.screenStream]);
+  // The other person joined / left: a soft chime (unless switched off) and a toast for a few seconds.
+  const lastAlertRef = useRef(0);
+  const presenceAlerts = call.presenceAlerts;
+  useEffect(() => {
+    const fresh = presenceAlerts.filter((a) => a.id > lastAlertRef.current);
+    if (!fresh.length) return;
+    lastAlertRef.current = fresh[fresh.length - 1].id;
+    const last = fresh[fresh.length - 1];
+    if (soundsRef.current) playChime(last.kind, call.devicePrefs.speakerId ?? null);
+    track('call.presence_alert', { kind: last.kind, sound: soundsRef.current });
+    // Each toast goes by itself (not cleared by the next alert's render; dismissing a gone one is a no-op).
+    for (const a of fresh) setTimeout(() => call.dismissPresenceAlert(a.id), 4500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presenceAlerts]);
+  const onTimerFinished = useCallback(() => {
+    if (soundsRef.current) playChime('timer', call.devicePrefs.speakerId ?? null);
+    setTimeUpAt(Date.now());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.devicePrefs.speakerId]);
+  useEffect(() => {
+    if (!timeUpAt) return;
+    const t = setTimeout(() => setTimeUpAt(0), 5000);
+    return () => clearTimeout(t);
+  }, [timeUpAt]);
   useEffect(() => {
     // A screen share starts (theirs or mine): it goes on the stage for both of us — the sharer sees it too —
     // with both faces over it (or the cameras separately, if chosen).
@@ -250,6 +287,20 @@ export function CallPage() {
     }
   }, [call.screenStream, annotPip]);
   useEffect(() => () => annotPip?.close(), [annotPip]);
+  // The desktop app (desktop/) draws the annotations over the real screen I share; inert in a browser.
+  const desktopOverlay = useDesktopOverlay(call.screenStream, call.annotations, {
+    stroke: call.sendAnnotation, ping: call.sendPing, text: call.sendAnnotText, clear: call.clearAnnotations,
+  });
+
+  /** The Document Picture-in-Picture mini window (Chrome desktop): my share + both people's drawings over my other windows. */
+  const openPip = async () => {
+    if (!call.screenStream) return;
+    const p = await openAnnotationPip(call.screenStream, call.annotations, () => setAnnotPip(null));
+    if (p) {
+      setAnnotPip(p);
+      track('call.annot_pip', {});
+    }
+  };
 
   const detail = callQuery.data;
   const other = detail?.participants.find((p) => p.id !== user!.id);
@@ -277,6 +328,9 @@ export function CallPage() {
 
   // ---- "Same view" (shared/calls/view.ts): the stage is shared — either of us changes it, both screens follow.
   const iLead = !!call.tutorId && call.tutorId === user!.id;
+  // Activities prepared for this student from their earlier lessons — the tutor's list (docs/VIDEO_CALLS.md "Prepared activities").
+  const callRelId = detail?.call.relationship_id ?? null;
+  const prep = usePreparedActivities(callRelId, { enabled: iLead && !!callRelId, source: 'call' });
   // The board page I'm on (the text board's session changes it).
   const [boardPage, setBoardPage] = useState(call.textBoard.page);
   useEffect(() => call.textBoard.subscribe(() => setBoardPage(call.textBoard.page)), [call.textBoard]);
@@ -600,17 +654,18 @@ export function CallPage() {
           )}
         </>
       ) : null,
-      content: !sharing ? null : !remoteSharing && myShareTile({ annotating, peek: peekMine }) === 'card' ? (
+      content: !sharing ? null : !remoteSharing && myShareTile({ annotating, shown: shownMine, surface: call.screenSurface ?? 'unknown' }) === 'card' ? (
         // I share: no mirror of my own screen on my stage — the other person has it on theirs.
         <SharingCard
           otherName={call.remote?.peer.name || other?.name || null}
           audio={call.screenAudio ?? 'none'}
+          wholeScreen={call.screenSurface === 'monitor'}
           onStop={() => void call.stopScreenShare()}
           onDraw={() => {
             dispatch({ type: 'preset', preset: 'screen' });
             setAnnotating(true);
           }}
-          onShow={() => setPeekMine(true)}
+          onShow={() => setShownMine(true)}
         />
       ) : (
         <div className="call-tile-body call-tile-video" data-testid="screen-tile">
@@ -634,8 +689,8 @@ export function CallPage() {
             testId={remoteSharing ? 'annot-remote' : 'annot-self'}
           />
           <div className="annot-tools" data-testid="annot-tools">
-            <button type="button" className={`annot-toggle${annotating ? ' on' : ''}`} onClick={() => setAnnotating((v) => !v)} data-testid="annot-toggle">
-              {annotating ? '✓ Done' : remoteSharing ? `✏️ Draw or type on ${first}’s screen` : '✏️ Draw or type on your screen'}
+            <button type="button" className={`annot-toggle${annotating ? ' on' : !remoteSharing ? ' lead' : ''}`} onClick={() => setAnnotating((v) => !v)} data-testid="annot-toggle">
+              {annotating ? '✓ Done' : remoteSharing ? `✏️ Draw or type on ${first}’s screen` : DRAW_ON_MY_SHARE_LABEL}
             </button>
             {annotating && (
               <>
@@ -653,10 +708,16 @@ export function CallPage() {
                 <span className="annot-hint">{annotTool === 'text' ? 'Tap to type · drag a text to move · tap it again to edit' : 'Drag to circle · tap to point'}</span>
               </>
             )}
-            {!remoteSharing && peekMine && !annotating && (
-              <button type="button" className="annot-toggle" onClick={() => setPeekMine(false)} data-testid="sharing-hide">{HIDE_MY_SHARE_LABEL}</button>
+            {!remoteSharing && !annotating && annotationPipSupported() && !desktopOverlay.shown && !annotPip && (
+              <button type="button" className="annot-toggle" onClick={() => void openPip()} title={ANNOT_PIP_HINT} data-testid="annot-pip-tile">{ANNOT_PIP_LABEL}</button>
+            )}
+            {!remoteSharing && !annotating && (
+              <button type="button" className="annot-toggle quiet" onClick={() => setShownMine(false)} data-testid="sharing-hide">{HIDE_MY_SHARE_LABEL}</button>
             )}
           </div>
+          {!remoteSharing && !annotating && (
+            <div className="call-myshare-hint" data-testid="myshare-hint">{myShareHint(call.remote?.peer.name || other?.name || null)}</div>
+          )}
           {remoteSharing && remoteState?.screen_audio && (
             <div className="call-share-sound" data-testid="share-sound-badge">{theirShareSoundLabel(otherName, true)}</div>
           )}
@@ -723,6 +784,18 @@ export function CallPage() {
         <span className="call-time">{elapsed}</span>
         {someoneRecording && <span className="call-rec" data-testid="rec-badge">● REC</span>}
         {call.roomStatus === 'reconnecting' && <span className="call-chip warn">Reconnecting…</span>}
+        <CallTimerPill
+          timer={call.timer}
+          roomNow={call.roomNow}
+          canControl={canControlTimer(call.myUserId, call.tutorId)}
+          myUserId={call.myUserId}
+          onAction={(a) => {
+            call.timerAction(a);
+            track('call.timer', { action: a.kind, mode: a.kind === 'set' ? a.mode : null, minutes: a.kind === 'set' && a.duration_ms ? Math.round(a.duration_ms / 60_000) : null });
+          }}
+          onFinished={onTimerFinished}
+          openSignal={timerOpenSignal}
+        />
         <div className="call-view-wrap">
           {theyOwnView && <span className="call-view-note" data-testid="they-own-view">{theyLookAroundText(otherName)}</span>}
           <button
@@ -763,6 +836,16 @@ export function CallPage() {
             <span>👁 {inviteText(invite.name)}</span>
             <button type="button" className="call-banner-action" onClick={joinInvite} data-testid="view-invite-join">Join</button>
             <button type="button" onClick={() => setInviteSeq(null)} aria-label="Dismiss">✕</button>
+          </div>
+        )}
+        {(call.presenceAlerts.length > 0 || timeUpAt > 0) && (
+          <div className="call-toasts" role="status" aria-live="polite" data-testid="call-toasts">
+            {timeUpAt > 0 && <div className="call-toast time-up" data-testid="timer-up-toast">⏱ {TIMER_UP_LABEL}</div>}
+            {call.presenceAlerts.map((a) => (
+              <div key={a.id} className={`call-toast ${a.kind}`} data-testid={`presence-toast-${a.kind}`}>
+                <span aria-hidden="true">{a.kind === 'join' ? '👋' : '🚪'}</span> {a.text}
+              </div>
+            ))}
           </div>
         )}
         {call.shareStoppedBy && (
@@ -806,7 +889,12 @@ export function CallPage() {
           >
             ✏️ Draw on it
           </button>
-          {annotationPipSupported() && (
+          {desktopOverlay.shown && (
+            <button type="button" className="call-share-btn" data-testid="desktop-overlay-draw" onClick={() => desktopOverlay.setDrawing(!desktopOverlay.drawing)}>
+              {desktopOverlay.drawing ? '✋ Stop drawing on my screen' : '🖍️ Draw on my real screen'}
+            </button>
+          )}
+          {annotationPipSupported() && !desktopOverlay.shown && (
             annotPip ? (
               <button type="button" className="call-share-btn" onClick={() => { annotPip.close(); setAnnotPip(null); }}>Close mini window</button>
             ) : (
@@ -814,12 +902,10 @@ export function CallPage() {
                 type="button"
                 className="call-share-btn"
                 data-testid="annot-pip"
-                onClick={async () => {
-                  const p = await openAnnotationPip(call.screenStream!, call.annotations, () => setAnnotPip(null));
-                  if (p) setAnnotPip(p);
-                }}
+                onClick={() => void openPip()}
+                title={ANNOT_PIP_HINT}
               >
-                See drawings over your other windows
+                {ANNOT_PIP_LABEL}
               </button>
             )
           )}
@@ -835,12 +921,31 @@ export function CallPage() {
       {activitiesOpen && (
         <ActivityPickerSheet
           running={call.activity && call.activity.phase !== 'done' ? call.activity.spec.title : null}
-          onPick={(id) => {
+          prepared={
+            iLead && callRelId
+              ? {
+                  studentName: otherName,
+                  activities: prep.activities,
+                  loading: prep.query.isLoading,
+                  preparing: prep.preparing,
+                  canPrepare: prep.data?.can_prepare !== false && !prep.prepare.isPending,
+                  onMakeMore: () => prep.prepare.mutate(),
+                  error: prep.prepare.isError
+                    ? prep.prepare.error instanceof Error ? prep.prepare.error.message : 'Could not start'
+                    : prep.data?.job?.status === 'failed' ? 'The last try failed — try again.' : null,
+                }
+              : null
+          }
+          onPick={(id, prepared) => {
             call.startActivity(id);
             track('call.activity_start', {
-              activity_kind: id === REVIEW_ACTIVITY_ID ? 'review' : ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null,
+              activity_kind: prepared ? prepared.spec.kind : id === REVIEW_ACTIVITY_ID ? 'review' : ACTIVITY_CATALOGUE.find((a) => a.id === id)?.kind ?? null,
               role: !call.remote ? 'solo' : call.tutorId === call.myUserId ? 'tutor' : 'student',
             });
+            if (prepared) {
+              prep.markUsed(prepared.id);
+              track('call.prepared_activity_start', { activity_kind: prepared.spec.kind, position: prep.activities.indexOf(prepared) });
+            }
             setActivitiesOpen(false);
           }}
           onClose={() => setActivitiesOpen(false)}
@@ -923,7 +1028,24 @@ export function CallPage() {
             <div className="call-more-menu" role="menu" onClick={() => setMoreOpen(false)}>
               <button type="button" role="menuitem" onClick={() => setPresentOpen(true)} data-testid="menu-present-material">📑 Present material</button>
               <button type="button" role="menuitem" onClick={() => setActivitiesOpen(true)} data-testid="menu-activities">🎲 Activities</button>
+              {canControlTimer(call.myUserId, call.tutorId) && (
+                <button type="button" role="menuitem" onClick={() => setTimerOpenSignal((n) => n + 1)} data-testid="menu-timer">{TIMER_BUTTON_LABEL}</button>
+              )}
               <button type="button" role="menuitem" onClick={() => setDevicesOpen(true)} data-testid="menu-devices">🎛️ Camera, mic &amp; speaker</button>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={soundsOn}
+                onClick={() => {
+                  const next = !soundsOn;
+                  setSoundsOn(next);
+                  saveCallSounds(next);
+                  track('call.sounds', { on: next });
+                }}
+                data-testid="menu-sounds"
+              >
+                {callSoundsLabel(soundsOn)}
+              </button>
               {call.hasCamera && <button type="button" role="menuitem" onClick={() => void call.flipCamera()}>🔄 Flip camera</button>}
               {CallRecorder.supported() && (
                 <button type="button" role="menuitem" onClick={() => void (call.recording ? call.stopRecording() : call.startRecording())}>

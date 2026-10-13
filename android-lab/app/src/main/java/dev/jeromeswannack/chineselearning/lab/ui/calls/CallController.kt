@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallChime
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardItem
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPages
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPagesState
@@ -106,10 +108,17 @@ data class TextBoardUi(
  */
 interface CallDevicePrefs {
     var micOff: Boolean
+    /** Call sounds (core CallChime: join / leave chimes, the timer bell) — on unless switched off on this phone. */
+    var callSounds: Boolean
+        get() = true
+        set(_) {}
 }
 
 /** In memory (tests, screenshots); the app uses the SharedPreferences one (data/calls/CallDevicePrefsStore). */
-class MemoryCallDevicePrefs(override var micOff: Boolean = false) : CallDevicePrefs
+class MemoryCallDevicePrefs(override var micOff: Boolean = false, override var callSounds: Boolean = true) : CallDevicePrefs
+
+/** "Minghui joined" / "… left" (core CallChime): a toast for a few seconds. */
+data class PresenceToast(val id: Long, val kind: dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind, val text: String)
 
 /** A short notice over the call ("Minghui brought you to page 3"); [id] makes the same text show again. */
 data class BoardNotice(val id: Long, val text: String)
@@ -204,7 +213,17 @@ data class CallState(
     val viewInvite: String? = null,
     /** Round 5, the student: "Minghui stopped your screen share" — a transient note. */
     val shareStoppedNote: BoardNotice? = null,
+    /** The call timer (core CallTimer; the room's, in room time — see CallController.roomNow). */
+    val timer: dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.Timer? = null,
+    /** "Time's up": the countdown reached zero while this phone watched it run (a transient note; the pill flashes). */
+    val timeUp: BoardNotice? = null,
+    /** The other person joined / left: toasts, newest last (core CallChime). */
+    val presenceToasts: List<PresenceToast> = emptyList(),
+    /** Call sounds on (⋯ → 🔔 Call sounds; per phone). */
+    val callSounds: Boolean = true,
 ) {
+    /** I may run the timer: the relationship's tutor; anyone in a solo call (core CallTimer). */
+    val runsTimer: Boolean get() = dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.canControlTimer(myUserId, tutorId)
     /** I am the relationship's tutor (never in a solo call). */
     val isTutor: Boolean get() = tutorId != null && myUserId.isNotEmpty() && tutorId == myUserId
     /** Round 5: the tutor's control (Stop their share) — she is the tutor and the student is here. */
@@ -337,6 +356,8 @@ class CallDeps(
     val viewModes: CallLayoutStore? = null,
     /** A fresh id for each `view` I send (its echo is recognised by it). */
     val newViewCid: () -> String = { "v" + CallConnection.newInstanceId() },
+    /** Play a call chime (core CallChime: join / leave / timer); the controller checks the sounds switch first. */
+    val chime: (dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind) -> Unit = {},
 )
 
 /**
@@ -359,7 +380,7 @@ class CallController(
 ) {
     private val prefs = deps.devicePrefs
     // A muted mic stays muted (as I last left it); the camera always starts on (core CallDevices, round 5).
-    private val _state = MutableStateFlow(CallState(myUserId = myUserId, recordSupported = deps.recorder.supported, screenShareSupported = deps.media.screenShareSupported, micOn = !prefs.micOff, camOn = CallDevices.CAMERA_ON_AT_START))
+    private val _state = MutableStateFlow(CallState(myUserId = myUserId, recordSupported = deps.recorder.supported, screenShareSupported = deps.media.screenShareSupported, micOn = !prefs.micOff, camOn = CallDevices.CAMERA_ON_AT_START, callSounds = prefs.callSounds))
     val state: StateFlow<CallState> = _state.asStateFlow()
     private val _activity = MutableStateFlow<dev.jeromeswannack.chineselearning.lab.core.calls.ActivitySession?>(null)
     /** The in-call activity being played (also on [state]); the room's latest session. */
@@ -834,18 +855,22 @@ class CallController(
                 _state.update { it.copy(phase = CallPhase.LIVE) }
                 if (wantRecord && !deps.recorder.recording) startRecording()
                 flushDiag()
-                // Round 5: who may stop the other person's share.
+                // Round 5: who may stop the other person's share (and run the timer).
                 _state.update { it.copy(tutorId = msg.tutorId) }
+                presence(CallChime.Event.Welcome(msg.peers.map { CallChime.PeerRef(it.clientId, it.userId, it.name) }))
+                timerArrived(msg.timer)
                 // "Same view": the room's view goes on my stage; a room without one gets mine.
                 val view = msg.view
                 if (view != null) sharedViewArrived(view)
                 else if (_state.value.viewMode == CallView.ViewMode.SAME) myViewMine()?.let { sendView(it) }
             }
             is ServerMessage.PeerJoined -> {
+                presence(CallChime.Event.Joined(CallChime.PeerRef(msg.peer.clientId, msg.peer.userId, msg.peer.name)))
                 _state.update { it.copy(pages = BoardPages.peerJoined(it.pages, msg.peer.clientId)) }
                 peerAnnounced(msg.peer)
             }
             is ServerMessage.PeerLeft -> {
+                presence(CallChime.Event.Left(msg.clientId))
                 _state.update { it.copy(pages = BoardPages.peerLeft(it.pages, msg.clientId)) }
                 textBoard?.dropCursor(msg.clientId)
                 publishText("cursor")
@@ -919,6 +944,7 @@ class CallController(
                 _state.update { it.copy(shareStoppedNote = BoardNotice(now(), CallFollow.shareStoppedNote(msg.name))) }
                 diag("media", "${msg.name.ifBlank { "The tutor" }} stopped my screen share")
             }
+            is ServerMessage.Timer -> timerArrived(msg.timer)
             is ServerMessage.Ended -> finish(CallPhase.ENDED)
             ServerMessage.Replaced -> finish(CallPhase.ERROR, "You joined this call from another tab or device.")
             else -> Unit
@@ -1190,11 +1216,11 @@ class CallController(
     }
 
     /** ⋯ → 🎲 Activities: start one (replaces a running one); the room answers with `activity` to both. */
-    fun startActivity(activityId: String) {
+    fun startActivity(activityId: String, kind: String? = null) {
         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
             "call.activity_start",
             mapOf(
-                "activity_kind" to (dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind
+                "activity_kind" to (kind ?: dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind
                     ?: dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds.REVIEW.takeIf { activityId == dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.REVIEW_ACTIVITY_ID }),
                 "role" to activityStarterRole(_state.value, myId()),
             ),
@@ -1417,6 +1443,84 @@ class CallController(
     }
 
     fun dismissShareStopped() = _state.update { it.copy(shareStoppedNote = null) }
+
+    // ------------------------------------------------------------ the call timer and call sounds
+
+    /** The room's clock on this phone (the timer is kept in room time; the socket's ping offset). */
+    fun roomNow(): Long = now() + (room?.clockOffset ?: 0L)
+
+    /** The tutor (solo: anyone) runs the timer; the room refuses anyone else. */
+    fun timerAction(action: CallTimer.Action): Boolean {
+        val minutes = (action as? CallTimer.Action.Set)?.durationMs?.let { Math.round(it / 60_000.0) }
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.timer", mapOf("action" to action.kind, "mode" to (action as? CallTimer.Action.Set)?.mode?.wire, "minutes" to minutes))
+        return room?.send(CallProtocol.timer(action)) ?: false
+    }
+
+    fun dismissTimeUp() = _state.update { it.copy(timeUp = null) }
+
+    fun setCallSounds(on: Boolean) {
+        prefs.callSounds = on
+        _state.update { it.copy(callSounds = on) }
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.sounds", mapOf("on" to on))
+    }
+
+    fun dismissPresenceToast(id: Long) = _state.update { s -> s.copy(presenceToasts = s.presenceToasts.filterNot { it.id == id }) }
+
+    private var chimeState = CallChime.EMPTY
+    private var chimeTickJob: Job? = null
+    private var toastSeq = 0L
+
+    /** A presence event → "… joined" / "… left" toasts and a chime (core CallChime). */
+    private fun presence(event: CallChime.Event) {
+        val r = CallChime.chimeStep(chimeState, event, myId(), now())
+        chimeState = r.state
+        for (a in r.alerts) {
+            val toast = PresenceToast(++toastSeq, a.kind, a.text)
+            _state.update { s -> s.copy(presenceToasts = (s.presenceToasts + toast).takeLast(4)) }
+            if (_state.value.callSounds) deps.chime(a.kind)
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.presence_alert", mapOf("kind" to a.kind.wire, "sound" to _state.value.callSounds))
+            scope.launch { delay(PRESENCE_TOAST_MS); dismissPresenceToast(toast.id) }
+        }
+        if (CallChime.chimeNeedsTick(chimeState)) {
+            if (chimeTickJob?.isActive != true) chimeTickJob = scope.launch {
+                while (CallChime.chimeNeedsTick(chimeState) && !finished) {
+                    delay(1_000)
+                    presence(CallChime.Event.Tick)
+                }
+            }
+        }
+    }
+
+    private var timerJob: Job? = null
+    private var timerSawRunning = false
+    private var timerChimed: String? = null
+
+    /** The room's timer changed: show it, and watch a running countdown for its zero (one chime per run, both phones). */
+    private fun timerArrived(timer: CallTimer.Timer?) {
+        _state.update { it.copy(timer = timer) }
+        timerJob?.cancel()
+        if (timer == null) { timerSawRunning = false; return }
+        checkTimer()
+        if (timer.running) timerJob = scope.launch {
+            while (!finished && _state.value.timer?.running == true) {
+                delay(250)
+                checkTimer()
+                if (_state.value.timer?.let { CallTimer.timerDone(it, roomNow()) } == true) break
+            }
+        }
+    }
+
+    private fun checkTimer() {
+        val t = _state.value.timer ?: return
+        val at = roomNow()
+        if (CallTimer.shouldChimeTimer(t, at, timerChimed, timerSawRunning)) {
+            timerChimed = CallTimer.timerFinishKey(t)
+            if (_state.value.callSounds) deps.chime(CallChime.Kind.TIMER)
+            _state.update { it.copy(timeUp = BoardNotice(now(), "⏱ ${CallTimer.TIMER_UP_LABEL}")) }
+            scope.launch { delay(5_000); dismissTimeUp() }
+        }
+        timerSawRunning = if (t.running && !CallTimer.timerDone(t, at)) true else if (!t.running) false else timerSawRunning
+    }
 
     // ------------------------------------------------------------ lesson materials (round 4 PR 5)
 
@@ -1699,6 +1803,8 @@ class CallController(
         const val COMPOSE_MIN_GAP_MS = 84L
         /** A room `error` this soon after a page action is shown as a notice. */
         const val PAGE_ERROR_WINDOW_MS = 5_000L
+        /** "Minghui joined" / "… left" stays this long (web: 4.5 s). */
+        const val PRESENCE_TOAST_MS = 4_500L
         /** Join waits this long at most for a camera / mic still opening (web JOIN_MEDIA_WAIT_MS). */
         const val JOIN_MEDIA_WAIT_MS = 4_000L
         /**

@@ -6,8 +6,8 @@ import java.util.Locale
 /**
  * Port of shared/folders/folders.ts: folders for decks, Lesson Library items and graded
  * readers — organisation only. One model for all three (server table `folders`, migration
- * 0100): a folder belongs to one user and one [kind], has a name, an optional parent (ONE
- * level of nesting) and a [position] among its siblings. Items carry a nullable folder id;
+ * 0105): a folder belongs to one user and one [kind], has a name, an optional parent (folders
+ * nest up to [Folders.MAX_FOLDER_DEPTH] levels) and a [position] among its siblings. Items carry a nullable folder id;
  * null = Unfiled. Folders never touch the study queue.
  *
  * Parity-tested against the TypeScript (parity/fixtures/folders.ts, FoldersParityTest).
@@ -18,7 +18,7 @@ data class Folder(
     /** deck | lesson | reader */
     val kind: String,
     val name: String,
-    /** A top-level folder's id, or null. Never deeper than one level. */
+    /** The folder it sits in, or null = top level. */
     val parentId: String? = null,
     val position: Int = 0,
     val createdAt: String = "",
@@ -30,10 +30,12 @@ data class FolderGroup<T>(
     /** null = Unfiled. */
     val folder: Folder?,
     val items: List<T>,
-    /** Subfolders (one level). Always empty on a subfolder and on Unfiled. */
+    /** Subfolders in order, each with theirs (any depth). Always empty on Unfiled. */
     val children: List<FolderGroup<T>>,
-    /** Items here and in the subfolders. */
+    /** Items here and in every subfolder below. */
     val total: Int,
+    /** 0 = top level (and Unfiled), 1 = inside a top-level folder, … */
+    val depth: Int = 0,
 )
 
 data class FolderTree<T>(val groups: List<FolderGroup<T>>, val unfiled: FolderGroup<T>)
@@ -90,17 +92,75 @@ object Folders {
     /** `folderNameKey`: case- and space-insensitive name match. */
     fun folderNameKey(name: String): String = cleanFolderName(name).lowercase(Locale.ROOT)
 
+    /** `MAX_FOLDER_DEPTH`: a top-level folder is level 1, its subfolders level 2, … */
+    const val MAX_FOLDER_DEPTH = 5
+
+    /** `folderAncestors`: the top-level ancestor first, not the folder itself; stops at an unknown parent or a cycle. */
+    fun folderAncestors(folder: Folder, all: List<Folder>): List<Folder> {
+        val byId = LinkedHashMap<String, Folder>()
+        for (f in all) byId[f.id] = f
+        val out = ArrayList<Folder>()
+        val seen = hashSetOf(folder.id)
+        var cur = if (!folder.parentId.isNullOrEmpty()) byId[folder.parentId] else null
+        while (cur != null && cur.id !in seen) {
+            seen += cur.id
+            out.add(0, cur)
+            cur = if (!cur.parentId.isNullOrEmpty()) byId[cur.parentId] else null
+        }
+        return out
+    }
+
+    /** `folderLevel`: 1 = top level. */
+    fun folderLevel(folder: Folder, all: List<Folder>): Int = folderAncestors(folder, all).size + 1
+
+    /** `folderDescendantIds`: every folder inside [folderId] at any depth, breadth-first. */
+    fun folderDescendantIds(folderId: String, all: List<Folder>): List<String> {
+        val out = ArrayList<String>()
+        val seen = hashSetOf(folderId)
+        val queue = ArrayDeque(listOf(folderId))
+        while (queue.isNotEmpty()) {
+            val id = queue.removeFirst()
+            for (f in all) {
+                if (f.parentId == id && f.id !in seen) {
+                    seen += f.id
+                    out += f.id
+                    queue.addLast(f.id)
+                }
+            }
+        }
+        return out
+    }
+
+    /** `subtreeLevels`: levels in a folder's subtree, itself included (1 = no subfolders). */
+    fun subtreeLevels(folderId: String, all: List<Folder>): Int {
+        val seen = hashSetOf(folderId)
+        var level = listOf(folderId)
+        var levels = 0
+        while (level.isNotEmpty()) {
+            levels++
+            val ids = level.toHashSet()
+            level = all.filter { it.parentId != null && it.parentId in ids && it.id !in seen }.map { it.id }
+            seen += level
+        }
+        return levels
+    }
+
     /**
-     * `parentProblem`: where a folder may be placed — [parentId] must be a top-level folder of
-     * the same kind, not the folder itself, and a folder with subfolders stays at the top.
+     * `parentProblem`: [parentId] must be a folder of the same kind, not the folder itself nor
+     * one of its own subfolders, and the folder with everything inside it must fit within
+     * [MAX_FOLDER_DEPTH] levels. [folderId] null / "" = a new folder.
      */
     fun parentProblem(folderId: String?, kind: String, parentId: String?, all: List<Folder>): String? {
         if (parentId == null) return null
         if (!folderId.isNullOrEmpty() && parentId == folderId) return "A folder can't go inside itself"
         val parent = all.firstOrNull { it.id == parentId }
         if (parent == null || parent.kind != kind) return "That folder does not exist"
-        if (!parent.parentId.isNullOrEmpty()) return "Folders go one level deep: pick a top-level folder"
-        if (!folderId.isNullOrEmpty() && all.any { it.parentId == folderId }) return "This folder has folders inside it, so it has to stay at the top level"
+        if (!folderId.isNullOrEmpty() && parentId in folderDescendantIds(folderId, all)) return "A folder can't go inside one of its own folders"
+        val height = if (!folderId.isNullOrEmpty()) subtreeLevels(folderId, all) else 1
+        if (folderLevel(parent, all) + height > MAX_FOLDER_DEPTH) {
+            return if (height > 1) "Folders go $MAX_FOLDER_DEPTH levels deep: this folder and the folders inside it don't fit there"
+            else "Folders go $MAX_FOLDER_DEPTH levels deep: pick a folder higher up"
+        }
         return null
     }
 
@@ -114,57 +174,99 @@ object Folders {
         }
     }
 
+    /** `displayParents`: the parent a folder is drawn under, or null (unknown parent / a cycle → top level). */
+    private fun displayParents(mine: List<Folder>): Map<String, String?> {
+        val byId = LinkedHashMap<String, Folder>()
+        for (f in mine) byId[f.id] = f
+        val out = HashMap<String, String?>()
+        for (f in mine) {
+            val seen = hashSetOf(f.id)
+            var cur = f
+            var rooted = false
+            while (true) {
+                val p = if (!cur.parentId.isNullOrEmpty()) byId[cur.parentId] else null
+                if (p == null) { rooted = true; break }
+                if (p.id in seen) break
+                seen += p.id
+                cur = p
+            }
+            val parent = if (!f.parentId.isNullOrEmpty()) byId[f.parentId] else null
+            out[f.id] = if (rooted && parent != null) parent.id else null
+        }
+        return out
+    }
+
     /**
-     * `groupIntoFolders`: top-level folders in order, each with its items (in the order
-     * given) and its subfolders; then Unfiled. An item whose folder is unknown is Unfiled, a
-     * subfolder whose parent is unknown (or itself a subfolder) shows at the top level —
-     * nothing is ever hidden. Other kinds are ignored; empty folders are kept.
+     * `groupIntoFolders`: the folder tree — top-level folders in order, each with its items (in
+     * the order given) and its subfolders at any depth; then Unfiled. An item whose folder is
+     * unknown is Unfiled, a folder whose parent is unknown (or in a cycle) shows at the top
+     * level — nothing is ever hidden. Other kinds are ignored; empty folders are kept.
      */
     fun <T> groupIntoFolders(items: List<T>, folderIdOf: (T) -> String?, folders: List<Folder>, kind: String): FolderTree<T> {
         val mine = folders.filter { it.kind == kind }
-        val byId = LinkedHashMap<String, Folder>()
-        for (f in mine) byId[f.id] = f // last wins, like `new Map(...)`
-        fun isTop(f: Folder): Boolean {
-            val p = f.parentId
-            if (p.isNullOrEmpty()) return true
-            val parent = byId[p] ?: return true
-            return parent.parentId != null // TS: `!= null`, not truthiness
-        }
+        val parents = displayParents(mine)
         val itemsOf = HashMap<String, MutableList<T>>()
-        for (f in mine) itemsOf.getOrPut(f.id) { ArrayList() }
+        for (f in mine) itemsOf[f.id] = ArrayList()
         val unfiled = ArrayList<T>()
         for (item in items) {
             val fid = folderIdOf(item)
             val list = if (!fid.isNullOrEmpty()) itemsOf[fid] else null
             (list ?: unfiled).add(item)
         }
-        val tops = sortFolders(mine.filter(::isTop))
-        val groups = tops.map { top ->
-            val children = sortFolders(mine.filter { !isTop(it) && it.parentId == top.id }).map { c ->
-                val its = itemsOf[c.id].orEmpty().toList()
-                FolderGroup(c, its, emptyList(), its.size)
-            }
-            val its = itemsOf[top.id].orEmpty().toList()
-            FolderGroup(top, its, children, its.size + children.sumOf { it.total })
+        val childrenOf = LinkedHashMap<String?, MutableList<Folder>>()
+        for (f in mine) childrenOf.getOrPut(parents[f.id]) { ArrayList() }.add(f)
+        val built = HashSet<String>()
+        fun build(f: Folder, depth: Int): FolderGroup<T> {
+            built += f.id
+            val children = sortFolders(childrenOf[f.id].orEmpty().filter { it.id !in built }).map { build(it, depth + 1) }
+            val own = itemsOf[f.id].orEmpty().toList()
+            return FolderGroup(f, own, children, own.size + children.sumOf { it.total }, depth)
         }
-        return FolderTree(groups, FolderGroup(null, unfiled.toList(), emptyList(), unfiled.size))
+        val groups = sortFolders(childrenOf[null].orEmpty()).map { build(it, 0) }
+        return FolderTree(groups, FolderGroup(null, unfiled.toList(), emptyList(), unfiled.size, 0))
     }
 
-    /** `folderOptions`: each top-level folder followed by its subfolders (depth 0 / 1). */
-    fun folderOptions(folders: List<Folder>, kind: String): List<FolderOption> {
-        val tree = groupIntoFolders(emptyList<Unit>(), { null }, folders, kind)
-        val out = ArrayList<FolderOption>()
-        for (g in tree.groups) {
-            out += FolderOption(g.folder!!, 0)
-            for (c in g.children) out += FolderOption(c.folder!!, 1)
-        }
+    /** `flattenFolderGroups`: every group, each before its subfolders (depth-first). */
+    fun <T> flattenFolderGroups(groups: List<FolderGroup<T>>): List<FolderGroup<T>> {
+        val out = ArrayList<FolderGroup<T>>()
+        fun walk(g: FolderGroup<T>) { out += g; g.children.forEach(::walk) }
+        groups.forEach(::walk)
         return out
     }
 
-    /** `folderPath`: "HSK 2 › Week 1". */
-    fun folderPath(folder: Folder, folders: List<Folder>): String {
-        val parent = if (!folder.parentId.isNullOrEmpty()) folders.firstOrNull { it.id == folder.parentId } else null
-        return if (parent != null) "${parent.name} › ${folder.name}" else folder.name
+    /** `folderOptions`: depth-first, each folder followed by its subfolders, with their depth. */
+    fun folderOptions(folders: List<Folder>, kind: String): List<FolderOption> {
+        val tree = groupIntoFolders(emptyList<Unit>(), { null }, folders, kind)
+        return flattenFolderGroups(tree.groups).map { FolderOption(it.folder!!, it.depth) }
+    }
+
+    /** `folderPath`: "HSK 2 › Week 1 › Monday". */
+    fun folderPath(folder: Folder, folders: List<Folder>, separator: String = " › "): String =
+        (folderAncestors(folder, folders).map { it.name } + folder.name).joinToString(separator)
+
+    private val PATH_SPLIT = Regex("[/›>]")
+
+    /** `parseFolderPath`: "HSK 2 / Week 1" → ["HSK 2", "Week 1"]. */
+    fun parseFolderPath(path: String): List<String> = path.split(PATH_SPLIT).map(::cleanFolderName).filter { it.isNotEmpty() }
+
+    /** `findFolderByPath`: from the top level down; a single name also matches at any depth. */
+    fun findFolderByPath(folders: List<Folder>, kind: String, path: List<String>): Folder? {
+        if (path.isEmpty()) return null
+        val tree = groupIntoFolders(emptyList<Unit>(), { null }, folders, kind)
+        var level = tree.groups
+        var hit: FolderGroup<Unit>? = null
+        for (name in path) {
+            val key = folderNameKey(name)
+            hit = level.firstOrNull { folderNameKey(it.folder!!.name) == key }
+            if (hit == null) break
+            level = hit.children
+        }
+        if (hit != null) return hit.folder
+        if (path.size == 1) {
+            val key = folderNameKey(path[0])
+            return flattenFolderGroups(tree.groups).firstOrNull { folderNameKey(it.folder!!.name) == key }?.folder
+        }
+        return null
     }
 
     /** `spliceGroupOrder`: the group's slots in [all] keep their places, refilled in [groupOrder]. */
@@ -186,14 +288,15 @@ object Folders {
 
     // ---- Copy (the same words as the web) ----
 
-    /** `deleteFolderMessage`: the body of the delete confirmation. */
-    fun deleteFolderMessage(kind: String, name: String, itemCount: Int, subfolderCount: Int = 0): String {
+    /** `deleteFolderMessage`: the body of the delete confirmation; subfolders move up into [parentName] (null = the top level). */
+    fun deleteFolderMessage(kind: String, name: String, itemCount: Int, subfolderCount: Int = 0, parentName: String? = null): String {
         val items = if (itemCount == 0) {
             "“$name” is empty."
         } else {
             "${if (itemCount == 1) "Its" else "All $itemCount"} ${folderItemNoun(kind, itemCount)} ${if (itemCount == 1) "moves" else "move"} to $UNFILED_LABEL."
         }
-        val subs = if (subfolderCount > 0) " ${if (subfolderCount == 1) "Its folder moves" else "Its $subfolderCount folders move"} to the top level." else ""
+        val where = if (parentName != null) "into “$parentName”" else "to the top level"
+        val subs = if (subfolderCount > 0) " ${if (subfolderCount == 1) "Its folder moves" else "Its $subfolderCount folders move"} $where." else ""
         return "$items$subs Nothing is deleted."
     }
 

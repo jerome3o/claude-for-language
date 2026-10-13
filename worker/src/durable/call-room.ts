@@ -88,13 +88,20 @@ import {
   sanitizeStageView,
   viewForShow,
   type SharedView,
+  canControlTimer,
+  minutesLabel,
+  reduceTimer,
+  sanitizeTimer,
+  sanitizeTimerAction,
+  type CallTimer,
 } from '@shared/calls';
 import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
 import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAnnotations, shareMaterial } from '../services/materials';
 import { materialTarget, parseMaterialTarget, turnPage, type PresentedMaterial } from '@shared/materials';
 import { advanceCallProcessing } from '../services/calls/processing';
 import { relationshipTutor, saveActivityResult } from '../services/calls/activities';
-import { findActivity, joinActivity, reduceActivity, reviewMarkOf, rolesOf, startActivity, REVIEW_ACTIVITY_ID, type ActivitySession, type ActivitySpec } from '@shared/call-activities';
+import { findActivity, joinActivity, preparedRowId, reduceActivity, reviewMarkOf, rolesOf, startActivity, REVIEW_ACTIVITY_ID, type ActivitySession, type ActivitySpec } from '@shared/call-activities';
+import { takePreparedForCall } from '../services/prepared-activities/store';
 import { applyReviewMark, buildReviewSpec } from '../services/calls/review-activity';
 import { alertCallMissed } from '../services/calls/alerts';
 import { insertPage, linkCallPages, loadPageDoc, loadScopePages, savePages, type PageScope, type PageWrite, type RoomPage } from '../services/calls/pages';
@@ -375,6 +382,20 @@ export class CallRoom extends DurableObject<Env> {
       }
       spec = await buildReviewSpec(this.env.DB, m.relationship_id, tutor).catch((err) => {
         console.error('[call-room] review list failed:', err);
+        return null;
+      });
+    }
+    const preparedId = preparedRowId(activityId);
+    if (preparedId) {
+      // Prepared for this student from earlier lessons: the tutor's material — only she starts one.
+      const m = await this.meta();
+      const tutor = await this.tutor();
+      if (!m?.relationship_id || !tutor || a.userId !== tutor) {
+        this.send(ws, { type: 'error', message: 'Only the tutor can start a prepared activity' });
+        return;
+      }
+      spec = await takePreparedForCall(this.env.DB, preparedId, m.relationship_id, m.id, activityId).catch((err) => {
+        console.error('[call-room] prepared activity failed:', err);
         return null;
       });
     }
@@ -771,6 +792,7 @@ export class CallRoom extends DurableObject<Env> {
       tutor_id: await this.tutor(),
       shown: (await this.ctx.storage.get<ShownState | null>('shown')) ?? null,
       view: (await this.ctx.storage.get<SharedView | null>('view')) ?? null,
+      timer: sanitizeTimer(await this.ctx.storage.get<CallTimer | null>('timer')),
     });
     this.broadcast({ type: 'peer_joined', peer: this.peerOf(attachment) }, server);
     return new Response(null, { status: 101, webSocket: client });
@@ -1086,6 +1108,10 @@ export class CallRoom extends DurableObject<Env> {
         await this.stopTheirShare(ws, a);
         return;
       }
+      case 'timer': {
+        await this.timerAction(ws, a, msg.action);
+        return;
+      }
       case 'state': {
         const s = msg.state;
         if (!s || typeof s !== 'object') return;
@@ -1147,6 +1173,28 @@ export class CallRoom extends DurableObject<Env> {
     await this.ctx.storage.put('view', next);
     this.broadcast({ type: 'view', view: next });
     if (bring) await this.logRoom(`${a.name} brought the other person to their view`, a);
+  }
+
+  /**
+   * The call timer (shared/calls/timer.ts): the tutor sets / starts / pauses / resets / clears it
+   * (anyone in a solo call). Kept in the room's storage only (a reconnect gets it in `welcome`);
+   * new timers and clears are logged in the call's diagnostics.
+   */
+  private async timerAction(ws: WebSocket, a: Attachment, raw: unknown): Promise<void> {
+    if (!canControlTimer(a.userId, await this.tutor())) {
+      this.send(ws, { type: 'error', message: 'Only the tutor can run the timer' });
+      return;
+    }
+    const action = sanitizeTimerAction(raw);
+    if (!action) return;
+    const cur = sanitizeTimer(await this.ctx.storage.get<CallTimer | null>('timer'));
+    const now = Date.now();
+    const next = reduceTimer(cur, action, { userId: a.userId, name: a.name }, now, () => crypto.randomUUID());
+    if (next === cur) return;
+    await this.ctx.storage.put('timer', next);
+    this.broadcast({ type: 'timer', timer: next, server_time: now });
+    if (action.kind === 'set') await this.logRoom(`${a.name} set a ${next?.mode === 'countdown' ? `${minutesLabel(next.duration_ms)} countdown` : 'stopwatch'}`, a);
+    else if (action.kind === 'clear') await this.logRoom(`${a.name} took the timer away`, a);
   }
 
   /** The tutor stops the other person's screen share: their device stops capturing; everyone hears they no longer share. */

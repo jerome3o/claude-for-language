@@ -119,16 +119,17 @@ export function MorePage() {
           )}
         </NavSection>
 
+        {/* Homework library and Lesson materials left the menus (Minghui, Oct 2026): their routes still
+            work for old links, the student page shows each student's homework, and materials are added /
+            presented from a call (⋯ → Present material). */}
         {role.isTutorAccount ? (
           <>
             <NavSection title="Teaching">
               <NavRow icon="👥" label="Students" desc="Progress, homework, messages" to="/connections" />
-              <NavRow icon="✅" label="Homework library" desc="Everything you sent, with progress and due dates" to="/homework-library" />
               <NavRow icon="🗂️" label="Lesson Library" desc="Mini lessons you assign — tap one to try it" to="/library" />
               <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
               <NavRow icon="📚" label="Readers" desc="Graded stories to share with students" to="/readers" />
               <NavRow icon="📹" label="Video calls (beta)" desc="Lessons with a whiteboard, then a transcript" to="/calls" />
-              <NavRow icon="📑" label="Lesson materials" desc="PDFs, slides and pictures to present in a call" to="/materials" />
               <NavRow icon="🧪" label="Group class (prototype)" desc="Teach a few students together on one call — an experiment" to="/group-classes" />
             </NavSection>
             <NavSection title="Tools">
@@ -154,7 +155,6 @@ export function MorePage() {
           <NavRow icon="📜" label="成语 Idioms (beta)" desc="The story behind each idiom, and how to use it" to="/idioms" />
           <NavRow icon="🎧" label="Audio lessons" desc="Listen on the train, or fall asleep to slow Chinese" to="/audio-lessons" />
           <NavRow icon="📹" label="Video calls (beta)" desc="Live lessons with a whiteboard, then a transcript" to="/calls" />
-          <NavRow icon="📑" label="Lesson materials" desc="PDFs and slides from lessons" to="/materials" />
         </NavSection>
 
         {!role.isTutorOnly && (
@@ -172,7 +172,6 @@ export function MorePage() {
 
         {showTeaching && (
           <NavSection title="Teaching">
-            {role.hasStudents && <NavRow icon="✅" label="Homework library" desc="Everything you sent, with progress and due dates" to="/homework-library" />}
             <NavRow icon="🗂️" label="Lesson Library" desc="Lessons you assign to students" to="/library" />
             <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
             {(role.hasStudents || !!user?.is_admin) && (

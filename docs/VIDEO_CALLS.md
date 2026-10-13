@@ -482,6 +482,68 @@ shares." Rules in `shared/calls/view.ts` (Lab `core/…/calls/CallView.kt`, pari
   browsers: both ways, a preset, page turns, the double 📝, My own view, Bring + Join, reload, a share on
   both stages, Stop their share).
 
+## Round 7: the timer, call sounds, and the sharer's own screen (Oct 2026)
+
+Three requests from Minghui (she teaches from the web app on a desktop browser):
+
+**The call timer** — "I sometimes need to time students' tests". ONE timer per call, both people see
+it (`shared/calls/timer.ts`, Lab `core/…/calls/CallTimer.kt`, parity-tested by
+`parity/fixtures/calls-timer.ts`):
+- A **countdown** (quick 1 / 2 / 3 / 5 / 10 min, or a typed length — "7", "1:30", "90s", "2m30s";
+  5 s – 3 h, `parseTimerInput`) or a **stopwatch**; Start / Pause / Reset / New timer / Remove.
+- The **CallRoom** holds it in ROOM time (`{ type: 'timer', action }` → `{ type: 'timer', timer,
+  server_time }` to everyone, the sender included; `welcome.timer` for a (re)join; storage key `timer`,
+  nothing kept after the call). `reduceTimer` is the one rule; a start on a finished countdown runs it
+  again. Each device shows it through its clock offset from the room's pings (`roomNow()`), so both
+  screens show the same second and a reconnect picks it up where it is.
+- **Who runs it**: the relationship's tutor (a test is timed by the teacher); in a solo call, the
+  caller (`canControlTimer`, enforced by the room: "Only the tutor can run the timer"). The student's
+  pill opens a read-only view ("set by Minghui", "Only your tutor can start or stop it").
+- **The pill** sits in the top bar (web `components/calls/CallTimerPill.tsx`: a popover; Lab
+  `ui/calls/CallTimerUi.kt`: a bottom sheet). The tutor sees a quiet ⏱ before any timer and ⋯ → ⏱
+  Timer; the student sees nothing until one is set. Paused = dimmed.
+- **At zero**: the pill flashes and reads "Time's up", a "⏱ Time's up" toast, and a soft bell — once
+  per run (`timerFinishKey` = id + run) and only on a device that watched it run (`shouldChimeTimer`:
+  joining into a finished countdown is silent).
+- New timers and Remove are written to the call's connection log ("Minghui set a 5 min countdown").
+- Analytics `call.timer { action, mode, minutes }`.
+
+**Join / leave sounds** (`shared/calls/chime.ts`, Lab `CallChime.kt`, parity-tested by
+`parity/fixtures/calls-chime.ts`): when the OTHER person enters, a soft rising chime and "👋 Minghui
+joined"; when they leave, a lower, quieter one and "🚪 Minghui left". From the room's presence events:
+`welcome` only takes note of who is there (my own join / reconnect never chimes); `peer_left` is
+announced only after `PEER_LEAVE_GRACE_MS` (8 s), so their reconnect (the room sends `peer_left` then
+`peer_joined` for a new socket) is silent; their return after an announced leave is announced again;
+someone who left while my own connection was down is noticed on my rejoin. The tones are synthesised
+on the device from `CHIME_TONES` (sines with a soft attack and exponential decay — web WebAudio,
+`services/calls/callSounds.ts`, played on the chosen speaker where the browser allows; Lab PCM through
+`AudioTrack` with the call's audio, `data/calls/CallChimePlayer.kt`): nothing to license. ⋯ →
+**🔔 Call sounds: on / off** (per device: web localStorage `call-sounds-v1`, Lab SharedPreferences)
+switches the chimes and the timer bell off; the toasts stay. Analytics `call.presence_alert { kind,
+sound }`, `call.sounds { on }`.
+
+**The sharer sees her share** — "when the teacher shares their screen, the shared content can't be
+seen in the video interface; could it be visible there with the ability to draw and type on top of
+it". Round 6 had replaced the sharer's own screen with a compact card; now (`myShareTile({ annotating,
+shown, surface })`, `shared/calls/share.ts`):
+- A shared **tab or window** is shown on her stage by default, Zoom-like, with the drawing layer and
+  a prominent **✏️ Draw or type on your screen** (pen and T Text, as the viewer has) and a hint "Jerome
+  sees this — draw or type on it, you both see it". **Hide my screen** collapses it to the card;
+  **👁 Show it here** brings it back.
+- A **whole screen** starts as the card ("Your whole screen is shared — shown here it would mirror
+  itself"); Show it here shows it anyway. The browser says which (`getSettings().displaySurface`,
+  `shareSurfaceOf`); the Lab app always shares the whole phone screen, so it keeps the card.
+- A browser can't draw on the real screen, so the **🪟 Mini window over your other windows** (the
+  Document Picture-in-Picture window, Chrome desktop, `services/calls/annotationPip.ts`) is offered on
+  her visible share as well as on the share bar. Analytics `call.annot_pip`.
+
+Tests: `shared/calls/{timer,chime,share}.test.ts`, `worker/src/durable/__tests__/call-room-timer.test.ts`,
+`e2e/tests/video-call-timer.spec.ts` (two browsers: join toast + chime, a 6 s countdown on both pages,
+the student's read-only panel, the bell once each, a stopwatch paused, sounds off, the leave toast),
+`video-call-screen-sound.spec.ts` (the sharer's tab visible, Hide / Show, a whole screen as the card),
+Lab `CallsTimerParityTest`, `CallsChimeParityTest`, `CallsShareParityTest`, `CallProtocolTest`
+(`timer` messages), `CallControllerTest` (chimes, reconnect silence, the countdown's bell once).
+
 ## Screen share: sound, and no mirror for the sharer (round 6)
 
 Jerome's lesson with Minghui (5 Oct 2026): she shared a Chrome tab with his recordings page and played
@@ -512,7 +574,8 @@ screen". Rules + words in `shared/calls/share.ts` (Lab `core/…/calls/CallShare
   calls it, so playback capture can't be mixed in without a custom audio device module): it says
   "Sound isn't shared from the app — …". It RECEIVES a browser's screen sound: WebRTC plays every remote
   audio track, and its offers carry the fourth m-line too (receive only).
-- **No mirror for the sharer** — since Same view a share is on both stages. The SHARER's screen tile is a
+- **No mirror for the sharer** (superseded by round 7: her tab / window is shown by default, the card
+  is one tap away — see "Round 7") — since Same view a share is on both stages. The SHARER's screen tile was a
   compact card: **"You're sharing your screen"**, "Jerome sees it on their screen.", the sound line,
   **⏹ Stop sharing · ✏️ Draw on it · 👁 Show it here** (`myShareTile`: the card unless I draw on it or
   asked to see it; *Hide my screen* goes back). In a rail / floating tile only the title and Stop. The
@@ -724,10 +787,68 @@ it; the Lab parity test checks the Kotlin catalogue matches). A new KIND needs i
 `step` case in `engine.ts`, a summary line, a view in `components/calls/activities/ActivityViews.tsx` and the
 Lab's `ActivityTile`.
 
-What I'd build next: "make one from this lesson's words" (Claude writes a spec from the board / report /
-student's struggling words — the spec already travels in the session); handwriting in dictation (the stroke
-pad); a shared drag for sentence tiles; a timer / points race; activities as homework afterwards (the same
-spec played solo).
+What I'd build next: handwriting in dictation (the stroke pad); a shared drag for sentence tiles; a timer /
+points race; activities as homework afterwards (the same spec played solo).
+
+### Prepared activities: pre-cooked from the previous lessons (Oct 2026)
+
+Minghui: "Can the in-app practice activities during class be related to the previous lesson's content? Could
+each student have their own profile that records what they've learned?" So every student gets a small set of
+activities written **for them, for the next lesson**, from what their lessons left behind — waiting first in
+the call's menu.
+
+- **What it reads** (`services/prepared-activities/context.ts` `loadActivityContext`, all existing data): the
+  newest lesson report (`call_lessons.summary_json`: summary, topics, new vocabulary, the corrections said →
+  better, follow-ups), that lesson's board text and the activities already played in it, the lesson before
+  (topics + words), lesson-log notes newer than the last recorded lesson (tutors who don't record), the words
+  they struggle with (insights `rankStruggling`, 3 weeks, with the wrong answers typed) and mix up
+  (`deriveMixUps`), words of decks sent as homework in the last 3 weeks, the tutor's private **student
+  profile** (`studentProfilePrompt`: level, handwriting, how much, interests) and "what they've covered"
+  (below). The titles already prepared are listed so they aren't repeated.
+- **How** (`generate.ts`): ONE `structuredCall` (Sonnet-class, forced `prepare_activities` tool, thinking off,
+  Haiku on the last attempt) writes 5 (≤ 6) activities of the existing kinds (dictation, describe & guess,
+  sentence building, quick quiz, role-play, information gap — never `review`, which the call builds itself),
+  each with a one-line **why** for the tutor ("Last lesson: 把 sentences — 3 corrections"). Each is parsed and
+  checked with the engine's own rules (`parseGeneratedActivity` → `validateActivitySpec`, shared/call-activities/
+  prepared.ts — small slips are fixed, e.g. a describe hint with no glossary entry is dropped); refused ones go
+  back for up to **2 repair rounds** with their problems; whatever passes is kept. Pinyin goes through
+  `applyYiBuToneChanges`. The prompt keeps the private profile out of everything the student sees (titles,
+  summaries, content) — only the why line may say why.
+- **When** (`run.ts`), each idempotent by `prepared_activity_jobs.idem_key`: after a lesson report is written
+  (`processLessonReport` → `prepareAfterLesson`, skipped for a solo call and for a "test" lesson with < 3 new
+  words + corrections; a report rewritten because another call joined the lesson prepares again and replaces
+  that lesson's still-ready ones); the nightly cron (`17 3 * * *`, `prepareNightly`: a relationship whose newest
+  lesson report / lesson-log notes are newer than its newest run and that has < 3 ready, ≤ 25 a night); and on
+  demand — the student page's **🎲 Prepare activities for next lesson** / **↻ Make more**, the call menu's
+  ↻ Make more, MCP `prepare_activities`. Jobs run on `call-processing-queue` (message `prepare_activities`;
+  E2E_TEST_MODE runs a manual one inline with the fake model `fake.ts`). At most 15 stay ready (older ones are
+  dismissed). Cost: ~5–8k tokens in, ~5–8k out ≈ **$0.06–0.10 a run** (Sonnet list prices), a repair round a
+  few cents more; tokens + cost on the job row and `server.prepared_activities`.
+- **Storage** (migration 0123): `prepared_activities` (spec JSON, why, status ready | used | dismissed, source
+  lesson + label "Lesson 5 Oct", used_at / used_in_call_id) and `prepared_activity_jobs`. Tutor's material:
+  **nothing reaches the student** until the tutor starts one in a call.
+- **In the call**: ⋯ → 🎲 Activities shows, to the tutor only, **"For Jerome · from last lesson"** first (ready
+  ones, then the last few used, each with its why; 👁 shows what's in it; ↻ Make more), then the catalogue.
+  Starting one sends `activity_start { activity_id: "prepared:<id>" }`; the CallRoom checks the starter is the
+  relationship's tutor, loads the row of THIS relationship (`takePreparedForCall`), validates it, starts it
+  exactly like a catalogue activity (the spec rides in the session; its id stays `prepared:<id>`, so the
+  lesson's results say so) and marks it used.
+- **On the student page**: "🎲 Ready for next lesson: 5 activities · from Lesson 5 Oct" — each row's why, a
+  preview (`activityPreview`: the words / sentences / questions / lines), ✕ Dismiss (+ Undo), the used ones
+  behind "Show the N already used", Prepare / Make more and "Preparing… about a minute" while a job runs.
+- **What <student> has covered** (Minghui's "profile that records what they've learned"): rather than a new
+  system the tutor would have to keep up to date, a read-only summary of what the app already records —
+  `coverageHeadline` "312 words met (140 known well) · 420 characters · 9 lessons" (words / characters by the
+  Progress page's definitions, `getKnownCounts`), the lessons newest first (a recorded lesson's report topics +
+  new words + corrections; a logged lesson's title / first line; merged by day), and the newest words from the
+  reports and homework (`GET /api/relationships/:relId/coverage`, `buildCoverage`). The generator reads the
+  same block. The tutor's own words about the student stay in the private student profile, which is unchanged.
+- API (tutor only, `routes/prepared-activities.ts`): `GET|POST /api/relationships/:relId/prepared-activities`,
+  `POST /api/prepared-activities/:id/dismiss|restore`, `GET /api/relationships/:relId/coverage`. MCP
+  `list_prepared_activities` / `prepare_activities` (`tools/prepared-activities.ts`).
+- Lab: `core/…/calls/PreparedActivities.kt` (ordering, copy, preview, coverage headline — parity-tested by
+  `parity/fixtures/prepared-activities.ts`), `ui/teaching/PreparedActivitiesSection.kt` (+ controller),
+  `ui/calls/PreparedPicker.kt`.
 
 ## Finding the call (banners, ring, notifications)
 
@@ -786,6 +907,38 @@ The Lab app is a second client of the same API, room protocol and upload routes
   the next sync.
 - **Background**: a foreground service (microphone / camera / mediaProjection) keeps the call and
   its recording alive with the screen off; screen sharing uses MediaProjection.
+
+## The desktop app (desktop/, prototype): drawing on the real screen
+
+A browser can't draw on the sharer's real screen; the **desktop app** (Electron, `desktop/README.md`)
+can. It is the deployed web app in a window plus three small native pieces:
+
+- **Share picker** — Electron answers the page's `getDisplayMedia()` itself
+  (`session.setDisplayMediaRequestHandler`, `desktop/src/share.ts`): Entire screen / Window tabs with
+  thumbnails, and on macOS the Screen Recording permission steps when it is missing. It remembers
+  what was picked (`lastSharedSource`: kind + display id).
+- **Overlay** — when she shares a whole SCREEN, a transparent, frameless, always-on-top window covers
+  that display (`desktop/src/overlay.ts`), click-through by default (`setIgnoreMouseEvents(true,
+  { forward: true })`), and draws the call's annotations with the web app's own drawing code
+  (`services/calls/annotations.ts`, same keep / fade rules). A toolbar (🖍️ Draw on screen → ✏️ Pen /
+  T Text / colours / 🗑 Clear / ✋ Done, Esc) switches it to draw mode: her strokes, taps (pings) and
+  texts go back to the call page and out through the normal `annot` / `annot_ping` / `annot_text` /
+  `annot_clear` messages, so the student sees them on the shared video exactly as if she had drawn in
+  the call window. The overlay is **excluded from capture** (`setContentProtection(true)`): the student
+  sees the strokes once, drawn by their own page — never also burnt into the video.
+- **Bridge** — the page talks to the app only through `window.desktopBridge` (preload, contextIsolation +
+  sandbox; contract and pure rules in `shared/desktop/bridge.ts`, unit-tested): `lastSharedSource()`,
+  `overlay.show(displayId)` / `hide()` / `annotations(snapshot)` / `setDrawMode(on)` / `onEvent(fn)`.
+  The call page's side is `services/calls/desktopOverlay.ts` (`useDesktopOverlay`): opens the overlay
+  for a shared screen, sends a snapshot of the annotation store on every change (≤ 30/s), relays
+  overlay events, and adds **🖍️ Draw on my real screen** to the share bar. Inert in a browser.
+- **Coordinates** — a captured screen IS the display, so 0..1 of the shared picture = 0..1 of the
+  display's bounds. Electron reports bounds in DIPs, so Retina scale factors never enter the mapping;
+  if the OS gives the overlay less than the display (macOS menu bar), the canvas is offset by the
+  difference (`overlayCanvasRect`). A shared WINDOW gets no overlay (it moves under it): drawing on it
+  works in the call window as before.
+
+Analytics: `call.desktop_overlay { on | draw }`; every event from the app has platform `desktop`.
 
 ## Setup — what needs a key
 

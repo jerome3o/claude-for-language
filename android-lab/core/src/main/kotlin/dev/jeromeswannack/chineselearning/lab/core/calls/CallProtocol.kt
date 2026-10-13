@@ -57,6 +57,8 @@ object CallProtocol {
             tutorId = o.str("tutor_id")?.takeIf { it.isNotEmpty() },
             shown = CallFollow.parseShown(o["shown"]),
             view = CallView.parseShared(o["view"]),
+            // The call timer (core CallTimer; absent / null = none), in room time.
+            timer = CallTimer.parse(o["timer"]),
         )
         "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty(), o.str("page")) }
         "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it, o.str("page")) }
@@ -99,6 +101,12 @@ object CallProtocol {
         // "Same view" (core CallView): the shared view changed (after a `view`, or an older app's `show`).
         "view" -> CallView.parseShared(o["view"])?.let { ServerMessage.View(it) }
         "share_stopped" -> ServerMessage.ShareStopped(o.str("by").orEmpty(), o.str("name").orEmpty())
+        // The call timer after a change (null = taken away); a timer that doesn't parse is ignored.
+        "timer" -> when (val t = o["timer"]) {
+            null -> null
+            is JsonNull -> ServerMessage.Timer(null, o.long("server_time") ?: 0)
+            else -> CallTimer.parse(t)?.let { ServerMessage.Timer(it, o.long("server_time") ?: 0) }
+        }
         else -> null
     } }
 
@@ -193,6 +201,8 @@ object CallProtocol {
     fun view(view: CallView.StageView, cid: String, bring: Boolean = false): String = CallView.viewMessage(view, cid, bring)
     /** Round 5, the tutor only: stop the other person's screen share. */
     fun stopShare(): String = CallFollow.stopShareMessage()
+    /** The call timer, the tutor only (solo: anyone): set / start / pause / reset / clear (core CallTimer). */
+    fun timer(action: CallTimer.Action): String = CallTimer.actionMessage(action)
     fun leave(): String = buildJsonObject { put("type", "leave") }.toString()
 
     private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -253,6 +263,8 @@ sealed interface ServerMessage {
         val shown: CallFollow.ShownState? = null,
         /** "Same view": what is on the stage for everyone on Same view (null = nobody set one yet; core CallView). */
         val view: CallView.SharedView? = null,
+        /** The call timer (core CallTimer; null = none), in room time. */
+        val timer: CallTimer.Timer? = null,
     ) : ServerMessage
     /** [page] = the board page the ops belong to (null from an older room). */
     data class Text(val from: String, val ops: List<TextOp>, val page: String? = null) : ServerMessage
@@ -297,4 +309,6 @@ sealed interface ServerMessage {
     data class View(val view: CallView.SharedView) : ServerMessage
     /** Round 5, to the person sharing: the tutor ([by], [name]) stopped your screen share — stop capturing. */
     data class ShareStopped(val by: String, val name: String) : ServerMessage
+    /** The call timer after a change (null = taken away); [serverTime] = the room's clock when sent. */
+    data class Timer(val timer: CallTimer.Timer?, val serverTime: Long) : ServerMessage
 }

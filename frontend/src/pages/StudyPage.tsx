@@ -124,6 +124,8 @@ import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
 import { devicePinyinLine } from '../utils/autoPinyin';
 import { spokenAnswerDiff, typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
+import { NewCharsLabel, shimmerText } from '../components/study/NewCharShimmer';
+import { noteCharactersSeen, useNewCharacters } from '../services/newCharacters';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
 function canWriteHanzi(hanzi: string): boolean {
@@ -156,7 +158,7 @@ function formatAddedDate(createdAt: string | null | undefined): string | null {
  * nothing red. Every spoken answer then gets the read card's "You said" box (`YouSaid`: orange
  * "Answer found in your sentence" for `contains`), and a wrong one's diff is lined up, not positional.
  */
-function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; spoken?: boolean; notePinyin?: string; onCoach?: (sentence: string) => void }) {
+function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; spoken?: boolean; notePinyin?: string; onCoach?: (sentence: string) => void; newChars?: ReadonlySet<string> }) {
   const { userAnswer, correctAnswer, alternatives, spoken, notePinyin, onCoach } = props;
   const verdict = spoken
     ? checkSpokenAnswer(userAnswer, correctAnswer, alternatives ?? [], notePinyin ?? '')
@@ -170,7 +172,7 @@ function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternat
   );
 }
 
-function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, verdict }: { userAnswer: string; correctAnswer: string; onCharacterClick?: (char: string) => void; spoken?: boolean; verdict: AnswerVerdict }) {
+function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, verdict, newChars }: { userAnswer: string; correctAnswer: string; onCharacterClick?: (char: string) => void; spoken?: boolean; verdict: AnswerVerdict; newChars?: ReadonlySet<string> }) {
   const isFullyCorrect = verdict === 'exact';
   // A punctuation-only difference (e.g. a missing trailing 。) is functionally correct.
   const isPunctuationOnlyMatch = verdict === 'punctuation_only';
@@ -195,7 +197,7 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
       <div className="answer-diff">
         <div className="answer-diff-row">
           {greenChars.map((ch, i) => (
-            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(ch)}>{ch}</span>
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(ch)}>{shimmerText(ch, newChars, i)}</span>
           ))}
         </div>
         <div className="answer-diff-pinyin">{greenPinyin}</div>
@@ -210,7 +212,7 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
       <div className="answer-diff" data-testid="spoken-answer-sound" data-verdict="sound">
         <div className="answer-diff-row">
           {canonicalChars.map((c, i) => (
-            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{c}</span>
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{shimmerText(c, newChars, i)}</span>
           ))}
         </div>
         <div className="answer-diff-pinyin">{canonicalPinyin}</div>
@@ -225,7 +227,7 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
       <div className="answer-diff" data-testid="spoken-answer-contains" data-verdict="contains">
         <div className="answer-diff-row">
           {[...correctAnswer].map((c, i) => (
-            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{c}</span>
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{shimmerText(c, newChars, i)}</span>
           ))}
         </div>
         {/* No automatic pinyin here (it reads 长得 cháng dé): the card's own pinyin follows. */}
@@ -240,14 +242,14 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
       <div className="answer-diff">
         <div className="answer-diff-row">
           {userChars.map((c, i) => (
-            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{c}</span>
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{shimmerText(c, newChars, i)}</span>
           ))}
         </div>
         <div className="answer-diff-pinyin">{userPinyin}</div>
         <div className="answer-diff-alternative-label">Also accepted — canonical answer:</div>
         <div className="answer-diff-row">
           {canonicalChars.map((c, i) => (
-            <span key={i} className={`diff-char diff-expected${clickable}`} onClick={() => onCharacterClick?.(c)}>{c}</span>
+            <span key={i} className={`diff-char diff-expected${clickable}`} onClick={() => onCharacterClick?.(c)}>{shimmerText(c, newChars, i)}</span>
           ))}
         </div>
         <div className="answer-diff-pinyin">{canonicalPinyin}</div>
@@ -268,7 +270,7 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
       <div className="answer-diff-arrow">↓</div>
       <div className="answer-diff-row">
         {diff.expected.map((c, i) => (
-          <span key={i} className={`diff-char ${c.matched ? 'diff-correct' : 'diff-expected'}${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
+          <span key={i} className={`diff-char ${c.matched ? 'diff-correct' : 'diff-expected'}${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{shimmerText(c.char, newChars, i)}</span>
         ))}
       </div>
     </div>
@@ -303,7 +305,7 @@ function DiffCellView({ cell, status, clickable, onCharacterClick }: { cell: Dif
  * row's pick is green / red, a skipped row is a dashed "?", and the answer
  * below marks the rows that were missed.
  */
-function McAnswerDiff({ slots, onCharacterClick }: { slots: McAnswerSlot[]; onCharacterClick?: (char: string) => void }) {
+function McAnswerDiff({ slots, onCharacterClick, newChars }: { slots: McAnswerSlot[]; onCharacterClick?: (char: string) => void; newChars?: ReadonlySet<string> }) {
   const clickable = onCharacterClick ? ' diff-char-clickable' : '';
   const picked = slots.map(s => s.chosen ?? '').join('');
   const choiceRows = slots.filter(s => s.status !== 'given').length;
@@ -333,7 +335,7 @@ function McAnswerDiff({ slots, onCharacterClick }: { slots: McAnswerSlot[]; onCh
             className={`diff-char ${s.status === 'right' || s.status === 'given' ? 'diff-correct' : 'diff-expected'}${clickable}`}
             onClick={() => onCharacterClick?.(s.correct)}
           >
-            {s.correct}
+            {shimmerText(s.correct, newChars, i)}
           </span>
         ))}
       </div>
@@ -416,6 +418,8 @@ export function StudyCard({
   // Analytics only: the study events say when the card was a homework pass word.
   const where = pass ? ('homework' as const) : undefined;
   const { isOnline } = useNetwork();
+  // Never-seen characters shimmer (shared/study/newCharacters.ts) — worked out once for this card.
+  const newChars = useNewCharacters(card.id, card.note.hanzi);
 
   // What this card was left with (resume point + in-memory extras), read once at mount.
   const [restored] = useState(() => {
@@ -1318,6 +1322,8 @@ export function StudyCard({
     const take = sayingAgain ? spoken.keptTake() : audioBlob;
     if (sayingAgain) spoken.cancel();
     track('study.card_rated', { rating: RATING_KEYS[rating], card_type: card.card_type, queue: QUEUE_KEYS[card.queue] ?? null, time_ms: timeSpent, recorded: !!take, multiple_choice: showMultipleChoice });
+    // Its characters are seen now: no shimmer on later cards (this one keeps it while shown).
+    noteCharactersSeen(card.note.hanzi);
     // Call parent's rate function - handles both state update and DB write
     onRate(rating, timeSpent, userAnswer || undefined, take || undefined);
   };
@@ -1413,7 +1419,8 @@ export function StudyCard({
           <div className="text-center">
             {renderContext()}
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
-            <div className="hanzi hanzi-large">{card.note.hanzi}</div>
+            <div className="hanzi hanzi-large">{shimmerText(card.note.hanzi, newChars)}</div>
+            <NewCharsLabel newChars={newChars} />
           </div>
         );
 
@@ -1615,7 +1622,7 @@ export function StudyCard({
         {isTypingCard && userAnswer && mcBackSlots ? (
           // Multiple-choice answer (possibly partial): row by row
           <div className="mb-3">
-            <McAnswerDiff slots={mcBackSlots} onCharacterClick={handleCharacterClick} />
+            <McAnswerDiff slots={mcBackSlots} onCharacterClick={handleCharacterClick} newChars={newChars} />
           </div>
         ) : isTypingCard && userAnswer ? (
           // Show character-by-character diff for typed answers
@@ -1628,6 +1635,7 @@ export function StudyCard({
                 spoken={answerWasSpoken}
                 notePinyin={card.note.pinyin}
                 onCoach={(sentence) => openYouSaidInCoach(sentence, 'spoken')}
+                newChars={newChars}
               />
           </div>
         ) : (
@@ -1639,9 +1647,11 @@ export function StudyCard({
               tapClassName="hanzi-char-clickable"
               cardHanzi={card.note.hanzi}
               onWrite={writeChar}
+              newChars={newChars}
             />
           </div>
         )}
+        <NewCharsLabel newChars={newChars} />
 
         {renderTranscriptionResult()}
         {canSayPractice && practiceSaid && practiceVerdict && (

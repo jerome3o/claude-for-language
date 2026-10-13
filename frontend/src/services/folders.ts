@@ -58,13 +58,20 @@ export async function renameFolder(id: string, name: string): Promise<Folder> {
   return folder;
 }
 
-/** Delete a folder: its items go back to Unfiled, its subfolders to the top level. */
+/** Put a folder inside another (null = the top level); the server checks depth and cycles. */
+export async function moveFolder(id: string, parentId: string | null): Promise<Folder> {
+  const { folder } = await updateFolderApi(id, { parent_id: parentId });
+  await db.folders.put(folder);
+  return folder;
+}
+
+/** Delete a folder: its items go back to Unfiled, its subfolders up one level (into its parent). */
 export async function deleteFolder(folder: Folder): Promise<void> {
   await deleteFolderApi(folder.id);
   await db.transaction('rw', db.folders, db.decks, async () => {
     await db.folders.delete(folder.id);
     const subs = await db.folders.filter((f) => f.parent_id === folder.id).toArray();
-    for (const s of subs) await db.folders.update(s.id, { parent_id: null });
+    for (const s of subs) await db.folders.update(s.id, { parent_id: folder.parent_id || null });
     if (folder.kind === 'deck') {
       const decks = await db.decks.filter((d) => d.folder_id === folder.id).toArray();
       for (const d of decks) await db.decks.update(d.id, { folder_id: null });

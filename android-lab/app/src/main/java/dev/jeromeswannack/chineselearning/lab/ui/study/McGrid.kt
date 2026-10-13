@@ -161,7 +161,7 @@ fun McGrid(
  * "N of M left blank", then the answer with the missed rows marked. Characters are tappable.
  */
 @Composable
-fun McAnswerDiff(slots: List<MultipleChoice.Slot>, size: TextUnit, onChar: (String) -> Unit) {
+fun McAnswerDiff(slots: List<MultipleChoice.Slot>, size: TextUnit, onChar: (String) -> Unit, newChars: Set<String> = emptySet()) {
     val picked = slots.joinToString("") { it.chosen.orEmpty() }
     val choiceRows = slots.count { it.status != MultipleChoice.SlotStatus.GIVEN }
     val skipped = slots.count { it.status == MultipleChoice.SlotStatus.SKIPPED }
@@ -175,7 +175,7 @@ fun McAnswerDiff(slots: List<MultipleChoice.Slot>, size: TextUnit, onChar: (Stri
         ExpectedAnswerRow(
             slots.map { it.correct },
             slots.map { it.status == MultipleChoice.SlotStatus.RIGHT || it.status == MultipleChoice.SlotStatus.GIVEN },
-            size, Lab.colors.ink, onChar,
+            size, Lab.colors.ink, onChar, newChars,
         )
     }
 }

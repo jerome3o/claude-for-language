@@ -118,7 +118,6 @@ fun StudentsDashboardScreen(
                     if (data.students.isEmpty() && data.invites.isEmpty()) {
                         EmptyState("👥", "No students yet", body = if (canInvite) "Tap + Invite to make a link your student opens on their phone." else "Ask Jerome to turn on invites for your account.")
                     }
-                    if (data.students.isNotEmpty()) HomeworkLibraryLink("Everything you sent, with each student's progress") { actions.open(Routes.HOMEWORK_LIBRARY) }
                     data.students.forEach { StudentCard(it, actions, now, recentHomework[it.relationship_id], today) }
                     if (canInvite) data.invites.forEach { PendingInviteRow(it, actions, now) }
                     HomeworkDecksSection(data.homework_decks, actions)
@@ -156,7 +155,8 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
             }
             Text("›", color = Lab.colors.muted, fontSize = 22.sp)
         }
-        recent?.let { item -> RecentHomeworkLine(item, today) { actions.open(Routes.studentHomeworkLibrary(relId)) } }
+        // Straight to the student's Homework section (web StudentCard → /connections/:relId#homework).
+        recent?.let { item -> RecentHomeworkLine(item, today) { actions.open(Routes.connection(relId, Routes.SECTION_HOMEWORK)) } }
         if (o.is_new) {
             SetupChecklistCompact(o, now)
             if (o.has_profile == false) ProfileHintPill { actions.open(Routes.connection(relId)) }
@@ -174,7 +174,7 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
                 if (p.recordings_need_ear > 0) TeachPill(needEarLabel(p.recordings_need_ear), PillTone.Flags) { actions.open(Routes.recordings(relId)) }
                 else if (p.recordings_to_hear > 0) TeachPill("🎤 ${TeachingFormat.plural(p.recordings_to_hear, "recording")} to hear", PillTone.Recordings) { actions.open(Routes.recordings(relId)) }
                 // One-off homework only — a long-term deck is not "homework progress" (docs/HOMEWORK.md §11).
-                homeworkPill(p)?.let { (text, tone) -> TeachPill(text, tone) { actions.open(Routes.connection(relId)) } }
+                homeworkPill(p)?.let { (text, tone) -> TeachPill(text, tone) { actions.open(Routes.connection(relId, Routes.SECTION_HOMEWORK)) } }
                 budgetChip(o.study_budget)?.let { TeachPill(it, PillTone.Muted) { actions.open(Routes.connection(relId)) } }
                 if (o.has_profile == false) ProfileHintPill { actions.open(Routes.connection(relId)) }
             }
