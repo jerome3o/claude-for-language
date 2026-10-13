@@ -1,0 +1,32 @@
+# TEMPORARY (removed before merge): records the "You said" Roborazzi screenshots for the PR.
+name: tmp You said screenshots
+on:
+  push:
+    branches: [claude/you-said-design]
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            android-lab
+            shared/data
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Record
+        run: ./gradlew :app:recordRoborazziDebug --tests 'dev.jeromeswannack.chineselearning.lab.ui.study.YouSaidBoxScreenshots' --tests 'dev.jeromeswannack.chineselearning.lab.ui.study.YouSaidCoachUiTest' --tests 'dev.jeromeswannack.chineselearning.lab.ui.study.SayItPracticeUiTest' --no-daemon
+        working-directory: android-lab
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: you-said-shots
+          path: android-lab/app/screenshots
+          retention-days: 3
