@@ -4,7 +4,7 @@
  * When the tutor marks one of the student's pronunciation takes "needs work" she can also record
  * how it should sound. The clip lives in R2 under `tutor-recordings/<relId>/<eventId>-<id>.<ext>`
  * (person-made: never collected by the storage clean-up) and its key on the mark
- * (`tutor_recording_marks.model_audio_key`, migration 0122). It is served ONLY to the two people
+ * (`tutor_recording_marks.model_audio_key`, migration 0123). It is served ONLY to the two people
  * of that mark — the tutor who made it and the student whose take it is — by
  * `GET /api/recording-marks/:eventId/model-audio` (never by the public /api/audio/*).
  *

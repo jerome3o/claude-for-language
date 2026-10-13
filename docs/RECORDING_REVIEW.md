@@ -80,7 +80,7 @@ answer) beside the note. The student hears it next to their own take and compare
   card and in the box (Record again replaces it, Remove takes it off on Save). Optional — a mark can still be
   words only. Not in the call's "Review together" (the live call is the model there).
 - **Storage**: R2 `tutor-recordings/<relId>/<eventId>-<id>.<ext>` (person-made, `STORAGE_PREFIXES`, never
-  collected), `tutor_recording_marks.model_audio_key` / `model_audio_mime` / `model_audio_ms` (migration 0122).
+  collected), `tutor_recording_marks.model_audio_key` / `model_audio_mime` / `model_audio_ms` (migration 0123).
   The object is deleted when the mark is cleared, when it becomes **listened** (from the recordings page or
   MCP `mark_recording`), when a new clip replaces it, and by account deletion (the tutor's or the student's).
   A new clip clears `student_seen_at`, so the note shows on the card back again.
