@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { compareNovelty, hanText, noveltyOf, pickByNovelty, seenFrom } from './novelty';
 import { selectStudyQueue, type QueueCardInput, type QueueDeckInput } from './study-queue';
+import { fastestTimes, MAX_GROWTH_AT_4X, checkPerfBudgets } from '../testing/perf';
 
 describe('noveltyOf', () => {
   it('counts never-seen characters, an unseen word and the Han length', () => {
@@ -158,35 +159,35 @@ describe('new characters first across all decks', () => {
     expect(q.bumped.map(c => c.id)).toEqual(['a1']);
   });
 
-  it('builds the queue for 10k notes quickly', () => {
-    const r = (() => { let a = 7; return () => ((a = (a * 1103515245 + 12345) >>> 0) / 4294967296); })();
+  it('builds the queue for 10k notes quickly (no worse than n log n)', () => {
     const chars = [...'的一是不了人我在有他这中大来上国个到说们为子和你地出道也时年得就那要下以生会自着去之过家学对可她里后小么心多天而能好都然没日于起还发成事只作当想看文无开手十用主行方又如前所本见经头面公同三已老从动两长知民样现分将外但身些与高意进把法此实回二理美点月明其种声全工己话儿者向情部正名定女问力机给等几很业最间新什打便位因重被走电四第门相次东政海口使教西再平真听世气信北少关并内加化由却代军产入先山五太水万市眼体别处总才场师书比住员九笑性通目华报立马命张活难神数件安表原车白应路期叫死常提感金何更反合放做系计或司利受光王果亲界及今京务制解各任至清物台象记边共风战干接它许八特觉望直服毛林题建南度统色字请交爱让认算论百吃义科怎元社术结六功指思非流每青管夫连远资队跑跟带花快条院变联言权往展该领传近留红治决周保达办运武半候七必城父强步完革深区即求品士转量空甚众技轻程告江语英基派满式李息写呢识极令黄德收脸钱党倒未持取设始版双历越史商千片容研像找友孩站广改议形委早房音火际则首单据导影失拿网香似斯专石若兵弟谁校读志飞观争究包组造落视济买声'];
-    const hanzi = new Map<string, string>();
-    const cards: QueueCardInput[] = [];
     const decks = Array.from({ length: 20 }, (_, i) => deck(`d${i}`, i, 20));
-    for (let n = 0; n < 10_000; n++) {
-      const len = 1 + Math.floor(r() * 3);
-      let h = '';
-      for (let k = 0; k < len; k++) h += chars[Math.floor(r() * chars.length)];
-      hanzi.set(`n${n}`, h);
-      const deckId = `d${n % 20}`;
-      const reviewed = r() < 0.5;
-      for (const t of ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi']) {
-        cards.push(card(`c${n}-${t[0]}`, `n${n}`, deckId, reviewed ? 2 : 0, t));
-      }
-    }
     const budget = { new_cards_per_day: 20, secondary_cards_per_day: 10 };
-    const times: number[] = [];
-    let q = selectStudyQueue(decks, cards, budget, 10, new Map(), CUTOFF, null, { hanzi });
-    for (let i = 0; i < 5; i++) {
-      const t0 = performance.now();
-      q = selectStudyQueue(decks, cards, budget, 10, new Map(), CUTOFF, null, { hanzi });
-      times.push(performance.now() - t0);
-    }
-    const ms = times.sort((a, b) => a - b)[2];
-    console.log(`selectStudyQueue, 10k notes / 30k cards / 20 decks: median ${ms.toFixed(1)} ms`);
-    expect(q.due.filter(c => c.queue === 0).length).toBe(30); // 20 + 10 bonus
-    // ~25–45 ms on a dev container (half of it the queue without novelty); generous for CI.
-    expect(ms).toBeLessThan(120);
+    const build = (notes: number) => {
+      const r = (() => { let a = 7; return () => ((a = (a * 1103515245 + 12345) >>> 0) / 4294967296); })();
+      const hanzi = new Map<string, string>();
+      const cards: QueueCardInput[] = [];
+      for (let n = 0; n < notes; n++) {
+        const len = 1 + Math.floor(r() * 3);
+        let h = '';
+        for (let k = 0; k < len; k++) h += chars[Math.floor(r() * chars.length)];
+        hanzi.set(`n${n}`, h);
+        const deckId = `d${n % 20}`;
+        const reviewed = r() < 0.5;
+        for (const t of ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi']) {
+          cards.push(card(`c${n}-${t[0]}`, `n${n}`, deckId, reviewed ? 2 : 0, t));
+        }
+      }
+      return () => selectStudyQueue(decks, cards, budget, 10, new Map(), CUTOFF, null, { hanzi });
+    };
+    const small = build(2_500);
+    const large = build(10_000);
+    expect(large().due.filter(c => c.queue === 0).length).toBe(30); // 20 + 10 bonus
+    // Timing guard that holds on a loaded CI box (shared/testing/perf.ts): 4× the notes, not ~16× the time.
+    const [smallMs, largeMs] = fastestTimes([small, large]);
+    console.log(`selectStudyQueue, 10k notes / 30k cards / 20 decks: ${largeMs.toFixed(1)} ms (2.5k: ${smallMs.toFixed(1)} ms)`);
+    expect(largeMs / smallMs).toBeLessThan(MAX_GROWTH_AT_4X);
+    // ~25–45 ms on a dev container (half of it the queue without novelty).
+    if (checkPerfBudgets()) expect(largeMs).toBeLessThan(120);
   });
 });

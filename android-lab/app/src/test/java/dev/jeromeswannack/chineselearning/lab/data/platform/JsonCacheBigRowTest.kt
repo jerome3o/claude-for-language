@@ -83,6 +83,26 @@ class JsonCacheBigRowTest {
         assertEquals(7L, cache.updatedAt("readers/list"))
     }
 
+    /**
+     * Cold start reads readers/list from several places at once (Home's flow, the sync, Today):
+     * each reader of an oversized row moves it to the file. They used to share one "<name>.tmp",
+     * so the second writer's rename found it gone, deleted the real file — and the list was lost
+     * (ColdStartTest, flaky in CI). Concurrent writers of a big document must leave it readable.
+     */
+    @Test fun concurrentWritersOfABigDocumentNeverLoseIt() = runBlocking {
+        val value = big()
+        repeat(5) { round ->
+            db.platform().putCache(listOf(JsonCacheEntity("readers/list", "readers", json.encodeToString(ser, value), round.toLong())))
+            val cache = JsonCache(db.platform(), json, dir = dir)
+            val reads = (0 until 6).map { kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { cache.get("readers/list", ser) } }
+            val puts = (0 until 3).map { kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { cache.put("readers/list", "readers", value, ser) } }
+            reads.forEach { assertEquals(value, it.await(), "round $round") }
+            puts.forEach { it.await() }
+            assertEquals(value, cache.get("readers/list", ser), "round $round: still readable afterwards")
+            assertEquals(0, dir.listFiles().orEmpty().count { it.name.endsWith(".tmp") }, "no temp files left")
+        }
+    }
+
     @Test fun smallDocumentsStayInTheRow() = runBlocking {
         val cache = JsonCache(db.platform(), json, dir = dir)
         cache.put("lessons/list", "lessons", listOf("一", "二"), ser)

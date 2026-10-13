@@ -927,6 +927,15 @@ Key E2E test files:
 
 **E2E Test Auth**: Tests use a special `/api/test/auth` endpoint that bypasses OAuth. This only works when `E2E_TEST_MODE=true` is set in `worker/.dev.vars`.
 
+**E2E is hermetic**: the workflow (`e2e-tests.yml`: manual dispatch + nightly on main) passes no real API keys
+(`e2e/setup-test-env.sh` writes `test-key`s). Every model / TTS / image path a spec reaches must take its
+E2E stand-in whenever `E2E_TEST_MODE === 'true'` — checked FIRST, never only "when no key is set" (that is
+what made the Coach, Generate deck and note-picture specs depend on the real models) — or the spec mocks the
+route. **Ports**: `E2E_WEB_PORT=3010 E2E_API_PORT=8797 npx playwright test` (in `e2e/`) starts both servers on
+those ports (another session on 3000 / 8787); the Vite proxy and the dev WebSockets follow (`VITE_API_PROXY`).
+Never commit a `frontend/vite.config.js`: Vite prefers it over `vite.config.ts` (`tsc -b` now emits into
+`node_modules/.tmp`). Specs that study a card call `skipFirstCardExplainer` (`e2e/tests/fixtures/explainer.ts`).
+
 ### When to Write Tests
 
 **Write E2E tests for:**

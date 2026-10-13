@@ -10,6 +10,9 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * Offline store for synced feature data, as JSON documents in the `json_cache` table.
@@ -116,11 +119,20 @@ class JsonCache(
         }
         withContext(Dispatchers.IO) {
             file.parentFile?.mkdirs()
-            val tmp = File(file.parentFile, file.name + ".tmp")
-            tmp.writeText(text)
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                tmp.renameTo(file)
+            // A temp file of this write's own, then one atomic replace. Two writers of the same key
+            // used to share "<name>.tmp": the second's rename found it gone, deleted the real file
+            // and left both pointers aimed at nothing — two readers moving an oversized readers/list
+            // to its file at start-up lost the whole list (ColdStartTest, flaky in CI).
+            val tmp = File.createTempFile(file.name, ".tmp", file.parentFile)
+            try {
+                tmp.writeText(text)
+                try {
+                    Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+                } catch (e: AtomicMoveNotSupportedException) {
+                    Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+            } finally {
+                tmp.delete() // gone already after a move; a failed write leaves no stray temp file
             }
         }
         // The pointer changes with every write, so observers of the row see the update.

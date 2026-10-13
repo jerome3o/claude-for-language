@@ -135,12 +135,9 @@ class SayItAgainTest {
 
     private fun session() {
         vm = StudyViewModel(app, null, newRecorder = { scope -> FakeRecorder(app, scope).also { rec = it } }, newSpokenTranscription = fake)
-        repeat(300) {
-            shadowOf(android.os.Looper.getMainLooper()).idle()
-            if (vm.ui.value.phase is StudyPhase.Showing) return
-            Thread.sleep(10)
+        dev.jeromeswannack.chineselearning.lab.testing.awaitOnMain(describe = { "no card: ${vm.ui.value}" }) {
+            vm.ui.value.phase as? StudyPhase.Showing
         }
-        error("no card: ${vm.ui.value}")
     }
 
     /** 🎤 → ⏹ → 油 auto-submitted; CardStage's reveal and its auto-play. */

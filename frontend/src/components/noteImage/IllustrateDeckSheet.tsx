@@ -58,7 +58,12 @@ export function IllustrateDeckSheet({
       const res = await startIllustrateDeck(deckId);
       track('deck.illustrate', { pictures: res.pending + res.ready });
       setStatus(res.status);
-      if (res.ready > 0) onProgress?.();
+      // More pictures than before: refresh the deck. `ready` counts only pictures that already
+      // existed; one drawn during this request (a fast generator, E2E's inline fake) shows up as
+      // with_image going up with nothing left pending — no poll would ever report it.
+      const before = lastReady.current;
+      lastReady.current = res.status.with_image;
+      if (res.ready > 0 || (before !== null && res.status.with_image > before)) onProgress?.();
     } catch (e) {
       setError(navigator.onLine ? (e instanceof Error ? e.message : 'Could not start') : 'You are offline — pictures need a connection');
     } finally {

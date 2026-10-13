@@ -65,12 +65,9 @@ class KnownCharactersLeadTest {
 
     private fun firstCard(): String {
         val vm = StudyViewModel(app, null)
-        repeat(300) {
-            idle()
-            (vm.ui.value.phase as? StudyPhase.Showing)?.let { return it.view.card.id }
-            Thread.sleep(10)
+        return dev.jeromeswannack.chineselearning.lab.testing.awaitOnMain(describe = { "no card: ${vm.ui.value.phase}" }) {
+            (vm.ui.value.phase as? StudyPhase.Showing)?.view?.card?.id
         }
-        error("no card: ${vm.ui.value.phase}")
     }
 
     @Test

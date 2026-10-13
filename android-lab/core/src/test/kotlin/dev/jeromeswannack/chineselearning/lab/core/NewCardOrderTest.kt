@@ -21,26 +21,45 @@ class NewCardOrderTest {
         assertEquals(listOf("w1c", "w2c", "w3c", "s1c"), newIds(NewCardOrder.ALL_OFF.copy(sentencesLast = true), 4))
     }
 
+    /**
+     * A timing guard that holds on a loaded CI box (web: shared/testing/perf.ts): the same build at
+     * 2.5k and 10k notes, interleaved, each size's FASTEST run — 4× the notes must not cost anywhere
+     * near 16× (an accidental O(n²)). The wall-clock budget is checked only with PERF_BUDGETS=1.
+     */
     @Test
     fun ordersTenThousandNotesQuickly() {
         val shipped = WordFrequency.shipped!!
         val pool = shipped.words.keys.toList().sortedBy { shipped.words[it] }.take(6000)
-        val random = java.util.Random(11)
         val decks = (0 until 20).map { QueueDeck("d$it", it, "2026-01-01", 20, 10) }
-        val hanzi = HashMap<String, String>()
-        val cards = ArrayList<QueueCard>()
-        for (n in 0 until 10_000) {
-            hanzi["n$n"] = if (random.nextDouble() < 0.25) pool[random.nextInt(pool.size)] + pool[random.nextInt(pool.size)] + "。" else pool[random.nextInt(pool.size)]
-            val reviewed = random.nextDouble() < 0.5
-            for (t in listOf(CardTypes.HANZI_TO_MEANING, CardTypes.MEANING_TO_HANZI, CardTypes.AUDIO_TO_HANZI)) {
-                cards += card("c$n-${t[0]}", "n$n", "d${n % 20}", if (reviewed) 2 else 0, t)
+        fun build(notes: Int): () -> List<QueueCard> {
+            val random = java.util.Random(11)
+            val hanzi = HashMap<String, String>()
+            val cards = ArrayList<QueueCard>()
+            for (n in 0 until notes) {
+                hanzi["n$n"] = if (random.nextDouble() < 0.25) pool[random.nextInt(pool.size)] + pool[random.nextInt(pool.size)] + "。" else pool[random.nextInt(pool.size)]
+                val reviewed = random.nextDouble() < 0.5
+                for (t in listOf(CardTypes.HANZI_TO_MEANING, CardTypes.MEANING_TO_HANZI, CardTypes.AUDIO_TO_HANZI)) {
+                    cards += card("c$n-${t[0]}", "n$n", "d${n % 20}", if (reviewed) 2 else 0, t)
+                }
             }
+            return { StudyQueue.build(decks, cards, StudyBudget(20, 10), 10, emptyMap(), cutoff, null, hanzi, frequency = shipped).dueCards }
         }
-        fun run() = StudyQueue.build(decks, cards, StudyBudget(20, 10), 10, emptyMap(), cutoff, null, hanzi, frequency = shipped)
-        repeat(3) { run() }
-        val times = (0 until 7).map { val t0 = System.nanoTime(); run(); (System.nanoTime() - t0) / 1e6 }.sorted()
-        println("StudyQueue.build + Order new cards by, 10k notes / 30k cards / 20 decks: median ${"%.1f".format(times[3])} ms")
-        assertEquals(30, run().dueCards.count { it.queue == 0 })
-        assertTrue(times[3] < 250, "median ${times[3]} ms") // generous for CI; a few tens of ms on a dev container
+        val small = build(2_500)
+        val large = build(10_000)
+        assertEquals(30, large().count { it.queue == 0 })
+        repeat(3) { small(); large() } // warm-up (JIT)
+        var smallMs = Double.MAX_VALUE
+        var largeMs = Double.MAX_VALUE
+        repeat(9) {
+            var t0 = System.nanoTime()
+            small()
+            smallMs = minOf(smallMs, (System.nanoTime() - t0) / 1e6)
+            t0 = System.nanoTime()
+            large()
+            largeMs = minOf(largeMs, (System.nanoTime() - t0) / 1e6)
+        }
+        println("StudyQueue.build + Order new cards by, 10k notes / 30k cards / 20 decks: ${"%.1f".format(largeMs)} ms (2.5k: ${"%.1f".format(smallMs)} ms)")
+        assertTrue(largeMs / smallMs < 12, "4x the notes took ${"%.1f".format(largeMs / smallMs)}x as long ($smallMs -> $largeMs ms)")
+        if (System.getenv("PERF_BUDGETS") == "1") assertTrue(largeMs < 250, "$largeMs ms") // a few tens of ms on a dev container
     }
 }

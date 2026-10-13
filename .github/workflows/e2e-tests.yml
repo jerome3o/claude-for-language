@@ -2,6 +2,10 @@ name: E2E Tests
 
 on:
   workflow_dispatch:
+  # Nightly against main, so a regression shows up the next morning (a failed scheduled run
+  # notifies by e-mail). 02:17 UTC — off the hour, away from the busy :00 slot.
+  schedule:
+    - cron: '17 2 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -11,7 +15,8 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     name: E2E Tests
-    timeout-minutes: 30
+    # ~25 min for the whole suite on a hosted runner (retries included): room to spare.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -53,13 +58,12 @@ jobs:
         run: npx wrangler d1 migrations apply chinese-learning-db --local
         working-directory: worker
 
+      # Hermetic: no real API keys. Every model / TTS / image call the specs reach has an
+      # E2E_TEST_MODE stand-in (or the spec mocks the route), so CI runs exactly what a local run
+      # does. With the real keys a few paths called the real models and the specs flaked on them
+      # (Generate deck, multiple choice on listen cards, note pictures on the image queue).
       - name: Create worker dev vars
         run: ./e2e/setup-test-env.sh ./worker
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY }}
-          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Run E2E tests
         run: npm run test:e2e
