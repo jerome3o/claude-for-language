@@ -13,7 +13,7 @@ import java.security.MessageDigest
  * frontend/src/services/modelRecordings.ts (docs/RECORDING_REVIEW.md "Model recordings").
  *
  * The clip is private to the tutor and the student, so it is fetched WITH the session from
- * `/api/recording-marks/<eventId>/model-audio?v=…` (never /api/audio/*) and kept as a file under
+ * `/api/recording-marks/<eventId>/model-audio?v=…` (never the public audio route) and kept as a file under
  * `files/model-recordings/`, named by a hash of the URL — the URL changes with every new clip, so
  * a cached file is never stale. The tutor-notes sync prefetches the clips of my notes, so the card
  * back and the Tutor notes page play them on the train.
