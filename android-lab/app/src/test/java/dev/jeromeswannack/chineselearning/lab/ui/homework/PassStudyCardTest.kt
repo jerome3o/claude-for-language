@@ -106,6 +106,22 @@ class PassStudyCardTest {
 
     private fun events() = runBlocking { app.cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty() }
 
+    /**
+     * Jerome (Oct 2026): every character of his tutor's homework sentence shimmered. The pass is not
+     * the flashcard session — no new-character shimmer at all, whatever the seen set (here nothing
+     * is reviewed, which used to make every character "new"), also on a card dealt before anything loaded.
+     */
+    @Test
+    fun thePassNeverShimmersNewCharacters() {
+        val vm = StudyViewModel(app, null, pass = PassSpec("a1"))
+        vm.showPassCard("n1", 0)
+        settle("n1's card", { vm.ui.value }) { (vm.ui.value.phase as? StudyPhase.Showing)?.view?.card?.id == "c1h" }
+        assertEquals(emptyList<String>(), (vm.ui.value.phase as StudyPhase.Showing).view.newChars)
+        vm.showPassCard("n3", 0)
+        settle("n3's card", { vm.ui.value }) { (vm.ui.value.phase as? StudyPhase.Showing)?.view?.card?.id == "pass:n3" }
+        assertEquals(emptyList<String>(), (vm.ui.value.phase as StudyPhase.Showing).view.newChars)
+    }
+
     /** The card engine in pass mode: the read card, the take let go, never a review. */
     @Test
     fun theStudyViewModelDealsTheReadCardAndNeverReviewsOrKeepsTheTake() {

@@ -392,6 +392,7 @@ export function StudyCard({
   banner,
   bumped,
   pass,
+  inStudySession = false,
 }: {
   card: CardWithNote;
   cardIsSecondaryNew: boolean;
@@ -417,12 +418,18 @@ export function StudyCard({
   bumped?: { fromName: string | null } | null;
   /** A homework pass word: Not yet / Got it instead of the ratings, no review written. */
   pass?: StudyCardPass;
+  /**
+   * The regular flashcard study session: never-seen characters shimmer (shared/study/newCharacters.ts).
+   * Off everywhere else that shows the card (homework pass, tutor-notes practice).
+   */
+  inStudySession?: boolean;
 }) {
   // Analytics only: the study events say when the card was a homework pass word.
   const where = pass ? ('homework' as const) : undefined;
   const { isOnline } = useNetwork();
-  // Never-seen characters shimmer (shared/study/newCharacters.ts) — worked out once for this card.
-  const newChars = useNewCharacters(card.id, card.note.hanzi);
+  // Never-seen characters shimmer (shared/study/newCharacters.ts) — worked out once for this card,
+  // in the flashcard session only (never the homework pass / tutor-notes practice).
+  const newChars = useNewCharacters(card.id, card.note.hanzi, inStudySession && !pass);
 
   // What this card was left with (resume point + in-memory extras), read once at mount.
   const [restored] = useState(() => {
@@ -1328,7 +1335,8 @@ export function StudyCard({
     if (sayingAgain) spoken.cancel();
     track('study.card_rated', { rating: RATING_KEYS[rating], card_type: card.card_type, queue: QUEUE_KEYS[card.queue] ?? null, time_ms: timeSpent, recorded: !!take, multiple_choice: showMultipleChoice });
     // Its characters are seen now: no shimmer on later cards (this one keeps it while shown).
-    noteCharactersSeen(card.note.hanzi);
+    // (The flashcard session only: the study queue's next load re-primes the set from the DB anyway.)
+    if (inStudySession) noteCharactersSeen(card.note.hanzi);
     // Call parent's rate function - handles both state update and DB write
     onRate(rating, timeSpent, userAnswer || undefined, take || undefined);
   };
@@ -3435,6 +3443,7 @@ export function StudyPage() {
           onDeleteCurrentCard={() => removeNoteFromSession(currentCard.note.id)}
           resume={resume}
           scope={studyScope(deckId)}
+          inStudySession
         />
       ) : dailyReaderPending || grammarPending ? (
         // Cards are done but today's story/lesson is still being generated —

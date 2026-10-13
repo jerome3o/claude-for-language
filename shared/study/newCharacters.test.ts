@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markCharactersSeen, newCharacterMask, newCharactersIn, newCharactersLabel, seenCharactersOf } from './newCharacters';
+import { cardNewCharacters, markCharactersSeen, newCharacterMask, newCharactersIn, newCharactersLabel, seenCharactersOf } from './newCharacters';
 import { seenFrom } from '../decks/novelty';
 
 describe('new characters (the shimmer)', () => {
@@ -38,5 +38,17 @@ describe('new characters (the shimmer)', () => {
     expect(newCharactersLabel([])).toBe('');
     expect(newCharactersLabel(['行'])).toBe('New character: 行');
     expect(newCharactersLabel(['银', '行'])).toBe('New characters: 银, 行');
+  });
+
+  it('only in the flashcard study session, and only once the seen set is loaded', () => {
+    expect(cardNewCharacters('银行', seen, true)).toEqual(['行']);
+    // Homework pass / tutor-notes practice / previews: never.
+    expect(cardNewCharacters('第一节课前半小时', seen, false)).toEqual([]);
+    expect(cardNewCharacters('银行', new Set(), false)).toEqual([]);
+    // Not loaded is not "nothing seen": no shimmer at all.
+    expect(cardNewCharacters('第一节课前半小时', null, true)).toEqual([]);
+    expect(cardNewCharacters('第一节课前半小时', undefined, true)).toEqual([]);
+    // A loaded but empty set (no reviews on the account yet) is real: everything is new.
+    expect(cardNewCharacters('银行', new Set(), true)).toEqual(['银', '行']);
   });
 });

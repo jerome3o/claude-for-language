@@ -122,6 +122,10 @@ test('the pass is the study card: record → "You said" → Got it suggested; �
   await expect(page.getByTestId('study-card-back')).toBeVisible();
   await expect(page.getByTestId('you-said')).toContainText('银行', { timeout: 10_000 });
   expect(uploads()).toBe(1);
+  // No new-character shimmer on the homework pass (flashcard session only) — this student has no
+  // reviews at all, which used to make every character of the word shimmer, front and back.
+  await expect(page.locator('.new-char')).toHaveCount(0);
+  await expect(page.locator('.new-char-sr')).toHaveCount(0);
 
   // Not yet / Got it where the ratings are; the match suggests Got it (he still chooses).
   await expect(page.getByRole('button', { name: /^Good/ })).toHaveCount(0);
