@@ -21,6 +21,7 @@ import { assemblePiece, getPiece, listPieces } from './recording';
 import { transcribeAudio, pickTranscriber } from './transcribe';
 import { writeCallReport, writeReport } from './report';
 import { advanceLessonProcessing, getLesson, lessonCalls, lessonMaterial } from './lessons';
+import { prepareAfterLesson, runPrepareJob } from '../prepared-activities/run';
 
 export async function advanceCallProcessing(env: Env, callId: string): Promise<void> {
   const call = await getCall(env.DB, callId);
@@ -102,6 +103,8 @@ export async function processLessonReport(env: Env, lessonId: string): Promise<v
       .prepare(`UPDATE call_lessons SET summary_json = ?, processing_status = 'done', processing_error = NULL, report_call_ids = ? WHERE id = ?`)
       .bind(report ? JSON.stringify(report) : null, covered, lessonId)
       .run();
+    // Ready for the next lesson: activities written from this one (the tutor's, never sent).
+    if (report) await prepareAfterLesson(env, lessonId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[calls] lesson report failed:', lessonId, message);
@@ -215,4 +218,5 @@ export async function handleCallQueueMessage(env: Env, body: CallProcessingMessa
   if (body.kind === 'piece') await processPiece(env, body.pieceId);
   else if (body.kind === 'report') await processReport(env, body.callId);
   else if (body.kind === 'lesson_report') await processLessonReport(env, body.lessonId);
+  else if (body.kind === 'prepare_activities') await runPrepareJob(env, body.jobId);
 }

@@ -118,11 +118,13 @@ import { getConversationVoiceSettings } from './services/conversation-voices';
 import { conversationAudioSource, getConversationAudioPrefs } from './services/conversation-audio';
 import { conversationVoiceProvider, isConversationDelivery } from '@shared/tts';
 import studentProfileRoutes from './routes/student-profile';
+import preparedActivitiesRoutes from './routes/prepared-activities';
 import studentStudyBudgetRoutes from './routes/student-study-budget';
 import cardCheckRoutes from './routes/card-checks';
 import { cardCheckEnabled, runDeckCheckJob, runNotesCheck, type CardCheckMessage } from './services/card-check';
 import wordTagsRoutes from './routes/word-tags';
 import { maybeBackfillWordTags, runWordTags } from './services/word-tags-ai';
+import { prepareNightly } from './services/prepared-activities/run';
 import { enqueueRecordingCheck, runRecordingCheck, RetryLater, type RecordingCheckMessage } from './services/recording-checks';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
@@ -654,6 +656,8 @@ app.route('/api', debugReportsRoutes);
 app.route('/api', lessonImagesRoutes);
 // The tutor's private profile of a student, read by the tutor-side content agents (routes/student-profile.ts; tutor only)
 app.route('/api', studentProfileRoutes);
+// Prepared in-call activities + what the student has covered (tutor only; docs/VIDEO_CALLS.md "Prepared activities")
+app.route('/api', preparedActivitiesRoutes);
 app.route('/api', studentStudyBudgetRoutes);
 // Word checks: ⚠ Possible issue on notes, Paste-a-list preview, per-deck "Check for errors" (routes/card-checks.ts)
 app.route('/api', cardCheckRoutes);
@@ -6375,6 +6379,13 @@ export default {
         console.log(JSON.stringify({ type: 'cron', job: 'prune_usage_events', deleted }));
       } catch (err) {
         console.error('[cron] prune usage events failed:', err);
+      }
+      // Prepared in-call activities: catch up students whose newest lesson has none yet.
+      try {
+        const queued = await prepareNightly(env, new Date(event.scheduledTime || Date.now()));
+        console.log(JSON.stringify({ type: 'cron', job: 'prepare_activities', queued }));
+      } catch (err) {
+        console.error('[cron] prepare activities failed:', err);
       }
     });
   },

@@ -58,6 +58,7 @@ import { registerBumpTools } from './tools/bumps.js';
 import { registerUpNextTools } from './tools/up-next.js';
 import { registerPinyinScanTools } from './tools/pinyin-scan.js';
 import { registerMaterialTools } from './tools/materials.js';
+import { registerPreparedActivityTools } from './tools/prepared-activities.js';
 import { registerTutorApps } from './tools/apps.js';
 
 interface User {
@@ -1986,6 +1987,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     registerBumpTools(ctx);
     registerUpNextTools(ctx);
     registerPinyinScanTools(ctx);
+    registerPreparedActivityTools(ctx);
     registerMaterialTools(ctx);
   }
 }

@@ -126,7 +126,9 @@ export type CallProcessingMessage =
   | { kind: 'piece'; pieceId: string }
   | { kind: 'report'; callId: string }
   // The lesson report over all the lesson's calls (services/calls/lessons.ts).
-  | { kind: 'lesson_report'; lessonId: string };
+  | { kind: 'lesson_report'; lessonId: string }
+  // Prepared in-call activities for the next lesson (services/prepared-activities/run.ts).
+  | { kind: 'prepare_activities'; jobId: string };
 
 /** Background generation of a quest world (one Claude call + repair rounds). */
 export interface PictureHuntJobMessage {
