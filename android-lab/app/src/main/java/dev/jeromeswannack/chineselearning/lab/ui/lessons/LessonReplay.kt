@@ -126,7 +126,7 @@ fun NavGraphBuilder.lessonReplayGraph(nav: LabNav) {
         arguments = listOf(navArgument("from") { type = NavType.StringType; nullable = true; defaultValue = null }),
     ) { backStack ->
         val id = backStack.arguments?.getString("id").orEmpty()
-        val from = backStack.arguments?.getString("from")?.takeIf { it in setOf("lessons_page", "today", "homework", "player") } ?: "lessons_page"
+        val from = backStack.arguments?.getString("from")?.takeIf { it in setOf("lessons_page", "today", "homework", "player", "coach") } ?: "lessons_page"
         val vm: LessonReplayViewModel = viewModel(key = "lesson-replay-$id", factory = LessonReplayViewModel.Factory(nav.app, id, from))
         val state by vm.state.collectAsStateWithLifecycle()
         LessonReplayRoute(nav, state, vm)

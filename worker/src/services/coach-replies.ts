@@ -31,7 +31,8 @@ import { StructuredCallError } from './structured-call';
 import { createCustomLessonFromSpec } from './custom-lesson';
 import * as content from './content';
 import * as db from '../db/queries';
-import { conversationAction, type CoachAction } from '@shared/coach';
+import { conversationAction, mistakeLessonExerciseCount, parseMistakeLessonContent, MISTAKE_LESSON_CONTENT_TYPE, type CoachAction, type MistakeLessonContent } from '@shared/coach';
+import { writeMistakeLesson, type MistakeLessonInput } from './mistake-lesson';
 import type { AutoCheckResult } from '@shared/chats/autoCheck';
 
 export interface CoachReplyMessage {
@@ -64,11 +65,14 @@ export type CoachChatFn = (history: CoachChatTurn[], ctx: { db: D1Database; user
 }>;
 export type CoachAnalyseFn = (action: CoachAction, input: string) => Promise<CoachAnalysis>;
 export type CoachApplyFn = (userId: string, action: ToolAction) => Promise<CoachToolResult>;
+/** "🎯 Mini lesson on this mistake" (services/mistake-lesson.ts): the content JSON of the lesson message. */
+export type CoachMistakeLessonFn = (input: MistakeLessonInput, userId: string) => Promise<MistakeLessonContent>;
 
 export interface CoachReplyDeps {
   chat?: CoachChatFn | null;
   analyse?: CoachAnalyseFn | null;
   apply?: CoachApplyFn;
+  mistakeLesson?: CoachMistakeLessonFn;
 }
 
 type CoachEnv = Pick<Env, 'DB' | 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'> & Partial<Env>;
@@ -112,7 +116,19 @@ const fakeAnalyse: CoachAnalyseFn = async (action, input) => {
       breakdown: { hanzi: input, pinyin: words.map((w) => w.pinyin).filter(Boolean).join(' '), translation: FAKE_SENTENCES[input] ?? '(E2E) The sentence explained.', words, construction: '(E2E) Time, then the action.' },
     };
   }
+  const mistake = FAKE_MISTAKES[input];
+  if (mistake) {
+    return { kind: 'chinese', coach: { originalInput: input, inputLanguage: 'chinese', isCorrect: false, corrected: mistake.corrected, critique: mistake.critique, issues: [], alternatives: [], vocabSuggestions: [] } };
+  }
   return { kind: 'chinese', coach: { originalInput: input, inputLanguage: 'chinese', isCorrect: true, corrected: { hanzi: input, pinyin: '', english: '(E2E) Looks fine.' }, critique: '(E2E) The coach would explain here.', issues: [], alternatives: [], vocabSuggestions: [] } };
+};
+
+/** E2E: sentences the fake check corrects (the rest "look fine"). */
+const FAKE_MISTAKES: Record<string, { corrected: { hanzi: string; pinyin: string; english: string }; critique: string }> = {
+  我昨天去了商店买东西了: {
+    corrected: { hanzi: '我昨天去商店买东西了', pinyin: 'wǒ zuótiān qù shāngdiàn mǎi dōngxi le', english: 'I went shopping yesterday.' },
+    critique: '(E2E) One 了 at the end is enough here.',
+  },
 };
 
 /** A tiny lexicon so the E2E breakdown splits words like the real one (longest match first). */
@@ -158,13 +174,42 @@ export function buildCoachHistory(stored: CoachMessage[], deckList: string): Coa
     } else if (m.content_type === 'analysis') {
       history.push({ role: 'assistant', content: `Here is the structured analysis I gave the user (rendered as rich UI):\n${m.content}` });
     } else {
-      // Two user turns in a row (a failed reply in between) are merged: the API wants alternation.
+      // A mistake lesson is a card in the conversation: the model only needs to know it exists.
+      const content = m.content_type === MISTAKE_LESSON_CONTENT_TYPE ? mistakeLessonHistoryLine(m.content) : m.content;
+      // Two turns of one role in a row (a failed reply in between, a lesson after the analysis) are merged: the API wants alternation.
       const prev = history[history.length - 1];
-      if (prev && prev.role === m.role) prev.content = `${prev.content}\n\n${m.content}`;
-      else history.push({ role: m.role, content: m.content });
+      if (prev && prev.role === m.role) prev.content = `${prev.content}\n\n${content}`;
+      else history.push({ role: m.role, content });
     }
   }
   return history;
+}
+
+function mistakeLessonHistoryLine(raw: string): string {
+  const lesson = parseMistakeLessonContent(raw);
+  if (!lesson) return '(I wrote a mini lesson on this mistake.)';
+  const saved = lesson.lesson_id ? ' The user saved it to their mini lessons.' : '';
+  return `I wrote a mini lesson on this mistake for the user to play: "${lesson.spec.title}", ${mistakeLessonExerciseCount(lesson.spec)} exercises.${saved}`;
+}
+
+/** The first ✏️ Check my sentence result of a conversation (what a mistake lesson is about). */
+export function mistakeLessonInputOf(stored: CoachMessage[]): MistakeLessonInput | null {
+  const original = stored.find((m) => m.role === 'user')?.content ?? '';
+  const first = stored.find((m) => m.role === 'assistant' && m.content_type === 'analysis' && !m.status);
+  if (!first || !original) return null;
+  try {
+    const analysis = JSON.parse(first.content) as CoachAnalysis;
+    if (analysis?.kind !== 'chinese' || !analysis.coach?.corrected?.hanzi) return null;
+    return { original: analysis.coach.originalInput || original, coach: analysis.coach };
+  } catch {
+    return null;
+  }
+}
+
+/** The real lesson writer (or the E2E stand-in); null when the coach can't answer here. */
+export function defaultMistakeLesson(env: CoachEnv): CoachMistakeLessonFn | null {
+  if (!coachAvailable(env)) return null;
+  return (input, userId) => writeMistakeLesson(env, input, { userId });
 }
 
 export async function deckListFor(database: D1Database, userId: string): Promise<string> {
@@ -275,7 +320,10 @@ export function isRetryableCoachError(err: unknown): boolean {
   return true;
 }
 
-function readableError(err: unknown, retryable: boolean): string {
+function readableError(err: unknown, retryable: boolean, contentType?: string): string {
+  if (contentType === MISTAKE_LESSON_CONTENT_TYPE) {
+    return retryable ? 'Claude is busy right now — try the lesson again in a moment.' : 'Claude couldn’t write a lesson for this one — try again.';
+  }
   if (!retryable) return 'Claude couldn’t answer this one — try rephrasing it.';
   return 'Claude is busy right now — try again in a moment.';
 }
@@ -328,6 +376,16 @@ export async function runCoachReply(env: CoachEnv, messageId: string, deps: Coac
       return 'done';
     }
 
+    if (row.content_type === MISTAKE_LESSON_CONTENT_TYPE) {
+      const input = mistakeLessonInputOf(before);
+      if (!input) throw new StructuredCallError('There is no correction to make a lesson about', false);
+      const write = deps.mistakeLesson ?? defaultMistakeLesson(env);
+      if (!write) throw new StructuredCallError('The coach is not configured', false);
+      const lesson = await write(input, userId);
+      await finish(env.DB, messageId, JSON.stringify(lesson), null);
+      return 'done';
+    }
+
     let cp = parseCheckpoint(row.checkpoint);
     if (!cp) {
       const chat = deps.chat === undefined ? defaultChat(env) : deps.chat;
@@ -352,7 +410,7 @@ export async function runCoachReply(env: CoachEnv, messageId: string, deps: Coac
     if (retryable && attempt < COACH_REPLY_MAX_ATTEMPTS) return 'retry';
     await env.DB
       .prepare(`UPDATE coach_messages SET status = 'failed', error = ? WHERE id = ? AND status = 'pending'`)
-      .bind(readableError(err, retryable), messageId)
+      .bind(readableError(err, retryable, row.content_type), messageId)
       .run();
     return 'failed';
   }
