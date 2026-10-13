@@ -1,0 +1,187 @@
+/* Pictures on cards (components/noteImage, shared/cards/note-image.ts). */
+
+.note-image {
+  display: inline-block;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  line-height: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.note-image img {
+  display: block;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 16px;
+  background: var(--color-surface-alt, rgba(148, 163, 184, 0.12));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+/* On a study card: modest, so the answer row stays on screen on a folded phone. */
+.note-image--card {
+  margin: 0.25rem auto 0.75rem;
+}
+.note-image--card img {
+  width: min(24dvh, 200px, 60vw);
+  height: auto;
+}
+.study-back-picture {
+  display: flex;
+  justify-content: center;
+}
+.study-back-picture .note-image--card {
+  margin: 0.5rem auto 0.25rem;
+}
+.study-back-picture .note-image--card img {
+  width: min(20dvh, 168px, 50vw);
+}
+
+@media (min-width: 640px) {
+  .note-image--card img {
+    width: min(28dvh, 240px);
+  }
+}
+
+/* A deck row's thumbnail. */
+.note-image--thumb {
+  cursor: default;
+  flex-shrink: 0;
+}
+.note-image--thumb img {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+/* The edit sheet / card hub preview. */
+.note-image--preview img {
+  width: 120px;
+  height: 120px;
+}
+
+.note-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.86);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  cursor: zoom-out;
+  animation: note-image-fade 0.18s ease-out;
+}
+.note-image-lightbox img {
+  max-width: min(92vw, 720px);
+  max-height: 86dvh;
+  border-radius: 18px;
+  object-fit: contain;
+}
+.note-image-lightbox-close {
+  position: absolute;
+  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  right: 0.75rem;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+@keyframes note-image-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- The Picture section (edit sheet, card hub) ---- */
+.note-picture-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.note-picture-empty {
+  width: 120px;
+  height: 120px;
+  border-radius: 16px;
+  border: 2px dashed var(--color-border, #cbd5e1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  padding: 0.5rem;
+  flex-shrink: 0;
+}
+.note-picture-drawing {
+  border-style: solid;
+  background: linear-gradient(110deg, rgba(148, 163, 184, 0.12) 30%, rgba(148, 163, 184, 0.28) 50%, rgba(148, 163, 184, 0.12) 70%);
+  background-size: 250% 100%;
+  animation: note-picture-shimmer 1.4s linear infinite;
+}
+@keyframes note-picture-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.note-picture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.note-picture-actions .btn {
+  min-height: 44px;
+}
+.note-picture-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  margin: 0.25rem 0 0.5rem;
+}
+.note-picture-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  margin-top: 0.35rem;
+}
+
+/* ---- Illustrate this deck ---- */
+.illustrate-sheet .illustrate-estimate {
+  font-weight: 600;
+  margin: 0.5rem 0;
+}
+.illustrate-progress {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+.illustrate-progress > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #f97316);
+  transition: width 0.4s ease;
+}
+.illustrate-toggle {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin: 0.75rem 0;
+  min-height: 44px;
+}
+.illustrate-toggle input {
+  width: 20px;
+  height: 20px;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+.illustrate-samples {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}

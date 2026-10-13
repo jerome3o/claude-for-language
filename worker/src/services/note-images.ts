@@ -126,6 +126,25 @@ async function ownedNotes(db: D1Database, userId: string, noteIds: string[]): Pr
   return out;
 }
 
+/**
+ * The caller's note's picture state, for polling. A picture whose queue message was lost
+ * (pending for 15 min) is queued again here, and a note waiting on an already-drawn hash gets it.
+ */
+export async function getOwnedNoteImageView(env: NoteImageEnv, userId: string, noteId: string): Promise<NoteImageView | null> {
+  const [note] = await ownedNotes(env.DB, userId, [noteId]);
+  if (!note) return null;
+  if (note.image_status === 'pending' && note.image_hash) {
+    const row = (await imageRows(env.DB, [note.image_hash])).get(note.image_hash) ?? null;
+    if (row?.status === 'ready' && row.image_key) await applyHashEverywhere(env, note.image_hash, row.image_key);
+    else if (!row || row.status === 'failed') await failHash(env.DB, note.image_hash);
+    else if (isStalePending(row, Date.now()) && env.IMAGE_QUEUE) {
+      await env.DB.prepare(`UPDATE note_images SET updated_at = datetime('now') WHERE prompt_hash = ?`).bind(row.prompt_hash).run();
+      await env.IMAGE_QUEUE.send({ kind: 'note_image', hash: row.prompt_hash, prompt: row.prompt });
+    }
+  }
+  return getNoteImageView(env.DB, noteId);
+}
+
 export async function getNoteImageView(db: D1Database, noteId: string): Promise<NoteImageView | null> {
   return (await db.prepare(`SELECT ${VIEW_COLUMNS} FROM notes WHERE id = ?`).bind(noteId).first<NoteImageView>()) ?? null;
 }

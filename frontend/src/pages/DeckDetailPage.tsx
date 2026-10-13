@@ -5,6 +5,8 @@ import { UpdateCopiesPrompt } from '../components/tutor/library/UpdateCopiesShee
 import { useQuery, useMutation, useQueryClient, QueryClient } from '@tanstack/react-query';
 import { NoteCheckIssues } from '../components/cardCheck/NoteCheckIssues';
 import { DeckCheckSheet } from '../components/cardCheck/DeckCheckSheet';
+import { IllustrateDeckSheet } from '../components/noteImage/IllustrateDeckSheet';
+import { NoteImage } from '../components/noteImage/NoteImage';
 import { syncService } from '../services/sync';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -1599,6 +1601,7 @@ export function DeckDetailPage() {
   const [showShareTutorModal, setShowShareTutorModal] = useState(false);
   const [showAnkiExport, setShowAnkiExport] = useState(false);
   const [showCheck, setShowCheck] = useState(false);
+  const [showIllustrate, setShowIllustrate] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
   const [toast, showToast] = useToast();
@@ -1942,6 +1945,9 @@ export function DeckDetailPage() {
     ...(deck.notes.length > 0
       ? [{ key: 'check', label: '🔎 Check for errors', onSelect: () => setShowCheck(true) }]
       : []),
+    ...(deck.notes.length > 0
+      ? [{ key: 'illustrate', label: '🖼 Illustrate this deck', onSelect: () => setShowIllustrate(true) }]
+      : []),
     ...(missingAudioCount > 0
       ? [{
           key: 'gen-audio',
@@ -2253,6 +2259,7 @@ export function DeckDetailPage() {
                           className="deck-note-checkbox"
                         />
                       )}
+                      {noteData?.image_key && <NoteImage imageKey={noteData.image_key} variant="thumb" testId="deck-note-picture" />}
                       <div className="deck-note-info">
                         <span className="deck-note-hanzi">{noteProgress.hanzi}</span>
                         <span className="deck-note-pinyin">{noteProgress.pinyin}</span>
@@ -2325,6 +2332,7 @@ export function DeckDetailPage() {
         {cardEditNote && (
           <CardEditModal
             card={cardEditNote}
+            onPictureChange={() => { void deckQuery.refetch(); }}
             onClose={() => setCardEditNote(null)}
             onSave={() => {
               track('deck.note_edit', { where: 'deck_card' });
@@ -2455,6 +2463,17 @@ export function DeckDetailPage() {
           <DeckDebugModal
             deckId={id}
             onClose={() => setShowDebug(false)}
+          />
+        )}
+
+        {showIllustrate && (
+          <IllustrateDeckSheet
+            deckId={deck.id}
+            title={deck.name}
+            onClose={() => setShowIllustrate(false)}
+            onProgress={() => {
+              void syncService.incrementalSync().catch(() => {}).finally(() => { void deckQuery.refetch(); });
+            }}
           />
         )}
 

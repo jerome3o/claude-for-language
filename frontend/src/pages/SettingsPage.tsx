@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { setCardPicturesEnabled, useCardPicturesEnabled } from '../services/noteImages';
 import { NotificationsSection } from '../components/NotificationsSection';
 import { ChatListeningSettings } from '../components/chat/ChatListeningSettings';
 import { ChatSettingsSection } from '../components/ChatSettingsSection';
@@ -688,7 +689,39 @@ function SpokenAnswerSection() {
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
       <WordTagsSetting />
+      <CardPicturesSetting />
     </div>
+  );
+}
+
+/**
+ * Settings → Study → "Show pictures on cards" (on by default, per device): a note's picture shows
+ * with the English on meaning → hanzi cards and on the answer side of the others
+ * (shared/cards/note-image.ts).
+ */
+function CardPicturesSetting() {
+  const on = useCardPicturesEnabled();
+  return (
+    <>
+      <label className="settings-toggle-row" style={{ marginTop: '1rem' }}>
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setCardPicturesEnabled(next);
+            track('settings.change', { setting: 'card_pictures', value: next ? 'on' : 'off' });
+          }}
+          data-testid="card-pictures-toggle"
+        />
+        <span>Show pictures on cards</span>
+      </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
+        {on
+          ? 'A card’s picture shows with the English when you write the Chinese, and on the answer side of the other cards — never where it would give the answer away.'
+          : 'Off — cards show no pictures.'}
+      </p>
+    </>
   );
 }
 

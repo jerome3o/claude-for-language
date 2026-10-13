@@ -2,6 +2,7 @@
  * Pictures on cards (services/note-images.ts, shared/cards/note-image.ts). Mounted under /api after
  * the auth middleware; every route works on the caller's own notes / decks only (404 otherwise).
  *
+ *   GET    /notes/:id/image            → { note: NoteImageView } (the apps poll it while a picture is drawn)
  *   POST   /notes/:id/image/generate   { regenerate? } → { note: NoteImageView } (202 while it is being drawn)
  *   PUT    /notes/:id/image            raw JPEG / PNG / WebP body (or multipart `picture`), ≤ 3 MB → { note }
  *   DELETE /notes/:id/image            → { note }
@@ -17,6 +18,7 @@ import type { Env } from '../types';
 import { ContentError } from '../services/content/decks';
 import {
   deckIllustrateStatus,
+  getOwnedNoteImageView,
   illustrateDeck,
   NoteImagesUnavailableError,
   removeNoteImage,
@@ -33,6 +35,12 @@ function failure(err: unknown) {
   if (err instanceof ContentError) return { body: { error: err.message }, status: err.status };
   throw err;
 }
+
+routes.get('/notes/:id/image', async (c) => {
+  const note = await getOwnedNoteImageView(c.env, c.get('user').id, c.req.param('id'));
+  if (!note) return c.json({ error: 'Note not found' }, 404);
+  return c.json({ note });
+});
 
 routes.post('/notes/:id/image/generate', async (c) => {
   const body = await c.req.json<{ regenerate?: boolean }>().catch(() => ({} as { regenerate?: boolean }));

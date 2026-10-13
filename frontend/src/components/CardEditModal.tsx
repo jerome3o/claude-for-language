@@ -15,6 +15,7 @@ import {
 } from '../api/client';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { SentenceSet } from './SentenceSet';
+import { NotePictureSection, type NotePictureFields } from './noteImage/NotePictureSection';
 import './CardEditModal.css';
 
 interface CardEditModalProps {
@@ -22,9 +23,11 @@ interface CardEditModalProps {
   onClose: () => void;
   onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null; sentence_clue: string | null; sentence_clue_pinyin: string | null; sentence_clue_translation: string | null; sentence_clue_audio_url: string | null; alternatives: string | null }) => void;
   onDeleteCard?: () => void;
+  /** The picture changed (it is saved at once, not with Save): update the card on screen. */
+  onPictureChange?: (fields: NotePictureFields) => void;
 }
 
-export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: CardEditModalProps) {
+export default function CardEditModal({ card, onClose, onSave, onDeleteCard, onPictureChange }: CardEditModalProps) {
   const [hanzi, setHanzi] = useState(card.note.hanzi);
   const [pinyin, setPinyin] = useState(card.note.pinyin);
   const [english, setEnglish] = useState(card.note.english);
@@ -350,6 +353,9 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
               </span>
             </div>
           </div>
+
+          {/* Picture (saved at once; shared/cards/note-image.ts) */}
+          <NotePictureSection noteId={card.note.id} note={card.note} where="edit" onChange={onPictureChange} />
 
           {/* Sentence Clue */}
           <div className="card-edit-audio-section">

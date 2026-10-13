@@ -5,6 +5,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import { API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
+import { NoteImage } from '../components/noteImage/NoteImage';
+import { showNoteImage } from '@shared/cards/note-image';
+import { useCardPicturesEnabled } from '../services/noteImages';
 import './DeckTryPage.css';
 
 type Mode = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
@@ -33,6 +36,7 @@ export function DeckTryPage() {
   const [mode, setMode] = useState<Mode>('hanzi_to_meaning');
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
+  const picturesOn = useCardPicturesEnabled();
   const { play, isPlaying } = useNoteAudio('try-deck');
 
   const note = useMemo(() => (notes && notes.length ? notes[Math.min(index, notes.length - 1)] : null), [notes, index]);
@@ -86,6 +90,7 @@ export function DeckTryPage() {
             {!revealed ? (
               <div className="deck-try-front">
                 {mode === 'hanzi_to_meaning' && <div className="deck-try-hanzi">{note.hanzi}</div>}
+                {showNoteImage(mode, 'front', picturesOn, note.image_key) && <NoteImage imageKey={note.image_key} side="front" cardType={mode} testId="try-picture-front" />}
                 {mode === 'meaning_to_hanzi' && <div className="deck-try-english-big">{note.english}</div>}
                 {mode === 'audio_to_hanzi' && (
                   <button
@@ -106,6 +111,9 @@ export function DeckTryPage() {
                 <div className="deck-try-hanzi">{note.hanzi}</div>
                 <div className="deck-try-pinyin">{note.pinyin}</div>
                 <div className="deck-try-english">{note.english}</div>
+                {showNoteImage(mode, 'back', picturesOn, note.image_key) && (
+                  <div className="study-back-picture"><NoteImage imageKey={note.image_key} side="back" cardType={mode} testId="try-picture-back" /></div>
+                )}
                 <button
                   type="button"
                   className="btn btn-secondary deck-try-play"
