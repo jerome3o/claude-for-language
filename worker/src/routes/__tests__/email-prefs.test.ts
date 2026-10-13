@@ -137,10 +137,59 @@ describe('email prefs routes', () => {
     const put = (body: unknown) => req('/api/profile/email-prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     expect((await put({ email_chat_messages: 'no' })).status).toBe(400);
     const res = await put({ email_chat_messages: false });
-    expect(await res.json()).toEqual({ email_chat_messages: false });
+    expect(await res.json()).toEqual({ email_chat_messages: false, email_homework: true });
     expect(pref('student-1')).toBe(0);
     await put({ email_chat_messages: true });
     expect(pref('student-1')).toBe(1);
+  });
+});
+
+describe('homework e-mail opt-out (docs/HOMEWORK.md §12)', () => {
+  let db: SqliteD1;
+  beforeEach(async () => {
+    db = await createSqliteD1();
+    db.raw.run('INSERT INTO users (id, email, name, role) VALUES (?, ?, ?, ?)', ['student-1', 's@x.test', 'S', 'student']);
+  });
+  const prefs = () => db.rows<{ email_chat_messages: number; email_homework: number }>("SELECT email_chat_messages, email_homework FROM users WHERE id = 'student-1'")[0];
+
+  function req(user: { id: string } | null = null) {
+    const app = new Hono<{ Bindings: Env }>();
+    app.route('/api/email', emailPublic);
+    app.use('/api/*', async (c, next) => {
+      if (!user) return c.json({ error: 'Not authenticated' }, 401);
+      c.set('user', user as never);
+      await next();
+    });
+    app.route('/api', emailPrefs);
+    return (path: string, init?: RequestInit) => app.request(path, init, { DB: db, ...SECRET_ENV } as unknown as Env);
+  }
+
+  it('the homework link turns off homework e-mails only; a chat token cannot', async () => {
+    const t = await createUnsubscribeToken(SECRET_ENV, 'student-1', 'homework');
+    expect(unsubscribeUrl(undefined, t, 'homework')).toContain('&k=homework');
+    const page = await (await req()(`/api/email/unsubscribe?t=${encodeURIComponent(t)}&k=homework`)).text();
+    expect(page).toContain('Turning off homework e-mails');
+    expect(page).toContain('k=homework');
+    const off = await req()(`/api/email/unsubscribe?t=${encodeURIComponent(t)}&k=homework`, { method: 'POST', headers: { Accept: 'application/json' } });
+    expect(await off.json()).toEqual({ email_homework: false });
+    expect(prefs()).toEqual({ email_chat_messages: 1, email_homework: 0 });
+    // One-click (form body) answers with the homework page.
+    const on = await req()(`/api/email/resubscribe?t=${encodeURIComponent(t)}&k=homework`, { method: 'POST' });
+    expect(await on.text()).toContain('Homework e-mails are on');
+    expect(prefs().email_homework).toBe(1);
+    // The same token without k is a chat token check → refused; a chat token with k=homework too.
+    expect((await req()(`/api/email/unsubscribe?t=${encodeURIComponent(t)}`, { method: 'POST' })).status).toBe(400);
+    const chat = await createUnsubscribeToken(SECRET_ENV, 'student-1');
+    expect((await req()(`/api/email/unsubscribe?t=${encodeURIComponent(chat)}&k=homework`, { method: 'POST' })).status).toBe(400);
+    expect(prefs()).toEqual({ email_chat_messages: 1, email_homework: 1 });
+  });
+
+  it('Settings: PUT /api/profile/email-prefs { email_homework }', async () => {
+    const put = (body: unknown) => req({ id: 'student-1' })('/api/profile/email-prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await put({})).status).toBe(400);
+    expect((await put({ email_homework: 'off' })).status).toBe(400);
+    expect(await (await put({ email_homework: false })).json()).toEqual({ email_chat_messages: true, email_homework: false });
+    expect(prefs()).toEqual({ email_chat_messages: 1, email_homework: 0 });
   });
 });
 
