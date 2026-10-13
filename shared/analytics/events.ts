@@ -152,6 +152,10 @@ export const ANALYTICS_EVENTS = {
   'call.view_mode': e('calls', 'Switched between "Same view" and "My own view" in a call.', ['mode']),
   'call.view_bring': e('calls', '"Bring <name> to my view": made my view the shared one and invited the other person.', ['mode']),
   'call.view_join': e('calls', 'Joined the other person’s view from their invitation.', []),
+  'call.timer': e('calls', 'Ran the call timer (action = set | start | pause | reset | clear; mode = countdown | stopwatch on set; minutes = the countdown length).', ['action', 'mode', 'minutes']),
+  'call.presence_alert': e('calls', 'The other person joined / left the call: the toast showed (sound = the chime played).', ['kind', 'sound']),
+  'call.sounds': e('calls', 'Switched call sounds (join / leave chimes, the timer bell) on or off.', ['on']),
+  'call.annot_pip': e('calls', 'Opened the mini window of my shared screen with the drawings over my other windows (Chrome desktop).', []),
   'call.review_open': e('calls', 'Opened a call review / lesson report.', []),
   'call.homework_from_call': e('calls', 'Make homework from this lesson.', []),
 

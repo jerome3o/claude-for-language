@@ -8,9 +8,10 @@ package dev.jeromeswannack.chineselearning.lab.core.calls
  *   transceiver (web). The Lab app RECEIVES it (its WebRTC plays every remote audio track) but
  *   can't send any — its WebRTC takes audio from the microphone only — so a Lab share always
  *   carries [ShareAudio.NONE] and the sharer sees [shareAudioNote].
- * - **No mirror**: the sharer's own screen tile shows a compact card ("You're sharing your
- *   screen · Stop") instead of their own screen ([myShareTile]); drawing on it or "Show it here"
- *   brings the screen back. The other person still has the share on their stage.
+ * - **My share, visible** (round 7, Minghui 12 Oct 2026): the sharer's own screen tile shows the
+ *   screen itself with the drawing layer, Zoom-like ([myShareTile]); "Hide my screen" collapses it to
+ *   the compact card. A WHOLE screen starts as the card — shown in the call it would mirror itself —
+ *   and the Lab app always shares the whole phone screen ([ShareSurface.MONITOR]).
  *
  * Parity-tested against the TypeScript (parity/fixtures/calls-share.ts → CallsShareParityTest).
  */
@@ -45,13 +46,40 @@ object CallShare {
     /** The sound line on the sharer's card: on, or the note. */
     fun shareAudioLine(audio: ShareAudio, platform: Platform): String = shareAudioNote(audio, platform) ?: SHARE_AUDIO_ON
 
-    /** The card, or my screen itself (only while I draw on it, or asked to see it). */
-    fun myShareTile(annotating: Boolean, peek: Boolean): MyShareTile = if (annotating || peek) MyShareTile.FULL else MyShareTile.CARD
+    /** `ShareSurface`: what is shared — a tab, a window, a whole screen, or unknown. */
+    enum class ShareSurface(val wire: String) {
+        BROWSER("browser"), WINDOW("window"), MONITOR("monitor"), UNKNOWN("unknown");
+
+        companion object {
+            fun of(displaySurface: String?): ShareSurface = entries.firstOrNull { it.wire == displaySurface && it != UNKNOWN } ?: UNKNOWN
+        }
+    }
+
+    /**
+     * My screen itself, or the card: drawing always shows it; otherwise my choice (`shown`: true =
+     * "Show it here", false = "Hide my screen"); not chosen = shown, except a whole screen.
+     */
+    fun myShareTile(annotating: Boolean, shown: Boolean?, surface: ShareSurface): MyShareTile = when {
+        annotating -> MyShareTile.FULL
+        shown != null -> if (shown) MyShareTile.FULL else MyShareTile.CARD
+        surface == ShareSurface.MONITOR -> MyShareTile.CARD
+        else -> MyShareTile.FULL
+    }
 
     const val SHARING_CARD_TITLE = "You’re sharing your screen"
     const val STOP_SHARING_LABEL = "⏹ Stop sharing"
     const val SHOW_MY_SHARE_LABEL = "👁 Show it here"
     const val HIDE_MY_SHARE_LABEL = "Hide my screen"
+    const val MIRROR_NOTE = "Your whole screen is shared — shown here it would mirror itself."
+    const val DRAW_ON_MY_SHARE_LABEL = "✏️ Draw or type on your screen"
+    const val ANNOT_PIP_LABEL = "🪟 Mini window over your other windows"
+    const val ANNOT_PIP_HINT = "See your screen and both people’s drawings while you work in another window."
+
+    /** Over my visible share, until I start drawing. */
+    fun myShareHint(otherName: String?): String {
+        val n = if (!otherName.isNullOrBlank()) first(otherName, "They") else "The other person"
+        return "$n sees this — draw or type on it, you both see it"
+    }
 
     private fun first(name: String?, fallback: String): String =
         name?.trim()?.split(Regex("\\s+"))?.firstOrNull()?.takeIf { it.isNotEmpty() } ?: fallback

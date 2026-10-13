@@ -90,13 +90,33 @@ export function shareAudioLine(audio: ShareAudio, platform: SharePlatform): stri
 }
 
 /**
- * What MY screen tile shows while I share: the compact card, or my screen itself
- * (only while I draw on it, or I asked to see it — "Show it here").
+ * What I share, as the browser reports it (`getSettings().displaySurface`): a tab, a window, a
+ * whole screen — 'unknown' when the browser doesn't say. The Lab app always shares the whole
+ * phone screen ('monitor').
+ */
+export type ShareSurface = 'browser' | 'window' | 'monitor' | 'unknown';
+
+export function shareSurfaceOf(displaySurface: unknown): ShareSurface {
+  return displaySurface === 'browser' || displaySurface === 'window' || displaySurface === 'monitor' ? displaySurface : 'unknown';
+}
+
+/**
+ * What MY screen tile shows while I share: my screen itself, with the drawing layer on it, or the
+ * compact card.
+ *
+ * Round 7 (Minghui, 12 Oct 2026: "when the teacher shares their screen, the shared content can't be
+ * seen in the video interface; could it be visible there with the ability to draw and type on top
+ * of it"): my share is VISIBLE by default, like Zoom's — she points at and writes on what he sees.
+ * The card is one tap away ("Hide my screen", `shown` false) and comes back by itself only for a
+ * WHOLE screen, whose picture would contain the call and mirror itself; "👁 Show it here" shows it
+ * anyway. Drawing on it always shows it.
  */
 export type MyShareTile = 'card' | 'full';
 
-export function myShareTile(o: { annotating: boolean; peek: boolean }): MyShareTile {
-  return o.annotating || o.peek ? 'full' : 'card';
+export function myShareTile(o: { annotating: boolean; shown: boolean | null; surface: ShareSurface }): MyShareTile {
+  if (o.annotating) return 'full';
+  if (o.shown !== null) return o.shown ? 'full' : 'card';
+  return o.surface === 'monitor' ? 'card' : 'full';
 }
 
 // ------------------------------------------------------------------ words
@@ -105,6 +125,19 @@ export const SHARING_CARD_TITLE = 'You’re sharing your screen';
 export const STOP_SHARING_LABEL = '⏹ Stop sharing';
 export const SHOW_MY_SHARE_LABEL = '👁 Show it here';
 export const HIDE_MY_SHARE_LABEL = 'Hide my screen';
+/** On the card for a whole screen: why it isn't shown. */
+export const MIRROR_NOTE = 'Your whole screen is shared — shown here it would mirror itself.';
+/** The drawing toggle on my own visible share. */
+export const DRAW_ON_MY_SHARE_LABEL = '✏️ Draw or type on your screen';
+/** The Document Picture-in-Picture window (Chrome desktop): my share + the drawings over my other windows. */
+export const ANNOT_PIP_LABEL = '🪟 Mini window over your other windows';
+export const ANNOT_PIP_HINT = 'See your screen and both people’s drawings while you work in another window.';
+
+/** Over my visible share, until I start drawing: who sees it, and that we can both draw on it. */
+export function myShareHint(otherName: string | null): string {
+  const n = otherName && otherName.trim() ? first(otherName, 'They') : 'The other person';
+  return `${n} sees this — draw or type on it, you both see it`;
+}
 
 const first = (name: string, fallback: string) => name.trim().split(/\s+/)[0] || fallback;
 
