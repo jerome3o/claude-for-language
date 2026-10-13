@@ -168,6 +168,7 @@ export function NotePictureSection({
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { void pick(e.target.files?.[0], true); e.target.value = ''; }} data-testid="note-picture-camera-input" />
       <input ref={pickRef} type="file" accept="image/*" hidden onChange={(e) => { void pick(e.target.files?.[0], false); e.target.value = ''; }} data-testid="note-picture-file-input" />
       {cropImage && createPortal(
+        <div className="note-picture-crop">
         <PictureCropSheet
           image={cropImage}
           busy={busy === 'upload'}
@@ -177,7 +178,8 @@ export function NotePictureSection({
           title="Crop the picture"
           round={false}
           confirmLabel="Use this picture"
-        />,
+        />
+        </div>,
         document.body,
       )}
     </div>

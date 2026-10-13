@@ -185,3 +185,8 @@
   flex-wrap: wrap;
   margin: 0.5rem 0;
 }
+
+/* The crop sheet opens over the card editor (z-index 1100). */
+.note-picture-crop .pf-sheet-backdrop {
+  z-index: 1150;
+}

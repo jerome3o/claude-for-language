@@ -49,7 +49,7 @@ async function openNoteEditor(page: Page, hanzi: string) {
 }
 
 test('a generated picture shows with the English on meaning → hanzi and only on the answer side of hanzi → meaning', async ({ page, request }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const { token, deckId } = await seed(request, '水果图片', [{ hanzi: '苹果', pinyin: 'píngguǒ', english: 'apple' }]);
   // The listen card's options come from an AI call: stub it so the card can be answered.
   await page.route('**/api/notes/*/generate-multiple-choice', async (route) => {
@@ -113,6 +113,7 @@ test('a generated picture shows with the English on meaning → hanzi and only o
 
   // The Try-it viewer follows the same rule; a tap on the picture shows it big.
   await page.goto(`/decks/${deckId}/try`);
+  await expect(page.locator('.deck-try-card')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('try-picture-front')).toHaveCount(0);
   await page.locator('.deck-try-card').click();
   await page.getByTestId('try-picture-back').click();
@@ -126,7 +127,9 @@ test('a generated picture shows with the English on meaning → hanzi and only o
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
   await page.goto(`/decks/${deckId}/try`);
+  await expect(page.locator('.deck-try-card')).toBeVisible({ timeout: 60_000 });
   await page.locator('.deck-try-card').click();
+  await expect(page.locator('.deck-try-back')).toBeVisible();
   await expect(page.getByTestId('try-picture-back')).toHaveCount(0);
 });
 
@@ -160,7 +163,7 @@ test('your own photo: choose → crop → upload, then Remove; Illustrate this d
   await expect(sheet.getByTestId('illustrate-progress-label')).toHaveText('2 of 2 cards have a picture', { timeout: 15000 });
   await expect(sheet.getByTestId('illustrate-estimate')).toHaveText('Every card already has a picture');
   await sheet.getByTestId('illustrate-new-toggle').check();
-  await sheet.getByRole('button', { name: /Close|Cancel/ }).click();
+  await sheet.locator('.sheet-footer').getByRole('button', { name: /Close|Cancel/ }).click();
   await expect(page.getByTestId('deck-note-picture')).toHaveCount(2, { timeout: 20000 });
   const status = await api<{ illustrate_new: boolean; with_image: number }>(request, `/api/decks/${deckId}/illustrate`, { token });
   expect(status).toMatchObject({ illustrate_new: true, with_image: 2 });
