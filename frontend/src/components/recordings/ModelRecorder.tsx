@@ -33,12 +33,15 @@ export function ModelRecorder({
   onChange,
   studentName,
   disabled,
+  onRecordingChange,
 }: {
   savedUrl: string | null;
   value: ModelRecordingDraft;
   onChange: (next: ModelRecordingDraft) => void;
   studentName?: string | null;
   disabled?: boolean;
+  /** True while the microphone is on (the caller holds Save until the take is in). */
+  onRecordingChange?: (recording: boolean) => void;
 }) {
   const recorder = useAudioRecorder();
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -88,6 +91,10 @@ export function ModelRecorder({
   };
 
   const recording = recorder.isRecording && startedAt !== null;
+  useEffect(() => {
+    onRecordingChange?.(recording);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording]);
   const hasSaved = !!savedUrl && !value.removeSaved;
 
   return (

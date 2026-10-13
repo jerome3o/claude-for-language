@@ -45,7 +45,7 @@ const AUDIO = fs
   .readFileSync(path.join(__dirname, '../../worker/src/services/pronunciation/__fixtures__/take-live.webm'))
   .toString('base64');
 
-test('the tutor records how it should sound; the student hears it next to their own take', async ({ page, request }) => {
+test('the tutor records how it should sound; the student hears it next to their own take', async ({ page, request, browser }) => {
   test.setTimeout(180_000);
   const tutor = await seedUser(request, 'tutor', 'Minghui Wang');
   const student = await seedUser(request, 'student', 'Jerome');
@@ -105,20 +105,28 @@ test('the tutor records how it should sound; the student hears it next to their 
   expect(key.status()).toBe(404);
 
   // ---- The student: the Tutor notes page, then the card back ----
-  await page.context().clearCookies();
-  await page.goto(`/tutor-notes?session_token=${student.token}`);
-  const row = page.getByTestId('tutor-note').filter({ hasText: '银行' });
+  // His own device (a fresh browser context: nothing cached from the tutor's session).
+  const studentCtx = await browser.newContext();
+  const studentPage = await studentCtx.newPage();
+  // The sync downloads the clip for offline (so the tap may play it from the device cache).
+  const clipStatuses: number[] = [];
+  studentPage.on('response', (r) => { if (r.url().includes(`/api/recording-marks/${eventId}/model-audio`)) clipStatuses.push(r.status()); });
+  await studentPage.goto(`/tutor-notes?session_token=${student.token}`);
+  const row = studentPage.getByTestId('tutor-note').filter({ hasText: '银行' });
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect(row.getByTestId('model-rec-tutor')).toHaveText(/Minghui Wang says it/);
   await expect(row.getByTestId('model-rec-mine')).toHaveText(/You/);
-  const clip = page.waitForResponse((r) => r.url().includes(`/api/recording-marks/${eventId}/model-audio`));
   await row.getByTestId('model-rec-tutor').click();
-  expect((await clip).status()).toBe(200);
+  await expect.poll(() => clipStatuses.includes(200), { timeout: 30_000 }).toBe(true);
+  await expect(row.getByTestId('model-rec-tutor')).not.toContainText('needs a connection');
 
   await row.getByTestId('tn-practice').click();
-  await page.getByRole('button', { name: 'Check Answer' }).click({ timeout: 30_000 });
-  const back = page.getByTestId('tutor-note-line');
+  await studentPage.getByRole('button', { name: 'Skip recording' }).click({ timeout: 30_000 });
+  const check = studentPage.getByRole('button', { name: 'Check Answer' });
+  if (await check.isVisible().catch(() => false)) await check.click();
+  const back = studentPage.getByTestId('tutor-note-line');
   await expect(back).toContainText('银 is 2nd tone — listen to mine.');
   await expect(back.getByTestId('model-rec-tutor')).toHaveText(/Minghui Wang says it/);
   await expect(back.getByTestId('model-rec-mine')).toBeVisible();
+  await studentCtx.close();
 });

@@ -194,6 +194,7 @@ function RecordingCard({
   const [showComment, setShowComment] = useState(false);
   const [comment, setComment] = useState(item.mark?.comment ?? '');
   const [draft, setDraft] = useState<ModelRecordingDraft>(EMPTY_MODEL_DRAFT);
+  const [recordingModel, setRecordingModel] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const leaveTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
@@ -393,12 +394,12 @@ function RecordingCard({
             placeholder="What to tell them — e.g. 银 is 2nd tone, yours sounds like 4th"
             aria-label="Note for the student"
           />
-          <ModelRecorder savedUrl={savedModelUrl} value={draft} onChange={setDraft} disabled={busy} />
+          <ModelRecorder savedUrl={savedModelUrl} value={draft} onChange={setDraft} disabled={busy} onRecordingChange={setRecordingModel} />
           <div className="rq-actions">
             <button
               type="button"
               className="btn btn-primary btn-sm rq-save"
-              disabled={busy}
+              disabled={busy || recordingModel}
               data-testid="rq-save"
               onClick={() => markMutation.mutate({ status: status ?? 'needs_work', comment: comment.trim() || null, withDraft: true })}
             >
