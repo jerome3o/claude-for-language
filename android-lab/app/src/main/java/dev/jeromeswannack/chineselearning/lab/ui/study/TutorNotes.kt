@@ -44,6 +44,8 @@ object TutorNotes {
         comment = dto.comment,
         tutorName = dto.tutor_name,
         updatedAt = dto.updated_at,
+        recordingUrl = dto.recording_url,
+        modelAudioUrl = dto.model_audio_url,
     )
 
     /** Unseen notes for this card (services/recording-notes.ts getUnseenRecordingNotesForCard). */
@@ -67,7 +69,7 @@ object TutorNotes {
     suspend fun unseen(cache: JsonCache): List<UnseenTutorNote> {
         val seen = cache.get<Set<String>>(SEEN_KEY).orEmpty()
         return cache.get<List<RecordingNoteDto>>(NOTES_KEY).orEmpty().filter { it.event_id !in seen }.map {
-            UnseenTutorNote(it.event_id, it.kind ?: "recording", it.card_id, it.note_id, it.hanzi, it.comment, it.tutor_name, it.updated_at)
+            UnseenTutorNote(it.event_id, it.kind ?: "recording", it.card_id, it.note_id, it.hanzi, it.comment, it.tutor_name, it.updated_at, it.recording_url, it.model_audio_url)
         }
     }
 
@@ -91,7 +93,7 @@ object TutorNotes {
     }
 
     /** A page row as the card back shows it (pinned while practising, even when already seen). */
-    fun asCardNote(n: TutorNoteRow) = TutorNote(n.id, n.kind, n.card_id, n.note_id, n.hanzi, n.comment, n.tutor_name, n.updated_at)
+    fun asCardNote(n: TutorNoteRow) = TutorNote(n.id, n.kind, n.card_id, n.note_id, n.hanzi, n.comment, n.tutor_name, n.updated_at, n.recording_url, n.model_audio_url)
 
     /** The sync step (registered in FeatureSyncs): runs after the outbox drained the seen posts. */
     val Sync = FeatureSync { ctx: SyncContext ->
@@ -102,6 +104,12 @@ object TutorNotes {
         val kept = seen.filterTo(HashSet()) { it in listed }
         if (kept.size != seen.size) ctx.cache.put(SEEN_KEY, KIND, kept as Set<String>)
         // Every note, seen ones too, for the Tutor notes page offline.
-        runCatching { ctx.api.tutorNotes() }.getOrNull()?.let { ctx.cache.put(ALL_KEY, KIND, it.notes) }
+        val all = runCatching { ctx.api.tutorNotes() }.getOrNull()?.notes
+        all?.let { ctx.cache.put(ALL_KEY, KIND, it) }
+        // The tutor's model recordings ("▶ 明慧老师 says it"), so they play on the train.
+        runCatching {
+            dev.jeromeswannack.chineselearning.lab.data.audio.ModelRecordings.of(ctx)
+                .prefetch(remote.map { it.model_audio_url } + all.orEmpty().map { it.model_audio_url })
+        }
     }
 }

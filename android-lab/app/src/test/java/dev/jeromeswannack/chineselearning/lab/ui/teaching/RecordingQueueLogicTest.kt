@@ -15,6 +15,16 @@ import org.junit.Test
 
 /** "Needs your ear": the server's JSON decodes, and the presentation rules on top of it. */
 class RecordingQueueLogicTest {
+    @Test fun saveNoteLabelFollowsTheWeb() {
+        assertEquals("Needs work + recording", RecordingQueueRules.saveNoteLabel("listened", hasTake = true))
+        assertEquals("Needs work + recording", RecordingQueueRules.saveNoteLabel(null, hasTake = true))
+        assertEquals("Save note", RecordingQueueRules.saveNoteLabel("listened", hasTake = false))
+        assertEquals("Needs work + note", RecordingQueueRules.saveNoteLabel("needs_work", hasTake = false))
+        assertEquals("Needs work + note", RecordingQueueRules.saveNoteLabel(null, hasTake = false))
+        assertEquals("0:07", ModelRecUi.clock(7_900))
+        assertEquals("1:00", ModelRecUi.clock(60_000))
+    }
+
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val P = TutorPagesSamples
 

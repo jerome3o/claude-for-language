@@ -1106,6 +1106,9 @@ touches the glyph or the pinyin line below.
 
 ## Tutor notes on recordings
 
+(When the tutor also recorded how it should sound, the note has "▶ <tutor> says it" · "▶ You" under it —
+her model recording next to his own take, cached for offline; docs/RECORDING_REVIEW.md "Model recordings".)
+
 When a tutor marks one of the student's recordings *needs work* with a comment, the student
 sees "From <tutor>: <comment>" under the pinyin the next time that card comes up, once. The
 unseen notes are pulled into IndexedDB (`recordingNotes`) during sync

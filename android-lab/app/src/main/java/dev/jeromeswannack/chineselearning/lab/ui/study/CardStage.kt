@@ -695,7 +695,7 @@ private fun CardBack(
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                KeepTaps { TutorNoteLine(ui.extras.tutorNotes) }
+                KeepTaps { TutorNoteLine(ui.extras.tutorNotes, playingKey = playingKey, onPlay = actions.onPlayTutorModel) }
             }
             Spacer(Modifier.height(4.dp))
             Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)

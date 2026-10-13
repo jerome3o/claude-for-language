@@ -40,7 +40,10 @@ class TutorNotesParityTest {
             val o = c.jsonObject
             val unseen = o["unseen"]!!.jsonArray.map {
                 val u = it.jsonObject
-                UnseenTutorNote(u["id"]!!.str!!, u["kind"]!!.str!!, u["card_id"]!!.str, u["note_id"]!!.str!!, u["hanzi"]!!.str!!, u["comment"]!!.str!!, u["tutor_name"]!!.str, u["updated_at"]!!.str!!)
+                UnseenTutorNote(
+                    u["id"]!!.str!!, u["kind"]!!.str!!, u["card_id"]!!.str, u["note_id"]!!.str!!, u["hanzi"]!!.str!!, u["comment"]!!.str!!, u["tutor_name"]!!.str, u["updated_at"]!!.str!!,
+                    recordingUrl = u["recording_url"]?.str, modelAudioUrl = u["model_audio_url"]?.str,
+                )
             }
             val list = TutorNotesRules.merge(rows(o["all"]!!), unseen)
             assertEquals(rows(o["fresh"]!!), list.fresh, "merge[$i] fresh")
@@ -48,6 +51,7 @@ class TutorNotesParityTest {
             assertEquals(o["line"]!!.str, TutorNotesRules.homeLine(list.fresh.map { it.tutor_name }), "merge[$i] line")
         }
         for (l in f["labels"]!!.jsonArray) assertEquals(l.jsonObject["label"]!!.str, TutorNotesRules.label(l.jsonObject["kind"]!!.str!!))
+        for (l in f["saysIt"]!!.jsonArray) assertEquals(l.jsonObject["label"]!!.str, TutorNotesRules.saysItLabel(l.jsonObject["name"]!!.str))
     }
 
     @Test

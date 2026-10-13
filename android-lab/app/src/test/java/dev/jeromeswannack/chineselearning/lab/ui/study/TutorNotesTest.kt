@@ -93,6 +93,34 @@ class TutorNotesTest {
         assertEquals(emptySet<String>(), platform.cache.get<Set<String>>(TutorNotes.SEEN_KEY))
     }
 
+    @Test fun syncKeepsTheTutorsModelRecordingForOffline() = runBlocking {
+        val url = "/api/recording-marks/e1/model-audio?v=abc123"
+        server.enqueue(MockResponse().setBody("""{"notes":[{"event_id":"e1","kind":"recording","card_id":"c1","note_id":"n1","hanzi":"打算","comment":"","tutor_name":"Wang Laoshi","updated_at":"2026-09-20T10:00:00Z","recording_url":"recordings/e1.webm","model_audio_url":"$url"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"notes":[],"next_cursor":null}"""))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(byteArrayOf(0x1a, 0x45, 0xdf.toByte(), 0xa3.toByte(), 1, 2, 3))))
+        platform.afterSync(full = false)
+        server.takeRequest()
+        server.takeRequest()
+        val clip = server.takeRequest()
+        assertEquals(url, clip.path)
+        assertEquals("Bearer token-1", clip.getHeader("Authorization"))
+
+        // The card back has both clips to compare; the file is on the phone for the train.
+        val note = TutorNotes.forCard(platform.cache, "c1", "n1").single()
+        assertEquals(url, note.modelAudioUrl)
+        assertEquals("recordings/e1.webm", note.recordingUrl)
+        val context = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val store = dev.jeromeswannack.chineselearning.lab.data.audio.ModelRecordings(Api(server.url("").toString().removeSuffix("/")) { "token-1" }, File(context.filesDir, "tutor-notes-test"))
+        assertEquals(7L, store.cached(url)?.length())
+        // Cached: a second sync doesn't download it again.
+        server.enqueue(MockResponse().setBody("""{"notes":[{"event_id":"e1","kind":"recording","card_id":"c1","note_id":"n1","hanzi":"打算","comment":"","updated_at":"2026-09-20T10:00:00Z","model_audio_url":"$url"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"notes":[],"next_cursor":null}"""))
+        platform.afterSync(full = false)
+        server.takeRequest()
+        server.takeRequest()
+        assertEquals(5, server.requestCount)
+    }
+
     @Test fun aSeenNoteStaysHiddenWhileTheServerStillListsIt() = runBlocking {
         server.enqueue(MockResponse().setBody(two))
         server.enqueue(MockResponse().setBody(all))

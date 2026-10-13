@@ -110,7 +110,7 @@ object TutorPagesSamples {
             ),
             RecordingQueueItemDto(
                 "q6", qn("n6", "出租车", "chūzūchē", "taxi"), rating = 2, reviewed_at = "2026-09-24T07:00:00Z", recording_url = "recordings/q6.webm",
-                mark = RecordingMarkDto("q6", "needs_work", "chū is 1st tone — keep it high and flat."), check = RecordingCheckDto("done", "出租车", true, 88.0),
+                mark = RecordingMarkDto("q6", "needs_work", "chū is 1st tone — keep it high and flat.", model_audio_url = "/api/recording-marks/q6/model-audio?v=a1b2c3d4e5f6"), check = RecordingCheckDto("done", "出租车", true, 88.0),
             ),
         ),
         counts = RecordingQueueCountsDto(queue = 4, all = 11, checking = 0),

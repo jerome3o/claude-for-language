@@ -26,7 +26,7 @@ interface Loaded {
 }
 
 function asLocalNote(n: TutorNote): LocalRecordingNote {
-  return { id: n.id, kind: n.kind, card_id: n.card_id, note_id: n.note_id, hanzi: n.hanzi, comment: n.comment, tutor_name: n.tutor_name, updated_at: n.updated_at, seen_at: n.seen_at ?? n.updated_at, _synced: 1 };
+  return { id: n.id, kind: n.kind, card_id: n.card_id, note_id: n.note_id, hanzi: n.hanzi, comment: n.comment, tutor_name: n.tutor_name, updated_at: n.updated_at, recording_url: n.recording_url, model_audio_url: n.model_audio_url ?? null, seen_at: n.seen_at ?? n.updated_at, _synced: 1 };
 }
 
 /**

@@ -106,6 +106,14 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     protectedReason: PERSON_MADE + ' (removed when the message is deleted, and by account deletion)',
   },
   {
+    prefix: 'tutor-recordings/',
+    what: "A tutor's model recording of how a word should sound, on a needs-work mark (`tutor-recordings/<relId>/<eventId>-<id>.<ext>`)",
+    writtenBy: 'services/model-recordings.ts saveModelRecording (PUT /api/relationships/:relId/recordings/:eventId/mark/audio)',
+    referencedBy: ['tutor_recording_marks.model_audio_key'],
+    collectable: false,
+    protectedReason: PERSON_MADE + ' (removed with the mark, when replaced, and by account deletion)',
+  },
+  {
     prefix: 'recordings/lessons/',
     what: 'Spoken answers in mini lessons',
     writtenBy: 'routes/lesson-attempts.ts',
@@ -234,6 +242,7 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'feature_requests.screenshot_url', sql: 'SELECT screenshot_url AS v FROM feature_requests WHERE screenshot_url IS NOT NULL' },
   { source: 'homework_recordings.audio_url', sql: 'SELECT audio_url AS v FROM homework_recordings WHERE audio_url IS NOT NULL' },
   { source: 'homework_feedback.audio_feedback_url', sql: 'SELECT audio_feedback_url AS v FROM homework_feedback WHERE audio_feedback_url IS NOT NULL' },
+  { source: 'tutor_recording_marks.model_audio_key', sql: 'SELECT model_audio_key AS v FROM tutor_recording_marks WHERE model_audio_key IS NOT NULL' },
   { source: 'audio_lessons.audio_key', sql: 'SELECT audio_key AS v FROM audio_lessons WHERE audio_key IS NOT NULL' },
 ];
 

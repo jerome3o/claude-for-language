@@ -75,6 +75,8 @@ export interface RecordingMark {
   status: RecordingMarkStatus;
   comment: string | null;
   updated_at: string;
+  /** The tutor's model recording on a needs-work mark (fetched with the session), null = none */
+  model_audio_url?: string | null;
 }
 
 export interface InsightRecording {

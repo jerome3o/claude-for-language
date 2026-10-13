@@ -78,6 +78,47 @@ class RecordingQueueScreenTest {
         compose.onNodeWithText("▶ Reference").assertDoesNotExist()
     }
 
+    @Test fun theNoteBoxRecordsAModelAnswerAndSavesItAsNeedsWork() {
+        val started = mutableListOf<String>()
+        val saved = mutableListOf<Triple<String, String, String?>>()
+        var model by mutableStateOf(ModelRecUi())
+        compose.setContent {
+            LabTheme {
+                RecordingQueueScreen(
+                    RecordingQueueUi("rel-jerome", "Jerome Swannack", data = P.queue, loading = false, model = model),
+                    RecordingQueueActions(
+                        startModel = { started += it; model = ModelRecUi(recordingFor = it, elapsedMs = 1_000) },
+                        stopModel = { model = ModelRecUi(drafts = mapOf("q1" to ModelDraftUi(durationMs = 1_900))) },
+                        saveNote = { r, s, c -> saved += Triple(r.event_id, s, c) },
+                    ),
+                )
+            }
+        }
+        compose.onNodeWithTag("recq-note-q1").performClick()
+        compose.onNodeWithTag("recq-model-q1").assertIsDisplayed()
+        compose.onNodeWithText("🎤 Record it").performClick()
+        assertEquals(listOf("q1"), started)
+        compose.onNodeWithText("⏹ Stop · 0:01").performClick()
+        compose.onNodeWithText("▶ Your take · 0:01").assertIsDisplayed()
+        compose.onNodeWithText("Needs work + recording").performClick()
+        assertEquals(listOf(Triple("q1", "needs_work", null as String?)), saved)
+    }
+
+    @Test fun aSavedModelRecordingPlaysFromTheCard() {
+        val played = mutableListOf<String>()
+        compose.setContent {
+            LabTheme {
+                RecordingQueueScreen(
+                    RecordingQueueUi("rel-jerome", "Jerome Swannack", view = "all", data = P.queueAll, loading = false),
+                    RecordingQueueActions(playModelSaved = { played += it }),
+                )
+            }
+        }
+        compose.onNodeWithTag("recq-model-saved-q6").assertExists()
+        compose.onNodeWithText("▶ Your recording").performClick()
+        assertEquals(listOf("/api/recording-marks/q6/model-audio?v=a1b2c3d4e5f6"), played)
+    }
+
     @Test fun referencePlaysTheCardClipAndTabsSwitch() {
         val views = mutableListOf<String>()
         val refs = mutableListOf<String>()

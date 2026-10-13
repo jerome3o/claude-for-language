@@ -176,7 +176,8 @@ export interface RecordingQueueItem {
   /** R2 key of the take (play at /api/audio/<key>). */
   recording_url: string;
   user_answer: string | null;
-  mark: { status: 'listened' | 'needs_work'; comment: string | null; updated_at: string } | null;
+  /** `model_audio_url`: the tutor's own recording of how it should sound (needs-work marks only). */
+  mark: { status: 'listened' | 'needs_work'; comment: string | null; updated_at: string; model_audio_url?: string | null } | null;
   check: (RecordingCheck & { weak_chars: WeakChar[]; score_note: string | null }) | null;
   flag: { id: string; message: string; created_at: string } | null;
   reasons: QueueReason[];

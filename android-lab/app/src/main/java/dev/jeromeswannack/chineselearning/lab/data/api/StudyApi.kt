@@ -391,6 +391,10 @@ data class RecordingNoteDto(
     val comment: String = "",
     val tutor_name: String? = null,
     val updated_at: String = "",
+    /** My take the note is on (R2 key) — "▶ You". */
+    val recording_url: String? = null,
+    /** The tutor's model recording (fetched with the session, data/audio/ModelRecordings.kt). */
+    val model_audio_url: String? = null,
 )
 
 @Serializable

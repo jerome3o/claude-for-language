@@ -568,6 +568,10 @@ export interface LocalRecordingNote {
   comment: string;
   tutor_name: string | null;
   updated_at: string;
+  /** Recording note: my take it is on (R2 key) — "▶ You" beside the tutor's clip */
+  recording_url?: string | null;
+  /** Recording note: the tutor's model recording (services/modelRecordings.ts caches it in cachedAudio) */
+  model_audio_url?: string | null;
   /** null until the student has seen it on the card back */
   seen_at: string | null;
   // 0 = the seen_at above has not reached the server yet, 1 = synced

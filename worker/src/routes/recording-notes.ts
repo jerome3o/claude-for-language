@@ -7,6 +7,8 @@
  *   GET  /me/tutor-notes?include_seen=1&limit=&before=
  *                                            the "Notes from your tutor" page: every note (new AND seen),
  *                                            newest first, with the card's pinyin / meaning and my recording
+ *   GET  /recording-marks/:eventId/model-audio  the tutor's model recording on a needs-work mark — served
+ *                                            only to the tutor who made the mark and the student whose take it is
  *
  * The tutor writes the mark from the recordings inbox (routes/insights.ts);
  * the student sees the comment once, on the back of that card, the next time
@@ -18,6 +20,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { listUnseenFlagReplies, markFlagReplySeen } from '../services/card-flags';
 import { sqliteToIso } from '@shared/chats';
+import { loadModelRecordingFor, modelAudioUrl } from '../services/model-recordings';
 
 const recordingNotes = new Hono<{ Bindings: Env }>();
 
@@ -34,31 +37,43 @@ export interface StudentRecordingNote {
   tutor_name: string | null;
   /** When the tutor wrote or last edited the note */
   updated_at: string;
+  /** Recording mark: the R2 key of my take (played via /api/audio/<key>) — "▶ You" */
+  recording_url?: string | null;
+  /** Recording mark: the tutor's own recording of how it should sound — "▶ Minghui says it" */
+  model_audio_url?: string | null;
 }
+
+/** A needs-work mark is a note for the student when it has words, a model recording, or both. */
+const MARK_IS_NOTE = `m.status = 'needs_work'
+         AND ((m.comment IS NOT NULL AND m.comment != '') OR m.model_audio_key IS NOT NULL)`;
 
 recordingNotes.get('/me/recording-notes', async (c) => {
   try {
     const userId = c.get('user').id;
     const res = await c.env.DB.prepare(
       `SELECT m.review_event_id AS event_id, re.card_id, n.id AS note_id, n.hanzi,
-              m.comment, u.name AS tutor_name, m.updated_at
+              COALESCE(m.comment, '') AS comment, u.name AS tutor_name, m.updated_at,
+              re.recording_url, m.model_audio_key
        FROM tutor_recording_marks m
        JOIN review_events re ON re.id = m.review_event_id
        JOIN cards c ON c.id = re.card_id
        JOIN notes n ON n.id = c.note_id
        LEFT JOIN users u ON u.id = m.tutor_id
        WHERE re.user_id = ?
-         AND m.status = 'needs_work'
-         AND m.comment IS NOT NULL AND m.comment != ''
+         AND ${MARK_IS_NOTE}
          AND m.student_seen_at IS NULL
        ORDER BY m.updated_at DESC
        LIMIT 200`
     )
       .bind(userId)
-      .all<StudentRecordingNote>();
+      .all<StudentRecordingNote & { model_audio_key: string | null }>();
     const replies = await listUnseenFlagReplies(c.env.DB, userId);
     const notes: StudentRecordingNote[] = [
-      ...(res.results || []).map((n) => ({ ...n, kind: 'recording' as const })),
+      ...(res.results || []).map(({ model_audio_key, ...n }) => ({
+        ...n,
+        kind: 'recording' as const,
+        model_audio_url: modelAudioUrl(n.event_id, model_audio_key),
+      })),
       ...replies.map((r) => ({
         event_id: r.flag_id,
         kind: 'flag' as const,
@@ -124,9 +139,11 @@ export interface StudentTutorNote {
   recording_url: string | null;
   /** Flag: what I wrote when I flagged the card */
   student_message: string | null;
+  /** Recording mark: the tutor's own recording of how it should sound (null = none) */
+  model_audio_url: string | null;
 }
 
-type TutorNoteRow = StudentTutorNote & { sort_at: string };
+type TutorNoteRow = Omit<StudentTutorNote, 'model_audio_url'> & { sort_at: string; model_audio_key: string | null };
 
 const TUTOR_NOTES_DEFAULT_LIMIT = 50;
 const TUTOR_NOTES_MAX_LIMIT = 200;
@@ -165,17 +182,16 @@ recordingNotes.get('/me/tutor-notes', async (c) => {
     const [marks, flags] = await Promise.all([
       c.env.DB.prepare(
         `SELECT m.review_event_id AS id, 'recording' AS kind, re.card_id, c.card_type, n.id AS note_id, n.deck_id,
-                n.hanzi, n.pinyin, n.english, m.comment, u.name AS tutor_name,
+                n.hanzi, n.pinyin, n.english, COALESCE(m.comment, '') AS comment, u.name AS tutor_name,
                 m.updated_at, m.student_seen_at AS seen_at, re.recording_url, NULL AS student_message,
-                datetime(m.updated_at) AS sort_at
+                datetime(m.updated_at) AS sort_at, m.model_audio_key
          FROM tutor_recording_marks m
          JOIN review_events re ON re.id = m.review_event_id
          JOIN cards c ON c.id = re.card_id
          JOIN notes n ON n.id = c.note_id
          LEFT JOIN users u ON u.id = m.tutor_id
          WHERE re.user_id = ?
-           AND m.status = 'needs_work'
-           AND m.comment IS NOT NULL AND m.comment != ''
+           AND ${MARK_IS_NOTE}
            ${includeSeen ? '' : 'AND m.student_seen_at IS NULL'}
            ${markCursor}
          ORDER BY datetime(m.updated_at) DESC, m.review_event_id DESC
@@ -187,7 +203,7 @@ recordingNotes.get('/me/tutor-notes', async (c) => {
         `SELECT f.id, 'flag' AS kind, f.card_id, c.card_type, f.note_id, n.deck_id,
                 n.hanzi, n.pinyin, n.english, f.tutor_reply AS comment, u.name AS tutor_name,
                 f.replied_at AS updated_at, f.student_seen_reply_at AS seen_at, NULL AS recording_url,
-                f.message AS student_message, datetime(f.replied_at) AS sort_at
+                f.message AS student_message, datetime(f.replied_at) AS sort_at, NULL AS model_audio_key
          FROM card_flags f
          JOIN notes n ON n.id = f.note_id
          LEFT JOIN cards c ON c.id = f.card_id
@@ -208,8 +224,9 @@ recordingNotes.get('/me/tutor-notes', async (c) => {
     );
     const page = merged.slice(0, limit);
     const last = page[page.length - 1];
-    const notes: StudentTutorNote[] = page.map(({ sort_at: _sortAt, ...row }) => ({
+    const notes: StudentTutorNote[] = page.map(({ sort_at: _sortAt, model_audio_key, ...row }) => ({
       ...row,
+      model_audio_url: row.kind === 'recording' ? modelAudioUrl(row.id, model_audio_key) : null,
       updated_at: sqliteToIso(row.updated_at),
       seen_at: row.seen_at ? sqliteToIso(row.seen_at) : null,
     }));
@@ -220,6 +237,30 @@ recordingNotes.get('/me/tutor-notes', async (c) => {
   } catch (error) {
     console.error('[tutor-notes] list failed:', error);
     return c.json({ error: 'Failed to load tutor notes' }, 500);
+  }
+});
+
+/**
+ * The tutor's model recording on a needs-work mark. Only the tutor who made the mark and the
+ * student whose take it is may hear it (404 for anyone else, like a missing clip). The URL's
+ * `?v=` changes with every new clip, so the bytes are immutable for a given URL.
+ */
+recordingNotes.get('/recording-marks/:eventId/model-audio', async (c) => {
+  try {
+    const clip = await loadModelRecordingFor(c.env.DB, c.req.param('eventId'), c.get('user').id);
+    if (!clip) return c.json({ error: 'Not found' }, 404);
+    const object = await c.env.AUDIO_BUCKET.get(clip.key);
+    if (!object) return c.json({ error: 'Not found' }, 404);
+    const headers = new Headers();
+    headers.set('Content-Type', clip.mime || object.httpMetadata?.contentType || 'audio/webm');
+    headers.set('Cache-Control', 'private, max-age=31536000, immutable');
+    headers.set('X-Content-Type-Options', 'nosniff');
+    if (typeof object.size === 'number') headers.set('Content-Length', String(object.size));
+    if (object.httpEtag) headers.set('ETag', object.httpEtag);
+    return new Response(object.body, { headers });
+  } catch (error) {
+    console.error('[recording-notes] model audio failed:', error);
+    return c.json({ error: 'Failed to load the recording' }, 500);
   }
 });
 

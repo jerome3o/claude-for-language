@@ -10,6 +10,7 @@ import {
   type RecordingQueueItem,
 } from '@shared/recordings/queue';
 import type { RecordingQueueRow } from '../db/insights-queries';
+import { modelAudioUrl } from './model-recordings';
 
 type Flag = { id: string; note_id: string; card_id: string | null; message: string; created_at: string };
 
@@ -37,7 +38,14 @@ export function buildRecordingQueue(rows: RecordingQueueRow[], flags: Flag[]): R
       reviewed_at: r.reviewed_at,
       recording_url: r.recording_url,
       user_answer: r.user_answer,
-      mark: r.mark_status ? { status: r.mark_status, comment: r.mark_comment, updated_at: r.mark_updated_at ?? '' } : null,
+      mark: r.mark_status
+        ? {
+            status: r.mark_status,
+            comment: r.mark_comment,
+            updated_at: r.mark_updated_at ?? '',
+            model_audio_url: modelAudioUrl(r.event_id, r.mark_model_audio_key),
+          }
+        : null,
       check: check ? { ...check, weak_chars: weakChars(check.char_scores), score_note: r.score_note } : null,
       flag: flag ? { id: flag.id, message: flag.message, created_at: flag.created_at } : null,
       ...verdict,

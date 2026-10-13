@@ -90,6 +90,7 @@ fun NavGraphBuilder.tutorNotesGraph(nav: LabNav) {
                 onPractice = { notes -> vm.practice(notes) { cards, ids -> nav.open(Routes.tutorNotesPractice(cards, ids)) } },
                 onOpenCard = { nav.open(Routes.cardHub(it)) },
                 onPlay = { key -> nav.app.audio.play(key, "", nav.app.online.value) },
+                onPlayModel = { n, which -> vm.playModel(n, which) },
             ),
         )
     }
@@ -126,6 +127,8 @@ class TutorNotesActions(
     val onPractice: (List<TutorNoteRow>) -> Unit = {},
     val onOpenCard: (String) -> Unit = {},
     val onPlay: (String) -> Unit = {},
+    /** "▶ <tutor> says it" (which = "tutor") / "▶ You" (which = "mine") on a note with a model recording. */
+    val onPlayModel: (TutorNoteRow, String) -> Unit = { _, _ -> },
 )
 
 class TutorNotesViewModel(private val app: LabApp) : ViewModel() {
@@ -161,6 +164,15 @@ class TutorNotesViewModel(private val app: LabApp) : ViewModel() {
                 if (app.online.value) app.scope.launch { runCatching { app.outbox.drain() } }
             }
         }
+    }
+
+    /** The tutor's model recording (private: cached file, else fetched with the session) or my take. */
+    fun playModel(n: TutorNoteRow, which: String) {
+        val key = (if (which == "tutor") n.model_audio_url else n.recording_url) ?: return
+        if (app.audio.playingKey.value == key) { app.audio.stop(); return }
+        app.analytics.track("study.tutor_model_play", mapOf("where" to "notes", "which" to which))
+        if (which == "mine") { app.audio.play(key, "", app.online.value); return }
+        viewModelScope.launch { app.modelRecordings.ensure(key, app.online.value)?.let { app.audio.playFile(key, it) } }
     }
 
     /** "Practice this card" / "Practice all": pick one card per note, then open the practice. */
@@ -272,15 +284,18 @@ private fun NoteCard(n: TutorNoteRow, isNew: Boolean, playingKey: String?, actio
                 Text(
                     buildAnnotatedString {
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Palette.Hard)) { append("${n.tutor_name?.takeIf { it.isNotBlank() } ?: "Your tutor"}: ") }
-                        append(n.comment)
+                        append(n.comment.ifBlank { if (n.model_audio_url != null) "listen to how it should sound, then compare with yours." else "" })
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = Lab.colors.ink,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.Hard.copy(alpha = 0.10f))
                         .border(1.dp, Palette.Hard.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 9.dp),
                 )
+                n.model_audio_url?.let { model ->
+                    ModelRecordingPills(n.tutor_name, model, n.recording_url, playingKey) { which -> actions.onPlayModel(n, which) }
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    n.recording_url?.let { url ->
+                    n.recording_url?.takeIf { n.model_audio_url == null }?.let { url ->
                         val playing = playingKey == url
                         Text(
                             (if (playing) "⏹" else "▶") + " Your recording",

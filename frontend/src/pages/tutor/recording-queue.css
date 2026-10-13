@@ -356,3 +356,8 @@
     align-items: start;
   }
 }
+
+/* The tutor's saved model recording on a needs-work mark */
+.rq-model-saved {
+  margin-top: 0.5rem;
+}

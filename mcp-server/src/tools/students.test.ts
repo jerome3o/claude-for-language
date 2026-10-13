@@ -495,6 +495,24 @@ describe('registerStudentTools', () => {
     expect(String(rec.reference_audio_url)).toContain('generated/n.mp3');
   });
 
+  it('list_student_recordings says whether the tutor recorded how it should sound', async () => {
+    const base = {
+      note: { id: 'n', hanzi: '银行', pinyin: 'yínháng', english: 'bank', deck_name: 'D', audio_url: null },
+      card_type: 'hanzi_to_meaning', rating: 1, reviewed_at: '2026-10-01T10:00:00Z', recording_url: 'recordings/x.webm',
+      user_answer: null, check: null, flag: null, reasons: [], labels: [], in_queue: false,
+    };
+    const items = [
+      { ...base, event_id: 'ev-a', mark: { status: 'needs_work', comment: 'tone', updated_at: 'now', model_audio_url: '/api/recording-marks/ev-a/model-audio?v=1' } },
+      { ...base, event_id: 'ev-b', mark: { status: 'needs_work', comment: 'tone', updated_at: 'now', model_audio_url: null } },
+    ];
+    const { tools } = fakeContext({
+      'GET /api/relationships/rel-1/recordings/queue': () => ({ range: { from: 'a', to: 'b' }, view: 'all', items, counts: { queue: 0, all: 2, checking: 0 }, scoring: false }),
+    });
+    const out = parse(await tools.get('list_student_recordings')!.handler({ relationship_id: 'rel-1' }));
+    const recs = out.recordings as Array<{ mark: { has_model_recording: boolean } }>;
+    expect(recs.map((r) => r.mark.has_model_recording)).toEqual([true, false]);
+  });
+
   it('list_student_homework tells Claude how to take homework back', () => {
     const { tools } = fakeContext({});
     const d = tools.get('list_student_homework')!.description;

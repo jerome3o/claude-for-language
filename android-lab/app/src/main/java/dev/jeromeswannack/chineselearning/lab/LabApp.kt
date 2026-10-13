@@ -45,6 +45,8 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
     lateinit var analytics: dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
     /** Auto-audio: missing / broken clips made on the card, queued offline, backfilled after sync (data/audio/). */
     lateinit var noteAudio: dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer
+    /** The tutor's model recordings on needs-work notes, kept for offline (data/audio/ModelRecordings.kt). */
+    val modelRecordings by lazy { dev.jeromeswannack.chineselearning.lab.data.audio.ModelRecordings(repo.api, filesDir) }
     /**
      * App-wide background work (sync follow-ups, widget refresh, audio fixer, debug reports…).
      * A failure in one of those jobs is recorded (CrashLog) and logged — it must never take

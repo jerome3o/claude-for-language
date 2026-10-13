@@ -1699,15 +1699,19 @@ paginated history explorer. Pages: `/connections/:relId/insights`, `/history`, `
 - `POST /api/relationships/:relId/insights/summary` - `{ from?, to? }` → narrative from the
   structured report (never raw events), persisted; 503 when `ANTHROPIC_API_KEY` is missing
 - `GET /api/relationships/:relId/insights/summaries` - Past narratives
-- `PUT /api/relationships/:relId/recordings/:eventId/mark` - `{ status: listened|needs_work, comment? }`
-- `DELETE /api/relationships/:relId/recordings/:eventId/mark`
+- `PUT /api/relationships/:relId/recordings/:eventId/mark` - `{ status: listened|needs_work, comment? }` ("listened" removes a model recording)
+- `DELETE /api/relationships/:relId/recordings/:eventId/mark` (and its model recording)
+- `PUT|DELETE /api/relationships/:relId/recordings/:eventId/mark/audio` - the tutor's **model recording** on a needs-work mark ("how it should sound": raw audio ≤ 2 MB / 60 s, R2 `tutor-recordings/<relId>/<eventId>-<id>.<ext>`, `tutor_recording_marks.model_audio_key`, migration 0122) → `{ mark }` with `model_audio_url`; `GET /api/recording-marks/:eventId/model-audio` serves it ONLY to that tutor and the student (docs/RECORDING_REVIEW.md "Model recordings"; web `components/recordings/ModelRecorder.tsx`, Lab `ModelRecorderBox`)
 - `GET /api/relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit` -
   Flat review events newest first (keyset cursor); the "by word" view groups client-side
 
 Student side of the marks (`worker/src/routes/recording-notes.ts`; migration 0066 adds
 `tutor_recording_marks.student_seen_at`): a needs-work comment is shown once under the pinyin
 on the back of that card ("From <tutor>: …"), cached in IndexedDB (`recordingNotes`) by
-`services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md.
+`services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md. With a model
+recording the note also has "▶ <tutor> says it" · "▶ You" (her clip next to his take; feeds carry
+`model_audio_url` + `recording_url`; clips prefetched with the session by `services/modelRecordings.ts` /
+Lab `data/audio/ModelRecordings.kt`).
 - `GET /api/me/recording-notes` - Unseen needs-work notes on my recordings (event, card, note, hanzi, comment, tutor name) **plus** unseen tutor replies to my flagged cards (`kind: 'flag'`, `event_id` = the flag id, `card_id` may be null → matched on note_id)
 - `POST /api/me/recording-notes/:eventId/seen` - I have seen this note (idempotent, scoped to my own events; a flag id marks that reply seen)
 - `GET /api/me/tutor-notes?include_seen=1&limit=&before=` - The **Tutor notes page** (`/tutor-notes`): every note, new AND seen, newest first, keyset paged (`next_cursor`), with the card's pinyin / meaning / card type, `seen_at`, my `recording_url` and, for a flag, my `student_message`. Cached by each sync (IndexedDB `tutorNotes`, Dexie v22; Lab JSON cache) so the page works offline; the unseen feed still decides what is NEW (`mergeTutorNotes`, `shared/tutor-notes`). Viewing marks the new ones seen. Home shows "🗒 N new notes from <tutor>" while any is unseen. **Practice this card / Practice all** → `/tutor-notes/practice?cards=&notes=` (immersive): the study card, the note pinned on the back; **a rating is a review only when the card is due today** (`practiceRatingCounts` = `isDueByCutoff`), otherwise practice only — no review event (docs/STUDY_SESSION.md)

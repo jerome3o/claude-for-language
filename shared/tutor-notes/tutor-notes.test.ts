@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   mergeTutorNotes,
   tutorNotesHomeLine,
+  tutorSaysItLabel,
   practiceRatingCounts,
   practiceAfterRating,
   practiceCardIds,
@@ -66,6 +67,29 @@ describe('mergeTutorNotes', () => {
     const y = note('y', '2026-09-28T10:00:00Z');
     const { fresh } = mergeTutorNotes([x, y], [unseen(x), unseen(y), unseen(x)]);
     expect(fresh.map((n) => n.id)).toEqual(['y', 'x']);
+  });
+});
+
+describe('model recordings (the tutor says it)', () => {
+  const url = '/api/recording-marks/a/model-audio?v=1';
+  it('the feed carries the tutor’s clip and my take onto a new note', () => {
+    const d = note('d', '2026-09-29T08:00:00Z');
+    const { fresh } = mergeTutorNotes([], [unseen(d, { recording_url: 'recordings/d.webm', model_audio_url: url })]);
+    expect(fresh[0]).toMatchObject({ recording_url: 'recordings/d.webm', model_audio_url: url });
+  });
+
+  it('the feed’s clip wins over the full list’s (a new take replaced it); none on either = null', () => {
+    const a = note('a', '2026-09-28T10:00:00Z', { model_audio_url: '/old' });
+    expect(mergeTutorNotes([a], [unseen(a, { model_audio_url: url })]).fresh[0].model_audio_url).toBe(url);
+    expect(mergeTutorNotes([a], [unseen(a)]).fresh[0].model_audio_url).toBe('/old');
+    const b = note('b', '2026-09-28T10:00:00Z');
+    expect(mergeTutorNotes([b], [unseen(b)]).fresh[0].model_audio_url).toBeNull();
+  });
+
+  it('names the tutor on the button', () => {
+    expect(tutorSaysItLabel('明慧老师')).toBe('明慧老师 says it');
+    expect(tutorSaysItLabel('  ')).toBe('Your tutor says it');
+    expect(tutorSaysItLabel(null)).toBe('Your tutor says it');
   });
 });
 

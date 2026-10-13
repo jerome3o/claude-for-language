@@ -314,6 +314,8 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
   // Only ever the user's own.
   const unique = await cols([
     `SELECT recording_url AS k FROM review_events WHERE user_id = ?1`,
+    // A tutor's model recordings: the ones she made, and the ones on this student's takes.
+    `SELECT model_audio_key AS k FROM tutor_recording_marks WHERE tutor_id = ?1 OR review_event_id IN ${EVENTS}`,
     `SELECT recording_url AS k FROM messages WHERE id IN ${MESSAGES}`,
     // Chat photos / voice messages of every message that goes (the key lives in the attachment JSON).
     `SELECT json_extract(attachment, '$.key') AS k FROM messages WHERE id IN ${MESSAGES} AND attachment IS NOT NULL`,

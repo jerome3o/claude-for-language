@@ -1651,7 +1651,7 @@ export function StudyCard({
         )}
 
         <div className="pinyin mb-1">{card.note.pinyin}</div>
-        <TutorNoteLine notes={tutorNotes} />
+        <TutorNoteLine notes={tutorNotes} where={pinnedTutorNotes?.length ? 'practice' : 'card'} />
         <div className="study-back-meaning">{card.note.english}</div>
         {/* Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off) */}
         <WordTagPills hanzi={card.note.hanzi} aiTags={card.note.word_tags} source="study" />
