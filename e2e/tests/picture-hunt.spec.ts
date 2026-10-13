@@ -7,7 +7,7 @@ import { test, expect } from './fixtures/auth';
  * object, and the play is recorded (best score on the server).
  */
 
-const API = 'http://localhost:8787/api';
+const API = `${process.env.E2E_API_URL || 'http://localhost:8787'}/api`;
 // 1×1 PNG — the picture itself doesn't matter to the game logic.
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 

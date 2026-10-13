@@ -1,4 +1,8 @@
 import { test, expect } from './fixtures/auth';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * Pronunciation takes stream to Soniox while the learner speaks (services/liveTranscription.ts),
@@ -101,7 +105,7 @@ async function recordOneTake(page: import('@playwright/test').Page) {
 
 test.describe('Live pronunciation transcription', () => {
   test('streams the take and shows the result without uploading it', async ({ authenticatedPage: page, testUser, request }) => {
-    await request.post('http://localhost:8787/api/decks/starter', { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
+    await request.post(`${process.env.E2E_API_URL || 'http://localhost:8787'}/api/decks/starter`, { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
     await fakeSoniox(page);
     let uploads = 0;
     await page.route('**/api/transcribe/live', (route) => route.fulfill({
@@ -133,7 +137,7 @@ test.describe('Live pronunciation transcription', () => {
   });
 
   test('without a live key the take is uploaded as before', async ({ authenticatedPage: page, testUser, request }) => {
-    await request.post('http://localhost:8787/api/decks/starter', { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
+    await request.post(`${process.env.E2E_API_URL || 'http://localhost:8787'}/api/decks/starter`, { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
     let uploads = 0;
     await page.route('**/api/transcribe/live', (route) => route.fulfill({ json: { provider: 'upload' } }));
     await page.route(/\/api\/transcribe$/, (route) => { uploads++; return route.fulfill({ json: { text: '是', language: 'zh' } }); });
@@ -152,7 +156,7 @@ test.describe('Live pronunciation transcription', () => {
    * live failure reason (the server logs it), and a tap re-sends the SAME saved take.
    */
   test('live and upload both failing shows "Couldn’t transcribe — tap to retry", and the retry re-sends the take', async ({ authenticatedPage: page, testUser, request }) => {
-    await request.post('http://localhost:8787/api/decks/starter', { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
+    await request.post(`${process.env.E2E_API_URL || 'http://localhost:8787'}/api/decks/starter`, { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
     await fakeSoniox(page, 'refuse');
     await routeLiveKey(page);
     const uploads: Array<{ liveError: string | null; client: string | null; size: number }> = [];

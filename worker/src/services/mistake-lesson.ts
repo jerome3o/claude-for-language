@@ -208,7 +208,8 @@ export async function writeMistakeLesson(
 ): Promise<MistakeLessonContent> {
   let spec: CustomLessonSpec;
   let rounds = 0;
-  if (!opts.create && !env.ANTHROPIC_API_KEY) {
+  if (!opts.create && (env.E2E_TEST_MODE === 'true' || !env.ANTHROPIC_API_KEY)) {
+    // E2E_TEST_MODE: the deterministic stand-in even when a key is set (the E2E workflow has one).
     if (env.E2E_TEST_MODE !== 'true') throw new StructuredCallError('The coach is not configured', false);
     spec = fakeMistakeLessonSpec(input);
   } else {

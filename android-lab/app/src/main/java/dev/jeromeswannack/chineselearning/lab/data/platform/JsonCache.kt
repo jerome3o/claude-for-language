@@ -5,11 +5,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * Offline store for synced feature data, as JSON documents in the `json_cache` table.
@@ -38,6 +43,8 @@ class JsonCache(
     private val dir: File? = null,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    /** Every write, and the move of an oversized row to its file (see [readOversized]). */
+    private val writes = Mutex()
 
     /** Read and decoded off the main thread: a multi-MB document (readers/list) froze the UI for 2 s+. */
     suspend fun <T> get(key: String, serializer: KSerializer<T>): T? =
@@ -46,7 +53,8 @@ class JsonCache(
     suspend inline fun <reified T> get(key: String): T? = get(key, json.serializersModule.serializer<T>())
 
     suspend fun <T> put(key: String, kind: String, value: T, serializer: KSerializer<T>) {
-        dao.putCache(listOf(row(key, kind, json.encodeToString(serializer, value), clock())))
+        val text = json.encodeToString(serializer, value)
+        writes.withLock { dao.putCache(listOf(row(key, kind, text, clock()))) }
     }
 
     suspend inline fun <reified T> put(key: String, kind: String, value: T) = put(key, kind, value, json.serializersModule.serializer<T>())
@@ -54,7 +62,8 @@ class JsonCache(
     /** Writes many documents of one [kind] in one transaction (e.g. every reader after a list sync). */
     suspend fun <T> putAll(kind: String, values: Map<String, T>, serializer: KSerializer<T>) {
         val now = clock()
-        dao.putCache(values.map { (k, v) -> row(k, kind, json.encodeToString(serializer, v), now) })
+        val texts = values.mapValues { (_, v) -> json.encodeToString(serializer, v) }
+        writes.withLock { dao.putCache(texts.map { (k, text) -> row(k, kind, text, now) }) }
     }
 
     /**
@@ -91,14 +100,18 @@ class JsonCache(
     suspend fun isFresh(key: String, maxAgeMs: Long): Boolean = updatedAt(key)?.let { clock() - it < maxAgeMs } ?: false
 
     suspend fun delete(key: String) {
-        dao.deleteCache(key)
-        fileFor(key)?.let { f -> withContext(Dispatchers.IO) { f.delete() } }
+        writes.withLock {
+            dao.deleteCache(key)
+            fileFor(key)?.let { f -> withContext(Dispatchers.IO) { f.delete() } }
+        }
     }
 
     suspend fun deleteKind(kind: String) {
-        val keys = safeMetas(kind).map { it.key }
-        dao.deleteCacheKind(kind)
-        withContext(Dispatchers.IO) { keys.forEach { k -> fileFor(k)?.delete() } }
+        writes.withLock {
+            val keys = safeMetas(kind).map { it.key }
+            dao.deleteCacheKind(kind)
+            withContext(Dispatchers.IO) { keys.forEach { k -> fileFor(k)?.delete() } }
+        }
     }
 
     fun <T> decode(serializer: KSerializer<T>, text: String): T? = runCatching { json.decodeFromString(serializer, text) }.getOrNull()
@@ -116,11 +129,20 @@ class JsonCache(
         }
         withContext(Dispatchers.IO) {
             file.parentFile?.mkdirs()
-            val tmp = File(file.parentFile, file.name + ".tmp")
-            tmp.writeText(text)
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                tmp.renameTo(file)
+            // A temp file of this write's own, then one atomic replace. Two writers of the same key
+            // used to share "<name>.tmp": the second's rename found it gone, deleted the real file
+            // and left both pointers aimed at nothing — two readers moving an oversized readers/list
+            // to its file at start-up lost the whole list (ColdStartTest, flaky in CI).
+            val tmp = File.createTempFile(file.name, ".tmp", file.parentFile)
+            try {
+                tmp.writeText(text)
+                try {
+                    Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+                } catch (e: AtomicMoveNotSupportedException) {
+                    Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+            } finally {
+                tmp.delete() // gone already after a move; a failed write leaves no stray temp file
             }
         }
         // The pointer changes with every write, so observers of the row see the update.
@@ -137,7 +159,7 @@ class JsonCache(
     private suspend fun load(key: String): JsonCacheEntity? = withContext(Dispatchers.IO) {
         try {
             val meta = dao.cacheMeta(key) ?: return@withContext null
-            val text = if (meta.bytes > ROW_READ_BYTES) readSlices(meta) else dao.cacheEntry(key)?.json ?: return@withContext null
+            val text = (if (meta.bytes > ROW_READ_BYTES) readOversized(key) else dao.cacheEntry(key)?.json) ?: return@withContext null
             val resolved = if (text.startsWith(FILE_MARKER)) {
                 val name = text.removePrefix(FILE_MARKER).substringBefore('#')
                 val f = dir?.let { File(it, name) }?.takeIf { it.exists() } ?: return@withContext null
@@ -154,7 +176,20 @@ class JsonCache(
         }
     }
 
-    /** A row too big for one CursorWindow (written before documents went to files): read it in pieces, then keep it as a file. */
+    /**
+     * A row too big for one CursorWindow (written before documents went to files): read it in pieces,
+     * then keep it as a file. Under [writes], with the row looked at again first: at cold start several
+     * readers meet the same oversized row, and one that sliced while another had already replaced the
+     * row with a file pointer stored that pointer (or a torn half of the JSON) as the document — the
+     * readers list was lost (ColdStartTest, flaky in CI). Writes take the lock too, so no put lands
+     * between the slices.
+     */
+    private suspend fun readOversized(key: String): String? = writes.withLock {
+        val meta = dao.cacheMeta(key) ?: return@withLock null
+        if (meta.bytes <= ROW_READ_BYTES) return@withLock dao.cacheEntry(key)?.json // moved meanwhile
+        readSlices(meta)
+    }
+
     private suspend fun readSlices(meta: JsonCacheMeta): String {
         val chars = dao.cacheChars(meta.key) ?: 0
         val sb = StringBuilder(chars)

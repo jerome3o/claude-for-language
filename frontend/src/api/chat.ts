@@ -3,7 +3,7 @@
  * ticket, idempotent text / media sends, edit / delete / pin, and the media bytes.
  */
 
-import { API_BASE, getAuthHeaders, authEvents } from './client';
+import { API_BASE, getAuthHeaders, authEvents, devWorkerOrigin } from './client';
 import type { ChatWord, MessageWithSender, ProposedChatCard } from '../types';
 
 const API_PATH = `${API_BASE}/api`;
@@ -35,7 +35,7 @@ export function getLiveTicket(): Promise<{ ticket: string; ws_path: string }> {
 
 /** The WebSocket URL for a live ticket (dev: the worker on :8787, like the call room). */
 export function liveSocketUrl(wsPath: string, ticket: string): string {
-  const base = API_BASE || (import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:8787` : window.location.origin);
+  const base = API_BASE || (import.meta.env.DEV ? devWorkerOrigin() : window.location.origin);
   const url = new URL(wsPath, base);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('ticket', ticket);

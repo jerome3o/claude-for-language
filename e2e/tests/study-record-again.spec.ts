@@ -1,4 +1,8 @@
 import { test, expect, type Page } from './fixtures/auth';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * Record again on the answer side of a read card: the card turns back to the question while the
@@ -87,7 +91,7 @@ async function startRecordAgain(page: Page) {
 
 test.describe('Record again flips to the question', () => {
   test.beforeEach(async ({ testUser, request }) => {
-    await request.post('http://localhost:8787/api/decks/starter', { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
+    await request.post(`${process.env.E2E_API_URL || 'http://localhost:8787'}/api/decks/starter`, { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
   });
 
   test('a tap on the card stops the new take and turns back to the answer, where it is transcribed and the card plays', async ({ authenticatedPage: page }) => {

@@ -225,8 +225,17 @@ export function MiniLessonsPage() {
     }));
 
   // Locked lessons (shared/lesson/unlock.ts) wait in "Ready to unlock" and nowhere else.
+  // Three sources, the earliest wins: the server list (refetched the moment I unlock — usually
+  // before the unlock has been uploaded), this device's pending unlocks (forgotten once a sync sees
+  // the server carry it) and the cached lesson row (where that sync put it). With only the first
+  // two, a sync landing between the upload and the next refetch left the page showing the lesson
+  // locked again (unlockable-lessons.spec, flaky in CI).
+  const cachedUnlockedAt = new Map((localLessons ?? []).map(({ lesson }) => [lesson.id, lesson.unlocked_at ?? null]));
   const unlockedAt = (l: CustomLessonListItem) =>
-    earlierUnlock(l.unlocked_at ?? null, localUnlocks.find(u => u.lesson_id === l.id)?.unlocked_at ?? null);
+    earlierUnlock(
+      earlierUnlock(l.unlocked_at ?? null, localUnlocks.find(u => u.lesson_id === l.id)?.unlocked_at ?? null),
+      cachedUnlockedAt.get(l.id) ?? null,
+    );
   const audioTitles = new Map(cachedLessonList().map(a => [a.id, a]));
   const locked: LockedLessonItem[] = lessons
     .filter(l => l.unlock && lessonLockStatus(l.unlock, unlockedAt(l)) === 'locked')

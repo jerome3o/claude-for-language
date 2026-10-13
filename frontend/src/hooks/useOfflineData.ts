@@ -133,6 +133,11 @@ export async function initializeOfflineData(): Promise<void> {
   if (needsSync) {
     console.log('Performing initial full sync...');
     await syncService.fullSync();
+    // The full sync brings decks / notes / cards but no review events: on a new device every
+    // card read as NEW (wrong due counts, the first-card explainer for a learner with years of
+    // reviews, "In your decks" for mature words) until some later page load ran a background
+    // sync. Bring the events down now, like every other start does.
+    void syncService.syncInBackground();
   } else {
     syncService.syncInBackground();
   }

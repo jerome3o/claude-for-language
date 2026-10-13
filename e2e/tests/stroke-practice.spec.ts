@@ -27,7 +27,7 @@ async function drawStroke(page: Page, median: [number, number][]) {
 }
 
 test('stroke data is served as /strokes/<hex>.json', async ({ request }) => {
-  const res = await request.get('http://localhost:3000/strokes/5341.json'); // 十
+  const res = await request.get(`${process.env.E2E_BASE_URL || 'http://localhost:3000'}/strokes/5341.json`); // 十
   expect(res.ok()).toBe(true);
   const json = await res.json();
   expect(json.medians).toHaveLength(2);

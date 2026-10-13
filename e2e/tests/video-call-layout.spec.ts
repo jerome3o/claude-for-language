@@ -57,7 +57,17 @@ async function joinCall(page: Page, callId: string) {
   await page.getByTestId('call-live').waitFor({ timeout: 20000 });
 }
 
-const box = (p: Page, id: string) => p.getByTestId(`tile-${id}`).boundingBox();
+/**
+ * The tiles move with a 0.22 s transition (CallPage.css): wait for it to finish before measuring
+ * or touching, or a box read mid-move sends a touch to whatever is passing under it (the phone
+ * swipe below landed on the faces box while the board was still growing — flaky in CI).
+ */
+const settle = (p: Page) =>
+  p.evaluate(() => Promise.all([...document.querySelectorAll('.call-tile, .call-pair, .call-pair-bg')].flatMap((el) => el.getAnimations().map((a) => a.finished.catch(() => null)))));
+const box = async (p: Page, id: string) => {
+  await settle(p);
+  return p.getByTestId(`tile-${id}`).boundingBox();
+};
 const frames = (p: Page, testId: string) => p.getByTestId(testId).evaluate((v: HTMLVideoElement) => v.videoWidth);
 
 test('desktop: presets, divider, floating self-view, remembered layout, and screen + camera together', async ({ browser, request }) => {
@@ -185,6 +195,7 @@ test('phone: the focused tile fills the screen, cameras float, swipe moves betwe
   // Both faces together, small, in a corner.
   await expect(sp.getByTestId('tile-remote')).toHaveAttribute('data-role', 'pair');
   await expect(sp.getByTestId('tile-self')).toHaveAttribute('data-role', 'pair');
+  await settle(sp);
   const pb = (await sp.getByTestId('faces-pair').boundingBox())!;
   expect(pb.width).toBeLessThan(220);
   expect(pb.x).toBeLessThan(40);

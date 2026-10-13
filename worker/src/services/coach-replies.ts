@@ -86,7 +86,10 @@ export function coachAvailable(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MO
 
 /** The first reply of each action: correction, brief breakdown or translation. */
 export function defaultAnalyse(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'>): CoachAnalyseFn | null {
-  if (!env.ANTHROPIC_API_KEY) return env.E2E_TEST_MODE === 'true' ? fakeAnalyse : null;
+  // E2E_TEST_MODE always takes the stand-in, like every other fake: the E2E workflow also has a
+  // real (or dummy "test-key") ANTHROPIC_API_KEY, and the specs assert the stand-in's answers.
+  if (env.E2E_TEST_MODE === 'true') return fakeAnalyse;
+  if (!env.ANTHROPIC_API_KEY) return null;
   const key = env.ANTHROPIC_API_KEY;
   return async (action, input) => {
     if (action === 'check') return { kind: 'chinese', coach: await coachSentence(key, input) };
@@ -96,7 +99,8 @@ export function defaultAnalyse(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MO
 }
 
 export function defaultChat(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'>): CoachChatFn | null {
-  if (!env.ANTHROPIC_API_KEY) return env.E2E_TEST_MODE === 'true' ? fakeChat : null;
+  if (env.E2E_TEST_MODE === 'true') return fakeChat;
+  if (!env.ANTHROPIC_API_KEY) return null;
   const key = env.ANTHROPIC_API_KEY;
   return (history, ctx) => coachChatWithTools(key, history, ctx);
 }

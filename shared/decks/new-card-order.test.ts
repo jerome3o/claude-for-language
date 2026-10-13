@@ -16,6 +16,7 @@ import {
 } from './new-card-order';
 import { frequencyRank, parseFrequencyList, NO_HAN_RANK, UNKNOWN_WORD_BASE, UNRANKED_CHAR } from './frequency';
 import { selectStudyQueue, type QueueCardInput, type QueueDeckInput } from './study-queue';
+import { fastestTimes, MAX_GROWTH_AT_4X, checkPerfBudgets } from '../testing/perf';
 
 const ALL_OFF: NewCardOrder = { new_characters_first: false, new_words_first: false, most_common_first: false, sentences_last: false, known_characters_english_first: false };
 const only = (k: keyof NewCardOrder, extra: Partial<NewCardOrder> = {}): NewCardOrder => ({ ...ALL_OFF, [k]: true, ...extra });
@@ -244,36 +245,36 @@ describe('selectStudyQueue with "Order new cards by"', () => {
     expect(q.bumped.map(c => c.id)).toEqual(['w1c']);
   });
 
-  it('orders 10k notes quickly', () => {
+  it('orders 10k notes quickly (no worse than n log n)', () => {
     const real = parseFrequencyList(readFileSync(join(__dirname, '../data/frequency/word-freq.txt'), 'utf8'));
     const pool = [...real.words.keys()].slice(0, 6000);
-    const r = (() => { let a = 11; return () => ((a = (a * 1103515245 + 12345) >>> 0) / 4294967296); })();
-    const noteText = new Map<string, string>();
-    const many: QueueCardInput[] = [];
     const manyDecks = Array.from({ length: 20 }, (_, i) => deck(`d${i}`, i, 20, 10));
-    for (let n = 0; n < 10_000; n++) {
-      const p = r();
-      const text = p < 0.25
-        ? `${pool[Math.floor(r() * pool.length)]}${pool[Math.floor(r() * pool.length)]}${pool[Math.floor(r() * pool.length)]}。`
-        : pool[Math.floor(r() * pool.length)];
-      noteText.set(`n${n}`, text);
-      const reviewed = r() < 0.5;
-      for (const t of ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi']) {
-        many.push(card(`c${n}-${t[0]}`, `n${n}`, `d${n % 20}`, reviewed ? 2 : 0, t));
+    const build = (notes: number) => {
+      const r = (() => { let a = 11; return () => ((a = (a * 1103515245 + 12345) >>> 0) / 4294967296); })();
+      const noteText = new Map<string, string>();
+      const many: QueueCardInput[] = [];
+      for (let n = 0; n < notes; n++) {
+        const p = r();
+        const text = p < 0.25
+          ? `${pool[Math.floor(r() * pool.length)]}${pool[Math.floor(r() * pool.length)]}${pool[Math.floor(r() * pool.length)]}。`
+          : pool[Math.floor(r() * pool.length)];
+        noteText.set(`n${n}`, text);
+        const reviewed = r() < 0.5;
+        for (const t of ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi']) {
+          many.push(card(`c${n}-${t[0]}`, `n${n}`, `d${n % 20}`, reviewed ? 2 : 0, t));
+        }
       }
-    }
-    const run = () => selectStudyQueue(manyDecks, many, { new_cards_per_day: 20, secondary_cards_per_day: 10 }, 10, new Map(), CUTOFF, null,
-      { hanzi: noteText, frequency: real });
-    let q = run();
-    const times: number[] = [];
-    for (let i = 0; i < 5; i++) {
-      const t0 = performance.now();
-      q = run();
-      times.push(performance.now() - t0);
-    }
-    const ms = times.sort((a, b) => a - b)[2];
-    console.log(`selectStudyQueue + "Order new cards by", 10k notes / 30k cards / 20 decks: median ${ms.toFixed(1)} ms`);
-    expect(q.due.filter(c => c.queue === 0).length).toBe(30); // 20 + 10 bonus (every started note is fully reviewed)
-    expect(ms).toBeLessThan(100); // generous for CI; ~15–20 ms on a dev container (~7 of it the queue itself)
+      return () => selectStudyQueue(manyDecks, many, { new_cards_per_day: 20, secondary_cards_per_day: 10 }, 10, new Map(), CUTOFF, null,
+        { hanzi: noteText, frequency: real });
+    };
+    const small = build(2_500);
+    const large = build(10_000);
+    expect(large().due.filter(c => c.queue === 0).length).toBe(30); // 20 + 10 bonus (every started note is fully reviewed)
+    // Timing guard that holds on a loaded CI box (shared/testing/perf.ts): 4× the notes must not cost
+    // anywhere near 16× (an accidental O(n²) in the greedy tiers would).
+    const [smallMs, largeMs] = fastestTimes([small, large]);
+    console.log(`selectStudyQueue + "Order new cards by", 10k notes / 30k cards / 20 decks: ${largeMs.toFixed(1)} ms (2.5k: ${smallMs.toFixed(1)} ms)`);
+    expect(largeMs / smallMs).toBeLessThan(MAX_GROWTH_AT_4X);
+    if (checkPerfBudgets()) expect(largeMs).toBeLessThan(100); // ~15–20 ms on a dev container (~7 of it the queue itself)
   });
 });

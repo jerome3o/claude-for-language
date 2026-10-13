@@ -7,6 +7,28 @@ import { CardQueue } from '../types';
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+/**
+ * Replies by URL, not by call order. A sync fires work it doesn't wait for (audio prefetch, the
+ * debug report and chat-listening imports, board pages…), so a previous test's leftovers can call
+ * fetch during the next test — a positional mockResolvedValueOnce then went to the wrong request
+ * and the folders test saw the old folder list (flaky on a main deploy run).
+ */
+const DECKS_LIST = /\/api\/decks(\?|$)/;
+const DECK_DETAIL = /\/api\/decks\/[^/?]+$/;
+const SYNC_CHANGES = /\/api\/sync\/changes/;
+type Reply = unknown | (() => Promise<unknown>);
+let queuedReplies: Array<{ match: RegExp; reply: Reply }> = [];
+/** The next request whose URL matches gets this reply (replies for one pattern are used in order). */
+function replyOnce(match: RegExp, reply: Reply) {
+  queuedReplies.push({ match, reply });
+}
+function takeReply(url: string): { reply: Reply } | null {
+  const k = queuedReplies.findIndex((r) => r.match.test(url));
+  return k < 0 ? null : queuedReplies.splice(k, 1)[0];
+}
+/** Did this test request a URL matching the pattern? */
+const requested = (match: RegExp) => mockFetch.mock.calls.some(([url]) => match.test(String(url)));
+
 // Helper to create mock deck data
 function createMockDeck(id: string, name: string): any {
   return {
@@ -79,8 +101,11 @@ describe('SyncService', () => {
     (syncService as any).pendingFullSync = false;
     (syncService as any).syncPromise = null;
 
-    // Default mock to return empty results
+    // Default mock to return empty results (after any reply a test queued for this URL)
+    queuedReplies = [];
     mockFetch.mockImplementation(async (url: string) => {
+      const queued = takeReply(String(url));
+      if (queued) return typeof queued.reply === 'function' ? (queued.reply as () => Promise<unknown>)() : queued.reply;
       if (url.includes('/api/decks')) {
         return { ok: true, json: async () => [] };
       }
@@ -125,13 +150,13 @@ describe('SyncService', () => {
       const mockCard = createMockCard('card-1', 'note-1', 'hanzi_to_meaning');
 
       // Mock /api/decks - list all decks
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECKS_LIST, {
         ok: true,
         json: async () => [mockDeck],
       });
 
       // Mock /api/decks/:id - get deck with notes and cards
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECK_DETAIL, {
         ok: true,
         json: async () => ({
           ...mockDeck,
@@ -159,7 +184,7 @@ describe('SyncService', () => {
     });
 
     it('should update sync meta after successful sync', async () => {
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECKS_LIST, {
         ok: true,
         json: async () => [],
       });
@@ -197,12 +222,12 @@ describe('SyncService', () => {
 
       const mockDeck = createMockDeck('new-deck', 'New Deck');
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECKS_LIST, {
         ok: true,
         json: async () => [mockDeck],
       });
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECK_DETAIL, {
         ok: true,
         json: async () => ({ ...mockDeck, notes: [] }),
       });
@@ -222,7 +247,7 @@ describe('SyncService', () => {
         resolveFetch = resolve;
       });
 
-      mockFetch.mockImplementationOnce(async () => {
+      replyOnce(DECKS_LIST, async () => {
         await fetchPromise;
         return { ok: true, json: async () => [] };
       });
@@ -246,12 +271,12 @@ describe('SyncService', () => {
     it('should fall back to full sync if no previous sync exists', async () => {
       const mockDeck = createMockDeck('deck-1', 'Test Deck');
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECKS_LIST, {
         ok: true,
         json: async () => [mockDeck],
       });
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECK_DETAIL, {
         ok: true,
         json: async () => ({ ...mockDeck, notes: [] }),
       });
@@ -259,7 +284,8 @@ describe('SyncService', () => {
       await syncService.incrementalSync();
 
       // Should have called /api/decks (full sync), not /api/sync/changes
-      expect(mockFetch.mock.calls[0][0]).toContain('/api/decks');
+      expect(requested(DECKS_LIST)).toBe(true);
+      expect(requested(SYNC_CHANGES)).toBe(false);
     });
 
     it('should fetch only changes since last sync', async () => {
@@ -271,7 +297,7 @@ describe('SyncService', () => {
         user_id: null,
       });
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(SYNC_CHANGES, {
         ok: true,
         json: async () => ({
           decks: [],
@@ -284,8 +310,9 @@ describe('SyncService', () => {
 
       await syncService.incrementalSync();
 
-      // Should have called /api/sync/changes with since parameter
-      expect(mockFetch.mock.calls[0][0]).toContain('/api/sync/changes?since=');
+      // Should have called /api/sync/changes with since parameter (and not the full sync's deck list)
+      expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/api/sync/changes?since='))).toBe(true);
+      expect(requested(DECKS_LIST)).toBe(false);
     });
 
     it('should apply new decks from incremental sync', async () => {
@@ -300,7 +327,7 @@ describe('SyncService', () => {
 
       const newDeck = createMockDeck('new-deck', 'New Deck');
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(SYNC_CHANGES, {
         ok: true,
         json: async () => ({
           decks: [newDeck],
@@ -327,7 +354,7 @@ describe('SyncService', () => {
       const filed = { ...createMockDeck('deck-f', 'HSK 2 words'), folder_id: 'f-1' };
       const folder = { id: 'f-1', user_id: 'user-1', kind: 'deck', name: 'HSK 2', parent_id: null, position: 0, created_at: '', updated_at: '' };
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(SYNC_CHANGES, {
         ok: true,
         json: async () => ({
           decks: [filed],
@@ -386,7 +413,7 @@ describe('SyncService', () => {
         user_id: null,
       });
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(SYNC_CHANGES, {
         ok: true,
         json: async () => ({
           decks: [],
@@ -421,7 +448,7 @@ describe('SyncService', () => {
         user_id: null,
       });
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(SYNC_CHANGES, {
         ok: true,
         json: async () => ({
           decks: [],
@@ -449,7 +476,7 @@ describe('SyncService', () => {
         last_incremental_sync: Date.now() - 3600000,
         user_id: null,
       });
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(SYNC_CHANGES, {
         ok: true,
         json: async () => ({
           decks: [], notes: [], cards: [],
@@ -471,7 +498,7 @@ describe('SyncService', () => {
       });
 
       const serverTime = new Date().toISOString();
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(SYNC_CHANGES, {
         ok: true,
         json: async () => ({
           decks: [],
@@ -512,7 +539,7 @@ describe('SyncService', () => {
 
       const newCard = createMockCard('card-1', 'note-1', 'hanzi_to_meaning');
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(SYNC_CHANGES, {
         ok: true,
         json: async () => ({
           decks: [],
@@ -618,12 +645,12 @@ describe('SyncService', () => {
 
       const newDeck = createMockDeck('new-deck', 'New Deck');
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECKS_LIST, {
         ok: true,
         json: async () => [newDeck],
       });
 
-      mockFetch.mockResolvedValueOnce({
+      replyOnce(DECK_DETAIL, {
         ok: true,
         json: async () => ({ ...newDeck, notes: [] }),
       });

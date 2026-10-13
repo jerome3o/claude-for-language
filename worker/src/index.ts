@@ -23,6 +23,7 @@ import {
   DEFAULT_DECK_SETTINGS,
   parseLearningSteps,
 } from './services/anki-scheduler';
+import { fakeGeneratedDeck } from './services/generate-deck-fake';
 import { generateDeck, suggestCards, askAboutNoteWithTools, coachChatWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
@@ -1964,7 +1965,10 @@ app.post('/api/notes/:id/generate-multiple-choice', async (c) => {
     return c.json({ error: 'Note not found' }, 404);
   }
 
-  if (!c.env.ANTHROPIC_API_KEY) {
+  // E2E_TEST_MODE answers as if no key were set (the listen card falls back to typing), whatever
+  // key the workflow has: specs that test the multiple choice mock this route, and a real answer
+  // turned other specs' typing card into a multiple-choice one now and then (study-speak-answer).
+  if (!c.env.ANTHROPIC_API_KEY || c.env.E2E_TEST_MODE === 'true') {
     return c.json({ error: 'AI service is not configured' }, 500);
   }
 
@@ -2859,12 +2863,14 @@ app.post('/api/ai/generate-deck', async (c) => {
     return c.json({ error: 'prompt is required' }, 400);
   }
 
-  if (!c.env.ANTHROPIC_API_KEY) {
+  const e2e = c.env.E2E_TEST_MODE === 'true';
+  if (!c.env.ANTHROPIC_API_KEY && !e2e) {
     return c.json({ error: 'AI generation is not configured' }, 500);
   }
 
   try {
-    const generated = await generateDeck(c.env.ANTHROPIC_API_KEY, prompt, deck_name);
+    // E2E_TEST_MODE: a canned deck (services/generate-deck-fake.ts), whatever key is set.
+    const generated = e2e ? fakeGeneratedDeck(prompt, deck_name) : await generateDeck(c.env.ANTHROPIC_API_KEY!, prompt, deck_name);
 
     const deck = await content.createDeck(c.env.DB, userId, { name: generated.deck_name, description: generated.deck_description });
     // Audio is awaited so the response already carries the clip URLs.

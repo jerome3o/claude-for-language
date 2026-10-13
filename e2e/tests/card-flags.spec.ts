@@ -1,4 +1,8 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
+import { skipFirstCardExplainer } from './fixtures/explainer';
+
+// The first-card explainer is not what these tests are about (fixtures/explainer.ts).
+test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 
 /**
  * Flag a card for the tutor, from the study screen, and the tutor's reply.
@@ -35,6 +39,7 @@ async function seedUser(request: APIRequestContext, tag: string): Promise<Seeded
 }
 
 test('student flags a card from study; tutor sees it, replies; student sees the reply', async ({ page, request }) => {
+  test.setTimeout(120_000);
   const tutor = await seedUser(request, 'tutor');
   const student = await seedUser(request, 'student');
   const rel = await api<{ type: string; data: { id: string } }>(request, '/api/relationships', {
@@ -52,10 +57,13 @@ test('student flags a card from study; tutor sees it, replies; student sees the 
   await page.locator('.header').waitFor({ timeout: 30000 });
   // Study is offline-first: wait until the sync has brought the new deck down.
   await expect(page.getByText('第三周作业')).toBeVisible({ timeout: 30000 });
-  await page.goto(`/study?deck=${deck.id}&autostart=true`);
-  // Reveal the back whichever card type came up first.
+  // Reveal the back whichever card type came up first. The session can be built before the sync
+  // has the new deck's cards on the device ("Nothing due"): open it again then.
   const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first();
-  await reveal.waitFor({ timeout: 30000 });
+  await expect(async () => {
+    await page.goto(`/study?deck=${deck.id}&autostart=true`);
+    await expect(reveal).toBeVisible({ timeout: 5000 });
+  }).toPass({ timeout: 60000 });
   // A brand-new account gets the first-card explainer over the card.
   const gotIt = page.getByRole('button', { name: 'Got it' });
   if (await gotIt.isVisible().catch(() => false)) await gotIt.click();

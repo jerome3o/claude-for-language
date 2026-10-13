@@ -374,19 +374,23 @@ export function CallPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.textBoard]);
   /** Send my stage now, or (dragging the divider) a moment later — whatever it is then. */
-  const flushView = useCallback(() => {
+  const flushView = useCallback((cid?: string) => {
     sendTimerRef.current = null;
     const mine = viewOf(layoutRef.current, pageRef.current || null);
     if (!shouldSendView(viewModeRef.current, knownViewRef.current, mine)) return;
     lastSendAtRef.current = Date.now();
-    if (call.sendView(mine)) knownViewRef.current = mine;
+    if (call.sendView(mine, false, cid)) knownViewRef.current = mine;
   }, [call]);
   const scheduleView = useCallback(() => {
     if (sendTimerRef.current) return;
     const wait = VIEW_SEND_MS - (Date.now() - lastSendAtRef.current);
     if (wait <= 0) flushView();
-    else sendTimerRef.current = setTimeout(flushView, wait);
-  }, [flushView]);
+    else {
+      // The trailing send's cid now: the echo of my earlier send must not undo this newer change meanwhile.
+      const cid = call.reserveViewCid();
+      sendTimerRef.current = setTimeout(() => flushView(cid), wait);
+    }
+  }, [flushView, call]);
   useEffect(() => {
     if (call.phase !== 'live' || call.viewWelcome === 0) return;
     const mine = viewOf(layout, boardPage || null);

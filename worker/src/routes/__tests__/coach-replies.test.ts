@@ -207,6 +207,11 @@ describe('Sentence Coach replies in the background', () => {
   it('older clients without background: the answer inline, as before', async () => {
     const { defaultAnalyse } = await import('../../services/coach-replies');
     expect(defaultAnalyse({ ANTHROPIC_API_KEY: '', E2E_TEST_MODE: undefined } as never)).toBeNull();
+    // E2E_TEST_MODE takes the stand-in even with a key set (the E2E workflow has a real one).
+    const { defaultChat } = await import('../../services/coach-replies');
+    const fake = defaultAnalyse({ ANTHROPIC_API_KEY: '', E2E_TEST_MODE: 'true' } as never);
+    expect(defaultAnalyse({ ANTHROPIC_API_KEY: 'sk-real', E2E_TEST_MODE: 'true' } as never)).toBe(fake);
+    expect(defaultChat({ ANTHROPIC_API_KEY: 'sk-real', E2E_TEST_MODE: 'true' } as never)).toBe(defaultChat({ ANTHROPIC_API_KEY: '', E2E_TEST_MODE: 'true' } as never));
     const res = await w.call('POST', '/api/coach/conversations', { text: 'x', action: 'check' });
     expect(res.status).toBe(400);
   });

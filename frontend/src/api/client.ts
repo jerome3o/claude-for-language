@@ -65,6 +65,15 @@ export const API_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL
   : '';
 
+/**
+ * Local dev only: where `wrangler dev` listens, for the WebSockets (call room, chat live) that
+ * Vite's /api proxy doesn't pass. :8787 unless the dev server was started with VITE_API_PROXY
+ * (E2E on other ports, e2e/playwright.config.ts).
+ */
+export function devWorkerOrigin(): string {
+  return import.meta.env.VITE_API_PROXY || `${window.location.protocol}//${window.location.hostname}:8787`;
+}
+
 /** Get the client's local date as YYYY-MM-DD (for timezone-correct daily limits). */
 export function getLocalDateString(): string {
   const now = new Date();

@@ -643,6 +643,12 @@ export function useCall(callId: string, myUserId: string) {
     } catch {
       /* no wake lock — the screen may dim */
     }
+    // A new instance per join (as the Lab app): a REJOIN after Leave starts a brand-new link (the old
+    // one was closed on Leave), so the other side must not keep its old link as "the same session" —
+    // it did, and the two ends then replaced each other's links forever (each new link id looked like
+    // a restart to the other side) and the rejoined call never got the picture back. The room
+    // socket's own reconnects inside this join keep the instance, so a dropped socket still keeps the link.
+    instanceRef.current = newInstanceId();
     const room = new CallRoomSocket(callId, {
       onMessage,
       onStatus: (status) => {
@@ -910,11 +916,21 @@ export function useCall(callId: string, myUserId: string) {
 
   // ---- "Same view" (shared/calls/view.ts)
   /** My stage changed (or "Bring <name> to my view"): the room makes it the shared view. Returns false when the room isn't open. */
-  const sendView = useCallback((view: StageView, bring = false) => {
-    const cid = Math.random().toString(36).slice(2, 12);
+  const newViewCid = () => Math.random().toString(36).slice(2, 12);
+  const sendView = useCallback((view: StageView, bring = false, cid: string = newViewCid()) => {
+    lastViewCidRef.current = cid;
     const ok = roomRef.current?.send({ type: 'view', view, cid, ...(bring ? { bring: true } : {}) }) ?? false;
-    if (ok) lastViewCidRef.current = cid;
     return ok;
+  }, []);
+  /**
+   * A change waits for the throttle (CallPage VIEW_SEND_MS): its cid is "the last one I sent" from now
+   * on, so the echo of my earlier send can't undo the newer change meanwhile (as the Lab app's trailing
+   * send). Without it a 📝 / swipe right after another change was undone by the first one's echo.
+   */
+  const reserveViewCid = useCallback(() => {
+    const cid = newViewCid();
+    lastViewCidRef.current = cid;
+    return cid;
   }, []);
   /** The id of the last view this page sent (its echo is applied; an older one isn't). */
   const lastViewCid = useCallback(() => lastViewCidRef.current, []);
@@ -1028,7 +1044,7 @@ export function useCall(callId: string, myUserId: string) {
     sendAnnotation, sendPing, clearAnnotations, annotPersist, setAnnotationsKept, sendAnnotText, deleteAnnotText,
     presenting, presentMaterial, turnMaterialPage, stopPresenting, materialAnnotations: materialAnnotRef.current, materialAnnot,
     activity, startActivity, actInActivity, closeActivity,
-    tutorId, sharedView, viewWelcome, sendView, lastViewCid, announceViewMode, stopTheirShare, shareStoppedBy, dismissShareStopped,
+    tutorId, sharedView, viewWelcome, sendView, reserveViewCid, lastViewCid, announceViewMode, stopTheirShare, shareStoppedBy, dismissShareStopped,
     screenSurface, timer, timerAction, roomNow, presenceAlerts, dismissPresenceAlert,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
