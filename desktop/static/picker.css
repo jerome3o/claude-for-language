@@ -1,0 +1,38 @@
+:root {
+  color-scheme: dark;
+  --bg: #111827;
+  --panel: #1f2937;
+  --line: #374151;
+  --text: #f3f4f6;
+  --muted: #9ca3af;
+  --accent: #38bdf8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+body { display: flex; flex-direction: column; }
+header { padding: 16px 20px 0; }
+h1 { margin: 0 0 12px; font-size: 17px; font-weight: 600; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 8px 12px; font-size: 14px; cursor: pointer; }
+.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+.permission { margin: 12px 20px 0; padding: 12px 14px; border-radius: 10px; background: #422006; border: 1px solid #a16207; font-size: 13px; line-height: 1.45; }
+.permission p { margin: 6px 0 10px; }
+.grid { flex: 1; overflow: auto; padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; align-content: start; }
+.empty { color: var(--muted); grid-column: 1 / -1; }
+.source { background: var(--panel); border: 2px solid transparent; border-radius: 10px; padding: 8px; color: var(--text); cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 8px; }
+.source:hover { border-color: var(--line); }
+.source.selected { border-color: var(--accent); }
+.thumb { aspect-ratio: 16 / 10; background: #0b0f14; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.nothumb { font-size: 32px; }
+.label { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
+.label .icon { width: 16px; height: 16px; flex: none; }
+.label .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+footer { border-top: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+.hint { flex: 1; margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.row { display: flex; gap: 8px; }
+button { font: inherit; }
+.row button { min-height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; font-size: 13px; }
+.row button.primary { background: var(--accent); border-color: var(--accent); color: #082f49; font-weight: 600; }
+.row button:disabled { opacity: 0.45; cursor: default; }

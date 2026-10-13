@@ -13,13 +13,24 @@
  *   POST   /coach/conversations/:id/messages { message, background? } → 202 { messages: [user, pending] }
  *          (409 while a reply is pending); without background: the agent loop inline
  *   POST   /coach/conversations/:id/messages/:messageId/retry → 202 { conversation, messages }
+ *   POST   /coach/conversations/:id/mistake-lesson → 202 { messages: [pending lesson] } ("🎯 Mini lesson on
+ *          this mistake", services/mistake-lesson.ts; written by the coach-reply-queue); 200 { …, existing: true }
+ *          when the conversation already has one (never written twice); 400 when the check found no mistake
+ *   POST   /coach/conversations/:id/messages/:messageId/save-lesson { completion? }
+ *          → { lesson_id, title, completed, message }: the lesson into "my mini lessons" (custom_lessons,
+ *          source 'coach' — the normal create path, pinyin checker included), once; `completion` = he just
+ *          did it in the preview: { id, correct, total, rating, completed_at?, attempt? } recorded like an
+ *          offline completion (idempotent by id), so its rating schedules it ("revisit later")
  *
  * docs/CHAT.md "Chat ↔ Coach".
  */
 import { Hono } from 'hono';
 import type { CoachAnalysis, CoachMessage, Env } from '../types';
 import * as db from '../db/queries';
-import { resolveCoachAction, conversationAction } from '@shared/coach';
+import { resolveCoachAction, conversationAction, coachMistakeLessonOffered, parseMistakeLessonContent, MISTAKE_LESSON_CONTENT_TYPE } from '@shared/coach';
+import { sanitizeAttemptData } from '@shared/lesson';
+import { insertLessonAttempt } from '../db/lesson-attempt-queries';
+import { createCustomLessonFromSpec } from '../services/custom-lesson';
 import { autoCheckText, parseAutoCheck } from '@shared/chats/autoCheck';
 import { parseStoredAttachment } from '../services/chat/media';
 import { parseClientBriefExplanation, toCoachBreakdown } from '../services/sentence-explain-brief';
@@ -34,6 +45,7 @@ import {
   defaultApply,
   defaultChat,
   enqueueCoachReply,
+  mistakeLessonInputOf,
   readOnlyResults,
   retryCoachReply,
   sweepStaleCoachReplies,
@@ -213,7 +225,8 @@ coach.post('/coach/conversations/:id/messages', async (c) => {
   if (bgFlag === true) {
     await sweepStaleCoachReplies(c.env.DB, userId, id);
     const stored = await db.getCoachMessages(c.env.DB, id);
-    if (stored.some((m) => m.status === 'pending')) {
+    // A mini lesson being written doesn't hold up the chat.
+    if (stored.some((m) => m.status === 'pending' && m.content_type !== MISTAKE_LESSON_CONTENT_TYPE)) {
       return c.json({ error: 'Claude is still answering your last message.' }, 409);
     }
     const userMsg = await db.addCoachMessage(c.env.DB, id, 'user', 'text', message.trim());
@@ -267,6 +280,89 @@ coach.post('/coach/conversations/:id/messages/:messageId/retry', async (c) => {
   const messages = await db.getCoachMessages(c.env.DB, id);
   return c.json({ conversation, messages: messages.map(publicCoachMessage) }, 202);
 });
+
+// "🎯 Mini lesson on this mistake": one lesson per conversation, written in the background.
+coach.post('/coach/conversations/:id/mistake-lesson', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const conversation = await db.getCoachConversation(c.env.DB, id, userId);
+  if (!conversation) return c.json({ error: 'Conversation not found' }, 404);
+  await sweepStaleCoachReplies(c.env.DB, userId, id);
+  const stored = await db.getCoachMessages(c.env.DB, id);
+  const existing = stored.find((m) => m.content_type === MISTAKE_LESSON_CONTENT_TYPE);
+  if (existing && existing.status !== 'failed') {
+    return c.json({ conversation, messages: [publicCoachMessage(existing)], existing: true }, 200);
+  }
+  const input = mistakeLessonInputOf(stored);
+  if (!input || !coachMistakeLessonOffered({ originalInput: input.original, isCorrect: input.coach.isCorrect === true, corrected: input.coach.corrected })) {
+    return c.json({ error: 'There is no mistake in this sentence to make a lesson about.' }, 400);
+  }
+  if (!coachAvailable(c.env)) return c.json({ error: 'AI coaching is not configured' }, 500);
+  if (existing) {
+    // A failed one goes back on the queue (same row).
+    await retryCoachReply(c.env.DB, existing.id);
+    await enqueueCoachReply(c.env, existing.id, waitUntilOf(c));
+    const again = (await db.getCoachMessages(c.env.DB, id)).find((m) => m.id === existing.id)!;
+    return c.json({ conversation, messages: [publicCoachMessage(again)] }, 202);
+  }
+  const pending = await db.addCoachMessage(c.env.DB, id, 'assistant', MISTAKE_LESSON_CONTENT_TYPE, '', null, 'pending');
+  await enqueueCoachReply(c.env, pending.id, waitUntilOf(c));
+  return c.json({ conversation, messages: [publicCoachMessage(pending)] }, 202);
+});
+
+// "Save to my mini lessons": the lesson message → a custom lesson (once), + the completion when he just did it.
+coach.post('/coach/conversations/:id/messages/:messageId/save-lesson', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const messageId = c.req.param('messageId');
+  const conversation = await db.getCoachConversation(c.env.DB, id, userId);
+  if (!conversation) return c.json({ error: 'Conversation not found' }, 404);
+  const message = (await db.getCoachMessages(c.env.DB, id)).find((m) => m.id === messageId);
+  if (!message || message.content_type !== MISTAKE_LESSON_CONTENT_TYPE) return c.json({ error: 'Lesson not found' }, 404);
+  const content = message.status ? null : parseMistakeLessonContent(message.content);
+  if (!content) return c.json({ error: 'That lesson isn’t ready yet' }, 409);
+  const body = await c.req.json<{ completion?: unknown }>().catch(() => ({} as { completion?: unknown }));
+  const completion = parseCompletion(body.completion);
+  if (body.completion !== undefined && body.completion !== null && !completion) {
+    return c.json({ error: 'completion needs id, correct, total and a rating 0–3' }, 400);
+  }
+
+  let lessonId = content.lesson_id ?? null;
+  let title = content.spec.title;
+  if (lessonId && !(await db.getCustomLesson(c.env.DB, lessonId, userId))) lessonId = null; // deleted since: save again
+  if (!lessonId) {
+    const created = await createCustomLessonFromSpec(c.env, userId, content.spec, 'coach');
+    if (!created.ok) return c.json({ error: 'This lesson couldn’t be saved', problems: created.errors }, 400);
+    lessonId = created.lesson.id;
+    title = created.lesson.title;
+    content.spec = JSON.parse(created.lesson.spec);
+    content.lesson_id = lessonId;
+    content.saved_at = new Date().toISOString();
+    content.completed = false;
+  }
+  if (completion) {
+    const event = { ...completion, lesson_id: lessonId };
+    await db.applyCustomLessonCompletion(c.env.DB, userId, event);
+    const attempt = completion.attempt === undefined ? null : sanitizeAttemptData(completion.attempt);
+    if (attempt) await insertLessonAttempt(c.env.DB, userId, event, attempt);
+    content.completed = true;
+  }
+  await c.env.DB.prepare('UPDATE coach_messages SET content = ? WHERE id = ?').bind(JSON.stringify(content), messageId).run();
+  const saved = (await db.getCoachMessages(c.env.DB, id)).find((m) => m.id === messageId)!;
+  return c.json({ lesson_id: lessonId, title, completed: content.completed === true, message: publicCoachMessage(saved) });
+});
+
+function parseCompletion(raw: unknown): { id: string; correct: number; total: number; rating: number; completed_at: string; attempt?: unknown } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
+  const correct = num(r.correct);
+  const total = num(r.total);
+  const rating = num(r.rating);
+  if (typeof r.id !== 'string' || !r.id || r.id.length > 100 || correct === null || total === null || rating === null || rating > 3) return null;
+  const at = typeof r.completed_at === 'string' && !Number.isNaN(Date.parse(r.completed_at)) ? new Date(r.completed_at).toISOString() : new Date().toISOString();
+  return { id: r.id, correct: Math.min(correct, total), total, rating, completed_at: at, attempt: r.attempt };
+}
 
 /** A coach message as the client sees it (no checkpoint / attempts bookkeeping). */
 function publicCoachMessage(m: CoachMessage): CoachMessage {

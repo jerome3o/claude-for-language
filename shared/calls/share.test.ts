@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   displayCaptureOptions,
   myShareTile,
+  myShareHint,
+  shareSurfaceOf,
   shareAudioLine,
   shareAudioNote,
   shareAudioOf,
@@ -44,13 +46,25 @@ describe('share: the sound note', () => {
 });
 
 describe('share: what the sharer sees', () => {
-  it('a compact card, not a mirror of my own screen', () => {
-    expect(myShareTile({ annotating: false, peek: false })).toBe('card');
+  it('round 7: my share is visible by default (a tab, a window, a browser that doesn’t say)', () => {
+    for (const surface of ['browser', 'window', 'unknown'] as const) expect(myShareTile({ annotating: false, shown: null, surface })).toBe('full');
   });
-  it('my screen itself only while I draw on it or asked to see it', () => {
-    expect(myShareTile({ annotating: true, peek: false })).toBe('full');
-    expect(myShareTile({ annotating: false, peek: true })).toBe('full');
-    expect(myShareTile({ annotating: true, peek: true })).toBe('full');
+  it('a whole screen starts as the card (it would mirror itself); Show it here shows it anyway', () => {
+    expect(myShareTile({ annotating: false, shown: null, surface: 'monitor' })).toBe('card');
+    expect(myShareTile({ annotating: false, shown: true, surface: 'monitor' })).toBe('full');
+  });
+  it('Hide my screen collapses it to the card; drawing always shows it', () => {
+    expect(myShareTile({ annotating: false, shown: false, surface: 'browser' })).toBe('card');
+    expect(myShareTile({ annotating: true, shown: false, surface: 'browser' })).toBe('full');
+    expect(myShareTile({ annotating: true, shown: null, surface: 'monitor' })).toBe('full');
+  });
+  it('the browser’s displaySurface', () => {
+    expect(shareSurfaceOf('browser')).toBe('browser');
+    expect(shareSurfaceOf('monitor')).toBe('monitor');
+    expect(shareSurfaceOf('application')).toBe('unknown');
+    expect(shareSurfaceOf(undefined)).toBe('unknown');
+    expect(myShareHint('Jerome Swannack')).toBe('Jerome sees this — draw or type on it, you both see it');
+    expect(myShareHint(null)).toBe('The other person sees this — draw or type on it, you both see it');
   });
   it('words', () => {
     expect(sharingCardSub('Jerome Swannack')).toBe('Jerome sees it on their screen.');

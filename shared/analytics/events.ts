@@ -143,6 +143,7 @@ export const ANALYTICS_EVENTS = {
   'call.board_gloss': e('calls', 'Accepted a board tab-complete (direction = zh: pinyin + meaning after Chinese | en: Chinese + pinyin after English; via = tab | chip).', ['direction', 'via']),
   'call.screen_share': e('calls', 'Started or stopped sharing the screen (sound = the share carries a tab or system sound).', ['on', 'sound']),
   'call.annotate': e('calls', 'Drew on a shared screen or material.', ['target']),
+  'call.desktop_overlay': e('calls', 'Desktop app: the drawing overlay on the shared screen opened / closed (on), or drawing on the real screen was switched on / off (draw).', ['on', 'draw']),
   'call.material_present': e('calls', 'Presented a lesson material.', ['material_kind', 'pages']),
   'material.contents_open': e('calls', 'Opened a lesson material’s Contents (in a call or the material viewer).', ['where', 'source', 'entries']),
   'material.contents_jump': e('calls', 'Jumped to a section from a lesson material’s Contents.', ['where', 'source']),
@@ -152,6 +153,10 @@ export const ANALYTICS_EVENTS = {
   'call.view_mode': e('calls', 'Switched between "Same view" and "My own view" in a call.', ['mode']),
   'call.view_bring': e('calls', '"Bring <name> to my view": made my view the shared one and invited the other person.', ['mode']),
   'call.view_join': e('calls', 'Joined the other person’s view from their invitation.', []),
+  'call.timer': e('calls', 'Ran the call timer (action = set | start | pause | reset | clear; mode = countdown | stopwatch on set; minutes = the countdown length).', ['action', 'mode', 'minutes']),
+  'call.presence_alert': e('calls', 'The other person joined / left the call: the toast showed (sound = the chime played).', ['kind', 'sound']),
+  'call.sounds': e('calls', 'Switched call sounds (join / leave chimes, the timer bell) on or off.', ['on']),
+  'call.annot_pip': e('calls', 'Opened the mini window of my shared screen with the drawings over my other windows (Chrome desktop).', []),
   'call.review_open': e('calls', 'Opened a call review / lesson report.', []),
   'call.homework_from_call': e('calls', 'Make homework from this lesson.', []),
 
@@ -235,6 +240,10 @@ export const ANALYTICS_EVENTS = {
   'coach.reply_retry': e('coach', 'Pressed Retry on a coach reply that failed.', []),
   'coach.add_new_words': e('coach', '"➕ Add new words": added words of the sentence that were in no deck.', ['count', 'existing']),
   'coach.sentence_card': e('coach', '"🃏 Card for this sentence": opened the add-card sheet with the whole sentence.', []),
+  'coach.mistake_lesson_generate': e('coach', '"🎯 Mini lesson on this mistake": asked for a lesson on the mistake a check found (existing = the conversation already had one).', ['existing']),
+  'coach.mistake_lesson_play': e('coach', 'Played a coach mistake lesson in the player (preview: nothing recorded while playing).', ['exercises', 'saved']),
+  'coach.mistake_lesson_save': e('coach', '"Save to my mini lessons" on a coach mistake lesson (done = saved right after doing it, its completion + rating recorded).', ['done', 'rating']),
+  'coach.mistake_lesson_written': e('coach', 'A coach mistake lesson was written (exercises, distinct types, model rounds incl. repairs).', ['exercises', 'types', 'rounds'], { server: true }),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 
   // ── decks ──────────────────────────────────────────────────────────────
@@ -256,6 +265,7 @@ export const ANALYTICS_EVENTS = {
   'folder.rename': e('decks', 'Renamed a folder.', ['kind']),
   'folder.delete': e('decks', 'Deleted a folder (its items go to Unfiled).', ['kind', 'items']),
   'folder.move_items': e('decks', 'Moved items into a folder (or Unfiled).', ['kind', 'count', 'unfiled']),
+  'folder.move_folder': e('decks', 'Moved a folder inside another folder (or to the top level).', ['kind', 'depth']),
 
   // ── settings ───────────────────────────────────────────────────────────
   'settings.change': e('settings', 'Changed a setting (`setting` names it, `value` an enum).', ['setting', 'value']),
@@ -307,8 +317,8 @@ export const SCREEN_REPLACED_BY: Readonly<Record<string, string>> = {
   '/search': '/decks',
 };
 
-/** Where each app runs. `android-hybrid` is the Capacitor shell, `lab` the native app. */
-export const ANALYTICS_PLATFORMS = ['web', 'pwa', 'android-hybrid', 'lab'] as const;
+/** Where each app runs. `android-hybrid` is the Capacitor shell, `lab` the native app, `desktop` the Electron app (desktop/). */
+export const ANALYTICS_PLATFORMS = ['web', 'pwa', 'android-hybrid', 'lab', 'desktop'] as const;
 export type AnalyticsPlatform = (typeof ANALYTICS_PLATFORMS)[number];
 
 /** off = nothing recorded; basic = no screen views / no per-card events; verbose = everything. */

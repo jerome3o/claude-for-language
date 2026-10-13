@@ -63,7 +63,7 @@ export function StudentCard({ overview, onSendHomework, recent }: { overview: St
           </div>
         )}
         {recent && (
-          <Link to={`/connections/${relId}/homework`} className="td-card-recent">
+          <Link to={`/connections/${relId}#homework`} className="td-card-recent">
             <RecentHomeworkLine item={recent.item} today={recent.today} />
           </Link>
         )}
@@ -133,14 +133,14 @@ export function StudentCard({ overview, onSendHomework, recent }: { overview: St
           )
         ) : (
           pills.homework_percent != null && (
-            <Link to={`/connections/${relId}`} className="td-pill td-pill-homework">Homework {pills.homework_percent}%</Link>
+            <Link to={`/connections/${relId}#homework`} className="td-pill td-pill-homework">Homework {pills.homework_percent}%</Link>
           )
         )}
         <BudgetPill overview={overview} relId={relId} />
         {overview.has_profile === false && <ProfileHint relId={relId} />}
       </div>
       {recent && (
-        <Link to={`/connections/${relId}/homework`} className="td-card-recent">
+        <Link to={`/connections/${relId}#homework`} className="td-card-recent">
           <RecentHomeworkLine item={recent.item} today={recent.today} />
         </Link>
       )}

@@ -256,6 +256,8 @@ test.describe('role-aware tabs and More page', () => {
     await expect(page.getByRole('link', { name: /Lesson Notes/ })).toBeVisible();
     await expect(page.getByRole('link', { name: /Readers/ })).toBeVisible();
     await expect(page.getByRole('link', { name: /Lesson Library/ })).toHaveCount(0);
+    // Lesson materials left the menus (Oct 2026); the route still works
+    await expect(page.getByRole('link', { name: /Lesson materials/ })).toHaveCount(0);
     // Advanced is collapsed by default
     await expect(page.getByRole('link', { name: /Duplicate Finder/ })).toHaveCount(0);
     await page.getByRole('button', { name: /Advanced/ }).click();
@@ -291,6 +293,13 @@ test.describe('role-aware tabs and More page', () => {
     await expect(page.getByRole('link', { name: /Lesson Library/ })).toBeVisible();
     await expect(page.getByRole('link', { name: /Lesson Notes/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Readers/ })).toHaveCount(0);
+    // Homework library and Lesson materials left the menus (Minghui, Oct 2026) — deep links still work
+    await expect(page.getByRole('link', { name: /Homework library/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Lesson materials/ })).toHaveCount(0);
+    await page.goto(`/homework-library?session_token=${tutor.token}`);
+    await expect(page.getByRole('heading', { name: 'Homework library' })).toBeVisible();
+    await page.goto(`/materials?session_token=${tutor.token}`);
+    await expect(page.getByRole('heading', { name: /materials/i })).toBeVisible();
 
     await page.goto(`/settings?session_token=${tutor.token}`);
     await expect(page.getByTestId('start-on')).toBeVisible();

@@ -103,6 +103,7 @@ object AnalyticsEvents {
         ev("call.board_gloss", "calls", listOf("direction", "via")),
         ev("call.screen_share", "calls", listOf("on", "sound")),
         ev("call.annotate", "calls", listOf("target")),
+        ev("call.desktop_overlay", "calls", listOf("on", "draw")),
         ev("call.material_present", "calls", listOf("material_kind", "pages")),
         ev("material.contents_open", "calls", listOf("where", "source", "entries")),
         ev("material.contents_jump", "calls", listOf("where", "source")),
@@ -112,6 +113,10 @@ object AnalyticsEvents {
         ev("call.view_mode", "calls", listOf("mode")),
         ev("call.view_bring", "calls", listOf("mode")),
         ev("call.view_join", "calls", emptyList()),
+        ev("call.timer", "calls", listOf("action", "mode", "minutes")),
+        ev("call.presence_alert", "calls", listOf("kind", "sound")),
+        ev("call.sounds", "calls", listOf("on")),
+        ev("call.annot_pip", "calls", emptyList()),
         ev("call.review_open", "calls", emptyList()),
         ev("call.homework_from_call", "calls", emptyList()),
         ev("tutor.send_homework", "tutor", listOf("items", "mode", "kind", "split_days")),
@@ -185,6 +190,10 @@ object AnalyticsEvents {
         ev("coach.reply_retry", "coach", emptyList()),
         ev("coach.add_new_words", "coach", listOf("count", "existing")),
         ev("coach.sentence_card", "coach", emptyList()),
+        ev("coach.mistake_lesson_generate", "coach", listOf("existing")),
+        ev("coach.mistake_lesson_play", "coach", listOf("exercises", "saved")),
+        ev("coach.mistake_lesson_save", "coach", listOf("done", "rating")),
+        ev("coach.mistake_lesson_written", "coach", listOf("exercises", "types", "rounds"), server = true),
         ev("chat.open_in_coach", "chat", listOf("source", "action")),
         ev("deck.create", "decks", listOf("source")),
         ev("deck.generate", "decks", emptyList()),
@@ -204,6 +213,7 @@ object AnalyticsEvents {
         ev("folder.rename", "decks", listOf("kind")),
         ev("folder.delete", "decks", listOf("kind", "items")),
         ev("folder.move_items", "decks", listOf("kind", "count", "unfiled")),
+        ev("folder.move_folder", "decks", listOf("kind", "depth")),
         ev("settings.change", "settings", listOf("setting", "value")),
         ev("settings.revisit_changed", "settings", listOf("fields", "reset", "new_lessons_per_day")),
         ev("settings.new_card_order", "settings", listOf("field", "reset", "new_characters_first", "new_words_first", "most_common_first", "sentences_last", "known_characters_english_first")),
@@ -238,7 +248,7 @@ object AnalyticsEvents {
     val SCREEN_REPLACED_BY: Map<String, String> = mapOf("/search" to "/decks")
 
     /** Port of ANALYTICS_PLATFORMS; the Lab app is "lab". */
-    val PLATFORMS: List<String> = listOf("web", "pwa", "android-hybrid", "lab")
+    val PLATFORMS: List<String> = listOf("web", "pwa", "android-hybrid", "lab", "desktop")
 
     /** Port of ANALYTICS_LEVELS: off = nothing; basic = no screen views / per-card events; verbose = everything. */
     val LEVELS: List<String> = listOf("off", "basic", "verbose")

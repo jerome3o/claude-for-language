@@ -320,10 +320,13 @@ export function generateState(): string {
 /**
  * Native apps that sign in through a browser tab and get the session back on a
  * custom-scheme redirect instead of the web app's `?session_token=` URL.
- * `lab` is the experimental pure-native Android app (android-lab/).
+ * `lab` is the experimental pure-native Android app (android-lab/); `desktop` is
+ * the Electron desktop app (desktop/, shared/desktop/bridge.ts), which signs in
+ * in the system browser because Google refuses OAuth inside embedded browsers.
  */
 export const NATIVE_AUTH_CLIENTS: Record<string, string> = {
   lab: 'chineselearning-lab://auth',
+  desktop: 'chineselearning-desktop://auth',
 };
 
 export interface NativeAuthClient {

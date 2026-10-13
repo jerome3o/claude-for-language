@@ -150,19 +150,22 @@ const val EXPECTED_CHAR_TAG = "answer-expected-char"
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ExpectedAnswerRow(chars: List<String>, matched: List<Boolean>, size: TextUnit, other: Color, onChar: (String) -> Unit) {
+fun ExpectedAnswerRow(chars: List<String>, matched: List<Boolean>, size: TextUnit, other: Color, onChar: (String) -> Unit, newChars: Set<String> = emptySet()) {
     FlowRow(horizontalArrangement = Arrangement.Center) {
         for (group in AnswerMarks.wrapGroups(chars)) {
             Row {
                 for (i in group) {
                     val ch = chars[i]
                     val source = remember { MutableInteractionSource() }
-                    Text(
+                    // A never-seen character shimmers (NewCharShimmer.kt).
+                    NewCharGlyph(
                         ch,
+                        isNew = ch in newChars,
                         fontSize = size,
                         lineHeight = size * 1.15f,
                         color = if (matched.getOrElse(i) { false }) Palette.Good else other,
                         fontWeight = FontWeight.Medium,
+                        index = i,
                         modifier = Modifier.testTag(EXPECTED_CHAR_TAG).clickable(interactionSource = source, indication = null) { onChar(ch) },
                     )
                 }

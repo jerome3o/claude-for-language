@@ -125,10 +125,33 @@ class FolderWritesTest {
         assertEquals(1, folder.position)
     }
 
-    @Test fun badNamesAndTwoLevelsAreRefusedOnThePhone() = runBlocking {
+    @Test fun badNamesCyclesAndASixthLevelAreRefusedOnThePhone() = runBlocking {
         assertEquals(WriteOutcome.Refused("Give the folder a name"), w.create("deck", "   ", null).first)
-        assertEquals(WriteOutcome.Refused("Folders go one level deep: pick a top-level folder"), w.create("deck", "Deep", "wk1").first)
+        val hsk = FolderStore.all(f.cache).first { it.id == "hsk" }
+        assertEquals(WriteOutcome.Refused("A folder can't go inside one of its own folders"), w.setParent(hsk, "wk1"))
+        // hsk › wk1 › l3 › l4 › l5: five levels — nothing more inside l5.
+        FolderStore.put(
+            f.cache,
+            FolderStore.all(f.cache) + listOf(
+                dev.jeromeswannack.chineselearning.lab.core.Folder("l3", "u", "deck", "Monday", "wk1"),
+                dev.jeromeswannack.chineselearning.lab.core.Folder("l4", "u", "deck", "Morning", "l3"),
+                dev.jeromeswannack.chineselearning.lab.core.Folder("l5", "u", "deck", "Early", "l4"),
+            ),
+        )
+        assertEquals(WriteOutcome.Refused("Folders go 5 levels deep: pick a folder higher up"), w.create("deck", "Deep", "l5").first)
         assertEquals(0, f.server.requestCount)
+    }
+
+    @Test fun nestedCreateAndDeleteLiftOneLevel() = runBlocking {
+        f.server.enqueue(MockResponse().setResponseCode(201).setBody("{}"))
+        val (out, monday) = w.create("deck", "Monday", "wk1")
+        assertEquals(WriteOutcome.Saved, out)
+        assertEquals("wk1", body()["parent_id"]!!.jsonPrimitive.content)
+        assertEquals("wk1", monday!!.parentId)
+        // Deleting Week 1 lifts Monday into HSK 2 (one level), not to the top.
+        f.server.enqueue(ok("""{"deleted":true,"unfiled":0,"lifted":1}"""))
+        assertEquals(WriteOutcome.Saved, w.delete(FolderStore.all(f.cache).first { it.id == "wk1" }))
+        assertEquals("hsk", FolderStore.all(f.cache).first { it.id == monday.id }.parentId)
     }
 
     @Test fun aRefusedWriteIsUndone() = runBlocking {

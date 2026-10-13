@@ -256,4 +256,17 @@ class CallProtocolTest {
         assertTrue(CallProtocol.state(PeerMediaState(screen = true, screenAudio = true)).contains("\"screen_audio\":true"))
         assertTrue(!CallProtocol.state(PeerMediaState(screen = true)).contains("screen_audio"))
     }
+
+    @Test fun timerMessages() {
+        val t = """{"id":"t1","mode":"countdown","duration_ms":300000,"running":true,"started_at":1000,"elapsed_ms":0,"v":1,"run":1,"by":"u1","name":"Minghui"}"""
+        val w = assertIs<ServerMessage.Welcome>(CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"timer":$t}"""))
+        assertEquals(CallTimer.Timer("t1", CallTimer.Mode.COUNTDOWN, 300_000, true, 1000, 0, 1, 1, "u1", "Minghui"), w.timer)
+        assertNull(assertIs<ServerMessage.Welcome>(CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[]}""")).timer)
+        val m = assertIs<ServerMessage.Timer>(CallProtocol.parseServer("""{"type":"timer","timer":$t,"server_time":5000}"""))
+        assertEquals(5000, m.serverTime)
+        assertEquals("t1", m.timer?.id)
+        assertNull(assertIs<ServerMessage.Timer>(CallProtocol.parseServer("""{"type":"timer","timer":null,"server_time":1}""")).timer)
+        assertNull(CallProtocol.parseServer("""{"type":"timer","timer":{"id":"x","mode":"egg"}}"""))
+        assertEquals("""{"type":"timer","action":{"kind":"reset"}}""", CallProtocol.timer(CallTimer.Action.Reset))
+    }
 }

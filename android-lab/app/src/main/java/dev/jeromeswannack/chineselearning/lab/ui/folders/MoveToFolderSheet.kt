@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.core.Folder
 import dev.jeromeswannack.chineselearning.lab.core.Folders
@@ -50,6 +51,10 @@ data class FolderActions(
     val onDoneSelecting: () -> Unit = {},
     val onToggleSelected: (String) -> Unit = {},
     val onReorder: (List<String>) -> Unit = {},
+    /** ⋯ → Move folder… */
+    val onMoveFolder: (Folder) -> Unit = {},
+    /** The pick in the Move folder sheet: [Folder] into the parent id (null = top level). */
+    val onMoveFolderTo: (Folder, String?) -> Unit = { _, _ -> },
     val onCloseSheet: () -> Unit = {},
     val onDismissError: () -> Unit = {},
 ) {
@@ -71,6 +76,8 @@ data class FolderActions(
             onDoneSelecting = c::stopSelecting,
             onToggleSelected = c::toggleSelected,
             onReorder = c::reorder,
+            onMoveFolder = c::openMoveFolder,
+            onMoveFolderTo = c::moveFolder,
             onCloseSheet = c::closeSheet,
             onDismissError = c::dismissError,
         )
@@ -85,23 +92,67 @@ fun FolderSheets(ui: FolderUi, actions: FolderActions) {
         is FolderSheet.NewFolder -> NewFolderSheet(ui, s, actions)
         is FolderSheet.Menu -> LabBottomSheet(onDismiss = actions.onCloseSheet, title = "📁 ${s.folder.name}") {
             NavRow("✏️", "Rename…", onClick = { actions.onRename(s.folder) })
-            if (s.folder.parentId == null) {
+            // Folders nest up to MAX_FOLDER_DEPTH levels: the deepest level can't hold another.
+            val level = Folders.folderLevel(s.folder, ui.folders)
+            if (level < Folders.MAX_FOLDER_DEPTH) {
                 RowDivider()
-                NavRow("📁", "New folder inside…", desc = "One level deep", onClick = { actions.onNewFolder(s.folder.id) })
+                NavRow("📁", "New folder inside…", desc = "Folders go ${Folders.MAX_FOLDER_DEPTH} levels deep", onClick = { actions.onNewFolder(s.folder.id) })
             }
+            RowDivider()
+            NavRow("↪", "Move folder…", desc = "Into another folder, or to the top level", onClick = { actions.onMoveFolder(s.folder) })
             RowDivider()
             NavRow("🗑", "Delete…", desc = "What's inside moves out — nothing is deleted", danger = true, onClick = { actions.onDelete(s.folder, s.itemCount, s.subfolderCount) })
         }
         is FolderSheet.Rename -> RenameSheet(s, actions)
         is FolderSheet.ConfirmDelete -> ConfirmDialog(
             title = "Delete folder “${s.folder.name}”?",
-            text = Folders.deleteFolderMessage(ui.kind, s.folder.name, s.itemCount, s.subfolderCount),
+            text = Folders.deleteFolderMessage(
+                ui.kind, s.folder.name, s.itemCount, s.subfolderCount,
+                s.folder.parentId?.let { p -> ui.folders.firstOrNull { it.id == p }?.name },
+            ),
             confirmLabel = "Delete folder",
             danger = true,
             onConfirm = { actions.onConfirmDelete(s.folder) },
             onDismiss = actions.onCloseSheet,
         )
         is FolderSheet.Move -> MoveToFolderSheet(ui, s, actions)
+        is FolderSheet.MoveFolder -> MoveFolderSheet(ui, s, actions)
+    }
+}
+
+/** "Now in HSK 2 › Week 1" — where the thing being moved is now. */
+@Composable
+private fun Breadcrumb(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = Lab.colors.muted,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).testTag("folder-breadcrumb"),
+    )
+}
+
+/**
+ * Move folder…: the top level, then every folder in tree order (indented) except the folder
+ * itself and its own subfolders; places too deep for it are shown greyed ("Too deep").
+ */
+@Composable
+fun MoveFolderSheet(ui: FolderUi, sheet: FolderSheet.MoveFolder, actions: FolderActions) {
+    val f = sheet.folder
+    val inside = (Folders.folderDescendantIds(f.id, ui.folders) + f.id).toSet()
+    val parent = f.parentId?.let { p -> ui.folders.firstOrNull { it.id == p } }
+    LabBottomSheet(onDismiss = actions.onCloseSheet, title = "Move folder “${f.name}”") {
+        Breadcrumb("Now in ${parent?.let { Folders.folderPath(it, ui.folders) } ?: "the top level"}")
+        sheet.error?.let { InlineNotice(it, kind = NoticeKind.Error, modifier = Modifier.padding(horizontal = 20.dp)) }
+        FolderChoice("🏠", "Top level", 0, parent == null) { actions.onMoveFolderTo(f, null) }
+        for (o in Folders.folderOptions(ui.folders, ui.kind)) {
+            if (o.folder.id in inside) continue
+            val problem = Folders.parentProblem(f.id, ui.kind, o.folder.id, ui.folders)
+            FolderChoice(
+                if (o.depth == 0) "📁" else "↳", o.folder.name, o.depth + 1, parent?.id == o.folder.id,
+                enabled = problem == null, desc = if (problem != null) "Too deep" else null,
+                tag = "move-folder-to-${o.folder.id}",
+            ) { actions.onMoveFolderTo(f, o.folder.id) }
+        }
     }
 }
 
@@ -113,9 +164,13 @@ fun FolderSheets(ui: FolderUi, actions: FolderActions) {
 fun MoveToFolderSheet(ui: FolderUi, sheet: FolderSheet.Move, actions: FolderActions) {
     val n = sheet.ids.size
     LabBottomSheet(onDismiss = actions.onCloseSheet, title = if (n == 1) "Move to folder" else "Move $n ${Folders.folderItemNoun(ui.kind, n)} to folder") {
+        if (sheet.currentFolderId != FolderController.MIXED) {
+            val current = sheet.currentFolderId?.let { id -> ui.folders.firstOrNull { it.id == id } }
+            Breadcrumb("Now in ${current?.let { Folders.folderPath(it, ui.folders) } ?: Folders.UNFILED_LABEL}")
+        }
         FolderChoice("🗂", Folders.UNFILED_LABEL, 0, sheet.currentFolderId == null) { actions.onMoveTo(null) }
         for (o in Folders.folderOptions(ui.folders, ui.kind)) {
-            FolderChoice("📁", o.folder.name, o.depth, sheet.currentFolderId == o.folder.id) { actions.onMoveTo(o.folder.id) }
+            FolderChoice(if (o.depth == 0) "📁" else "↳", o.folder.name, o.depth, sheet.currentFolderId == o.folder.id, tag = "move-to-${o.folder.id}") { actions.onMoveTo(o.folder.id) }
         }
         RowDivider()
         NavRow("＋", "New folder", desc = "Make one and move ${if (n == 1) "it" else "them"} there", onClick = { actions.onNewFolderForMove(sheet.ids) })
@@ -123,11 +178,16 @@ fun MoveToFolderSheet(ui: FolderUi, sheet: FolderSheet.Move, actions: FolderActi
 }
 
 @Composable
-private fun FolderChoice(icon: String, label: String, depth: Int, current: Boolean, onClick: () -> Unit) {
+private fun FolderChoice(
+    icon: String, label: String, depth: Int, current: Boolean,
+    enabled: Boolean = true, desc: String? = null, tag: String? = null, onClick: () -> Unit,
+) {
     NavRow(
         icon,
         label,
-        modifier = Modifier.padding(start = (depth * 20).dp),
+        modifier = Modifier.padding(start = (depth * 18).dp).then(if (tag != null) Modifier.testTag(tag) else Modifier),
+        desc = desc,
+        enabled = enabled,
         trailing = { if (current) Text("✓", color = Lab.colors.accent, style = MaterialTheme.typography.titleMedium) },
         onClick = onClick,
     )
@@ -137,22 +197,22 @@ private fun FolderChoice(icon: String, label: String, depth: Int, current: Boole
 private fun NewFolderSheet(ui: FolderUi, sheet: FolderSheet.NewFolder, actions: FolderActions) {
     var name by remember { mutableStateOf("") }
     var parent by remember { mutableStateOf(sheet.parentId) }
-    val tops = Folders.sortFolders(ui.folders.filter { it.parentId == null })
+    // Any folder that can still hold another (MAX_FOLDER_DEPTH levels), in tree order.
+    val parents = Folders.folderOptions(ui.folders, ui.kind).filter { it.depth + 1 < Folders.MAX_FOLDER_DEPTH }
     LabBottomSheet(onDismiss = actions.onCloseSheet, title = "New folder") {
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             sheet.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
             Field("Folder name", name, hint = if (ui.kind == Folders.DECK) "e.g. HSK 2" else "e.g. Week 1") { name = it }
-            // A folder that is going to receive items can only be made at the top level here.
-            if (tops.isNotEmpty() && sheet.moveIds.isEmpty()) {
+            if (parents.isNotEmpty()) {
                 Text("Inside", style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InsideChip("Top level", parent == null) { parent = null }
-                }
-                tops.chunked(2).forEach { pair ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        pair.forEach { f -> InsideChip("📁 ${f.name}", parent == f.id, Modifier.weight(1f)) { parent = f.id } }
-                        if (pair.size == 1) androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-                    }
+                InsideChip("Top level", parent == null, Modifier.fillMaxWidth()) { parent = null }
+                // The tree, indented — the chosen one says its whole path.
+                parents.forEach { o ->
+                    InsideChip(
+                        if (parent == o.folder.id) "📁 ${Folders.folderPath(o.folder, ui.folders)}" else "${if (o.depth == 0) "📁" else "↳"} ${o.folder.name}",
+                        parent == o.folder.id,
+                        Modifier.padding(start = (o.depth * 18).dp).fillMaxWidth().testTag("inside-${o.folder.id}"),
+                    ) { parent = o.folder.id }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -161,7 +221,7 @@ private fun NewFolderSheet(ui: FolderUi, sheet: FolderSheet.NewFolder, actions: 
                     if (sheet.busy) "Creating…" else if (sheet.moveIds.isNotEmpty()) "Create & move" else "Create folder",
                     Modifier.weight(1f).height(52.dp),
                     enabled = !sheet.busy && Folders.folderNameProblems(name).isEmpty(),
-                ) { actions.onCreate(name, if (sheet.moveIds.isEmpty()) parent else null) }
+                ) { actions.onCreate(name, parent) }
             }
         }
     }

@@ -37,6 +37,10 @@ describe('OAuth state', () => {
     expect(authRedirectUrl('https://app.example', null, { session_token: 'abc' })).toBe('https://app.example?session_token=abc');
     expect(authRedirectUrl('https://app.example', { client: 'lab', appNonce: APP_NONCE }, { session_token: 'abc' }))
       .toBe(`chineselearning-lab://auth?session_token=abc&nonce=${APP_NONCE}`);
+    // The desktop app (desktop/) gets its own scheme; its nonce check is shared/desktop/bridge.ts.
+    expect(parseNativeAuthClient('desktop', APP_NONCE)).toEqual({ client: 'desktop', appNonce: APP_NONCE });
+    expect(authRedirectUrl('https://app.example', { client: 'desktop', appNonce: APP_NONCE }, { session_token: 'abc' }))
+      .toBe(`chineselearning-desktop://auth?session_token=abc&nonce=${APP_NONCE}`);
     expect(authRedirectUrl('https://app.example', null, { signup: 'email_mismatch', inviter: 'Wang Laoshi' }))
       .toBe('https://app.example?signup=email_mismatch&inviter=Wang+Laoshi');
   });
