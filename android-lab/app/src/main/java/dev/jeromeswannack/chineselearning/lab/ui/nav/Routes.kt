@@ -112,6 +112,10 @@ object Routes {
     fun idiom(hanzi: String, from: String? = null) = "/idioms/${seg(hanzi)}" + query("from" to from)
     fun audioLessons() = "/audio-lessons"
     fun audioLesson(id: String) = "/audio-lessons/${seg(id)}"
+    /** 🎙 Podcasts (docs/PODCASTS.md, Lab only for now): the list, one feed, one episode's segment player. */
+    fun podcasts() = "/podcasts"
+    fun podcastFeed(url: String) = "/podcasts/feed" + query("url" to url)
+    fun podcastEpisode(id: String) = "/podcasts/episodes/${seg(id)}"
     fun strokes(text: String? = null) = "/practice/strokes" + query("text" to text)
 
     // ---- calls (package J) ----

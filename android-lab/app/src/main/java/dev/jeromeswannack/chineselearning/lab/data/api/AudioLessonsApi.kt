@@ -146,8 +146,12 @@ suspend fun Api.deletePodcastFeed() {
  * The lesson's MP3 (owner only, so authenticated) streamed into [dest] through a `.part` file;
  * [onProgress] gets (fraction 0..1 when the size is known, bytes so far).
  */
-suspend fun Api.downloadAudioLesson(id: String, dest: File, onProgress: (Double, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
-    http.newCall(request(AudioLessonPaths.audio(id)).build()).execute().use { res ->
+suspend fun Api.downloadAudioLesson(id: String, dest: File, onProgress: (Double, Long) -> Unit = { _, _ -> }) =
+    downloadAuthed(AudioLessonPaths.audio(id), dest, onProgress)
+
+/** An authenticated API file (audio lessons, podcast episodes) streamed into [dest] through a `.part` file. */
+suspend fun Api.downloadAuthed(path: String, dest: File, onProgress: (Double, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
+    http.newCall(request(path).build()).execute().use { res ->
         if (res.code == 401) throw UnauthorizedException()
         if (!res.isSuccessful) {
             val body = res.body?.string().orEmpty()

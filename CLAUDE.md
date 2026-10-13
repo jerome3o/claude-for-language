@@ -335,6 +335,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `notes.image_key` / `image_source` / `image_status` / `image_hash` / `image_at`, `note_images`, `decks.illustrate_new` - Pictures on cards (migration 0123; docs/STUDY_SESSION.md "Pictures on cards"): the note's picture (R2 `note-images/<hash>` generated — one per prompt hash in `note_images`, shared by every note asking for it — or `note-uploads/<note>-<id>` uploaded), drawing state, `image_at` synced like `word_tags_at` (never `updated_at`); the deck's "Illustrate new cards" switch (off by default)
 - `notes.check_issues` / `notes.check_at` / `users.card_check` / `deck_check_jobs` - Word checks (migration 0104): open "⚠ Possible issue"s on a note (JSON, `shared/cards/check.ts`), when they last changed (synced like `long_term_at`), the "Check new words" switch (NULL = on for tutors), and per-deck "Check for errors" runs (deck, the deck's owner, relationship + source deck for a tutor checking a student's copy, status, progress, proposals JSON, tokens). See "Word checks"
 - `audio_lessons` - Audio lessons (migration 0046 reused + 0111; docs/AUDIO_LESSONS.md): format dialogue|sleep|story (TEXT, no CHECK), status queued/writing/speaking/rendering/ready/failed, progress + clips done/total, input, the agent transcript, plan, script, timeline (chapters + transcript), words, `audio_key` (R2 `audio-lessons/`), usage, pinned `zh_provider`, `for_relationship_id` (a label only). Rows with `format` NULL are the removed first attempt
+- `podcast_subscriptions` / `podcast_feed_cache` / `podcast_episodes` / `podcast_episode_users` - 🎙 Podcasts (migration 0125, docs/PODCASTS.md; Lab app only for now): a user's subscribed RSS feeds, the parsed feeds (shared, 30 min), ONE shared transcription per episode (id = hash of feed + guid; status queued → downloading → transcribing → translating → ready | failed, the R2 copy `podcast-episodes/<id>.<ext>`, Soniox job id, `segments_json` = `{ i, start_ms, end_ms, text, speaker, lang, pinyin, english }[]`), and who asked for which episode + the mini lesson made from it
 - `podcast_feeds` - The private podcast feed of a user's audio lessons (migration 0112): one row per user, `token_hash` (SHA-256, how a feed request finds the user), `token_enc` (AES-GCM, so Settings can show the link again), created / rotated / last fetched, fetch count. Reset = new token; Turn off = row deleted
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
@@ -1265,6 +1266,22 @@ sleep timer, Media Session. MCP `create_audio_lesson` / `get_audio_lesson` / `li
   `DELETE` (off). Settings → "🎧 Audio lessons · Podcast feed" (`components/settings/PodcastFeedSection.tsx`; Lab
   `ui/audiolessons/PodcastFeed.kt`, also a sheet from the Audio lessons screen). Artwork `frontend/public/podcast-artwork.jpg`.
 
+### 🎙 Podcasts (`worker/src/routes/podcasts.ts`, `services/podcasts/`; Lab app only for now — read docs/PODCASTS.md)
+Subscribe to real Chinese podcasts by RSS (or an Apple Podcasts link / the show's page), browse episodes, **✨ Transcribe** one: the
+worker streams the enclosure into R2 `podcast-episodes/` (multipart, ≤ 200 MB, every redirect hop SSRF-checked like link previews —
+`services/podcasts/rss.ts` `safeFetch`), has Soniox async (stt-async-v5, diarization) transcribe a SIGNED link to that copy
+(`GET /api/podcast-source/:id?exp=&sig=`, before auth; HMAC from `SESSION_SECRET`, 6 h — the Soniox key never leaves the worker),
+cuts the timed tokens into ≈ 3–15 s segments (`segments.ts`) with automatic pinyin (pinyin-pro + `applyYiBuToneChanges`) and
+translates them 40 a call (`translate.ts`, `structuredCall`), checkpointed per batch, on **audio-lesson-queue** (`{ kind:
+'podcast_episode' }`, resumable stages, 3 attempts per stage, stale jobs nudged). ONE transcription per episode for everyone.
+E2E_TEST_MODE: inline fake (silence + canned lines); no `SONIOX_API_KEY` → `transcription_available: false`. "Make a mini lesson"
+reuses the companion-lesson writer on a 60-segment stretch (`lesson.ts`, `{ kind: 'podcast_lesson' }`), created in the learner's
+own account, never sent. Lab: `ui/podcasts/` (list, feed, the segment player: ▶ one segment, tap to uncover Chinese → pinyin →
+English, word chips → explorer, ➕ Words = the Coach's new-words picker, 0.75×, Keep playing, 👁 reveal mode), `data/podcasts/`
+(`PodcastStore`, `SegmentPlayer`, `PodcastsSync`), core `podcasts/Podcasts.kt`.
+- `GET /api/podcasts` · `POST /api/podcasts/subscriptions { url }` · `DELETE /api/podcasts/subscriptions/:id` · `GET /api/podcasts/feed?url=&refresh=1`
+- `POST /api/podcasts/episodes { feed_url, guid }` → 202 · `GET|DELETE /api/podcasts/episodes/:id` · `GET …/:id/audio` (Range) · `POST …/:id/retry` · `POST …/:id/lesson { from? }`
+
 ### Quests (tile-map mini-games, page at `/quests`, play at `/quests/:id`)
 A quest is a small top-down grid world with a character the learner drives with on-screen
 arrows, a pick-up/put-down button and contextual verb buttons. Each goal is an **imperative
@@ -1290,7 +1307,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `coach-reply-queue` (Sentence Coach replies, docs/CHAT.md "Chat ↔ Coach"), `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue` (word checks + AI word tags), `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md), `idiom-queue` (docs/IDIOMS.md), `homework-email-queue` (docs/HOMEWORK.md §12).
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `coach-reply-queue` (Sentence Coach replies, docs/CHAT.md "Chat ↔ Coach"), `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue` (word checks + AI word tags), `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md; also carries 🎙 podcast episode transcriptions and their mini lessons, `{ kind: 'podcast_episode' | 'podcast_lesson' }`, docs/PODCASTS.md), `idiom-queue` (docs/IDIOMS.md), `homework-email-queue` (docs/HOMEWORK.md §12).
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -2638,6 +2655,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/up-next`, `/connections/:relId/up-next` - "Up next" (docs/STUDY_SESSION.md "Up next"): ⚡ Today + search (＋ Top / ＋ Bottom / press-and-hold a result and drag it into place) + the ordered list (drag, ↑, ⚡, ✕ with Undo) — offline-first (`services/upNext.ts`, IndexedDB `upNext` / `upNextOps`); the tutor's view of a student's list (online). More → Up next, Home's "↑ N up next" line, "↑" on deck rows / the card hub
 - `/tutor-notes`, `/tutor-notes/practice?cards=&notes=` - Notes from your tutor (More → From your tutor, Home row) / practising those cards in the study card (immersive; a rating counts only when due)
 - `/audio-lessons`, `/audio-lessons/:id` - Audio lessons: list + New audio lesson (Dialogue / Sleep / Story; More → Practice), the player (immersive; offline once opened)
+- `/podcasts`, `/podcasts/feed?url=`, `/podcasts/episodes/:id` - 🎙 Podcasts — **Lab app only** (no web page yet; docs/PODCASTS.md)
 - `/idioms`, `/idioms/:hanzi` - 成语 Idioms (beta): look one up / browse the starter list, and one idiom's page (More → Practice; tutors More → Tools; the explorer's "📜 Story & usage")
 - `/picture-hunt`, `/picture-hunt/:id` - Picture hunt: list + make / upload, and the game (immersive; More → Practice)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
