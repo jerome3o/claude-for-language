@@ -1182,12 +1182,20 @@ private fun UnknownBody(v: ActivityView) {
  * topic and one line of what you do. Starting one while another runs replaces it (its result is kept).
  */
 @Composable
-fun ActivityPickerSheet(running: ActivitySession?, onPick: (String) -> Unit) {
+fun ActivityPickerSheet(
+    running: ActivitySession?,
+    onPick: (String) -> Unit,
+    /** The tutor's "For <student> · from last lesson" (null for the student / a solo call). */
+    prepared: PickerPreparedUi? = null,
+    preparedActions: PickerPreparedActions = PickerPreparedActions(),
+) {
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         if (running != null && running.phase != ActivityPhases.DONE) {
             InlineNotice("“${running.spec.title}” is running. Starting another ends the current one (its result is kept).", kind = NoticeKind.Info, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         }
         Hint("Two-person exercises you play together, live. Either of you can start one; roles are set for you, and the tutor can restart or swap them.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        // Prepared for this student from their previous lessons — the tutor's, first (docs/VIDEO_CALLS.md "Prepared activities").
+        if (prepared != null) PreparedPickerSection(prepared, preparedActions)
         // Review together: built per call from what needs the tutor's ear (not in the catalogue).
         CallActivities.KIND_INFO[ActivityKinds.REVIEW]?.let { info ->
             PickerKindHeader(info.icon, info.name, info.blurb)

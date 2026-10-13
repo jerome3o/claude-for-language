@@ -1190,11 +1190,11 @@ class CallController(
     }
 
     /** ⋯ → 🎲 Activities: start one (replaces a running one); the room answers with `activity` to both. */
-    fun startActivity(activityId: String) {
+    fun startActivity(activityId: String, kind: String? = null) {
         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
             "call.activity_start",
             mapOf(
-                "activity_kind" to (dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind
+                "activity_kind" to (kind ?: dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.find(activityId)?.kind
                     ?: dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds.REVIEW.takeIf { activityId == dev.jeromeswannack.chineselearning.lab.core.calls.CallActivities.REVIEW_ACTIVITY_ID }),
                 "role" to activityStarterRole(_state.value, myId()),
             ),

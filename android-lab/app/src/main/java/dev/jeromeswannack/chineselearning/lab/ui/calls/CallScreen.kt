@@ -138,6 +138,8 @@ data class CallScreenInfo(
     val presentSheet: PresentSheetUi = PresentSheetUi(),
     /** Screenshots: the activity tile's local state (solo "viewing as", a sheet open). */
     val activitySeed: ActivityUiSeed = ActivityUiSeed(),
+    /** The tutor's activities prepared for this student (⋯ → 🎲 Activities, first section); null otherwise. */
+    val prepared: PickerPreparedUi? = null,
 )
 
 data class CallActions(
@@ -196,6 +198,8 @@ data class CallActions(
     val onAddMaterial: () -> Unit = {},
     /** In-call activities: ⋯ → 🎲 Activities → start one; the tile's actions. */
     val onStartActivity: (String) -> Unit = {},
+    /** The prepared section: start one (as `prepared:<id>`), ↻ Make more, 👁 previewed. */
+    val prepared: PickerPreparedActions = PickerPreparedActions(),
     /** ⋯ → 🎲 Activities (the screen opens the picker). */
     val onOpenActivities: () -> Unit = {},
     val activity: ActivityActions = ActivityActions(),
@@ -863,7 +867,12 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         CallMoreMenu(s, info, actions.copy(onOpenPresent = { presentOpen = true; actions.onOpenPresent() }, onOpenActivities = { activitiesOpen = true }), close = { more = false })
     }
     if (activitiesOpen) LabBottomSheet(onDismiss = { activitiesOpen = false }, title = "Activities") {
-        ActivityPickerSheet(s.activity, onPick = { id -> actions.onStartActivity(id); actions.onTick(); activitiesOpen = false })
+        ActivityPickerSheet(
+            s.activity,
+            onPick = { id -> actions.onStartActivity(id); actions.onTick(); activitiesOpen = false },
+            prepared = info.prepared,
+            preparedActions = actions.prepared.copy(start = { a -> actions.prepared.start(a); actions.onTick(); activitiesOpen = false }),
+        )
     }
     if (presentOpen) LabBottomSheet(onDismiss = { presentOpen = false }, title = "Present a material") {
         PresentMaterialSheet(info.presentSheet, onPick = { id -> actions.onPresent(id); actions.onTick(); presentOpen = false }, onAdd = actions.onAddMaterial)
