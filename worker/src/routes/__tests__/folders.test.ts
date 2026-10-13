@@ -1,7 +1,7 @@
 /**
  * Folders (routes/folders.ts + services/folders.ts) against real SQLite with every
- * migration: per-user ownership, one level of nesting, delete → Unfiled (content
- * kept, subfolders lifted), moves (decks re-dated for sync, queue untouched), reorder,
+ * migration: per-user ownership, nesting up to 5 levels (no cycles), delete → Unfiled
+ * (content kept, subfolders lifted one level), moves (decks re-dated for sync, queue untouched), reorder,
  * folder_id on the create paths and in /api/sync/changes.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -114,17 +114,52 @@ describe('folders', () => {
     expect((await me('POST', '/folders/move', { kind: 'deck', ids: ['d-2'] })).status).toBe(400);
   });
 
-  it('nests one level only', async () => {
-    const top = (await me('POST', '/folders', { kind: 'reader', name: 'Stories' })).json.folder;
-    const sub = await me('POST', '/folders', { kind: 'reader', name: 'Paris', parent_id: top.id });
-    expect(sub.status).toBe(201);
-    expect(sub.json.folder.parent_id).toBe(top.id);
-    const deeper = await me('POST', '/folders', { kind: 'reader', name: 'Too deep', parent_id: sub.json.folder.id });
+  it('nests up to five levels, never in a cycle', async () => {
+    const chain: any[] = [];
+    for (const name of ['Stories', 'Paris', 'Week 1', 'Monday', 'Morning']) {
+      const r = await me('POST', '/folders', { kind: 'reader', name, parent_id: chain.at(-1)?.id ?? null });
+      expect(r.status).toBe(201);
+      chain.push(r.json.folder);
+    }
+    expect(chain[4].parent_id).toBe(chain[3].id);
+    // A sixth level is refused.
+    const deeper = await me('POST', '/folders', { kind: 'reader', name: 'Too deep', parent_id: chain[4].id });
     expect(deeper.status).toBe(400);
+    expect(deeper.json.problems[0]).toMatch(/5 levels deep/);
+    // A folder can't go inside its own subfolder.
+    const cycle = await me('PATCH', `/folders/${chain[0].id}`, { parent_id: chain[2].id });
+    expect(cycle.status).toBe(400);
+    expect(cycle.json.problems[0]).toMatch(/one of its own folders/);
+    // A folder with two levels inside it fits only where the whole subtree stays within five.
     const other2 = (await me('POST', '/folders', { kind: 'reader', name: 'Other' })).json.folder;
-    expect((await me('PATCH', `/folders/${top.id}`, { parent_id: other2.id })).status).toBe(400);
-    // A subfolder can come back to the top level.
-    expect((await me('PATCH', `/folders/${sub.json.folder.id}`, { parent_id: null })).json.folder.parent_id).toBeNull();
+    const o2 = (await me('POST', '/folders', { kind: 'reader', name: 'Other 2', parent_id: other2.id })).json.folder;
+    expect((await me('PATCH', `/folders/${other2.id}`, { parent_id: chain[3].id })).status).toBe(400);
+    const moved = await me('PATCH', `/folders/${other2.id}`, { parent_id: chain[2].id });
+    expect(moved.status).toBe(200);
+    expect(moved.json.folder.parent_id).toBe(chain[2].id);
+    expect((await one(db, 'SELECT parent_id FROM folders WHERE id = ?', [o2.id])).parent_id).toBe(other2.id);
+    // Any subfolder can come back to the top level.
+    expect((await me('PATCH', `/folders/${chain[3].id}`, { parent_id: null })).json.folder.parent_id).toBeNull();
+  });
+
+  it('deleting a nested folder lifts its subfolders one level, into its parent', async () => {
+    const a = (await me('POST', '/folders', { kind: 'deck', name: 'A' })).json.folder;
+    const keep = (await me('POST', '/folders', { kind: 'deck', name: 'Keep', parent_id: a.id })).json.folder;
+    const b = (await me('POST', '/folders', { kind: 'deck', name: 'B', parent_id: a.id })).json.folder;
+    const c = (await me('POST', '/folders', { kind: 'deck', name: 'C', parent_id: b.id })).json.folder;
+    const d = (await me('POST', '/folders', { kind: 'deck', name: 'D', parent_id: c.id })).json.folder;
+    await me('POST', '/folders/move', { kind: 'deck', ids: ['d-1'], folder_id: b.id });
+    await me('POST', '/folders/move', { kind: 'deck', ids: ['d-2'], folder_id: d.id });
+    const del = await me('DELETE', `/folders/${b.id}`);
+    expect(del.json).toEqual({ deleted: true, unfiled: 1, lifted: 1 });
+    const left = await listFolders(db, ME, 'deck');
+    const byName = Object.fromEntries(left.map((f) => [f.name, f]));
+    expect(byName.C.parent_id).toBe(a.id); // up one level, after Keep
+    expect(byName.C.position).toBeGreaterThan(byName.Keep.position);
+    expect(byName.D.parent_id).toBe(c.id); // everything inside C stays inside
+    expect(keep.parent_id).toBe(a.id);
+    expect((await one(db, "SELECT folder_id FROM decks WHERE id = 'd-1'")).folder_id).toBeNull();
+    expect((await one(db, "SELECT folder_id FROM decks WHERE id = 'd-2'")).folder_id).toBe(d.id);
   });
 
   it('delete moves items to Unfiled, lifts subfolders, deletes no content', async () => {
@@ -158,5 +193,21 @@ describe('folders', () => {
     await expect(resolveFolderId(db, ME, 'deck', a.folder.id)).rejects.toThrow(/No deck folder/);
     expect(await resolveFolderId(db, ME, 'lesson', a.folder.id)).toBe(a.folder.id);
     expect(await resolveFolderId(db, ME, 'lesson', null)).toBeNull();
+  });
+
+  it('find-or-create by path makes the missing steps inside each other', async () => {
+    const made = await findOrCreateFolderByName(db, ME, 'deck', 'HSK 2 / Week 1 / Monday');
+    expect(made.created).toBe(true);
+    const all = await listFolders(db, ME, 'deck');
+    const byName = Object.fromEntries(all.map((f) => [f.name, f]));
+    expect(byName['Week 1'].parent_id).toBe(byName['HSK 2'].id);
+    expect(made.folder.parent_id).toBe(byName['Week 1'].id);
+    const again = await findOrCreateFolderByName(db, ME, 'deck', 'hsk 2 › week 1 › monday');
+    expect(again).toMatchObject({ created: false, folder: { id: made.folder.id } });
+    // One name finds it at any depth; a new branch reuses the existing steps.
+    expect((await findOrCreateFolderByName(db, ME, 'deck', 'Monday')).folder.id).toBe(made.folder.id);
+    const tue = await findOrCreateFolderByName(db, ME, 'deck', 'HSK 2/Week 1/Tuesday');
+    expect(tue.folder.parent_id).toBe(byName['Week 1'].id);
+    expect((await listFolders(db, ME, 'deck')).length).toBe(4);
   });
 });

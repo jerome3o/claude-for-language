@@ -130,14 +130,16 @@ fun DecksTabScreen(
     val groupOfKey = baseRows.filterIsInstance<FolderRow.Item<DeckCardUi>>().associate { it.key to it.groupKey }
     val dragIds = when {
         folders?.selecting == true -> emptyList()
-        grouped -> baseRows.filter { it is FolderRow.Item<*> || (it is FolderRow.Header && it.depth == 0 && it.folder != null) }.map { it.key }
+        grouped -> baseRows.filter { it is FolderRow.Item<*> || (it is FolderRow.Header && it.folder != null) }.map { it.key }
         else -> allIds
     }
+    // A folder header moves among its siblings (any level); a deck inside its own folder.
+    val headerParents = dev.jeromeswannack.chineselearning.lab.ui.folders.headerParents(folders?.folders.orEmpty())
     val drag = rememberDragReorderState(
         listState, dragIds, onLift = actions.onLift, onSlot = actions.onSlot,
-        onCommit = { final -> commitGrouped(grouped, final, dragIds, allIds, groupOfKey, actions, folderActions) },
+        onCommit = { final -> commitGrouped(grouped, final, dragIds, allIds, groupOfKey, headerParents, actions, folderActions) },
         sameGroup = { a, b ->
-            if (FolderRow.isHeaderKey(a)) FolderRow.isHeaderKey(b)
+            if (FolderRow.isHeaderKey(a)) dev.jeromeswannack.chineselearning.lab.ui.folders.sameFolderLevel(headerParents, a, b)
             else !FolderRow.isHeaderKey(b) && groupOfKey[a] == groupOfKey[b]
         },
     )
@@ -273,14 +275,12 @@ private fun commitGrouped(
     before: List<String>,
     allIds: List<String>,
     groupOfKey: Map<String, String>,
+    headerParents: Map<String, String?>,
     actions: DecksActions,
     folderActions: FolderActions,
 ) {
     if (!grouped) return actions.onCommitOrder(final)
-    val headersAfter = final.filter{ FolderRow.isHeaderKey(it) }
-    if (headersAfter != before.filter{ FolderRow.isHeaderKey(it) }) {
-        return folderActions.onReorder(headersAfter.mapNotNull { FolderRow.folderIdOfKey(it) })
-    }
+    dev.jeromeswannack.chineselearning.lab.ui.folders.changedFolderLevel(final, before, headerParents)?.let { return folderActions.onReorder(it) }
     for (g in groupOfKey.values.distinct()) {
         val after = final.filter { groupOfKey[it] == g }
         if (after != before.filter { groupOfKey[it] == g }) return actions.onCommitOrder(Folders.spliceGroupOrder(allIds, after))

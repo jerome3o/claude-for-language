@@ -119,3 +119,56 @@ test('library folders: group, multi-select move, delete → Unfiled', async ({ p
   expect(items.items.map((i) => i.folder_id)).toEqual([null, null]);
   expect(new Set(items.items.map((i) => i.id))).toEqual(new Set([a.id, b.id]));
 });
+
+test('nested folders: a folder three levels deep, a lesson moved in, a folder moved, delete lifts one level', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const me = await seedUser(request);
+  await api(request, '/api/lesson-library', { method: 'POST', token: me.token, data: { spec: LESSON } });
+  const top = (await api<{ folder: { id: string } }>(request, '/api/folders', { method: 'POST', token: me.token, data: { kind: 'lesson', name: 'HSK 2' } })).folder;
+  const week = (await api<{ folder: { id: string } }>(request, '/api/folders', { method: 'POST', token: me.token, data: { kind: 'lesson', name: 'Week 1', parent_id: top.id } })).folder;
+  const other = (await api<{ folder: { id: string } }>(request, '/api/folders', { method: 'POST', token: me.token, data: { kind: 'lesson', name: 'Grammar' } })).folder;
+
+  await page.goto(`/library?session_token=${me.token}`);
+  await expect(page.getByTestId('library-card')).toHaveCount(1, { timeout: 30_000 });
+
+  // ⋯ on "Week 1" (level 2) → New folder inside… → "Monday" (level 3)
+  const weekGroup = page.locator(`[data-folder-id="${week.id}"]`);
+  await weekGroup.getByTestId('folder-menu').first().click();
+  await weekGroup.getByTestId('folder-menu-sub').first().click();
+  await page.getByTestId('folder-name-input').fill('Monday');
+  await expect(page.getByTestId('folder-inside-select')).toHaveValue(week.id);
+  await page.getByTestId('folder-name-save').click();
+  const monday = weekGroup.locator('[data-depth="2"]');
+  await expect(monday).toContainText('Monday');
+
+  // The lesson's ⋯ → Move to folder…: the sheet is a tree, Monday indented under Week 1.
+  await page.getByTestId('library-card').getByRole('button', { name: 'More' }).click();
+  await page.getByTestId('library-move-to-folder').click();
+  const sheet = page.getByTestId('move-to-folder-sheet');
+  await expect(sheet.getByTestId('folder-breadcrumb')).toContainText('Unfiled');
+  const mondayRow = sheet.locator('[data-depth="2"]');
+  await expect(mondayRow).toContainText('Monday');
+  await mondayRow.click();
+  await expect(page.getByText('Moved 1 lesson to Monday')).toBeVisible();
+  await expect(monday.getByTestId('library-card')).toHaveCount(1);
+  // Totals roll up: HSK 2 counts the lesson two levels down.
+  await expect(page.getByTestId(`folder-toggle-${top.id}`)).toContainText('1 lesson');
+
+  // Move "Grammar" inside "HSK 2" from its ⋯ menu.
+  const grammarGroup = page.locator(`[data-folder-id="${other.id}"]`);
+  await grammarGroup.getByTestId('folder-menu').first().click();
+  await grammarGroup.getByTestId('folder-menu-move').first().click();
+  await page.getByTestId('move-folder-sheet').getByTestId(`move-to-${top.id}`).click();
+  await expect(page.locator(`[data-folder-id="${top.id}"] [data-folder-id="${other.id}"]`)).toBeVisible();
+
+  // Delete "Week 1": Monday (with the lesson) moves up into HSK 2; nothing is deleted.
+  await weekGroup.getByTestId('folder-menu').first().click();
+  await weekGroup.getByTestId('folder-menu-delete').first().click();
+  await expect(page.getByTestId('delete-folder-sheet')).toContainText('Its folder moves into “HSK 2”. Nothing is deleted.');
+  await page.getByTestId('delete-folder-confirm').click();
+  await expect(page.locator(`[data-folder-id="${week.id}"]`)).toHaveCount(0);
+  const mondayNow = page.locator(`[data-folder-id="${top.id}"] [data-depth="1"]`).filter({ hasText: 'Monday' });
+  await expect(mondayNow.getByTestId('library-card')).toHaveCount(1);
+  const { folders } = await api<{ folders: Array<{ id: string; name: string; parent_id: string | null }> }>(request, '/api/folders?kind=lesson', { token: me.token });
+  expect(folders.find((f) => f.name === 'Monday')?.parent_id).toBe(top.id);
+});
