@@ -841,17 +841,17 @@ export async function createNote(db: D1Database, deckId: string, input: NoteRowI
  */
 /**
  * Notes changed since a sync cursor (`/api/sync/changes`): edited (updated_at), given a
- * long-term choice (long_term_at), a word check (check_at) or AI word tags (word_tags_at) —
- * the last three deliberately leave updated_at alone.
+ * long-term choice (long_term_at), a word check (check_at), AI word tags (word_tags_at) or a
+ * picture (image_at) — the last four deliberately leave updated_at alone.
  */
 export async function getNotesChangedSince(db: D1Database, userId: string, sinceDate: string) {
   return db
     .prepare(
       `SELECT n.* FROM notes n
         JOIN decks d ON n.deck_id = d.id
-       WHERE d.user_id = ? AND (n.updated_at >= ? OR n.long_term_at >= ? OR n.check_at >= ? OR n.word_tags_at >= ?)`
+       WHERE d.user_id = ? AND (n.updated_at >= ? OR n.long_term_at >= ? OR n.check_at >= ? OR n.word_tags_at >= ? OR n.image_at >= ?)`
     )
-    .bind(userId, sinceDate, sinceDate, sinceDate, sinceDate)
+    .bind(userId, sinceDate, sinceDate, sinceDate, sinceDate, sinceDate)
     .all<Record<string, unknown>>();
 }
 
@@ -896,6 +896,14 @@ export async function insertNoteCopy(db: D1Database, targetDeckId: string, note:
   // The AI word tags are about the word, so the copy shares them (shared/cards/word-tags-ai.ts).
   if (note.word_tags != null) {
     await db.prepare("UPDATE notes SET word_tags = ?, word_tags_at = datetime('now') WHERE id = ?").bind(note.word_tags as string, newNoteId).run();
+  }
+  // The picture too (shared/cards/note-image.ts): the same R2 key, deleted only when unreferenced.
+  // A picture still being drawn is waited for by hash, so the copy gets it when it is drawn.
+  if (note.image_key != null || note.image_status === 'pending') {
+    await db
+      .prepare("UPDATE notes SET image_key = ?, image_source = ?, image_status = ?, image_hash = ?, image_at = datetime('now') WHERE id = ?")
+      .bind((note.image_key as string | null) ?? null, (note.image_source as string | null) ?? null, note.image_status === 'pending' ? 'pending' : null, (note.image_hash as string | null) ?? null, newNoteId)
+      .run();
   }
   await insertCardsForNote(db, newNoteId);
   return newNoteId;
@@ -2592,7 +2600,7 @@ export async function reorderReaderPages(db: D1Database, readerId: string, userI
  * URLs are R2 keys relative to /api/audio/ (e.g. "generated/abc.mp3").
  */
 export async function getAudioManifest(db: D1Database, userId: string): Promise<string[]> {
-  const [noteAudio, clueAudio, recordings, sentenceSetAudio] = await Promise.all([
+  const [noteAudio, clueAudio, recordings, sentenceSetAudio, noteImages] = await Promise.all([
     db.prepare(`
       SELECT n.audio_url AS url FROM notes n
       JOIN decks d ON n.deck_id = d.id
@@ -2615,10 +2623,16 @@ export async function getAudioManifest(db: D1Database, userId: string): Promise<
       JOIN decks d ON n.deck_id = d.id
       WHERE d.user_id = ? AND ns.audio_url IS NOT NULL
     `).bind(userId).all<{ url: string }>(),
+    // Card pictures ride the same offline prefetch (shared/cards/note-image.ts).
+    db.prepare(`
+      SELECT n.image_key AS url FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.image_key IS NOT NULL
+    `).bind(userId).all<{ url: string }>(),
   ]);
 
   const urls = new Set<string>();
-  for (const rows of [noteAudio.results, clueAudio.results, recordings.results, sentenceSetAudio.results]) {
+  for (const rows of [noteAudio.results, clueAudio.results, recordings.results, sentenceSetAudio.results, noteImages.results]) {
     for (const row of rows) {
       if (row.url) urls.add(row.url);
     }

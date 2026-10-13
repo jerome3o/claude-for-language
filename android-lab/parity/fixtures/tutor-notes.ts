@@ -10,6 +10,7 @@ import {
   mergeTutorNotes,
   tutorNotesHomeLine,
   tutorNoteLabel,
+  tutorSaysItLabel,
   practiceRatingCounts,
   practiceAfterRating,
   practiceCardIds,
@@ -55,16 +56,17 @@ function note(i: number): TutorNote {
     seen_at: r() < 0.5 ? when() : null,
     recording_url: kind === 'recording' && r() < 0.8 ? 'recordings/x.webm' : null,
     student_message: kind === 'flag' ? pick(['help', null]) : null,
+    model_audio_url: kind === 'recording' && r() < 0.4 ? `/api/recording-marks/x/model-audio?v=${int(0, 9)}` : null,
   };
 }
 
 const merges = Array.from({ length: 150 }, () => {
   const all = Array.from({ length: int(0, 8) }, (_, i) => note(i));
   const unseen: UnseenTutorNote[] = [];
-  for (const n of all) if (r() < 0.4) unseen.push({ id: n.id, kind: n.kind, card_id: n.card_id, note_id: n.note_id, hanzi: n.hanzi, comment: r() < 0.2 ? 'edited' : n.comment, tutor_name: r() < 0.1 ? null : n.tutor_name, updated_at: r() < 0.2 ? when() : n.updated_at });
+  for (const n of all) if (r() < 0.4) unseen.push({ id: n.id, kind: n.kind, card_id: n.card_id, note_id: n.note_id, hanzi: n.hanzi, comment: r() < 0.2 ? 'edited' : n.comment, tutor_name: r() < 0.1 ? null : n.tutor_name, updated_at: r() < 0.2 ? when() : n.updated_at, recording_url: r() < 0.5 ? n.recording_url : undefined, model_audio_url: r() < 0.3 ? `/api/recording-marks/${n.id}/model-audio?v=new` : r() < 0.5 ? n.model_audio_url : undefined });
   for (let k = int(0, 2); k > 0; k--) {
     const n = note(100 + k);
-    unseen.push({ id: n.id, kind: n.kind, card_id: n.card_id, note_id: n.note_id, hanzi: n.hanzi, comment: n.comment, tutor_name: n.tutor_name, updated_at: n.updated_at });
+    unseen.push({ id: n.id, kind: n.kind, card_id: n.card_id, note_id: n.note_id, hanzi: n.hanzi, comment: n.comment, tutor_name: n.tutor_name, updated_at: n.updated_at, recording_url: r() < 0.5 ? n.recording_url : undefined, model_audio_url: r() < 0.5 ? n.model_audio_url : undefined });
   }
   if (unseen.length && r() < 0.2) unseen.push(unseen[0]);
   const list = mergeTutorNotes(all, unseen);
@@ -72,6 +74,7 @@ const merges = Array.from({ length: 150 }, () => {
 });
 
 const labels = (['recording', 'flag'] as const).map((kind) => ({ kind, label: tutorNoteLabel({ kind }) }));
+const saysIt = [...TUTORS, null, undefined].map((name) => ({ name: name ?? null, label: tutorSaysItLabel(name) }));
 
 const cutoff = Date.parse('2026-09-29T23:59:59.999Z');
 const counts = Array.from({ length: 80 }, () => {
@@ -97,4 +100,4 @@ const cardPicks = Array.from({ length: 60 }, () => {
   return { notes, cardsByNote, result: practiceCardIds(notes, new Map(cardsByNote)) };
 });
 
-writeFileSync(join(OUT, 'tutor-notes.json'), JSON.stringify({ merges, labels, counts, after, cardPicks }));
+writeFileSync(join(OUT, 'tutor-notes.json'), JSON.stringify({ merges, labels, saysIt, counts, after, cardPicks }));

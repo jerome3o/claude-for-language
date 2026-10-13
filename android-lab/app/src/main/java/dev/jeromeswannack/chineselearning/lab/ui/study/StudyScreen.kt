@@ -105,6 +105,8 @@ class StudyActions(
     val onNewVoice: () -> Unit = {},
     val onRoleplay: () -> Unit = {},
     val onPlayMyRecording: () -> Unit = {},
+    /** A tutor note's "▶ <tutor> says it" (which = "tutor") or "▶ You" (which = "mine"). */
+    val onPlayTutorModel: (TutorNote, String) -> Unit = { _, _ -> },
     // my pronunciation (read cards)
     val onStartRecording: (skipDelay: Boolean) -> Unit = {},
     val onStopRecording: (flipped: Boolean) -> Unit = {},
@@ -281,6 +283,7 @@ fun StudyRoute(
             },
             onCardSpoken = vm::onCardSpoken,
             onPlayMyRecording = vm::playMyRecording,
+            onPlayTutorModel = vm::playTutorModel,
             onStartRecording = vm::startRecording,
             onStopRecording = vm::stopRecording,
             onClearRecording = vm::clearRecording,
@@ -307,7 +310,7 @@ fun StudyRoute(
                 setPrimary = { id -> currentNote()?.let { n -> tools.setPrimaryRecording(n.id, id) } },
                 deleteRecording = { id -> currentNote()?.let { n -> tools.deleteRecording(n.id, id) } },
                 play = vm::play,
-                media = { noteId, fields -> dev.jeromeswannack.chineselearning.lab.ui.cards.NoteMediaSections(app, noteId, fields) },
+                media = { noteId, fields -> dev.jeromeswannack.chineselearning.lab.ui.cards.NoteMediaSections(app, noteId, fields, onPictureChange = { vm.noteChanged(noteId) }) },
             ),
             ask = AskActions(
                 ask = vm::ask,

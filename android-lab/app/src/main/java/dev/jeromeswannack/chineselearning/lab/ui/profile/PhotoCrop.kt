@@ -63,18 +63,22 @@ fun PhotoCropSheet(
     onCancel: () -> Unit,
     onConfirm: (ProfileRules.SourceRect) -> Unit,
     initialZoom: Float = 1f,
+    title: String = "Position your photo",
+    /** The round avatar guide (off for a square card picture). */
+    round: Boolean = true,
+    confirmLabel: String = "Use this photo",
 ) {
     val image = remember(photo) { photo.asImageBitmap() }
     var crop by remember(photo) { mutableStateOf<ProfileRules.Crop?>(null) }
     LabFormSheet(
         onDismiss = { if (!busy) onCancel() },
-        title = "Position your photo",
+        title = title,
         contentPadding = PaddingValues(0.dp),
         spacing = 0.dp,
         footerAbove = error?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
         footer = {
             SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), enabled = !busy, onClick = onCancel)
-            PrimaryPill(if (busy) "Uploading…" else "Use this photo", Modifier.weight(1f).height(52.dp), enabled = !busy && crop != null) {
+            PrimaryPill(if (busy) "Uploading…" else confirmLabel, Modifier.weight(1f).height(52.dp), enabled = !busy && crop != null) {
                 crop?.let { onConfirm(ProfileRules.sourceRect(it)) }
             }
         },
@@ -109,6 +113,7 @@ fun PhotoCropSheet(
                         dstSize = IntSize((photo.width * c.scale).toInt(), (photo.height * c.scale).toInt()),
                     )
                     // Dim outside the round guide, then the ring itself.
+                    if (!round) return@Canvas
                     val r = size.minDimension / 2
                     val path = androidx.compose.ui.graphics.Path().apply {
                         fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
@@ -158,16 +163,16 @@ object PhotoFiles {
             ?: throw IllegalArgumentException("This photo couldn't be opened. Try a JPEG or PNG.")
     }
 
-    /** Cut the chosen square, resize it (≤ 512px) and write a JPEG to [dir]. */
-    fun renderJpeg(photo: Bitmap, rect: ProfileRules.SourceRect, dir: File): File {
+    /** Cut the chosen square, resize it (≤ [target] px, 512 for a profile photo) and write a JPEG to [dir]. */
+    fun renderJpeg(photo: Bitmap, rect: ProfileRules.SourceRect, dir: File, target: Int = ProfileRules.PICTURE_SIZE, name: String = "profile-upload.jpg"): File {
         val square = Bitmap.createBitmap(photo, rect.sx, rect.sy, rect.side, rect.side)
-        val size = ProfileRules.outputSize(rect.side)
+        val size = ProfileRules.outputSize(rect.side, target)
         val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         android.graphics.Canvas(out).apply {
             drawColor(android.graphics.Color.WHITE) // transparent PNGs get white, not black
             drawBitmap(square, null, android.graphics.Rect(0, 0, size, size), android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
         }
-        val file = File(dir.apply { mkdirs() }, "profile-upload.jpg")
+        val file = File(dir.apply { mkdirs() }, name)
         file.outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 88, it) }
         return file
     }

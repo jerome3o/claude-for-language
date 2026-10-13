@@ -28,7 +28,7 @@ export type StoredAttachment = ChatAttachment & { key: string };
 
 export type AudioMime = 'audio/webm' | 'audio/ogg' | 'audio/mp4' | 'audio/aac' | 'audio/mpeg' | 'audio/wav';
 
-const AUDIO_EXT: Record<AudioMime, string> = {
+export const AUDIO_EXT: Record<AudioMime, string> = {
   'audio/webm': 'webm',
   'audio/ogg': 'ogg',
   'audio/mp4': 'm4a',

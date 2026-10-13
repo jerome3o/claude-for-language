@@ -52,6 +52,8 @@ data class NoteRowUi(
     val upNextPlace: Int = 0,
     /** It still has a NEW card, so it can go on the Up next list. */
     val canUpNext: Boolean = false,
+    /** The note's picture (pictures on cards): a thumbnail on the row. */
+    val imageKey: String? = null,
 )
 
 data class DeckHeaderUi(
@@ -119,7 +121,7 @@ data class DeckUi(
 class DeckViewModel(private val env: DecksEnv, private val deckId: String) : ViewModel() {
     private val _ui = MutableStateFlow(DeckUi(isTutorAccount = env.isTutorAccount()))
     val ui: StateFlow<DeckUi> = _ui
-    val editor = NoteEditor(env, viewModelScope).apply { onDone = { msg -> say(msg) } }
+    val editor = NoteEditor(env, viewModelScope).apply { onDone = { msg -> say(msg) }; onPictureChanged = { refresh() } }
     private var sharesFetched = false
 
     init {
@@ -236,6 +238,7 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
             NoteRowUi(
                 n.id, n.hanzi, n.pinyin, n.english, n.sentenceClue, n.audioUrl, ratings[n.id].orEmpty(), DeckStats.notePercent(cardsByNote[n.id].orEmpty()),
                 issues = if (n.checkIssues == null) emptyList() else CardCheck.liveCheckIssues(CardCheck.parseCheckIssues(n.checkIssues), n.pinyin, n.english),
+                imageKey = n.imageKey,
             )
         }.sortedByDescending { it.mastery } // stable: equal mastery keeps Room order
 

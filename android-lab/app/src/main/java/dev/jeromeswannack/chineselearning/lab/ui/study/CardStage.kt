@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.NotePicture
+import dev.jeromeswannack.chineselearning.lab.core.cards.NoteImage
 import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTile
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.ui.kit.StudyCardFlip
@@ -507,12 +509,15 @@ fun CardStage(
 @Composable
 private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startShowClue: Boolean, revealed: Boolean, onTapToAnswer: () -> Unit) {
     val note = view.note
+    // Pictures on cards: with the English on meaning → hanzi only (core cards/NoteImage.kt).
+    val picturesOn by StudyPrefs.get(androidx.compose.ui.platform.LocalContext.current).picturesOn.collectAsState()
     var showClue by remember(view.presentation) { mutableStateOf(startShowClue) }
     val generating = CardBusy.SENTENCE_CLUE in ui.extras.busy
     BoxWithConstraints(Modifier.fillMaxSize()) {
     // Short card (a long multiple-choice grid below takes most of the screen): a tighter front
     // that scrolls rather than clipping — the prompt stays readable above the grid.
     val short = maxHeight < SHORT_FRONT
+    val frontHeight = maxHeight
     val frontScroll = rememberScrollState()
     Column(
         (if (short) Modifier.fillMaxSize().verticalScroll(frontScroll).heightIn(min = maxHeight) else Modifier.fillMaxSize())
@@ -542,12 +547,18 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
         if (!short) Spacer(Modifier.weight(1f))
         when (view.card.cardType) {
             CardTypes.HANZI_TO_MEANING -> FrontHanzi(note.hanzi, rememberShimmerChars(view.newChars))
-            CardTypes.MEANING_TO_HANZI -> Text(
-                note.english,
-                style = if (short) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
-                color = Lab.colors.ink,
-                textAlign = TextAlign.Center,
-            )
+            CardTypes.MEANING_TO_HANZI -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (NoteImage.show(view.card.cardType, front = true, enabled = picturesOn, imageKey = note.imageKey)) {
+                    NotePicture(note.imageKey, size = if (short) 88.dp else minOf(200.dp, frontHeight * 0.26f), side = "front", cardType = view.card.cardType, tag = PICTURE_FRONT_TAG, preview = view.picturePreview)
+                    Spacer(Modifier.height(if (short) 6.dp else 14.dp))
+                }
+                Text(
+                    note.english,
+                    style = if (short) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
+                    color = Lab.colors.ink,
+                    textAlign = TextAlign.Center,
+                )
+            }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 BigPlayButton(playing = isWordPlaying(playingKey, view, ui), size = if (short) 76.dp else 132.dp, generating = ui.cardAudio.word == ClipState.GENERATING) { actions.onPlayWord(true) }
                 val voices = ui.extras.voices
@@ -664,6 +675,7 @@ private fun CardBack(
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
+    val picturesOn by StudyPrefs.get(androidx.compose.ui.platform.LocalContext.current).picturesOn.collectAsState()
     val onChar: (String) -> Unit = { ch -> if (CardExtrasLogic.isLookupCharacter(ch)) onCharacter(ch) }
     // Never-seen characters shimmer (core NewCharacters; worked out when the card was shown).
     val newChars = rememberShimmerChars(view.newChars)
@@ -690,12 +702,17 @@ private fun CardBack(
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                KeepTaps { TutorNoteLine(ui.extras.tutorNotes) }
+                KeepTaps { TutorNoteLine(ui.extras.tutorNotes, playingKey = playingKey, onPlay = actions.onPlayTutorModel) }
             }
             Spacer(Modifier.height(4.dp))
             Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
             // Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off)
             KeepTaps { WordTagsFor(note.hanzi, source = "study", aiTags = note.wordTags, modifier = Modifier.padding(top = 8.dp)) }
+            // The picture of the meaning: on the answer side of every card (core cards/NoteImage.kt).
+            if (NoteImage.show(view.card.cardType, front = false, enabled = picturesOn, imageKey = note.imageKey)) {
+                Spacer(Modifier.height(10.dp))
+                KeepTaps { NotePicture(note.imageKey, size = 160.dp, side = "back", cardType = view.card.cardType, tag = PICTURE_BACK_TAG, preview = view.picturePreview) }
+            }
             Spacer(Modifier.height(12.dp))
             val playing = isWordPlaying(playingKey, view, ui)
             val voices = ui.extras.voices
@@ -783,6 +800,10 @@ private fun CardBack(
 
 /** Below this the question side goes compact (a long multiple-choice grid is under it). */
 private val SHORT_FRONT = 330.dp
+
+/** Test tags of the card picture on the question / answer side (pictures on cards). */
+const val PICTURE_FRONT_TAG = "study-picture-front"
+const val PICTURE_BACK_TAG = "study-picture-back"
 
 /** Test tag of the answer side (its empty space peeks back at the question). */
 const val CARD_BACK_TAG = "card-back"

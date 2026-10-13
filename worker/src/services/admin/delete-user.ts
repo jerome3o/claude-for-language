@@ -196,6 +196,8 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'student_summaries', sql: `DELETE FROM student_summaries WHERE relationship_id IN ${REL}` },
   { label: 'tutor_lesson_log', sql: `DELETE FROM tutor_lesson_log WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'student_profiles', sql: `DELETE FROM student_profiles WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
+  { label: 'prepared_activities', sql: `DELETE FROM prepared_activities WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
+  { label: 'prepared_activity_jobs', sql: `DELETE FROM prepared_activity_jobs WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'tutor_relationships', sql: `DELETE FROM tutor_relationships WHERE requester_id = ?1 OR recipient_id = ?1` },
 
   // Sign-in, invites.
@@ -278,12 +280,15 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
     `SELECT sentence_clue_audio_url FROM notes WHERE deck_id IN ${DECKS}`,
     `SELECT audio_url FROM note_sentences WHERE note_id IN ${NOTES}`,
     `SELECT audio_url FROM note_audio_recordings WHERE note_id IN ${NOTES}`,
+    // Uploaded card pictures (note-uploads/); generated ones (note-images/<hash>) are shared by prompt, like lesson-images/.
+    `SELECT image_key FROM notes WHERE deck_id IN ${DECKS} AND image_source = 'upload'`,
   ];
   const OTHER_NOTE_KEYS = [
     { col: 'audio_url', from: `notes WHERE deck_id NOT IN ${DECKS}` },
     { col: 'sentence_clue_audio_url', from: `notes WHERE deck_id NOT IN ${DECKS}` },
     { col: 'audio_url', from: `note_sentences WHERE note_id NOT IN ${NOTES}` },
     { col: 'audio_url', from: `note_audio_recordings WHERE note_id NOT IN ${NOTES}` },
+    { col: 'image_key', from: `notes WHERE deck_id NOT IN ${DECKS}` },
   ];
   const noteKeys = await cols(MINE_NOTE_KEYS.map((q) => q.replace(/^SELECT (\w+)/, 'SELECT $1 AS k')));
   const sharedNoteKeys = new Set(await cols(
@@ -315,6 +320,8 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
   // Only ever the user's own.
   const unique = await cols([
     `SELECT recording_url AS k FROM review_events WHERE user_id = ?1`,
+    // A tutor's model recordings: the ones she made, and the ones on this student's takes.
+    `SELECT model_audio_key AS k FROM tutor_recording_marks WHERE tutor_id = ?1 OR review_event_id IN ${EVENTS}`,
     `SELECT recording_url AS k FROM messages WHERE id IN ${MESSAGES}`,
     // Chat photos / voice messages of every message that goes (the key lives in the attachment JSON).
     `SELECT json_extract(attachment, '$.key') AS k FROM messages WHERE id IN ${MESSAGES} AND attachment IS NOT NULL`,

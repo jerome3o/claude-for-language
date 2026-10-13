@@ -170,6 +170,26 @@ testAuth.post('/homework-draft', async (c) => {
 });
 
 /**
+ * POST /api/test/call-lesson-report — a recorded lesson with its written report, without
+ * a call (E2E + screenshots of prepared activities / "What <student> has covered").
+ * Body: { relationship_id, days_ago?, report: { summary, topics, vocabulary, corrections, follow_ups? } }
+ */
+testAuth.post('/call-lesson-report', async (c) => {
+  const b = await c.req.json<{ relationship_id: string; days_ago?: number; report: Record<string, unknown> }>();
+  const rel = await c.env.DB.prepare('SELECT * FROM tutor_relationships WHERE id = ?').bind(b.relationship_id).first<{ requester_id: string; recipient_id: string; requester_role: string }>();
+  if (!rel) return c.json({ error: 'relationship not found' }, 404);
+  const tutorId = rel.requester_role === 'tutor' ? rel.requester_id : rel.recipient_id;
+  const started = Date.now() - (b.days_ago ?? 2) * 86_400_000;
+  const id = crypto.randomUUID();
+  const report = { follow_ups: [], model: 'e2e', generated_at: new Date(started).toISOString(), ...b.report };
+  await c.env.DB
+    .prepare(`INSERT INTO call_lessons (id, relationship_id, created_by, started_at, last_ended_at, processing_status, summary_json, report_call_ids) VALUES (?, ?, ?, ?, ?, 'done', ?, '[]')`)
+    .bind(id, b.relationship_id, tutorId, started, started + 50 * 60_000, JSON.stringify(report))
+    .run();
+  return c.json({ lesson_id: id });
+});
+
+/**
  * POST /api/test/chat-auto-check — run the chat auto-check on a message with a
  * canned answer instead of Claude (E2E + screenshots): the real store +
  * `message_updated` path. Body: { message_id, result? } where result is the

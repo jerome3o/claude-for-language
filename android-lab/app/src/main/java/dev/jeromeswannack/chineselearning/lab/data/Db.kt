@@ -73,6 +73,13 @@ data class NoteEntity(
      * the lexicon's word tags (core WordTagsAi). v7.
      */
     val wordTags: String? = null,
+    /**
+     * The note's picture (notes.image_key / image_source / image_status, migration 0123; core
+     * cards/NoteImage.kt): R2 key, generated | upload, pending | failed. v9.
+     */
+    val imageKey: String? = null,
+    val imageSource: String? = null,
+    val imageStatus: String? = null,
 )
 
 @Entity(tableName = "cards", indices = [Index("noteId"), Index("deckId")])
@@ -301,7 +308,7 @@ interface LabDao {
         // v8: "Up next".
         UpNextEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

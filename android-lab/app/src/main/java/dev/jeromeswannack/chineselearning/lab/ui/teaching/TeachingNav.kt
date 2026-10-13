@@ -151,8 +151,14 @@ private fun RecordingsRoute(nav: LabNav, relId: String, name: String) {
     val t by vm.transient.collectAsStateWithLifecycle()
     val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
     val online by nav.app.online.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pendingModel by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    val micPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        pendingModel?.let { if (ok) vm.startModel(it) }
+        pendingModel = null
+    }
     RecordingQueueScreen(
-        RecordingQueueUi(relId, name, t.view, t.range, state.data, state.loading, state.error, state.offline, playing, t.saving, t.markError),
+        RecordingQueueUi(relId, name, t.view, t.range, state.data, state.loading, state.error, state.offline, playing, t.saving, t.markError, t.model),
         RecordingQueueActions(
             back = nav::back, open = nav::open, setView = vm::setView, setRange = vm::setRange, play = playToggle(nav),
             playReference = { key, hanzi ->
@@ -160,6 +166,15 @@ private fun RecordingsRoute(nav: LabNav, relId: String, name: String) {
                 else { vm.trackReferencePlay(); nav.app.audio.play(key, hanzi, online) }
             },
             mark = { r, s, c -> vm.mark(r, s, c) }, retry = vm::retry,
+            saveNote = { r, s, c -> vm.saveNote(r, s, c) },
+            startModel = { id ->
+                val granted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (granted) vm.startModel(id) else { pendingModel = id; micPermission.launch(android.Manifest.permission.RECORD_AUDIO) }
+            },
+            stopModel = vm::stopModel, cancelModel = vm::cancelModel,
+            playModelDraft = { id -> if (playing == "model-draft:$id") nav.app.audio.stop() else vm.playModelDraft(id) },
+            playModelSaved = vm::playModelSaved, discardModel = vm::discardModel,
+            removeSavedModel = { id, remove -> vm.removeSavedModel(id, remove) },
         ),
     )
 }
@@ -299,6 +314,11 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto, s
     val toast by vm.removal.toast.collectAsStateWithLifecycle()
     var profileEditor by remember { mutableStateOf<StudentProfileFields?>(null) }
     val budget by vm.budget.resource.state.collectAsStateWithLifecycle()
+    val prepared by vm.prepared.resource.state.collectAsStateWithLifecycle()
+    val preparedError by vm.prepared.error.collectAsStateWithLifecycle()
+    val preparedUndo by vm.prepared.undo.collectAsStateWithLifecycle()
+    val preparedStarting by vm.prepared.starting.collectAsStateWithLifecycle()
+    val coverage by vm.prepared.coverage!!.state.collectAsStateWithLifecycle()
     val library by vm.library.state.collectAsStateWithLifecycle()
     var budgetEditor by remember { mutableStateOf(false) }
     var checkDeck by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto?>(null) }
@@ -343,6 +363,28 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto, s
                     StudentProfileActions(edit = { profileEditor = it }, retry = { vm.profile.resource.refresh() }),
                 )
             },
+            preparedActivities = {
+                PreparedActivitiesSection(
+                    name,
+                    PreparedSectionUi(
+                        activities = prepared.data?.activities,
+                        loading = prepared.loading,
+                        error = prepared.error,
+                        preparing = dev.jeromeswannack.chineselearning.lab.core.calls.PreparedActivities.jobActive(prepared.data?.job),
+                        canPrepare = prepared.data?.can_prepare != false && !preparedStarting && online,
+                        jobError = prepared.data?.job?.takeIf { it.status == "failed" }?.let { it.error ?: "something went wrong" },
+                        actionError = preparedError,
+                        undo = preparedUndo,
+                    ),
+                    PreparedSectionActions(
+                        prepare = { vm.prepared.prepare() },
+                        dismiss = { vm.prepared.dismiss(it) },
+                        restore = { vm.prepared.restore(it) },
+                        previewed = { vm.prepared.previewed(it) },
+                    ),
+                )
+            },
+            coverage = { CoverageSection(name, coverage.data?.coverage, coverage.loading) },
             dailyBudget = {
                 val info = (budget.data?.budget ?: overview.data?.study_budget)?.toInfo()
                 DailyBudgetRow(info, budget.error ?: overview.error, onEdit = { budgetEditor = true }, onRetry = { vm.budget.resource.refresh() })

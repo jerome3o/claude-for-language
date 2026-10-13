@@ -33,6 +33,8 @@ import { explainSentence } from './services/sentence-explain';
 import { generateSentenceSet } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
 import pictureHuntRoutes from './routes/picture-hunts';
+import noteImageRoutes from './routes/note-images';
+import { generateNoteImage, handleNoteImageMessage, type NoteImageMessage } from './services/note-images';
 import audioLessonRoutes from './routes/audio-lessons';
 import { podcastPublic, podcastMe } from './routes/podcast';
 import { runPictureHuntJob } from './services/picture-hunt';
@@ -119,11 +121,13 @@ import { getConversationVoiceSettings } from './services/conversation-voices';
 import { conversationAudioSource, getConversationAudioPrefs } from './services/conversation-audio';
 import { conversationVoiceProvider, isConversationDelivery } from '@shared/tts';
 import studentProfileRoutes from './routes/student-profile';
+import preparedActivitiesRoutes from './routes/prepared-activities';
 import studentStudyBudgetRoutes from './routes/student-study-budget';
 import cardCheckRoutes from './routes/card-checks';
 import { cardCheckEnabled, runDeckCheckJob, runNotesCheck, type CardCheckMessage } from './services/card-check';
 import wordTagsRoutes from './routes/word-tags';
 import { maybeBackfillWordTags, runWordTags } from './services/word-tags-ai';
+import { prepareNightly } from './services/prepared-activities/run';
 import { enqueueRecordingCheck, runRecordingCheck, RetryLater, type RecordingCheckMessage } from './services/recording-checks';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
@@ -657,6 +661,8 @@ app.route('/api', debugReportsRoutes);
 app.route('/api', lessonImagesRoutes);
 // The tutor's private profile of a student, read by the tutor-side content agents (routes/student-profile.ts; tutor only)
 app.route('/api', studentProfileRoutes);
+// Prepared in-call activities + what the student has covered (tutor only; docs/VIDEO_CALLS.md "Prepared activities")
+app.route('/api', preparedActivitiesRoutes);
 app.route('/api', studentStudyBudgetRoutes);
 // Word checks: ⚠ Possible issue on notes, Paste-a-list preview, per-deck "Check for errors" (routes/card-checks.ts)
 app.route('/api', cardCheckRoutes);
@@ -667,6 +673,8 @@ app.route('/api', wordTagsRoutes);
 app.route('/api', conversationVoicesRoutes);
 // Picture hunts: type what you see in a picture (routes/picture-hunts.ts, built on picture-hunt-queue)
 app.route('/api', pictureHuntRoutes);
+// Pictures on cards: generate / upload / remove a note's picture, "Illustrate this deck" (routes/note-images.ts, drawn on image-generation-queue)
+app.route('/api', noteImageRoutes);
 // Audio lessons: an agent-written listening lesson rendered to one MP3 (routes/audio-lessons.ts, built on audio-lesson-queue)
 app.route('/api', audioLessonRoutes);
 // Settings → Audio lessons → Podcast feed: the feed link (made on first use), Reset, Turn off.
@@ -2788,6 +2796,8 @@ app.get('/api/audio/*', async (c) => {
   if (key.startsWith('chat-media/')) return c.json({ error: 'Audio not found' }, 404);
   // An audio lesson is its learner's: only GET /api/audio-lessons/:id/audio serves it.
   if (key.startsWith('audio-lessons/')) return c.json({ error: 'Audio not found' }, 404);
+  // A tutor's model recording: only GET /api/recording-marks/:eventId/model-audio serves it (the two people of the mark).
+  if (key.startsWith('tutor-recordings/')) return c.json({ error: 'Audio not found' }, 404);
 
   // <audio> streams media with Range requests. Answering every one with the
   // full body (200) forces the element to re-buffer from zero whenever it
@@ -6394,6 +6404,13 @@ export default {
       } catch (err) {
         console.error('[cron] prune usage events failed:', err);
       }
+      // Prepared in-call activities: catch up students whose newest lesson has none yet.
+      try {
+        const queued = await prepareNightly(env, new Date(event.scheduledTime || Date.now()));
+        console.log(JSON.stringify({ type: 'cron', job: 'prepare_activities', queued }));
+      } catch (err) {
+        console.error('[cron] prepare activities failed:', err);
+      }
     });
   },
 
@@ -6572,6 +6589,24 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
         // description (services/lesson-images.ts). Legacy messages carried a
         // lessonId + indexes; they are handled by prompt the same way.
         const body = message.body as unknown as Record<string, unknown>;
+        // Card pictures: one per prompt hash, applied to every note waiting for it (services/note-images.ts).
+        if (body.kind === 'note_image') {
+          const noteMsg = body as unknown as NoteImageMessage;
+          try {
+            const outcome = await handleNoteImageMessage(env, noteMsg, (prompt, hash) => generateNoteImage(env.GEMINI_API_KEY, env.AUDIO_BUCKET, prompt, hash));
+            if (outcome.action === 'retry') {
+              console.warn('[Queue] Card picture attempt failed, retrying in', outcome.delaySeconds, 's:', noteMsg.hash);
+              message.retry({ delaySeconds: outcome.delaySeconds });
+            } else {
+              console.log('[Queue] Card picture', outcome.status, noteMsg.hash, outcome.status === 'ready' ? `applied to ${outcome.applied} note(s)` : '');
+              message.ack();
+            }
+          } catch (err) {
+            console.error('[Queue] Card picture handling failed:', noteMsg.hash, err);
+            message.retry({ delaySeconds: 60 });
+          }
+          continue;
+        }
         if (body.kind === 'lesson_image' || 'lessonId' in body) {
           const lessonMsg: LessonImageMessage = body.kind === 'lesson_image'
             ? body as unknown as LessonImageMessage

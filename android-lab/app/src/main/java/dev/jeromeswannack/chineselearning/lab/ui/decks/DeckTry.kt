@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.decks
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -70,6 +71,8 @@ data class TryNoteUi(
     val sentenceCluePinyin: String? = null,
     val sentenceClueTranslation: String? = null,
     val funFacts: String? = null,
+    /** The note's picture (pictures on cards). */
+    val imageKey: String? = null,
 )
 
 data class DeckTryUi(val loaded: Boolean = false, val deckName: String? = null, val notes: List<TryNoteUi> = emptyList())
@@ -98,7 +101,7 @@ class DeckTryViewModel(private val env: DecksEnv, private val deckId: String) : 
                 _ui.value = withContext(Dispatchers.IO) {
                     val deck = env.dao.decks().firstOrNull { it.id == deckId }
                     val notes = env.dao.allNotes().filter { it.deckId == deckId }.sortedBy { it.createdAt.orEmpty() }
-                    DeckTryUi(true, deck?.name, notes.map { TryNoteUi(it.id, it.hanzi, it.pinyin, it.english, it.audioUrl, it.sentenceClue, it.sentenceCluePinyin, it.sentenceClueTranslation, it.funFacts) })
+                    DeckTryUi(true, deck?.name, notes.map { TryNoteUi(it.id, it.hanzi, it.pinyin, it.english, it.audioUrl, it.sentenceClue, it.sentenceCluePinyin, it.sentenceClueTranslation, it.funFacts, it.imageKey) })
                 }
             }
         }
@@ -158,7 +161,7 @@ fun DeckTryScreen(
                             transitionSpec = { (fadeIn() + scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy), initialScale = 0.96f)) togetherWith fadeOut() },
                             label = "try-card",
                         ) { (_, m, open) ->
-                            if (!open) TryFront(note, m, actions) else TryBack(note, actions)
+                            if (!open) TryFront(note, m, actions) else TryBack(note, actions, m.cardType)
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -177,7 +180,11 @@ fun DeckTryScreen(
 
 @Composable
 private fun TryFront(note: TryNoteUi, mode: TryMode, actions: DeckTryActions) {
+    val picturesOn by dev.jeromeswannack.chineselearning.lab.ui.study.StudyPrefs.get(androidx.compose.ui.platform.LocalContext.current).picturesOn.collectAsState()
     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        if (dev.jeromeswannack.chineselearning.lab.core.cards.NoteImage.show(mode.cardType, front = true, enabled = picturesOn, imageKey = note.imageKey)) {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.NotePicture(note.imageKey, size = 180.dp, side = "front", cardType = mode.cardType, tag = "try-picture-front")
+        }
         when (mode) {
             TryMode.HANZI_TO_MEANING -> Text(note.hanzi, fontSize = 56.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
             TryMode.MEANING_TO_HANZI -> Text(note.english, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, textAlign = TextAlign.Center)
@@ -194,7 +201,8 @@ private fun TryFront(note: TryNoteUi, mode: TryMode, actions: DeckTryActions) {
 }
 
 @Composable
-private fun TryBack(note: TryNoteUi, actions: DeckTryActions) {
+private fun TryBack(note: TryNoteUi, actions: DeckTryActions, cardType: String = TryMode.HANZI_TO_MEANING.cardType) {
+    val picturesOn by dev.jeromeswannack.chineselearning.lab.ui.study.StudyPrefs.get(androidx.compose.ui.platform.LocalContext.current).picturesOn.collectAsState()
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -203,6 +211,9 @@ private fun TryBack(note: TryNoteUi, actions: DeckTryActions) {
         Text(note.hanzi, fontSize = 48.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
         Text(note.pinyin, fontSize = 20.sp, color = Lab.colors.accent, textAlign = TextAlign.Center)
         Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+        if (dev.jeromeswannack.chineselearning.lab.core.cards.NoteImage.show(cardType, front = false, enabled = picturesOn, imageKey = note.imageKey)) {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.NotePicture(note.imageKey, size = 150.dp, side = "back", cardType = cardType, tag = "try-picture-back")
+        }
         SecondaryPill("▶ Play") { actions.onPlay(note) }
         note.sentenceClue?.takeIf { it.isNotBlank() }?.let { clue ->
             Spacer(Modifier.height(4.dp))

@@ -8,6 +8,12 @@ interface Props {
   error: string | null;
   onCancel: () => void;
   onConfirm: (rect: SourceRect) => void;
+  /** Sheet title (default "Position your photo"). */
+  title?: string;
+  /** The round avatar guide (default on; off for a square card picture). */
+  round?: boolean;
+  /** The confirm button's words (default from the profile sheet). */
+  confirmLabel?: string;
 }
 
 /**
@@ -15,7 +21,7 @@ interface Props {
  * zoom; the round guide shows what the avatar will look like. The geometry is
  * services/profilePicture.ts; the parent renders + uploads the chosen square.
  */
-export function PictureCropSheet({ image, busy, error, onCancel, onConfirm }: Props) {
+export function PictureCropSheet({ image, busy, error, onCancel, onConfirm, title = 'Position your photo', round = true, confirmLabel }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const [crop, setCrop] = useState<CropState | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -92,7 +98,7 @@ export function PictureCropSheet({ image, busy, error, onCancel, onConfirm }: Pr
     <div className="pf-sheet-backdrop" role="presentation" onClick={() => { if (!busy) onCancel(); }}>
       <div className="pf-sheet" role="dialog" aria-modal="true" aria-labelledby="pf-crop-title" onClick={(e) => e.stopPropagation()}>
         <div className="pf-sheet-head">
-          <h2 id="pf-crop-title">Position your photo</h2>
+          <h2 id="pf-crop-title">{title}</h2>
           <button type="button" className="pf-sheet-close" onClick={onCancel} disabled={busy} aria-label="Close">×</button>
         </div>
         <p className="pf-sheet-hint">Drag to move · pinch or use the slider to zoom</p>
@@ -116,7 +122,7 @@ export function PictureCropSheet({ image, busy, error, onCancel, onConfirm }: Pr
               style={{ left: crop.ox, top: crop.oy, width: crop.w * scale, height: crop.h * scale }}
             />
           )}
-          <div className="pf-crop-ring" aria-hidden="true" />
+          {round && <div className="pf-crop-ring" aria-hidden="true" />}
         </div>
 
         <label className="pf-zoom">
@@ -145,7 +151,7 @@ export function PictureCropSheet({ image, busy, error, onCancel, onConfirm }: Pr
             disabled={!crop || busy}
             data-testid="crop-confirm"
           >
-            {busy ? 'Uploading…' : 'Use this photo'}
+            {busy ? 'Uploading…' : (confirmLabel ?? 'Use this photo')}
           </button>
         </div>
       </div>

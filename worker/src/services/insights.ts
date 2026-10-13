@@ -44,6 +44,8 @@ export interface RecordingMark {
   status: 'listened' | 'needs_work';
   comment: string | null;
   updated_at: string;
+  /** The tutor's model recording (GET /api/recording-marks/:eventId/model-audio), null = none. */
+  model_audio_url?: string | null;
 }
 
 // ---------- Outputs ----------

@@ -55,9 +55,11 @@ import { registerPictureHuntTools } from './tools/picture-hunts.js';
 import { registerIdiomTools } from './tools/idioms.js';
 import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerBumpTools } from './tools/bumps.js';
+import { registerNoteImageTools } from './tools/note-images.js';
 import { registerUpNextTools } from './tools/up-next.js';
 import { registerPinyinScanTools } from './tools/pinyin-scan.js';
 import { registerMaterialTools } from './tools/materials.js';
+import { registerPreparedActivityTools } from './tools/prepared-activities.js';
 import { registerTutorApps } from './tools/apps.js';
 
 interface User {
@@ -1984,8 +1986,10 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     // Audio lessons: an agent-written listening lesson rendered to one audio file (docs/AUDIO_LESSONS.md).
     registerAudioLessonTools(ctx);
     registerBumpTools(ctx);
+    registerNoteImageTools(ctx);
     registerUpNextTools(ctx);
     registerPinyinScanTools(ctx);
+    registerPreparedActivityTools(ctx);
     registerMaterialTools(ctx);
   }
 }

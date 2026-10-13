@@ -70,6 +70,10 @@ data class TutorNote(
     val comment: String,
     val tutorName: String?,
     val updatedAt: String,
+    /** My take the note is on (R2 key) — "▶ You" beside the tutor's clip. */
+    val recordingUrl: String? = null,
+    /** The tutor's model recording ("▶ 明慧老师 says it"), null = none. */
+    val modelAudioUrl: String? = null,
 )
 
 object CardExtrasLogic {

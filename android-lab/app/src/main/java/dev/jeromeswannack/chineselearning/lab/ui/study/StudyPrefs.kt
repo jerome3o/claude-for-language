@@ -53,6 +53,20 @@ class StudyPrefs private constructor(context: Context) {
         _wordTagsOn.value = on
     }
 
+    private val _picturesOn = MutableStateFlow(sp.getBoolean(PICTURES_ON, true))
+
+    /**
+     * Settings → Study → "Show pictures on cards" (ON by default; the web's services/noteImages.ts
+     * `cardPicturesEnabled`): a note's picture with the English on meaning → hanzi, and on the
+     * answer side of the other cards (core cards/NoteImage.kt).
+     */
+    val picturesOn: StateFlow<Boolean> = _picturesOn
+
+    fun setPicturesOn(on: Boolean) {
+        sp.edit().putBoolean(PICTURES_ON, on).apply()
+        _picturesOn.value = on
+    }
+
     private val _newCharShimmerOn = MutableStateFlow(sp.getBoolean(NEW_CHAR_SHIMMER_ON, true))
 
     /**
@@ -68,6 +82,7 @@ class StudyPrefs private constructor(context: Context) {
 
     companion object {
         private const val NEW_CHAR_SHIMMER_ON = "new_char_shimmer_on"
+        private const val PICTURES_ON = "card_pictures_on"
         private const val WORD_TAGS_ON = "word_tags_on"
         private const val FORCED_OFFLINE = "forced_offline"
         private const val EXPLAINER_SEEN = "first_card_explainer_seen"

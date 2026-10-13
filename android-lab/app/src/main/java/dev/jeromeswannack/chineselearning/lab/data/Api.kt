@@ -85,6 +85,10 @@ data class NoteDto(
     val check_issues: String? = null,
     /** AI word tags: JSON string of AiWordTags (shared/cards/word-tags-ai.ts), or null. */
     val word_tags: String? = null,
+    /** The note's picture (shared/cards/note-image.ts): R2 key, generated | upload, pending | failed. */
+    val image_key: String? = null,
+    val image_source: String? = null,
+    val image_status: String? = null,
     val cards: List<CardDto> = emptyList(),
 )
 

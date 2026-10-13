@@ -124,6 +124,10 @@ export interface LocalNote {
   check_issues?: string | null;
   /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts), synced from the server. */
   word_tags?: string | null;
+  /** The note's picture (shared/cards/note-image.ts; migration 0123): R2 key (served by /api/audio/<key>), where it came from, drawing state. */
+  image_key?: string | null;
+  image_source?: 'generated' | 'upload' | null;
+  image_status?: 'pending' | 'failed' | null;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;
@@ -569,6 +573,10 @@ export interface LocalRecordingNote {
   comment: string;
   tutor_name: string | null;
   updated_at: string;
+  /** Recording note: my take it is on (R2 key) — "▶ You" beside the tutor's clip */
+  recording_url?: string | null;
+  /** Recording note: the tutor's model recording (services/modelRecordings.ts caches it in cachedAudio) */
+  model_audio_url?: string | null;
   /** null until the student has seen it on the card back */
   seen_at: string | null;
   // 0 = the seen_at above has not reached the server yet, 1 = synced

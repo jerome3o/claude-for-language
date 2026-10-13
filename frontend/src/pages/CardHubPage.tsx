@@ -1,4 +1,6 @@
 import { BumpButton } from '../components/bumps/BumpButton';
+import { NoteImage } from '../components/noteImage/NoteImage';
+import { NotePictureSection } from '../components/noteImage/NotePictureSection';
 import { bumpStudentCardsApi } from '../api/bumps';
 import { addUpNextApi } from '../api/upNext';
 import { UpNextButton } from '../components/upNext/UpNextButton';
@@ -78,6 +80,13 @@ export function CardHubPage() {
         <Link to={backTo} className="back-link">{backLabel}</Link>
         <HubCardBox hub={hub} relId={relId ?? null} />
 
+        {/* The card's picture (shared/cards/note-image.ts): only the owner changes it. */}
+        {!tutorView && (
+          <section className="detail-section">
+            <NotePictureSection noteId={hub.note.id} note={hub.note} where="hub" onChange={() => { void hubQuery.refetch(); }} />
+          </section>
+        )}
+
         <section className="detail-section">
           <h2>{tutorView ? 'How the cards are going' : 'Your cards'}</h2>
           <div className="hub-cards">
@@ -153,6 +162,7 @@ function HubCardBox({ hub, relId }: { hub: NoteHub; relId: string | null }) {
       <div className="hub-hanzi" lang="zh">{n.hanzi}</div>
       <div className="hub-pinyin">{n.pinyin}</div>
       <div className="hub-english">{n.english}</div>
+      {relId && n.image_key && <NoteImage imageKey={n.image_key} variant="preview" testId="hub-picture" />}
       {n.sentence_clue && (
         <div className="hub-sentence" lang="zh">
           {n.sentence_clue}

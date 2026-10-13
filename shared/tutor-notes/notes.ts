@@ -27,6 +27,12 @@ export interface TutorNote {
   seen_at: string | null;
   recording_url: string | null;
   student_message: string | null;
+  /**
+   * The tutor's own recording of how it should sound (a needs-work mark's model answer,
+   * docs/RECORDING_REVIEW.md "Model recordings"): fetched with the session from
+   * /api/recording-marks/<id>/model-audio?v=…, cached on the device. Null / missing = none.
+   */
+  model_audio_url?: string | null;
 }
 
 /** A row of the unseen feed (GET /api/me/recording-notes) as the device caches it. */
@@ -39,6 +45,10 @@ export interface UnseenTutorNote {
   comment: string;
   tutor_name: string | null;
   updated_at: string;
+  /** My take the note is on (R2 key, /api/audio/<key>) — recording notes only. */
+  recording_url?: string | null;
+  /** The tutor's model recording — the feed is newer than the full list, so it wins. */
+  model_audio_url?: string | null;
 }
 
 export interface TutorNotesList {
@@ -70,7 +80,15 @@ export function mergeTutorNotes(all: readonly TutorNote[], unseen: readonly Unse
     const full = byId.get(u.id);
     fresh.push(
       full
-        ? { ...full, comment: u.comment, tutor_name: u.tutor_name ?? full.tutor_name, updated_at: u.updated_at, seen_at: null }
+        ? {
+            ...full,
+            comment: u.comment,
+            tutor_name: u.tutor_name ?? full.tutor_name,
+            updated_at: u.updated_at,
+            seen_at: null,
+            recording_url: full.recording_url ?? u.recording_url ?? null,
+            model_audio_url: u.model_audio_url ?? full.model_audio_url ?? null,
+          }
         : {
             id: u.id,
             kind: u.kind,
@@ -85,8 +103,9 @@ export function mergeTutorNotes(all: readonly TutorNote[], unseen: readonly Unse
             tutor_name: u.tutor_name,
             updated_at: u.updated_at,
             seen_at: null,
-            recording_url: null,
+            recording_url: u.recording_url ?? null,
             student_message: null,
+            model_audio_url: u.model_audio_url ?? null,
           }
     );
   }
@@ -100,6 +119,14 @@ export function tutorNotesHomeLine(fresh: ReadonlyArray<Pick<TutorNote, 'tutor_n
   const names = new Set(fresh.map((n) => n.tutor_name?.trim() || ''));
   const from = names.size === 1 ? [...names][0] || 'your tutor' : 'your tutors';
   return `${fresh.length} new ${fresh.length === 1 ? 'note' : 'notes'} from ${from}`;
+}
+
+/**
+ * The button that plays the tutor's model recording: "明慧老师 says it" (beside "You", the
+ * student's own take). A blank name reads "Your tutor says it".
+ */
+export function tutorSaysItLabel(tutorName: string | null | undefined): string {
+  return `${tutorName?.trim() || 'Your tutor'} says it`;
 }
 
 /** "Recording" / "Your flag" — the small label above a note on the page. */

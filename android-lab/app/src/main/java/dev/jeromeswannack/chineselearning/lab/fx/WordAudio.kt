@@ -57,6 +57,32 @@ class WordAudio(private val context: Context, private val repo: Repository) {
         }
     }
 
+    /**
+     * Plays a local file under [key] (lights the ▶ whose key matches) — a clip the app keeps
+     * itself, e.g. the tutor's model recording (data/audio/ModelRecordings.kt). No voice fallback.
+     */
+    fun playFile(key: String, file: java.io.File) {
+        stop()
+        val mp = MediaPlayer()
+        player = mp
+        _playingKey.value = key
+        try {
+            mp.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            mp.setDataSource(file.absolutePath)
+            mp.setOnPreparedListener { it.start() }
+            mp.setOnCompletionListener { if (player === it) { _playingKey.value = null; it.release(); player = null } }
+            mp.setOnErrorListener { p, _, _ ->
+                if (player === p) { p.release(); player = null; _playingKey.value = null }
+                true
+            }
+            mp.prepareAsync()
+        } catch (e: Exception) {
+            mp.release()
+            player = null
+            _playingKey.value = null
+        }
+    }
+
     private fun speak(text: String) {
         if (text.isBlank()) { _playingKey.value = null; return }
         _playingKey.value = "tts:$text"

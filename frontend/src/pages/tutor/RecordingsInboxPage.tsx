@@ -7,14 +7,19 @@
  * GET /api/relationships/:relId/recordings/queue). Each card plays the take next to
  * the reference clip, shows Expected vs Heard with the characters highlighted, and
  * takes a Listened / Needs work mark (+ an optional note shown to the student once),
- * which moves it out of the queue.
+ * which moves it out of the queue. With a needs-work mark she can also record how it should
+ * sound (ModelRecorder) — the student hears it beside their own take on the card back
+ * (docs/RECORDING_REVIEW.md "Model recordings").
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { RecordingQueueItem, RecordingQueueResponse } from '@shared/recordings/queue';
-import { getRecordingQueue, markRecording, clearRecordingMark } from '../../api/insights';
+import { getRecordingQueue, markRecording, clearRecordingMark, uploadModelRecording, removeModelRecording } from '../../api/insights';
+import { ModelRecorder, EMPTY_MODEL_DRAFT, type ModelRecordingDraft } from '../../components/recordings/ModelRecorder';
+import { ClipButton } from '../../components/recordings/ModelRecordingButtons';
+import { getModelRecordingBlob, primeModelRecording } from '../../services/modelRecordings';
 import type { RecordingMarkStatus } from '../../types/insights';
 import type { CardType } from '../../types';
 import { getAudioUrl } from '../../api/client';
@@ -188,32 +193,59 @@ function RecordingCard({
   const queryClient = useQueryClient();
   const [showComment, setShowComment] = useState(false);
   const [comment, setComment] = useState(item.mark?.comment ?? '');
+  const [draft, setDraft] = useState<ModelRecordingDraft>(EMPTY_MODEL_DRAFT);
+  const [recordingModel, setRecordingModel] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const leaveTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
 
   const refreshAll = () => queryClient.invalidateQueries({ queryKey: ['recordingQueue', relId] });
 
+  const savedModelUrl = item.mark?.model_audio_url ?? null;
+  // Slide out of the queue; drop it from the cached queue when the animation ends.
+  const slideOut = () => {
+    setLeaving(true);
+    leaveTimer.current = window.setTimeout(() => {
+      queryClient.setQueryData<RecordingQueueResponse>(queryKey, (old) => (old ? withoutQueueItem(old, item.event_id) : old));
+    }, LEAVE_MS);
+  };
   const markMutation = useMutation({
-    mutationFn: (input: { status: RecordingMarkStatus; comment?: string | null }) => markRecording(relId, item.event_id, input),
-    onMutate: () => {
-      if (view !== 'queue') return;
-      // Slide out at once; drop it from the cached queue when the animation ends.
-      setLeaving(true);
-      leaveTimer.current = window.setTimeout(() => {
-        queryClient.setQueryData<RecordingQueueResponse>(queryKey, (old) => (old ? withoutQueueItem(old, item.event_id) : old));
-      }, LEAVE_MS);
+    mutationFn: async (input: { status: RecordingMarkStatus; comment?: string | null; withDraft?: boolean }) => {
+      // A model recording goes with "needs work": recording one makes the mark needs-work.
+      const status: RecordingMarkStatus = input.withDraft && draft.blob ? 'needs_work' : input.status;
+      const mark = await markRecording(relId, item.event_id, { status, comment: input.comment });
+      if (!input.withDraft || status !== 'needs_work') return mark;
+      if (draft.blob) {
+        const saved = await uploadModelRecording(relId, item.event_id, draft.blob, draft.durationMs);
+        if (saved.model_audio_url) await primeModelRecording(saved.model_audio_url, draft.blob);
+        track('tutor.model_recording_saved', { replaced: !!savedModelUrl, duration_ms: draft.durationMs, source: view });
+        return saved;
+      }
+      if (draft.removeSaved && savedModelUrl) {
+        await removeModelRecording(relId, item.event_id);
+        track('tutor.model_recording_removed', { source: view });
+      }
+      return mark;
+    },
+    onMutate: (input) => {
+      // With a recording to upload the card stays until it is saved (a failed upload keeps the take to retry).
+      if (view !== 'queue' || (input.withDraft && draft.blob)) return;
+      slideOut();
     },
     onSuccess: (_res, input) => {
-      track('tutor.recording_mark', { status: input.status, source: view });
+      const withTake = !!(input.withDraft && draft.blob);
+      track('tutor.recording_mark', { status: withTake ? 'needs_work' : input.status, source: view });
       setShowComment(false);
+      setDraft(EMPTY_MODEL_DRAFT);
+      if (view === 'queue' && withTake) slideOut();
       // Let the slide-out finish before the refetch replaces the list.
       window.setTimeout(refreshAll, view === 'queue' ? LEAVE_MS + 50 : 0);
     },
-    onError: () => {
+    onError: (_err, input) => {
       window.clearTimeout(leaveTimer.current);
       setLeaving(false);
-      refreshAll();
+      // Keep the card (and the take) as it is so Save can be pressed again.
+      if (!(input.withDraft && draft.blob)) refreshAll();
     },
   });
   const clearMutation = useMutation({
@@ -320,6 +352,18 @@ function RecordingCard({
       )}
 
       {item.mark?.comment && !showComment && <div className="tutor-comment-text">{item.mark.comment}</div>}
+      {savedModelUrl && !showComment && (
+        <div className="rq-model-saved" data-testid="rq-model-saved">
+          <ClipButton
+            key={savedModelUrl}
+            label="Your recording"
+            kind="tutor"
+            load={() => getModelRecordingBlob(savedModelUrl)}
+            onPlay={() => {}}
+            testId="rq-model-play"
+          />
+        </div>
+      )}
 
       <div className="rq-actions">
         <button
@@ -339,7 +383,7 @@ function RecordingCard({
           ⚠ Needs work
         </button>
         <button type="button" className="rq-mark-btn rq-mark-note" onClick={() => setShowComment(!showComment)} disabled={leaving}>
-          {item.mark?.comment ? 'Edit note' : '+ Note'}
+          {item.mark?.comment || savedModelUrl ? 'Edit note' : '+ Note · 🎤'}
         </button>
       </div>
       {showComment && (
@@ -350,24 +394,35 @@ function RecordingCard({
             placeholder="What to tell them — e.g. 银 is 2nd tone, yours sounds like 4th"
             aria-label="Note for the student"
           />
-          <div className="rq-actions" style={{ marginTop: 0 }}>
+          <ModelRecorder savedUrl={savedModelUrl} value={draft} onChange={setDraft} disabled={busy} onRecordingChange={setRecordingModel} />
+          <div className="rq-actions">
             <button
               type="button"
               className="btn btn-primary btn-sm rq-save"
-              disabled={busy}
-              onClick={() => markMutation.mutate({ status: status ?? 'needs_work', comment: comment.trim() || null })}
+              disabled={busy || recordingModel}
+              data-testid="rq-save"
+              onClick={() => markMutation.mutate({ status: status ?? 'needs_work', comment: comment.trim() || null, withDraft: true })}
             >
-              {status === 'listened' ? 'Save note' : 'Needs work + note'}
+              {status === 'listened' && !draft.blob ? 'Save note' : draft.blob ? 'Needs work + recording' : 'Needs work + note'}
             </button>
-            <button type="button" className="btn btn-secondary btn-sm rq-save" onClick={() => setShowComment(false)}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm rq-save"
+              onClick={() => {
+                setShowComment(false);
+                setDraft(EMPTY_MODEL_DRAFT);
+              }}
+            >
               Cancel
             </button>
           </div>
-          <div className="rq-hint">The note shows once on the back of this card the next time they study it.</div>
+          <div className="rq-hint">The note and your recording show once on the back of this card the next time they study it.</div>
         </div>
       )}
       {(markMutation.error || clearMutation.error) && (
-        <div className="tutor-error" style={{ marginTop: '0.5rem' }}>Could not save the mark. Try again.</div>
+        <div className="tutor-error" style={{ marginTop: '0.5rem' }}>
+          {draft.blob && markMutation.error instanceof Error ? `Could not save: ${markMutation.error.message}` : 'Could not save the mark. Try again.'}
+        </div>
       )}
     </article>
   );

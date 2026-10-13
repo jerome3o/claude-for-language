@@ -9,6 +9,7 @@ import { useNetwork } from '../contexts/NetworkContext';
 import { Loading } from '../components/Loading';
 import { loadTutorNotes, markTutorNotesSeen, syncTutorNotes } from '../services/tutorNotes';
 import { syncRecordingNotes } from '../services/recording-notes';
+import { ModelRecordingButtons } from '../components/recordings/ModelRecordingButtons';
 import './TutorNotesPage.css';
 
 /** Marked seen once the page has been on screen this long (the card back no longer repeats them). */
@@ -49,10 +50,14 @@ function NoteCard({ note, isNew, onPractice }: { note: TutorNote; isNew: boolean
       </div>
       {note.student_message && <p className="tn-asked">You asked: “{note.student_message}”</p>}
       <blockquote className="tn-comment">
-        <span className="tn-from">{note.tutor_name || 'Your tutor'}:</span> {note.comment}
+        <span className="tn-from">{note.tutor_name || 'Your tutor'}:</span>{' '}
+        {note.comment || (note.model_audio_url ? 'listen to how it should sound, then compare with yours.' : '')}
       </blockquote>
+      {note.model_audio_url && (
+        <ModelRecordingButtons tutorName={note.tutor_name} modelAudioUrl={note.model_audio_url} recordingUrl={note.recording_url} where="notes" />
+      )}
       <div className="tn-actions">
-        {note.recording_url && <RecordingButton url={note.recording_url} />}
+        {note.recording_url && !note.model_audio_url && <RecordingButton url={note.recording_url} />}
         <button type="button" className="btn btn-secondary tn-practice" onClick={onPractice} data-testid="tn-practice">
           Practice this card
         </button>

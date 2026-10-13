@@ -902,6 +902,11 @@ class StudyViewModel(
         }
     }
 
+    /** The note changed outside the form (its picture, saved at once): show the stored note. */
+    fun noteChanged(noteId: String) {
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.dao.note(noteId) }?.let(::showNote) }
+    }
+
     /** Sentences for the current note changed (generated / cleared): show them. */
     fun sentencesChanged(noteId: String) {
         viewModelScope.launch { showSentences(noteId, withContext(Dispatchers.IO) { repo.dao.sentencesFor(noteId) }) }
@@ -1047,6 +1052,24 @@ class StudyViewModel(
     }
 
     fun playMyRecording() { take?.let { recorder.play(it) } }
+
+    /**
+     * A tutor note's model recording ("▶ 明慧老师 says it", which = "tutor") or my take it is on
+     * ("▶ You", which = "mine") — web ModelRecordingButtons. The tutor's clip is private: the
+     * cached file, else fetched with the session (data/audio/ModelRecordings.kt). Tap again stops.
+     */
+    fun playTutorModel(note: TutorNote, which: String) {
+        val key = (if (which == "tutor") note.modelAudioUrl else note.recordingUrl) ?: return
+        if (app.audio.playingKey.value == key) { app.audio.stop(); return }
+        val where = if (pinnedNotes.isNotEmpty()) "practice" else "card"
+        app.analytics.track("study.tutor_model_play", mapOf("where" to where, "which" to which))
+        if (which == "mine") { app.audio.play(key, "", app.online.value); return }
+        viewModelScope.launch {
+            val file = app.modelRecordings.ensure(key, app.online.value)
+            if (file != null) app.audio.playFile(key, file)
+            else currentView()?.let { v -> updateExtras(v) { it.copy(notice = "${dev.jeromeswannack.chineselearning.lab.core.TutorNotesRules.saysItLabel(note.tutorName)} — needs a connection the first time.") } }
+        }
+    }
 
     /**
      * `useTranscription`: the live (Soniox) text when the take was streamed, else the take

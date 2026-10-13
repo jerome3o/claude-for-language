@@ -100,7 +100,8 @@ import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAn
 import { materialTarget, parseMaterialTarget, turnPage, type PresentedMaterial } from '@shared/materials';
 import { advanceCallProcessing } from '../services/calls/processing';
 import { relationshipTutor, saveActivityResult } from '../services/calls/activities';
-import { findActivity, joinActivity, reduceActivity, reviewMarkOf, rolesOf, startActivity, REVIEW_ACTIVITY_ID, type ActivitySession, type ActivitySpec } from '@shared/call-activities';
+import { findActivity, joinActivity, preparedRowId, reduceActivity, reviewMarkOf, rolesOf, startActivity, REVIEW_ACTIVITY_ID, type ActivitySession, type ActivitySpec } from '@shared/call-activities';
+import { takePreparedForCall } from '../services/prepared-activities/store';
 import { applyReviewMark, buildReviewSpec } from '../services/calls/review-activity';
 import { alertCallMissed } from '../services/calls/alerts';
 import { insertPage, linkCallPages, loadPageDoc, loadScopePages, savePages, type PageScope, type PageWrite, type RoomPage } from '../services/calls/pages';
@@ -381,6 +382,20 @@ export class CallRoom extends DurableObject<Env> {
       }
       spec = await buildReviewSpec(this.env.DB, m.relationship_id, tutor).catch((err) => {
         console.error('[call-room] review list failed:', err);
+        return null;
+      });
+    }
+    const preparedId = preparedRowId(activityId);
+    if (preparedId) {
+      // Prepared for this student from earlier lessons: the tutor's material — only she starts one.
+      const m = await this.meta();
+      const tutor = await this.tutor();
+      if (!m?.relationship_id || !tutor || a.userId !== tutor) {
+        this.send(ws, { type: 'error', message: 'Only the tutor can start a prepared activity' });
+        return;
+      }
+      spec = await takePreparedForCall(this.env.DB, preparedId, m.relationship_id, m.id, activityId).catch((err) => {
+        console.error('[call-room] prepared activity failed:', err);
         return null;
       });
     }

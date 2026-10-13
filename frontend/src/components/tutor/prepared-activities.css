@@ -1,0 +1,293 @@
+/* Prepared in-call activities ("Ready for next lesson") and "What <student> has covered" on the
+   tutor's student page; the rows are reused by the call's Activities menu. */
+
+.pa-section {
+  scroll-margin-top: 72px;
+}
+
+.pa-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.pa-head h2 {
+  margin: 0;
+}
+
+.pa-card {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 0.875rem 1rem;
+}
+
+.pa-headline {
+  margin: 0 0 0.625rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text, #1f2937);
+}
+
+.pa-from {
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.pa-lead {
+  margin: 0 0 0.75rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.pa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.pa-row {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  background: #fafaf9;
+  overflow: hidden;
+}
+
+.pa-row-used {
+  opacity: 0.75;
+}
+
+.pa-row-top {
+  display: flex;
+  align-items: stretch;
+}
+
+.pa-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  min-height: 44px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.pa-icon {
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+.pa-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.pa-title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--color-text, #1f2937);
+}
+
+.pa-zh {
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.pa-why {
+  font-size: 0.875rem;
+  color: #92400e;
+  line-height: 1.4;
+}
+
+.pa-used {
+  font-size: 0.8125rem;
+  color: #047857;
+}
+
+.pa-chev {
+  color: #9ca3af;
+  transition: transform 0.15s ease;
+  line-height: 1.6;
+}
+
+.pa-chev-open {
+  transform: rotate(180deg);
+}
+
+.pa-dismiss {
+  flex: none;
+  width: 44px;
+  border: 0;
+  border-left: 1px solid var(--color-border, #e5e7eb);
+  background: none;
+  color: #9ca3af;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.pa-dismiss:hover {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.pa-preview {
+  padding: 0 0.75rem 0.75rem 2.6rem;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.pa-preview-summary {
+  margin: 0 0 0.375rem;
+  color: #6b7280;
+}
+
+.pa-preview ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.pa-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pa-hint {
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
+.pa-working {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  color: #4b5563;
+  min-height: 44px;
+}
+
+.pa-undo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: -0.25rem 0 0.625rem;
+  font-size: 0.875rem;
+  color: #4b5563;
+}
+
+.pa-link {
+  border: 0;
+  background: none;
+  padding: 0.25rem 0;
+  min-height: 32px;
+  color: var(--color-primary, #2563eb);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pa-used-block {
+  margin-top: 0.5rem;
+}
+
+.pa-used-block .pa-list {
+  margin-top: 0.375rem;
+}
+
+/* ---------- What <student> has covered ---------- */
+
+.cov-lessons {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cov-lesson {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.cov-date {
+  flex: none;
+  width: 3.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #6b7280;
+  padding-top: 0.125rem;
+}
+
+.cov-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cov-title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.cov-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.cov-chip {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.8125rem;
+}
+
+.cov-word {
+  background: #fef3c7;
+  color: #78350f;
+  font-size: 0.9375rem;
+}
+
+.cov-meta {
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
+.cov-words {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.cov-words-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #6b7280;
+}
