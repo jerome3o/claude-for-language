@@ -24,6 +24,8 @@ function audioContext(): AudioContext | null {
 
 /** Play a chime now (a no-op without WebAudio). The call page has had a click (Join), so the context may start. */
 export function playChime(kind: ChimeKind, sinkId?: string | null): void {
+  // E2E seam: a test that set `window.__callChimes = []` sees which chimes played.
+  (window as unknown as { __callChimes?: string[] }).__callChimes?.push(kind);
   const ac = audioContext();
   if (!ac) return;
   if (ac.state === 'suspended') void ac.resume().catch(() => {});

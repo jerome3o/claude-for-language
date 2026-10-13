@@ -106,11 +106,10 @@ test('the student draws on the tutor\'s shared screen and the tutor sees it on h
   }
   await sp.mouse.up();
 
-  // The tutor: "… is drawing on your screen", and ink on her preview of the share — her own
-  // screen shows as a compact card until she asks to see it (shared/calls/share.ts).
+  // The tutor: "… is drawing on your screen", and ink on her own share, which is on her stage
+  // (round 7, shared/calls/share.ts).
   await expect(tp.getByTestId('share-bar')).toContainText('is drawing on your screen', { timeout: 10000 });
-  await expect(tp.getByTestId('sharing-card')).toBeVisible();
-  await tp.getByTestId('sharing-show').click();
+  await expect(tp.getByTestId('sharing-card')).toHaveCount(0);
   await expect.poll(async () => tp.getByTestId('annot-self').evaluate((c: HTMLCanvasElement) => {
     const g = c.getContext('2d')!;
     const d = g.getImageData(0, 0, c.width, c.height).data;
