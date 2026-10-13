@@ -1,8 +1,11 @@
-# TEMPORARY (removed before merge): records the "You said" Roborazzi screenshots for the PR.
+# TEMPORARY (removed before merge): records the "You said" Roborazzi screenshots for the PR and
+# commits them to the branch (the container can't download artifacts).
 name: tmp You said screenshots
 on:
   push:
     branches: [claude/you-said-design]
+permissions:
+  contents: write
 jobs:
   shots:
     runs-on: ubuntu-latest
@@ -13,6 +16,7 @@ jobs:
           sparse-checkout: |
             android-lab
             shared/data
+            docs/pr-screenshots
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -24,9 +28,12 @@ jobs:
       - name: Record
         run: ./gradlew :app:recordRoborazziDebug --tests 'dev.jeromeswannack.chineselearning.lab.ui.study.YouSaidBoxScreenshots' --tests 'dev.jeromeswannack.chineselearning.lab.ui.study.YouSaidCoachUiTest' --tests 'dev.jeromeswannack.chineselearning.lab.ui.study.SayItPracticeUiTest' --no-daemon
         working-directory: android-lab
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: you-said-shots
-          path: android-lab/app/screenshots
-          retention-days: 3
+      - name: Commit the shots to the branch
+        run: |
+          mkdir -p docs/pr-screenshots/you-said-design/lab
+          cp android-lab/app/screenshots/study-yousaid-*.png docs/pr-screenshots/you-said-design/lab/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/pr-screenshots/you-said-design/lab
+          git commit -m "Lab screenshots of the You said box (Roborazzi, CI)" || exit 0
+          git push origin HEAD:claude/you-said-design
