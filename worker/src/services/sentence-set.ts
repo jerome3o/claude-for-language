@@ -1,4 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
+import { structuredCall } from './structured-call';
 
 /**
  * Sentence sets: a graded list of example sentences for a single vocabulary
@@ -110,13 +111,6 @@ function buildUserPrompt(input: SentenceSetInput, count: number): string {
   return parts.join('\n\n');
 }
 
-function isRetryableError(error: unknown): boolean {
-  if (error instanceof Anthropic.APIError) {
-    return error.status === 429 || error.status === 503 || error.status === 529;
-  }
-  return false;
-}
-
 function coerceFocus(value: unknown): SentenceFocus {
   return VALID_FOCUS.includes(value as SentenceFocus) ? (value as SentenceFocus) : 'core';
 }
@@ -140,126 +134,143 @@ export interface RawGeneratedSentence {
 }
 
 /**
+ * The model's `sentences` as an array, whatever shape it arrived in. Now and
+ * then the forced tool call comes back with the array serialised as a JSON
+ * STRING (`"sentences": "[{\"hanzi\": ...}]"`), occasionally wrapped once more
+ * in an object or keyed by index. Treating that as an array threw
+ * "(raw || []).filter is not a function" and failed the whole set — the
+ * "Could not generate sentences" a learner saw on a card. Exported for tests.
+ */
+export function coerceSentenceArray(raw: unknown, depth = 0): RawGeneratedSentence[] {
+  if (Array.isArray(raw)) return raw as RawGeneratedSentence[];
+  if (depth > 3 || raw == null) return [];
+  if (typeof raw === 'string') {
+    const text = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+    if (!text.startsWith('[') && !text.startsWith('{')) return [];
+    try {
+      return coerceSentenceArray(JSON.parse(text), depth + 1);
+    } catch {
+      return [];
+    }
+  }
+  if (typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    if ('sentences' in obj) return coerceSentenceArray(obj.sentences, depth + 1);
+    // A single sentence object, or one keyed "0", "1", ...
+    if (typeof obj.hanzi === 'string') return [obj as RawGeneratedSentence];
+    const values = Object.values(obj);
+    if (values.length > 0 && values.every((v) => v && typeof v === 'object')) {
+      return values as RawGeneratedSentence[];
+    }
+  }
+  return [];
+}
+
+/**
  * Turn the model's tool output into storable rows: drop empty entries, coerce
  * an unknown focus to "core", and never return more than was asked for.
+ * Accepts the array in any shape `coerceSentenceArray` understands.
  * Exported for tests.
  */
 export function normalizeGeneratedSentences(
-  raw: RawGeneratedSentence[] | undefined,
+  raw: unknown,
   count: number
 ): GeneratedSentence[] {
-  return (raw || [])
-    .filter((s) => s && typeof s.hanzi === 'string' && s.hanzi.trim().length > 0)
+  return coerceSentenceArray(raw)
+    .filter((s) => s && typeof s === 'object' && typeof s.hanzi === 'string' && s.hanzi.trim().length > 0)
     .map((s) => ({
       hanzi: cleanHanzi(s.hanzi as string),
-      pinyin: (s.pinyin || '').trim(),
-      translation: (s.translation || '').trim(),
+      pinyin: typeof s.pinyin === 'string' ? s.pinyin.trim() : '',
+      translation: typeof s.translation === 'string' ? s.translation.trim() : '',
       focus: coerceFocus(s.focus),
-      focusNote: s.focus_note ? s.focus_note.trim() : null,
+      focusNote: typeof s.focus_note === 'string' && s.focus_note.trim() ? s.focus_note.trim() : null,
     }))
     .slice(0, count);
 }
 
 /**
- * Generate a graded sentence set for one note. Retries transient API errors.
- * Returns sentences already ordered easiest -> hardest.
+ * Generate a graded sentence set for one note, through `structuredCall`
+ * (forced tool, thinking off, stop_reason checked, a bad shape retried like
+ * any error, the last attempt on the fallback model, a timeout).
+ * Returns sentences already ordered easiest -> hardest. Throws a
+ * StructuredCallError (`retryable`) when every attempt failed.
  */
 export async function generateSentenceSet(
   apiKey: string,
   input: SentenceSetInput,
-  requestedCount?: number
+  requestedCount?: number,
+  options: { client?: Pick<Anthropic, 'messages'>; sleep?: (ms: number) => Promise<void> } = {}
 ): Promise<GeneratedSentence[]> {
-  const client = new Anthropic({ apiKey });
   const count = clampSentenceCount(requestedCount);
   const userPrompt = buildUserPrompt(input, count);
 
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, 1000 * attempt));
-    }
-    try {
-      const response = await client.messages.create({
-        model: MODEL,
-        max_tokens: 6000,
-        // Thinking is on by default on Sonnet 5 and would share the max_tokens
-        // budget with the sentences themselves. This is an interactive button
-        // press with a forced tool call and a tightly specified schema, so
-        // turn it off: the set arrives noticeably faster and the whole budget
-        // goes to the output.
-        thinking: { type: 'disabled' },
-        system: SYSTEM_PROMPT,
-        tools: [
-          {
-            name: 'create_sentence_set',
-            description:
-              'Return the graded set of example sentences, ordered from easiest to hardest.',
-            input_schema: {
-              type: 'object' as const,
-              properties: {
-                sentences: {
-                  type: 'array',
-                  description: `Exactly ${count} sentences, easiest first.`,
-                  items: {
-                    type: 'object',
-                    properties: {
-                      hanzi: {
-                        type: 'string',
-                        description: 'The Chinese sentence, containing the target word verbatim',
-                      },
-                      pinyin: {
-                        type: 'string',
-                        description: 'Pinyin with tone marks for the whole sentence',
-                      },
-                      translation: {
-                        type: 'string',
-                        description: 'Natural English translation',
-                      },
-                      focus: {
-                        type: 'string',
-                        enum: VALID_FOCUS,
-                        description: 'Why this sentence is in the set',
-                      },
-                      focus_note: {
-                        type: 'string',
-                        description:
-                          'Short English note (<90 chars) explaining the link, contrast, or pattern. Required for shared_character, contrast and collocation.',
-                      },
-                    },
-                    required: ['hanzi', 'pinyin', 'translation', 'focus'],
-                  },
-                },
+  const tool = {
+    name: 'create_sentence_set',
+    description:
+      'Return the graded set of example sentences, ordered from easiest to hardest.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        sentences: {
+          type: 'array',
+          description: `Exactly ${count} sentences, easiest first.`,
+          items: {
+            type: 'object',
+            properties: {
+              hanzi: {
+                type: 'string',
+                description: 'The Chinese sentence, containing the target word verbatim',
               },
-              required: ['sentences'],
+              pinyin: {
+                type: 'string',
+                description: 'Pinyin with tone marks for the whole sentence',
+              },
+              translation: {
+                type: 'string',
+                description: 'Natural English translation',
+              },
+              focus: {
+                type: 'string',
+                enum: VALID_FOCUS,
+                description: 'Why this sentence is in the set',
+              },
+              focus_note: {
+                type: 'string',
+                description:
+                  'Short English note (<90 chars) explaining the link, contrast, or pattern. Required for shared_character, contrast and collocation.',
+              },
             },
+            required: ['hanzi', 'pinyin', 'translation', 'focus'],
           },
-        ],
-        tool_choice: { type: 'tool', name: 'create_sentence_set' },
-        messages: [{ role: 'user', content: userPrompt }],
-      });
+        },
+      },
+      required: ['sentences'],
+    },
+  };
 
-      const toolUse = response.content.find((c) => c.type === 'tool_use');
-      if (!toolUse || toolUse.type !== 'tool_use') {
-        throw new Error('No sentence set in AI response');
-      }
-
-      const raw = toolUse.input as { sentences?: RawGeneratedSentence[] };
-      const sentences = normalizeGeneratedSentences(raw.sentences, count);
-
+  return structuredCall({
+    apiKey,
+    model: MODEL,
+    system: SYSTEM_PROMPT,
+    user: userPrompt,
+    tool,
+    maxTokens: 6000,
+    // A set is ~1-2k output tokens; give a slow reply room before giving up.
+    timeoutMs: 90_000,
+    validate: (raw) => {
+      const sentences = normalizeGeneratedSentences(raw, count);
       if (sentences.length === 0) {
         throw new Error('AI returned an empty sentence set');
       }
-
       return sentences;
-    } catch (error) {
-      lastError = error;
-      if (!isRetryableError(error)) break;
-    }
-  }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error('Failed to generate sentence set');
+    },
+    client: options.client,
+    sleep: options.sleep,
+  });
 }
 
 /**
