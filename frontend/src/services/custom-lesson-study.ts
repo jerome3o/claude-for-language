@@ -262,6 +262,17 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
 
     // Rebuild the lesson cache, recomputing scheduling from the full event set
     const serverIds = new Set(data.lessons.map(l => l.id));
+    // A lesson already on the device keeps its schedule until recomputeAllRevisitStates() below
+    // (outside this transaction) puts the merged one in. Writing every row as "new" here left a
+    // window in which a reader saw finished lessons as new — "▶ Do it again" opened in that window
+    // decided it was due and offered no "Practice only" (lesson-replay.spec, flaky in CI).
+    const NEW_STATE = revisitRowFields({ status: 'new', due_ms: null, gap_days: 0, last_ms: null, finishes: 0 });
+    const previous = new Map((await db.customLessons.toArray()).map(r => [r.id, r]));
+    const schedulingOf = (id: string) => {
+      const prev = previous.get(id);
+      if (!prev) return NEW_STATE;
+      return Object.fromEntries(Object.keys(NEW_STATE).map(k => [k, (prev as unknown as Record<string, unknown>)[k]])) as typeof NEW_STATE;
+    };
     await db.customLessons.clear();
     for (const lesson of data.lessons) {
       await db.customLessons.put({
@@ -276,7 +287,7 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
         unlock: lesson.unlock ?? null,
         unlocked_at: lesson.unlocked_at ?? null,
         companion_of: lesson.companion_of ?? null,
-        ...revisitRowFields({ status: 'new', due_ms: null, gap_days: 0, last_ms: null, finishes: 0 }),
+        ...schedulingOf(lesson.id),
         _synced_at: Date.now(),
       });
     }

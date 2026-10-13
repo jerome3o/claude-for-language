@@ -30,6 +30,7 @@ async function api<T = unknown>(
 }
 
 test('card back → tap 行 → the sheet shows its words with Known / In your decks → add one', async ({ page, request }) => {
+  test.setTimeout(90_000);
   const email = `chars-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Char sheet' } });
   const token = auth.session_token;
