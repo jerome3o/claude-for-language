@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { registerFolderTools, matchFolderByName, resolveFolder, folderNames, filedNote, type ApiFolder } from './folders';
+import { registerFolderTools, matchFolderByName, resolveFolder, folderNames, filedNote, findOrCreateFolderPath, type ApiFolder } from './folders';
 import type { ToolContext } from './context';
 import type { ApiClient } from '../api';
 
@@ -10,7 +10,10 @@ function folder(id: string, name: string, extra: Partial<ApiFolder> = {}): ApiFo
   return { id, user_id: 'u1', kind: 'deck', name, parent_id: null, position: 0, created_at: '', updated_at: '', item_count: 0, ...extra };
 }
 
-const FOLDERS = [folder('f1', 'HSK 2', { item_count: 3 }), folder('f2', 'Week 1', { parent_id: 'f1' }), folder('l1', 'Grammar', { kind: 'lesson' })];
+const FOLDERS = [
+  folder('f1', 'HSK 2', { item_count: 3 }), folder('f2', 'Week 1', { parent_id: 'f1' }), folder('f3', 'Monday', { parent_id: 'f2' }),
+  folder('l1', 'Grammar', { kind: 'lesson' }),
+];
 
 function fakeApi() {
   const calls: Array<{ method: string; path: string; body?: unknown; query?: unknown }> = [];
@@ -21,7 +24,7 @@ function fakeApi() {
     },
     post: async (path: string, body: any) => {
       calls.push({ method: 'POST', path, body });
-      if (path === '/api/folders') return { folder: folder('new-1', body.name, { kind: body.kind }) };
+      if (path === '/api/folders') return { folder: folder(`new-${calls.filter((c) => c.method === 'POST' && c.path === '/api/folders').length}`, body.name, { kind: body.kind, parent_id: body.parent_id ?? null }) };
       if (path === '/api/folders/move') return { moved: body.ids.length - 1, not_found: [body.ids[body.ids.length - 1]], folder_id: body.folder_id };
       return {};
     },
@@ -48,14 +51,27 @@ describe('folder helpers', () => {
     expect(matchFolderByName([folder('sub', 'X', { parent_id: 'p' }), folder('top', 'x')], 'deck', 'X')?.id).toBe('top');
     expect(matchFolderByName(FOLDERS, 'deck', '   ')).toBeNull();
   });
-  it('names with the parent', () => {
-    expect(folderNames(FOLDERS).get('f2')).toBe('HSK 2 › Week 1');
+  it('names with every parent', () => {
+    expect(folderNames(FOLDERS).get('f2')).toBe('HSK 2 / Week 1');
+    expect(folderNames(FOLDERS).get('f3')).toBe('HSK 2 / Week 1 / Monday');
+  });
+  it('finds a path, or makes the missing steps inside each other', async () => {
+    const { api, calls } = fakeApi();
+    expect(await findOrCreateFolderPath(api, 'deck', ['hsk 2', 'WEEK 1', 'monday'])).toEqual({ id: 'f3', name: 'HSK 2 / Week 1 / Monday', created: false });
+    const made = await findOrCreateFolderPath(api, 'deck', ['HSK 2', 'Week 1', 'Tuesday', 'Evening']);
+    expect(made).toEqual({ id: 'new-2', name: 'HSK 2 / Week 1 / Tuesday / Evening', created: true });
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([
+      { kind: 'deck', name: 'Tuesday', parent_id: 'f2' },
+      { kind: 'deck', name: 'Evening', parent_id: 'new-1' },
+    ]);
   });
   it('resolves an id, an existing name, or makes one', async () => {
     const { api, calls } = fakeApi();
     expect(await resolveFolder(api, 'deck', {})).toBeUndefined();
     expect(await resolveFolder(api, 'deck', { folder_id: 'f9', folder: 'ignored' })).toEqual({ id: 'f9', name: '', created: false });
     expect(await resolveFolder(api, 'deck', { folder: 'hsk 2' })).toEqual({ id: 'f1', name: 'HSK 2', created: false });
+    expect(await resolveFolder(api, 'deck', { folder: 'monday' })).toEqual({ id: 'f3', name: 'HSK 2 / Week 1 / Monday', created: false });
+    expect(await resolveFolder(api, 'deck', { folder: 'HSK 2 › Week 1' })).toEqual({ id: 'f2', name: 'HSK 2 / Week 1', created: false });
     expect(await resolveFolder(api, 'deck', { folder: 'Food' })).toEqual({ id: 'new-1', name: 'Food', created: true });
     expect(calls.filter((c) => c.method === 'POST')).toEqual([{ method: 'POST', path: '/api/folders', body: { kind: 'deck', name: 'Food' } }]);
     expect(filedNote({ name: 'Food', created: true })).toBe(' Filed in a new folder "Food".');
@@ -68,13 +84,14 @@ describe('folder tools', () => {
     const { tools, calls } = fakeContext();
     const out = JSON.parse(text(await tools.get('list_folders')!({ kind: 'deck' })));
     expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/folders', query: { kind: 'deck' } });
-    expect(out.folders.map((f: any) => [f.path, f.item_count])).toEqual([['HSK 2', 3], ['HSK 2 › Week 1', 0]]);
+    expect(out.folders.map((f: any) => [f.path, f.depth, f.item_count])).toEqual([['HSK 2', 0, 3], ['HSK 2 / Week 1', 1, 0], ['HSK 2 / Week 1 / Monday', 2, 0]]);
   });
   it('create / rename / delete call the API', async () => {
     const { tools, calls } = fakeContext();
     await tools.get('create_folder')!({ kind: 'reader', name: 'Stories' });
     await tools.get('rename_folder')!({ folder_id: 'f1', name: 'HSK 2 (2026)' });
     expect((await tools.get('rename_folder')!({ folder_id: 'f1' })).isError).toBe(true);
+    expect((await tools.get('create_folder')!({ kind: 'deck' })).isError).toBe(true);
     const del = JSON.parse(text(await tools.get('delete_folder')!({ folder_id: 'f1' })));
     expect(del.message).toMatch(/nothing was deleted/);
     expect(calls).toEqual([
@@ -83,15 +100,24 @@ describe('folder tools', () => {
       { method: 'DELETE', path: '/api/folders/f1' },
     ]);
   });
+  it('create_folder with a path reuses existing steps', async () => {
+    const { tools, calls } = fakeContext();
+    const out = JSON.parse(text(await tools.get('create_folder')!({ kind: 'deck', path: 'HSK 2 / Week 1 / Friday' })));
+    expect(out).toMatchObject({ path: 'HSK 2 / Week 1 / Friday', created: true });
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{ kind: 'deck', name: 'Friday', parent_id: 'f2' }]);
+  });
   it('move_to_folder by name, by id, to Unfiled', async () => {
     const { tools, calls } = fakeContext();
     const byName = JSON.parse(text(await tools.get('move_to_folder')!({ kind: 'deck', ids: ['d1', 'd2', 'x'], folder: 'HSK 2' })));
     expect(byName.message).toBe('Moved 2 decks to HSK 2. Not found (not yours, or not a deck): x.');
+    const byPath = JSON.parse(text(await tools.get('move_to_folder')!({ kind: 'deck', ids: ['d3', 'y'], folder: 'HSK 2 / Week 1 / Monday' })));
+    expect(byPath.message).toMatch(/^Moved 1 deck to HSK 2 \/ Week 1 \/ Monday/);
     const unfiled = JSON.parse(text(await tools.get('move_to_folder')!({ kind: 'lesson', ids: ['l1', 'l2'], folder_id: null })));
     expect(unfiled.message).toMatch(/^Moved 1 lesson to Unfiled/);
     expect((await tools.get('move_to_folder')!({ kind: 'deck', ids: ['d1'] })).isError).toBe(true);
     expect(calls.filter((c) => c.path === '/api/folders/move').map((c) => c.body)).toEqual([
       { kind: 'deck', ids: ['d1', 'd2', 'x'], folder_id: 'f1' },
+      { kind: 'deck', ids: ['d3', 'y'], folder_id: 'f3' },
       { kind: 'lesson', ids: ['l1', 'l2'], folder_id: null },
     ]);
   });

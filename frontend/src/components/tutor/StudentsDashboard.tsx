@@ -9,7 +9,6 @@ import { PendingInviteRow } from './PendingInviteRow';
 import { HomeworkDecks } from './HomeworkDecks';
 import { SendHomeworkSheet } from './SendHomeworkSheet';
 import { ProfileNudge } from '../profile/ProfileChip';
-import { Link } from 'react-router-dom';
 import { getTutorLibrary } from '../../api/homeworkLibrary';
 import type { LibraryItem } from '@shared/homework';
 import './tutor-dashboard.css';
@@ -54,9 +53,7 @@ export function StudentsDashboard({ canInvite }: { canInvite: boolean }) {
     <>
       <ProfileNudge />
       <section className="td-section" aria-label="Students">
-        <div className="td-library-link">
-          <Link to="/homework-library" data-testid="dashboard-homework-library">✅ Homework library ›</Link>
-        </div>
+        {/* No "Homework library" link (Minghui, Oct 2026): each card's homework line opens that student's Homework section. */}
         <div className="td-list">
           {students.map((s) => (
             <StudentCard

@@ -1022,8 +1022,6 @@
   text-decoration: none;
 }
 .td-card-recent > span { width: 100%; }
-.td-library-link { display: flex; justify-content: flex-end; margin-bottom: 0.4rem; }
-.td-library-link a { min-height: 44px; display: inline-flex; align-items: center; font-weight: 600; }
 
 /* ---------- One-off headline + Long-term learning (docs/HOMEWORK.md §11) ---------- */
 
@@ -1058,4 +1056,16 @@
 }
 .td-long-term .td-bar-started {
   background: #9ca3af;
+}
+
+/* A link to a section of the student page (#homework, #flags) lands with it in view and a
+   short highlight (hooks/useScrollToHash.ts). */
+.detail-section[id] { scroll-margin-top: 4.5rem; } /* clear of the app header */
+.section-flash { animation: section-flash 2.4s ease-out; border-radius: 4px; }
+@keyframes section-flash {
+  0%, 35% { box-shadow: 0 0 0 10px #eff6ff, 0 0 0 13px #93c5fd; background-color: #eff6ff; }
+  100% { box-shadow: 0 0 0 10px transparent, 0 0 0 13px transparent; background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .section-flash { animation: none; box-shadow: 0 0 0 10px #eff6ff, 0 0 0 13px #93c5fd; background-color: #eff6ff; }
 }

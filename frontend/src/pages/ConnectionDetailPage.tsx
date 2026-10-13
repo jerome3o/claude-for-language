@@ -54,6 +54,7 @@ import '../components/tutor/tutor-dashboard.css';
 import './ConnectionDetailPage.css';
 import { lastMessagePreview } from '../services/chatThread';
 import { track } from '../services/analytics';
+import { useScrollToHash } from '../hooks/useScrollToHash';
 
 function formatConversationDate(dateStr: string) {
   const date = new Date(dateStr);
@@ -209,6 +210,9 @@ export function ConnectionDetailPage() {
     enabled: !!relId && tutorView,
     staleTime: 30_000,
   });
+  // The dashboard's homework pill / recent line land here as #homework: scroll to it and flash it
+  // (her "homework progress" — the student's Homework section, not the homework library).
+  const focusSection = useScrollToHash(tutorView && !overviewQuery.isLoading);
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations', relId],
@@ -491,7 +495,7 @@ export function ConnectionDetailPage() {
 
           {/* Most recent homework: %, due date, status colour (docs/HOMEWORK.md §9) */}
           {libraryQuery.data && (
-            <RecentHomeworkCard items={libraryQuery.data.items} today={libraryQuery.data.today} relId={relId!} onSend={() => setShowHomeworkSheet(true)} />
+            <RecentHomeworkCard items={libraryQuery.data.items} today={libraryQuery.data.today} onSeeAll={() => focusSection('homework')} onSend={() => setShowHomeworkSheet(true)} />
           )}
 
           {liveCallBanner}
@@ -543,7 +547,6 @@ export function ConnectionDetailPage() {
               {recordingsLinkLabel(overview?.pills)}
             </Link>
             <Link to={`/connections/${relId}/progress`}>Progress</Link>
-            <Link to={`/connections/${relId}/homework`}>Homework library</Link>
           </nav>
 
           {/* The tutor's private profile of the student: every homework / lesson / reader agent reads it */}

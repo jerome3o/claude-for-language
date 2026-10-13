@@ -1,18 +1,21 @@
 /**
- * Items shown in collapsible folder groups (shared/folders `groupIntoFolders`): each
- * top-level folder with its subfolders, then Unfiled. Used by the Decks list, the
- * Library and the Readers list; each page renders its own items per group.
+ * Items shown in collapsible folder groups (shared/folders `groupIntoFolders`): the
+ * folder tree (folders inside folders, up to MAX_FOLDER_DEPTH levels), then Unfiled.
+ * Used by the Decks list, the Library and the Readers list; each page renders its own
+ * items per group.
  *
- * - Collapsed groups are remembered per device (`useCollapsedFolders`).
- * - Press and hold a top-level folder's header to drag it to a new place.
+ * - Collapsed groups are remembered per device (`useCollapsedFolders`), per folder.
+ * - Press and hold a folder's header to drag it among its siblings (any level).
  * - With no folders of this kind the items render as before (no Unfiled header).
  * - `flat` (searching): one plain list, nothing hidden in a collapsed folder.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   folderCountLabel,
+  folderLevel,
   groupIntoFolders,
   movedMessage,
+  MAX_FOLDER_DEPTH,
   UNFILED_LABEL,
   type Folder,
   type FolderGroup,
@@ -23,13 +26,14 @@ import { track } from '../../services/analytics';
 import {
   createFolder,
   deleteFolder,
+  moveFolder,
   moveItemsToFolder,
   renameFolder,
   reorderFolders,
   useCollapsedFolders,
   useFolders,
 } from '../../services/folders';
-import { DeleteFolderSheet, FolderNameSheet, MoveToFolderSheet } from './FolderSheets';
+import { DeleteFolderSheet, FolderNameSheet, MoveFolderSheet, MoveToFolderSheet } from './FolderSheets';
 import './folders.css';
 
 type SheetState =
@@ -37,6 +41,7 @@ type SheetState =
   | { type: 'rename'; folder: Folder }
   | { type: 'delete'; folder: Folder; itemCount: number; subfolderCount: number }
   | { type: 'move'; ids: string[]; currentFolderId?: string | null }
+  | { type: 'move-folder'; folder: Folder }
   | null;
 
 export interface FolderUi {
@@ -49,6 +54,8 @@ export interface FolderUi {
   openDelete: (folder: Folder, itemCount: number, subfolderCount: number) => void;
   /** Move these items; `currentFolderId` ticks their folder when they share one. */
   openMove: (ids: string[], currentFolderId?: string | null) => void;
+  /** Put a folder (with everything inside it) into another folder or at the top level. */
+  openMoveFolder: (folder: Folder) => void;
   /** Render once on the page. */
   sheets: ReactNode;
 }
@@ -96,6 +103,7 @@ export function useFolderUi(kind: FolderKind, { onChanged, onToast }: { onChange
         folder={sheet.folder}
         itemCount={sheet.itemCount}
         subfolderCount={sheet.subfolderCount}
+        parentName={sheet.folder.parent_id ? byId.get(sheet.folder.parent_id)?.name ?? null : null}
         onClose={close}
         onConfirm={async () => {
           await deleteFolder(sheet.folder);
@@ -113,9 +121,9 @@ export function useFolderUi(kind: FolderKind, { onChanged, onToast }: { onChange
         count={sheet.ids.length}
         currentFolderId={sheet.currentFolderId}
         onClose={close}
-        onCreate={async (name) => {
-          const folder = await createFolder(kind, name);
-          track('folder.create', { kind, nested: false });
+        onCreate={async (name, parentId) => {
+          const folder = await createFolder(kind, name, parentId);
+          track('folder.create', { kind, nested: !!parentId });
           justCreated.current = folder;
           return folder;
         }}
@@ -126,6 +134,22 @@ export function useFolderUi(kind: FolderKind, { onChanged, onToast }: { onChange
           onChanged?.();
           const name = folderId ? (byId.get(folderId) ?? (justCreated.current?.id === folderId ? justCreated.current : null))?.name ?? null : null;
           onToast?.(movedMessage(kind, moved || sheet.ids.length, name));
+        }}
+      />
+    );
+  } else if (sheet?.type === 'move-folder') {
+    sheets = (
+      <MoveFolderSheet
+        kind={kind}
+        folders={folders}
+        folder={sheet.folder}
+        onClose={close}
+        onMove={async (parentId) => {
+          await moveFolder(sheet.folder.id, parentId);
+          const parent = parentId ? byId.get(parentId) : undefined;
+          track('folder.move_folder', { kind, depth: parent ? folderLevel(parent, folders) : 0 });
+          close();
+          onToast?.(`Moved “${sheet.folder.name}” to ${parent ? parent.name : 'the top level'}`);
         }}
       />
     );
@@ -140,11 +164,12 @@ export function useFolderUi(kind: FolderKind, { onChanged, onToast }: { onChange
     openRename: (folder) => setSheet({ type: 'rename', folder }),
     openDelete: (folder, itemCount, subfolderCount) => setSheet({ type: 'delete', folder, itemCount, subfolderCount }),
     openMove: (ids, currentFolderId) => setSheet({ type: 'move', ids, currentFolderId }),
+    openMoveFolder: (folder) => setSheet({ type: 'move-folder', folder }),
     sheets,
   };
 }
 
-function FolderMenu({ ui, group, isTop }: { ui: FolderUi; group: FolderGroup<unknown>; isTop: boolean }) {
+function FolderMenu({ ui, group }: { ui: FolderUi; group: FolderGroup<unknown> }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -156,9 +181,12 @@ function FolderMenu({ ui, group, isTop }: { ui: FolderUi; group: FolderGroup<unk
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
   const folder = group.folder!;
+  // A folder at the deepest level can't hold another (MAX_FOLDER_DEPTH levels).
+  const canNest = group.depth + 1 < MAX_FOLDER_DEPTH;
   const items: Array<[string, string, () => void, boolean?]> = [
     ['rename', '✏️ Rename…', () => ui.openRename(folder)],
-    ...(isTop ? [['sub', '📁 New folder inside…', () => ui.openCreate(folder.id)] as [string, string, () => void]] : []),
+    ...(canNest ? [['sub', '📁 New folder inside…', () => ui.openCreate(folder.id)] as [string, string, () => void]] : []),
+    ['move', '↪ Move folder…', () => ui.openMoveFolder(folder)],
     ['delete', '🗑 Delete folder…', () => ui.openDelete(folder, group.items.length, group.children.length), true],
   ];
   return (
@@ -195,11 +223,10 @@ function FolderMenu({ ui, group, isTop }: { ui: FolderUi; group: FolderGroup<unk
 }
 
 function GroupHeader({
-  ui, group, depth, dragProps, dragging,
+  ui, group, dragProps, dragging,
 }: {
   ui: FolderUi;
   group: FolderGroup<unknown>;
-  depth: 0 | 1;
   dragProps?: Record<string, unknown>;
   dragging?: boolean;
 }) {
@@ -207,7 +234,7 @@ function GroupHeader({
   const collapsed = ui.isCollapsed(id);
   const name = group.folder?.name ?? UNFILED_LABEL;
   return (
-    <div className={`folder-head${depth ? ' folder-head--sub' : ''}${dragging ? ' folder-head--dragging' : ''}`} {...dragProps}>
+    <div className={`folder-head${group.depth ? ' folder-head--sub' : ''}${dragging ? ' folder-head--dragging' : ''}`} {...dragProps}>
       <button
         type="button"
         className="folder-toggle"
@@ -220,7 +247,72 @@ function GroupHeader({
         <span className="folder-name">{name}</span>
         <span className="folder-count">{folderCountLabel(ui.kind, group.total)}</span>
       </button>
-      {group.folder && <FolderMenu ui={ui} group={group} isTop={depth === 0} />}
+      {group.folder && <FolderMenu ui={ui} group={group} />}
+    </div>
+  );
+}
+
+/**
+ * One level of the tree: sibling folders, each with its header, its subfolders (another
+ * level, any depth) and its items. Press and hold a header to drag it among its siblings —
+ * every level reorders on its own (`reorderFolders` with that level's ids).
+ */
+function FolderLevel<T>({
+  ui, groups, depth, renderItems, emptyFolderText,
+}: {
+  ui: FolderUi;
+  groups: FolderGroup<T>[];
+  depth: number;
+  renderItems: (items: T[], folder: Folder | null) => ReactNode;
+  emptyFolderText: string;
+}) {
+  const ids = useMemo(() => groups.map((g) => g.folder!.id), [groups]);
+  const drag = useLongPressReorder(
+    ids,
+    async (order) => {
+      try {
+        await reorderFolders(ui.kind, order);
+      } catch (err) {
+        console.error('[Folders] reorder failed', err);
+      }
+    },
+    { selector: ':scope > [data-folder-id]' },
+  );
+  const byId = new Map(groups.map((g) => [g.folder!.id, g]));
+  const ordered = drag.order.map((id) => byId.get(id)).filter((g): g is FolderGroup<T> => !!g);
+  return (
+    <div ref={drag.listRef} className={depth === 0 ? 'folder-groups-list' : 'folder-subgroups'}>
+      {ordered.map((group) => {
+        const id = group.folder!.id;
+        return (
+          <div
+            key={id}
+            className={`folder-group${depth ? ' folder-group--sub' : ''}`}
+            data-folder-id={id}
+            data-depth={depth}
+            data-testid="folder-group"
+          >
+            <GroupHeader
+              ui={ui}
+              group={group as FolderGroup<unknown>}
+              dragProps={drag.cardProps(id) as unknown as Record<string, unknown>}
+              dragging={drag.dragId === id}
+            />
+            {!ui.isCollapsed(id) && (
+              <div className="folder-body">
+                {group.children.length > 0 && (
+                  <FolderLevel ui={ui} groups={group.children} depth={depth + 1} renderItems={renderItems} emptyFolderText={emptyFolderText} />
+                )}
+                {group.items.length > 0
+                  ? renderItems(group.items, group.folder)
+                  : group.children.length > 0
+                    ? null
+                    : <p className="folder-empty">{emptyFolderText}</p>}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -242,63 +334,16 @@ export function FolderGroups<T>({
   emptyFolderText?: string;
 }) {
   const { groups, unfiled } = useMemo(() => groupIntoFolders(items, folderIdOf, ui.folders, ui.kind), [items, folderIdOf, ui.folders, ui.kind]);
-  const topIds = useMemo(() => groups.map((g) => g.folder!.id), [groups]);
-  const drag = useLongPressReorder(
-    topIds,
-    async (ids) => {
-      try {
-        await reorderFolders(ui.kind, ids);
-      } catch (err) {
-        console.error('[Folders] reorder failed', err);
-      }
-    },
-    { selector: ':scope > [data-folder-id]' },
-  );
 
   if (flat || groups.length === 0) return <>{renderItems(items, null)}</>;
 
-  const byId = new Map(groups.map((g) => [g.folder!.id, g]));
-  const ordered = drag.order.map((id) => byId.get(id)).filter((g): g is FolderGroup<T> => !!g);
-
-  const body = (group: FolderGroup<T>, depth: 0 | 1) => {
-    if (ui.isCollapsed(group.folder?.id ?? null)) return null;
-    return (
-      <div className="folder-body">
-        {group.children.map((child) => (
-          <div key={child.folder!.id} className="folder-group folder-group--sub" data-testid="folder-group">
-            <GroupHeader ui={ui} group={child as FolderGroup<unknown>} depth={1} />
-            {body(child, 1)}
-          </div>
-        ))}
-        {group.items.length > 0
-          ? renderItems(group.items, group.folder)
-          : depth === 0 && group.children.length > 0
-            ? null
-            : <p className="folder-empty">{group.folder ? emptyFolderText : 'Everything is in a folder.'}</p>}
-      </div>
-    );
-  };
-
   return (
     <div className="folder-groups" data-testid="folder-groups">
-      <div ref={drag.listRef} className="folder-groups-list">
-        {ordered.map((group) => (
-          <div key={group.folder!.id} className="folder-group" data-folder-id={group.folder!.id} data-testid="folder-group">
-            <GroupHeader
-              ui={ui}
-              group={group as FolderGroup<unknown>}
-              depth={0}
-              dragProps={drag.cardProps(group.folder!.id) as unknown as Record<string, unknown>}
-              dragging={drag.dragId === group.folder!.id}
-            />
-            {body(group, 0)}
-          </div>
-        ))}
-      </div>
+      <FolderLevel ui={ui} groups={groups} depth={0} renderItems={renderItems} emptyFolderText={emptyFolderText} />
       {unfiled.items.length > 0 && (
         <div className="folder-group folder-group--unfiled" data-testid="folder-group-unfiled">
-          <GroupHeader ui={ui} group={unfiled as FolderGroup<unknown>} depth={0} />
-          {body(unfiled, 0)}
+          <GroupHeader ui={ui} group={unfiled as FolderGroup<unknown>} />
+          {!ui.isCollapsed(null) && <div className="folder-body">{renderItems(unfiled.items, null)}</div>}
         </div>
       )}
     </div>

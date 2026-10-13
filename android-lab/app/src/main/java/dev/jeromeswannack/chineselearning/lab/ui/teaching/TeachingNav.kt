@@ -17,7 +17,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentPatchBody
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
@@ -40,12 +42,17 @@ import dev.jeromeswannack.chineselearning.lab.ui.placeholder.PlaceholderScreen
  * until it lands — replace the `else` with E's screen).
  */
 fun NavGraphBuilder.teachingGraph(nav: LabNav) {
-    composable(Routes.route("/connections/{relId}")) { entry ->
+    // `?section=homework`: the dashboard's homework pill / recent line land on the Homework section (web #homework).
+    composable(
+        Routes.route("/connections/{relId}?section={section}"),
+        arguments = listOf(navArgument("section") { type = NavType.StringType; nullable = true; defaultValue = null }),
+    ) { entry ->
         val relId = entry.arguments?.getString("relId").orEmpty()
+        val section = entry.arguments?.getString("section")
         val relationships by nav.app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS).collectAsStateWithLifecycle(null)
         val asStudent = relationships?.students?.firstOrNull { it.id == relId }
         when {
-            asStudent != null -> StudentPageRoute(nav, relId, asStudent)
+            asStudent != null -> StudentPageRoute(nav, relId, asStudent, section)
             relationships == null -> Unit // cache still loading (a frame)
             else -> dev.jeromeswannack.chineselearning.lab.ui.connections.TutorPageRoute(nav, relId) // E: the student's tutor page
         }
@@ -268,7 +275,7 @@ internal fun SendHomeworkFor(nav: LabNav, send: SendHomeworkController, relId: S
 }
 
 @Composable
-private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
+private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto, section: String? = null) {
     val app = nav.app
     val context = LocalContext.current
     val vm: StudentPageViewModel = viewModel(key = "student-$relId", factory = StudentPageViewModel.Factory(app, relId))
@@ -295,6 +302,7 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
     val library by vm.library.state.collectAsStateWithLifecycle()
     var budgetEditor by remember { mutableStateOf(false) }
     var checkDeck by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto?>(null) }
+    var focus by remember(section) { mutableStateOf(section?.let { SectionFocus(it) }) }
     val student = rel.studentUser()
     val name = overview.data?.let { studentName(it) } ?: student?.name ?: student?.email ?: "Student"
 
@@ -343,10 +351,12 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
                 {
                     MostRecentHomeworkCard(
                         items, dev.jeromeswannack.chineselearning.lab.core.Homework.localDate(),
-                        onSeeAll = { nav.open(Routes.studentHomeworkLibrary(relId)) },
+                        // The page's own Homework section, not the homework library (hidden from menus, Oct 2026).
+                        onSeeAll = { focus = SectionFocus(Routes.SECTION_HOMEWORK) },
                     )
                 }
             },
+            focus = focus,
             lessonNotes = {
                 LessonNotesSection(
                     relId, name, notesEntries.data, notesEntries.error, drafting,

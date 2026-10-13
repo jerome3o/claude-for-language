@@ -54,6 +54,7 @@ class FoldersParityTest {
             "folder" to (g.folder?.id?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: JsonNull),
             "items" to JsonArray(g.items.map { kotlinx.serialization.json.JsonPrimitive(it.id) }),
             "total" to kotlinx.serialization.json.JsonPrimitive(g.total),
+            "depth" to kotlinx.serialization.json.JsonPrimitive(g.depth),
             "children" to JsonArray(g.children.map(::shape)),
         ),
     )
@@ -74,6 +75,28 @@ class FoldersParityTest {
             assertEquals(o["options"]!!.jsonArray.map { it.jsonObject["id"].str!! to it.jsonObject["depth"]!!.jsonPrimitive.int }, opts.map { it.folder.id to it.depth }, "options $o")
             assertEquals(o["sorted"]!!.strings(), Folders.sortFolders(folders).map { it.id }, "sorted $o")
             assertEquals(o["paths"]!!.strings(), folders.map { Folders.folderPath(it, folders) }, "paths $o")
+            assertEquals(o["slash_paths"]!!.strings(), folders.map { Folders.folderPath(it, folders, " / ") }, "slash paths $o")
+            assertEquals(o["levels"]!!.jsonArray.map { it.jsonPrimitive.int }, folders.map { Folders.folderLevel(it, folders) }, "levels $o")
+            assertEquals(o["ancestors"]!!.jsonArray.map { it.strings() }, folders.map { f -> Folders.folderAncestors(f, folders).map { it.id } }, "ancestors $o")
+            assertEquals(o["descendants"]!!.jsonArray.map { it.strings() }, folders.map { Folders.folderDescendantIds(it.id, folders) }, "descendants $o")
+            assertEquals(o["subtree"]!!.jsonArray.map { it.jsonPrimitive.int }, folders.map { Folders.subtreeLevels(it.id, folders) }, "subtree $o")
+            val moves = folders.flatMap { x -> (listOf<String?>(null) + folders.map { it.id } + "ghost").map { p -> Folders.parentProblem(x.id, x.kind, p, folders) } }
+            assertEquals(o["parent_problems"]!!.jsonArray.map { it.str }, moves, "parent problems $o")
+            val news = (listOf<String?>(null) + folders.map { it.id }).map { p -> Folders.parentProblem(null, kind, p, folders) }
+            assertEquals(o["new_problems"]!!.jsonArray.map { it.str }, news, "new problems $o")
+            for (fc in o["finds"]!!.jsonArray) {
+                val path = fc.jsonObject["path"]!!.strings()
+                assertEquals(fc.jsonObject["hit"].str, Folders.findFolderByPath(folders, kind, path)?.id, "find $path in $o")
+            }
+        }
+    }
+
+    @Test
+    fun pathsAndDepth() {
+        assertEquals(data["max_depth"]!!.jsonPrimitive.int, Folders.MAX_FOLDER_DEPTH)
+        for (c in data["parsed_paths"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["out"]!!.strings(), Folders.parseFolderPath(o["raw"].str!!), "$o")
         }
     }
 
@@ -83,8 +106,12 @@ class FoldersParityTest {
             Folder("a", "u", "deck", "A"),
             Folder("b", "u", "deck", "B", parentId = "a"),
             Folder("l", "u", "lesson", "Lessons"),
-            Folder("c", "u", "deck", "C"),
+            Folder("c", "u", "deck", "C", parentId = "b"),
             Folder("e", "u", "deck", "E", parentId = ""),
+            Folder("d", "u", "deck", "D", parentId = "c"),
+            Folder("g", "u", "deck", "G", parentId = "d"),
+            Folder("h", "u", "deck", "H"),
+            Folder("i", "u", "deck", "I", parentId = "h"),
         )
         for (c in data["parents"]!!.jsonArray) {
             val o = c.jsonObject
@@ -116,6 +143,7 @@ class FoldersParityTest {
             assertEquals(o["moved"].str, Folders.movedMessage(kind, n, "HSK 2"))
             assertEquals(o["moved_unfiled"].str, Folders.movedMessage(kind, n, null))
             assertEquals(o["del"]!!.strings(), (0..2).map { Folders.deleteFolderMessage(kind, "HSK 2", n, it) })
+            assertEquals(o["del_into"]!!.strings(), (0..2).map { Folders.deleteFolderMessage(kind, "Week 1", n, it, "课本 第一册") })
         }
     }
 }

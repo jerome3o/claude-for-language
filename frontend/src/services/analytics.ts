@@ -26,6 +26,7 @@ import {
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { BUILD_TIME } from '../utils/appUpdates';
 import { detectInstallKind } from './clientState';
+import { getDesktopBridge } from '@shared/desktop/bridge';
 
 export interface QueuedEvent {
   id: string;
@@ -98,6 +99,7 @@ export function clearAnalyticsQueue(): Promise<void> {
 // ─── context ───────────────────────────────────────────────────────────────
 
 export function analyticsPlatform(): AnalyticsPlatform {
+  if (getDesktopBridge()) return 'desktop'; // the Electron app (desktop/)
   const kind = detectInstallKind();
   return kind === 'android' ? 'android-hybrid' : kind === 'pwa' ? 'pwa' : 'web';
 }
