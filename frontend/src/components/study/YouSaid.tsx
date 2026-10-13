@@ -40,6 +40,11 @@ export interface YouSaidProps {
   onPlay?: () => void;
 }
 
+/** The pinyin line under the hanzi: no space before punctuation ("zhōng guó 。" → "zhōng guó。"). Lab: `tidyYouSaidPinyin`. */
+export function tidyPinyin(pinyin: string): string {
+  return pinyin.replace(/\s+(?=[。，、！？；：.,!?;:])/g, '').trim();
+}
+
 /** Material icons (Apache 2.0), drawn in currentColor. */
 const ICON = {
   check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
@@ -113,7 +118,7 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, onCoach, onP
         </span>
       </div>
       <div className="you-said-hanzi" lang="zh-CN" data-testid="you-said-hanzi">{hanzi || '…'}</div>
-      {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{pinyin}</div>}
+      {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
     </Shell>
   );
 }
@@ -153,8 +158,8 @@ export function YouSaidFailed({ onRetry, note = 'Your recording is saved', testI
     >
       <span className="you-said-side"><span className="you-said-round" aria-hidden="true"><Icon d={ICON.retry} /></span></span>
       <span className="you-said-body">
-        <span className="you-said-failed-title">Couldn’t transcribe — tap to retry</span>
-        <span className="you-said-failed-note">{note}</span>
+        <span className="you-said-failed-title">Couldn’t transcribe</span>
+        <span className="you-said-failed-note">Tap to retry · {note.charAt(0).toLowerCase() + note.slice(1)}</span>
       </span>
       <span className="you-said-side" />
     </button>

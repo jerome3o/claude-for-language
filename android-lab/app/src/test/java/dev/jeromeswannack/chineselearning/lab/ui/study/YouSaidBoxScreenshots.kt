@@ -56,7 +56,7 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
 
     private fun done(text: String) = TranscriptionUi.Done(Transcription.compare(text, note.hanzi))
     private val states = listOf(
-        "match" to done("曾经"),
+        "match" to done("曾"),
         "contains" to done("我曾经去过中国。"),
         "miss" to done("已经"),
         "failed" to TranscriptionUi.Failed,
@@ -67,8 +67,8 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
         StudyScreen(ui(t), playingKey = null, actions = StudyActions(onYouSaidCoach = { _, _ -> }, onYouSaidPlay = {}), autoplay = false)
     }
 
-    @Test fun match() = card("study-yousaid-01-match", done("曾经"), dark = false)
-    @Test fun matchDark() = card("study-yousaid-02-match-dark", done("曾经"), dark = true)
+    @Test fun match() = card("study-yousaid-01-match", done("曾"), dark = false)
+    @Test fun matchDark() = card("study-yousaid-02-match-dark", done("曾"), dark = true)
     @Test fun contains() = card("study-yousaid-03-contains", done("我曾经去过中国。"), dark = false)
     @Test fun containsDark() = card("study-yousaid-04-contains-dark", done("我曾经去过中国。"), dark = true)
     @Test fun miss() = card("study-yousaid-05-miss", done("已经"), dark = false)

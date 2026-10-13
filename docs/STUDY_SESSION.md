@@ -1000,7 +1000,7 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   error colours (light and dark). Round 44 px buttons sit in EQUAL side columns, so the text stays centred:
   **▶ Play my recording** on the left of a read card's box (the take it was transcribed from; analytics
   `study.you_said_play`) and **✎ Check in Coach** on the right of the orange box. "Transcribing…" (three
-  pulsing dots), "Recording saved, will transcribe when online" and "Couldn't transcribe — tap to retry"
+  pulsing dots), "Recording saved, will transcribe when online" and "Couldn't transcribe · Tap to retry"
   (↻ circle on the left, the whole box is the button — also the say-it flow's retry) are the same shell
   with the same minimum height (88 px), so the result replaces them without a jump. A wrong
   spoken answer's character diff is lined up with the answer by longest common subsequence

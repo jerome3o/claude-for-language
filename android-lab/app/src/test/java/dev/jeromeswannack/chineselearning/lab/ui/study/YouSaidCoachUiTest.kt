@@ -82,6 +82,14 @@ class YouSaidCoachUiTest : LabScreenshotTest() {
         assertEquals(1, count(SAY_AGAIN_TAG))
     }
 
+    @Test fun theBoxsWords() {
+        assertEquals("Match", youSaidVerdictLabel("match"))
+        assertEquals("Contains the answer", youSaidVerdictLabel("contains"))
+        assertEquals("Didn’t match", youSaidVerdictLabel("miss"))
+        assertEquals("céng jīng。", tidyYouSaidPinyin("céng jīng 。"))
+        assertEquals("shì", tidyYouSaidPinyin("shì"))
+    }
+
     @Test fun theCoachRouteCarriesTheAction() {
         val route = Routes.coach(text = sentence, action = "check")
         assertTrue(route, route.startsWith("/coach?") && "action=check" in route && "text=" in route)

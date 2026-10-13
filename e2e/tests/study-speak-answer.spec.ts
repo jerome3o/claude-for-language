@@ -405,7 +405,7 @@ test('say it again: the question while the new take is said, its review there, t
   await page.getByTestId('spoken-mic').click();
   await page.getByTestId('spoken-review-submit').click();
   await expect(page.getByTestId('spoken-answer-sound')).toBeVisible({ timeout: 8000 });
-  await expect(page.getByTestId('you-said')).toContainText('(油)');
+  await expect(page.getByTestId('you-said-hanzi')).toHaveText('油');
   // The reveal's auto-play has happened; from here on only "Say it again" may add one.
   await expect.poll(() => cardPlays(page)).toBeGreaterThan(0);
   await page.waitForTimeout(800);

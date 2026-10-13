@@ -73,6 +73,9 @@ fun youSaidVerdictLabel(state: String): String = when (state) {
     else -> "Didn’t match"
 }
 
+/** The pinyin line under the hanzi: no space before punctuation ("zhōng guó 。" → "zhōng guó。"); web `tidyPinyin`. */
+fun tidyYouSaidPinyin(pinyin: String): String = pinyin.replace(Regex("\\s+(?=[。，、！？；：.,!?;:])"), "").trim()
+
 private enum class YouSaidTone { MATCH, CONTAINS, MISS, PENDING, NEUTRAL }
 
 @Composable
@@ -197,7 +200,7 @@ fun YouSaidBox(r: TranscriptionComparison, onCoach: (() -> Unit)? = null, onPlay
         Spacer(Modifier.size(4.dp))
         Text(r.transcribedHanzi.ifEmpty { "…" }, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
         if (r.transcribedPinyin.isNotBlank()) {
-            Text(r.transcribedPinyin, fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, textAlign = TextAlign.Center)
+            Text(tidyYouSaidPinyin(r.transcribedPinyin), fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
     }
 }
@@ -250,7 +253,7 @@ fun YouSaidFailed(note: String, onRetry: () -> Unit, modifier: Modifier = Modifi
         },
         sides = true,
     ) {
-        Text("Couldn’t transcribe — tap to retry", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, textAlign = TextAlign.Center)
-        Text(note, fontSize = 12.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp))
+        Text("Couldn’t transcribe", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, textAlign = TextAlign.Center)
+        Text("Tap to retry · " + note.replaceFirstChar { it.lowercase() }, fontSize = 12.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp))
     }
 }
