@@ -1,6 +1,6 @@
 /** API client for video calls (worker routes/calls.ts). */
 
-import { API_BASE, getAuthHeaders, authEvents } from './client';
+import { API_BASE, getAuthHeaders, authEvents, devWorkerOrigin } from './client';
 import type { CallDetail, CallJoinInfo, CallListItem, CallInfo, CallReportWord } from '../types/calls';
 
 const API_PATH = `${API_BASE}/api`;
@@ -116,7 +116,7 @@ export function closePiece(callId: string, pieceId: string, body: { chunk_count:
  * here, so the socket goes straight to `wrangler dev` on :8787.
  */
 export function callSocketUrl(wsPath: string, ticket: string, instance?: string): string {
-  const base = API_BASE || (import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:8787` : window.location.origin);
+  const base = API_BASE || (import.meta.env.DEV ? devWorkerOrigin() : window.location.origin);
   const url = new URL(wsPath, base);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('ticket', ticket);

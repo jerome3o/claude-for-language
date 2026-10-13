@@ -60,7 +60,7 @@ async function openAs(browser: Browser, user: SeededUser, path: string, viewport
       /* ignore */
     }
   });
-  // No word chips (keeps the bubbles plain text and avoids a Claude call).
+  // No Claude word chips (avoids a Claude call). The device's segmenter still makes chips (#569).
   await page.route('**/api/messages/*/words', (route) => route.fulfill({ json: { words: null, source: null, cached: false } }));
   await page.goto(`/?session_token=${user.token}`);
   await page.locator('.header').waitFor({ timeout: 30000 });
@@ -95,8 +95,21 @@ test('bubbles carry no buttons; right-click opens the menu at the pointer; Reply
   await expect(page.getByTestId('chat-message').filter({ hasText: '大概九点' }).getByTestId('chat-bubble-meta')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Show pinyin' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reply', exact: true })).toHaveCount(0);
-  // Tap shows that bubble's time.
-  await first.locator('.chat-bubble').click();
+  // A tap on the bubble (outside its word chips) shows that bubble's time. Since #569 the device
+  // segmenter turns the Chinese into word chips, and a chip opens the explorer instead — so tap the
+  // bubble's padding, then check a chip still opens the word and doesn't toggle the time.
+  const bubbleBox = (await first.locator('.chat-bubble').boundingBox())!;
+  const padding = { x: bubbleBox.width - 5, y: bubbleBox.height / 2 }; // the right padding, past the text
+  await first.locator('.chat-bubble').click({ position: padding });
+  await expect(first.getByTestId('chat-bubble-meta')).toBeVisible();
+  await first.locator('.chat-bubble').click({ position: padding });
+  await expect(first.getByTestId('chat-bubble-meta')).toHaveCount(0);
+  await first.locator('.chat-word').filter({ hasText: '明天' }).click();
+  await expect(page.getByTestId('explorer')).toBeVisible();
+  await expect(first.getByTestId('chat-bubble-meta')).toHaveCount(0);
+  await page.getByTestId('explorer-close').click();
+  await expect(page.getByTestId('explorer')).toHaveCount(0);
+  await first.locator('.chat-bubble').click({ position: padding });
   await expect(first.getByTestId('chat-bubble-meta')).toBeVisible();
 
   // Right-click → popover with the reaction bar and the tutor's tools.

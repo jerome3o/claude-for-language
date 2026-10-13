@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
     "composite": true,
+    // Emit outside the source tree: a vite.config.js beside vite.config.ts wins over it (Vite
+    // looks for .js first), so a stale emitted copy silently replaced the real config in dev / E2E.
+    "outDir": "node_modules/.tmp/vite-config",
+    "tsBuildInfoFile": "node_modules/.tmp/vite-config/tsconfig.node.tsbuildinfo",
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",

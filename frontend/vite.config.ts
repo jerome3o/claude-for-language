@@ -128,11 +128,13 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 3000,
+    // E2E on other ports (e2e/playwright.config.ts E2E_WEB_PORT / E2E_API_PORT).
+    port: Number(process.env.VITE_DEV_PORT) || 3000,
+    strictPort: !!process.env.VITE_DEV_PORT,
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8787',
+        target: process.env.VITE_API_PROXY || 'http://localhost:8787',
         changeOrigin: true,
       },
     },

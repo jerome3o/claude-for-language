@@ -30,6 +30,8 @@ interface AuthFixtures {
   authenticatedPage: AuthenticatedPage;
 }
 
+const API_URL = process.env.E2E_API_URL || 'http://localhost:8787';
+
 export const test = base.extend<AuthFixtures>({
   // Create a test user and provide their session token
   testUser: async ({ request }, use) => {
@@ -38,13 +40,13 @@ export const test = base.extend<AuthFixtures>({
     const name = `E2E Test User ${timestamp}`;
 
     // First check that the worker is running and test mode is enabled
-    const healthResponse = await request.get('http://localhost:8787/api/health');
+    const healthResponse = await request.get(`${API_URL}/api/health`);
     if (!healthResponse.ok()) {
       throw new Error(`Worker not running: ${healthResponse.status()}`);
     }
 
     // Call the test auth API to create user and get session
-    const response = await request.post('http://localhost:8787/api/test/auth', {
+    const response = await request.post(`${API_URL}/api/test/auth`, {
       data: { email, name },
     });
 
@@ -101,7 +103,7 @@ export { expect };
  * Call this in afterAll to remove test users and their data.
  */
 export async function cleanupTestData(request: APIRequestContext) {
-  const response = await request.post('http://localhost:8787/api/test/cleanup');
+  const response = await request.post(`${API_URL}/api/test/cleanup`);
   if (!response.ok()) {
     console.warn('Failed to cleanup test data:', await response.text());
   }
