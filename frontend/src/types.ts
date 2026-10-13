@@ -897,7 +897,7 @@ export interface CoachMessage {
   id: string;
   conversation_id: string;
   role: 'user' | 'assistant';
-  content_type: 'text' | 'analysis';
+  content_type: 'text' | 'analysis' | 'mistake_lesson';
   content: string;
   tool_results: string | null;
   created_at: string;

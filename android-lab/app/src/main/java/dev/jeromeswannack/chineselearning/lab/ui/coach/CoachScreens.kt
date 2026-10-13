@@ -68,6 +68,7 @@ import dev.jeromeswannack.chineselearning.lab.core.CoachActions
 import dev.jeromeswannack.chineselearning.lab.core.CoachBreakdownWord
 import dev.jeromeswannack.chineselearning.lab.core.CoachNewWords
 import dev.jeromeswannack.chineselearning.lab.core.CoachSentenceCard
+import dev.jeromeswannack.chineselearning.lab.core.CoachMistakeLesson
 import dev.jeromeswannack.chineselearning.lab.core.SentenceBumps
 import dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
 import dev.jeromeswannack.chineselearning.lab.ui.bumps.SentenceBumpSheet
@@ -370,9 +371,25 @@ data class CoachChatUi(
     val newWords: List<CoachBreakdownWord> = emptyList(),
     /** The new-words picker, while open. */
     val newWordsSheet: NewWordsSheetUi? = null,
+    /** "🎯 Mini lesson on this mistake": the request is on its way. */
+    val lessonRequesting: Boolean = false,
+    /** The lesson message being saved ("Save to my mini lessons"). */
+    val lessonSaving: String? = null,
+    val lessonError: String? = null,
 ) {
-    /** A reply is being written in the background: Send and the quick actions wait for it. */
-    val replyPending: Boolean get() = thread.data?.hasPending == true
+    /** A reply is being written in the background: Send and the quick actions wait for it (a mini lesson being written doesn't). */
+    val replyPending: Boolean get() = thread.data?.messages?.any { it.isPending && it.content_type != CoachMistakeLesson.CONTENT_TYPE } == true
+
+    /** The conversation's lesson message (one per conversation), if any. */
+    val lessonMessage: CoachMessageDto? get() = thread.data?.messages?.firstOrNull { it.content_type == CoachMistakeLesson.CONTENT_TYPE }
+
+    /** The check found a mistake (core CoachMistakeLesson.offered): the 🎯 chip shows. */
+    val mistakeLessonOffered: Boolean get() {
+        val messages = thread.data?.messages.orEmpty()
+        val coach = messages.firstOrNull { it.content_type == "analysis" && it.status == null }?.let { CoachAnalysisDto.parse(it.content) }?.takeIf { it.kind == "chinese" }?.coach ?: return false
+        val wrote = coach.originalInput.ifBlank { messages.firstOrNull { it.role == "user" }?.content.orEmpty() }
+        return CoachMistakeLesson.offered(wrote, coach.isCorrect, coach.corrected.hanzi)
+    }
 
     /** "🃏 Card for this sentence": the whole sentence as one card, unless it already is one (⚡ then). */
     val sentenceCard: CoachSentenceCard? get() {
@@ -402,6 +419,12 @@ data class CoachChatActions(
     val bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = null,
     /** Retry a reply that failed (its message id). */
     val onRetryReply: (String) -> Unit = {},
+    /** "🎯 Mini lesson on this mistake": ask for it (also Retry on a failed one). */
+    val onMistakeLesson: () -> Unit = {},
+    /** ▶ Do it on the lesson card (message id, its content). */
+    val onPlayLesson: (String, CoachMistakeLesson.Content) -> Unit = { _, _ -> },
+    /** "Save to my mini lessons" on the lesson card (message id). */
+    val onSaveLesson: (String) -> Unit = {},
     /** "➕ Add new words (N)": open the picker, and its actions. */
     val onOpenNewWords: () -> Unit = {},
     val newWords: NewWordsActions = NewWordsActions(),
@@ -449,6 +472,19 @@ fun CoachChatScreen(
             }
             items(messages, key = { it.id }) { m ->
                 when {
+                    m.content_type == CoachMistakeLesson.CONTENT_TYPE -> when {
+                        m.isPending -> ThinkingCard(CoachMistakeLesson.BUSY, note = "You can leave — it will be here when you come back.", modifier = Modifier.testTag(CoachLessonTags.PENDING))
+                        m.isFailed -> InlineNotice(
+                            m.error?.takeIf { it.isNotBlank() } ?: "Claude couldn’t write a lesson for this one — try again.",
+                            modifier = Modifier.testTag(CoachLessonTags.FAILED),
+                            kind = NoticeKind.Error,
+                            actionLabel = when { ui.lessonRequesting -> "Retrying…"; ui.online -> "Retry"; else -> null },
+                            onAction = { if (!ui.lessonRequesting) actions.onMistakeLesson() },
+                        )
+                        else -> CoachMistakeLesson.parse(m.content)?.let { content ->
+                            MistakeLessonCard(content, saving = ui.lessonSaving == m.id, error = null, onPlay = { actions.onPlayLesson(m.id, content) }, onSave = { actions.onSaveLesson(m.id) })
+                        }
+                    }
                     m.isPending && m.content_type == "analysis" -> ThinkingCard(ACTION_LOADING.getValue(convAction), note = "You can leave — the answer will be here when you come back.", modifier = Modifier.testTag(COACH_REPLY_PENDING_TAG))
                     m.isPending -> ThinkingBubble(Modifier.testTag(COACH_REPLY_PENDING_TAG))
                     m.isFailed -> InlineNotice(
@@ -466,6 +502,7 @@ fun CoachChatScreen(
                 item(key = "pending") { ThinkingBubble() }
             }
             ui.sendError?.let { item(key = "err") { InlineNotice(it, kind = if (!ui.online) NoticeKind.Offline else NoticeKind.Error) } }
+            ui.lessonError?.let { item(key = "lesson-err") { InlineNotice(it, kind = if (!ui.online) NoticeKind.Offline else NoticeKind.Error) } }
         }
         if (thread != null) {
             Column(
@@ -514,6 +551,23 @@ private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActio
     val hasBumpChip = ui.bumpExact != null || ui.bumpWords.isNotEmpty()
     LaunchedEffect(hasBumpChip) { if (hasBumpChip && rowState.firstVisibleItemIndex <= 1) rowState.scrollToItem(0) }
     androidx.compose.foundation.lazy.LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // "🎯 Mini lesson on this mistake": write one, open the one there is, or say it's being written.
+        if (ui.mistakeLessonOffered) {
+            item(key = "mistake-lesson") {
+                val lesson = ui.lessonMessage
+                val writing = ui.lessonRequesting || lesson?.isPending == true
+                val ready = lesson != null && lesson.status == null
+                LabChip(
+                    if (writing) CoachMistakeLesson.BUSY else CoachMistakeLesson.LABEL,
+                    modifier = Modifier.testTag(CoachLessonTags.CHIP).alpha(if (writing) 0.6f else 1f),
+                    selected = true,
+                    enabled = !writing,
+                ) {
+                    val content = if (ready) CoachMistakeLesson.parse(lesson!!.content) else null
+                    if (content != null) actions.onPlayLesson(lesson!!.id, content) else actions.onMistakeLesson()
+                }
+            }
+        }
         // "⚡ Study … today" (core SentenceBumps): the sentence's own card, else a picker over its
         // words he already has (nothing ticked) — one tap never bumps a pile of words.
         val exact = ui.bumpExact

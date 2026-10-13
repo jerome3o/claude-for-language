@@ -114,4 +114,42 @@ class CoachParityTest {
             assertEquals(o["button"]!!.str, CoachNewWords.addButton(n))
         }
     }
+
+    @Test
+    fun mistakeLessonMatchesTypeScript() {
+        val f = fixture()
+        assertEquals(f["mistakeLabel"]!!.str, CoachMistakeLesson.LABEL)
+        assertEquals(f["mistakeBusy"]!!.str, CoachMistakeLesson.BUSY)
+        assertEquals(f["mistakeContentType"]!!.str, CoachMistakeLesson.CONTENT_TYPE)
+        val checks = f["mistakeChecks"]!!.jsonArray
+        assertTrue(checks.size >= 10)
+        for (c in checks) {
+            val o = c.jsonObject
+            val original = o["originalInput"]!!.str!!
+            assertEquals(o["core"]!!.str, CoachMistakeLesson.sentenceCore(original), "sentenceCore('$original')")
+            assertEquals(
+                o["offered"]!!.jsonPrimitive.boolean,
+                CoachMistakeLesson.offered(original, o["isCorrect"]!!.jsonPrimitive.boolean, o["corrected"]!!.str),
+                "coachMistakeLessonOffered $o",
+            )
+        }
+        for (c in f["mistakeCardLines"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["line"]!!.str, CoachMistakeLesson.cardLine(o["n"]!!.jsonPrimitive.content.toInt()))
+        }
+        for (c in f["mistakeContents"]!!.jsonArray) {
+            val o = c.jsonObject
+            val got = CoachMistakeLesson.parse(o["raw"]!!.str)
+            val want = o["parsed"]
+            if (want == null || want is JsonNull) {
+                assertEquals(null, got, "parse ${o["raw"]}")
+                continue
+            }
+            val w = want.jsonObject
+            assertEquals(w["lesson_id"]?.str, got?.lessonId)
+            assertEquals(w["completed"]!!.jsonPrimitive.boolean, got?.completed)
+            assertEquals(w["title"]!!.str, got?.spec?.title)
+            assertEquals(w["exercises"]!!.jsonPrimitive.content.toInt(), got?.let { CoachMistakeLesson.exerciseCount(it.spec) })
+        }
+    }
 }

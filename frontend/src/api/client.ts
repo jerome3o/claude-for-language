@@ -1626,6 +1626,38 @@ export async function retryCoachReply(id: string, messageId: string): Promise<{
   return fetchJSON(`/coach/conversations/${id}/messages/${messageId}/retry`, { method: 'POST' });
 }
 
+/** "🎯 Mini lesson on this mistake": 202 = being written (poll the conversation), 200 = it already has one. */
+export async function requestCoachMistakeLesson(id: string): Promise<{
+  conversation: CoachConversation;
+  messages: CoachMessage[];
+  existing?: boolean;
+}> {
+  return fetchJSON(`/coach/conversations/${id}/mistake-lesson`, { method: 'POST' });
+}
+
+/** The completion of a mistake lesson he just did (recorded with the save, idempotent by id). */
+export interface CoachLessonCompletion {
+  id: string;
+  correct: number;
+  total: number;
+  rating: number;
+  completed_at: string;
+  attempt?: unknown;
+}
+
+/** "Save to my mini lessons": the lesson into the queue (once), with its completion when he just did it. */
+export async function saveCoachMistakeLesson(id: string, messageId: string, completion?: CoachLessonCompletion | null): Promise<{
+  lesson_id: string;
+  title: string;
+  completed: boolean;
+  message: CoachMessage;
+}> {
+  return fetchJSON(`/coach/conversations/${id}/messages/${messageId}/save-lesson`, {
+    method: 'POST',
+    body: JSON.stringify(completion ? { completion } : {}),
+  });
+}
+
 export async function deleteCoachConversation(id: string): Promise<void> {
   await fetchJSON(`/coach/conversations/${id}`, { method: 'DELETE' });
 }
