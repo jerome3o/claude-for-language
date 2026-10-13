@@ -14,6 +14,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.TeachingSamples as S
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,8 +60,16 @@ class TutorTidyTest {
         compose.setContent {
             LabTheme { StudentPageScreen(S.studentPage().copy(focus = SectionFocus(Routes.SECTION_HOMEWORK)), StudentPageActions(), S.now) }
         }
-        compose.mainClock.advanceTimeBy(600)
-        compose.onNodeWithTag("student-homework-section").assertIsDisplayed()
+        // The scroll walks the list a screen per frame until the Homework item is laid out.
+        var shown = false
+        repeat(400) {
+            if (!shown) {
+                compose.mainClock.advanceTimeByFrame()
+                shown = runCatching { compose.onNodeWithTag("student-homework-section").assertIsDisplayed() }.isSuccess
+            }
+        }
+        assertTrue("the Homework section scrolled into view", shown)
+        compose.mainClock.advanceTimeBy(200)
         compose.onNodeWithTag("section-flash", useUnmergedTree = true).assertExists()
         compose.mainClock.advanceTimeBy(4_000)
         compose.onNodeWithTag("section-flash", useUnmergedTree = true).assertDoesNotExist()
