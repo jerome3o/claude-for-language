@@ -251,4 +251,32 @@ class MigrationTest {
         }
         room.close()
     }
+
+    /** v9 adds notes.imageKey / imageSource / imageStatus (pictures on cards, migration 0123): none to start; everything else stays. */
+    @Test fun v8ToV9AddsNotePicturesAndKeepsEverything() {
+        createFromExportedSchema(8).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId) VALUES ('d1', 'Fruit', NULL, 3, 6, 2, '2026-10-13 10:00:00', NULL)")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt, wordTags) VALUES ('n1', 'd1', '苹果', 'píngguǒ', 'apple', '2026-10-13 10:00:00', '{\"v\":1,\"confidence\":\"low\"}')")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'meaning_to_hanzi', 2, 5, 5, 5, 2, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-10-13T08:00:00.000Z', 4200, NULL, 0)")
+            db.execSQL("INSERT INTO up_next (noteId, id, position, createdAt, source, addedByName) VALUES ('n1', 'u1', 0, '2026-10-13 09:00:00', 'search', NULL)")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            assertEquals(1, dao.upNext().size)
+            val note = dao.notes(listOf("n1")).single()
+            assertEquals(null, note.imageKey)
+            assertEquals("""{"v":1,"confidence":"low"}""", note.wordTags)
+            dao.upsertNotes(listOf(note.copy(imageKey = "note-images/abc.png", imageSource = "generated", imageStatus = null)))
+            val after = dao.notes(listOf("n1")).single()
+            assertEquals("note-images/abc.png", after.imageKey)
+            assertEquals("generated", after.imageSource)
+        }
+        room.close()
+    }
 }

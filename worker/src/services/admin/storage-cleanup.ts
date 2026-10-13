@@ -80,7 +80,23 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     collectable: true,
   },
 
+  {
+    prefix: 'note-images/',
+    what: 'Generated card pictures, one per picture prompt (`note-images/<hash>.<ext>`), shared by every note asking for that prompt (a tutor\'s note and its copies)',
+    writtenBy: 'services/note-images.ts generateNoteImage (NOTE_IMAGE_PREFIX)',
+    referencedBy: ['notes.image_key', 'note_images.image_key'],
+    collectable: true,
+  },
+
   // ---- Protected: never deleted here ----
+  {
+    prefix: 'note-uploads/',
+    what: 'Card pictures a person uploaded or photographed (`note-uploads/<noteId>-<id>.<ext>`), shared with the copies of that note',
+    writtenBy: 'services/note-images.ts setUploadedNoteImage (NOTE_UPLOAD_PREFIX)',
+    referencedBy: ['notes.image_key'],
+    collectable: false,
+    protectedReason: PERSON_MADE + ' (removed when no note shows it any more, and by account deletion)',
+  },
   {
     prefix: 'recordings/',
     what: 'Study-card recordings (`recordings/<reviewEventId>.webm`) and recorded note pronunciations (`recordings/<noteId>/<id>.webm`)',
@@ -226,6 +242,8 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'reader_pages.image_url', sql: 'SELECT image_url AS v FROM reader_pages WHERE image_url IS NOT NULL' },
   { source: 'roleplay_messages.image_url', sql: 'SELECT image_url AS v FROM roleplay_messages WHERE image_url IS NOT NULL' },
   { source: 'lesson_images.image_key', sql: 'SELECT image_key AS v FROM lesson_images WHERE image_key IS NOT NULL' },
+  { source: 'notes.image_key', sql: 'SELECT image_key AS v FROM notes WHERE image_key IS NOT NULL' },
+  { source: 'note_images.image_key', sql: 'SELECT image_key AS v FROM note_images WHERE image_key IS NOT NULL' },
   { source: 'custom_lessons.spec', sql: 'SELECT spec AS v FROM custom_lessons WHERE spec IS NOT NULL' },
   { source: 'lesson_library.spec', sql: 'SELECT spec AS v FROM lesson_library WHERE spec IS NOT NULL' },
   { source: 'editor_chat_messages.spec_snapshot', sql: 'SELECT spec_snapshot AS v FROM editor_chat_messages WHERE spec_snapshot IS NOT NULL' },

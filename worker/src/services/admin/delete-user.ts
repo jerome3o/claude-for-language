@@ -280,12 +280,15 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
     `SELECT sentence_clue_audio_url FROM notes WHERE deck_id IN ${DECKS}`,
     `SELECT audio_url FROM note_sentences WHERE note_id IN ${NOTES}`,
     `SELECT audio_url FROM note_audio_recordings WHERE note_id IN ${NOTES}`,
+    // Uploaded card pictures (note-uploads/); generated ones (note-images/<hash>) are shared by prompt, like lesson-images/.
+    `SELECT image_key FROM notes WHERE deck_id IN ${DECKS} AND image_source = 'upload'`,
   ];
   const OTHER_NOTE_KEYS = [
     { col: 'audio_url', from: `notes WHERE deck_id NOT IN ${DECKS}` },
     { col: 'sentence_clue_audio_url', from: `notes WHERE deck_id NOT IN ${DECKS}` },
     { col: 'audio_url', from: `note_sentences WHERE note_id NOT IN ${NOTES}` },
     { col: 'audio_url', from: `note_audio_recordings WHERE note_id NOT IN ${NOTES}` },
+    { col: 'image_key', from: `notes WHERE deck_id NOT IN ${DECKS}` },
   ];
   const noteKeys = await cols(MINE_NOTE_KEYS.map((q) => q.replace(/^SELECT (\w+)/, 'SELECT $1 AS k')));
   const sharedNoteKeys = new Set(await cols(

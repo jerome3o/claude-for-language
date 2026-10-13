@@ -33,6 +33,8 @@ import { explainSentence } from './services/sentence-explain';
 import { generateSentenceSet } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
 import pictureHuntRoutes from './routes/picture-hunts';
+import noteImageRoutes from './routes/note-images';
+import { generateNoteImage, handleNoteImageMessage, type NoteImageMessage } from './services/note-images';
 import audioLessonRoutes from './routes/audio-lessons';
 import { podcastPublic, podcastMe } from './routes/podcast';
 import { runPictureHuntJob } from './services/picture-hunt';
@@ -671,6 +673,8 @@ app.route('/api', wordTagsRoutes);
 app.route('/api', conversationVoicesRoutes);
 // Picture hunts: type what you see in a picture (routes/picture-hunts.ts, built on picture-hunt-queue)
 app.route('/api', pictureHuntRoutes);
+// Pictures on cards: generate / upload / remove a note's picture, "Illustrate this deck" (routes/note-images.ts, drawn on image-generation-queue)
+app.route('/api', noteImageRoutes);
 // Audio lessons: an agent-written listening lesson rendered to one MP3 (routes/audio-lessons.ts, built on audio-lesson-queue)
 app.route('/api', audioLessonRoutes);
 // Settings → Audio lessons → Podcast feed: the feed link (made on first use), Reset, Turn off.
@@ -6585,6 +6589,24 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
         // description (services/lesson-images.ts). Legacy messages carried a
         // lessonId + indexes; they are handled by prompt the same way.
         const body = message.body as unknown as Record<string, unknown>;
+        // Card pictures: one per prompt hash, applied to every note waiting for it (services/note-images.ts).
+        if (body.kind === 'note_image') {
+          const noteMsg = body as unknown as NoteImageMessage;
+          try {
+            const outcome = await handleNoteImageMessage(env, noteMsg, (prompt, hash) => generateNoteImage(env.GEMINI_API_KEY, env.AUDIO_BUCKET, prompt, hash));
+            if (outcome.action === 'retry') {
+              console.warn('[Queue] Card picture attempt failed, retrying in', outcome.delaySeconds, 's:', noteMsg.hash);
+              message.retry({ delaySeconds: outcome.delaySeconds });
+            } else {
+              console.log('[Queue] Card picture', outcome.status, noteMsg.hash, outcome.status === 'ready' ? `applied to ${outcome.applied} note(s)` : '');
+              message.ack();
+            }
+          } catch (err) {
+            console.error('[Queue] Card picture handling failed:', noteMsg.hash, err);
+            message.retry({ delaySeconds: 60 });
+          }
+          continue;
+        }
         if (body.kind === 'lesson_image' || 'lessonId' in body) {
           const lessonMsg: LessonImageMessage = body.kind === 'lesson_image'
             ? body as unknown as LessonImageMessage

@@ -8,7 +8,7 @@ export interface Env {
   /** Static assets: the character dictionary shards (worker/char-dict/, services/char-dict.ts). */
   CHAR_DICT?: Fetcher;
   AI: Ai;
-  IMAGE_QUEUE: Queue<ImageGenerationMessage | CustomLessonImageMessage | import('./services/lesson-images').LessonImageMessage>;
+  IMAGE_QUEUE: Queue<ImageGenerationMessage | CustomLessonImageMessage | import('./services/lesson-images').LessonImageMessage | import('./services/note-images').NoteImageMessage>;
   STORY_QUEUE: Queue<StoryGenerationMessage>;
   SENTENCE_SET_QUEUE: Queue<SentenceSetMessage>;
   QUEST_QUEUE: Queue<QuestGenerationMessage>;
@@ -326,6 +326,12 @@ export interface Note {
   /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts; migration 0120). */
   word_tags?: string | null;
   word_tags_at?: string | null;
+  /** The note's picture (shared/cards/note-image.ts; migration 0123): R2 key, where it came from, drawing state. */
+  image_key?: string | null;
+  image_source?: 'generated' | 'upload' | null;
+  image_status?: 'pending' | 'failed' | null;
+  image_hash?: string | null;
+  image_at?: string | null;
   created_at: string;
   updated_at: string;
 }

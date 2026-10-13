@@ -156,6 +156,10 @@ export interface Note {
   check_issues?: string | null;
   /** The AI word-tag verdict, JSON AiWordTags (shared/cards/word-tags-ai.ts; migration 0120). */
   word_tags?: string | null;
+  /** The note's picture (shared/cards/note-image.ts; migration 0123): R2 key (served by /api/audio/<key>), where it came from, drawing state. */
+  image_key?: string | null;
+  image_source?: 'generated' | 'upload' | null;
+  image_status?: 'pending' | 'failed' | null;
   created_at: string;
   updated_at: string;
 }

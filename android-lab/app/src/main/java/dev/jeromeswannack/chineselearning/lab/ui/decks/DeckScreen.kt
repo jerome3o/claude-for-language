@@ -87,6 +87,8 @@ data class DeckActions(
     val onDismissIssue: (String, dev.jeromeswannack.chineselearning.lab.core.NoteCheckIssue) -> Unit = { _, _ -> },
     /** ⋯ → "🔎 Check for errors". */
     val onCheckErrors: () -> Unit = {},
+    /** ⋯ → "🖼 Illustrate this deck" (pictures on cards). */
+    val onIllustrate: () -> Unit = {},
     /** "⚡ Study today" / "Remove from today" on a word (null = not offered). */
     val onBump: ((String) -> Unit)? = null,
     val onUnbump: (String) -> Unit = {},
@@ -192,6 +194,10 @@ fun DeckScreen(ui: DeckUi, actions: DeckActions) {
                 ) {
                     if (selecting) {
                         Checkbox(checked = checked, onCheckedChange = { actions.onToggleSelect(row.id) }, colors = CheckboxDefaults.colors(checkedColor = Lab.colors.accent))
+                    }
+                    if (row.imageKey != null) {
+                        dev.jeromeswannack.chineselearning.lab.ui.kit.NotePicture(row.imageKey, size = 44.dp, enlarge = false, tag = DECK_NOTE_PICTURE_TAG)
+                        Spacer(Modifier.width(10.dp))
                     }
                     Column(Modifier.weight(1f)) {
                         Text(row.hanzi, fontSize = 21.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -300,6 +306,7 @@ private fun DeckMenu(ui: DeckUi, actions: DeckActions, onDelete: () -> Unit) {
             DropdownMenuItem(text = { Text("⚙️ Settings") }, onClick = { open = false; actions.onSettings() })
             if (ui.notes.isNotEmpty()) {
                 DropdownMenuItem(text = { Text("🔎 Check for errors") }, onClick = { open = false; actions.onCheckErrors() })
+                DropdownMenuItem(text = { Text("🖼 Illustrate this deck") }, onClick = { open = false; actions.onIllustrate() })
             }
             if (ui.missingAudio > 0) {
                 DropdownMenuItem(
@@ -420,3 +427,6 @@ fun DeckSettingsForm(ui: DeckUi, onSave: (String, String, String, String) -> Uni
         Text("Extra new cards (purple) for words you've already started — e.g. typing a word you can already say.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
     }
 }
+
+/** Test tag of a deck row's picture thumbnail. */
+const val DECK_NOTE_PICTURE_TAG = "deck-note-picture"

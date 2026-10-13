@@ -902,6 +902,11 @@ class StudyViewModel(
         }
     }
 
+    /** The note changed outside the form (its picture, saved at once): show the stored note. */
+    fun noteChanged(noteId: String) {
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.dao.note(noteId) }?.let(::showNote) }
+    }
+
     /** Sentences for the current note changed (generated / cleared): show them. */
     fun sentencesChanged(noteId: String) {
         viewModelScope.launch { showSentences(noteId, withContext(Dispatchers.IO) { repo.dao.sentencesFor(noteId) }) }

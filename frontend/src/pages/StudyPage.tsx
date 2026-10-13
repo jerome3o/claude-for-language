@@ -89,6 +89,9 @@ import {
   McAnswerSlot,
 } from '../services/multipleChoice';
 import CardEditModal from '../components/CardEditModal';
+import { NoteImage } from '../components/noteImage/NoteImage';
+import { useCardPicturesEnabled } from '../services/noteImages';
+import { showNoteImage } from '@shared/cards/note-image';
 import { QueueCountsHeader } from '../components/QueueCountsHeader';
 import { RatingButtons } from '../components/RatingButtons';
 import { PassAnswerButtons } from '../components/homework/PassAnswerButtons';
@@ -462,6 +465,8 @@ export function StudyCard({
 
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
+  // Pictures on cards: with the English on meaning → hanzi, on the answer side of the others (shared/cards/note-image.ts).
+  const picturesOn = useCardPicturesEnabled();
 
   // Use in Conversation state
   const [isInitiatingConversation, setIsInitiatingConversation] = useState(false);
@@ -1429,6 +1434,9 @@ export function StudyCard({
           <div className="text-center">
             {renderContext()}
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
+            {showNoteImage(card.card_type, 'front', picturesOn, card.note.image_key) && (
+              <NoteImage imageKey={card.note.image_key} side="front" cardType={card.card_type} testId="study-picture-front" />
+            )}
             <div style={{ fontSize: '1.5rem', fontWeight: 500 }}>{card.note.english}</div>
           </div>
         );
@@ -1665,6 +1673,11 @@ export function StudyCard({
         <div className="study-back-meaning">{card.note.english}</div>
         {/* Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off) */}
         <WordTagPills hanzi={card.note.hanzi} aiTags={card.note.word_tags} source="study" />
+        {showNoteImage(card.card_type, 'back', picturesOn, card.note.image_key) && (
+          <div className="study-back-picture">
+            <NoteImage imageKey={card.note.image_key} side="back" cardType={card.card_type} testId="study-picture-back" />
+          </div>
+        )}
 
         {/* Play · Record again — the only controls between the meaning and the action row */}
         <div className="study-back-pills">
@@ -3107,6 +3120,7 @@ export function StudyCard({
       {showEditModal && (
         <CardEditModal
           card={card}
+          onPictureChange={(fields) => onUpdateNote({ id: card.note.id, ...fields })}
           onClose={() => {
             setShowEditModal(false);
             // Refresh recordings in case user added/removed recordings in the modal

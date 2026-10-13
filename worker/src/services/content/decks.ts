@@ -9,6 +9,7 @@ import * as db from '../../db/queries';
 import { trackServer } from '../analytics/server-events';
 import { newDeckSettings, pickDeckSettings, type DeckSettings, type DeckSettingsProblem, type QueueMove } from '@shared/decks';
 import { deleteUnreferencedAudio } from './audio';
+import { deleteUnreferencedNoteImages, noteImageKeysOfDeck } from '../note-images';
 import type { Background } from './types';
 
 export interface CreateDeckInput {
@@ -93,8 +94,12 @@ export async function deleteDeck(env: Env, userId: string, deckId: string, bg?: 
   const deck = await db.getDeckById(env.DB, deckId, userId);
   if (!deck) return false;
   const keys = await collectDeckAudioKeys(env.DB, deckId);
+  const imageKeys = await noteImageKeysOfDeck(env.DB, deckId);
   await db.deleteDeck(env.DB, deckId, userId);
-  const cleanup = deleteUnreferencedAudio(env, keys).catch(err => console.error('[deleteDeck] audio cleanup failed', err));
+  const cleanup = Promise.all([
+    deleteUnreferencedAudio(env, keys),
+    deleteUnreferencedNoteImages(env, imageKeys),
+  ]).catch(err => console.error('[deleteDeck] audio cleanup failed', err));
   if (bg) bg.waitUntil(cleanup); else await cleanup;
   return true;
 }
