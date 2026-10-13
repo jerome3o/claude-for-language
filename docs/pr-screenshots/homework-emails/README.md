@@ -15,8 +15,4 @@ Web Settings → Notifications → the new **Homework e-mails** toggle (on, the 
 ![Web settings, off](04-settings-off.png)
 Turned off.
 
-![Lab settings, on](05-lab-settings-on.png)
-Lab app Settings → Homework e-mails (on).
-
-![Lab settings, off, dark](06-lab-settings-off.png)
-Lab app, off (dark theme).
+Lab app: Settings → Homework e-mails is the same `SettingsSection` + `ToggleRow` as Chat e-mails right above it (`HomeworkEmailsScreenshots` renders it on / off-dark; compiled and run by CI, the local container ran out of memory for the Kotlin compiler).
