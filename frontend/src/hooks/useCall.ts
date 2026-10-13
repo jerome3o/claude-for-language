@@ -43,7 +43,8 @@ import { TextBoardSession } from '../services/calls/textBoard';
 import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
 import { track as trackUsage } from '../services/analytics';
-import { displayCaptureOptions, shareAudioOf, type ShareAudio } from '@shared/calls';
+import { displayCaptureOptions, shareAudioOf, shareSurfaceOf, type ShareAudio, type ShareSurface } from '@shared/calls';
+import { chimeNeedsTick, chimeStep, EMPTY_CHIME_STATE, sanitizeTimer, type CallTimer, type CallTimerAction, type ChimeAlert, type ChimeEvent, type ChimeState } from '@shared/calls';
 import { DEFAULT_ANNOT_PERSIST, announceDevice, deviceOnWhenOpened, CAMERA_ON_AT_START, type AnnotStroke, type AnnotText, type SharedView, type StageView, type ViewMode } from '@shared/calls';
 import { materialTarget, type PresentedMaterial } from '@shared/materials';
 import type { ActivityAction, ActivitySession } from '@shared/call-activities';
@@ -113,6 +114,14 @@ export function useCall(callId: string, myUserId: string) {
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   /** Does my share carry sound (null = not sharing; shared/calls/share.ts). */
   const [screenAudio, setScreenAudio] = useState<ShareAudio | null>(null);
+  /** What my share is (a tab, a window, a whole screen; shared/calls/share.ts) — null = not sharing. */
+  const [screenSurface, setScreenSurface] = useState<ShareSurface | null>(null);
+  /** The call timer (shared/calls/timer.ts), in room time; `roomNow()` is the room's clock here. */
+  const [timer, setTimer] = useState<CallTimer | null>(null);
+  /** The other person joined / left (shared/calls/chime.ts): toasts + chimes, newest last. */
+  const [presenceAlerts, setPresenceAlerts] = useState<Array<ChimeAlert & { id: number }>>([]);
+  const chimeRef = useRef<ChimeState>(EMPTY_CHIME_STATE);
+  const alertSeqRef = useRef(0);
   const [remote, setRemote] = useState<RemoteParticipant | null>(null);
   const [roomStatus, setRoomStatus] = useState<RoomStatus>('connecting');
   const [board, setBoard] = useState<BoardItem[]>([]);
@@ -431,6 +440,24 @@ export function useCall(callId: string, myUserId: string) {
     void refreshBoardPages().catch(() => {});
   }, [callId, closeLink, releaseMedia]);
 
+  // ---------------------------------------------------------------- presence sounds
+
+  /** A leave is waiting for its grace to pass: tick every second until it is announced (or they're back). */
+  const [chimeTicking, setChimeTicking] = useState(false);
+  /** A presence event → the join / leave alerts (shared/calls/chime.ts). */
+  const presence = useCallback((event: ChimeEvent) => {
+    const r = chimeStep(chimeRef.current, event, myUserId, Date.now());
+    chimeRef.current = r.state;
+    if (r.alerts.length) setPresenceAlerts((cur) => [...cur, ...r.alerts.map((a) => ({ ...a, id: ++alertSeqRef.current }))].slice(-4));
+    setChimeTicking(chimeNeedsTick(r.state));
+  }, [myUserId]);
+  useEffect(() => {
+    if (!chimeTicking) return;
+    const t = setInterval(() => presence({ type: 'tick' }), 1000);
+    return () => clearInterval(t);
+  }, [chimeTicking, presence]);
+  const dismissPresenceAlert = useCallback((id: number) => setPresenceAlerts((cur) => cur.filter((a) => a.id !== id)), []);
+
   // ---------------------------------------------------------------- room messages
 
   const onMessage = useCallback((msg: ServerMessage) => {
@@ -455,6 +482,8 @@ export function useCall(callId: string, myUserId: string) {
         activityRef.current = null; // the room's word is final after a (re)join
         takeActivity(msg.activity ?? null);
         setTutorId(msg.tutor_id ?? null);
+        setTimer(sanitizeTimer(msg.timer ?? null));
+        presence({ type: 'welcome', peers: msg.peers });
         setSharedView(msg.view ?? null);
         setViewWelcome((n) => n + 1);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
@@ -466,10 +495,12 @@ export function useCall(callId: string, myUserId: string) {
         setPhase('live');
         return;
       case 'peer_joined':
+        presence({ type: 'joined', peer: msg.peer });
         textRef.current?.setPeer(msg.peer.client_id, msg.peer.name, msg.peer.user_id);
         openLink(msg.peer);
         return;
       case 'peer_left':
+        presence({ type: 'left', client_id: msg.client_id });
         textRef.current?.dropPeer(msg.client_id);
         if (remoteIdRef.current === msg.client_id) markAway();
         return;
@@ -540,6 +571,9 @@ export function useCall(callId: string, myUserId: string) {
       case 'view':
         setSharedView(msg.view);
         return;
+      case 'timer':
+        setTimer(sanitizeTimer(msg.timer));
+        return;
       case 'share_stopped':
         // The tutor stopped my screen share: stop capturing, like my own Stop button.
         void stopScreenShareRef.current();
@@ -584,7 +618,7 @@ export function useCall(callId: string, myUserId: string) {
       default:
         return;
     }
-  }, [openLink, markAway, flushDiag, startRecording, finish]);
+  }, [openLink, markAway, flushDiag, startRecording, finish, presence]);
 
   // ---------------------------------------------------------------- join / leave
 
@@ -726,6 +760,7 @@ export function useCall(callId: string, myUserId: string) {
     screenRef.current = null;
     setScreenStream(null);
     setScreenAudio(null);
+    setScreenSurface(null);
     await linkRef.current?.setScreenTrack(null);
     await linkRef.current?.setScreenAudioTrack(null);
     broadcastState({ screen: false, screen_audio: false });
@@ -764,6 +799,7 @@ export function useCall(callId: string, myUserId: string) {
       screenRef.current = stream;
       setScreenStream(stream);
       setScreenAudio(audio);
+      setScreenSurface(shareSurfaceOf((track.getSettings() as MediaTrackSettings & { displaySurface?: string }).displaySurface));
       trackUsage('call.screen_share', { on: true, sound: audio === 'shared' });
       await linkRef.current?.setScreenTrack(track);
       await linkRef.current?.setScreenAudioTrack(sound);
@@ -890,6 +926,11 @@ export function useCall(callId: string, myUserId: string) {
   const stopTheirShare = useCallback(() => roomRef.current?.send({ type: 'stop_share' }) ?? false, []);
   const dismissShareStopped = useCallback(() => setShareStoppedBy(null), []);
 
+  // ---- the call timer (shared/calls/timer.ts): the room refuses anyone but the tutor (solo: anyone)
+  const timerAction = useCallback((action: CallTimerAction) => roomRef.current?.send({ type: 'timer', action }) ?? false, []);
+  /** The room's clock on this device (the timer is kept in room time). */
+  const roomNow = useCallback(() => Date.now() + (roomRef.current?.clockOffset ?? 0), []);
+
   const sendChat = useCallback((text: string) => {
     const t = text.trim();
     if (!t) return false;
@@ -988,6 +1029,7 @@ export function useCall(callId: string, myUserId: string) {
     presenting, presentMaterial, turnMaterialPage, stopPresenting, materialAnnotations: materialAnnotRef.current, materialAnnot,
     activity, startActivity, actInActivity, closeActivity,
     tutorId, sharedView, viewWelcome, sendView, lastViewCid, announceViewMode, stopTheirShare, shareStoppedBy, dismissShareStopped,
+    screenSurface, timer, timerAction, roomNow, presenceAlerts, dismissPresenceAlert,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
     myUserId,
