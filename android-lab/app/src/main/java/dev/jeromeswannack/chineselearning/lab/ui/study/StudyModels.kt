@@ -25,6 +25,8 @@ data class CardView(
     val bumped: Boolean = false,
     /** Who bumped it when it was the tutor ("⚡ from Minghui"). */
     val bumpedBy: String? = null,
+    /** Screenshots only: the card picture drawn from this bitmap instead of the note's file. */
+    val picturePreview: androidx.compose.ui.graphics.ImageBitmap? = null,
 )
 
 /** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */

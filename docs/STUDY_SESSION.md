@@ -727,6 +727,58 @@ estimated at ≈ $0.26 per 1,000, ~$1.50 for 5,600 (`estimateWordTagsCost`) — 
 existing note costs about that once. Real token use is kept per user in `word_tag_runs` and reported
 as `server.word_tags_batch` (with `everyday` = notes called Everyday speech).
 
+## Pictures on cards
+
+One optional picture per note (migration 0122; rules `shared/cards/note-image.ts`, Lab
+`core/…/cards/NoteImage.kt`, parity-tested by `android-lab/parity/fixtures/note-image.ts`). Asked
+for by Jerome's tutor: "Can images be generated for the words in a deck?"
+
+**Where it shows** — the picture depicts the MEANING, so it may never give away the answer of a
+card that tests the meaning:
+
+| Card | Question side | Answer side |
+|------|---------------|-------------|
+| meaning → hanzi | ✅ with the English (picture + English = the clue) | ✅ |
+| hanzi → meaning | — (it would be the answer) | ✅ under the meaning |
+| audio → hanzi | — | ✅ under the meaning |
+
+Modest on the card (at most ~a quarter of the screen height, so the answer row stays on a folded
+Pixel's screen); a tap shows it big (`card.picture_open`). Settings → Study → "Show pictures on
+cards" (on by default, per device: web `services/noteImages.ts` localStorage, Lab
+`StudyPrefs.picturesOn`). The same rule on the homework pass (it uses the study card), Try it
+(`/decks/:id/try`), a thumbnail on the deck page rows and the card hub.
+
+**Generated pictures** (`worker/src/services/note-images.ts`): the prompt is built from the note's
+English (+ the card sentence's translation to pin the sense) in one friendly picture-book style,
+with NO writing — the Chinese is left out of the prompt on purpose so the model can't paint it.
+Prompts are hashed; `note_images` keeps one row per hash, so the same word asked by a tutor, her
+students' copies or another account is drawn ONCE. Asking marks the note `image_status =
+'pending'` and queues the hash on **`image-generation-queue`** (`{ kind: 'note_image' }`, never
+blocking); when it is drawn every note waiting for that hash gets it. 3 attempts with a growing
+delay, then `failed` (Regenerate tries again); a pending row older than 15 min is re-queued the next
+time anyone looks. Regenerate = a new variant (a new hash). About **$0.04–0.07 a picture**
+(`NOTE_IMAGE_COST_USD` = 0.07 is the upper estimate the apps show). E2E_TEST_MODE draws a fixed fake
+PNG inline (`fakeNoteImage`).
+
+**Entry points**: the card editor's **Picture** section (web `components/noteImage/NotePictureSection.tsx`
+in `CardEditModal` + the card hub; Lab `ui/cards/NotePictureSection.kt` in `NoteMediaSections` + the hub):
+✨ Generate picture / ↻ Regenerate, 📷 Take photo, 🖼 Choose photo (square crop sheet → ≤ 800 px JPEG made
+on the device, EXIF stripped again by the server), Remove — saved at once, not with the form's Save.
+The deck ⋯ menu → **🖼 Illustrate this deck** (cost first — "24 pictures · about $1.68" — then every card
+without a picture; progress while open; closing never stops it) and the deck's **"Illustrate new cards
+automatically"** switch (`decks.illustrate_new`, off by default: each picture costs money). Not
+automatic otherwise. MCP: `illustrate_deck` (`dry_run` for the estimate) / `illustrate_note`.
+
+**Sync, copies, deletion**: picture writes touch `notes.image_at`, never `updated_at` (the tutor →
+student copy rules compare it); `/api/sync/changes` returns notes by `image_at`. Pictures ride the
+offline prefetch (`/api/audio-manifest` lists them; Lab `NoteImages.Sync` downloads after each sync).
+A student's copy shares the tutor's key: a copy made while the picture is drawn waits on the hash; a
+later picture / change / removal follows to copies still showing the OLD picture (or none) — a
+student's own upload is never replaced; "Update their copy" fills copies without one. An R2 object is
+deleted only when no note references it (`note-images/` generated + collectable, `note-uploads/`
+person-made; both in `STORAGE_PREFIXES`). Events: `card.picture_generate | upload | remove | open`,
+`deck.illustrate`, `deck.illustrate_new`, `settings.change { setting: card_pictures }`.
+
 ## Ask Claude — answers in Chinese, the chat's look and tools
 
 **Ask Claude** (the action row on the card back) is an immersion chat about the card. Web

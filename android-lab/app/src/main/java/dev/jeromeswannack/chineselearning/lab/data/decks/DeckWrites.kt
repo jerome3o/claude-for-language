@@ -424,7 +424,7 @@ class DeckWrites(
             funFacts = n.fun_facts, context = n.context, sentenceClue = n.sentence_clue, sentenceCluePinyin = n.sentence_clue_pinyin,
             sentenceClueTranslation = n.sentence_clue_translation, sentenceClueAudioUrl = n.sentence_clue_audio_url,
             alternatives = n.alternatives, createdAt = n.created_at, longTerm = n.long_term, checkIssues = n.check_issues,
-            wordTags = n.word_tags,
+            wordTags = n.word_tags, imageKey = n.image_key, imageSource = n.image_source, imageStatus = n.image_status,
         )
     }
 }

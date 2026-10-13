@@ -35,6 +35,11 @@ class NoteEditor(private val env: DecksEnv, private val scope: CoroutineScope) {
      */
     var onWordSaved: (deckId: String?) -> Unit = {}
 
+    /** The note's picture changed in the editor (saved at once): the screen refreshes its rows. */
+    var onPictureChanged: () -> Unit = {}
+
+    fun pictureChanged() = onPictureChanged()
+
     fun openEdit(noteId: String) {
         scope.launch {
             val n = withContext(Dispatchers.IO) { env.dao.note(noteId) } ?: return@launch

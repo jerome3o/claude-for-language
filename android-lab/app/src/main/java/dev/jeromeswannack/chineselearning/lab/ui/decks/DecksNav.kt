@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.decks
 
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -137,6 +138,7 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
     var settings by remember { mutableStateOf(false) }
     var shareTutor by remember { mutableStateOf(false) }
     var checkErrors by remember { mutableStateOf(false) }
+    var illustrate by remember { mutableStateOf(false) }
     var paste by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var anki by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget?>(null) }
     // docs/HOMEWORK.md §10: a word added / edited here → "Also update <student>'s copy?" when students have this deck.
@@ -179,12 +181,16 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
             onApplyIssue = vm::applyIssue,
             onDismissIssue = vm::dismissIssue,
             onCheckErrors = { checkErrors = true },
+            onIllustrate = { illustrate = true },
             onBump = vm::bump,
             onUnbump = vm::unbump,
             onUpNext = vm::upNext,
             onRemoveUpNext = vm::removeUpNext,
         ),
     )
+    if (illustrate) {
+        IllustrateDeckSheet(nav.app, deckId, onProgress = { nav.app.scope.launch { runCatching { nav.app.repo.sync() }; vm.refresh() }; Unit }) { illustrate = false; vm.refresh() }
+    }
     if (checkErrors) {
         dev.jeromeswannack.chineselearning.lab.ui.checks.DeckCheckSheetRoute(nav.app, dev.jeromeswannack.chineselearning.lab.data.api.DeckCheckScope.Own(deckId)) { checkErrors = false }
     }
@@ -218,7 +224,7 @@ fun NoteEditorSheets(editor: NoteEditor, nav: LabNav) {
                 onGenerateAudio = editor::generateAudio,
                 onGenerateSentence = editor::generateSentence,
             ),
-            extras = id?.let { noteId -> { fields -> dev.jeromeswannack.chineselearning.lab.ui.cards.NoteMediaSections(nav.app, noteId, fields) } },
+            extras = id?.let { noteId -> { fields -> dev.jeromeswannack.chineselearning.lab.ui.cards.NoteMediaSections(nav.app, noteId, fields, onPictureChange = { editor.pictureChanged() }) } },
         )
     }
     moving?.let { ids ->

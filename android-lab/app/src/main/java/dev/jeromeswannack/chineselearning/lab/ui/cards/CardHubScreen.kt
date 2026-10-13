@@ -76,7 +76,13 @@ data class CardHubActions(
 
 /** The card hub (web: CardHubPage.tsx, the student's own card). */
 @Composable
-fun CardHubScreen(ui: CardHubUi, actions: CardHubActions, nowMs: Long = System.currentTimeMillis()) {
+fun CardHubScreen(
+    ui: CardHubUi,
+    actions: CardHubActions,
+    nowMs: Long = System.currentTimeMillis(),
+    /** The card's Picture section (ui/cards/NotePictureSection.kt); null = none (screenshots). */
+    picture: (@Composable () -> Unit)? = null,
+) {
     val note = ui.note
     LabScreen(
         title = note?.hanzi ?: "Card",
@@ -101,6 +107,7 @@ fun CardHubScreen(ui: CardHubUi, actions: CardHubActions, nowMs: Long = System.c
         else if (ui.loadable.offline) item { OfflineNotice(updatedAt = ui.loadable.updatedAt, nowMs = nowMs) }
 
         item { NoteBox(note, actions) }
+        if (picture != null) item { picture() }
 
         item { SectionHeader("Your cards") }
         item {

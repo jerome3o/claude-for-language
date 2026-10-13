@@ -207,9 +207,13 @@ class NoteMediaController(private val app: LabApp, private val noteId: String, p
     }
 }
 
-/** The editor's "Sentence Set" + "Audio Recordings" sections for [noteId] (hosted by NoteEditorSheets). */
+/**
+ * The editor's "Picture" + "Sentence Set" + "Audio Recordings" sections for [noteId] (hosted by
+ * NoteEditorSheets). [onPictureChange]: the picture changed (saved at once) — refresh the card.
+ */
 @Composable
-fun NoteMediaSections(app: LabApp, noteId: String, fields: dev.jeromeswannack.chineselearning.lab.data.decks.NoteFields) {
+fun NoteMediaSections(app: LabApp, noteId: String, fields: dev.jeromeswannack.chineselearning.lab.data.decks.NoteFields, where: String = "edit", onPictureChange: () -> Unit = {}) {
+    NotePictureSection(app, noteId, where, onPictureChange)
     val scope = rememberCoroutineScope()
     val controller = remember(noteId) { NoteMediaController(app, noteId, scope) }
     LaunchedEffect(noteId) { controller.load() }

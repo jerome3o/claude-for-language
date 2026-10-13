@@ -36,6 +36,7 @@ fun NavGraphBuilder.cardsGraph(nav: LabNav) {
                 onUpNext = vm::upNext,
                 onRemoveUpNext = vm::removeUpNext,
             ),
+            picture = { NotePictureSection(nav.app, noteId, "hub") },
         )
         NoteEditorSheets(vm.editor, nav)
     }
