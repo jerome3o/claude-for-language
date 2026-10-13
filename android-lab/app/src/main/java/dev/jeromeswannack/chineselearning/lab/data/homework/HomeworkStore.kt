@@ -4,6 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent
+import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.data.api.PassEventsBody
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.OnboardingDto
@@ -71,7 +72,9 @@ object HomeworkStore {
      * [note]: link homework's optional note back to the tutor on its `done` event (§8).
      */
     suspend fun recordPassEvent(app: LabApp, assignmentId: String, itemId: String, result: String, now: Instant = Instant.now(), note: String? = null): HomeworkEvent {
-        val event = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, itemId, result, now.toString(), note)
+        // created_at as the web writes it (toISOString: always milliseconds) — the pass's rules compare
+        // these strings, and Instant.toString() drops trailing zeros ("…06Z" vs "…06.5Z" sorts wrong).
+        val event = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, itemId, result, Js.toIsoString(now.toEpochMilli()), note)
         val cache = app.cache
         // Queue first: a sync merging events in between keeps anything still in the outbox.
         app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(event)), id = event.id)
@@ -92,7 +95,7 @@ object HomeworkStore {
         val all = cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
         val mine = all.filter { it.assignment_id == assignmentId }
         val target = Homework.lastPassAnswer(mine) ?: return null
-        val undo = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, target.item_id, "undo", now.toString(), undoes = target.id)
+        val undo = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, target.item_id, "undo", Js.toIsoString(now.toEpochMilli()), undoes = target.id)
         app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(undo)), id = undo.id)
         cache.put(HomeworkKeys.EVENTS, HomeworkKeys.KIND, all + undo)
         val assignments = cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty()
