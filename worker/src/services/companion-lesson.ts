@@ -32,7 +32,9 @@ import { LESSON_SPEC_SCHEMA_TEXT, LESSON_STYLE_RULES } from './lesson-editor';
 import { companionLessonRows } from './lesson-unlock';
 import { trackServer } from './analytics/server-events';
 
-const MODEL = 'claude-sonnet-5';
+/** The lesson writer (also the coach's mistake lessons, services/mistake-lesson.ts). */
+export const LESSON_WRITER_MODEL = 'claude-sonnet-5';
+const MODEL = LESSON_WRITER_MODEL;
 const MAX_REPAIR_ROUNDS = 2;
 const TOOL = 'create_lesson_spec';
 
@@ -176,13 +178,13 @@ export function companionSpecProblems(spec: CustomLessonSpec, format: AudioLesso
   return problems;
 }
 
-type CreateMessage = (params: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
+export type CreateMessage = (params: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
 
 function isRetryable(error: unknown): boolean {
   return error instanceof Anthropic.APIError && (error.status === 429 || error.status === 503 || error.status === 529 || error.status >= 500);
 }
 
-async function withRetry(create: CreateMessage, params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
+export async function withRetry(create: CreateMessage, params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
   let last: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, 1500 * attempt));

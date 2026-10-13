@@ -605,3 +605,72 @@
   overflow-x: visible;
   margin-bottom: 0.5rem;
 }
+
+/* ---------- "🎯 Mini lesson on this mistake" (shared/coach/mistakeLesson.ts) ---------- */
+.coach-quick-chip.coach-quick-chip--lesson {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-color: rgba(124, 58, 237, 0.55);
+  background: #f5f3ff;
+  color: #5b21b6;
+  font-weight: 600;
+}
+.coach-quick-chip.coach-quick-chip--lesson:disabled {
+  opacity: 0.75;
+}
+
+.coach-lesson-card {
+  border-left: 4px solid #8b5cf6;
+}
+.coach-lesson-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.coach-lesson-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+.coach-lesson-line {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #7c3aed;
+}
+.coach-lesson-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  margin-top: 0.125rem;
+}
+.coach-lesson-desc {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  margin-top: 0.25rem;
+}
+.coach-lesson-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.875rem;
+}
+.coach-lesson-actions .btn {
+  min-height: 44px;
+  flex: 1 1 9rem;
+}
+.coach-lesson-saved {
+  flex: 1 1 9rem;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: #14643a;
+}
+.coach-lesson-hint {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}

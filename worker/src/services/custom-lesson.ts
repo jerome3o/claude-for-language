@@ -56,7 +56,7 @@ export async function createCustomLessonFromSpec(
   env: Env,
   userId: string,
   rawSpec: unknown,
-  source: 'mcp' | 'chat' | 'api' | 'companion',
+  source: 'mcp' | 'chat' | 'api' | 'companion' | 'coach',
   /** Unlockable lessons (shared/lesson/unlock.ts): the condition, already validated + owned. */
   opts: { unlock?: LessonUnlock | null; companionOf?: string | null } = {},
 ): Promise<CreateCustomLessonResult> {

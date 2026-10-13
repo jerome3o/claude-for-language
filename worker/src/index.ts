@@ -1665,8 +1665,13 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
 
     return c.json({ sentences });
   } catch (error) {
+    // The real reason stays in the log; the client shows a plain "try again".
     console.error('Sentence set generation error:', error);
-    return c.json({ error: 'Failed to generate sentence set' }, 500);
+    const retryable = !(error instanceof StructuredCallError) || error.retryable;
+    return c.json(
+      { error: 'Sentence generation is unavailable right now', retryable },
+      retryable ? 503 : 502
+    );
   }
 });
 
@@ -6876,9 +6881,10 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               err instanceof Error ? err.message : 'Unknown error'
             )
             .catch(() => {});
-          // One retry (max_retries = 1); after that the job row's attempt count
-          // keeps it out of future prefetch sweeps.
-          message.retry();
+          // One retry (max_retries = 1), a few minutes later so a busy or
+          // rate-limited model has cleared; after that the job row's attempt
+          // count keeps it out of future prefetch sweeps (3 attempts).
+          message.retry({ delaySeconds: 300 });
         }
       }
     } else {

@@ -23,6 +23,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.addNotesBatch
 import dev.jeromeswannack.chineselearning.lab.data.api.enrichWords
 import dev.jeromeswannack.chineselearning.lab.data.api.explainSentenceText
 import dev.jeromeswannack.chineselearning.lab.data.api.retryCoachReply
+import dev.jeromeswannack.chineselearning.lab.data.api.requestCoachMistakeLesson
+import dev.jeromeswannack.chineselearning.lab.data.api.saveCoachMistakeLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.serverMessage
 import kotlinx.coroutines.flow.first
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto
@@ -100,6 +102,9 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                     onCloseBumpPicker = vm::closeBumpPicker,
                     onBumpPicked = vm::bumpPicked,
                     onRetryReply = vm::retryReply,
+                    onMistakeLesson = vm::requestMistakeLesson,
+                    onPlayLesson = { messageId, content -> vm.playLesson(messageId, content) { path -> nav.open(path) } },
+                    onSaveLesson = vm::saveMistakeLesson,
                     onOpenNewWords = vm::openNewWords,
                     newWords = NewWordsActions(
                         onToggle = vm::toggleNewWord,
@@ -140,6 +145,8 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
             )
         }
     }
+    // "🎯 Mini lesson on this mistake": the lesson in the player (preview), `/coach/:c/lesson/:m`.
+    coachLessonGraph(nav)
 }
 
 /**
@@ -461,6 +468,64 @@ class CoachChatViewModel(private val app: LabApp, private val id: String) : View
                         app.scope.launch { runCatching { app.repo.sync() } }
                     }
                 }
+            }
+        }
+    }
+
+    // ---------------- "🎯 Mini lesson on this mistake" (core CoachMistakeLesson) ----------------
+
+    /** Ask for the lesson (or the one there is): written in the background, polled like a reply. */
+    fun requestMistakeLesson() {
+        if (local.value.lessonRequesting) return
+        if (!app.online.value) { local.update { it.copy(lessonError = "The mini lesson needs a connection — try again when you're back online.") }; return }
+        local.update { it.copy(lessonRequesting = true, lessonError = null) }
+        viewModelScope.launch {
+            try {
+                val res = app.repo.api.requestCoachMistakeLesson(id)
+                val lesson = res.messages.firstOrNull()
+                if (lesson != null) thread.update { t ->
+                    val base = t ?: CoachThreadDto(CoachConversationDto(id))
+                    base.copy(messages = if (base.messages.any { it.id == lesson.id }) base.messages.map { if (it.id == lesson.id) lesson else it } else base.messages + lesson)
+                }
+                app.analytics.track("coach.mistake_lesson_generate", mapOf("existing" to res.existing))
+                app.haptics.tick()
+                app.cache.delete(LIST_KEY)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                local.update { it.copy(lessonError = CoachRules.errorText(e, "Couldn't start the lesson", app.online.value)) }
+            } finally {
+                local.update { it.copy(lessonRequesting = false) }
+            }
+        }
+    }
+
+    /** ▶ Do it: the saved lesson's own run when it is on this phone (its rating counts), else the preview. */
+    fun playLesson(messageId: String, content: dev.jeromeswannack.chineselearning.lab.core.CoachMistakeLesson.Content, open: (String) -> Unit) {
+        viewModelScope.launch {
+            val saved = content.lessonId?.let { lid -> app.safely("coach lesson local") { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store.entry(lid) } }
+            open(if (saved != null) "/lessons/${android.net.Uri.encode(saved.id)}/play?from=coach" else Routes.coachLesson(id, messageId))
+        }
+    }
+
+    /** "Save to my mini lessons" without doing it: a NEW lesson in the queue. */
+    fun saveMistakeLesson(messageId: String) {
+        if (local.value.lessonSaving != null) return
+        if (!app.online.value) { local.update { it.copy(lessonError = "Saving needs a connection — try again when you're back online.") }; return }
+        local.update { it.copy(lessonSaving = messageId, lessonError = null) }
+        viewModelScope.launch {
+            try {
+                val res = app.repo.api.saveCoachMistakeLesson(id, messageId, null)
+                res.message?.let { m -> thread.update { t -> t?.copy(messages = t.messages.map { if (it.id == m.id) m else it }) ?: CoachThreadDto(CoachConversationDto(id), listOf(m)) } }
+                app.analytics.track("coach.mistake_lesson_save", mapOf("done" to false, "rating" to null))
+                app.haptics.correct()
+                app.scope.launch { app.safely("coach lesson sync") { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store.sync(online = true) } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                local.update { it.copy(lessonError = CoachRules.errorText(e, "Couldn't save it", app.online.value)) }
+            } finally {
+                local.update { it.copy(lessonSaving = null) }
             }
         }
     }

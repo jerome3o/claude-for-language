@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import type Anthropic from '@anthropic-ai/sdk';
 import {
   clampSentenceCount,
   normalizeGeneratedSentences,
+  coerceSentenceArray,
+  generateSentenceSet,
   SENTENCE_SET_DEFAULT_COUNT,
   SENTENCE_SET_MIN_COUNT,
   SENTENCE_SET_MAX_COUNT,
@@ -103,5 +106,94 @@ describe('sentenceAudioRetryDelay', () => {
   it('treats a missing or nonsense attempt as the first', () => {
     expect(sentenceAudioRetryDelay(0)).toBe(SENTENCE_AUDIO_RETRY_DELAYS_S[0]);
     expect(sentenceAudioRetryDelay(NaN)).toBe(SENTENCE_AUDIO_RETRY_DELAYS_S[0]);
+  });
+});
+
+// Production, Oct 2026: about 1 in 25 replies carried `sentences` as a JSON
+// STRING, and the set failed with "(raw || []).filter is not a function" —
+// "Could not generate sentences" on the study card (曾).
+describe('sentences in an unexpected shape', () => {
+  const rows = [
+    { hanzi: '他曾来过。', pinyin: 'Tā céng láiguo.', translation: 'He once came.', focus: 'core' },
+    {
+      hanzi: '我曾经去过北京。',
+      pinyin: 'Wǒ céngjīng qùguo Běijīng.',
+      translation: "I've been to Beijing.",
+      focus: 'shared_character',
+      focus_note: '曾经 shares 曾',
+    },
+  ];
+
+  it('parses a stringified array', () => {
+    expect(normalizeGeneratedSentences(JSON.stringify(rows), 6)).toHaveLength(2);
+    expect(normalizeGeneratedSentences({ sentences: JSON.stringify(rows) }, 6)[1].focusNote).toBe(
+      '曾经 shares 曾'
+    );
+  });
+
+  it('parses a stringified wrapper, a fenced string and index-keyed objects', () => {
+    expect(coerceSentenceArray(JSON.stringify({ sentences: rows }))).toHaveLength(2);
+    expect(coerceSentenceArray('```json\n' + JSON.stringify(rows) + '\n```')).toHaveLength(2);
+    expect(coerceSentenceArray({ 0: rows[0], 1: rows[1] })).toHaveLength(2);
+  });
+
+  it('never throws on junk', () => {
+    for (const junk of ['not json', '[broken', 42, true, null, { sentences: 7 }, [null, 3, 'x']]) {
+      expect(() => normalizeGeneratedSentences(junk, 6)).not.toThrow();
+      expect(normalizeGeneratedSentences(junk, 6)).toEqual([]);
+    }
+  });
+});
+
+describe('generateSentenceSet', () => {
+  const input = { hanzi: '曾', pinyin: 'céng', english: 'once, at some time in the past' };
+  const reply = (toolInput: unknown) => ({
+    stop_reason: 'tool_use',
+    usage: { input_tokens: 1, output_tokens: 1 },
+    content: [{ type: 'tool_use', id: 't', name: 'create_sentence_set', input: toolInput }],
+  });
+  const fake = (replies: unknown[]) => {
+    const calls: Array<Record<string, unknown>> = [];
+    const client = {
+      messages: {
+        create: async (params: Record<string, unknown>) => {
+          calls.push(params);
+          const next = replies.shift();
+          if (next instanceof Error) throw next;
+          return next;
+        },
+      },
+    } as unknown as Pick<Anthropic, 'messages'>;
+    return { client, calls };
+  };
+  const row = {
+    hanzi: '他曾在中国工作。',
+    pinyin: 'Tā céng zài Zhōngguó gōngzuò.',
+    translation: 'He once worked in China.',
+    focus: 'core',
+  };
+  const noSleep = async () => {};
+
+  it('accepts the sentences as a JSON string (the production failure)', async () => {
+    const { client, calls } = fake([reply({ sentences: JSON.stringify([row]) })]);
+    const out = await generateSentenceSet('k', input, 6, { client, sleep: noSleep });
+    expect(out.map((s) => s.hanzi)).toEqual(['他曾在中国工作。']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].thinking).toEqual({ type: 'disabled' });
+    expect(calls[0].tool_choice).toEqual({ type: 'tool', name: 'create_sentence_set' });
+  });
+
+  it('retries an unusable reply instead of failing the set', async () => {
+    const { client, calls } = fake([reply({ sentences: 'garbage' }), reply({ sentences: [row] })]);
+    const out = await generateSentenceSet('k', input, 6, { client, sleep: noSleep });
+    expect(out).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('throws a retryable error when every attempt fails', async () => {
+    const { client } = fake([new Error('overloaded'), new Error('overloaded'), new Error('overloaded')]);
+    await expect(generateSentenceSet('k', input, 6, { client, sleep: noSleep })).rejects.toMatchObject({
+      retryable: true,
+    });
   });
 });
