@@ -16,7 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.core.AudioBlocks
+import dev.jeromeswannack.chineselearning.lab.core.BlockPlayback
 import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
+import dev.jeromeswannack.chineselearning.lab.data.readers.ClipAnalysis
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListening
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListLastMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatAttachmentDto
@@ -65,6 +68,32 @@ object ListeningSamples {
         known = emptySet(),
         otherReadAt = at(9),
         listening = ListeningUi(setting = ChatListening.Setting(true, since), durations = mapOf("h1" to 2.4, "h2" to 7.6)),
+    )
+
+    /** A clip's waveform: speech with a dip to silence at each pause (deterministic). */
+    fun peaks(durationMs: Int, blocks: List<AudioBlocks.Block>): List<Float> = List(96) { i ->
+        val ms = (i + 0.5) / 96 * durationMs
+        val b = blocks.firstOrNull { ms >= it.startMs && ms < it.endMs } ?: return@List 0.04f
+        val edge = Math.min(ms - b.startMs, b.endMs - ms)
+        if (edge < 160) 0.05f else (0.45f + 0.5f * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.6))).toFloat()
+    }
+
+    private fun analysis(ms: Int, vararg cuts: Int): ClipAnalysis {
+        val edges = listOf(0) + cuts.toList() + ms
+        val blocks = edges.zipWithNext { a, b -> AudioBlocks.Block(a, b) }
+        return ClipAnalysis(ms, peaks(ms, blocks), blocks)
+    }
+
+    /** 周末我们一起去爬山吧，天气预报说星期六是晴天。 in three parts; 早上八点，在地铁站见。 in two. */
+    val analyses = mapOf("h2" to analysis(7600, 2300, 4900), "h3" to analysis(3400, 1500), "h1" to analysis(2400))
+
+    /** h2 split into its parts, playing its second part. */
+    val partsPlaying = ui.copy(
+        listening = ui.listening.copy(
+            analyses = analyses, focus = "h2", playing = "h2", playNonce = 1,
+            block = BlockPlayback.State(anchorMs = 2300.0, playing = true),
+            clock = ListeningClock().apply { headMs = 3500.0 },
+        ),
     )
 }
 
@@ -149,4 +178,19 @@ class ChatListeningScreenshots : LabScreenshotTest() {
             ChatListeningSection(on = true) {}
         }
     }
+
+    // ---- the parts (split at the pauses, like the graded readers) ----
+
+    @Test fun parts() = shoot("chat-listening-11-parts") {
+        ChatScreen(s.ui.copy(listening = s.ui.listening.copy(analyses = s.analyses)), actions)
+    }
+
+    @Test fun partsPlaying() = shoot("chat-listening-12-parts-playing") { ChatScreen(s.partsPlaying, actions) }
+
+    /** Paused in part 3 of h2: ▶ again replays that part. */
+    @Test fun partsPaused() = shoot("chat-listening-13-parts-paused") {
+        ChatScreen(s.partsPlaying.copy(listening = s.partsPlaying.listening.copy(playing = null, block = BlockPlayback.State(anchorMs = 4900.0))), actions)
+    }
+
+    @Test fun partsDark() = shoot("chat-listening-14-parts-playing-dark", dark = true) { ChatScreen(s.partsPlaying, actions) }
 }

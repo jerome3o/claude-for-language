@@ -129,6 +129,7 @@ export const ANALYTICS_EVENTS = {
   'chat.discuss': e('chat', 'Discuss with Claude on a message.', []),
   'chat.listening_mode': e('chat', 'Listening mode switched for a conversation, or the default for new chats.', ['scope', 'on']),
   'chat.listening_play': e('chat', 'Listening mode: tapped a hidden message to hear it.', ['slow']),
+  'chat.listening_part': e('chat', 'Listening mode: tapped a part of a hidden message (split at its pauses) or dragged along it.', ['how']),
   'chat.listening_reveal': e('chat', 'Listening mode: held a hidden message to reveal its text.', []),
   'chat.inbox_open': e('chat', 'Opened the Chats tab.', ['conversations', 'unread']),
   'chat.album_sent': e('chat', 'Sent several photos at once as one album.', ['count', 'offline']),

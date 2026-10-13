@@ -214,6 +214,8 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             loadVideo = vm::videoFile,
             loadPoster = vm::poster,
             onListen = vm.listening::tap,
+            onListenSeek = vm.listening::seek,
+            onListenSeekDone = vm.listening::seekDone,
             onReveal = vm.listening::reveal,
             onListeningSlow = vm.listening::toggleSlow,
             onOpenAlbumMenu = vm::openAlbumMenu,

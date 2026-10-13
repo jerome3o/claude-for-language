@@ -214,8 +214,12 @@ class ChatActions(
     /** A video's first frame: (file path, key, max side). */
     val loadPoster: suspend (String, String, Int) -> ImageBitmap? = { _, _, _ -> null },
     // ---- listening mode (docs/CHAT.md "Listening mode") ----
-    /** A tap on a hidden bubble: play its clip (again from the start while playing). */
+    /** A tap on a hidden bubble / its ▶ ⏸: play from its restart point, pause while it plays. */
     val onListen: (ChatMessageDto) -> Unit = {},
+    /** The hidden bubble's waveform: (message, ms, tap) — a tap plays from the part there, a drag scrubs. */
+    val onListenSeek: (ChatMessageDto, Double, Boolean) -> Unit = { _, _, _ -> },
+    /** A drag along the waveform ended. */
+    val onListenSeekDone: () -> Unit = {},
     /** A long press / 👁 on a hidden bubble: reveal it. */
     val onReveal: (ChatMessageDto) -> Unit = {},
     /** The 0.75× chip. */
