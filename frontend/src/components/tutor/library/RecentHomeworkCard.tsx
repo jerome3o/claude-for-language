@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { LIBRARY_KIND_ICONS, libraryDueText, mostRecentHomework, shortDay, statusTone, type LibraryItem } from '@shared/homework';
 import { PercentBar, StatusChip } from './StatusChip';
 import './homework-library.css';
@@ -8,7 +7,7 @@ import './homework-library.css';
  * the newest item and whatever was sent with it — % complete, due date and the
  * status colour.
  */
-export function RecentHomeworkCard({ items, today, relId, onSend }: { items: LibraryItem[]; today: string; relId: string; onSend?: () => void }) {
+export function RecentHomeworkCard({ items, today, onSeeAll, onSend }: { items: LibraryItem[]; today: string; onSeeAll: () => void; onSend?: () => void }) {
   const recent = mostRecentHomework(items);
   if (recent.length === 0) {
     return onSend ? (
@@ -22,7 +21,8 @@ export function RecentHomeworkCard({ items, today, relId, onSend }: { items: Lib
     <section className={`hl-recent hl-recent-${statusTone(recent[0].status, recent[0].due_date, today)}`} data-testid="recent-homework">
       <div className="hl-recent-head">
         <h2>Most recent homework</h2>
-        <Link to={`/connections/${relId}/homework`} className="hl-recent-all" data-testid="homework-library-link">See all ›</Link>
+        {/* The student page's own Homework section, not the homework library (hidden from menus, Oct 2026) */}
+        <button type="button" className="hl-recent-all btn-link" onClick={onSeeAll} data-testid="recent-homework-see-all">All homework ↓</button>
       </div>
       {recent.map((item) => (
         <div key={item.key} className="hl-recent-item" data-testid="recent-homework-item">
