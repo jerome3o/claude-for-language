@@ -9,6 +9,8 @@ import {
   getCoachConversation,
   sendCoachMessage,
   retryCoachReply,
+  requestCoachMistakeLesson,
+  saveCoachMistakeLesson,
   deleteCoachConversation,
   explainSentenceText,
   getDecks,
@@ -36,9 +38,18 @@ import {
   COACH_SENTENCE_CARD_LABEL,
   coachButtons,
   hasHan,
+  coachMistakeLessonOffered,
+  mistakeLessonCardLine,
+  mistakeLessonExerciseCount,
+  parseMistakeLessonContent,
+  COACH_MISTAKE_LESSON_LABEL,
+  COACH_MISTAKE_LESSON_BUSY,
+  MISTAKE_LESSON_CONTENT_TYPE,
   type CoachAction,
   type CoachWord,
+  type MistakeLessonContent,
 } from '@shared/coach';
+import { cachedCoachLesson, rememberCoachLesson } from '../services/coachLessons';
 import { NewWordsSheet } from '../components/coach/NewWordsSheet';
 import { db, type LocalDeck } from '../db/database';
 import { orderDecksForQueue } from '../services/deckOrder';
@@ -153,7 +164,15 @@ async function loadLocalVocabulary(): Promise<{ hanzi: string[]; decks: LocalDec
   return { hanzi: notes.filter((n) => live.has(n.deck_id)).map((n) => n.hanzi), decks: orderDecksForQueue(decks) };
 }
 
-function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disabled, breakdown, onAddSentenceCard }: {
+/** The "🎯 Mini lesson on this mistake" chip: write one, open the one there is, or say it's being written. */
+interface MistakeLessonChip {
+  label: string;
+  busy: boolean;
+  onClick: () => void;
+}
+
+function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disabled, breakdown, onAddSentenceCard, mistakeLesson }: {
+  mistakeLesson: MistakeLessonChip | null;
   hanzi: string;
   decks: Deck[] | undefined;
   selectedDeckId: string;
@@ -205,8 +224,20 @@ function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disa
   return (
     <div className="coach-quick" data-testid="coach-quick-actions">
       {/* Direct actions (⚡ / ➕ / 🃏) wrap so none hides off-screen; the chat prompts scroll below. */}
-      {(exact || matches.words.length > 0 || newWords.length > 0 || sentenceCard) && (
+      {(mistakeLesson || exact || matches.words.length > 0 || newWords.length > 0 || sentenceCard) && (
       <div className="coach-quick-row coach-quick-row--direct" role="group" aria-label="Words and cards">
+        {mistakeLesson && (
+          <button
+            type="button"
+            className="coach-quick-chip coach-quick-chip--lesson"
+            disabled={mistakeLesson.busy}
+            onClick={mistakeLesson.onClick}
+            data-testid="coach-quick-mistake-lesson"
+          >
+            {mistakeLesson.busy && <span className="spinner" style={{ width: '14px', height: '14px' }} />}
+            {mistakeLesson.label}
+          </button>
+        )}
         {exact ? (
           <button
             type="button"
@@ -542,7 +573,79 @@ function ToolResultChips({ results }: { results: CoachToolResult[] }) {
   );
 }
 
-function CoachMessageView({ message, onAdd, action, onRetry, retrying }: {
+/**
+ * "🎯 Mini lesson on this mistake" in the conversation: ▶ Do it (the player, previewed — or the saved
+ * lesson's own run once it is on this device) and Save to my mini lessons.
+ */
+function MistakeLessonCard({ conversationId, messageId, content, offlineNote }: {
+  conversationId: string;
+  messageId: string;
+  content: MistakeLessonContent;
+  offlineNote?: string;
+}) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const saved = !!content.lesson_id;
+  const count = mistakeLessonExerciseCount(content.spec);
+  useEffect(() => {
+    rememberCoachLesson(conversationId, messageId, content);
+  }, [conversationId, messageId, content]);
+
+  const play = async () => {
+    // Saved and on this device: its own run (the rating counts, "revisit later"); else the preview.
+    const local = content.lesson_id ? await db.customLessons.get(content.lesson_id).catch(() => undefined) : undefined;
+    navigate(local ? `/lessons/${local.id}/play?from=coach` : `/coach/${encodeURIComponent(conversationId)}/lesson/${encodeURIComponent(messageId)}`);
+  };
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await saveCoachMistakeLesson(conversationId, messageId, null);
+      queryClient.setQueryData<{ conversation: unknown; messages: CoachMessage[] }>(['coach-conversation', conversationId], (prev) =>
+        prev ? { ...prev, messages: prev.messages.map((m) => (m.id === res.message.id ? res.message : m)) } : prev);
+      track('coach.mistake_lesson_save', { done: false, rating: null });
+      void syncCustomLessons().then(() => prefetchCustomLessonMedia()).catch(() => {});
+    } catch (err) {
+      setError(coachErrorText(err, 'Couldn’t save it'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card coach-lesson-card" data-testid="coach-lesson-card">
+      <div className="coach-lesson-head">
+        <span className="coach-lesson-icon" aria-hidden="true">{content.spec.icon || '🎯'}</span>
+        <div style={{ minWidth: 0 }}>
+          <div className="coach-lesson-line">{mistakeLessonCardLine(count)}</div>
+          <div className="coach-lesson-title">{content.spec.title}</div>
+          {content.spec.description && <div className="coach-lesson-desc">{content.spec.description}</div>}
+        </div>
+      </div>
+      {offlineNote && <div className="coach-explain-offline">{offlineNote}</div>}
+      <div className="coach-lesson-actions">
+        <button type="button" className="btn btn-primary" onClick={() => void play()} data-testid="coach-lesson-play">▶ Do it</button>
+        {saved ? (
+          <span className="coach-lesson-saved" data-testid="coach-lesson-saved-chip">✓ In your mini lessons</span>
+        ) : (
+          <button type="button" className="btn btn-secondary" onClick={() => void save()} disabled={saving} data-testid="coach-lesson-save">
+            {saving ? 'Saving…' : 'Save to my mini lessons'}
+          </button>
+        )}
+      </div>
+      {!saved && <div className="coach-lesson-hint">Try it first — nothing is recorded until you save it.</div>}
+      {error && <div className="coach-error mt-2" role="alert">{error}</div>}
+    </div>
+  );
+}
+
+function CoachMessageView({ message, onAdd, action, onRetry, retrying, conversationId, onRetryLesson }: {
+  conversationId: string;
+  /** A failed mistake lesson: ask for it again (same message). */
+  onRetryLesson: () => void;
   message: CoachMessage;
   onAdd: (chunk: Chunk) => void;
   /** The conversation's action (what a pending first reply is doing). */
@@ -552,6 +655,32 @@ function CoachMessageView({ message, onAdd, action, onRetry, retrying }: {
 }) {
   if (message.role === 'user') {
     return <div className="coach-bubble coach-bubble-user">{message.content}</div>;
+  }
+
+  if (message.content_type === MISTAKE_LESSON_CONTENT_TYPE) {
+    if (message.status === 'pending') {
+      return (
+        <div className="card coach-lesson-card" data-testid="coach-lesson-pending">
+          <div className="sentence-loading">
+            <div className="sentence-loading-spinner" />
+            <p>{COACH_MISTAKE_LESSON_BUSY}</p>
+            <p className="coach-pending-note">You can leave — it will be here when you come back.</p>
+          </div>
+        </div>
+      );
+    }
+    if (message.status === 'failed') {
+      return (
+        <div className="coach-error" role="alert" data-testid="coach-lesson-failed">
+          {message.error || 'Claude couldn’t write a lesson for this one — try again.'}
+          <button type="button" className="coach-error-retry" onClick={onRetryLesson} disabled={retrying} data-testid="coach-lesson-retry">
+            {retrying ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      );
+    }
+    const content = parseMistakeLessonContent(message.content);
+    return content ? <MistakeLessonCard conversationId={conversationId} messageId={message.id} content={content} /> : null;
   }
 
   // Written in the background (docs/CHAT.md "Chat ↔ Coach"): leaving the page never cancels it.
@@ -907,7 +1036,40 @@ export function SentenceCoachPage() {
   const firstAnalysis = useMemo(() => (firstAnalysisJson ? parseAnalysis(firstAnalysisJson) : null), [firstAnalysisJson]);
   const latestSentence = firstAnalysis ? analysisSentence(firstAnalysis) : null;
   const breakdown = useSentenceBreakdown(firstAnalysis);
-  const replyPending = !!conversationQuery.data?.messages.some((m) => m.status === 'pending');
+  // A mini lesson being written doesn't hold up the chat.
+  const replyPending = !!conversationQuery.data?.messages.some((m) => m.status === 'pending' && m.content_type !== MISTAKE_LESSON_CONTENT_TYPE);
+
+  // "🎯 Mini lesson on this mistake": only after a check that found a mistake.
+  const lessonMessage = conversationQuery.data?.messages.find((m) => m.content_type === MISTAKE_LESSON_CONTENT_TYPE) ?? null;
+  const mistakeLessonOffered = firstAnalysis?.kind === 'chinese' && coachMistakeLessonOffered(firstAnalysis.coach);
+  const lessonMutation = useMutation({
+    mutationFn: (id: string) => requestCoachMistakeLesson(id),
+    onSuccess: (res, id) => {
+      track('coach.mistake_lesson_generate', { existing: !!res.existing });
+      queryClient.setQueryData<{ conversation: unknown; messages: CoachMessage[] }>(['coach-conversation', id], (prev) => {
+        if (!prev) return prev;
+        const lesson = res.messages[0];
+        const has = prev.messages.some((m) => m.id === lesson.id);
+        return { ...prev, messages: has ? prev.messages.map((m) => (m.id === lesson.id ? lesson : m)) : [...prev.messages, lesson] };
+      });
+      queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
+    },
+    onError: (err) => trackError('coach_mistake_lesson', err),
+  });
+  const askForLesson = () => {
+    if (!conversationId || lessonMutation.isPending) return;
+    lessonMutation.mutate(conversationId);
+  };
+  const openLesson = (m: CoachMessage) => navigate(`/coach/${encodeURIComponent(conversationId!)}/lesson/${encodeURIComponent(m.id)}`);
+  const lessonChip: MistakeLessonChip | null = !mistakeLessonOffered
+    ? null
+    : lessonMutation.isPending || lessonMessage?.status === 'pending'
+      ? { label: COACH_MISTAKE_LESSON_BUSY, busy: true, onClick: () => {} }
+      : lessonMessage && !lessonMessage.status
+        ? { label: COACH_MISTAKE_LESSON_LABEL, busy: false, onClick: () => openLesson(lessonMessage) }
+        : { label: COACH_MISTAKE_LESSON_LABEL, busy: false, onClick: askForLesson };
+  // Offline (the conversation couldn't be fetched): the lesson this device kept for it.
+  const keptLesson = conversationId && conversationQuery.isError ? cachedCoachLesson(conversationId) : null;
 
   const sendQuickAction = (message: string) => {
     if (!conversationId || replyMutation.isPending || replyPending) return;
@@ -1029,6 +1191,16 @@ export function SentenceCoachPage() {
           {conversationQuery.isError && (
             <div className="coach-error mt-3">Couldn't load this conversation.</div>
           )}
+          {keptLesson && (
+            <div className="mt-3">
+              <MistakeLessonCard
+                conversationId={conversationId!}
+                messageId={keptLesson.messageId}
+                content={keptLesson.content}
+                offlineNote="Saved on this device — you can do it offline."
+              />
+            </div>
+          )}
 
           {data && (
             <div className="coach-messages mt-3">
@@ -1039,7 +1211,9 @@ export function SentenceCoachPage() {
                   onAdd={setAdding}
                   action={conversationAction(data.conversation)}
                   onRetry={(messageId) => retryMutation.mutate({ id: data.conversation.id, messageId })}
-                  retrying={retryMutation.isPending}
+                  retrying={retryMutation.isPending || lessonMutation.isPending}
+                  conversationId={data.conversation.id}
+                  onRetryLesson={askForLesson}
                 />
               ))}
 
@@ -1051,6 +1225,11 @@ export function SentenceCoachPage() {
               )}
               {replyMutation.isError && (
                 <div className="coach-error">{coachErrorText(replyMutation.error, "Couldn't send that")}</div>
+              )}
+              {lessonMutation.isError && (
+                <div className="coach-error" role="alert" data-testid="coach-lesson-error">
+                  {coachErrorText(lessonMutation.error, "Couldn't start the lesson")}
+                </div>
               )}
               <div ref={bottomRef} />
             </div>
@@ -1066,6 +1245,7 @@ export function SentenceCoachPage() {
               disabled={replyMutation.isPending || replyPending}
               breakdown={breakdown}
               onAddSentenceCard={setAdding}
+              mistakeLesson={lessonChip}
             />
           )}
 

@@ -32,6 +32,7 @@ import { shareReader } from './shared-readers';
 import { queueLessonImages } from './custom-lesson';
 import { getLink } from '../db/homework-links-queries';
 import { cleanLinkNote } from '@shared/homework';
+import { scheduleAssignedEmail } from './homework-emails';
 
 export class HomeworkError extends Error {
   constructor(public status: 400 | 403 | 404 | 409, message: string) {
@@ -207,6 +208,8 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
     const mine = assignments.filter((a) => a.kind === kind);
     if (mine.length) void trackServer('server.homework_assigned', { kind, mode: mine[0].mode, count: mine.length }, { env, userId: input.tutorId });
   }
+  // "<Tutor> sent you homework": one e-mail per burst of sends, ~2 minutes later (docs/HOMEWORK.md §12).
+  if (assignments.length > 0) await scheduleAssignedEmail(env, input.studentId);
   return { assignments, skipped, errors, copies };
 }
 

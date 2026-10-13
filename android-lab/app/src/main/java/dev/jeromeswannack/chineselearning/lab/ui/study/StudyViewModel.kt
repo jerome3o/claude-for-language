@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.core.NewCharacters
 import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
 import dev.jeromeswannack.chineselearning.lab.data.noteHanzi
 import androidx.lifecycle.ViewModel
@@ -80,6 +81,12 @@ class StudyViewModel(
     private var bumpedCardIds: MutableSet<String> = HashSet()
     /** Unseen notes whose first card is meaning_to_hanzi (every character known, core LeadCard). */
     private var knownCharacterNoteIds: Set<String> = emptySet()
+    /**
+     * Han characters of every note with a reviewed card, any deck (core NewCharacters — the queue's
+     * "New characters first" rule): a card's characters not in it shimmer. Built with the queue, a
+     * rating adds the card's characters (the next card knows them; the one on screen keeps its shimmer).
+     */
+    private var seenChars: MutableSet<String> = HashSet()
     private var bumpedBy: Map<String, String> = emptyMap()
     private var presentation = 0
     private var cutoff = StudyCutoff(0)
@@ -258,6 +265,7 @@ class StudyViewModel(
         cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
         val (cards, pinned) = withContext(Dispatchers.IO) {
             deckNames = repo.dao.decks().associate { it.id to it.name }
+            seenChars = seenCharactersOf(repo.dao.cards().map { it.toQueueCard() }, repo.dao.noteHanzi())
             val wanted = spec.cardIds.toHashSet()
             val cards = repo.dao.cards().filter { it.id in wanted }.map { it.toQueueCard() }
             val ids = spec.noteIds.toHashSet()
@@ -309,13 +317,20 @@ class StudyViewModel(
     }
     // ---- end practice ----
 
+    /** The seen characters (core NewCharacters) of the notes with a card past NEW. */
+    private fun seenCharactersOf(cards: List<QueueCard>, noteHanzi: Map<String, String>?): MutableSet<String> =
+        NewCharacters.seenCharactersOf(StudyQueue.reviewedNoteIds(cards).mapNotNull { noteHanzi?.get(it) })
+
     // ---- the homework pass on the study card (ui/homework; web HomeworkPassPage DeckPass) ----
     /** The word on screen and how many times it was answered before (a "Not yet" word coming back is a new attempt). */
     private var passShown: Pair<String, Int>? = null
 
     private suspend fun loadPassMode() {
         cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
-        withContext(Dispatchers.IO) { deckNames = repo.dao.decks().associate { it.id to it.name } }
+        withContext(Dispatchers.IO) {
+            deckNames = repo.dao.decks().associate { it.id to it.name }
+            seenChars = seenCharactersOf(repo.dao.cards().map { it.toQueueCard() }, repo.dao.noteHanzi())
+        }
         _ui.update { it.copy(showExplainer = false) }
     }
 
@@ -380,8 +395,10 @@ class StudyViewModel(
             val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
             val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
             bumpedBy = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpedBy(repo.dao)
+            val noteHanzi = repo.dao.noteHanzi()
+            seenChars = seenCharactersOf(cards, noteHanzi)
             StudyQueue.build(
-                decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm(),
+                decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, noteHanzi, longTerm = repo.dao.noteLongTerm(),
                 bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
                 upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
@@ -490,8 +507,10 @@ class StudyViewModel(
             val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
             val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
             bumpedBy = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpedBy(repo.dao)
+            val noteHanzi = repo.dao.noteHanzi()
+            seenChars = seenCharactersOf(cards, noteHanzi)
             StudyQueue.build(
-                decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, repo.dao.noteHanzi(), longTerm = repo.dao.noteLongTerm(),
+                decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, noteHanzi, longTerm = repo.dao.noteLongTerm(),
                 bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
                 upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
@@ -616,6 +635,7 @@ class StudyViewModel(
                     start = start,
                     bumped = card.id in bumpedCardIds,
                     bumpedBy = bumpedBy[card.noteId],
+                    newChars = NewCharacters.newCharactersIn(it.hanzi, seenChars),
                 )
             }
         }
@@ -1730,6 +1750,8 @@ class StudyViewModel(
             "recorded" to (recorder.recording || _ui.value.extras.take.hasTake || take != null),
         ))
 
+        // Its characters are seen now: the next card doesn't shimmer them (this one keeps its shimmer).
+        (_ui.value.phase as? StudyPhase.Showing)?.view?.note?.hanzi?.let { NewCharacters.markCharactersSeen(seenChars, it) }
         if (practice != null) return ratePractice(card, rating, timeSpentMs, userAnswer, stats)
         if (card.id in bumpedCardIds) app.analytics.track("study.bump_studied", mapOf("card_type" to card.cardType, "queue" to card.queue))
 

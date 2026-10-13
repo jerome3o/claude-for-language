@@ -6,6 +6,7 @@
  * re-renders that happened with the previous useLiveQuery-based approach.
  */
 
+import { primeSeenCharacters } from '../services/newCharacters';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -439,7 +440,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       ]);
       // A failed load used to fall through to an empty queue — "All Done" while
       // Home counted cards. Try once more before giving up.
-      const [{ dueCards, counts, reviewedNoteIds: reviewedIds, bumpedCardIds: bumpedIds, knownCharacterNoteIds }, dueReaders, todaysGrammar, pendingLessons] = await load().catch(err => {
+      const [{ dueCards, counts, reviewedNoteIds: reviewedIds, bumpedCardIds: bumpedIds, knownCharacterNoteIds, seenCharacters }, dueReaders, todaysGrammar, pendingLessons] = await load().catch(err => {
         console.warn('[useStudySession] Queue load failed, retrying once:', err);
         return new Promise<Awaited<ReturnType<typeof load>>>((resolve, reject) => setTimeout(() => load().then(resolve, reject), 300));
       });
@@ -453,6 +454,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       bumpedCardIdsRef.current = new Set(bumpedIds);
       setBumpedCardIds(new Set(bumpedIds));
       knownCharacterNoteIdsRef.current = knownCharacterNoteIds ?? new Set();
+      // The new-character shimmer reads the same seen set (services/newCharacters.ts).
+      if (seenCharacters) primeSeenCharacters(seenCharacters);
       initializedRef.current = true;
 
       // Make sure today has a graded reader (all-decks sessions only). Runs

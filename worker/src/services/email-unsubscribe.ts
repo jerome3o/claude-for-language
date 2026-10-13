@@ -10,7 +10,12 @@
  *   token = <b64url(userId)>.<b64url(HMAC-SHA256(key, "<purpose>:<userId>"))>
  */
 
-export type UnsubscribePurpose = 'chat';
+export type UnsubscribePurpose = 'chat' | 'homework';
+
+/** `?k=` on the link: which e-mails it turns off (none = chat, the links already sent). */
+export function purposeFromQuery(k: string | null | undefined): UnsubscribePurpose {
+  return k === 'homework' ? 'homework' : 'chat';
+}
 
 type SecretEnv = { SESSION_SECRET?: string; GOOGLE_CLIENT_SECRET?: string; E2E_TEST_MODE?: string };
 
@@ -73,8 +78,8 @@ export async function verifyUnsubscribeToken(
 }
 
 /** The link in the e-mail body (opens the confirmation page) — also the List-Unsubscribe target. */
-export function unsubscribeUrl(apiOrigin: string | undefined, token: string): string {
-  return `${(apiOrigin || DEFAULT_API_ORIGIN).replace(/\/+$/, '')}/api/email/unsubscribe?t=${encodeURIComponent(token)}`;
+export function unsubscribeUrl(apiOrigin: string | undefined, token: string, purpose: UnsubscribePurpose = 'chat'): string {
+  return `${(apiOrigin || DEFAULT_API_ORIGIN).replace(/\/+$/, '')}/api/email/unsubscribe?t=${encodeURIComponent(token)}${purpose === 'chat' ? '' : `&k=${purpose}`}`;
 }
 
 /**
@@ -98,29 +103,53 @@ function esc(s: string): string {
  * browser, so for a person it is still one tap; without JavaScript there is a
  * button. `state` = what the page shows first.
  */
+/** What the page says for each kind of e-mail. */
+const PAGE_COPY: Record<UnsubscribePurpose, { title: string; lower: string; offBody: string; onBody: string; turnOff: string }> = {
+  chat: {
+    title: 'Chat e-mails',
+    lower: 'chat e-mails',
+    offBody: 'You won’t get an e-mail for new chat messages any more. Notifications in the app are not affected.',
+    onBody: 'You’ll get an e-mail when someone sends you a chat message.',
+    turnOff: 'Turn off chat e-mails',
+  },
+  homework: {
+    title: 'Homework e-mails',
+    lower: 'homework e-mails',
+    offBody: 'You won’t get an e-mail when homework arrives or the day before it’s due. Your homework is still in the app.',
+    onBody: 'You’ll get an e-mail when your tutor sends homework, and a reminder the evening before it’s due.',
+    turnOff: 'Turn off homework e-mails',
+  },
+};
+
 export function unsubscribePageHtml(input: {
   token: string;
   state: 'pending' | 'off' | 'on' | 'invalid';
   appUrl: string;
+  /** Which e-mails (default chat). */
+  purpose?: UnsubscribePurpose;
 }): string {
+  const purpose = input.purpose ?? 'chat';
+  const copy = PAGE_COPY[purpose];
   const t = esc(input.token);
+  // The forms and the script carry `k` so the POST changes the same switch.
+  const q = `t=${t}${purpose === 'chat' ? '' : `&amp;k=${purpose}`}`;
   const app = esc(input.appUrl);
   const body =
     input.state === 'invalid'
-      ? `<h1>This link doesn’t work</h1><p>It may have been copied incompletely. You can turn chat e-mails off in the app: <a href="${app}/settings">Settings → Notifications</a>.</p>`
+      ? `<h1>This link doesn’t work</h1><p>It may have been copied incompletely. You can turn ${copy.lower} off in the app: <a href="${app}/settings">Settings → Notifications</a>.</p>`
       : `<div id="pending" ${input.state === 'pending' ? '' : 'hidden'}>
-  <h1 id="pending-title">Turning off chat e-mails…</h1>
-  <noscript><p>Tap the button to turn them off.</p><form method="post" action="/api/email/unsubscribe?t=${t}"><button type="submit">Turn off chat e-mails</button></form></noscript>
+  <h1 id="pending-title">Turning off ${copy.lower}…</h1>
+  <noscript><p>Tap the button to turn them off.</p><form method="post" action="/api/email/unsubscribe?${q}"><button type="submit">${copy.turnOff}</button></form></noscript>
 </div>
 <div id="off" ${input.state === 'off' ? '' : 'hidden'}>
-  <h1>Chat e-mails are off</h1>
-  <p>You won’t get an e-mail for new chat messages any more. Notifications in the app are not affected.</p>
-  <form method="post" action="/api/email/resubscribe?t=${t}" data-action="resubscribe"><button type="submit" class="secondary">Turn back on</button></form>
+  <h1>${copy.title} are off</h1>
+  <p>${copy.offBody}</p>
+  <form method="post" action="/api/email/resubscribe?${q}" data-action="resubscribe"><button type="submit" class="secondary">Turn back on</button></form>
 </div>
 <div id="on" ${input.state === 'on' ? '' : 'hidden'}>
-  <h1>Chat e-mails are on</h1>
-  <p>You’ll get an e-mail when someone sends you a chat message.</p>
-  <form method="post" action="/api/email/unsubscribe?t=${t}" data-action="unsubscribe"><button type="submit">Turn off chat e-mails</button></form>
+  <h1>${copy.title} are on</h1>
+  <p>${copy.onBody}</p>
+  <form method="post" action="/api/email/unsubscribe?${q}" data-action="unsubscribe"><button type="submit">${copy.turnOff}</button></form>
 </div>
 <p class="small"><a href="${app}/settings">Open the app’s settings</a></p>`;
   // In a browser the page turns e-mails off as it loads (one tap from the
@@ -130,16 +159,16 @@ export function unsubscribePageHtml(input: {
       ? ''
       : `<script>
 (function(){
-  var t=${JSON.stringify(input.token)};
+  var t=${JSON.stringify(input.token)};var k=${JSON.stringify(purpose === 'chat' ? '' : purpose)};
   function show(id){['pending','off','on'].forEach(function(k){document.getElementById(k).hidden=k!==id;});}
-  function post(action){return fetch('/api/email/'+action+'?t='+encodeURIComponent(t),{method:'POST',headers:{'Accept':'application/json'}}).then(function(r){if(!r.ok)throw 0;show(action==='resubscribe'?'on':'off');}).catch(function(){show('pending');document.getElementById('pending-title').textContent='Something went wrong — reload to try again';});}
+  function post(action){return fetch('/api/email/'+action+'?t='+encodeURIComponent(t)+(k?'&k='+k:''),{method:'POST',headers:{'Accept':'application/json'}}).then(function(r){if(!r.ok)throw 0;show(action==='resubscribe'?'on':'off');}).catch(function(){show('pending');document.getElementById('pending-title').textContent='Something went wrong — reload to try again';});}
   document.querySelectorAll('form[data-action]').forEach(function(f){f.addEventListener('submit',function(e){e.preventDefault();post(f.getAttribute('data-action'));});});
   ${input.state === 'pending' ? "post('unsubscribe');" : ''}
 })();
 </script>`;
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>Chat e-mails</title>
+<title>${copy.title}</title>
 <style>
 :root{color-scheme:light dark;--bg:#f7f7f8;--card:#fff;--fg:#1f2937;--muted:#6b7280;--accent:#2563eb}
 @media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1b1e25;--fg:#e5e7eb;--muted:#9ca3af;--accent:#60a5fa}}

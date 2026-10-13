@@ -541,14 +541,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
         }
         if (!short) Spacer(Modifier.weight(1f))
         when (view.card.cardType) {
-            CardTypes.HANZI_TO_MEANING -> Text(
-                note.hanzi,
-                fontSize = hanziSize(note.hanzi),
-                fontWeight = FontWeight.Medium,
-                color = Lab.colors.ink,
-                textAlign = TextAlign.Center,
-                lineHeight = hanziSize(note.hanzi) * 1.2f,
-            )
+            CardTypes.HANZI_TO_MEANING -> FrontHanzi(note.hanzi, rememberShimmerChars(view.newChars))
             CardTypes.MEANING_TO_HANZI -> Text(
                 note.english,
                 style = if (short) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
@@ -672,15 +665,17 @@ private fun CardBack(
 ) {
     val note = view.note
     val onChar: (String) -> Unit = { ch -> if (CardExtrasLogic.isLookupCharacter(ch)) onCharacter(ch) }
+    // Never-seen characters shimmer (core NewCharacters; worked out when the card was shown).
+    val newChars = rememberShimmerChars(view.newChars)
     val main: @Composable () -> Unit = {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
             if (typed != null && verdict != null && mcSlots != null && !MultipleChoice.allRight(mcSlots)) {
                 // A multiple-choice answer (possibly partial): row by row
-                KeepTaps { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar) }
+                KeepTaps { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar, newChars) }
             } else if (typed != null && verdict != null) {
-                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, spoken = canSayAgain, onCoach = { actions.onYouSaidCoach(it, "spoken") }) }
+                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, spoken = canSayAgain, onCoach = { actions.onYouSaidCoach(it, "spoken") }, newChars = newChars) }
             } else {
-                TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
+                TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar, newChars = newChars)
             }
             KeepTaps { TranscriptionLine(ui.extras.take.transcription, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }) }
             if (canSayPractice && practiceSaid != null) {
@@ -816,16 +811,26 @@ private fun KeepTaps(content: @Composable ColumnScope.() -> Unit) =
 /** Hanzi where each character can be tapped for its definition (`hanzi-char-clickable`). */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun TappableHanzi(text: String, size: TextUnit, color: Color, onChar: (String) -> Unit, weight: FontWeight = FontWeight.Medium) {
+private fun TappableHanzi(
+    text: String,
+    size: TextUnit,
+    color: Color,
+    onChar: (String) -> Unit,
+    weight: FontWeight = FontWeight.Medium,
+    /** Never-seen characters: they shimmer ([NewCharGlyph]). */
+    newChars: Set<String> = emptySet(),
+) {
     val chars = text.codePoints().toArray().map { String(Character.toChars(it)) }
     androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.Center) {
-        for (ch in chars) {
-            Text(
+        chars.forEachIndexed { i, ch ->
+            NewCharGlyph(
                 ch,
+                isNew = ch in newChars,
                 fontSize = size,
-                fontWeight = weight,
                 color = color,
+                fontWeight = weight,
                 lineHeight = size * 1.15f,
+                index = i,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -833,6 +838,16 @@ private fun TappableHanzi(text: String, size: TextUnit, color: Color, onChar: (S
             )
         }
     }
+}
+
+/**
+ * The read card's question: the hanzi in one Text (it wraps like text, and stays one text node);
+ * its never-seen characters shimmer ([NewCharText]).
+ */
+@Composable
+private fun FrontHanzi(hanzi: String, newChars: Set<String>) {
+    val size = hanziSize(hanzi)
+    NewCharText(hanzi, newChars, fontSize = size, color = Lab.colors.ink, lineHeight = size * 1.2f)
 }
 
 /**
@@ -844,9 +859,9 @@ private fun TappableHanzi(text: String, size: TextUnit, color: Color, onChar: (S
  * never a red diff; a wrong spoken answer's diff is aligned (AnswerMarks.spokenDiff), not positional.
  */
 @Composable
-private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean = false, onCoach: ((String) -> Unit)? = null) {
+private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean = false, onCoach: ((String) -> Unit)? = null, newChars: Set<String> = emptySet()) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        AnswerDiffBody(typed, correct, verdict, onChar, spoken)
+        AnswerDiffBody(typed, correct, verdict, onChar, spoken, newChars)
         if (spoken) {
             Spacer(Modifier.height(6.dp))
             YouSaidBox(spokenComparison(typed, correct, verdict), onCoach?.let { open -> { open(typed) } })
@@ -862,26 +877,26 @@ internal fun spokenComparison(transcript: String, correct: String, verdict: Answ
 }
 
 @Composable
-private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean) {
+private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean, newChars: Set<String> = emptySet()) {
     val size = hanziSize(correct) * 0.7f
     val pinyinStyle = MaterialTheme.typography.bodyMedium
     when (verdict) {
         AnswerKey.Verdict.EXACT, AnswerKey.Verdict.PUNCTUATION_ONLY -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // A punctuation-only difference shows the canonical answer (with its punctuation).
             val shown = if (verdict == AnswerKey.Verdict.EXACT) typed else correct
-            TappableHanzi(shown, size, Palette.Good, onChar)
+            TappableHanzi(shown, size, Palette.Good, onChar, newChars = newChars)
             Text(Pinyin.of(shown), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         AnswerKey.Verdict.ALTERNATIVE, AnswerKey.Verdict.EQUIVALENT -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            TappableHanzi(typed, size, Palette.Good, onChar)
+            TappableHanzi(typed, size, Palette.Good, onChar, newChars = newChars)
             Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("Also accepted — canonical answer:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
-            TappableHanzi(correct, size * 0.8f, Lab.colors.ink, onChar)
+            TappableHanzi(correct, size * 0.8f, Lab.colors.ink, onChar, newChars = newChars)
             Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         AnswerKey.Verdict.SOUND -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.testTag(SPOKEN_SOUND_TAG)) {
             // Said right, written with other characters (speech can't tell 由 / 油 apart): the answer in green.
-            TappableHanzi(correct, size, Palette.Good, onChar)
+            TappableHanzi(correct, size, Palette.Good, onChar, newChars = newChars)
             Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text(AnswerKey.spokenVerdictNote(verdict, correct).orEmpty(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.Good, textAlign = TextAlign.Center)
             // "You said" is the YouSaidBox under it (AnswerDiff).
@@ -889,7 +904,7 @@ private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Ve
         AnswerKey.Verdict.CONTAINS -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.testTag(SPOKEN_CONTAINS_TAG)) {
             // Said inside a sentence (他长得很好。 for 长得): the answer in green; the read card's orange
             // "You said … ✅ Answer found in your sentence" box follows — nothing marked red.
-            TappableHanzi(correct, size, Palette.Good, onChar)
+            TappableHanzi(correct, size, Palette.Good, onChar, newChars = newChars)
             // No automatic pinyin here (it may read 长得 otherwise): the card's own pinyin follows.
         }
         AnswerKey.Verdict.CLOSE, AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -902,7 +917,7 @@ private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Ve
             MarkedAnswerRow(diff.typed, size * 0.8f, onChar)
             Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("↓", color = Lab.colors.muted)
-            ExpectedAnswerRow(diff.expected.map { it.char }, diff.expected.map { it.matched }, size, Lab.colors.ink, onChar)
+            ExpectedAnswerRow(diff.expected.map { it.char }, diff.expected.map { it.matched }, size, Lab.colors.ink, onChar, newChars)
         }
     }
 }
