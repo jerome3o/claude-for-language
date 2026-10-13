@@ -517,6 +517,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
     // Short card (a long multiple-choice grid below takes most of the screen): a tighter front
     // that scrolls rather than clipping — the prompt stays readable above the grid.
     val short = maxHeight < SHORT_FRONT
+    val frontHeight = maxHeight
     val frontScroll = rememberScrollState()
     Column(
         (if (short) Modifier.fillMaxSize().verticalScroll(frontScroll).heightIn(min = maxHeight) else Modifier.fillMaxSize())
@@ -555,7 +556,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
             )
             CardTypes.MEANING_TO_HANZI -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (NoteImage.show(view.card.cardType, front = true, enabled = picturesOn, imageKey = note.imageKey)) {
-                    NotePicture(note.imageKey, size = if (short) 88.dp else minOf(200.dp, maxHeight * 0.26f), side = "front", cardType = view.card.cardType, tag = PICTURE_FRONT_TAG, preview = view.picturePreview)
+                    NotePicture(note.imageKey, size = if (short) 88.dp else minOf(200.dp, frontHeight * 0.26f), side = "front", cardType = view.card.cardType, tag = PICTURE_FRONT_TAG, preview = view.picturePreview)
                     Spacer(Modifier.height(if (short) 6.dp else 14.dp))
                 }
                 Text(
