@@ -118,9 +118,10 @@ test.describe('Live pronunciation transcription', () => {
     await recordOneTake(page);
 
     await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible({ timeout: 5000 });
-    // What was said is the hero (hanzi, pinyin under it), the verdict a chip; ▶ plays the take.
+    // What was said is the hero (hanzi, pinyin under it), the verdict a chip (whatever the starter
+    // card is — the fake always hears 是); ▶ plays the take.
     await expect(page.getByTestId('you-said-pinyin')).toHaveText('shì');
-    await expect(page.getByTestId('you-said-verdict')).toHaveText('Match');
+    await expect(page.getByTestId('you-said-verdict')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Play my recording' })).toBeVisible();
     const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; chunks: number; ended: boolean; protocols: string[] | null } }).__soniox);
     expect(stats.protocols).toEqual(['soniox-api-key', 'snx_temp_e2e']); // the key with the connection
@@ -174,8 +175,8 @@ test.describe('Live pronunciation transcription', () => {
 
     const retry = page.getByTestId('transcription-retry');
     await expect(retry).toBeVisible({ timeout: 8000 });
-    await expect(retry).toContainText('Couldn’t transcribe — tap to retry');
-    await expect(retry).toContainText('Your recording is saved');
+    await expect(retry).toContainText('Couldn’t transcribe');
+    await expect(retry).toContainText('Tap to retry · your recording is saved');
     expect(uploads).toHaveLength(1);
     expect(uploads[0]).toMatchObject({ liveError: 'Soniox 402: Balance exhausted', client: 'web' });
 
