@@ -137,6 +137,8 @@ jobs:
         if: env.HAS_SIGNING != 'true'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # electron-builder skips ALL signing on PR builds; this step has no secrets (ad-hoc only), so force it.
+          CSC_FOR_PULL_REQUEST: 'true'
         run: |
           echo "::notice title=Unsigned desktop build::No CSC_LINK secret: the Mac app is ad-hoc signed (see desktop/README.md, Signing)."
           npx electron-builder --mac --publish never -c.mac.identity=-
