@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { db, type LocalHomeworkAssignment, type LocalCustomLesson } from '../db/database';
-import { oneOffOnlyTargetIds, recordTargetDone, sortHomeworkItems, syncHomework, toHomeworkItems, recordPassEvent } from './homework';
+import { oneOffOnlyTargetIds, recordTargetDone, sortHomeworkItems, syncHomework, toHomeworkItems, recordPassEvent, recordPassUndo } from './homework';
 import { getDueCustomLessons, completeCustomLesson } from './custom-lesson-study';
 import { CardQueue } from '../types';
 import { writeRevisitSettings } from './revisit';
@@ -164,6 +164,41 @@ describe('a word pass is not an FSRS review (Jerome: no tsunami of reviews)', ()
     expect(await db.reviewEvents.count()).toBe(before);
     const events = await db.homeworkEvents.where('assignment_id').equals('both').toArray();
     expect(events.map((e) => e.result).sort()).toEqual(['right', 'right', 'wrong']);
+  });
+});
+
+describe('↺ Undo in the pass (docs/HOMEWORK.md §3b)', () => {
+  it('takes back the last answer with an undo event, walking back one answer at a time', async () => {
+    await db.homeworkAssignments.put(assignment({ id: 'u' }));
+    const first = await recordPassEvent('u', 'n1', 'wrong');
+    await new Promise((r) => setTimeout(r, 2));
+    const second = await recordPassEvent('u', 'n2', 'right');
+    expect((await recordPassUndo('u'))?.id).toBe(second.id);
+    expect((await recordPassUndo('u'))?.id).toBe(first.id);
+    expect(await recordPassUndo('u')).toBeNull();
+    const events = await db.homeworkEvents.where('assignment_id').equals('u').toArray();
+    // Nothing deleted: two answers + two undos, each naming what it takes back.
+    expect(events.filter((e) => e.result === 'undo').map((e) => e.undoes).sort()).toEqual([first.id, second.id].sort());
+    const [item] = toHomeworkItems([(await db.homeworkAssignments.get('u'))!], events, '2026-09-27');
+    expect(item.progress).toMatchObject({ done: 0, remaining: ['n1', 'n2'], retrying: 0 });
+  });
+
+  it('reopens a pass the undone Got it finished, offline, and uploads the undo later', async () => {
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValue(new Error('offline'));
+    await db.homeworkAssignments.put(assignment({ id: 'f', status: 'done', completed_at: '2026-09-27T10:00:00Z', done_count: 2 }));
+    await db.homeworkEvents.bulkPut([
+      { id: 'e1', assignment_id: 'f', item_id: 'n1', result: 'right', created_at: '2026-09-27T09:00:00Z', _synced: 1 },
+      { id: 'e2', assignment_id: 'f', item_id: 'n2', result: 'right', created_at: '2026-09-27T10:00:00Z', _synced: 1 },
+    ]);
+    const undone = await recordPassUndo('f');
+    expect(undone?.id).toBe('e2');
+    expect(await db.homeworkAssignments.get('f')).toMatchObject({ status: 'active', completed_at: null });
+    const events = await db.homeworkEvents.where('assignment_id').equals('f').toArray();
+    const [item] = toHomeworkItems([(await db.homeworkAssignments.get('f'))!], events, '2026-09-27');
+    expect(item.done).toBe(false);
+    expect(item.progress.remaining).toEqual(['n2']);
+    expect(events.find((e) => e.result === 'undo')).toMatchObject({ undoes: 'e2', item_id: 'n2', _synced: 0 });
   });
 });
 

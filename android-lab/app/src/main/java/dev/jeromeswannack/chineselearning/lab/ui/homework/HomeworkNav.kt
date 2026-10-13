@@ -47,6 +47,7 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
                 onOpenLink = { url -> vm.linkOpened(); openExternal(context, url) },
                 onLinkDone = vm::markLinkDone,
                 onLessonAgain = { nav.open(Routes.lessonPlay(it, "homework")) },
+                onUndo = vm::undo,
             ),
             onOpen = { path -> nav.open(path) },
             lessonEnv = lessonEnv,
@@ -84,6 +85,7 @@ fun HomeworkPassContent(
                 onPassAnswer = vm::answer,
                 onPassLongTerm = vm::setLongTerm,
                 onPassBump = vm::setBump,
+                onPassUndo = vm::undo,
             ),
         )
     } else {
@@ -107,6 +109,7 @@ fun passCardUi(deck: PassUi.Deck, word: PassNote): PassCardUi = PassCardUi(
     bumped = deck.bumped,
     bumpedBy = deck.bumpedBy,
     busy = deck.busy,
+    canUndo = deck.canUndo,
 )
 
 /**

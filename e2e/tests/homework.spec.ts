@@ -105,6 +105,28 @@ test('tutor sends a one-off deck with a due date; the student does the pass; the
   await page.getByTestId('hw-gotit').click();
   await expect(page.getByTestId('hw-pass-count')).toHaveText('1/2');
   await expect(word).toHaveText(first!);
+  // ↺ in the top bar (docs/HOMEWORK.md §3b): the Got it just given is taken back — that word is
+  // on screen again, not done; Got it once more puts it back.
+  await page.getByTestId('study-undo').click();
+  await expect(page.getByTestId('hw-pass-count')).toHaveText('0/2');
+  await expect(word).not.toHaveText(first!);
+  await page.getByTestId('skip-recording').click();
+  await page.getByTestId('hw-gotit').click();
+  await expect(page.getByTestId('hw-pass-count')).toHaveText('1/2');
+  await expect(word).toHaveText(first!);
+  await page.getByTestId('skip-recording').click();
+  await page.getByTestId('hw-gotit').click();
+  await expect(page.getByTestId('hw-pass-done')).toBeVisible();
+
+  // An accidental last Got it: "↺ Undo last answer" on the finish reopens the pass, for the tutor too.
+  await expect.poll(async () => (await api<{ assignments: Assignment[] }>(request, `/api/relationships/${relId}/homework`, { token: tutor.token })).assignments[0].status, { timeout: 20_000 }).toBe('done');
+  await page.getByTestId('hw-pass-undo').click();
+  await expect(page.getByTestId('hw-pass-card')).toBeVisible();
+  await expect(page.getByTestId('hw-pass-count')).toHaveText('1/2');
+  await expect(word).toHaveText(first!);
+  await expect
+    .poll(async () => (await api<{ assignments: Assignment[] }>(request, `/api/relationships/${relId}/homework`, { token: tutor.token })).assignments[0], { timeout: 20_000 })
+    .toMatchObject({ status: 'active', done_count: 1 });
   await page.getByTestId('skip-recording').click();
   await page.getByTestId('hw-gotit').click();
   await expect(page.getByTestId('hw-pass-done')).toBeVisible();

@@ -179,6 +179,8 @@ class StudyActions(
     val onPassLongTerm: (on: Boolean) -> Unit = {},
     /** ⚡ Study it today flipped (on = bump, off = take it out of today's pocket). */
     val onPassBump: (on: Boolean) -> Unit = {},
+    /** ↺ on a pass word: take back the last Got it / Not yet (docs/HOMEWORK.md §3b). */
+    val onPassUndo: () -> Unit = {},
 )
 
 @Composable
@@ -354,6 +356,10 @@ fun StudyRoute(
             },
             onPassLongTerm = { on -> passActions?.onPassLongTerm?.invoke(on) },
             onPassBump = { on -> passActions?.onPassBump?.invoke(on) },
+            onPassUndo = {
+                vm.passUndone()
+                passActions?.onPassUndo?.invoke()
+            },
         ),
         pass = pass,
     )
@@ -436,7 +442,8 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int,
 /**
  * The homework pass's top bar on the study card (web: the pass `header` + `banner`): ✕, the
  * assignment's title and "3/12", the offline pill; the pass's progress, then part · due · "2 to
- * try again". No queue counts, no undo — nothing here is a review.
+ * try again". No queue counts — nothing here is a review; ↺ takes back the last Got it / Not yet
+ * (docs/HOMEWORK.md §3b), where Study's undo is.
  */
 @Composable
 private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pendingReviews: Int) {
@@ -449,6 +456,9 @@ private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pen
             )
             Text("${pass.done}/${pass.total}", color = Palette.Secondary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp).testTag(PASS_COUNT_TAG))
             OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
+            IconButton(onClick = actions.onPassUndo, enabled = pass.canUndo && !pass.busy, modifier = Modifier.testTag(PASS_UNDO_TAG)) {
+                Icon(Icons.AutoMirrored.Filled.Undo, "Undo last answer", tint = if (pass.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
+            }
         }
         val progress by animateFloatAsState(if (pass.total > 0) pass.done.toFloat() / pass.total else 0f, spring(dampingRatio = 0.9f, stiffness = 120f), label = "pass-progress")
         Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
@@ -468,6 +478,9 @@ private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pen
 
 /** Test tag of the pass's "3/12" on the study card. */
 const val PASS_COUNT_TAG = "hw-pass-count"
+
+/** Test tag of the pass's ↺ (undo the last Got it / Not yet) on the study card. */
+const val PASS_UNDO_TAG = "hw-pass-undo-top"
 
 /** The quiet line under the top bar in the tutor-notes practice: does this rating count? */
 @Composable

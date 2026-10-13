@@ -382,6 +382,22 @@ class StudyViewModel(
         }
     }
 
+    /**
+     * ↺ on a pass word (docs/HOMEWORK.md §3b): the pass takes its last answer back and deals that
+     * word again ([showPassCard], a new attempt); the card on screen is let go like after an answer
+     * — a "Say it again" under way dropped, its take deleted — with no fling (it isn't a rating).
+     */
+    fun passUndone() {
+        if (pass == null) return
+        _ui.value.extras.spoken.let { if (it.phase != SpokenPhase.IDLE) cancelSpokenAnswer() }
+        _ui.update { it.copy(lastRating = null) }
+        viewModelScope.launch {
+            if (recorder.recording) recorder.stop()?.delete()
+            take?.delete()
+            take = null
+        }
+    }
+
     /** Analytics: the study events carry `where: homework` on a pass word. */
     private fun where(): Map<String, Any?> = if (pass != null) mapOf("where" to "homework") else emptyMap()
     // ---- end pass ----

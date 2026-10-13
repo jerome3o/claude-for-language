@@ -352,7 +352,7 @@ function McAnswerDiff({ slots, onCharacterClick, newChars }: { slots: McAnswerSl
  * answer side ends in Not yet / Got it (the pass's own event) and NOTHING goes to review_events.
  */
 export interface StudyCardPass {
-  /** The top bar's left side (the pass title + counter), in place of the queue counts and undo. */
+  /** The top bar's left side (the pass title + counter), in place of the queue counts. (↺ = `canUndo` / `onUndo`: the pass's last answer.) */
   header: ReactNode;
   /** On the answer side under the meaning: the long-term switch and the ⚡ toggle. */
   answerExtras?: ReactNode;
@@ -2801,17 +2801,17 @@ export function StudyCard({
           <div className="study-topbar-controls">
             {/* Offline, the pill already says so (and carries the pending count) */}
             {!effectiveOffline && <SyncBadge inline />}
-            {!pass && (
-              <button
-                className="study-close-btn study-undo-btn"
-                onClick={onUndo}
-                disabled={!canUndo}
-                aria-label="Undo last review"
-                title="Undo last review"
-              >
-                ↺
-              </button>
-            )}
+            {/* The pass undoes its last Got it / Not yet the same way (docs/HOMEWORK.md §3b). */}
+            <button
+              className="study-close-btn study-undo-btn"
+              onClick={onUndo}
+              disabled={!canUndo}
+              aria-label={pass ? 'Undo last answer' : 'Undo last review'}
+              title={pass ? 'Undo last answer' : 'Undo last review'}
+              data-testid="study-undo"
+            >
+              ↺
+            </button>
             {/* D3: automatic from NetworkContext, manual override kept; label says which */}
             <OfflineModeToggle />
             <button

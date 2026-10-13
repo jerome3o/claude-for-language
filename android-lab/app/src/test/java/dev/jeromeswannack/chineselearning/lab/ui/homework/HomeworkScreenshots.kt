@@ -105,6 +105,11 @@ class HomeworkScreenshots : LabScreenshotTest() {
         HomeworkPassScreen(deckPass().copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true)), PassActions())
     }
 
+    /** The last Got it finished it by mistake: "↺ Undo last answer" (docs/HOMEWORK.md §3b). */
+    @Test fun passDoneUndo() = shoot("homework-31-pass-done-undo") {
+        HomeworkPassScreen(deckPass().copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true), canUndo = true), PassActions())
+    }
+
     @Test fun passDoneAdded() = shoot("homework-06-pass-done-added", dark = true) {
         HomeworkPassScreen(deckPass().copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true), addState = AddState.Done), PassActions())
     }

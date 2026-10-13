@@ -81,6 +81,30 @@ object HomeworkStore {
     }
 
     /**
+     * ↺ in the pass (docs/HOMEWORK.md §3b; web recordPassUndo): take back the most recent live
+     * Got it / Not yet of [assignmentId] (core `Homework.lastPassAnswer`) with an `undo` event —
+     * never by deleting the answer, which may already be on the server or another device. Repeated
+     * calls walk further back. A pass the undone Got it had finished is open again here at once (the
+     * server recomputes the same when the undo uploads). Returns the answer taken back, or null.
+     */
+    suspend fun recordPassUndo(app: LabApp, assignmentId: String, now: Instant = Instant.now()): HomeworkEvent? {
+        val cache = app.cache
+        val all = cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
+        val mine = all.filter { it.assignment_id == assignmentId }
+        val target = Homework.lastPassAnswer(mine) ?: return null
+        val undo = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, target.item_id, "undo", now.toString(), undoes = target.id)
+        app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(undo)), id = undo.id)
+        cache.put(HomeworkKeys.EVENTS, HomeworkKeys.KIND, all + undo)
+        val assignments = cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty()
+        val a = assignments.firstOrNull { it.id == assignmentId }
+        if (a != null && a.status == "done" && !Homework.passProgress(Homework.passItemIds(a), mine + undo).complete) {
+            cache.put(HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND, assignments.map { if (it.id == assignmentId) it.copy(status = "active", completed_at = null) else it })
+        }
+        if (app.online.value) app.scope.launch { runCatching { app.outbox.drain() } } else app.scheduleBackgroundUpload()
+        return target
+    }
+
+    /**
      * A lesson or reader was finished (in the pass or in the study session): mark every open
      * one-off assignment on it done. Never throws — study must not fail because of homework
      * bookkeeping. (Port of recordTargetDone; package B's players call this.)
@@ -91,7 +115,7 @@ object HomeworkStore {
             val events = app.cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
             for (a in list) {
                 if (a.target_id != targetId || a.kind != kind || a.status != "active" || a.mode == "fsrs") continue
-                if (events.any { it.assignment_id == a.id && it.result == "done" }) continue
+                if (Homework.livePassEvents(events.filter { it.assignment_id == a.id }).any { it.result == "done" }) continue
                 recordPassEvent(app, a.id, targetId, "done")
             }
         }

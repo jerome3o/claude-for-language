@@ -155,6 +155,32 @@ daily review* on a one-off deck still takes every word not singled out). Rules, 
   page says "· N left out by the student" and those words are not counted in "N to go"
   (`notes_left_out`, `fetchHomeworkDecks`).
 
+## 3b. Undo in the pass (Jerome, 13 Oct 2026)
+
+"Add the undo button for the one-off card review so that I can undo them if I accidentally accept one."
+
+- **Where**: the pass's study card has Study's **↺** in its top bar (web `StudyCard` with `pass` → `canUndo` /
+  `onUndo`; Lab `PassTopBar`, Study's Undo icon) — greyed while there is nothing to take back — and a finished
+  pass shows **↺ Undo last answer** on the "Homework done!" screen (the accidental last *Got it*).
+- **What**: ↺ takes back the most recent *Got it* / *Not yet* of the assignment (`lastPassAnswer`); pressed
+  again it walks further back. The word is dealt again as a fresh card (its attempt count moves on), exactly
+  where the pass stood before that answer (`passProgress` is a pure function of the live events). A word
+  undone from *Got it* is not done any more; a finished pass is open again. "Add to my long-term review" and
+  ⚡ Study it today are separate actions and stay as they are. `done` events (lesson / reader / link) are never
+  undone here.
+- **Model (offline-first, append-only)**: an answer is never edited or deleted — it may already be on the server
+  or another device. The undo is one more event `{ id, assignment_id, item_id, result: 'undo', undoes: <answer id>,
+  created_at }` (migration `0126_homework_undo.sql` rebuilds `assignment_events` to allow `undo` + the `undoes`
+  column). Every rule reads `livePassEvents` (undo events and the events they name left out), so the order the two
+  arrive in never matters and replays are idempotent by id. Shared in `shared/homework/pass.ts`
+  (`undonePassEventIds`, `livePassEvents`, `lastPassAnswer`; Lab core `Homework.kt`, parity-tested by the `undos`
+  vectors in `android-lab/parity/fixtures/homework.ts`).
+- **Tutor's view**: `POST /api/me/homework/events` accepts `undo` events (without `undoes` they are dropped) and
+  `recomputeProgress` gives `done_count` / `status` / `completed_at` from the live events — an undone finish goes
+  back to `active` with `completed_at` cleared. On the device the undo writes the same back to the local
+  assignment at once (web `recordPassUndo`, Lab `HomeworkStore.recordPassUndo`), then uploads (outbox / sync).
+- Analytics: `homework.pass_undo { result: right | wrong, reopened }`.
+
 ## 4. Tutor flow (student page)
 
 1. **Lesson notes** (replaces "Session notes"): one entry per lesson — date, title, and its homework
@@ -213,7 +239,7 @@ two-day fallback. Existing assignments and the draft plan defaults (§7.3) are u
 Student:
 - `GET /api/me/homework` → `{ assignments, events }` (all non-deleted assignments, newest 500; events of
   active ones).
-- `POST /api/me/homework/events` `{ events: [{ id, assignment_id, item_id, result, created_at }] }` →
+- `POST /api/me/homework/events` `{ events: [{ id, assignment_id, item_id, result, created_at, undoes? }] }` (`result: 'undo'` + `undoes` takes an answer back, §3b) →
   `{ accepted, assignments }` (recomputed rows).
 
 Tutor (relationship's tutor only):

@@ -114,6 +114,7 @@ export const ANALYTICS_EVENTS = {
   'homework.pass_start': e('homework', 'Opened a homework pass.', ['kind', 'items']),
   'homework.pass_item': e('homework', 'Answered one word of a homework pass — on the study card, never an FSRS review (result = right — Got it | wrong — Not yet; card_type = the card shown; answered = how it was tried before the reveal: take — the read card\'s 🎤 recording | spoken — a typing card said aloud | typed | choice — multiple choice | none — Show answer straight away; suggested = what the answer side suggested: right | wrong | none; followed = the choice matched the suggestion).', ['result', 'card_type', 'answered', 'suggested', 'followed']),
   'homework.pass_done': e('homework', 'Finished a homework pass.', ['kind', 'items']),
+  'homework.pass_undo': e('homework', 'Took back the last Got it / Not yet in a homework pass with ↺ (an `undo` event; result = the answer undone: right | wrong; reopened = it had finished the pass).', ['result', 'reopened']),
 
   // ── chat ───────────────────────────────────────────────────────────────
   'chat.open': e('chat', 'Opened a conversation.', ['is_ai', 'unread']),

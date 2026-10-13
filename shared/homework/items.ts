@@ -18,13 +18,16 @@ export interface HomeworkItemView<A extends HomeworkAssignment = HomeworkAssignm
   done: boolean;
 }
 
+/** What the screens need of an event (id + undoes: an undo takes an answer back, `livePassEvents`). */
+type ItemEvent = Pick<HomeworkEvent, 'assignment_id' | 'item_id' | 'result' | 'created_at'> & Partial<Pick<HomeworkEvent, 'id' | 'undoes'>>;
+
 /** One-off assignments (not fsrs-only, not cancelled) with their pass progress and due label. */
 export function toHomeworkItems<A extends HomeworkAssignment>(
   assignments: A[],
-  events: Pick<HomeworkEvent, 'assignment_id' | 'item_id' | 'result' | 'created_at'>[],
+  events: ItemEvent[],
   today: string
 ): HomeworkItemView<A>[] {
-  const byAssignment = new Map<string, Pick<HomeworkEvent, 'assignment_id' | 'item_id' | 'result' | 'created_at'>[]>();
+  const byAssignment = new Map<string, ItemEvent[]>();
   for (const e of events) {
     const list = byAssignment.get(e.assignment_id) ?? [];
     list.push(e);

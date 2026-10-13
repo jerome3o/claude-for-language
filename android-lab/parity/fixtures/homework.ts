@@ -13,6 +13,9 @@ import {
   shortDay,
   passProgress,
   passSummary,
+  lastPassAnswer,
+  livePassEvents,
+  undonePassEventIds,
   toHomeworkItems,
   sortHomeworkItems,
   titleParts,
@@ -70,6 +73,34 @@ const passes = Array.from({ length: 300 }, () => {
   }
   const p = passProgress(itemIds, events);
   return { item_ids: itemIds, events, progress: p, summary_deck: passSummary(p, 'deck'), summary_lesson: passSummary(p, 'lesson') };
+});
+
+// ---- undo in the pass (docs/HOMEWORK.md §3b): `undo` events take answers back ----
+const undos = Array.from({ length: 200 }, () => {
+  const n = int(1, 8);
+  const itemIds = Array.from({ length: n }, (_, i) => `n${i}`);
+  const events: { id: string; item_id: string; result: 'right' | 'wrong' | 'done' | 'undo'; created_at: string; undoes?: string | null }[] = [];
+  const m = int(0, 20);
+  for (let i = 0; i < m; i++) {
+    const minute = String(int(0, 30)).padStart(2, '0');
+    const created_at = `2026-10-13T10:${minute}:00.000Z`;
+    if (events.length && r() < 0.35) {
+      // An undo: usually of a real event (an answer, sometimes a done / another undo), sometimes of an unknown id or none.
+      const target = r() < 0.85 ? pick(events).id : r() < 0.5 ? 'unknown' : '';
+      const of = events.find((e) => e.id === target);
+      events.push({ id: `u${i}`, item_id: of?.item_id ?? 'n0', result: 'undo', created_at, undoes: target || null });
+    } else {
+      events.push({ id: r() < 0.05 ? '' : `e${i}`, item_id: `n${int(0, n - 1)}`, result: pick(['right', 'wrong', 'wrong', 'done'] as const), created_at });
+    }
+  }
+  return {
+    item_ids: itemIds,
+    events,
+    progress: passProgress(itemIds, events),
+    last: lastPassAnswer(events)?.id ?? null,
+    live: livePassEvents(events).map((e) => e.id),
+    undone: [...undonePassEventIds(events)].sort(),
+  };
 });
 
 // ---- screens: items, order, rows ----
@@ -139,7 +170,7 @@ const screens = Array.from({ length: 80 }, () => {
   };
 });
 
-writeFileSync(join(OUT, 'homework.json'), JSON.stringify({ today: TODAY, due, arithmetic, passes, screens }));
+writeFileSync(join(OUT, 'homework.json'), JSON.stringify({ today: TODAY, due, arithmetic, passes, undos, screens }));
 
 // ---- Home: the "From <tutor>" card (frontend/src/components/home/homework.ts) ----
 import { pickHomework, summarizeHomeworkDeck, describeDeckProgress, stripFromTutorSuffix } from '../../../frontend/src/components/home/homework';

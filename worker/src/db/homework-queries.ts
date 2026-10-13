@@ -135,7 +135,7 @@ export async function listEvents(db: D1Database, assignmentIds: string[]): Promi
   for (let i = 0; i < assignmentIds.length; i += 50) {
     const chunk = assignmentIds.slice(i, i + 50);
     const r = await db
-      .prepare(`SELECT id, assignment_id, item_id, result, created_at, note FROM assignment_events WHERE assignment_id IN (${chunk.map(() => '?').join(',')}) ORDER BY created_at`)
+      .prepare(`SELECT id, assignment_id, item_id, result, created_at, note, undoes FROM assignment_events WHERE assignment_id IN (${chunk.map(() => '?').join(',')}) ORDER BY created_at`)
       .bind(...chunk)
       .all<HomeworkEvent>();
     out.push(...r.results);
@@ -149,8 +149,8 @@ export async function insertEvents(db: D1Database, studentId: string, events: Ho
   const results = await db.batch(
     events.map((e) =>
       db
-        .prepare(`INSERT OR IGNORE INTO assignment_events (id, assignment_id, student_id, item_id, result, created_at, note) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .bind(e.id, e.assignment_id, studentId, e.item_id, e.result, e.created_at, e.note ?? null)
+        .prepare(`INSERT OR IGNORE INTO assignment_events (id, assignment_id, student_id, item_id, result, created_at, note, undoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(e.id, e.assignment_id, studentId, e.item_id, e.result, e.created_at, e.note ?? null, e.undoes ?? null)
     )
   );
   return results.reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
