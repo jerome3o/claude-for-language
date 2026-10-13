@@ -8,7 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
  * The study card's own per-device settings (the web keeps these in localStorage):
  * the forced-offline override (services/offlineMode.ts `manualOfflineMode`) and whether the
  * first-card explainer has been dismissed (`firstCardExplainerSeen`), whether a spoken answer
- * skips the review step (`spokenSkipReview`) and whether the answer shows word tags (`wordTagsOn`).
+ * skips the review step (`spokenSkipReview`) whether the answer shows word tags (`wordTagsOn`)
+ * and whether never-seen characters shimmer (`newCharShimmerOn`).
  */
 class StudyPrefs private constructor(context: Context) {
     private val sp = context.getSharedPreferences("lab_study", Context.MODE_PRIVATE)
@@ -52,7 +53,21 @@ class StudyPrefs private constructor(context: Context) {
         _wordTagsOn.value = on
     }
 
+    private val _newCharShimmerOn = MutableStateFlow(sp.getBoolean(NEW_CHAR_SHIMMER_ON, true))
+
+    /**
+     * Settings → Study → "Shimmer new characters" (ON by default; the web's
+     * services/newCharacters.ts `readNewCharShimmerOn`): never-seen characters shimmer on the card.
+     */
+    val newCharShimmerOn: StateFlow<Boolean> = _newCharShimmerOn
+
+    fun setNewCharShimmerOn(on: Boolean) {
+        sp.edit().putBoolean(NEW_CHAR_SHIMMER_ON, on).apply()
+        _newCharShimmerOn.value = on
+    }
+
     companion object {
+        private const val NEW_CHAR_SHIMMER_ON = "new_char_shimmer_on"
         private const val WORD_TAGS_ON = "word_tags_on"
         private const val FORCED_OFFLINE = "forced_offline"
         private const val EXPLAINER_SEEN = "first_card_explainer_seen"

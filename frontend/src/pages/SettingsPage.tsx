@@ -11,6 +11,7 @@ import { AskClaudeLanguageSection } from '../components/settings/AskClaudeLangua
 import { PodcastFeedSection } from '../components/settings/PodcastFeedSection';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
+import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
@@ -688,6 +689,7 @@ function SpokenAnswerSection() {
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
       <WordTagsSetting />
+      <NewCharShimmerSetting />
     </div>
   );
 }
@@ -723,6 +725,38 @@ function WordTagsSetting() {
     </>
   );
 }
+
+/**
+ * Settings → Study → "Shimmer new characters" (on by default, per device): a character never
+ * seen on a reviewed card shimmers on the study card (shared/study/newCharacters.ts).
+ */
+function NewCharShimmerSetting() {
+  const [on, setOn] = useState(readNewCharShimmerOn);
+  return (
+    <>
+      <label className="settings-toggle-row" style={{ marginTop: '1rem' }}>
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setOn(next);
+            writeNewCharShimmerOn(next);
+            track('settings.change', { setting: 'new_char_shimmer', value: next ? 'on' : 'off' });
+          }}
+          data-testid="new-char-shimmer-toggle"
+        />
+        <span>Shimmer new characters</span>
+      </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
+        {on ? NEW_CHAR_SHIMMER_ON_DESC : NEW_CHAR_SHIMMER_OFF_DESC}
+      </p>
+    </>
+  );
+}
+
+const NEW_CHAR_SHIMMER_ON_DESC = 'A character you have never studied before shimmers softly on the card, so you can see it is new.';
+const NEW_CHAR_SHIMMER_OFF_DESC = 'Off — new characters look like every other character.';
 
 function DailyBudgetSection() {
   const { user, refreshUser } = useAuth();

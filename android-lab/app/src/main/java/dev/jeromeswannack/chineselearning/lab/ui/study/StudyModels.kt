@@ -25,6 +25,8 @@ data class CardView(
     val bumped: Boolean = false,
     /** Who bumped it when it was the tutor ("⚡ from Minghui"). */
     val bumpedBy: String? = null,
+    /** Never-seen characters of the hanzi (core NewCharacters), worked out when shown: they shimmer. */
+    val newChars: List<String> = emptyList(),
 )
 
 /** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */
