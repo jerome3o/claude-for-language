@@ -36,7 +36,10 @@ chat, ringing / push, materials, drawing, in-call activities beyond the quiz, th
   broadband**; at **6–7 people** (tutor + 6) that is ~2–3 Mbit/s up, 6 decodes and 6 encodes — laptops
   get warm, phones on mobile data struggle, and one weak uplink degrades everyone's view of that
   person. The 1:1 link's own bitrate logic (`videoEncodingFor`) still assumes one peer. E2E (3 people,
-  fake devices, one machine) connects reliably; real-world 6-person quality is untested.
+  fake devices, one machine) connects reliably. A 4-person class (12 links, all four browsers on one
+  shared 4-core / 16 GB build container) connected fully, every tile showing video, but the browser was
+  killed for memory after 1–2 minutes. That is an artificial worst case, but it shows how fast
+  mesh costs grow. Real-world 6-person quality is untested.
 - **"Group" crosses the 1:1 model everywhere.** Chat, homework, insights, recordings, profiles and the
   Lab app are all keyed by `tutor_relationships`. The prototype dodges that by keeping groups as a
   thin list *over* relationships and sending everything else 1:1.

@@ -46,14 +46,14 @@
 .gcl {
   display: grid;
   grid-template-rows: auto auto 1fr auto;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas: 'top' 'notice' 'main' 'controls';
 }
 .gcl-top { grid-area: top; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.6rem 0.9rem; padding-top: max(0.6rem, env(safe-area-inset-top)); }
 .gcl-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gcl-meta { font-size: 0.85rem; color: #9ca3af; white-space: nowrap; }
 .gcl-notice { grid-area: notice; margin: 0 0.75rem 0.4rem; padding: 0.5rem 0.75rem; border-radius: 10px; background: #1e293b; font-size: 0.9rem; }
-.gcl-main { grid-area: main; display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 0 6px; }
+.gcl-main { grid-area: main; display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; overflow: hidden; padding: 0 6px; }
 .gcl-stage { position: relative; flex: 1.6; min-height: 0; border-radius: 12px; overflow: hidden; background: #000; }
 .gcl-stage .gcl-video { object-fit: contain; }
 .gcl-gallery { flex: 1; min-height: 0; display: grid; gap: 6px; justify-content: center; align-content: center; }
@@ -101,14 +101,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  padding: 0.5rem 0.5rem max(0.6rem, env(safe-area-inset-bottom));
+  flex-wrap: nowrap;
+  gap: 3px;
+  padding: 0.5rem 0.25rem max(0.5rem, env(safe-area-inset-bottom));
 }
 .gcl-btn {
   position: relative;
-  width: 46px;
-  height: 46px;
+  flex: none;
+  width: 40px;
+  height: 40px;
   border: 0;
   border-radius: 50%;
   background: #1f2937;
@@ -119,17 +120,17 @@
 .gcl-btn.is-off { background: #7f1d1d; }
 .gcl-btn.is-on { background: #4338ca; }
 .gcl-leave { background: #374151; }
-.gcl-end { width: auto; padding: 0 1rem; border-radius: 999px; background: #dc2626; font-size: 0.95rem; font-weight: 700; }
-.gcl-sep { width: 1px; height: 28px; background: #374151; margin: 0 0.15rem; }
+.gcl-end { width: auto; padding: 0 0.75rem; border-radius: 999px; background: #dc2626; font-size: 0.95rem; font-weight: 700; }
+.gcl-sep { display: none; width: 1px; height: 28px; background: #374151; margin: 0 0.15rem; }
 .gcl-badge { position: absolute; top: -2px; right: -2px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 999px; background: #f59e0b; color: #111827; font-size: 0.7rem; font-weight: 700; line-height: 18px; }
 
-/* Side panel: a bottom sheet on phones, a right column from 1024px. */
+/* Side panel: a sheet above the control bar on phones (the bar stays reachable), a right column from 1024px. */
 .gcl-panel {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
-  height: 62dvh;
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  height: 58dvh;
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -192,9 +193,15 @@
 .gcl-quiz-names { font-size: 0.8rem; color: #6b7280; padding: 0.15rem 0.3rem 0; }
 .gcl-panel .tb { flex: 1; min-height: 240px; }
 
+@media (min-width: 640px) {
+  .gcl-controls { gap: 0.4rem; }
+  .gcl-btn { width: 46px; height: 46px; }
+  .gcl-sep { display: block; }
+}
+
 @media (min-width: 1024px) {
-  .gcl.has-panel { grid-template-columns: 1fr 360px; grid-template-areas: 'top top' 'notice notice' 'main panel' 'controls panel'; }
-  .gcl-panel { position: static; grid-area: panel; height: auto; border-radius: 0; box-shadow: none; margin: 0 0 0 0; }
+  .gcl.has-panel { grid-template-columns: minmax(0, 1fr) 360px; grid-template-areas: 'top top' 'notice notice' 'main panel' 'controls panel'; }
+  .gcl-panel { position: static; grid-area: panel; height: auto; border-radius: 0; box-shadow: none; }
   .gcl-main { padding: 0 10px; }
   .gcl-btn { width: 52px; height: 52px; }
 }
