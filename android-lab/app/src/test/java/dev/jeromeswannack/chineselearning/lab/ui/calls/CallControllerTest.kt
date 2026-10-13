@@ -1653,7 +1653,7 @@ class CallControllerTest {
     @Test fun theTimerFollowsTheRoomAndChimesOnceAtZero() = runTest(UnconfinedTestDispatcher()) {
         val rig = liveRig(listOf(peer("c-a")))
         val offset = rig.room.clockOffset
-        assertEquals(currentTime + offset, rig.controller.roomNow())
+        assertEquals(testScheduler.currentTime + offset, rig.controller.roomNow())
         // The tutor sets a 1-minute countdown, running (room time).
         val start = rig.controller.roomNow()
         val t = dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.Timer("t1", dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.Mode.COUNTDOWN, 60_000, true, start, 0, 1, 1, "u2", "王老师")
