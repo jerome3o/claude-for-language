@@ -122,24 +122,24 @@ class FolderScreenshots : LabScreenshotTest() {
         Folder("g", "u", "lesson", "Grammar", position = 1),
     )
 
-    private fun nestedLibrary() = LibrarySamples.listUi({ l ->
+    private fun nestedLibraryUi() = LibrarySamples.listUi({ l ->
         l.copy(list = l.list.copy(data = l.list.data!!.map { it.copy(folder_id = when (it.id) { "lib1" -> "mon"; "lib2" -> "wk2"; "lib3" -> "g"; else -> null }) }))
     })
 
     @Test fun nestedLibrary() = shootInShell("folders-07-nested-library", TabId.LIBRARY, tutorTabs) {
-        LibraryScreen(nestedLibrary(), LibraryActions(), folders = FolderUi(Folders.LESSON, nested))
+        LibraryScreen(nestedLibraryUi(), LibraryActions(), folders = FolderUi(Folders.LESSON, nested))
     }
 
     @Test fun nestedMoveSheet() = shootScreen("folders-08-nested-move-sheet") {
-        LibraryScreen(nestedLibrary(), LibraryActions(), folders = FolderUi(Folders.LESSON, nested, sheet = FolderSheet.Move(listOf("lib2"), "wk2")))
+        LibraryScreen(nestedLibraryUi(), LibraryActions(), folders = FolderUi(Folders.LESSON, nested, sheet = FolderSheet.Move(listOf("lib2"), "wk2")))
     }
 
     @Test fun moveFolderSheet() = shootScreen("folders-09-move-folder-sheet") {
-        LibraryScreen(nestedLibrary(), LibraryActions(), folders = FolderUi(Folders.LESSON, nested, sheet = FolderSheet.MoveFolder(nested[4])))
+        LibraryScreen(nestedLibraryUi(), LibraryActions(), folders = FolderUi(Folders.LESSON, nested, sheet = FolderSheet.MoveFolder(nested[4])))
     }
 
     @Test fun newFolderInside() = shootScreen("folders-10-new-folder-inside") {
-        LibraryScreen(nestedLibrary(), LibraryActions(), folders = FolderUi(Folders.LESSON, nested, sheet = FolderSheet.NewFolder(parentId = "wk1")))
+        LibraryScreen(nestedLibraryUi(), LibraryActions(), folders = FolderUi(Folders.LESSON, nested, sheet = FolderSheet.NewFolder(parentId = "wk1")))
     }
 
     @Test fun deleteConfirm() = shootScreen("folders-06-delete-confirm") {
