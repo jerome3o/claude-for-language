@@ -210,6 +210,8 @@ data class CallActions(
     val lead: LeadActions = LeadActions(),
     /** "Same view": the top bar's chip menu and the invitation (core CallView). */
     val view: ViewActions = ViewActions(),
+    /** The call timer, "… joined / left" toasts and call sounds (CallTimerUi.kt). */
+    val timer: TimerActions = TimerActions(),
 )
 
 /** Screenshots: where the shared-screen drawing tools start (round 4). */
@@ -244,6 +246,8 @@ fun CallScreen(
     initialPresentSheet: Boolean = false,
     /** Screenshots: the "Same view" menu already open. */
     initialViewMenu: Boolean = false,
+    /** Screenshots: the timer sheet open. */
+    initialTimerSheet: Boolean = false,
 ) {
     when {
         info.loading -> Center { Text("Loading the call…", color = OnDark) }
@@ -255,7 +259,7 @@ fun CallScreen(
         s.phase == CallPhase.LEFT -> Left(s, info, actions)
         s.phase == CallPhase.ENDED || s.phase == CallPhase.ERROR -> Ended(s, actions)
         s.phase == CallPhase.PREJOIN || s.phase == CallPhase.JOINING -> PreJoin(s, info, actions, video)
-        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu, initialAnnot, initialMaterial, initialPresentSheet, initialViewMenu)
+        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu, initialAnnot, initialMaterial, initialPresentSheet, initialViewMenu, initialTimerSheet)
     }
 }
 
@@ -495,13 +499,15 @@ fun layoutForPanel(panel: CallPanel, wide: Boolean): CallLayout.Layout {
 }
 
 @Composable
-private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null, initialAnnot: AnnotUiSeed = AnnotUiSeed(), initialMaterial: MaterialUiSeed = MaterialUiSeed(), initialPresentSheet: Boolean = false, initialViewMenu: Boolean = false) {
+private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null, initialAnnot: AnnotUiSeed = AnnotUiSeed(), initialMaterial: MaterialUiSeed = MaterialUiSeed(), initialPresentSheet: Boolean = false, initialViewMenu: Boolean = false, initialTimerSheet: Boolean = false) {
     var seenChat by rememberSaveable { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
     // "Same view": the top bar chip's menu.
     var viewMenu by remember { mutableStateOf(initialViewMenu) }
     // Round 4 PR 5: ⋯ → 📑 Present material.
     var presentOpen by remember { mutableStateOf(initialPresentSheet) }
+    // The call timer's sheet (the top bar's ⏱ pill, ⋯ → ⏱ Timer).
+    var timerSheet by remember { mutableStateOf(initialTimerSheet) }
     // ⋯ → 🎲 Activities.
     var activitiesOpen by remember { mutableStateOf(info.activitySeed.pickerOpen) }
     var layoutSheet by remember { mutableStateOf(false) }
@@ -530,9 +536,10 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     var annotTool by rememberSaveable { mutableStateOf(initialAnnot.tool) }
     val remoteSharing = rs?.screen == true
     val sharing = remoteSharing || s.sharingScreen
-    // While I share: my own screen in its tile anyway ("👁 Show it here"); otherwise a compact card (core CallShare).
-    var peekMine by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(s.sharingScreen) { if (!s.sharingScreen) peekMine = false }
+    // While I share: my own screen in its tile (true), the compact card (false), or not chosen (null) — this app
+    // shares the whole phone screen, which shown in the call would mirror itself, so null = the card (core CallShare).
+    var shownMine by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(s.sharingScreen) { if (!s.sharingScreen) shownMine = null }
     val pen = annotPen(annotColor, s)
     val presenting = s.presenting
     val activity = s.activity
@@ -618,13 +625,13 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             })
             if (available.screen) put(CallLayout.TileId.SCREEN, TileSpec(if (remoteSharing) "$first’s screen" else "Your screen", onLongPress = { splitMenu = CallLayout.TileId.SCREEN }) { role ->
                 // I share: no mirror of my own screen on my stage — the other person has it on theirs.
-                if (!remoteSharing && CallShare.myShareTile(annotating, peekMine) == CallShare.MyShareTile.CARD) {
+                if (!remoteSharing && CallShare.myShareTile(annotating, shownMine, CallShare.ShareSurface.MONITOR) == CallShare.MyShareTile.CARD) {
                     SharingCard(
                         otherName = remote?.peer?.name?.takeIf { it.isNotBlank() } ?: info.otherName,
                         compact = role != CallLayout.Role.STAGE,
                         onStop = actions.onStopShare,
                         onDraw = { dispatch(CallLayout.Action.Preset(CallLayout.PresetId.SCREEN)); annotating = true; actions.onTick() },
-                        onShow = { peekMine = true; actions.onTick() },
+                        onShow = { shownMine = true; actions.onTick() },
                     )
                 } else Box(Modifier.fillMaxSize().background(Color.Black)) {
                     // Their shared screen — or MY own, as big as any tile: either person can draw on it
@@ -639,7 +646,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     )
                     AnnotateTools(
                         Modifier.align(Alignment.BottomStart).padding(10.dp),
-                        if (remoteSharing) "✏️ Draw or type on $first’s screen" else "✏️ Draw or type on your screen",
+                        if (remoteSharing) "✏️ Draw or type on $first’s screen" else CallShare.DRAW_ON_MY_SHARE_LABEL,
                         annotating, pen, s.annotations.persist, annotTool,
                         onToggle = { annotating = !annotating; actions.onTick() }, onColor = { annotColor = it; actions.onTick() },
                         onTool = { annotTool = it; actions.onTick() },
@@ -658,11 +665,11 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     CallShare.theirShareSoundLabel(otherName, remoteSharing && rs?.screenAudio == true)?.let { label ->
                         Text(label, color = Color.White, fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp).clip(RoundedCornerShape(999.dp)).background(Color(0xC7111827)).padding(horizontal = 10.dp, vertical = 4.dp))
                     }
-                    // I asked to see my own screen: one tap hides it again.
-                    if (!remoteSharing && peekMine && !annotating) Text(
+                    // My own screen is shown: one tap hides it again.
+                    if (!remoteSharing && !annotating) Text(
                         CallShare.HIDE_MY_SHARE_LABEL, color = Color(0xFF111827), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = showEnd).clip(RoundedCornerShape(999.dp)).background(Color(0xFFF9FAFB))
-                            .bouncyClickable { peekMine = false; actions.onTick() }.heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 10.dp),
+                            .bouncyClickable { shownMine = false; actions.onTick() }.heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 10.dp),
                     )
                 }
             })
@@ -736,6 +743,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     if (someoneRecording) RecBadge()
                     if (s.roomStatus == RoomStatus.RECONNECTING) Chip("Reconnecting…", Palette.Hard)
                 }
+                // The call timer (core CallTimer): both see it; the tutor runs it.
+                CallTimerPill(s.timer, s.runsTimer, flashing = s.timeUp != null, roomNow = actions.timer.roomNow) { timerSheet = true; actions.onTick() }
                 // "Same view" (core CallView): what both see, and the way out.
                 ViewChip(s.viewMode) { viewMenu = true; actions.onTick() }
             }
@@ -757,6 +766,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 )
                 // "Minghui brought you to page 3" / "… deleted page 2".
                 BoardNoticePill(s.boardNotice, actions.pages.onDismissNotice, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+                // "⏱ Time's up", "👋 Minghui joined" / "🚪 … left" (core CallTimer / CallChime).
+                CallToasts(s.timeUp, s.presenceToasts, Modifier.align(Alignment.TopCenter).padding(top = 8.dp, start = 16.dp, end = 16.dp), actions.timer.onDismissTimeUp, actions.timer.onDismissToast)
                 // Round 5, the student: "Minghui is showing you this" (while it is on my stage) / "… stopped your screen share" —
                 // low on the stage, clear of the faces box and the tiles' own top rows, above the board's page strip.
                 Column(
@@ -859,12 +870,15 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 onBring = { actions.onTick(); actions.view.onBring() },
             ), close = { viewMenu = false })
         }
+        if (timerSheet) LabBottomSheet(onDismiss = { timerSheet = false }, title = "Timer") {
+            CallTimerSheet(s.timer, s.runsTimer, s.myUserId, actions.timer.copy(onAction = { actions.onTick(); actions.timer.onAction(it) }), close = { timerSheet = false })
+        }
         if (layoutSheet) LabBottomSheet(onDismiss = { layoutSheet = false }, title = "Layout") {
             CallLayoutMenu(layout, available, first, onAction = { dispatch(it); actions.onTick() }, close = { layoutSheet = false })
         }
     }
     if (more) LabBottomSheet(onDismiss = { more = false }, title = "Call") {
-        CallMoreMenu(s, info, actions.copy(onOpenPresent = { presentOpen = true; actions.onOpenPresent() }, onOpenActivities = { activitiesOpen = true }), close = { more = false })
+        CallMoreMenu(s, info, actions.copy(onOpenPresent = { presentOpen = true; actions.onOpenPresent() }, onOpenActivities = { activitiesOpen = true }, timer = actions.timer.copy(onOpenTimer = { timerSheet = true })), close = { more = false })
     }
     if (activitiesOpen) LabBottomSheet(onDismiss = { activitiesOpen = false }, title = "Activities") {
         ActivityPickerSheet(
@@ -1039,6 +1053,14 @@ fun CallMoreMenu(s: CallState, info: CallScreenInfo, actions: CallActions, close
     // In-call activities: two-person mini lessons played together.
     NavRow("🎲", "Activities", desc = s.activity?.let { "Now: ${it.spec.title}" } ?: "Describe & guess, role-play, quiz, dictation… — together", onClick = { close(); actions.onOpenActivities() })
     RowDivider()
+    // The call timer (core CallTimer): the tutor runs it; both see it in the top bar.
+    if (s.runsTimer) {
+        NavRow("⏱", "Timer", desc = "Count down a test, or time something — you both see it", onClick = { close(); actions.timer.onOpenTimer() })
+        RowDivider()
+    }
+    // Join / leave chimes and the timer's bell (core CallChime), per phone.
+    NavRow(if (s.callSounds) "🔔" else "🔕", if (s.callSounds) "Call sounds: on" else "Call sounds: off", desc = "A soft chime when someone joins or leaves, a bell when the timer ends", trailing = { check(s.callSounds) }, onClick = { actions.timer.onSounds(!s.callSounds) })
+    RowDivider()
     if (s.screenShareSupported) NavRow("🖥️", if (s.sharingScreen) "Stop sharing your screen" else "Share your screen", onClick = { close(); if (s.sharingScreen) actions.onStopShare() else actions.onShareScreen() })
     if (s.recordSupported && s.hasMic) { RowDivider(); NavRow(if (s.recording) "⏹" else "⏺", if (s.recording) "Stop recording my mic" else "Record my mic", onClick = { close(); actions.onToggleRecording() }) }
     DeviceHeader("Camera")
@@ -1151,6 +1173,7 @@ private fun SharingCard(otherName: String?, compact: Boolean, onStop: () -> Unit
             Text(CallShare.SHARING_CARD_TITLE, color = OnDark, fontWeight = FontWeight.Bold, fontSize = if (compact) 13.sp else 17.sp, textAlign = TextAlign.Center)
             if (!compact) {
                 Text(CallShare.sharingCardSub(otherName), color = MutedDark, fontSize = 14.sp, textAlign = TextAlign.Center)
+                Text(CallShare.MIRROR_NOTE, color = MutedDark, fontSize = 13.sp, textAlign = TextAlign.Center)
                 Text("🔇 " + CallShare.shareAudioLine(CallShare.ShareAudio.NONE, CallShare.Platform.LAB), color = Color(0xFFFCD34D), fontSize = 13.sp, textAlign = TextAlign.Center)
             }
             androidx.compose.foundation.layout.FlowRow(

@@ -36,6 +36,10 @@ class CallsShareParityTest {
         assertEquals(str(l["STOP_SHARING_LABEL"]), CallShare.STOP_SHARING_LABEL)
         assertEquals(str(l["SHOW_MY_SHARE_LABEL"]), CallShare.SHOW_MY_SHARE_LABEL)
         assertEquals(str(l["HIDE_MY_SHARE_LABEL"]), CallShare.HIDE_MY_SHARE_LABEL)
+        assertEquals(str(l["MIRROR_NOTE"]), CallShare.MIRROR_NOTE)
+        assertEquals(str(l["DRAW_ON_MY_SHARE_LABEL"]), CallShare.DRAW_ON_MY_SHARE_LABEL)
+        assertEquals(str(l["ANNOT_PIP_LABEL"]), CallShare.ANNOT_PIP_LABEL)
+        assertEquals(str(l["ANNOT_PIP_HINT"]), CallShare.ANNOT_PIP_HINT)
     }
 
     @Test fun audioAndNotes() {
@@ -55,9 +59,21 @@ class CallsShareParityTest {
     }
 
     @Test fun myTile() {
-        for (e in root["tiles"]!!.jsonArray) {
+        val tiles = root["tiles"]!!.jsonArray
+        assertEquals(24, tiles.size)
+        for (e in tiles) {
             val o = e.jsonObject
-            assertEquals(str(o["tile"]), CallShare.myShareTile(o["annotating"]!!.jsonPrimitive.boolean, o["peek"]!!.jsonPrimitive.boolean).wire, "$o")
+            val shown = str(o["shown"])?.toBooleanStrict()
+            val surface = CallShare.ShareSurface.of(str(o["surface"]))
+            assertEquals(str(o["tile"]), CallShare.myShareTile(o["annotating"]!!.jsonPrimitive.boolean, shown, surface).wire, "$o")
+        }
+        for (e in root["surfaces"]!!.jsonArray) {
+            val o = e.jsonObject
+            assertEquals(str(o["surface"]), CallShare.ShareSurface.of(str(o["raw"])).wire, "$o")
+        }
+        for (e in root["hints"]!!.jsonArray) {
+            val o = e.jsonObject
+            assertEquals(str(o["hint"]), CallShare.myShareHint(str(o["name"])), "$o")
         }
     }
 

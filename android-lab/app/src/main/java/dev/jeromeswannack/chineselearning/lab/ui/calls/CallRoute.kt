@@ -74,6 +74,8 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
     val layout = CallLayoutHolder(PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)))
     /** In-call activities: Chinese said on this phone (cache-first `/api/practice/tts`, the device voice offline). */
     val speaker = dev.jeromeswannack.chineselearning.lab.ui.editor.LessonSpeaker(app, viewModelScope)
+    /** Join / leave chimes and the timer's bell (core CallChime). */
+    private val chimes = dev.jeromeswannack.chineselearning.lab.data.calls.CallChimePlayer()
 
     val controller: CallController = CallController(
         callId, "",
@@ -97,6 +99,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             playClip = { key, text -> app.audio.play(key, text, app.online.value) },
             layout = layout,
             viewModes = PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
+            chime = { kind -> chimes.play(kind) },
         ),
         viewModelScope,
     )
@@ -384,6 +387,14 @@ fun CallRoute(nav: LabNav, id: String) {
                 onStopTheirShare = { if (vm.controller.stopTheirShare()) nav.app.haptics.tick() },
                 onDismissShareStopped = vm.controller::dismissShareStopped,
                 onStageWidth = vm.controller::setStageWidth,
+            ),
+            // The call timer, "… joined / left" toasts and call sounds (core CallTimer / CallChime).
+            timer = TimerActions(
+                onAction = { vm.controller.timerAction(it) },
+                onDismissTimeUp = vm.controller::dismissTimeUp,
+                onDismissToast = vm.controller::dismissPresenceToast,
+                onSounds = { on -> vm.controller.setCallSounds(on); nav.app.haptics.tick() },
+                roomNow = vm.controller::roomNow,
             ),
             // "Same view" (core CallView): the top bar chip's menu and the invitation.
             view = ViewActions(

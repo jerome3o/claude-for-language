@@ -1,5 +1,5 @@
 /**
- * prepared_activities / prepared_activity_jobs (migration 0122): the rows and
+ * prepared_activities / prepared_activity_jobs (migration 0123): the rows and
  * their shapes. See ./run.ts for the job and shared/call-activities/prepared.ts
  * for the rules.
  */

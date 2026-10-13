@@ -81,7 +81,7 @@ class FolderWrites(
         return write(FolderStore.EDIT, "PATCH", path, text) { mirrorList(FolderStore.EDIT, path, text) }
     }
 
-    /** `deleteFolder`: its items → Unfiled, its subfolders → top level; nothing else is deleted. */
+    /** `deleteFolder`: its items → Unfiled, its subfolders up one level (into its parent); nothing else is deleted. */
     suspend fun delete(folder: Folder): WriteOutcome {
         val path = FolderPaths.folder(folder.id)
         return write(FolderStore.DELETE, "DELETE", path, null, goneIsDone = true, outboxId = FolderStore.deleteOutboxId(folder.kind, folder.id)) {

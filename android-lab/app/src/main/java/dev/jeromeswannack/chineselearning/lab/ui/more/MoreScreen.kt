@@ -106,18 +106,18 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
             )
         }
 
+        // Homework library and Lesson materials left the menus (Minghui, Oct 2026; web MorePage): the
+        // routes still open, the student page shows each student's homework, materials come from a call.
         if (role.isTutorAccount) {
             item {
                 NavSection(
                     "Teaching",
                     rows = listOf(
                         row("👥", "Students", "Progress, homework, messages", Routes.CONNECTIONS),
-                        row("📋", "Homework library", "Everything you sent, with each student's progress", Routes.HOMEWORK_LIBRARY),
                         row("🗂️", "Lesson Library", "Mini lessons you assign — tap one to try it", Routes.LIBRARY),
                         row("🧭", "Exercise catalogue", "All exercise types · try a sample", Routes.catalogue()),
                         row("📚", "Readers", "Graded stories to share with students", Routes.readers()),
                         row("📹", "Video calls (beta)", "Lessons with a whiteboard, then a transcript", Routes.calls()),
-                        row("📑", "Lesson materials", "PDFs, slides and pictures to present in a call", Routes.materials()),
                     ),
                 )
             }
@@ -147,7 +147,6 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                         add(row("📜", "成语 Idioms (beta)", "The story behind each idiom, and how to use it", Routes.idioms()))
                         add(row("🎧", "Audio lessons", "Listen on the train, or fall asleep to slow Chinese", Routes.audioLessons()))
                         add(row("📹", "Video calls (beta)", "Live lessons with a whiteboard, then a transcript", Routes.calls()))
-                        add(row("📑", "Lesson materials", "PDFs and slides from lessons", Routes.materials()))
                     },
                 )
             }
@@ -165,7 +164,6 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                 NavSection(
                     "Teaching",
                     rows = buildList {
-                        if (role.hasStudents) add(row("📋", "Homework library", "Everything you sent, with each student's progress", Routes.HOMEWORK_LIBRARY))
                         add(row("🗂️", "Lesson Library", "Lessons you assign to students", Routes.LIBRARY))
                         add(row("🧭", "Exercise catalogue", "All exercise types · try a sample", Routes.catalogue()))
                     },

@@ -17,6 +17,10 @@ class CallDevicePrefsStore(private val prefs: SharedPreferences) : CallDevicePre
         get() = prefs.getBoolean(MIC_OFF, false)
         set(v) { prefs.edit().putBoolean(MIC_OFF, v).apply() }
 
+    override var callSounds: Boolean
+        get() = dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.callSoundsOn(prefs.getString(dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.CALL_SOUNDS_KEY, null))
+        set(v) { prefs.edit().putString(dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.CALL_SOUNDS_KEY, if (v) "on" else "off").apply() }
+
     private companion object {
         const val MIC_OFF = "device-mic-off"
         /** Round 4 remembered the camera off across calls; never read again. */

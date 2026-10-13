@@ -89,7 +89,9 @@ object FolderStore {
             }
             DELETE -> {
                 val id = FolderPaths.idOf(path) ?: return folders
-                folders.filter { it.id != id }.map { if (it.parentId == id) it.copy(parentId = null) else it }
+                // Subfolders move up one level: into the deleted folder's parent (or to the top level).
+                val up = folders.firstOrNull { it.id == id }?.parentId?.takeIf { it.isNotEmpty() }
+                folders.filter { it.id != id }.map { if (it.parentId == id) it.copy(parentId = up) else it }
             }
             REORDER -> {
                 val b = body?.let { runCatching { folderJson.decodeFromString(FolderReorderBody.serializer(), it) }.getOrNull() } ?: return folders
