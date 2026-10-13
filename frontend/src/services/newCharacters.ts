@@ -3,19 +3,23 @@
  *
  * The seen set (Han characters of every note with a reviewed card, any deck — the queue's
  * "New characters first" rule) is kept in memory for the session: `getStudyQueue` primes it
- * from what it already loaded (db/database.ts), other screens that show the study card (the
- * homework pass, tutor-notes practice) load it once from IndexedDB, and a rating adds the
- * card's characters. A card works out its new characters once, when it is shown.
+ * from what it already loaded (db/database.ts), else it is loaded once from IndexedDB, and a
+ * rating adds the card's characters. A card works out its new characters once, when it is shown.
+ *
+ * ONLY the flashcard study session shimmers (`useNewCharacters(…, inStudySession)`): the other
+ * screens that show the study card (the homework pass, tutor-notes practice) never do. And until
+ * the seen set has actually loaded a card has NO new characters — a failed / pending load is never
+ * "nothing seen" (`cardNewCharacters` in shared/study/newCharacters.ts).
  *
  * Plus the per-device switch Settings → Study → "Shimmer new characters" (ON by default).
  */
 import { useEffect, useState } from 'react';
-import { markCharactersSeen, newCharactersIn, seenCharactersOf } from '@shared/study/newCharacters';
+import { cardNewCharacters, markCharactersSeen, seenCharactersOf } from '@shared/study/newCharacters';
 import { db } from '../db/database';
 import { CardQueue } from '../types';
 
 let seen: Set<string> | null = null;
-let loading: Promise<Set<string>> | null = null;
+let loading: Promise<Set<string> | null> | null = null;
 
 /** The study queue built the seen set (same load): keep it for the session. */
 export function primeSeenCharacters(chars: Set<string>): void {
@@ -23,8 +27,11 @@ export function primeSeenCharacters(chars: Set<string>): void {
   loading = null;
 }
 
-/** The seen set, loading it from IndexedDB the first time (null-safe: a failure = nothing seen yet). */
-export function loadSeenCharacters(): Promise<Set<string>> {
+/**
+ * The seen set, loading it from IndexedDB the first time. null when it couldn't be loaded — then
+ * nothing shimmers (a failure is NOT "nothing seen", which would make every character new).
+ */
+export function loadSeenCharacters(): Promise<Set<string> | null> {
   if (seen) return Promise.resolve(seen);
   if (!loading) {
     loading = (async () => {
@@ -37,7 +44,7 @@ export function loadSeenCharacters(): Promise<Set<string>> {
     })().catch(err => {
       console.warn('[newCharacters] seen set unavailable', err);
       loading = null;
-      return new Set<string>();
+      return null;
     });
   }
   return loading;
@@ -51,7 +58,7 @@ export function peekSeenCharacters(): Set<string> | null {
 /** A card of this note was rated: its characters are seen for every later card. */
 export function noteCharactersSeen(hanzi: string): void {
   if (seen) markCharactersSeen(seen, hanzi);
-  else void loadSeenCharacters().then(s => markCharactersSeen(s, hanzi));
+  else void loadSeenCharacters().then(s => s && markCharactersSeen(s, hanzi));
 }
 
 /** Tests only. */
@@ -96,30 +103,34 @@ const NONE: ReadonlySet<string> = new Set();
 
 /**
  * The never-seen characters of the card on screen, worked out ONCE per card (`cardKey`): rating
- * it makes them seen, but the shimmer stays while this card is shown. Empty when switched off.
+ * it makes them seen, but the shimmer stays while this card is shown. Empty when switched off,
+ * outside the flashcard study session (`inStudySession` false: the homework pass, tutor-notes
+ * practice) and while the seen set hasn't loaded.
  */
-export function useNewCharacters(cardKey: string, hanzi: string): ReadonlySet<string> {
+export function useNewCharacters(cardKey: string, hanzi: string, inStudySession: boolean): ReadonlySet<string> {
   const on = useNewCharShimmerOn();
   const [result, setResult] = useState<{ key: string; chars: ReadonlySet<string> } | null>(() => {
+    if (!inStudySession) return null;
     const s = peekSeenCharacters();
-    return s ? { key: cardKey, chars: new Set(newCharactersIn(hanzi, s)) } : null;
+    return s ? { key: cardKey, chars: new Set(cardNewCharacters(hanzi, s, true)) } : null;
   });
   useEffect(() => {
-    if (result?.key === cardKey) return;
+    if (!inStudySession || result?.key === cardKey) return;
     let alive = true;
     const s = peekSeenCharacters();
     if (s) {
-      setResult({ key: cardKey, chars: new Set(newCharactersIn(hanzi, s)) });
+      setResult({ key: cardKey, chars: new Set(cardNewCharacters(hanzi, s, true)) });
       return;
     }
     void loadSeenCharacters().then(loaded => {
-      if (alive) setResult({ key: cardKey, chars: new Set(newCharactersIn(hanzi, loaded)) });
+      // Not loaded (failed): no new characters — never "nothing seen".
+      if (alive) setResult({ key: cardKey, chars: new Set(cardNewCharacters(hanzi, loaded, true)) });
     });
     return () => {
       alive = false;
     };
     // Once per card: `hanzi` of the same card doesn't change what was new when it arrived.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cardKey]);
-  return on && result?.key === cardKey ? result.chars : NONE;
+  }, [cardKey, inStudySession]);
+  return on && inStudySession && result?.key === cardKey ? result.chars : NONE;
 }

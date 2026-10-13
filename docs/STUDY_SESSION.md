@@ -644,15 +644,27 @@ lightly shimmering, so it looks new."
   set is new. Pure rules: `shared/study/newCharacters.ts` (`seenCharactersOf`, `markCharactersSeen`,
   `newCharactersIn`, `newCharacterMask`, `newCharactersLabel`); Lab `core/…/NewCharacters.kt`,
   parity-tested (`parity/fixtures/new-characters.ts` → `NewCharactersParityTest`).
+- **Flashcard session only** (Jerome, Oct 2026: "With the one-off homework from the tutor, it
+  probably shouldn't do the shimmering at all. It should really only be in the flashcard section."):
+  the regular study session (FSRS cards) shimmers; the **homework pass, the tutor-notes practice and
+  Try-it / preview viewers never do**, though they show the same card. One rule for both apps:
+  `cardNewCharacters(text, seen, inStudySession)` (Lab `NewCharacters.forCard`, parity-tested) —
+  web `StudyCard`'s `inStudySession` (only the Study page's session passes it, never with `pass`),
+  Lab `StudyViewModel` (`pass == null && practice == null`).
+- **Not loaded is not "nothing seen"**: until the seen set has actually been loaded a card has NO new
+  characters (web: a failed IndexedDB load = no shimmer; Lab `seenChars` is null until the queue load
+  built it). The homework-pass bug was exactly this — the Lab pass dealt its word before its
+  seen-set load had finished, against an empty set, so every character of 第一节课前半小时 shimmered.
+  A loaded but EMPTY set (an account with no reviews yet) is real: then everything is new.
 - **Once per card**: the seen set is built once per session from what the queue already loads (web
-  `getStudyQueue` → `seenCharacters`, kept by `services/newCharacters.ts`; the homework pass /
-  tutor-notes practice load it once from IndexedDB; Lab `StudyViewModel.seenChars`). A card works
-  out its new characters when it is shown (`useNewCharacters` / `CardView.newChars`); rating it adds
-  its characters, so the NEXT card with 行 is plain while the card on screen keeps its shimmer.
+  `getStudyQueue` → `seenCharacters`, kept by `services/newCharacters.ts`, else loaded once from
+  IndexedDB; Lab `StudyViewModel.seenChars`, built in the same load as the queue, before any card is
+  shown). A card works out its new characters when it is shown (`useNewCharacters` /
+  `CardView.newChars`); rating it adds its characters, so the NEXT card with 行 is plain while the
+  card on screen keeps its shimmer.
 - **Where**: the study card's big hanzi only — the read card's question, the answer side's hanzi
   (the explorer's per-character tap targets unchanged), the correct-answer rows of a typed / spoken /
-  multiple-choice answer. The homework pass and tutor-notes practice use the same card. Not in
-  sentence rows, chips or the explorer.
+  multiple-choice answer. Not in sentence rows, chips or the explorer.
 - **Look**: a narrow warm band (amber; paler gold on a dark card) sweeps across the glyph every
   3.6 s (the sweep takes the first 45 %, staggered 140 ms per character), with a faint warm glow;
   the glyph keeps its own colour (the gradient is built on it), so green answer boxes stay green.

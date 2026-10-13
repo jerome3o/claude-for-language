@@ -11,6 +11,12 @@
  * shown — so the shimmer stays on that card while it is on screen, and the next card already
  * knows the character.
  *
+ * ONLY in the regular flashcard study session (FSRS cards): never on the homework pass, the
+ * tutor-notes practice or a Try-it / preview viewer — Jerome: "it should really only be in the
+ * flashcard section". And never before the seen set has actually been loaded: "not loaded yet" is
+ * NOT "nothing seen" (that made every character of a homework sentence shimmer). One rule for both
+ * apps: `cardNewCharacters`.
+ *
  * Ported to the Lab app (android-lab/core NewCharacters.kt), parity-tested through
  * android-lab/parity/fixtures/new-characters.ts.
  */
@@ -31,6 +37,16 @@ export function markCharactersSeen(seen: Set<string>, hanzi: string): void {
 /** The distinct never-seen Han characters of `text`, in order of first appearance. */
 export function newCharactersIn(text: string, seen: ReadonlySet<string>): string[] {
   return hanCharacters(text).filter(c => !seen.has(c));
+}
+
+/**
+ * The new characters a card shows: none outside the flashcard study session (`inStudySession`
+ * false: homework pass, tutor-notes practice, previews) and none while the seen set isn't loaded
+ * (`seen` null / undefined). An EMPTY loaded set is real (an account with no reviews yet).
+ */
+export function cardNewCharacters(text: string, seen: ReadonlySet<string> | null | undefined, inStudySession: boolean): string[] {
+  if (!inStudySession || !seen) return [];
+  return newCharactersIn(text, seen);
 }
 
 /**

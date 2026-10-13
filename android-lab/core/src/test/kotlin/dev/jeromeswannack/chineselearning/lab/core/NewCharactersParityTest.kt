@@ -36,10 +36,25 @@ class NewCharactersParityTest {
                 assertEquals(strings(card, "new"), fresh, "new in $hanzi")
                 assertEquals(card["mask"]!!.jsonArray.map { it.jsonPrimitive.boolean }, NewCharacters.newCharacterMask(hanzi, seen), "mask $hanzi")
                 assertEquals(card["label"]!!.jsonPrimitive.content, NewCharacters.label(fresh), "label $hanzi")
+                assertEquals(strings(card, "session"), NewCharacters.forCard(hanzi, seen, inStudySession = true), "session $hanzi")
+                assertEquals(strings(card, "outside"), NewCharacters.forCard(hanzi, seen, inStudySession = false), "outside $hanzi")
+                assertEquals(strings(card, "unloaded"), NewCharacters.forCard(hanzi, null, inStudySession = true), "unloaded $hanzi")
                 if (fresh.isNotEmpty()) withNew++
                 if (card["rated"]!!.jsonPrimitive.boolean) NewCharacters.markCharactersSeen(seen, hanzi)
             }
         }
         assertTrue(withNew > 50)
+    }
+
+    @Test
+    fun onlyInTheFlashcardSessionAndOnlyOnceLoaded() {
+        val seen = NewCharacters.seenCharactersOf(listOf("一个", "小时", "半天"))
+        assertEquals(listOf("第", "节", "课", "前"), NewCharacters.forCard("第一节课前半小时", seen, inStudySession = true))
+        // The homework pass / tutor-notes practice: never.
+        assertEquals(emptyList<String>(), NewCharacters.forCard("第一节课前半小时", seen, inStudySession = false))
+        // Not loaded yet: nothing shimmers (never "nothing seen").
+        assertEquals(emptyList<String>(), NewCharacters.forCard("第一节课前半小时", null, inStudySession = true))
+        // Loaded and empty (no reviews yet): everything is new.
+        assertEquals(listOf("银", "行"), NewCharacters.forCard("银行", HashSet(), inStudySession = true))
     }
 }

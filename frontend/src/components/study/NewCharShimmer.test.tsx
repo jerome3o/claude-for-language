@@ -43,8 +43,8 @@ async function seed() {
   await db.cards.bulkPut([card('c-silver', 'n-silver', CardQueue.REVIEW), card('c-hi', 'n-hi', CardQueue.REVIEW), card('c-bank', 'n-bank', CardQueue.NEW)]);
 }
 
-function Card({ id, hanzi }: { id: string; hanzi: string }) {
-  const newChars = useNewCharacters(id, hanzi);
+function Card({ id, hanzi, inStudySession = true }: { id: string; hanzi: string; inStudySession?: boolean }) {
+  const newChars = useNewCharacters(id, hanzi, inStudySession);
   return (
     <div>
       <div className="hanzi hanzi-large" data-testid={`front-${id}`}>{shimmerText(hanzi, newChars)}</div>
@@ -132,5 +132,33 @@ describe('new characters shimmer', () => {
     expect(container.querySelector('.new-char')).toBeNull();
     act(() => writeNewCharShimmerOn(true));
     expect(shimmering(container.querySelector('[data-testid="front-c-bank"]'))).toEqual(['行']);
+  });
+
+  it('outside the flashcard study session (homework pass, tutor-notes practice): never', async () => {
+    await render(<Card id="c-bank" hanzi="银行" inStudySession={false} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(container.querySelector('.new-char')).toBeNull();
+    expect(container.querySelector('.new-char-sr')).toBeNull();
+    // Even with the seen set in memory (a session ran before): still nothing.
+    primeSeenCharacters(new Set());
+    await act(async () => root!.render(<MemoryRouter><ExplorerProvider><Card id="c-x" hanzi="第一节课前半小时" inStudySession={false} /></ExplorerProvider></MemoryRouter>));
+    expect(container.querySelector('.new-char')).toBeNull();
+  });
+
+  it('a seen set that could not be loaded is not "nothing seen": no shimmer at all', async () => {
+    const spy = vi.spyOn(db.cards, 'where').mockImplementation(() => { throw new Error('IndexedDB unavailable'); });
+    try {
+      await render(<Card id="c-bank" hanzi="银行" />);
+      await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+      expect(container.querySelector('.new-char')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('an account with no reviews at all (loaded, empty) is real: every character is new', async () => {
+    primeSeenCharacters(new Set());
+    await render(<Card id="c-bank" hanzi="银行" />);
+    expect(shimmering(container.querySelector('[data-testid="front-c-bank"]'))).toEqual(['银', '行']);
   });
 });

@@ -7,6 +7,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  cardNewCharacters,
   markCharactersSeen,
   newCharacterMask,
   newCharactersIn,
@@ -50,7 +51,13 @@ for (let c = 0; c < 150; c++) {
     const hanzi = text(8);
     const fresh = newCharactersIn(hanzi, seen);
     const rated = r() < 0.5;
-    cards.push({ hanzi, new: fresh, mask: newCharacterMask(hanzi, seen), label: newCharactersLabel(fresh), rated });
+    cards.push({
+      hanzi, new: fresh, mask: newCharacterMask(hanzi, seen), label: newCharactersLabel(fresh), rated,
+      // cardNewCharacters: in the session = new; outside it (pass / practice) or not loaded = none.
+      session: cardNewCharacters(hanzi, seen, true),
+      outside: cardNewCharacters(hanzi, seen, false),
+      unloaded: cardNewCharacters(hanzi, null, true),
+    });
     // Rating it makes its characters seen for the next card.
     if (rated) markCharactersSeen(seen, hanzi);
   }

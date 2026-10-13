@@ -85,8 +85,12 @@ class StudyViewModel(
      * Han characters of every note with a reviewed card, any deck (core NewCharacters — the queue's
      * "New characters first" rule): a card's characters not in it shimmer. Built with the queue, a
      * rating adds the card's characters (the next card knows them; the one on screen keeps its shimmer).
+     * NULL until the session's queue load has built it: a card shown before then has no new
+     * characters (never "nothing seen" — the homework pass used to present its word before this was
+     * loaded, so every character shimmered). Only the flashcard session builds it at all
+     * ([NewCharacters.forCard]: no shimmer on the pass or the tutor-notes practice).
      */
-    private var seenChars: MutableSet<String> = HashSet()
+    private var seenChars: MutableSet<String>? = null
     private var bumpedBy: Map<String, String> = emptyMap()
     private var presentation = 0
     private var cutoff = StudyCutoff(0)
@@ -265,7 +269,7 @@ class StudyViewModel(
         cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
         val (cards, pinned) = withContext(Dispatchers.IO) {
             deckNames = repo.dao.decks().associate { it.id to it.name }
-            seenChars = seenCharactersOf(repo.dao.cards().map { it.toQueueCard() }, repo.dao.noteHanzi())
+            // No seen set: the practice doesn't shimmer (flashcard session only).
             val wanted = spec.cardIds.toHashSet()
             val cards = repo.dao.cards().filter { it.id in wanted }.map { it.toQueueCard() }
             val ids = spec.noteIds.toHashSet()
@@ -329,7 +333,7 @@ class StudyViewModel(
         cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
         withContext(Dispatchers.IO) {
             deckNames = repo.dao.decks().associate { it.id to it.name }
-            seenChars = seenCharactersOf(repo.dao.cards().map { it.toQueueCard() }, repo.dao.noteHanzi())
+            // No seen set: the pass doesn't shimmer (flashcard session only).
         }
         _ui.update { it.copy(showExplainer = false) }
     }
@@ -635,7 +639,7 @@ class StudyViewModel(
                     start = start,
                     bumped = card.id in bumpedCardIds,
                     bumpedBy = bumpedBy[card.noteId],
-                    newChars = NewCharacters.newCharactersIn(it.hanzi, seenChars),
+                    newChars = NewCharacters.forCard(it.hanzi, seenChars, inStudySession = pass == null && practice == null),
                 )
             }
         }
@@ -1756,7 +1760,7 @@ class StudyViewModel(
         ))
 
         // Its characters are seen now: the next card doesn't shimmer them (this one keeps its shimmer).
-        (_ui.value.phase as? StudyPhase.Showing)?.view?.note?.hanzi?.let { NewCharacters.markCharactersSeen(seenChars, it) }
+        (_ui.value.phase as? StudyPhase.Showing)?.view?.note?.hanzi?.let { h -> seenChars?.let { NewCharacters.markCharactersSeen(it, h) } }
         if (practice != null) return ratePractice(card, rating, timeSpentMs, userAnswer, stats)
         if (card.id in bumpedCardIds) app.analytics.track("study.bump_studied", mapOf("card_type" to card.cardType, "queue" to card.queue))
 
