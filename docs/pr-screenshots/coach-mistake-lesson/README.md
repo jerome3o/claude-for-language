@@ -22,20 +22,7 @@ Saved: it comes back when the rating says (Good → 2 weeks), not as a new lesso
 
 ## Lab app
 
-![The chip](lab-01-chip.png)
-The chip first in the quick-action row.
-
-![Writing](lab-02-writing.png)
-"Writing your mini lesson…" — the chat stays usable meanwhile.
-
-![The card](lab-03-card.png)
-The lesson card in the conversation.
-
-![An exercise](lab-04-exercise.png)
-An exercise in the preview with ＋ Save.
-
-![The save step](lab-05-save-step.png)
-The end of the lesson: the rating bar saves it; ↻ Try again / Not now.
-
-![Saved](lab-06-saved.png)
-Saved, with when it comes back.
+The same screens are rendered by the Roborazzi tests in `CoachMistakeLessonScreenshots` (`coach-mistake-01-chip`,
+`-02-writing`, `-03-card`, `-04-exercise`, `-05-save-step`, `-06-saved`), which run in CI with the app unit tests. They
+couldn't be rendered into PNGs here: this container ran out of memory for the Android build (the Gradle daemon was
+killed every time). In the Lab app the 🎯 chip sits on its own row above the quick-action chips.
