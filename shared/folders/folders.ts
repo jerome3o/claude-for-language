@@ -2,8 +2,8 @@
  * Folders: organisation only, for decks, Lesson Library items and graded readers.
  *
  * One model for all three (`folders` table, migration 0105): a folder belongs to one
- * user and one `kind`, has a name, an optional parent (ONE level of nesting: a folder
- * inside a top-level folder), and a `position` among its siblings. Items carry a
+ * user and one `kind`, has a name, an optional parent (folders nest up to MAX_FOLDER_DEPTH levels:
+ * a folder inside a folder inside …), and a `position` among its siblings. Items carry a
  * nullable `folder_id`; NULL = Unfiled. Folders never touch the study queue — the deck
  * queue (`study_priority`) is the same with or without them.
  *
@@ -23,7 +23,7 @@ export interface Folder {
   user_id: string;
   kind: FolderKind;
   name: string;
-  /** A top-level folder's id, or null. Never deeper than one level. */
+  /** The folder it sits in, or null = top level. At most MAX_FOLDER_DEPTH levels deep. */
   parent_id: string | null;
   position: number;
   created_at: string;
@@ -59,10 +59,70 @@ export function folderNameKey(name: string): string {
   return cleanFolderName(name).toLocaleLowerCase();
 }
 
+/** How deep folders nest: a top-level folder is level 1, its subfolders level 2, … */
+export const MAX_FOLDER_DEPTH = 5;
+
+type FolderLink = Pick<Folder, 'id' | 'parent_id'>;
+
 /**
- * Where a folder may be placed: `parentId` must be a top-level folder of the same kind
- * owned by the same person, not the folder itself, and a folder that has subfolders
- * can't go inside another (that would make two levels). Returns a problem or null.
+ * A folder's ancestors, the top-level one first (not the folder itself). Walks `parent_id`
+ * through `all`; stops at an unknown parent or a cycle (bad data never loops forever).
+ */
+export function folderAncestors<F extends FolderLink>(folder: F, all: F[]): F[] {
+  const byId = new Map(all.map((f) => [f.id, f]));
+  const out: F[] = [];
+  const seen = new Set<string>([folder.id]);
+  let cur = folder.parent_id ? byId.get(folder.parent_id) : undefined;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    out.unshift(cur);
+    cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+  }
+  return out;
+}
+
+/** The level a folder sits at: 1 = top level. */
+export function folderLevel(folder: FolderLink, all: FolderLink[]): number {
+  return folderAncestors(folder, all).length + 1;
+}
+
+/** Every folder inside `folderId`, at any depth (not the folder itself), breadth-first. */
+export function folderDescendantIds(folderId: string, all: FolderLink[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([folderId]);
+  const queue = [folderId];
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const f of all) {
+      if (f.parent_id === id && !seen.has(f.id)) {
+        seen.add(f.id);
+        out.push(f.id);
+        queue.push(f.id);
+      }
+    }
+  }
+  return out;
+}
+
+/** Levels in a folder's subtree, itself included: 1 = no subfolders. */
+export function subtreeLevels(folderId: string, all: FolderLink[]): number {
+  const seen = new Set<string>([folderId]);
+  let level = [folderId];
+  let levels = 0;
+  while (level.length) {
+    levels++;
+    const ids = new Set(level);
+    level = all.filter((f) => f.parent_id != null && ids.has(f.parent_id) && !seen.has(f.id)).map((f) => f.id);
+    for (const id of level) seen.add(id);
+  }
+  return levels;
+}
+
+/**
+ * Where a folder may be placed: `parentId` must be a folder of the same kind owned by the
+ * same person, not the folder itself nor one of its own subfolders (no cycles), and the
+ * folder with everything inside it must still fit within MAX_FOLDER_DEPTH levels.
+ * `folder.id` null = a new folder. Returns a problem or null.
  */
 export function parentProblem(
   folder: { id: string | null; kind: FolderKind },
@@ -73,8 +133,13 @@ export function parentProblem(
   if (folder.id && parentId === folder.id) return "A folder can't go inside itself";
   const parent = all.find((f) => f.id === parentId);
   if (!parent || parent.kind !== folder.kind) return 'That folder does not exist';
-  if (parent.parent_id) return 'Folders go one level deep: pick a top-level folder';
-  if (folder.id && all.some((f) => f.parent_id === folder.id)) return 'This folder has folders inside it, so it has to stay at the top level';
+  if (folder.id && folderDescendantIds(folder.id, all).includes(parentId)) return "A folder can't go inside one of its own folders";
+  const height = folder.id ? subtreeLevels(folder.id, all) : 1;
+  if (folderLevel(parent, all) + height > MAX_FOLDER_DEPTH) {
+    return height > 1
+      ? `Folders go ${MAX_FOLDER_DEPTH} levels deep: this folder and the folders inside it don't fit there`
+      : `Folders go ${MAX_FOLDER_DEPTH} levels deep: pick a folder higher up`;
+  }
   return null;
 }
 
@@ -87,17 +152,44 @@ export interface FolderGroup<T> {
   /** null = Unfiled. */
   folder: Folder | null;
   items: T[];
-  /** Subfolders (one level). Always empty on a subfolder and on Unfiled. */
+  /** Subfolders in order, each with theirs (any depth). Always empty on Unfiled. */
   children: FolderGroup<T>[];
-  /** Items here and in the subfolders. */
+  /** Items here and in every subfolder below. */
   total: number;
+  /** 0 = top level (and Unfiled), 1 = inside a top-level folder, … */
+  depth: number;
+}
+
+/**
+ * The parent each folder is drawn under, or null = top level. A folder is drawn under its
+ * parent only when walking up its parents reaches a top-level folder; an unknown parent or
+ * a cycle (data no server write makes) puts it at the top level — nothing is hidden.
+ */
+function displayParents(mine: Folder[]): Map<string, string | null> {
+  const byId = new Map(mine.map((f) => [f.id, f]));
+  const out = new Map<string, string | null>();
+  for (const f of mine) {
+    const seen = new Set<string>([f.id]);
+    let cur = f;
+    let rooted = false;
+    for (;;) {
+      const p = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+      if (!p) { rooted = true; break; }
+      if (seen.has(p.id)) break;
+      seen.add(p.id);
+      cur = p;
+    }
+    const parent = f.parent_id ? byId.get(f.parent_id) : undefined;
+    out.set(f.id, rooted && parent ? parent.id : null);
+  }
+  return out;
 }
 
 /**
  * Group items into the folder tree for display: top-level folders in order, each with
- * its items (in the order given) and its subfolders; then Unfiled. An item whose
- * folder is unknown (deleted on another device, not synced yet) is Unfiled, and a
- * subfolder whose parent is unknown shows at the top level — nothing is ever hidden.
+ * its items (in the order given) and its subfolders, at any depth; then Unfiled. An item
+ * whose folder is unknown (deleted on another device, not synced yet) is Unfiled, and a
+ * folder whose parent is unknown shows at the top level — nothing is ever hidden.
  * Folders of other kinds are ignored. Empty folders are kept (so a new one shows).
  */
 export function groupIntoFolders<T>(
@@ -107,45 +199,78 @@ export function groupIntoFolders<T>(
   kind: FolderKind,
 ): { groups: FolderGroup<T>[]; unfiled: FolderGroup<T> } {
   const mine = folders.filter((f) => f.kind === kind);
-  const byId = new Map(mine.map((f) => [f.id, f]));
-  const isTop = (f: Folder) => !f.parent_id || !byId.has(f.parent_id) || byId.get(f.parent_id)!.parent_id != null;
-  const groupOf = new Map<string, FolderGroup<T>>();
-  for (const f of mine) groupOf.set(f.id, { folder: f, items: [], children: [], total: 0 });
-  const unfiled: FolderGroup<T> = { folder: null, items: [], children: [], total: 0 };
+  const parents = displayParents(mine);
+  const itemsOf = new Map<string, T[]>();
+  for (const f of mine) itemsOf.set(f.id, []);
+  const unfiledItems: T[] = [];
   for (const item of items) {
     const fid = folderIdOf(item);
-    const g = fid ? groupOf.get(fid) : undefined;
-    (g ?? unfiled).items.push(item);
+    const list = fid ? itemsOf.get(fid) : undefined;
+    (list ?? unfiledItems).push(item);
   }
-  const tops = sortFolders(mine.filter(isTop));
-  for (const top of tops) {
-    const g = groupOf.get(top.id)!;
-    g.children = sortFolders(mine.filter((f) => !isTop(f) && f.parent_id === top.id)).map((c) => {
-      const cg = groupOf.get(c.id)!;
-      cg.total = cg.items.length;
-      return cg;
-    });
-    g.total = g.items.length + g.children.reduce((s, c) => s + c.total, 0);
+  const childrenOf = new Map<string | null, Folder[]>();
+  for (const f of mine) {
+    const p = parents.get(f.id) ?? null;
+    if (!childrenOf.has(p)) childrenOf.set(p, []);
+    childrenOf.get(p)!.push(f);
   }
-  unfiled.total = unfiled.items.length;
-  return { groups: tops.map((t) => groupOf.get(t.id)!), unfiled };
+  const built = new Set<string>();
+  const build = (f: Folder, depth: number): FolderGroup<T> => {
+    built.add(f.id);
+    const children = sortFolders((childrenOf.get(f.id) ?? []).filter((c) => !built.has(c.id))).map((c) => build(c, depth + 1));
+    const own = itemsOf.get(f.id) ?? [];
+    return { folder: f, items: own, children, total: own.length + children.reduce((s, c) => s + c.total, 0), depth };
+  };
+  const groups = sortFolders(childrenOf.get(null) ?? []).map((f) => build(f, 0));
+  return { groups, unfiled: { folder: null, items: unfiledItems, children: [], total: unfiledItems.length, depth: 0 } };
 }
 
-/** Folders in picker order: each top-level folder followed by its subfolders (depth 0 / 1). */
-export function folderOptions(folders: Folder[], kind: FolderKind): Array<{ folder: Folder; depth: 0 | 1 }> {
-  const { groups } = groupIntoFolders<never>([], () => null, folders, kind);
-  const out: Array<{ folder: Folder; depth: 0 | 1 }> = [];
-  for (const g of groups) {
-    out.push({ folder: g.folder!, depth: 0 });
-    for (const c of g.children) out.push({ folder: c.folder!, depth: 1 });
-  }
+/** Every folder group of a tree, each before its subfolders (depth-first, in order). */
+export function flattenFolderGroups<T>(groups: FolderGroup<T>[]): FolderGroup<T>[] {
+  const out: FolderGroup<T>[] = [];
+  const walk = (g: FolderGroup<T>) => { out.push(g); g.children.forEach(walk); };
+  groups.forEach(walk);
   return out;
 }
 
-/** "HSK 2 › Week 1" — a subfolder carries its parent's name. */
-export function folderPath(folder: Folder, folders: Folder[]): string {
-  const parent = folder.parent_id ? folders.find((f) => f.id === folder.parent_id) : undefined;
-  return parent ? `${parent.name} › ${folder.name}` : folder.name;
+/** Folders in picker order: depth-first, each folder followed by its subfolders, with their depth. */
+export function folderOptions(folders: Folder[], kind: FolderKind): Array<{ folder: Folder; depth: number }> {
+  const { groups } = groupIntoFolders<never>([], () => null, folders, kind);
+  return flattenFolderGroups(groups).map((g) => ({ folder: g.folder!, depth: g.depth }));
+}
+
+/** "HSK 2 › Week 1 › Monday" — a folder with every parent's name. */
+export function folderPath(folder: Folder, folders: Folder[], separator = ' › '): string {
+  return [...folderAncestors(folder, folders).map((f) => f.name), folder.name].join(separator);
+}
+
+/** "HSK 2 / Week 1" or "HSK 2 › Week 1" → ["HSK 2", "Week 1"] (cleaned, blanks dropped). */
+export function parseFolderPath(path: string): string[] {
+  return path.split(/[/›>]/).map(cleanFolderName).filter(Boolean);
+}
+
+/**
+ * The folder at a path of names (case / spacing ignored), from the top level down; null
+ * when a step is missing. A one-name path also finds that name at any depth (top level
+ * first, then the tree in order), the way a person says "Week 1".
+ */
+export function findFolderByPath(folders: Folder[], kind: FolderKind, path: string[]): Folder | null {
+  if (!path.length) return null;
+  const tree = groupIntoFolders<never>([], () => null, folders, kind);
+  let level = tree.groups;
+  let hit: FolderGroup<never> | undefined;
+  for (const name of path) {
+    const key = folderNameKey(name);
+    hit = level.find((g) => folderNameKey(g.folder!.name) === key);
+    if (!hit) break;
+    level = hit.children;
+  }
+  if (hit) return hit.folder;
+  if (path.length === 1) {
+    const key = folderNameKey(path[0]);
+    return flattenFolderGroups(tree.groups).find((g) => folderNameKey(g.folder!.name) === key)?.folder ?? null;
+  }
+  return null;
 }
 
 /**
@@ -176,12 +301,17 @@ export function toggleCollapsed(collapsed: string[], key: string): string[] {
 
 export const UNFILED_LABEL = 'Unfiled';
 
-/** Body of the delete confirmation. */
-export function deleteFolderMessage(kind: FolderKind, name: string, itemCount: number, subfolderCount = 0): string {
+/**
+ * Body of the delete confirmation. A deleted folder's own items go to Unfiled; its
+ * subfolders (with everything in them) move up one level — into `parentName`, or to the
+ * top level when the folder was at the top.
+ */
+export function deleteFolderMessage(kind: FolderKind, name: string, itemCount: number, subfolderCount = 0, parentName: string | null = null): string {
   const items = itemCount === 0
     ? `“${name}” is empty.`
     : `${itemCount === 1 ? 'Its' : `All ${itemCount}`} ${folderItemNoun(kind, itemCount)} ${itemCount === 1 ? 'moves' : 'move'} to ${UNFILED_LABEL}.`;
-  const subs = subfolderCount > 0 ? ` ${subfolderCount === 1 ? 'Its folder moves' : `Its ${subfolderCount} folders move`} to the top level.` : '';
+  const where = parentName ? `into “${parentName}”` : 'to the top level';
+  const subs = subfolderCount > 0 ? ` ${subfolderCount === 1 ? 'Its folder moves' : `Its ${subfolderCount} folders move`} ${where}.` : '';
   return `${items}${subs} Nothing is deleted.`;
 }
 

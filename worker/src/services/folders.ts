@@ -4,9 +4,9 @@
  *
  * - A folder belongs to one user and one kind; nothing reads or writes another
  *   user's folders (every query is scoped by user_id; a foreign id is "not found").
- * - One level of nesting (`parentProblem`).
+ * - Folders nest up to MAX_FOLDER_DEPTH levels, never in a cycle (`parentProblem`).
  * - Deleting a folder never deletes content: its items go back to Unfiled and its
- *   subfolders move up to the top level.
+ *   subfolders move up one level (into its parent, or to the top level).
  * - Moving decks bumps `decks.updated_at` so the change rides the incremental sync
  *   to every device; the study queue (`study_priority`) is never touched.
  *   Library items and readers are not re-dated: the library sorts by updated_at
@@ -14,10 +14,11 @@
  */
 import {
   cleanFolderName,
+  findFolderByPath,
   folderNameProblems,
-  folderNameKey,
   isFolderKind,
   parentProblem,
+  parseFolderPath,
   sortFolders,
   MAX_FOLDERS_PER_KIND,
   type Folder,
@@ -108,15 +109,31 @@ export async function createFolder(db: D1Database, userId: string, input: Create
 }
 
 /**
- * Find a folder by name (case- and space-insensitive) at the top level, or make it.
- * For agents that file what they make by name ("HSK 2").
+ * Find a folder by name or path ("HSK 2", "HSK 2 / Week 1"; case- and space-insensitive),
+ * or make it — every missing step of a path is created inside the one before. A single
+ * name is matched at the top level first, then anywhere. For agents that file by name.
  */
 export async function findOrCreateFolderByName(db: D1Database, userId: string, kind: FolderKind, name: unknown): Promise<{ folder: Folder; created: boolean }> {
-  const key = folderNameKey(typeof name === 'string' ? name : '');
-  const all = await listFolders(db, userId, kind);
-  const hit = all.find((f) => folderNameKey(f.name) === key && !f.parent_id) ?? all.find((f) => folderNameKey(f.name) === key);
+  const path = parseFolderPath(typeof name === 'string' ? name : '');
+  if (!path.length) return createFolder(db, userId, { kind, name });
+  let all = await listFolders(db, userId, kind);
+  const hit = findFolderByPath(all, kind, path);
   if (hit) return { folder: hit, created: false };
-  return createFolder(db, userId, { kind, name });
+  let parent: Folder | null = null;
+  let created = false;
+  for (let i = 0; i < path.length; i++) {
+    const existing: Folder | null = findFolderByPath(all, kind, path.slice(0, i + 1));
+    // A one-name prefix may match deeper; only follow it when it sits under `parent`.
+    if (existing && (existing.parent_id ?? null) === (parent?.id ?? null)) {
+      parent = existing;
+      continue;
+    }
+    const made: { folder: Folder } = await createFolder(db, userId, { kind, name: path[i], parent_id: parent?.id ?? null });
+    parent = made.folder;
+    created = true;
+    all = [...all, made.folder];
+  }
+  return { folder: parent!, created };
 }
 
 export async function updateFolder(
@@ -142,6 +159,7 @@ export async function updateFolder(
       const err = parentProblem({ id: folder.id, kind: folder.kind }, next, all);
       if (err) throw new FolderError(err, 400, [err]);
       parentId = next;
+      // Last among its new siblings (any level).
       position = Math.max(-1, ...all.filter((f) => (f.parent_id ?? null) === next && f.id !== id).map((f) => f.position)) + 1;
     }
   }
@@ -153,17 +171,21 @@ export async function updateFolder(
 }
 
 /**
- * Delete a folder. Its items (and the items of… nothing else) go back to Unfiled; its
- * subfolders move to the top level with their items. Content is never deleted.
+ * Delete a folder. Its own items go back to Unfiled; its subfolders move up one level —
+ * into its parent (or to the top level), after the folders already there — keeping
+ * everything inside them. Content is never deleted.
  */
 export async function deleteFolder(db: D1Database, userId: string, id: string): Promise<{ unfiled: number; lifted: number }> {
   const folder = await getFolder(db, userId, id);
   if (!folder) throw new FolderError('Folder not found', 404);
   const t = ITEM_TABLES[folder.kind];
-  const top = await db.prepare('SELECT COALESCE(MAX(position), -1) AS p FROM folders WHERE user_id = ? AND kind = ? AND parent_id IS NULL').bind(userId, folder.kind).first<{ p: number }>();
+  const parentId = folder.parent_id || null;
+  const last = parentId
+    ? await db.prepare('SELECT COALESCE(MAX(position), -1) AS p FROM folders WHERE user_id = ? AND parent_id = ? AND id != ?').bind(userId, parentId, id).first<{ p: number }>()
+    : await db.prepare('SELECT COALESCE(MAX(position), -1) AS p FROM folders WHERE user_id = ? AND kind = ? AND parent_id IS NULL AND id != ?').bind(userId, folder.kind, id).first<{ p: number }>();
   const results = await db.batch([
     db.prepare(`UPDATE ${t.table} SET folder_id = NULL${t.bump ? ", updated_at = datetime('now')" : ''} WHERE ${t.owner} = ? AND folder_id = ?`).bind(userId, id),
-    db.prepare("UPDATE folders SET parent_id = NULL, position = position + ?, updated_at = datetime('now') WHERE user_id = ? AND parent_id = ?").bind((top?.p ?? -1) + 1, userId, id),
+    db.prepare("UPDATE folders SET parent_id = ?, position = position + ?, updated_at = datetime('now') WHERE user_id = ? AND parent_id = ?").bind(parentId, (last?.p ?? -1) + 1, userId, id),
     db.prepare('DELETE FROM folders WHERE id = ? AND user_id = ?').bind(id, userId),
   ]);
   return { unfiled: results[0].meta?.changes ?? 0, lifted: results[1].meta?.changes ?? 0 };

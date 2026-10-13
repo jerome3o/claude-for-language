@@ -1,7 +1,7 @@
 /**
  * Folders for decks / Library lessons / readers (shared/folders/folders.ts): names, parent
- * rules, sorting, grouping, picker options, paths, the in-folder deck reorder splice,
- * collapsed keys and the copy. Writes folders.json; checked by core/…/FoldersParityTest.kt.
+ * rules (nesting up to MAX_FOLDER_DEPTH, no cycles), sorting, grouping (any depth), picker
+ * options, paths, path lookup, the in-folder deck reorder splice, collapsed keys and the copy. Writes folders.json; checked by core/…/FoldersParityTest.kt.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +9,11 @@ import {
   cleanFolderName,
   collapseKey,
   deleteFolderMessage,
+  findFolderByPath,
+  folderAncestors,
   folderCountLabel,
+  folderDescendantIds,
+  folderLevel,
   folderItemNoun,
   folderNameKey,
   folderNameProblems,
@@ -18,10 +22,13 @@ import {
   groupIntoFolders,
   movedMessage,
   parentProblem,
+  parseFolderPath,
   sortFolders,
   spliceGroupOrder,
+  subtreeLevels,
   toggleCollapsed,
   FOLDER_KINDS,
+  MAX_FOLDER_DEPTH,
   type Folder,
   type FolderKind,
 } from '../../../shared/folders/folders';
@@ -63,13 +70,12 @@ function randomFolders(n: number): Folder[] {
   const out: Folder[] = [];
   for (let i = 0; i < n; i++) {
     const kind = rand() < 0.75 ? 'deck' : pick(['lesson', 'reader'] as FolderKind[]);
-    const tops = out.filter((x) => !x.parent_id);
     const r = rand();
-    // Mostly valid trees, sometimes a dangling parent or a (server-impossible) second level.
-    const parent_id = r < 0.35 && tops.length ? pick(tops).id
-      : r < 0.4 ? 'ghost'
-      : r < 0.45 && out.length ? pick(out).id
-      : r < 0.48 ? ''
+    // Mostly valid trees (any depth), sometimes a dangling parent, '' or a (server-impossible) cycle.
+    const parent_id = r < 0.25 && out.length ? out[out.length - 1].id // chains: deep trees, past the cap too
+      : r < 0.5 && out.length ? pick(out).id
+      : r < 0.55 ? 'ghost'
+      : r < 0.58 ? ''
       : null;
     out.push(f(`f${i}${rand() < 0.5 ? 'a' : 'B'}`, pick(NAMES), { kind, parent_id, position: Math.floor(rand() * 4) }));
   }
@@ -78,7 +84,7 @@ function randomFolders(n: number): Folder[] {
 
 const groupings = [] as unknown[];
 for (let c = 0; c < 120; c++) {
-  const folders = randomFolders(Math.floor(rand() * 9));
+  const folders = randomFolders(Math.floor(rand() * 13));
   const ids = folders.map((x) => x.id);
   const items = Array.from({ length: Math.floor(rand() * 12) }, (_, i) => ({
     id: `i${i}`,
@@ -86,10 +92,17 @@ for (let c = 0; c < 120; c++) {
   }));
   const kind = pick([...FOLDER_KINDS]);
   const tree = groupIntoFolders(items, (it) => it.folder_id, folders, kind);
+  // Now and then a cycle: the last folder becomes the parent of its own parent.
+  if (folders.length > 2 && rand() < 0.15) {
+    const last = folders[folders.length - 1];
+    const parent = folders.find((x) => x.id === last.parent_id);
+    if (parent) parent.parent_id = last.id;
+  }
   const shape = (g: (typeof tree.groups)[number]): unknown => ({
     folder: g.folder?.id ?? null,
     items: g.items.map((it) => it.id),
     total: g.total,
+    depth: g.depth,
     children: g.children.map(shape),
   });
   groupings.push({
@@ -101,15 +114,31 @@ for (let c = 0; c < 120; c++) {
     options: folderOptions(folders, kind).map((o) => ({ id: o.folder.id, depth: o.depth })),
     sorted: sortFolders(folders).map((x) => x.id),
     paths: folders.map((x) => folderPath(x, folders)),
+    slash_paths: folders.map((x) => folderPath(x, folders, ' / ')),
+    levels: folders.map((x) => folderLevel(x, folders)),
+    ancestors: folders.map((x) => folderAncestors(x, folders).map((a) => a.id)),
+    descendants: folders.map((x) => folderDescendantIds(x.id, folders)),
+    subtree: folders.map((x) => subtreeLevels(x.id, folders)),
+    parent_problems: folders.flatMap((x) => [null, ...folders.map((p) => p.id), 'ghost'].map((p) => parentProblem({ id: x.id, kind: x.kind }, p, folders))),
+    new_problems: [null, ...folders.map((p) => p.id)].map((p) => parentProblem({ id: null, kind }, p, folders)),
+    finds: folders.slice(0, 3).flatMap((x) => {
+      const names = [...folderAncestors(x, folders).map((a) => a.name), x.name];
+      return [names, [x.name], [x.name.toUpperCase()], [...names, 'nope']].map((path) => ({ path, hit: findFolderByPath(folders, kind, path)?.id ?? null }));
+    }),
   });
 }
 
 // ---- parent rules ----
-const base = [f('a', 'A'), f('b', 'B', { parent_id: 'a' }), f('l', 'Lessons', { kind: 'lesson' }), f('c', 'C'), f('e', 'E', { parent_id: '' })];
+// a › b › c › d › g (5 levels), e ('' parent), l = another kind, h › i (2 levels)
+const base = [
+  f('a', 'A'), f('b', 'B', { parent_id: 'a' }), f('l', 'Lessons', { kind: 'lesson' }), f('c', 'C', { parent_id: 'b' }), f('e', 'E', { parent_id: '' }),
+  f('d', 'D', { parent_id: 'c' }), f('g', 'G', { parent_id: 'd' }), f('h', 'H'), f('i', 'I', { parent_id: 'h' }),
+];
 const parentCases: Array<{ id: string | null; kind: FolderKind; parent: string | null }> = [];
-for (const id of [null, '', 'a', 'b', 'c', 'e', 'l', 'new']) {
+const ids = [null, '', 'a', 'b', 'c', 'd', 'e', 'g', 'h', 'i', 'l', 'zzz'];
+for (const id of [...ids, 'new']) {
   for (const kind of FOLDER_KINDS) {
-    for (const parent of [null, '', 'a', 'b', 'c', 'e', 'l', 'zzz']) parentCases.push({ id, kind, parent });
+    for (const parent of ids) parentCases.push({ id, kind, parent });
   }
 }
 const parents = parentCases.map((p) => ({ ...p, problem: parentProblem({ id: p.id, kind: p.kind }, p.parent, base) }));
@@ -148,8 +177,12 @@ for (const kind of FOLDER_KINDS) {
       moved: movedMessage(kind, n, 'HSK 2'),
       moved_unfiled: movedMessage(kind, n, null),
       del: [0, 1, 2].map((s) => deleteFolderMessage(kind, 'HSK 2', n, s)),
+      del_into: [0, 1, 2].map((s) => deleteFolderMessage(kind, 'Week 1', n, s, '课本 第一册')),
     });
   }
 }
 
-writeFileSync(join(OUT, 'folders.json'), JSON.stringify({ names, groupings, parents, splices, toggles, copy, collapse_null: collapseKey(null) }));
+// ---- path parsing ----
+const parsedPaths = ['HSK 2 / Week 1', ' a›b > c ', '//', 'x', ' HSK  2 /  week 1 / ', '课本 / 第一册'].map((raw) => ({ raw, out: parseFolderPath(raw) }));
+
+writeFileSync(join(OUT, 'folders.json'), JSON.stringify({ names, groupings, parents, splices, toggles, copy, parsed_paths: parsedPaths, max_depth: MAX_FOLDER_DEPTH, collapse_null: collapseKey(null) }));

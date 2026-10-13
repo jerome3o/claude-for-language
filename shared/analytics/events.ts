@@ -260,6 +260,7 @@ export const ANALYTICS_EVENTS = {
   'folder.rename': e('decks', 'Renamed a folder.', ['kind']),
   'folder.delete': e('decks', 'Deleted a folder (its items go to Unfiled).', ['kind', 'items']),
   'folder.move_items': e('decks', 'Moved items into a folder (or Unfiled).', ['kind', 'count', 'unfiled']),
+  'folder.move_folder': e('decks', 'Moved a folder inside another folder (or to the top level).', ['kind', 'depth']),
 
   // ── settings ───────────────────────────────────────────────────────────
   'settings.change': e('settings', 'Changed a setting (`setting` names it, `value` an enum).', ['setting', 'value']),

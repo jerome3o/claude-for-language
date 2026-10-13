@@ -25,7 +25,7 @@ sealed interface FolderSheet {
     /** "＋ Folder" (or "New folder inside…" with [parentId]); [moveIds] = "＋ New folder" in the move sheet: create, then move there. */
     data class NewFolder(val parentId: String? = null, val moveIds: List<String> = emptyList(), val error: String? = null, val busy: Boolean = false) : FolderSheet
 
-    /** A folder header's ⋯: Rename… · New folder inside… (top level) · Delete…. */
+    /** A folder header's ⋯: Rename… · New folder inside… (above the deepest level) · Move folder… · Delete…. */
     data class Menu(val folder: Folder, val itemCount: Int, val subfolderCount: Int) : FolderSheet
 
     data class Rename(val folder: Folder, val error: String? = null) : FolderSheet
@@ -34,6 +34,9 @@ sealed interface FolderSheet {
 
     /** Move to folder… for [ids]; [currentFolderId] is ticked when they all share it ("" = mixed). */
     data class Move(val ids: List<String>, val currentFolderId: String?) : FolderSheet
+
+    /** Move folder…: put [folder] (with everything inside it) into another folder or at the top level. */
+    data class MoveFolder(val folder: Folder, val error: String? = null) : FolderSheet
 }
 
 /** Folder state of one list (decks / Library / readers). */
@@ -139,6 +142,27 @@ class FolderController(
 
     fun openMoveSelected() = openMove(local.value.selected.toList())
 
+    /** ⋯ → Move folder…. */
+    fun openMoveFolder(folder: Folder) { feel.tick(); local.update { it.copy(sheet = FolderSheet.MoveFolder(folder)) } }
+
+    /** Put [folder] inside [parentId] (null = top level); the parity-tested `parentProblem` refuses cycles / too deep. */
+    fun moveFolder(folder: Folder, parentId: String?) {
+        if ((folder.parentId?.takeIf { it.isNotEmpty() }) == parentId) { closeSheet(); return }
+        scope.launch {
+            when (val o = writes.setParent(folder, parentId)) {
+                is WriteOutcome.Refused -> { feel.failed(); local.update { it.copy(sheet = FolderSheet.MoveFolder(folder, o.message)) } }
+                else -> {
+                    val all = ui.value.folders
+                    val parent = parentId?.let { id -> all.firstOrNull { it.id == id } }
+                    feel.moved()
+                    local.update { it.copy(sheet = null) }
+                    showToast("Moved “${folder.name}” to ${parent?.name ?: "the top level"}")
+                    Analytics.track("folder.move_folder", mapOf("kind" to kind, "depth" to (parent?.let { Folders.folderLevel(it, all) } ?: 0)))
+                }
+            }
+        }
+    }
+
     /** "＋ New folder" in the move sheet: create it, then move there. */
     fun newFolderForMove(ids: List<String>) = local.update { it.copy(sheet = FolderSheet.NewFolder(null, ids)) }
 
@@ -197,10 +221,12 @@ class FolderController(
         }
     }
 
-    /** The end of a header drag: top-level folders in their new order. */
+    /** The end of a header drag: one level's sibling folders in their new order (any depth). */
     fun reorder(orderedIds: List<String>) {
-        val current = Folders.sortFolders(ui.value.folders.filter { it.parentId == null }).map { it.id }
-        if (orderedIds == current) return
+        val all = ui.value.folders
+        val parent = all.firstOrNull { it.id == orderedIds.firstOrNull() }?.parentId?.takeIf { it.isNotEmpty() }
+        val current = Folders.sortFolders(all.filter { (it.parentId?.takeIf { p -> p.isNotEmpty() }) == parent }).map { it.id }
+        if (orderedIds.isEmpty() || orderedIds == current) return
         feel.moved()
         scope.launch { (writes.reorder(kind, orderedIds) as? WriteOutcome.Refused)?.let { refused(it.message) } }
     }
