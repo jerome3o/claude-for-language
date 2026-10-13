@@ -126,8 +126,14 @@ class NotePicturesUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(NOTE_PICTURE_EMPTY_TAG).assertIsDisplayed()
         compose.onNodeWithText("✨ Generate picture").performClick()
         assertEquals(1, generated)
+    }
+
+    @Test fun theEditorSectionSaysItIsDrawing() {
         compose.setContent { LabTheme { NotePicturePanel(NotePictureUi(status = "pending"), NotePictureActions()) } }
         compose.onNodeWithTag(NOTE_PICTURE_DRAWING_TAG).assertIsDisplayed()
+    }
+
+    @Test fun theEditorSectionShowsAnUpload() {
         compose.setContent { LabTheme { NotePicturePanel(NotePictureUi(imageKey = "k", source = "upload"), NotePictureActions(), preview = picture) } }
         compose.onNodeWithText("↻ Regenerate").assertIsDisplayed()
         compose.onNodeWithText("Your own picture").assertIsDisplayed()

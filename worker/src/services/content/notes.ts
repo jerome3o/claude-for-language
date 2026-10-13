@@ -94,7 +94,10 @@ export async function createNote(
     await queueWordTags(env, userId, [note.id], options.bg, 'create');
   }
   // A deck with "Illustrate new cards" on draws the new card's picture (shared/cards/note-image.ts).
-  { const p = illustrateNewNotes(env, userId, deckId, [note.id]); if (options.bg) options.bg.waitUntil(p); else await p; }
+  if ((deck as { illustrate_new?: number | null }).illustrate_new) {
+    const p = illustrateNewNotes(env, userId, deckId, [note.id]);
+    if (options.bg) options.bg.waitUntil(p); else await p;
+  }
   void trackServer('server.content_created', { kind: 'note', count: 1 }, { env, userId });
   return note;
 }
@@ -140,7 +143,7 @@ export async function createNotes(
     await queueNoteCheck(env, userId, result.created.map(n => n.id), options.bg);
     await queueWordTags(env, userId, result.created.map(n => n.id), options.bg, 'create');
   }
-  if (result.created.length) {
+  if (result.created.length && (deck as { illustrate_new?: number | null }).illustrate_new) {
     const p = illustrateNewNotes(env, userId, deckId, result.created.map(n => n.id));
     if (options.bg) options.bg.waitUntil(p); else await p;
   }
