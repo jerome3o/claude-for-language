@@ -130,6 +130,7 @@ export function MorePage() {
               <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
               <NavRow icon="📚" label="Readers" desc="Graded stories to share with students" to="/readers" />
               <NavRow icon="📹" label="Video calls (beta)" desc="Lessons with a whiteboard, then a transcript" to="/calls" />
+              <NavRow icon="🧪" label="Group class (prototype)" desc="Teach a few students together on one call — an experiment" to="/group-classes" />
             </NavSection>
             <NavSection title="Tools">
               <NavRow icon="🧑‍🏫" label="Sentence Coach" desc="Check or translate a sentence" to="/coach" />
@@ -173,6 +174,9 @@ export function MorePage() {
           <NavSection title="Teaching">
             <NavRow icon="🗂️" label="Lesson Library" desc="Lessons you assign to students" to="/library" />
             <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
+            {(role.hasStudents || !!user?.is_admin) && (
+              <NavRow icon="🧪" label="Group class (prototype)" desc="Teach a few students together on one call — an experiment" to="/group-classes" />
+            )}
           </NavSection>
         )}
         </>)}

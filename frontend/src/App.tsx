@@ -99,6 +99,9 @@ const MaterialViewerPage = lazy(() => import('./pages/MaterialsPage').then(m => 
 const CallsListPage = lazy(() => import('./pages/CallsListPage').then(m => ({ default: m.CallsListPage })));
 const CallPage = lazy(() => import('./pages/CallPage').then(m => ({ default: m.CallPage })));
 const CallReviewPage = lazy(() => import('./pages/CallReviewPage').then(m => ({ default: m.CallReviewPage })));
+// 🧪 Group classes — experimental web-only prototype (docs/GROUP_CLASSES.md)
+const GroupClassesPage = lazy(() => import('./pages/group/GroupClassesPage').then(m => ({ default: m.GroupClassesPage })));
+const GroupClassPage = lazy(() => import('./pages/group/GroupClassPage').then(m => ({ default: m.GroupClassPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -385,6 +388,8 @@ function AppRoutes() {
       <Route path="/materials/:id" element={<ProtectedRoute><Header /><MaterialViewerPage /></ProtectedRoute>} />
       <Route path="/calls/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't open the call"><CallPage /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/calls/:id/review" element={<ProtectedRoute><Header /><CallReviewPage /></ProtectedRoute>} />
+      <Route path="/group-classes" element={<ProtectedRoute><Header /><GroupClassesPage /></ProtectedRoute>} />
+      <Route path="/group-class/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't open the class"><GroupClassPage /></ErrorBoundary></ProtectedRoute>} />
       <Route
         path="/connections/:relId/chat/:convId"
         element={

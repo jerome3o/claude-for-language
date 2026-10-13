@@ -99,6 +99,7 @@ import charsRoutes from './routes/chars';
 import { segmentReader } from './services/reader-words';
 import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
+import groupClassesRoutes, { mountGroupSocket } from './routes/group-classes';
 import boardPagesRoutes from './routes/board-pages';
 import pushRoutes from './routes/push';
 import { emailPublic, emailPrefs } from './routes/email-prefs';
@@ -562,6 +563,8 @@ app.route('/api/test', testAuth);
 // Apply auth middleware to all /api/* routes except auth routes
 // Video-call WebSocket: authenticated by a short-lived join ticket, not the session (see routes/calls.ts).
 mountCallSocket(app);
+// Group classes (EXPERIMENTAL prototype): the GroupRoom WebSocket + leave beacon (see routes/group-classes.ts).
+mountGroupSocket(app);
 // Chat live socket: authenticated by a one-minute `live` ticket (see routes/chat-live.ts).
 mountLiveSocket(app);
 // "Turn off chat emails" links: the signed token in the URL is the credential (routes/email-prefs.ts).
@@ -617,6 +620,8 @@ app.route('/api', wordImportRoutes);
 
 // Video calls (experimental): rooms, recording uploads, transcripts, lesson report
 app.route('/api', callsRoutes);
+// Group classes (EXPERIMENTAL web prototype, docs/GROUP_CLASSES.md)
+app.route('/api', groupClassesRoutes);
 app.route('/api', boardPagesRoutes);
 // Web Push subscriptions + the call-alerts setting (routes/push.ts).
 app.route('/api', pushRoutes);
@@ -6371,6 +6376,7 @@ app.get('*', async (c) => {
 
 // The video-call room (Durable Object class must be exported from the entry module)
 export { CallRoom } from './durable/call-room';
+export { GroupRoom } from './durable/group-room';
 export { ChatHub } from './durable/chat-hub';
 export { TtsLimiter } from './durable/tts-limiter';
 

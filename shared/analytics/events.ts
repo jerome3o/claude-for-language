@@ -160,6 +160,15 @@ export const ANALYTICS_EVENTS = {
   'call.annot_pip': e('calls', 'Opened the mini window of my shared screen with the drawings over my other windows (Chrome desktop).', []),
   'call.review_open': e('calls', 'Opened a call review / lesson report.', []),
   'call.homework_from_call': e('calls', 'Make homework from this lesson.', []),
+  'group.create': e('calls', 'Group class (prototype): created a group of students.', ['students']),
+  'group.class_start': e('calls', 'Group class (prototype): started a class (reused = one was already live).', ['students', 'reused']),
+  'group.notify': e('calls', 'Group class (prototype): sent each student the class link in their 1:1 chat.', ['sent']),
+  'group.join': e('calls', 'Group class (prototype): joined a class.', ['role', 'people']),
+  'group.leave': e('calls', 'Group class (prototype): left a class (it goes on).', ['duration_ms']),
+  'group.end': e('calls', 'Group class (prototype): the tutor ended the class for everyone.', ['duration_ms', 'people']),
+  'group.control': e('calls', 'Group class (prototype): the tutor used a control (mute / mute_all / spotlight / lower_hand).', ['kind']),
+  'group.screen_share': e('calls', 'Group class (prototype): started or stopped sharing the screen.', ['on']),
+  'group.quiz': e('calls', 'Group class (prototype): asked a quiz question or showed its answer.', ['action', 'options']),
 
   // ── tutor ──────────────────────────────────────────────────────────────
   'tutor.send_homework': e('tutor', 'Sent homework from the Send homework sheet.', ['items', 'mode', 'kind', 'split_days']),
