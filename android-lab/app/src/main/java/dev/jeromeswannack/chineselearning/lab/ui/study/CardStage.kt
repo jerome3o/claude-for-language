@@ -311,6 +311,11 @@ fun CardStage(
         }
     }
     BackHandler(enabled = sayingAgain) { actions.onCancelSpoken() }
+    // ✏️ Edit on a "Say it again" review: the box on the question side; its Check is in the footer.
+    var sayAgainDraft by remember(view.presentation) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
+    LaunchedEffect(spoken.phase) {
+        if (spoken.phase == SpokenPhase.EDITING) sayAgainDraft = androidx.compose.ui.text.input.TextFieldValue(spoken.finalText, androidx.compose.ui.text.TextRange(spoken.finalText.length))
+    }
 
     val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
     val mc = ui.extras.mc
@@ -345,6 +350,8 @@ fun CardStage(
                     // Check / the grid — so a stray tap on the face never gives the answer away.
                     CardFront(
                         view, ui, playingKey, actions, start.showClue, revealed,
+                        sayAgainDraft = sayAgainDraft,
+                        onSayAgainDraft = { sayAgainDraft = it },
                         onTapToAnswer = {
                             when {
                                 reRecording -> actions.onStopRecording(true)
@@ -441,6 +448,36 @@ fun CardStage(
                 } else {
                     RecordControls(ui.extras.take, actions, onReveal = { reveal() })
                 }
+            } else if (reRecording || sayingAgain) {
+                // Making a take again (Record again / Say it again / Say it practice): no ratings and no
+                // action row — the re-record's own controls where they were, so nothing can be rated
+                // from inside it (Jerome kept hitting them). ← Back = the answer as it was.
+                val retake = rememberRecordPermission { actions.onRetakeSpoken() }
+                if (reRecording) {
+                    ReRecordBar(
+                        step = if (ui.extras.take.starting) ReRecordStep.STARTING else ReRecordStep.RECORDING,
+                        onBack = actions.onCancelRecording,
+                        onStop = { actions.onStopRecording(true) },
+                    )
+                } else {
+                    ReRecordBar(
+                        step = when (spoken.phase) {
+                            SpokenPhase.FINISHING -> ReRecordStep.FINISHING
+                            SpokenPhase.REVIEW -> ReRecordStep.REVIEW
+                            SpokenPhase.EDITING -> ReRecordStep.EDITING
+                            SpokenPhase.FAILED -> ReRecordStep.FAILED
+                            else -> ReRecordStep.LISTENING
+                        },
+                        practice = spoken.practice,
+                        canCheck = sayAgainDraft.text.isNotBlank(),
+                        onBack = actions.onCancelSpoken,
+                        onStop = actions.onStopSpoken,
+                        onRetry = retake,
+                        onEdit = actions.onEditSpoken,
+                        onSubmit = actions.onSubmitSpoken,
+                        onCheck = { actions.onSubmitEditedSpoken(sayAgainDraft.text) },
+                    )
+                }
             } else {
                 StudyActionRow(
                     aiAvailable = ui.aiAvailable,
@@ -507,7 +544,17 @@ fun CardStage(
 }
 
 @Composable
-private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startShowClue: Boolean, revealed: Boolean, onTapToAnswer: () -> Unit) {
+private fun CardFront(
+    view: CardView,
+    ui: StudyUi,
+    playingKey: String?,
+    actions: StudyActions,
+    startShowClue: Boolean,
+    revealed: Boolean,
+    sayAgainDraft: androidx.compose.ui.text.input.TextFieldValue = androidx.compose.ui.text.input.TextFieldValue(""),
+    onSayAgainDraft: (androidx.compose.ui.text.input.TextFieldValue) -> Unit = {},
+    onTapToAnswer: () -> Unit,
+) {
     val note = view.note
     // Pictures on cards: with the English on meaning → hanzi only (core cards/NoteImage.kt).
     val picturesOn by StudyPrefs.get(androidx.compose.ui.platform.LocalContext.current).picturesOn.collectAsState()
@@ -580,7 +627,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
             RecordingAgainPanel(actions)
         } else if (revealed && ui.extras.spoken.again && ui.extras.spoken.phase != SpokenPhase.IDLE) {
             // Say it again: the question while the new answer is said — a tap anywhere stops it.
-            SayAgainPanel(ui.extras.spoken, ui.aiAvailable, actions)
+            SayAgainPanel(ui.extras.spoken, ui.aiAvailable, actions, sayAgainDraft, onSayAgainDraft)
         } else if (revealed) {
             // Peeking back at the question: the hints are spent, the answer is one tap away.
             Text("Tap to see the answer", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
@@ -689,7 +736,7 @@ private fun CardBack(
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar, newChars = newChars)
             }
-            KeepTaps { TranscriptionLine(ui.extras.take.transcription, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }) }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }) }
             if (canSayPractice && practiceSaid != null) {
                 Spacer(Modifier.height(6.dp))
                 Box(Modifier.testTag(PRACTICE_YOU_SAID_TAG)) {
@@ -1085,7 +1132,8 @@ const val RECORD_AGAIN_FRONT_TAG = "record-again-front"
 
 /**
  * Record again, on the question side: a pulsing mic, the time so far, the level, "Tap anywhere to
- * stop", and Stop / Cancel (the web's `.study-rerecord`). The card's own tap stops it too.
+ * stop" (the web's `.study-rerecord`). ⏹ Stop and ← Back are in the footer instead of the ratings
+ * ([ReRecordBar]); the card's own tap stops it too.
  */
 @Composable
 private fun RecordingAgainPanel(actions: StudyActions) {
@@ -1115,11 +1163,6 @@ private fun RecordingAgainPanel(actions: StudyActions) {
         LevelMeter(actions, Modifier.fillMaxWidth(0.6f))
         Spacer(Modifier.height(8.dp))
         Text("Tap anywhere to stop", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = actions.onCancelRecording, modifier = Modifier.height(48.dp)) { Text("Cancel", color = Lab.colors.muted) }
-            PrimaryPill("⏹  Stop", Modifier.height(52.dp), color = Palette.Again) { actions.onStopRecording(true) }
-        }
     }
 }
 
@@ -1170,54 +1213,50 @@ private fun SayAgainPill(online: Boolean, actions: StudyActions, practice: Boole
 }
 
 /**
- * Say it again, on the question side (the web's `.study-sayagain`): the live transcript in the answer
- * box's place and ⏹, then the same review step as a first answer (🔁 Retry · ✏️ Edit · ✓ Submit; ✏️
- * Edit = a box here, Check submits it), "Couldn't transcribe — tap to retry" with 🔁 Retry after a take
- * that gave nothing, and ✕ Cancel back to the answer as it was. The card's own tap stops the take too.
+ * Say it again, on the question side (the web's `.study-sayagain`): only what is going on — the live
+ * transcript in the answer box's place, the review's hanzi + pinyin, the ✏️ Edit box, "Couldn't
+ * transcribe — tap to retry". Its controls (⏹ Stop, ✓ Submit, 🔁 Retry, ✏️ Edit, Check, ← Back) are in
+ * the footer instead of the ratings ([ReRecordBar]). The card's own tap stops the take too.
  */
 @Composable
-private fun SayAgainPanel(spoken: SpokenUi, online: Boolean, actions: StudyActions) {
+private fun SayAgainPanel(
+    spoken: SpokenUi,
+    online: Boolean,
+    actions: StudyActions,
+    draft: androidx.compose.ui.text.input.TextFieldValue,
+    onDraft: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().testTag(SAY_AGAIN_FRONT_TAG), horizontalAlignment = Alignment.CenterHorizontally) {
         when (spoken.phase) {
-            SpokenPhase.REVIEW -> {
-                SpokenReviewText(spoken.finalText, compact = true)
-                Spacer(Modifier.height(10.dp))
-                // Practice shows what was said as said: nothing to edit.
-                SpokenReviewRow(actions, allowEdit = !spoken.practice)
-            }
-            SpokenPhase.EDITING -> SayAgainEditor(spoken, actions)
-            SpokenPhase.FAILED -> {
-                SpokenStatus(spoken, online, actions, again = true)
-                Spacer(Modifier.height(10.dp))
-                SpokenFailedRow(actions, onType = null)
-            }
+            SpokenPhase.REVIEW -> SpokenReviewText(spoken.finalText, compact = true)
+            SpokenPhase.EDITING -> SayAgainEditor(spoken, draft, onDraft, actions)
+            SpokenPhase.FAILED -> SpokenStatus(spoken, online, actions, again = true)
             else -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SpokenLiveBox(spoken, Modifier.weight(1f), placeholder = "Listening… say the answer")
-                    Spacer(Modifier.width(8.dp))
-                    SpokenMicButton(spoken, online, actions, onStart = actions.onSayAgain)
-                }
+                SpokenLiveBox(spoken, Modifier.fillMaxWidth(), placeholder = "Listening… say the answer")
                 if (spoken.listening) {
                     Spacer(Modifier.height(8.dp))
                     Text("Tap anywhere to stop", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
                 }
             }
         }
-        TextButton(onClick = actions.onCancelSpoken, modifier = Modifier.heightIn(min = 44.dp)) { Text("✕ Cancel", color = Lab.colors.muted) }
     }
 }
 
-/** ✏️ Edit on a "Say it again" review: the transcript in a box, focused (keyboard up); Check submits it. */
+/** ✏️ Edit on a "Say it again" review: the transcript in a box, focused (keyboard up); Check (in the footer) or Done submits it. */
 @Composable
-private fun SayAgainEditor(spoken: SpokenUi, actions: StudyActions) {
-    var draft by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(spoken.finalText, androidx.compose.ui.text.TextRange(spoken.finalText.length))) }
+private fun SayAgainEditor(
+    spoken: SpokenUi,
+    draft: androidx.compose.ui.text.input.TextFieldValue,
+    onDraft: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+    actions: StudyActions,
+) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(50); runCatching { focus.requestFocus() } }
     Text("You said: ${spoken.finalText}", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
     Spacer(Modifier.height(6.dp))
     OutlinedTextField(
         value = draft,
-        onValueChange = { draft = it },
+        onValueChange = onDraft,
         modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag(SPOKEN_EDIT_TAG),
         singleLine = true,
         textStyle = MaterialTheme.typography.titleLarge,
@@ -1226,17 +1265,93 @@ private fun SayAgainEditor(spoken: SpokenUi, actions: StudyActions) {
         keyboardActions = KeyboardActions(onDone = { actions.onSubmitEditedSpoken(draft.text) }),
         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
     )
-    Spacer(Modifier.height(10.dp))
-    val retake = rememberRecordPermission { actions.onRetakeSpoken() }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SecondaryPill(
-            "🔁 Retry",
-            Modifier.height(60.dp).testTag(SPOKEN_REVIEW_RETRY_TAG).semantics { contentDescription = RETRY_LABEL },
-            horizontalPadding = 12.dp, fontSize = 14.sp,
-            onClick = retake,
-        )
-        PrimaryPill("Check", Modifier.weight(1f).height(60.dp).testTag(SPOKEN_EDIT_CHECK_TAG), enabled = draft.text.isNotBlank()) {
-            actions.onSubmitEditedSpoken(draft.text)
+}
+
+/** What the footer's [ReRecordBar] is showing (the web's `ReRecordStep`). */
+enum class ReRecordStep {
+    /** Record again: the first moment of the take (no stray stops). */
+    STARTING,
+    /** Record again: recording. */
+    RECORDING,
+    /** Say it again: listening (the live transcript on the card). */
+    LISTENING,
+    FINISHING,
+    /** Say it again: the transcript waiting for Retry / Edit / Submit. */
+    REVIEW,
+    /** Say it again: ✏️ Edit — the box on the card, Check here. */
+    EDITING,
+    /** Say it again: the take gave nothing. */
+    FAILED,
+}
+
+/** Test tags of the re-record footer. */
+const val RERECORD_BAR_TAG = "study-rerecord-bar"
+const val RERECORD_BACK_TAG = "rerecord-back"
+const val RERECORD_STOP_TAG = "rerecord-stop"
+const val BACK_TO_ANSWER_LABEL = "Back to the answer"
+
+/**
+ * The card back's footer while a take is made AGAIN (the web's `ReRecordBar`,
+ * components/study/ReRecordBar.tsx): NO ratings and no Ask Claude · Edit card · ⋯ row — the
+ * re-record's controls in their place, where the thumb is: ← Back (+ 🔁 Retry · ✏️ Edit on the
+ * review) above the big primary button exactly where the ratings were (⏹ Stop, ✓ Submit, Check,
+ * 🔁 Retry). ← Back = the answer as it was; the ratings come back after Submit / Check or Back. The
+ * stage is `imePadding`, so with the keyboard up (✏️ Edit) the bar sits above it.
+ */
+@Composable
+internal fun ReRecordBar(
+    step: ReRecordStep,
+    practice: Boolean = false,
+    canCheck: Boolean = false,
+    onBack: () -> Unit,
+    onStop: () -> Unit = {},
+    onRetry: () -> Unit = {},
+    onEdit: () -> Unit = {},
+    onSubmit: () -> Unit = {},
+    onCheck: () -> Unit = {},
+) {
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.75f, stiffness = 600f)) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 10f * density }
+            .testTag(RERECORD_BAR_TAG),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryPill(
+                "←  Back",
+                Modifier.weight(1f).height(48.dp).testTag(RERECORD_BACK_TAG).semantics { contentDescription = BACK_TO_ANSWER_LABEL },
+                horizontalPadding = 12.dp, fontSize = 15.sp,
+                onClick = onBack,
+            )
+            if (step == ReRecordStep.REVIEW || step == ReRecordStep.EDITING) SecondaryPill(
+                "🔁 Retry",
+                Modifier.weight(1f).height(48.dp).testTag(SPOKEN_REVIEW_RETRY_TAG).semantics { contentDescription = RETRY_LABEL },
+                horizontalPadding = 12.dp, fontSize = 15.sp,
+                onClick = onRetry,
+            )
+            if (step == ReRecordStep.REVIEW && !practice) SecondaryPill(
+                "✏️ Edit",
+                Modifier.weight(1f).height(48.dp).testTag(SPOKEN_REVIEW_EDIT_TAG).semantics { contentDescription = EDIT_LABEL },
+                horizontalPadding = 12.dp, fontSize = 15.sp,
+                onClick = onEdit,
+            )
+        }
+        val main = Modifier.fillMaxWidth().height(60.dp)
+        when (step) {
+            ReRecordStep.STARTING -> PrimaryPill("Starting…", main.testTag(RERECORD_STOP_TAG), enabled = false, color = Palette.Again) {}
+            ReRecordStep.RECORDING, ReRecordStep.LISTENING -> {
+                val pulse by rememberInfiniteTransition(label = "rerecord-stop").animateFloat(
+                    1f, 1.03f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "pulse",
+                )
+                PrimaryPill("⏹  Stop", main.scale(pulse).testTag(RERECORD_STOP_TAG).semantics { contentDescription = "Stop" }, color = Palette.Again, onClick = onStop)
+            }
+            ReRecordStep.FINISHING -> PrimaryPill("Finishing…", main, enabled = false) {}
+            ReRecordStep.REVIEW -> PrimaryPill("✓  Submit", main.testTag(SPOKEN_REVIEW_SUBMIT_TAG).semantics { contentDescription = SUBMIT_LABEL }, onClick = onSubmit)
+            ReRecordStep.EDITING -> PrimaryPill("✓  Check", main.testTag(SPOKEN_EDIT_CHECK_TAG), enabled = canCheck, onClick = onCheck)
+            ReRecordStep.FAILED -> PrimaryPill("🔁  Retry", main.testTag(SPOKEN_REVIEW_RETRY_TAG).semantics { contentDescription = RETRY_LABEL }, onClick = onRetry)
         }
     }
 }
@@ -1518,7 +1633,7 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
                 },
             )
         spoken.phase == SpokenPhase.FAILED -> YouSaidFailed(
-            if (spoken.practice) "Or cancel — it’s only practice" else if (again) "Or keep your first answer" else "Or type your answer",
+            if (spoken.practice) "Or go back — it’s only practice" else if (again) "Or go back to your first answer" else "Or type your answer",
             actions.onRetrySpoken,
             Modifier.padding(top = 8.dp).testTag(SPOKEN_RETRY_TAG),
         )
@@ -1528,7 +1643,7 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
 
 /** "You said" under the answer (the web's renderTranscriptionResult): every state is the same box ([YouSaidBox]). */
 @Composable
-private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}, onCoach: ((String) -> Unit)? = null, onPlay: (() -> Unit)? = null) {
+private fun TranscriptionLine(t: TranscriptionUi?, answer: String, onRetry: () -> Unit = {}, onCoach: ((String) -> Unit)? = null, onPlay: (() -> Unit)? = null) {
     if (t == null) return
     Spacer(Modifier.height(6.dp))
     when (t) {
@@ -1536,6 +1651,13 @@ private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}, onC
         TranscriptionUi.Failed -> YouSaidFailed("Your recording is saved", onRetry)
         TranscriptionUi.Working -> YouSaidPending()
         TranscriptionUi.Offline -> YouSaidOffline()
-        is TranscriptionUi.Done -> YouSaidBox(t.result, onCoach?.let { open -> { open(t.result.transcribedHanzi) } }, onPlay)
+        is TranscriptionUi.Done -> {
+            // A word card: the recogniser's trailing 。 is not shown (core AnswerKey.tidySpokenTranscript).
+            val r = t.result.copy(
+                transcribedHanzi = AnswerKey.tidySpokenTranscript(t.result.transcribedHanzi, answer),
+                transcribedPinyin = AnswerKey.tidySpokenTranscript(t.result.transcribedPinyin, answer),
+            )
+            YouSaidBox(r, onCoach?.let { open -> { open(r.transcribedHanzi) } }, onPlay)
+        }
     }
 }

@@ -9,6 +9,7 @@ import { getLiveSession, LiveTranscriber, liveSessionUnavailable, resetLiveSessi
 import { IDLE_SPOKEN, SpokenAnswerController, type SpokenAnswer, type SpokenAnswerState } from '../services/spokenAnswer';
 import { readSpokenSkipReview } from '../services/spokenAnswerPrefs';
 import { liveFailureInvalidatesKey } from '@shared/transcription/soniox';
+import { tidySpokenTranscript } from '@shared/cards/answer';
 import { track } from '../services/analytics';
 
 interface Recorder {
@@ -24,6 +25,8 @@ export function useSpokenAnswer(opts: {
   recorder: Recorder;
   micDeviceId?: string;
   cardType: string;
+  /** The card's answer (hanzi): a word card's transcript loses the recogniser's trailing 。. */
+  answer?: string;
   /** Online and not forced offline. */
   online: boolean;
   /** The recorder's current take (`audioBlob`): what a "Say it again" keeps until its new take lands. */
@@ -50,6 +53,7 @@ export function useSpokenAnswer(opts: {
     upload: (take, liveError) => transcribeAudio(take, { liveError }),
     isOnline: () => latest.current.online && navigator.onLine,
     skipReview: readSpokenSkipReview,
+    tidy: (text) => (latest.current.answer ? tidySpokenTranscript(text, latest.current.answer) : text),
     onState: setState,
     onResult: (answer) => latest.current.onResult(answer),
     onLiveError: (reason) => {

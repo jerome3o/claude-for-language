@@ -52,7 +52,7 @@ import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
-import { checkSpokenAnswer, checkTypedAnswer, spokenVerdictNote, type AnswerVerdict } from '@shared/cards/answer';
+import { checkSpokenAnswer, checkTypedAnswer, spokenVerdictNote, tidySpokenTranscript, type AnswerVerdict } from '@shared/cards/answer';
 import { passSuggestion, type PassAnsweredBy, type PassOutcome } from '@shared/homework/pass-card';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -60,6 +60,7 @@ import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMod
 import { SyncBadge } from '../components/OfflineBanner';
 import './StudyPage.css';
 import { StudyActionRow, NEEDS_INTERNET } from '../components/study/StudyActionRow';
+import { StudyCardFooter, type ReRecordBarProps } from '../components/study/ReRecordBar';
 import { StudyMenuItem } from '../components/study/StudyMoreMenu';
 import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
 import { TutorNoteLine } from '../components/study/TutorNoteLine';
@@ -661,6 +662,7 @@ export function StudyCard({
     recorder: { startRecording, stopRecording, cancelRecording, clearRecording, restoreRecording },
     micDeviceId,
     cardType: card.card_type,
+    answer: card.note.hanzi,
     online: aiAvailable,
     currentTake: audioBlob,
     where,
@@ -1497,8 +1499,8 @@ export function StudyCard({
       // ▶ plays the take it was transcribed from.
       return (
         <YouSaid
-          hanzi={transcribedHanzi}
-          pinyin={transcribedPinyin}
+          hanzi={tidySpokenTranscript(transcribedHanzi, card.note.hanzi)}
+          pinyin={tidySpokenTranscript(transcribedPinyin, card.note.hanzi)}
           isMatch={isMatch}
           containsExpected={containsExpected}
           onPlay={() => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); }}
@@ -2300,15 +2302,14 @@ export function StudyCard({
     </div>
   );
 
-  // Say it again, on the question side: the live transcript, ⏹ (or 🎤 to try again after a take
-  // that gave nothing) and ✕ Cancel. Any other tap on the card stops the take too (handleCardClick).
+  // Say it again, on the question side: only what is going on — the live transcript, the review's
+  // hanzi + pinyin, the ✏️ Edit box, "Couldn't transcribe". Its controls (⏹ Stop, ✓ Submit, 🔁 Retry,
+  // ✏️ Edit, Check, ← Back) are in the footer instead of the ratings (renderReRecordBar). Any other tap
+  // on the card stops the take too (handleCardClick).
   const renderSayAgainPanel = () => (
     <div className="study-rerecord study-sayagain" data-testid="study-sayagain">
       {spoken.phase === 'review' ? (
-        <>
-          {renderSpokenReviewText()}
-          {renderSpokenReviewRow()}
-        </>
+        renderSpokenReviewText()
       ) : spoken.phase === 'editing' ? (
         <>
           <p className="study-spoken-hint" data-testid="spoken-heard">You said: {spoken.finalText}</p>
@@ -2321,73 +2322,31 @@ export function StudyCard({
               onChange={(e) => setSayAgainDraft(e.target.value)}
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => { if (e.key === 'Enter') spoken.submitEdit(sayAgainDraft); }}
+              enterKeyHint="done"
               autoFocus
               data-testid="spoken-edit-input"
             />
           </div>
-          <div className="study-voice-row">
-            <button
-              type="button"
-              className="btn btn-secondary study-voice-side"
-              onClick={(e) => { e.stopPropagation(); retakeSpoken(); }}
-              aria-label="Retry"
-              data-testid="spoken-review-retry"
-            >
-              <span aria-hidden="true">🔁</span> Retry
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary study-voice-say"
-              onClick={(e) => { e.stopPropagation(); spoken.submitEdit(sayAgainDraft); }}
-              aria-disabled={!sayAgainDraft.trim()}
-              data-testid="spoken-edit-check"
-            >
-              Check
-            </button>
-          </div>
         </>
       ) : spoken.phase === 'failed' ? (
         <>
-          {spoken.failure !== 'empty' && renderSpokenRetry(spoken.practice ? 'Or cancel — it’s only practice' : 'Or keep your first answer')}
+          {spoken.failure !== 'empty' && renderSpokenRetry(spoken.practice ? 'Or go back — it’s only practice' : 'Or go back to your first answer')}
           {spoken.failure === 'empty' && (
             <p className="study-spoken-hint" data-testid="spoken-empty">Didn’t catch anything — tap Retry to try again.</p>
           )}
-          {renderSpokenFailedRow()}
         </>
       ) : (
         <>
-          <div className="study-typing-row">
-            {renderSpokenLiveBox('Listening… say the answer')}
-            <button
-              type="button"
-              className={`study-mic-btn${spoken.listening ? ' is-listening' : ''}`}
-              aria-label={spoken.listening ? 'Stop' : 'Finishing'}
-              aria-disabled={spoken.phase === 'finishing'}
-              data-testid="spoken-mic"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (spoken.listening) spoken.stop();
-              }}
-            >
-              {spoken.listening ? '⏹' : '🎤'}
-            </button>
-          </div>
+          {renderSpokenLiveBox('Listening… say the answer')}
           {spoken.listening && <p className="study-rerecord-hint">Tap anywhere to stop</p>}
         </>
       )}
-      <button
-        type="button"
-        className="study-spoken-cancel"
-        onClick={(e) => { e.stopPropagation(); spoken.cancel(); }}
-        data-testid="spoken-cancel"
-      >
-        ✕ Cancel
-      </button>
     </div>
   );
 
-  // Record again, on the question side: pulsing mic, time, level, "Tap anywhere to stop",
-  // Stop and Cancel. Any other tap on the card stops it too (handleCardClick).
+  // Record again, on the question side: pulsing mic, time, level, "Tap anywhere to stop". ⏹ Stop and
+  // ← Back are in the footer instead of the ratings (renderReRecordBar); any other tap on the card
+  // stops it too (handleCardClick).
   const renderReRecordPanel = () => (
     <div className="study-rerecord" data-testid="study-rerecord" aria-live="polite">
       <div className="study-rerecord-status">
@@ -2404,24 +2363,27 @@ export function StudyCard({
         />
       </div>
       <p className="study-rerecord-hint">Tap anywhere to stop</p>
-      <div className="study-rerecord-actions">
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={(e) => { e.stopPropagation(); cancelReRecord(); }}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="btn btn-error"
-          onClick={(e) => { e.stopPropagation(); stopRecordingWithDelay(); }}
-        >
-          <span aria-hidden="true">⏹</span> Stop
-        </button>
-      </div>
     </div>
   );
+
+  // The footer while a take is made again (Record again / Say it again / Say it practice): the
+  // re-record's controls where the ratings were — nothing can be rated from inside it. null = the
+  // normal footer (action row + ratings).
+  const reRecordBar: ReRecordBarProps | null = reRecording
+    ? { step: isRecording ? 'recording' : 'starting', onBack: cancelReRecord, onStop: stopRecordingWithDelay }
+    : sayingAgain
+      ? {
+          step: spoken.phase === 'idle' ? 'listening' : spoken.phase,
+          practice: spoken.practice,
+          canCheck: !!sayAgainDraft.trim(),
+          onBack: spoken.cancel,
+          onStop: spoken.stop,
+          onRetry: retakeSpoken,
+          onEdit: spoken.edit,
+          onSubmit: spoken.submit,
+          onCheck: () => spoken.submitEdit(sayAgainDraft),
+        }
+      : null;
 
   const renderSpeakingCardButtons = () => {
     if (isRecording) {
@@ -3021,11 +2983,10 @@ export function StudyCard({
           )}
         </div>
         {flipped && (
-          <div className="study-rating-sticky">
-            <div className="study-card-actions study-card-actions--footer">
-              {renderBackActions()}
-            </div>
-            {pass ? (
+          <StudyCardFooter
+            rerecord={reRecordBar}
+            actions={renderBackActions()}
+            ratings={pass ? (
               <PassAnswerButtons suggested={passSuggested} onAnswer={handlePassAnswer} disabled={isRating} />
             ) : (
               <RatingButtons
@@ -3034,7 +2995,7 @@ export function StudyCard({
                 disabled={isRating}
               />
             )}
-          </div>
+          />
         )}
       </div>
 

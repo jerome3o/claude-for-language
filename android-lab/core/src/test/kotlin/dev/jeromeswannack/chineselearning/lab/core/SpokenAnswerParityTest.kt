@@ -45,6 +45,7 @@ class SpokenAnswerParityTest {
             assertEquals(within(c["within_read"]), AnswerKey.answerWithin(transcript, correct)?.name?.lowercase(), "within (read card) $what")
             val syllables = c["syllables"]!!.jsonArray.map { if (it is JsonNull) null else it.jsonPrimitive.content }
             assertEquals(syllables, AnswerKey.spokenSyllables(transcript), "syllables $what")
+            assertEquals(c["tidy"]!!.jsonPrimitive.content, AnswerKey.tidySpokenTranscript(transcript, correct), "tidy $what")
         }
         assertTrue(cases.count { it["within"] !is JsonNull && it["spoken"]!!.jsonPrimitive.content == "contains" } > 100, "few contains cases")
         // Every verdict is exercised.
@@ -53,6 +54,19 @@ class SpokenAnswerParityTest {
     }
 
     private fun within(el: kotlinx.serialization.json.JsonElement?): String? = if (el == null || el is JsonNull) null else el.jsonPrimitive.content
+
+    @Test
+    fun tidyTranscriptMatchesTypeScript() {
+        val rows = fixture["tidy"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(rows.size >= 10)
+        for (o in rows) {
+            val transcript = o["transcript"]!!.jsonPrimitive.content
+            val correct = o["correct"]!!.jsonPrimitive.content
+            assertEquals(o["tidy"]!!.jsonPrimitive.content, AnswerKey.tidySpokenTranscript(transcript, correct), "'$transcript' for '$correct'")
+        }
+        // Jerome's card: 撤销 said, "撤销。" from the recogniser, shown as 撤销.
+        assertEquals("撤销", AnswerKey.tidySpokenTranscript("撤销。", "撤销"))
+    }
 
     @Test
     fun notesMatchTypeScript() {

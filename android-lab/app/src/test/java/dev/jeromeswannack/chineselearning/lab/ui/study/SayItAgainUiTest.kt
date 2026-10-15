@@ -88,8 +88,11 @@ class SayItAgainUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SPOKEN_LIVE_TAG, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Tap anywhere to stop").assertIsDisplayed()
         compose.onNodeWithText("Sounded right ✓ — written 由").assertDoesNotExist() // the hidden answer side is silent
-        compose.onNodeWithTag(SPOKEN_MIC_TAG).performClick()
-        compose.onNodeWithText("✕ Cancel").performClick()
+        // No ratings while re-recording: ⏹ Stop and ← Back where they were.
+        compose.onNodeWithText("Good").assertDoesNotExist()
+        compose.onNodeWithTag(RERECORD_BAR_TAG).assertIsDisplayed()
+        compose.onNodeWithTag(RERECORD_STOP_TAG).performClick()
+        compose.onNodeWithTag(RERECORD_BACK_TAG).performClick()
         assertEquals(listOf("sayAgain", "stop", "cancel"), calls)
 
         // The new answer lands: checked anew (exact now), the answer side back, no panel.
@@ -101,6 +104,9 @@ class SayItAgainUiTest : LabScreenshotTest() {
         assertEquals(0, compose.onAllNodesWithTagCount(SAY_AGAIN_FRONT_TAG))
         assertEquals(0, compose.onAllNodesWithTagCount(SPOKEN_SOUND_TAG))
         compose.onNodeWithTag(SAY_AGAIN_TAG).assertIsDisplayed()
+        // Submitted: the ratings are back, the bar gone.
+        compose.onNodeWithText("Good").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithTagCount(RERECORD_BAR_TAG))
     }
 
     @Test fun itsReviewIsOnTheQuestionSideAndAnEditedAnswerIsCheckedAsTyped() {
@@ -113,6 +119,9 @@ class SayItAgainUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SAY_AGAIN_FRONT_TAG, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag(SPOKEN_REVIEW_TEXT_TAG, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Sounded right ✓ — written 由").assertDoesNotExist()
+        // The review's controls are in the footer, once, instead of the ratings.
+        compose.onNodeWithText("Good").assertDoesNotExist()
+        assertEquals(1, compose.onAllNodesWithTagCount(SPOKEN_REVIEW_SUBMIT_TAG))
         compose.onNodeWithTag(SPOKEN_REVIEW_RETRY_TAG).performClick()
         compose.onNodeWithTag(SPOKEN_REVIEW_SUBMIT_TAG).performClick()
         compose.onNodeWithTag(SPOKEN_REVIEW_EDIT_TAG).performClick()

@@ -1407,7 +1407,8 @@ class StudyViewModel(
     }
 
     private fun landSpoken(v: CardView, outcome: TakeTranscription.Outcome?, ms: Long, streamed: Boolean, empty: Boolean = false) {
-        val text = (outcome?.ui as? TranscriptionUi.Done)?.result?.transcribedHanzi?.trim().orEmpty()
+        // A word card: the recogniser's trailing 。 goes (撤销。 → 撤销), on the review and in the answer (web `tidy`).
+        val text = (outcome?.ui as? TranscriptionUi.Done)?.result?.transcribedHanzi?.let { AnswerKey.tidySpokenTranscript(it, v.note.hanzi) }.orEmpty()
         val again = _ui.value.extras.spoken.again
         val practice = _ui.value.extras.spoken.practice
         if (!empty && text.isNotEmpty()) {

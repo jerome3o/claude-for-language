@@ -66,6 +66,24 @@ describe('SpokenAnswerController', () => {
     expect(t.answers[0]).toMatchObject({ transcript: '油', reviewed: false });
   });
 
+  it("tidy: a word card's transcript loses the recogniser's trailing 。 on the review and in the answer; nothing but 。 is empty", async () => {
+    const t = setup({ skipReview: false, live: fakeLive('撤销。') });
+    t.deps.tidy = (text) => text.replace(/[。！？]+$/, '');
+    await t.c.start();
+    t.c.stop();
+    await flush();
+    expect(t.c.current).toMatchObject({ phase: 'review', finalText: '撤销' });
+    t.c.submit();
+    expect(t.answers[0]).toMatchObject({ text: '撤销', transcript: '撤销' });
+
+    const e = setup({ skipReview: false, live: fakeLive('。') });
+    e.deps.tidy = (text) => text.replace(/[。！？]+$/, '');
+    await e.c.start();
+    e.c.stop();
+    await flush();
+    expect(e.c.current).toMatchObject({ phase: 'failed', failure: 'empty' });
+  });
+
   describe('the review step (the default)', () => {
     it('stop → review: the transcript waits, nothing checked or reported until Submit', async () => {
       const t = setup({ skipReview: false });

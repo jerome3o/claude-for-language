@@ -8,8 +8,28 @@ import {
   spokenPinyinKey,
   spokenSyllables,
   spokenVerdictNote,
+  tidySpokenTranscript,
   tonelessPinyin,
 } from './answer';
+
+describe('tidySpokenTranscript', () => {
+  it("drops the recogniser's trailing 。 on a word card, its pinyin too", () => {
+    expect(tidySpokenTranscript('撤销。', '撤销')).toBe('撤销');
+    expect(tidySpokenTranscript('chè xiāo。', '撤销')).toBe('chè xiāo');
+    expect(tidySpokenTranscript(' 好的！！ ', '好的')).toBe('好的');
+    expect(tidySpokenTranscript('再见…', '再见')).toBe('再见');
+    expect(tidySpokenTranscript('。', '撤销')).toBe('');
+  });
+  it('keeps it when the answer is a sentence ending in punctuation, and never touches the middle', () => {
+    expect(tidySpokenTranscript('你好吗？', '你好吗？')).toBe('你好吗？');
+    expect(tidySpokenTranscript('他来了。', '他来了！')).toBe('他来了。');
+    expect(tidySpokenTranscript('撤。销', '撤销')).toBe('撤。销');
+  });
+  it('a tidied answer checks exact instead of punctuation-only', () => {
+    expect(checkSpokenAnswer('撤销。', '撤销')).toBe('punctuation_only');
+    expect(checkSpokenAnswer(tidySpokenTranscript('撤销。', '撤销'), '撤销')).toBe('exact');
+  });
+});
 
 describe('checkTypedAnswer (the AnswerDiff decision)', () => {
   it('exact, punctuation-only, equivalent, alternative, wrong', () => {

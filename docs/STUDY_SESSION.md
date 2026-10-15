@@ -617,13 +617,13 @@ Lab: `peek` / `keepTaps` in `ui/study/CardStage.kt` (`PeekFlipTest`).
 **Record again reads from the question.** On the answer side of a read card, **🎤 Record again**
 turns the card back to the question as the new take starts, so the word is said from the hanzi
 alone, not read off the pinyin / English. The question shows a pulsing mic, the time so far, the
-level, "Tap anywhere to stop" and **Stop** / **Cancel**; the ratings stay up. A tap anywhere on
-the card (or Stop) saves the take and turns back to the answer, where it is transcribed as usual
+level and "Tap anywhere to stop"; the footer swaps the ratings for **⏹ Stop** / **← Back** (see
+"No ratings while re-recording" below). A tap anywhere on the card (or Stop) saves the take and turns back to the answer, where it is transcribed as usual
 ("You said …", live Soniox or the upload) and **the card's own clip plays again** — the reveal's
 auto-play (the note's recordings in turn, else its clip; a clip still being made is waited for), once,
 with his own take's playback stopped — so the right pronunciation follows straight after his.
 Cancelled, or a take that came out empty, plays nothing. Back (the Android back gesture / browser back), Esc or
-Cancel throws the new take away and the answer comes back with the previous take and its result —
+← Back throws the new take away and the answer comes back with the previous take and its result —
 the previous take is replaced only when the new one is saved. Rating, FSRS and the upload are
 unchanged; the first Record on the question works as before. Web: `reRecording` /
 `renderReRecordPanel` in `StudyPage.tsx` (a history entry is pushed while recording so back
@@ -1074,20 +1074,21 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   sentence"; Lab `SpokenAnswerUiTest`, `AnswerMarksTest`, `TranscriptionTest`, `SpokenAnswerParityTest`.
 - **🎤 Say it again** (answer side, beside Play — Record again's place on a read card; only when the
   answer on the back was spoken): Record again for a spoken answer. The card turns back to the
-  question with the mic live and the live transcript in the box's place ("Tap anywhere to stop", ⏹,
-  ✕ Cancel); the previous answer / verdict is out of sight meanwhile. When the take ends it goes
-  through **the same review step**, still on the question side (🔁 Retry stays a say-again; ✏️ Edit
-  turns the transcript into a box there, focused, and Check submits it; ✕ Cancel / back keeps the
-  first answer), unless "Skip the review" is on. Submitted, it is checked with the spoken rule
+  question with the mic live and the live transcript in the box's place ("Tap anywhere to stop"; ⏹
+  Stop and ← Back in the footer); the previous answer / verdict is out of sight meanwhile. When the
+  take ends it goes through **the same review step**, still on the question side (🔁 Retry stays a
+  say-again; ✏️ Edit turns the transcript into a box there, focused, and ✓ Check submits it; ← Back /
+  back keeps the first answer), unless "Skip the review" is on. Submitted, it is checked with the spoken rule
   (`checkSpokenAnswer`; as typed when edited) and the card turns to the answer with the NEW verdict
   and "You said". The new take replaces the previous one (the review event is
   written at rating time, so the latest answer and take are what is saved), and the card's own
   clip plays once the same way as after Record again (#556: his own take's playback stops first; a
   clip still "Audio coming…" is waited for by the reveal's auto-play; never twice; nothing plays on
-  the review). ✕ / back / Esc, or rating meanwhile (also on the review), drops the new take: the
-  previous answer, verdict and take stay. A take that gives nothing stays on the question
-  ("Couldn't transcribe — tap to retry · Or keep your first answer" / "Didn't catch anything — tap
-  Retry to try again") with a wide 🔁 Retry; ✕ goes back. An edited say-again answer is a typed
+  the review). ← Back / back / Esc drops the new take: the previous answer, verdict and take stay
+  (a rating made meanwhile would do the same, but the footer shows no ratings then). A take that
+  gives nothing stays on the question ("Couldn't transcribe — tap to retry · Or go back to your
+  first answer" / "Didn't catch anything — tap Retry to try again") with a wide 🔁 Retry; ← Back
+  goes back. An edited say-again answer is a typed
   answer, so it has no Say it again. Offline the pill is dimmed
   and a tap says "Saying it again needs a connection." Typed answers have no Say it again. Web:
   `SpokenAnswerController.start({ again: true })` (`keepPrevious`, `restorePrevious`), `useSpokenAnswer`
@@ -1096,6 +1097,32 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   "say it again". Lab: `StudyViewModel.sayAgain` / `takeBeforeSayAgain` (+ `playWordAfterRecordAgain`),
   `SpokenUi.again` / `SpokenResult.again`, `SayAgainPill` / `SayAgainPanel` in `CardStage.kt`;
   `SayItAgainTest` (ViewModel, fake recorder + transcriber), `SayItAgainUiTest`.
+- **No ratings while re-recording** (Jerome, Oct 2026: "a few times I've accidentally clicked the
+  rating buttons instead of going back"). While a take is made AGAIN on the answer side — a read
+  card's 🎤 Record again, a typing card's 🎤 Say it again, the 🎤 Say it practice — from the mic
+  opening to Submit / Back (recording, finishing, the review, ✏️ Edit, "Couldn't transcribe"), the
+  card's footer shows **no Again / Hard / Good / Easy and no Ask Claude · Edit card · ⋯ row**: the
+  re-record's controls take their place, once (the card above only shows what is going on — time +
+  level, the live transcript, the review's hanzi + pinyin, the Edit box, the retry box). Bottom row,
+  where the ratings were: the big primary — **⏹ Stop** (Record again: "Starting…" until the mic is
+  open), "Finishing…", **✓ Submit** on the review, **✓ Check** while editing (dimmed while empty),
+  **🔁 Retry** after a take that gave nothing. Above it: **← Back** (= the answer side as it was,
+  previous answer + take kept) with **🔁 Retry · ✏️ Edit** on the review (no Edit in practice) and 🔁
+  Retry while editing. The ratings come back after Submit / Check, Stop (Record again: the take is
+  then transcribed on the answer side as usual) or Back. The footer is sticky and the page resizes
+  with the keyboard (`interactive-widget=resizes-content`; Lab `imePadding`), so with ✏️ Edit's box
+  focused the bar sits above the IME. A homework pass gets the same bar instead of Not yet / Got it.
+  The first take on the question side is unchanged (no ratings there anyway). Web:
+  `components/study/ReRecordBar.tsx` (`ReRecordBar`, `StudyCardFooter`; `reRecordBar` in
+  `StudyPage.tsx`), unit `ReRecordBar.test.tsx`, e2e `study-record-again.spec.ts` +
+  `study-speak-answer.spec.ts`. Lab: `ReRecordBar` / `ReRecordStep` in `ui/study/CardStage.kt`
+  (`RecordAgainFlipTest`, `SayItAgainUiTest`).
+- **The recogniser's trailing 。 on a word card** (撤销。 / chè xiāo。): `tidySpokenTranscript(transcript,
+  answer)` (`shared/cards/answer.ts`, Lab `AnswerKey.tidySpokenTranscript`, parity-tested in
+  `spoken-answer.ts`) drops trailing sentence punctuation from what was said when the card's answer
+  doesn't end in punctuation — on the review (hanzi + pinyin), in the answer it submits (so it checks
+  `exact`, not `punctuation_only`) and in the read card's "You said". A sentence card ending in 。 / ？
+  keeps it.
 - **🎤 Say it — practice after Show answer** (answer side, beside Play; only when 👁 Show answer
   revealed the card with nothing typed, said or picked): Jerome wants to say the word in situ even
   when he didn't know it. It runs the Say it again flow (question side, live transcript, ⏹, the

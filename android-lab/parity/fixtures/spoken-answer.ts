@@ -23,6 +23,7 @@ import {
   spokenPinyinKey,
   spokenSyllables,
   spokenVerdictNote,
+  tidySpokenTranscript,
   tonelessPinyin,
 } from '../../../shared/cards/answer';
 
@@ -169,8 +170,16 @@ const out = cases.map((c) => ({
   within: spokenAnswerWithin(c.transcript, c.correct, c.alternatives, c.note_pinyin),
   within_read: spokenAnswerWithin(c.transcript, c.correct),
   syllables: spokenSyllables(c.transcript),
+  tidy: tidySpokenTranscript(c.transcript, c.correct),
 }));
 const verdicts = ['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'close', 'wrong'] as const;
 const notes = verdicts.map((v) => ({ verdict: v, correct: '由', note: spokenVerdictNote(v, ' 由 ') }));
 const counts = Object.fromEntries(verdicts.map((v) => [v, out.filter((c) => c.spoken === v).length]));
-writeFileSync(join(OUT, 'spoken-answer.json'), JSON.stringify({ cases: out, notes, counts }));
+// The transcript as shown / used (`tidySpokenTranscript`): a word answer drops the recogniser's 。, a sentence keeps it.
+const TIDY: [string, string][] = [
+  ['撤销。', '撤销'], ['chè xiāo。', '撤销'], ['撤销。', '撤销。'], ['你好吗？', '你好吗？'], ['你好吗？', '你好吗'],
+  ['好的！！ ', '好的'], ['  再见…', '再见'], ['再见~', '再见'], ['。', '撤销'], ['', '撤销'], ['他来了，', '他来了'],
+  ['Hello.', 'hello'], ['撤销 。', ' 撤销 '], ['撤。销', '撤销'], ['撤销。', '撤销！ '], ['好', ''],
+];
+const tidy = TIDY.map(([transcript, correct]) => ({ transcript, correct, tidy: tidySpokenTranscript(transcript, correct) }));
+writeFileSync(join(OUT, 'spoken-answer.json'), JSON.stringify({ cases: out, notes, counts, tidy }));

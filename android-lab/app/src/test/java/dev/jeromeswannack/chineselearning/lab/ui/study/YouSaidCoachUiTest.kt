@@ -51,7 +51,8 @@ class YouSaidCoachUiTest : LabScreenshotTest() {
         compose.onNodeWithTag("$YOU_SAID_TAG-contains", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag(YOU_SAID_COACH_TAG, useUnmergedTree = true).assertContentDescriptionEquals(YOU_SAID_COACH_LABEL)
         compose.onNodeWithTag(YOU_SAID_COACH_TAG, useUnmergedTree = true).performClick()
-        assertEquals(listOf(sentence to "read"), opened)
+        // As shown: a word card drops the recogniser's trailing 。 (AnswerKey.tidySpokenTranscript).
+        assertEquals(listOf("它的作业由我写的" to "read"), opened)
         // ▶ plays the take it was transcribed from.
         compose.onNodeWithTag(YOU_SAID_PLAY_TAG, useUnmergedTree = true).performClick()
         assertEquals(1, plays)

@@ -229,3 +229,19 @@ export function spokenVerdictNote(verdict: AnswerVerdict, correct: string): stri
   if (verdict === 'close') return 'Close — the tones are off';
   return null;
 }
+
+/** Sentence punctuation (and whitespace) a recogniser leaves at the end of what it heard. */
+const TRAILING_SENTENCE_PUNCTUATION = /[\s。．.！!？?，,、；;：:…~～]+$/;
+
+/**
+ * What was said, as shown and used as the answer: the recogniser ends a take with 。 (撤销。 /
+ * chè xiāo。) — dropped when the card's answer itself doesn't end in punctuation (a word card); a
+ * sentence card that ends in 。 / ？ keeps it. Works on the transcript's pinyin line too (only the
+ * end of `correct` decides). The check ignores the punctuation either way (`punctuation_only`);
+ * this is so the review and "You said" read like the card. Lab: `AnswerKey.tidySpokenTranscript`.
+ */
+export function tidySpokenTranscript(transcript: string, correct: string): string {
+  const text = transcript.trim();
+  if (TRAILING_SENTENCE_PUNCTUATION.test(correct.trim())) return text;
+  return text.replace(TRAILING_SENTENCE_PUNCTUATION, '');
+}

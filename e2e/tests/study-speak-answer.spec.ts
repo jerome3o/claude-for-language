@@ -251,7 +251,7 @@ test('the answer said inside a sentence is right — the read card\'s orange "Co
   await expect(contains).toContainText('由');
   const said = page.getByTestId('you-said');
   await expect(said).toHaveAttribute('data-state', 'contains');
-  await expect(said.getByTestId('you-said-hanzi')).toHaveText('这件事由我负责。');
+  await expect(said.getByTestId('you-said-hanzi')).toHaveText('这件事由我负责'); // a word card: the recogniser's 。 is dropped
   await expect(said.getByTestId('you-said-verdict')).toHaveText('Contains the answer');
   await expect(page.getByTestId('study-card-back').locator('.diff-wrong')).toHaveCount(0);
   await expect(page.getByTestId('typed-answer-diff')).toHaveCount(0);
@@ -422,9 +422,17 @@ test('say it again: the question while the new take is said, its review there, t
   await expect(page.getByTestId('spoken-answer-sound')).toBeHidden();
   await expect(page.getByTestId('spoken-live')).toContainText('由', { timeout: 10000 });
   expect(await cardPlays(page)).toBe(afterReveal);
-  await page.getByTestId('spoken-mic').click(); // ⏹ → the review, still on the question side
+  // No ratings while re-recording: ⏹ Stop and ← Back where they were.
+  await expect(page.getByRole('button', { name: /^Good/ })).toHaveCount(0);
+  await expect(page.getByTestId('study-action-row')).toHaveCount(0);
+  await expect(page.getByTestId('study-rerecord-bar')).toBeVisible();
+  await page.getByTestId('rerecord-stop').click(); // ⏹ → the review, still on the question side
   await expect(page.getByTestId('study-sayagain').getByTestId('spoken-review-text')).toHaveText('由', { timeout: 8000 });
   await expect(page.getByTestId('study-card-back')).toBeHidden();
+  // The review's controls are in the footer, once — still no ratings.
+  await expect(page.getByTestId('spoken-review-submit')).toHaveCount(1);
+  await expect(page.getByTestId('study-rerecord-bar').getByTestId('spoken-review-submit')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Good/ })).toHaveCount(0);
   await page.waitForTimeout(400);
   expect(await cardPlays(page)).toBe(afterReveal); // nothing plays until it is submitted
   await page.getByTestId('spoken-review-submit').click();
@@ -434,15 +442,19 @@ test('say it again: the question while the new take is said, its review there, t
   await expect(page.getByTestId('study-sayagain')).toHaveCount(0);
   await expect(page.getByTestId('spoken-answer-sound')).toHaveCount(0);
   await expect(page.locator('.answer-diff').first()).toBeVisible();
+  // Submitted: the ratings are back, the bar is gone.
+  await expect(page.getByRole('button', { name: /^Good/ }).first()).toBeVisible();
+  await expect(page.getByTestId('study-rerecord-bar')).toHaveCount(0);
   await expect.poll(() => cardPlays(page)).toBe(afterReveal + 1);
   await page.waitForTimeout(1000);
   expect(await cardPlays(page)).toBe(afterReveal + 1);
 
-  // Say it again → ✕ Cancel: back to the answer, the 由 result unchanged, nothing played.
+  // Say it again → ← Back: back to the answer, the 由 result unchanged, nothing played, the ratings back.
   await page.getByTestId('spoken-say-again').click();
   await expect(page.getByTestId('spoken-live')).toContainText('有', { timeout: 10000 });
-  await page.getByTestId('spoken-cancel').click();
+  await page.getByTestId('rerecord-back').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Good/ }).first()).toBeVisible();
   await expect(page.getByTestId('spoken-answer-sound')).toHaveCount(0);
   await expect(page.locator('.answer-diff-spoken-note--close')).toHaveCount(0);
   await page.waitForTimeout(800);
@@ -477,8 +489,10 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   await expect(page.getByTestId('study-sayagain')).toBeVisible();
   await expect(page.getByTestId('study-card-back')).toBeHidden();
   await expect(page.getByTestId('spoken-live')).toContainText('由我负责', { timeout: 10000 });
-  await page.getByTestId('spoken-mic').click();
-  await expect(page.getByTestId('study-sayagain').getByTestId('spoken-review-text')).toHaveText('这件事由我负责。', { timeout: 8000 });
+  await expect(page.getByRole('button', { name: /^Again/ })).toHaveCount(0);
+  await page.getByTestId('rerecord-stop').click();
+  // A word card: the recogniser's trailing 。 is not shown.
+  await expect(page.getByTestId('study-sayagain').getByTestId('spoken-review-text')).toHaveText('这件事由我负责', { timeout: 8000 });
   await expect(page.getByTestId('spoken-review-edit')).toHaveCount(0);
   await page.getByTestId('spoken-review-submit').click();
 
@@ -494,7 +508,7 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   // Again: a wrong word — red, still only "You said".
   await practice.click();
   await expect(page.getByTestId('spoken-live')).toContainText('有', { timeout: 10000 });
-  await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('rerecord-stop').click();
   await page.getByTestId('spoken-review-submit').click();
   await expect(page.getByTestId('practice-you-said').getByTestId('you-said')).toHaveAttribute('data-state', 'miss', { timeout: 8000 });
   await expect(page.locator('.answer-diff')).toHaveCount(0);
@@ -541,7 +555,7 @@ test('the orange "You said" box: the round ✎ Check in Coach opens the sentence
   await coach.click();
   await expect(page).toHaveURL(/\/coach/);
   await expect.poll(() => started.length, { timeout: 10000 }).toBe(1);
-  expect(started[0]).toMatchObject({ text: '它的作业由我写的。', action: 'check' });
+  expect(started[0]).toMatchObject({ text: '它的作业由我写的', action: 'check' });
 
   await page.getByTestId('coach-back-to-card').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 30000 });
