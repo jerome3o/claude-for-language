@@ -46,6 +46,18 @@ class ExerciseEnv(
     /** One conversation line in its voice / provider rate / delivery, awaited; regenerate = make it again first. */
     val playLine: suspend (clip: dev.jeromeswannack.chineselearning.lab.core.ConversationClip, regenerate: Boolean) -> Boolean = { _, _ -> false },
     val stopAudio: () -> Unit = {},
+    /**
+     * Runs while a lesson is open (docs/AUDIO.md "Lesson audio prefetch"): every clip it can play
+     * that the phone doesn't have yet is fetched — the exercise in [current] first, refocused as it
+     * changes. Not in the editor (its text changes as it is typed).
+     */
+    val prefetchLesson: suspend (spec: dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec, current: kotlinx.coroutines.flow.StateFlow<Int>) -> Unit = { _, _ -> },
+    /** The exercise changed: a clip still on its way is dropped — it never plays on a later exercise. */
+    val exerciseChanged: () -> Unit = {},
+    /** A lesson opened: its audio counts start from zero. */
+    val lessonAudioOpened: () -> Unit = {},
+    /** The lesson closed: analytics `lesson.audio` with this run's counts (nothing when nothing was spoken). */
+    val lessonAudioDone: (source: String) -> Unit = {},
     /** What is playing now (for lit-up buttons). */
     val playing: String? = null,
     /** An R2 image key → a local file (cached / downloaded), or null. */

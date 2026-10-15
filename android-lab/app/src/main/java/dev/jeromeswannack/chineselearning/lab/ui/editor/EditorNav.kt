@@ -115,7 +115,8 @@ private fun LessonEditorRoute(nav: LabNav, target: String, id: String) {
             onRawJson = vm::applyRawJson,
             onArchive = if (ui.isOwner) ({ vm.archiveOrDelete { nav.open(if (target == "library") Routes.LIBRARY else Routes.lessons()) } }) else null,
             speak = speak,
-            previewEnv = rememberExerciseEnv(app, preview = true),
+            // The editor's text changes as it is typed: no audio prefetch from its preview.
+            previewEnv = rememberExerciseEnv(app, preview = true, prefetch = false),
             chat = EditorChatActions(
                 onDraft = vm.chat::setDraft,
                 onSend = { text -> spec?.let { vm.chat.send(text, it, pendingChangesFor(chat.messages, it, EditorChatKind.LESSON)) } },

@@ -331,25 +331,41 @@ class LessonStore(
 
     suspend fun pendingMediaCount(): Int = cache.get(MEDIA, mediaSerializer).orEmpty().count { !it.synced }
 
-    /** `prefetchCustomLessonMedia`: every clip and illustration of the lessons coming up. */
+    /**
+     * `lessonsForPrefetch`: the lessons whose audio the sync keeps on the phone (core
+     * `LessonAudioClips.lessonsToPrefetch`) — today's, every lesson with open homework (a one-off
+     * pass is never in today's rotation, so it was never prefetched), the locked / unlocked ones
+     * and the next few new ones.
+     */
+    suspend fun lessonsForPrefetch(cutoff: StudyCutoff): List<LessonEntry> {
+        val all = entries()
+        val byId = all.associateBy { it.id }
+        val ids = dev.jeromeswannack.chineselearning.lab.core.LessonAudioClips.lessonsToPrefetch(
+            todays = dueLessons(cutoff).map { it.id },
+            homework = homework.refs(),
+            lessons = all.map { dev.jeromeswannack.chineselearning.lab.core.LessonAudioClips.PrefetchRow(it.id, it.lesson.createdAt, it.state.finishes, it.retired, it.lockStatus) },
+        )
+        return ids.mapNotNull { byId[it] }
+    }
+
+    /**
+     * `prefetchCustomLessonMedia`: every clip a coming-up lesson can play (core `LessonAudioClips`
+     * — default-voice texts and conversation lines in this account's voices / speed / delivery),
+     * [LessonAudioPrefetcher.CONCURRENCY] at a time, so each plays the moment it is asked for; stroke
+     * data for handwriting and every lesson's pictures.
+     */
     suspend fun prefetchMedia(online: Boolean) {
         if (!online) return
         val cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault())
-        // Locked lessons too: one is often unlocked on the train, right after its podcast.
-        val due = dueLessons(cutoff).let { d -> d + entries().filter { e -> e.locked && d.none { it.id == e.id } } }
+        val due = lessonsForPrefetch(cutoff)
         // Stroke-order data for handwriting, so the writing pad checks strokes offline.
         val handwritten = due.flatMap { dev.jeromeswannack.chineselearning.lab.core.StrokeQuiz.writableCharacters(Lessons.handwritingText(it.lesson.spec)) }.distinct()
         if (handwritten.isNotEmpty()) runCatching { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore(File(filesDir, "strokes")).prefetch(handwritten) }
         val voices = ConversationVoiceCache.get(cache)
         val audio = ConversationAudioCache.get(cache)
         for (entry in due) {
-            for (text in Lessons.ttsTexts(entry.lesson.spec)) {
-                if (text.isBlank()) continue
-                media.tts(text, online = true)
-            }
-            // Conversation lines in this account's voices / speed / delivery (the ⚙︎ Audio menu).
-            val clips = dev.jeromeswannack.chineselearning.lab.core.ConversationAudio.lessonClips(entry.lesson.spec) { ConversationAudioCache.resolve(audio, voices, it) }
-            for (clip in clips) media.conversationLine(clip, online = true)
+            val clips = dev.jeromeswannack.chineselearning.lab.core.LessonAudioClips.lessonClips(entry.lesson.spec) { ConversationAudioCache.resolve(audio, voices, it) }
+            LessonAudioPrefetcher(clips, isCached = { media.cachedClip(it) != null }, fetch = { media.clip(it, online = true) != null }).run()
         }
         // Pictures of EVERY lesson on the phone, not only today's: homework-only lessons skip
         // the session mix, and a picture drawn after the lesson first synced arrives with a later

@@ -308,6 +308,43 @@ pump at a time (a lease in the limiter DO). Crons (`wrangler.toml`, UTC):
   00:00 UTC in GMT) → night mode for 7 h (batch may use 90 %) and start the pump;
 - `37 * * * *`: nudge the pump, so the backlog keeps draining by day at low priority.
 
+## Lesson audio prefetch
+
+Oct 2026: in a homework mini lesson in the Lab app, a scramble's answer played a few seconds after
+Check — often on the next card. The clip was fetched only when it had to play: a one-off homework
+lesson is never in today's rotation, so the sync never prefetched it, and `/api/practice/tts` made it
+then and there (an R2 `tts-cache/` miss = a MiniMax call). Now every clip is on the phone before
+Check is pressed:
+
+- **One list of clips** — `lessonAudioClips(spec, resolveConversation)` (`shared/lesson/audioClips.ts`,
+  Lab `core/…/LessonAudioClips.kt`, parity-tested by `parity/fixtures/lesson-audio.ts`): per exercise,
+  the default-voice texts it speaks (`exerciseTtsTexts`: a scramble's answer, choice / match /
+  listen options, translate / describe references, note sentences, dictation, oral-expression
+  question / hints / example…) and every conversation line in its speaker's voice at the resolved
+  speed / delivery (`resolveConversationAudio`). `orderClipsForPrefetch(clips, current)` = that
+  exercise first, then the ones after it, then the earlier ones, each clip once.
+- **Sync** (`prefetchCustomLessonMedia`, Lab `LessonStore.prefetchMedia`): the lessons
+  `lessonsToPrefetch` picks — today's, every lesson with OPEN homework (one-off passes included),
+  the locked / unlocked ones and the next 3 new ones — 3 clips at a time, only while online.
+- **Opening a lesson** (web `hooks/useLessonAudio.ts` in `StudyCustomLesson`, Lab
+  `LessonRuntime.prefetchOpenLesson` from `LessonPlayer`): every clip still missing is fetched at once,
+  the exercise on screen first; moving on refocuses (`createClipPrefetcher` / `LessonAudioPrefetcher`,
+  3 at a time). Not from the editor preview (its text changes as it is typed).
+- **One request per clip**: a clip being fetched is joined, never asked for twice (web `ttsCache`'s
+  in-flight map, Lab `LessonMedia`'s per-key lock) — pressing Check while it downloads just waits.
+- **No late audio**: the player's `speak` is cache-first; when the exercise changes, a clip still on
+  its way is dropped (web `createLessonSpeaker().cancelPending`, Lab `LessonAudio.cancelPending`; its
+  download still finishes into the cache) — it never plays on a later exercise. A playing clip plays on.
+- **Server pre-generation** (`worker/src/services/lesson-audio.ts`): every write of a `custom_lessons`
+  row (create, assign / homework copy, update, push update, session-notes agent) queues
+  `{ kind: 'lesson_audio', lesson_id }` on **tts-queue**. The consumer re-reads the lesson, computes the
+  owner's clips (their conversation voices / speed / delivery, as their device resolves them) and
+  `ensurePracticeClip`s each into R2 `tts-cache/` at BATCH priority through the limiter (an R2 HEAD
+  first; stored order only); ~40 s per delivery then it sends itself again; a rate limit puts it back
+  ≥ 60 s later (≤ 20 times). So a device's fetch is an R2 hit.
+- Analytics `lesson.audio` when a lesson closes: `hits` / `misses` (fetched when asked for) /
+  `stale` (dropped late) / `max_wait_ms` / `clips` / `prefetched` — counts only.
+
 ## Devices
 
 - **Web** (`services/noteAudioEnsure.ts`, StudyPage): a card with no word / sentence clip, or a

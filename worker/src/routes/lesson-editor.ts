@@ -32,6 +32,7 @@ import { latestAttemptIds } from '../db/lesson-attempt-queries';
 import { getGradedReader } from '../db/queries';
 import { readerToSpec } from '../db/reader-editor-queries';
 import { queueLessonImages, mergeKeptImages } from '../services/custom-lesson';
+import { queueLessonAudio } from '../services/lesson-audio';
 import { prewarmLessonImages } from '../services/lesson-images';
 import { pushLibraryLessonUpdate } from '../services/lesson-push';
 import { generateLessonSpec, proposeLessonRevision, CoEditTurn } from '../services/lesson-editor';
@@ -416,6 +417,7 @@ lessonEditor.post('/lesson-library/:id/assign', async (c) => {
       assigned_relationship_id: relId,
     });
     await queueLessonImages(c.env, copy.id, spec);
+    await queueLessonAudio(c.env, copy.id);
     assigned.push({ relationship_id: relId, lesson_id: copy.id, student_id: studentId });
   }
 
@@ -503,6 +505,7 @@ lessonEditor.put('/lessons/:id', async (c) => {
   });
   if (!row) return c.json({ error: 'Lesson not found' }, 404);
   const imageJobs = await queueLessonImages(c.env, row.id, spec);
+  await queueLessonAudio(c.env, row.id);
   return c.json({ ...lessonJson(row, { is_owner: row.user_id === userId, image_jobs: imageJobs }), pinyin_fixes: pinyinFixes });
 });
 

@@ -154,7 +154,7 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
  * the recorder (not in a preview), haptics and sounds.
  */
 @Composable
-fun rememberExerciseEnv(app: LabApp, preview: Boolean = false): ExerciseEnv {
+fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean = true): ExerciseEnv {
     val runtime = remember(app) { LessonRuntime.of(app) }
     val scope = rememberCoroutineScope()
     val playing by runtime.audio.playing.collectAsState()
@@ -167,6 +167,10 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false): ExerciseEnv {
         conversationAudio = remember(app) { LabConversationAudioControls(app) },
         playLine = { clip, regenerate -> runtime.audio.playLine(clip, regenerate) },
         stopAudio = { runtime.audio.stop() },
+        prefetchLesson = { spec, current -> if (prefetch) runtime.prefetchOpenLesson(spec, current) },
+        exerciseChanged = { runtime.audio.cancelPending() },
+        lessonAudioOpened = { runtime.audio.resetStats() },
+        lessonAudioDone = { source -> runtime.reportLessonAudio(source) },
         playing = playing,
         image = { key -> runtime.media.image(key, app.online.value) },
         cachedImage = { key -> runtime.media.cachedImage(key) },

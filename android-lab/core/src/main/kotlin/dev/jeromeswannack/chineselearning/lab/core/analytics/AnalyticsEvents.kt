@@ -197,6 +197,7 @@ object AnalyticsEvents {
         ev("lesson.start", "lessons", listOf("source", "exercises")),
         ev("lesson.complete", "lessons", listOf("rating", "source", "duration_ms")),
         ev("lesson.replay", "lessons", listOf("from", "practice")),
+        ev("lesson.audio", "lessons", listOf("source", "hits", "misses", "stale", "max_wait_ms", "clips", "prefetched")),
         ev("lesson.replay_practice", "lessons", listOf("exercises", "duration_ms")),
         ev("lesson.unlock", "lessons", listOf("via", "kind")),
         ev("lesson.companion_created", "lessons", listOf("unlock", "format", "exercises", "rounds", "replaced"), server = true),

@@ -32,6 +32,10 @@ class HomeworkLink(private val cache: JsonCache, private val outbox: Outbox) {
     /** `homeworkPassTargetIds`: lessons / readers with a pass (one_off / both, not cancelled) — on top of the daily new-lesson place. */
     suspend fun homeworkPass(): Set<String> = runCatching { Homework.homeworkPassTargets(assignments()) }.getOrDefault(emptySet())
 
+    /** Every assignment as the lesson-audio prefetch reads it (core `LessonAudioClips.lessonsToPrefetch`). */
+    suspend fun refs(): List<dev.jeromeswannack.chineselearning.lab.core.LessonAudioClips.HomeworkRef> =
+        runCatching { assignments().map { dev.jeromeswannack.chineselearning.lab.core.LessonAudioClips.HomeworkRef(it.kind, it.target_id, it.status) } }.getOrDefault(emptyList())
+
     /**
      * `recordTargetDone`: a `done` pass event for each active one-off / both assignment of
      * [targetId] that has none yet. Never throws — study must not fail because of homework

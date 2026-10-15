@@ -12,10 +12,13 @@ import { ensureClip, type ClipResult, type ClipTarget, type TtsFn } from './clip
 import { priorityUserIds, selectBackfill } from './backfill';
 import { LIMITER_NAME } from './limiter';
 import { storedClipPolicy } from './config';
+import { runLessonAudioJob, type LessonAudioMessage } from '../lesson-audio';
 
 export type TtsQueueMessage =
   | { kind: 'clip'; target: ClipTarget; priority: TtsPriority; force?: boolean; attempt?: number }
-  | { kind: 'pump'; token: string; night?: boolean };
+  | { kind: 'pump'; token: string; night?: boolean }
+  /** A mini lesson's practice clips into R2 tts-cache/ (services/lesson-audio.ts). */
+  | LessonAudioMessage;
 
 /** A clip rate-limited this many times is left to the backfill. */
 export const MAX_CLIP_REQUEUES = 60;
@@ -167,6 +170,9 @@ export async function handleTtsBatch(batch: MessageBatch<TtsQueueMessage>, env: 
         if (result.status !== 'current') console.log('[tts-queue] clip', body.target.kind, body.target.id, result.status);
       } else if (body.kind === 'pump') {
         await runPumpTick(env, body);
+      } else if (body.kind === 'lesson_audio') {
+        const run = await runLessonAudioJob(env, body);
+        if (run.made > 0 || run.failed > 0 || run.next !== 'done') console.log('[tts-queue] lesson audio', body.lesson_id, JSON.stringify(run));
       }
       message.ack();
     } catch (err) {

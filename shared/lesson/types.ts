@@ -300,65 +300,70 @@ export function countScoreable(spec: CustomLessonSpec): number {
   );
 }
 
-/** All Chinese text in a lesson that should get TTS prefetched for offline use. */
-export function lessonTtsTexts(spec: CustomLessonSpec): string[] {
+/**
+ * The Chinese texts one exercise speaks in the default lesson voice (Check / reveal /
+ * tap / autoplay), in the order the exercise plays them. Conversation lines are spoken
+ * in per-speaker voices — see lessonConversationClips / lessonAudioClips.
+ */
+export function exerciseTtsTexts(ex: LessonExercise): string[] {
   const texts: string[] = [];
-  for (const section of spec.sections) {
-    for (const ex of section.exercises) {
-      switch (ex.type) {
-        case 'note':
-          for (const s of ex.sentences ?? []) texts.push(s.hanzi);
-          break;
-        case 'scramble':
-          texts.push(ex.correct_order.join(''));
-          break;
-        case 'choice':
-          for (const o of ex.options) texts.push(o.hanzi);
-          break;
-        case 'translate':
-          texts.push(ex.reference_hanzi);
-          break;
-        case 'match':
-          for (const p of ex.pairs) texts.push(p.hanzi);
-          break;
-        case 'describe_image':
-          texts.push(ex.reference_hanzi);
-          break;
-        case 'speak':
-          if (ex.example) texts.push(ex.example.hanzi);
-          break;
-        case 'listen_choice':
-          // The played audio is the exercise; option hanzi are speakable after
-          // answering, so cache those too.
-          texts.push(ex.audio.hanzi);
-          for (const o of ex.options) texts.push(o.hanzi);
-          break;
-        case 'listen_translate':
-          texts.push(ex.audio.hanzi);
-          break;
-        case 'sentence_making':
-          for (const w of ex.words) texts.push(w.hanzi);
-          if (ex.example) texts.push(ex.example.hanzi);
-          break;
-        case 'write_typed':
-        case 'write_handwriting':
-          texts.push(ex.answer.hanzi);
-          break;
-        case 'dictation':
-          texts.push(ex.audio.hanzi);
-          break;
-        case 'oral_expression':
-          if (ex.question_audio) texts.push(ex.question_audio.hanzi);
-          for (const w of ex.hints ?? []) texts.push(w.hanzi);
-          if (ex.example) texts.push(ex.example.hanzi);
-          break;
-        case 'conversation':
-          // Lines are spoken in per-speaker voices — see lessonTtsClips.
-          break;
-      }
-    }
+  switch (ex.type) {
+    case 'note':
+      for (const s of ex.sentences ?? []) texts.push(s.hanzi);
+      break;
+    case 'scramble':
+      texts.push(ex.correct_order.join(''));
+      break;
+    case 'choice':
+      for (const o of ex.options) texts.push(o.hanzi);
+      break;
+    case 'translate':
+      texts.push(ex.reference_hanzi);
+      break;
+    case 'match':
+      for (const p of ex.pairs) texts.push(p.hanzi);
+      break;
+    case 'describe_image':
+      texts.push(ex.reference_hanzi);
+      break;
+    case 'speak':
+      if (ex.example) texts.push(ex.example.hanzi);
+      break;
+    case 'listen_choice':
+      // The played audio is the exercise; option hanzi are speakable after
+      // answering, so cache those too.
+      texts.push(ex.audio.hanzi);
+      for (const o of ex.options) texts.push(o.hanzi);
+      break;
+    case 'listen_translate':
+      texts.push(ex.audio.hanzi);
+      break;
+    case 'sentence_making':
+      for (const w of ex.words) texts.push(w.hanzi);
+      if (ex.example) texts.push(ex.example.hanzi);
+      break;
+    case 'write_typed':
+    case 'write_handwriting':
+      texts.push(ex.answer.hanzi);
+      break;
+    case 'dictation':
+      texts.push(ex.audio.hanzi);
+      break;
+    case 'oral_expression':
+      if (ex.question_audio) texts.push(ex.question_audio.hanzi);
+      for (const w of ex.hints ?? []) texts.push(w.hanzi);
+      if (ex.example) texts.push(ex.example.hanzi);
+      break;
+    case 'conversation':
+      // Lines are spoken in per-speaker voices — see lessonTtsClips.
+      break;
   }
   return texts;
+}
+
+/** All Chinese text in a lesson that should get TTS prefetched for offline use. */
+export function lessonTtsTexts(spec: CustomLessonSpec): string[] {
+  return spec.sections.flatMap(section => section.exercises.flatMap(exerciseTtsTexts));
 }
 
 /** One clip to speak: the text and, for a conversation line, the speaker's

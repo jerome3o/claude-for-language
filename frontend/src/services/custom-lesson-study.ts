@@ -14,7 +14,7 @@
  *   (a lesson has only a handful, so they ride along with the content).
  */
 
-import { CustomLessonSpec, LessonAttemptData, lessonTtsTexts, lessonConversationClips, lockSets, type LessonUnlock } from '@shared/lesson';
+import { CustomLessonSpec, LessonAttemptData, lessonAudioClips, lessonsToPrefetch, lessonLockStatus, lockSets, type LessonUnlock } from '@shared/lesson';
 import { applyLocalUnlocks, uploadLessonUnlocks, uploadListened } from './lessonUnlock';
 import {
   pickTodaysLessons,
@@ -32,7 +32,8 @@ import {
 import { Rating, IntervalPreview } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { homeworkPassTargetIds, oneOffOnlyTargetIds, recordTargetDone } from './homework';
-import { prefetchConversationClips, prefetchTTSClips } from './ttsCache';
+import { getLessonClip, isLessonClipCached } from './ttsCache';
+import { createClipPrefetcher } from './lessonAudio';
 import { describeImageKeys } from '@shared/lesson/images';
 import { prefetchStrokeData } from './strokeData';
 import { writableCharacters } from '@shared/strokes';
@@ -384,23 +385,53 @@ export function lessonHandwritingText(spec: CustomLessonSpec): string {
   return text;
 }
 
+/** Clips fetched at once by the background prefetch (the TTS limiter paces the server). */
+const SYNC_PREFETCH_CONCURRENCY = 3;
+
 /**
- * Cache media for upcoming lessons so they work fully offline: TTS for every
- * Chinese sentence, and any generated describe_image illustrations (served
- * from the same R2 proxy as reader images, so they share the blob cache).
+ * The lessons whose audio the sync keeps on the device (`lessonsToPrefetch`): today's,
+ * every lesson with open homework (a one-off pass is never in today's rotation), the
+ * locked / unlocked ones and the next few new ones.
+ */
+export async function lessonsForPrefetch(): Promise<LocalCustomLesson[]> {
+  const [due, all, homework] = await Promise.all([
+    getDueCustomLessons(),
+    db.customLessons.toArray(),
+    db.homeworkAssignments.toArray().catch(() => []),
+  ]);
+  const byId = new Map(all.map((l) => [l.id, l]));
+  const ids = lessonsToPrefetch({
+    todays: due.map((l) => l.id),
+    homework,
+    lessons: all.map((l) => {
+      const state = rowRevisitState(l);
+      return { id: l.id, created_at: l.created_at, finishes: state.finishes, retired: state.status === 'retired', lock: lessonLockStatus(l.unlock, l.unlocked_at) };
+    }),
+  });
+  return ids.map((id) => byId.get(id)!).filter(Boolean);
+}
+
+/**
+ * Cache media for upcoming lessons so they work fully offline and every clip plays the
+ * moment it is asked for: each clip a lesson can play (`lessonAudioClips` — default-voice
+ * texts and conversation lines in this account's voices / speed / delivery), a few at a
+ * time, plus stroke data for handwriting and any generated describe_image illustrations
+ * (served from the same R2 proxy as reader images, so they share the blob cache).
  */
 export async function prefetchCustomLessonMedia(): Promise<void> {
   if (!navigator.onLine) return;
 
-  // Locked lessons too: one is often unlocked on the train, right after its podcast.
-  const due = await getDueCustomLessons();
-  const locked = [...lockSets(await db.customLessons.toArray()).locked];
-  const lockedRows = (await db.customLessons.bulkGet(locked)).filter((l): l is LocalCustomLesson => !!l && !due.some(d => d.id === l.id));
-  const lessons = [...due, ...lockedRows];
+  const lessons = await lessonsForPrefetch();
   for (const lesson of lessons) {
-    await prefetchTTSClips(lessonTtsTexts(lesson.spec).map(text => ({ text })));
-    // Conversation lines in this account's voices / speed / delivery (the ⚙︎ Audio menu).
-    await prefetchConversationClips(lessonConversationClips(lesson.spec, audioForConversation));
+    if (!navigator.onLine) return;
+    const prefetcher = createClipPrefetcher({
+      clips: lessonAudioClips(lesson.spec, audioForConversation),
+      isCached: isLessonClipCached,
+      fetch: async (clip) => !!(await getLessonClip(clip)),
+      online: () => navigator.onLine,
+      concurrency: SYNC_PREFETCH_CONCURRENCY,
+    });
+    await prefetcher.done;
     // Stroke-order data for handwriting, so the writing pad checks strokes offline.
     const handwritten = lessonHandwritingText(lesson.spec);
     if (handwritten) await prefetchStrokeData(writableCharacters(handwritten)).catch(() => {});
