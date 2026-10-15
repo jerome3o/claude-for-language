@@ -346,6 +346,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons (the rating sets when it comes back)
 - `revisit_events` - "Done for good" / "Bring back" on a mini lesson (migration 0110; item_kind lesson|reader — `reader` rows are legacy and ignored since readers are read once —, item_id, action retire|restore, client id). With the ratings they make the "revisit later" schedule (`shared/study/revisit.ts`); `users.revisit_settings` = the account's gaps + `new_lessons_per_day` (JSON, NULL = defaults)
+- `lesson_answer_checks` - Claude's check of a self-assessed lesson answer, cached for everyone by SHA-256 of `answerCheckCacheText` (migration 0127; no user ids). See "Claude checks your answer" in docs/STUDY_SESSION.md
 - `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0079. See "Lesson pictures" below
 - `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0074
 - `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
@@ -1477,6 +1478,7 @@ item's assignments via `last_attempt_id`); the learner's own at `/lesson-attempt
 - `PUT /api/lesson-attempts/:id/media/:key` - Raw audio body for one recording (owner; 404 until the attempt is uploaded)
 - `GET /api/lesson-attempts[?lesson_id]`, `GET /api/lesson-attempts/:id` - Mine; `GET /api/relationships/:relId/lesson-attempts[/:id]` - the student's (tutor)
 - `POST /api/lessons/sentence-feedback` - `{ words, task?, sentence }` → `{ feedback }` (503 retryable / 502)
+- `POST /api/lessons/answer-check` - `{ prompt_en, model_answer, model_pinyin?, answer, exercise_type, input?, focus? }` → `{ check: { verdict: correct|acceptable|almost|wrong, headline, corrected, corrected_pinyin, tips: [{ text, quote? }], alternative?, suggested: got_it|missed_it }, cached, ms }` — Claude's check of a self-assessed translate / listen_translate answer (Haiku, cached for everyone in `lesson_answer_checks`, migration 0127; 400 + `problems`, 503 retryable / 502; docs/STUDY_SESSION.md "Claude checks your answer"; rules `shared/lesson/answerCheck.ts`) · `POST /api/lessons/answer-check/ask` - the same + `{ check?, history?, question }` → `{ reply }` (💬 Ask about this)
 
 **Exercise catalogue** (`/library/catalogue`, `pages/editor/ExerciseCataloguePage.tsx`, linked from the top of
 the library, More → Teaching — shown to tutor accounts, anyone with students or library items, and admins whatever

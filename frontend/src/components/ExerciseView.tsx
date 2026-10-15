@@ -26,8 +26,10 @@ import {
 /** correct is null for unscored exercises (notes). */
 export type ExerciseDone = (correct: boolean | null, answer?: ExerciseAnswer, recording?: Blob) => void;
 
-export function ExerciseView({ exercise, speak, onDone, mediaKey }: {
+export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
   exercise: LessonExercise;
+  /** The lesson's title / grammar point, for Claude's answer check. */
+  focus?: string;
   speak: (text: string) => void;
   onDone: ExerciseDone;
   /** Where a recording made in this exercise is kept (oral expression). */
@@ -42,7 +44,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey }: {
     case 'choice':
       return <ChoiceExercise question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} speak={speak} onNext={onNext} />;
     case 'translate':
-      return <TranslateExercise english={exercise.english} referenceHanzi={exercise.reference_hanzi} referencePinyin={exercise.reference_pinyin} note={exercise.note} speak={speak} onNext={onNext} />;
+      return <TranslateExercise english={exercise.english} referenceHanzi={exercise.reference_hanzi} referencePinyin={exercise.reference_pinyin} note={exercise.note} focus={focus} speak={speak} onNext={onNext} />;
     case 'match':
       return <MatchExercise pairs={exercise.pairs} speak={speak} onNext={onNext} />;
     case 'describe_image':
@@ -63,7 +65,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey }: {
     case 'listen_choice':
       return <ListenChoiceExercise audio={exercise.audio} question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} speak={speak} onNext={onNext} />;
     case 'listen_translate':
-      return <ListenTranslateExercise audio={exercise.audio} note={exercise.note} speak={speak} onNext={onNext} />;
+      return <ListenTranslateExercise audio={exercise.audio} note={exercise.note} focus={focus} speak={speak} onNext={onNext} />;
     case 'sentence_making':
       return <SentenceMakingExercise words={exercise.words} task={exercise.task} input={exercise.input} example={exercise.example} speak={speak} onNext={onNext} />;
     case 'write_typed':

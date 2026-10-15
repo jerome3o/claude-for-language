@@ -233,6 +233,7 @@ export function StudyCustomLesson({
         exercise={item.exercise}
         speak={speak}
         mediaKey={preview ? undefined : exerciseMediaKey(item.section, item.index)}
+        focus={lesson.title}
         onDone={advance}
       />
     );

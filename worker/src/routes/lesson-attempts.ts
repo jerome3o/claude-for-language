@@ -3,6 +3,8 @@
  * helpers that need the server. Mounted under /api after the auth middleware.
  *
  *   POST /lessons/sentence-feedback                      Claude checks a sentence_making answer (503 retryable / 502)
+ *   POST /lessons/answer-check                           Claude checks a self-assessed answer (translate / listen_translate; cached)
+ *   POST /lessons/answer-check/ask                       💬 Ask about this: a short follow-up about that answer
  *   PUT  /lesson-attempts/:id/media/:key                 upload a recording made in an attempt (raw body; owner only)
  *   GET  /lesson-attempts[?lesson_id]                    my attempts, newest first
  *   GET  /lesson-attempts/:id                            one of my attempts: spec snapshot, answers, recordings
@@ -22,6 +24,9 @@ import type { Env } from '../types';
 import * as q from '../db/lesson-attempt-queries';
 import { storeAudio } from '../services/audio';
 import { checkMadeSentence } from '../services/sentence-making';
+import { checkLessonAnswer, askAboutAnswer, type AskTurn } from '../services/answer-check';
+import { fakeAnswerCheckClient } from '../services/answer-check-fake';
+import { pickAnswerCheckInput, parseAnswerCheck } from '@shared/lesson/answerCheck';
 import { StructuredCallError } from '../services/structured-call';
 import { transcribeAudio, pickTranscriber } from '../services/calls/transcribe';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
@@ -52,6 +57,58 @@ lessonAttempts.post('/lessons/sentence-feedback', async (c) => {
       { error: retryable ? 'Claude is busy right now — try again in a moment.' : 'Claude couldn’t check this one.', retryable },
       retryable ? 503 : 502,
     );
+  }
+});
+
+// ============ Self-assessed answers: Claude's check ============
+
+/** E2E_TEST_MODE answers with the fake model (services/answer-check-fake.ts) whatever key is set. */
+function answerCheckDeps(env: Env) {
+  if (env.E2E_TEST_MODE === 'true') return { apiKey: 'e2e', client: fakeAnswerCheckClient() };
+  return env.ANTHROPIC_API_KEY ? { apiKey: env.ANTHROPIC_API_KEY } : null;
+}
+
+function structuredFailure(c: Context<AppEnv>, error: unknown, what: string) {
+  console.error(`[lesson] ${what} failed:`, error);
+  const retryable = !(error instanceof StructuredCallError) || error.retryable;
+  return c.json(
+    { error: retryable ? 'Claude is busy right now — try again in a moment.' : 'Claude couldn’t check this one.', retryable },
+    retryable ? 503 : 502,
+  );
+}
+
+lessonAttempts.post('/lessons/answer-check', async (c) => {
+  const deps = answerCheckDeps(c.env);
+  if (!deps) return c.json({ error: 'Claude isn’t set up on this server.', retryable: false }, 503);
+  const picked = pickAnswerCheckInput(await c.req.json().catch(() => ({})));
+  if ('problems' in picked) return c.json({ error: picked.problems.join('; '), problems: picked.problems }, 400);
+  const started = Date.now();
+  try {
+    const { check, cached } = await checkLessonAnswer(c.env.DB, picked.input, deps);
+    return c.json({ check, cached, ms: Date.now() - started });
+  } catch (error) {
+    return structuredFailure(c, error, 'answer check');
+  }
+});
+
+lessonAttempts.post('/lessons/answer-check/ask', async (c) => {
+  const deps = answerCheckDeps(c.env);
+  if (!deps) return c.json({ error: 'Claude isn’t set up on this server.', retryable: false }, 503);
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  const picked = pickAnswerCheckInput(body);
+  if ('problems' in picked) return c.json({ error: picked.problems.join('; '), problems: picked.problems }, 400);
+  const question = typeof body.question === 'string' ? body.question.trim().slice(0, 500) : '';
+  if (!question) return c.json({ error: 'question is required' }, 400);
+  const history: AskTurn[] = (Array.isArray(body.history) ? body.history : [])
+    .filter((t): t is { role: string; text: string } => !!t && typeof t === 'object' && typeof (t as { text?: unknown }).text === 'string')
+    .slice(-8)
+    .map((t) => ({ role: t.role === 'assistant' ? 'assistant' as const : 'user' as const, text: t.text.slice(0, 1500) }));
+  const check = parseAnswerCheck(body.check, picked.input.answer);
+  try {
+    const reply = await askAboutAnswer(picked.input, check, history, question, deps);
+    return c.json({ reply });
+  } catch (error) {
+    return structuredFailure(c, error, 'answer ask');
   }
 });
 

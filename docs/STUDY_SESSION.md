@@ -417,6 +417,38 @@ Lessons page under "Done for good", where **↩ Bring back** puts it back in rot
 - One-off homework passes are unchanged (not scheduled); a lesson finished in a pass records the
   same rated event, and "Done for good" is offered there too.
 
+### Claude checks your answer (self-assessed exercises)
+
+"Say it in Chinese" (`translate`) and "Listen and translate" answered in Chinese are self-assessed —
+but a learner can't always tell whether their own wording is right. So the moment the answer is final
+(✓ Check on a typed answer, the transcript's Submit on a spoken one, or Show answer with something
+typed) the app asks Claude (`POST /api/lessons/answer-check`, Haiku via `structuredCall`, forced tool,
+thinking off; `worker/src/services/answer-check.ts`) while the reveal is read:
+
+- under "🎤 You said" a slim **Checking…** row (it never blocks the buttons), then the card: the verdict
+  chip (**✓ Correct** · **✓ Also right** · **~ Almost** · **✗ Not quite**), a one-line headline, the
+  learner's OWN sentence minimally fixed as a red-pen diff (+ the app's pinyin for it — pinyin-pro +
+  the 一 / 不 tone changes, never the model's), ≤ 3 short tips quoting the Chinese at fault (tappable into
+  the language explorer), and optionally one natural / idiomatic alternative with 🔊;
+- the suggested button is ringed (correct / acceptable → Got it, almost / wrong → Missed it) — the
+  learner still decides;
+- **🔁 Try again** re-opens the answer box; the new answer is checked again and the attempt keeps every
+  try (`ExerciseAnswer.tries`, each with its check; the final one in `ExerciseAnswer.check`) — the tutor's
+  attempt review shows them;
+- **💬 Ask about this** opens a short chat inside the lesson about this exercise, the answer and the
+  check (`POST /api/lessons/answer-check/ask`), with one-tap questions (`askQuickQuestions`).
+
+The prompt never marks different-but-valid wording wrong (optional 很 / 了 / 的, a dropped subject) and
+reads a spoken answer as a speech-recognition transcript (homophones, punctuation). Checks are cached for
+everyone (`lesson_answer_checks`, SHA-256 of `answerCheckCacheText`: version, type, spoken / typed,
+prompt, model answer, the answer — punctuation-blind) and on the device (web localStorage
+`lesson-answer-checks-v1`, Lab JsonCache `lessons/answer-check/<hash>`), so a check seen once shows
+offline. Offline / failed / no key: no card — the self-assessment exactly as before. Rules:
+`shared/lesson/answerCheck.ts` (Lab `core/…/LessonAnswerCheck.kt`, parity-tested). `sentence_making`
+keeps its own check (`/api/lessons/sentence-feedback`). Analytics `lesson.answer_check` (verdict / error /
+offline, ms, cached, try), `lesson.answer_retry`, `lesson.answer_ask`. E2E_TEST_MODE answers with
+`services/answer-check-fake.ts`.
+
 ### Unlockable lessons (podcast companions, real-world tasks)
 
 Jerome (Oct 2026): after a dialogue podcast he loved, he wanted a mini lesson drilling its characters,

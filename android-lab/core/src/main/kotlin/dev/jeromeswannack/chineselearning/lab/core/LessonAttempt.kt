@@ -62,6 +62,10 @@ data class ExerciseAnswer(
     val questions: List<QuestionAnswer>? = null,
     /** How `text` was given (the voice-first box): spoken | edited | typed. */
     val input: String? = null,
+    /** Claude's check of `text` (LessonAnswerCheck), when it came back. */
+    val check: AnswerCheck? = null,
+    /** Earlier answers to this exercise (🔁 Try again), oldest first, each with its check. */
+    val tries: List<AnswerTry>? = null,
 )
 
 @Serializable

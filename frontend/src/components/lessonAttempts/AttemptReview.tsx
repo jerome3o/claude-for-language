@@ -21,6 +21,8 @@ import type { AttemptDetail, AttemptMedia } from '../../api/lessonPractice';
 import { StrokesView } from '../handwriting/StrokesView';
 import { StrokeRunView } from './StrokeRunView';
 import { RecordingButton } from '../../pages/tutor/tutor-shared';
+import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
+import type { ExerciseAnswer } from '@shared/lesson';
 import './attempts.css';
 
 type ExerciseAnswerInput = 'spoken' | 'edited' | 'typed';
@@ -78,6 +80,20 @@ function Verdict({ attempt }: { attempt: ExerciseAttempt }) {
   );
 }
 
+/** Every earlier try (🔁 Try again) with its own check; the final answer's check follows its row. */
+function CheckRows({ a }: { a: ExerciseAnswer }) {
+  return (
+    <>
+      {a.tries?.map((t, i) => (
+        <Row key={i} label={`Try ${i + 1}`}>
+          <span lang="zh-CN">{t.text}</span>
+          {t.check && <AnswerCheckBody check={t.check} answer={t.text} compact />}
+        </Row>
+      ))}
+    </>
+  );
+}
+
 function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | undefined; attempt: ExerciseAttempt; media: AttemptMedia | undefined }) {
   const a = attempt.answer ?? {};
   if (!exercise) return <p className="att-muted">This exercise is no longer in the lesson.</p>;
@@ -109,15 +125,19 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
       return (
         <>
           <Row label="English">{exercise.english}</Row>
+          <CheckRows a={a} />
           <Row label={answerInputLabel(a.input)}>{a.text ? <span lang="zh-CN">{a.text}</span> : '(said it / no text)'}</Row>
           <Row label="Reference"><span lang="zh-CN">{exercise.reference_hanzi}</span></Row>
+          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact /></Row>}
         </>
       );
     case 'listen_translate':
       return (
         <>
           <Row label="Played"><Sentence s={exercise.audio} /></Row>
+          <CheckRows a={a} />
           <Row label={answerInputLabel(a.input, 'Their answer')}>{a.text || '(in their head)'}</Row>
+          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact /></Row>}
           {a.plays !== undefined && <Row label="Listened">{a.plays}×</Row>}
         </>
       );

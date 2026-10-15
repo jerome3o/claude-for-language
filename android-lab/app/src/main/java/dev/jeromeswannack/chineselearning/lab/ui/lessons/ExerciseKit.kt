@@ -152,13 +152,17 @@ fun Reference(sentence: LessonSentence, env: ExerciseEnv, label: String? = null)
     }
 }
 
-/** Two self-assessment buttons with the question above them. */
+/**
+ * Two self-assessment buttons with the question above them. [suggested] = Claude's answer check
+ * suggests one (true = yes, false = no): it is ringed — the learner still decides.
+ */
 @Composable
-fun SelfAssess(question: String, no: String = "✗ Not quite", yes: String = "✓ Got it", onAnswer: (Boolean) -> Unit) {
+fun SelfAssess(question: String, no: String = "✗ Not quite", yes: String = "✓ Got it", suggested: Boolean? = null, onAnswer: (Boolean) -> Unit) {
     Explanation(question)
+    val ring = Modifier.border(3.dp, Violet.copy(alpha = 0.55f), RoundedCornerShape(22.dp))
     ActionRow {
-        Secondary(no) { onAnswer(false) }
-        Primary(yes) { onAnswer(true) }
+        SecondaryPill(no, Modifier.weight(1f).heightIn(min = 54.dp).then(if (suggested == false) ring else Modifier)) { onAnswer(false) }
+        PrimaryPill(yes, Modifier.weight(1f).heightIn(min = 54.dp).then(if (suggested == true) ring else Modifier)) { onAnswer(true) }
     }
 }
 

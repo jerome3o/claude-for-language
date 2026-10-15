@@ -10,6 +10,7 @@
  */
 
 import type { LessonSentence } from './types';
+import { parseAnswerCheck, type AnswerCheck, type AnswerTry } from './answerCheck';
 
 /** Handwriting as vector strokes — small, and re-drawable at any size. */
 export interface HandwritingStrokes {
@@ -87,6 +88,10 @@ export interface ExerciseAnswer {
   /** A recording made in this exercise, uploaded under this media key. */
   recording?: { media_key: string; duration_ms: number; mime?: string };
   feedback?: SentenceFeedback;
+  /** Claude's check of `text` (shared/lesson/answerCheck.ts), when it came back. */
+  check?: AnswerCheck;
+  /** Earlier answers to this exercise (🔁 Try again), oldest first, each with its check. */
+  tries?: AnswerTry[];
   /** Conversation: one entry per question. */
   questions?: Array<{ choice?: number; text?: string; correct: boolean | null }>;
 }
@@ -273,6 +278,24 @@ function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
           : undefined,
       };
     }
+  }
+  if (isRecord(v.check) && out.text) {
+    const check = parseAnswerCheck(v.check, out.text);
+    if (check) out.check = check;
+  }
+  if (Array.isArray(v.tries)) {
+    const tries: AnswerTry[] = [];
+    for (const t of v.tries.slice(0, 10)) {
+      if (!isRecord(t)) continue;
+      const text = str(t.text, 300);
+      if (!text) continue;
+      const tr: AnswerTry = { text };
+      if (t.input === 'spoken' || t.input === 'edited' || t.input === 'typed') tr.input = t.input;
+      const check = isRecord(t.check) ? parseAnswerCheck(t.check, text) : null;
+      if (check) tr.check = check;
+      tries.push(tr);
+    }
+    if (tries.length) out.tries = tries;
   }
   if (Array.isArray(v.questions)) {
     out.questions = v.questions.slice(0, 10).map(q => {
