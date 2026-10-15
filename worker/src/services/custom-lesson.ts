@@ -13,6 +13,7 @@ import { CustomLessonSpec, validateLessonSpec, LESSON_EXERCISE_DOC, LESSON_AUTHO
 import { Env } from '../types';
 import * as db from '../db/queries';
 import { queueLessonImages } from './lesson-images';
+import { queueLessonAudio } from './lesson-audio';
 import { fixSpecPinyin, logPinyinFixes, pinyinSources, type PinyinFix } from './pinyin-check';
 
 /**
@@ -78,6 +79,7 @@ export async function createCustomLessonFromSpec(
   });
 
   const imageJobs = await queueLessonImages(env, lesson.id, spec);
+  await queueLessonAudio(env, lesson.id);
   void trackServer('server.content_created', { kind: 'lesson', count: 1, via: source }, { env, userId });
   return { ok: true, lesson, imageJobs, pinyinFixes };
 }
@@ -119,6 +121,7 @@ export async function updateCustomLessonFromSpec(
   if (!lesson) return { ok: false, notFound: true, errors: ['Lesson not found'] };
 
   const imageJobs = await queueLessonImages(env, lesson.id, spec);
+  await queueLessonAudio(env, lesson.id);
   return { ok: true, lesson, imageJobs, pinyinFixes };
 }
 

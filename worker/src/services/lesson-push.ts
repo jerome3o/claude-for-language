@@ -10,6 +10,7 @@ import type { Env } from '../types';
 import { canonicalJson, lessonToExportSpec, type CustomLessonSpec } from '@shared/lesson';
 import * as lib from '../db/lesson-library-queries';
 import { mergeKeptImages, queueLessonImages } from './custom-lesson';
+import { queueLessonAudio } from './lesson-audio';
 
 /** Two specs are "the same lesson content" ignoring server-filled fields. */
 export function sameLessonContent(a: CustomLessonSpec, b: CustomLessonSpec): boolean {
@@ -48,6 +49,7 @@ export async function pushLibraryLessonUpdate(env: Env, userId: string, itemId: 
       spec: JSON.stringify(next),
     });
     out.image_jobs += await queueLessonImages(env, row.id, next);
+    await queueLessonAudio(env, row.id);
     out.updated++;
     out.copies.push({ lesson_id: row.id, relationship_id: row.assigned_relationship_id ?? null, student_name: student, updated: true });
   }

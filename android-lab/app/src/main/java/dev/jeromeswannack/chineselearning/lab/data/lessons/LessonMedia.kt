@@ -5,12 +5,16 @@ import dev.jeromeswannack.chineselearning.lab.Config
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.core.ConversationClip
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.core.LessonAudioClip
 import dev.jeromeswannack.chineselearning.lab.data.api.conversationLineTts
 import dev.jeromeswannack.chineselearning.lab.data.api.practiceTts
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Offline media for lessons and readers (the web's ttsCache.ts + the blob cache for
@@ -30,6 +34,14 @@ class LessonMedia(filesDir: File, private val api: Api) {
 
     private fun speedText(speed: Double) = if (speed == Math.floor(speed)) speed.toLong().toString() else speed.toString()
 
+    /**
+     * One request per clip (the web's in-flight map in ttsCache.ts): a clip the lesson prefetch
+     * is fetching is waited for — pressing Check while it downloads never asks for it twice.
+     */
+    private val inflight = ConcurrentHashMap<String, Mutex>()
+
+    private suspend inline fun <T> once(key: String, block: () -> T): T = inflight.getOrPut(key) { Mutex() }.withLock { block() }
+
     private fun fileFor(dir: File, key: String) = File(dir, key.replace(Regex("[^A-Za-z0-9._-]"), "_"))
 
     /** The cached clip for [key] (see [ttsKey] / reader page keys), or null. */
@@ -43,6 +55,10 @@ class LessonMedia(filesDir: File, private val api: Api) {
         if (text.isBlank()) return null
         if (!regenerate) cachedTts(key)?.let { return it }
         if (!online) return null
+        return once(key) { if (regenerate) fetchTts(text, voice, speed, key) else cachedTts(key) ?: fetchTts(text, voice, speed, key) }
+    }
+
+    private suspend fun fetchTts(text: String, voice: String?, speed: Double, key: String): File? {
         return try {
             val res = api.practiceTts(text, speed, voice)
             withContext(Dispatchers.IO) {
@@ -81,6 +97,10 @@ class LessonMedia(filesDir: File, private val api: Api) {
         val cached = cachedTts(key)
         if (cached != null && (!regenerate || !online)) return cached
         if (!online) return null
+        return once(key) { if (regenerate) fetchLine(clip, key, cached, true) else cachedTts(key) ?: fetchLine(clip, key, cached, false) }
+    }
+
+    private suspend fun fetchLine(clip: ConversationClip, key: String, cached: File?, regenerate: Boolean): File? {
         return try {
             val res = api.conversationLineTts(clip.text, clip.voice!!, clip.speed, clip.delivery, regenerate)
             withContext(Dispatchers.IO) {
@@ -95,6 +115,22 @@ class LessonMedia(filesDir: File, private val api: Api) {
             throw e
         } catch (e: Exception) {
             cached
+        }
+    }
+
+    // ---- Lesson clips (core LessonAudioClips; docs/AUDIO.md "Lesson audio prefetch") ----
+
+    /** The file [clip] is kept in on this phone (the key `speak` / the conversation player read). */
+    fun cachedClip(clip: LessonAudioClip): File? =
+        clip.conversationClip()?.let { cachedTts(conversationKey(it)) } ?: if (clip.isConversation) null else cachedTts(ttsKey(clip.text, clip.speed ?: DEFAULT_SPEED, clip.voice ?: DEFAULT_VOICE))
+
+    /** Cache-first: a lesson clip from the phone, else fetched and kept; null offline / on failure. */
+    suspend fun clip(clip: LessonAudioClip, online: Boolean): File? {
+        val line = clip.conversationClip()
+        return when {
+            line != null -> conversationLine(line, online)
+            clip.isConversation -> null
+            else -> tts(clip.text, clip.voice, clip.speed ?: DEFAULT_SPEED, online = online)
         }
     }
 

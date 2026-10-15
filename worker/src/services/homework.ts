@@ -31,6 +31,7 @@ import * as content from './content';
 import { shareDeck } from './conversations';
 import { shareReader } from './shared-readers';
 import { queueLessonImages } from './custom-lesson';
+import { queueLessonAudio } from './lesson-audio';
 import { getLink } from '../db/homework-links-queries';
 import { cleanLinkNote } from '@shared/homework';
 import { scheduleAssignedEmail } from './homework-emails';
@@ -169,6 +170,7 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
             assigned_relationship_id: input.relationshipId,
           });
           await queueLessonImages(env, copy.id, spec);
+          await queueLessonAudio(env, copy.id);
           targetId = copy.id;
         }
         for (const r of assignmentRowsFor({ kind: 'lesson', mode: item.mode, title: item.title ?? spec.title, due_date: item.due_date ?? null }, null, input.today)) {

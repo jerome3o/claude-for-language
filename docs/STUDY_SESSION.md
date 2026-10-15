@@ -449,6 +449,13 @@ real thing: "Watch episode 3 of …", "Go to a restaurant and order 打包"). `s
   lessons' media is prefetched too (one is often unlocked on the train).
 - Analytics `lesson.unlock { via, kind }`; `lesson.companion_created` (server).
 
+
+**Audio plays the moment it's asked for** (docs/AUDIO.md "Lesson audio prefetch"): every clip a
+lesson can play is on the device before it opens — the sync fetches today's lessons, every lesson
+with open homework, locked / unlocked ones and the next few new ones; opening a lesson fetches
+whatever is still missing, the exercise on screen first; the server makes a lesson's clips when it
+is created / assigned / updated. A clip that arrives after the learner moved on is dropped, never
+played over the next exercise.
 ## Graded readers: read once, one a day, listen-first
 
 Graded readers close out an all-decks session (after the cards and any mini lessons). A story is

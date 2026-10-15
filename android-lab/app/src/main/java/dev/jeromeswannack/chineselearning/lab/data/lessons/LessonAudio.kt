@@ -34,7 +34,7 @@ class LessonAudio(
     /** The current clip follows the reader's speed chip ([changeSpeed]); lesson clips don't. */
     private var speedControlled = false
     private var job: Job? = null
-    private var claim = 0
+    @Volatile private var claim = 0
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var pendingSpeech: String? = null
@@ -50,12 +50,48 @@ class LessonAudio(
     fun speak(text: String, voice: String? = null, speed: Double? = null) {
         if (text.isBlank()) return
         val id = stopInternal()
+        val asked = System.currentTimeMillis()
+        val wasCached = media.cachedTts(media.ttsKey(text, LessonMedia.DEFAULT_SPEED, voice ?: LessonMedia.DEFAULT_VOICE)) != null
+        synchronized(this) { if (wasCached) stats.hits++ else stats.misses++ }
+        pendingClaim = id
         job = scope.launch {
             val file = media.tts(text, voice, online = online())
+            if (!wasCached) synchronized(this@LessonAudio) { stats.maxWaitMs = maxOf(stats.maxWaitMs, System.currentTimeMillis() - asked) }
+            if (pendingClaim == id) pendingClaim = null
             if (id != claim) return@launch
             if (file == null) deviceSpeak(text) else start(file, text, id, speed, null)
         }
     }
+
+    /**
+     * The lesson moved to another exercise: a clip still on its way is dropped — it never plays
+     * on the next exercise (Jerome heard a scramble's answer over the card after it). Its download
+     * carries on into the cache; a clip already playing plays on.
+     */
+    fun cancelPending() {
+        val pending = pendingClaim ?: return
+        pendingClaim = null
+        if (pending != claim) return
+        claim++
+        // Detached, not cancelled: the download finishes into the cache; the claim keeps it silent.
+        job = null
+        synchronized(this) { stats.stale++ }
+    }
+
+    /** How this lesson run's audio did so far (analytics `lesson.audio`); [resetStats] when a lesson opens. */
+    fun stats(): Stats = synchronized(this) { stats.copy() }
+
+    fun resetStats() = synchronized(this) { stats = Stats() }
+
+    fun noteClips(n: Int) = synchronized(this) { stats.clips = n }
+
+    fun notePrefetched(n: Int) = synchronized(this) { stats.prefetched += n }
+
+    /** Counts only: clips played from the phone / fetched when asked for / dropped late, the longest wait. */
+    data class Stats(var hits: Int = 0, var misses: Int = 0, var stale: Int = 0, var maxWaitMs: Long = 0, var clips: Int = 0, var prefetched: Int = 0)
+
+    private var stats = Stats()
+    @Volatile private var pendingClaim: Int? = null
 
     /**
      * One clip, awaited: true when it finished, false when it couldn't play (≤ 30 s, then moves on).

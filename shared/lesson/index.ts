@@ -30,3 +30,8 @@ export {
   companionReadyLine, LISTENED_FRACTION, UNLOCK_PROMPT_MAX, LESSON_UNLOCK_VIAS,
 } from './unlock';
 export type { LessonUnlock, LessonUnlockKind, LessonUnlockVia, LessonLockStatus, CompanionStatus } from './unlock';
+export {
+  exerciseAudioClips, lessonAudioClips, lessonClipId, orderClipsForPrefetch, distinctLessonClips, lessonsToPrefetch,
+  UPCOMING_NEW_LESSONS_PREFETCH, EMPTY_LESSON_AUDIO_STATS,
+} from './audioClips';
+export type { LessonAudioClip, LessonClipKind, ResolveConversationClips, PrefetchLessonRow, LessonAudioStats } from './audioClips';

@@ -318,30 +318,31 @@ object Lessons {
     }
 
     /** `lessonTtsTexts`: every default-voice text a lesson speaks (offline prefetch). */
-    fun ttsTexts(spec: CustomLessonSpec): List<String> {
+    fun ttsTexts(spec: CustomLessonSpec): List<String> = spec.sections.flatMap { section -> section.exercises.flatMap(::exerciseTtsTexts) }
+
+    /** `exerciseTtsTexts`: what one exercise speaks in the default lesson voice, in the order it plays them. */
+    fun exerciseTtsTexts(ex: LessonExercise): List<String> {
         val texts = ArrayList<String>()
-        for (section in spec.sections) for (ex in section.exercises) {
-            when (ex) {
-                is NoteExercise -> ex.sentences.orEmpty().forEach { texts += it.hanzi }
-                is ScrambleExercise -> texts += ex.correctOrder.joinToString("")
-                is ChoiceExercise -> ex.options.forEach { texts += it.hanzi }
-                is TranslateExercise -> texts += ex.referenceHanzi
-                is MatchExercise -> ex.pairs.forEach { texts += it.hanzi }
-                is DescribeImageExercise -> texts += ex.referenceHanzi
-                is SpeakExercise -> ex.example?.let { texts += it.hanzi }
-                is ListenChoiceExercise -> { texts += ex.audio.hanzi; ex.options.forEach { texts += it.hanzi } }
-                is ListenTranslateExercise -> texts += ex.audio.hanzi
-                is SentenceMakingExercise -> { ex.words.forEach { texts += it.hanzi }; ex.example?.let { texts += it.hanzi } }
-                is WriteTypedExercise -> texts += ex.answer.hanzi
-                is WriteHandwritingExercise -> texts += ex.answer.hanzi
-                is DictationExercise -> texts += ex.audio.hanzi
-                is OralExpressionExercise -> {
-                    ex.questionAudio?.let { texts += it.hanzi }
-                    ex.hints.orEmpty().forEach { texts += it.hanzi }
-                    ex.example?.let { texts += it.hanzi }
-                }
-                is ConversationExercise, is UnknownExercise -> Unit
+        when (ex) {
+            is NoteExercise -> ex.sentences.orEmpty().forEach { texts += it.hanzi }
+            is ScrambleExercise -> texts += ex.correctOrder.joinToString("")
+            is ChoiceExercise -> ex.options.forEach { texts += it.hanzi }
+            is TranslateExercise -> texts += ex.referenceHanzi
+            is MatchExercise -> ex.pairs.forEach { texts += it.hanzi }
+            is DescribeImageExercise -> texts += ex.referenceHanzi
+            is SpeakExercise -> ex.example?.let { texts += it.hanzi }
+            is ListenChoiceExercise -> { texts += ex.audio.hanzi; ex.options.forEach { texts += it.hanzi } }
+            is ListenTranslateExercise -> texts += ex.audio.hanzi
+            is SentenceMakingExercise -> { ex.words.forEach { texts += it.hanzi }; ex.example?.let { texts += it.hanzi } }
+            is WriteTypedExercise -> texts += ex.answer.hanzi
+            is WriteHandwritingExercise -> texts += ex.answer.hanzi
+            is DictationExercise -> texts += ex.audio.hanzi
+            is OralExpressionExercise -> {
+                ex.questionAudio?.let { texts += it.hanzi }
+                ex.hints.orEmpty().forEach { texts += it.hanzi }
+                ex.example?.let { texts += it.hanzi }
             }
+            is ConversationExercise, is UnknownExercise -> Unit
         }
         return texts
     }
