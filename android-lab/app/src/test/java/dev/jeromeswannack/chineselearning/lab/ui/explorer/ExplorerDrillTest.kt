@@ -57,7 +57,7 @@ class ExplorerDrillTest {
 
     private fun env() = ExplorerSamples.env(
         // The explorer reads the learner's cards from the device database…
-        myWord = { h -> db.dao().allNotes().firstOrNull { it.hanzi == h }; MyWord() },
+        myWord = { h, _ -> db.dao().allNotes().firstOrNull { it.hanzi == h }; MyWord() },
         play = { played += it },
         drillFx = DrillFx(right = { rights++ }, wrong = { wrongs++ }, celebrate = { celebrations++ }),
     )

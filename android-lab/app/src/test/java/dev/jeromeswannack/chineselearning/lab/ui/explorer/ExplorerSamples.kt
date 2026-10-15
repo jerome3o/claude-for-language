@@ -68,7 +68,7 @@ object ExplorerSamples {
         online: Boolean = true,
         mine: MyWord = MyWord(),
         word: WordDict.Lookup = WordDict.Lookup.Ok(yinhang),
-        myWord: (suspend (String) -> MyWord)? = null,
+        myWord: (suspend (String, Boolean) -> MyWord)? = null,
         play: (String) -> Unit = {},
         drillFx: DrillFx = DrillFx(),
     ) = ExplorerEnv(
@@ -77,7 +77,7 @@ object ExplorerSamples {
             statuses = { words, _ -> words.map { dev.jeromeswannack.chineselearning.lab.core.CharWordRow(it, statuses[it.hanzi] ?: CharWordStatus.None, emptyList(), false) } },
         ),
         wordLookup = { word },
-        myWord = myWord ?: { mine },
+        myWord = myWord ?: { _, _ -> mine },
         rank = { ranks[it] },
         decal = decals,
         online = { online },

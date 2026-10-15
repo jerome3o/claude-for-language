@@ -97,6 +97,11 @@ class ExplorerScreenshots : LabScreenshotTest() {
         }
     }
 
+    /** The first instant of a Word view: the dictionary is in, this phone's cards are still being read — a placeholder row + footer, never nothing. */
+    @Test fun wordCheckingCards() = shoot("explorer-07-word-checking-cards") {
+        overCard { WordView(ExplorerSamples.wordUi(mine = null), listOf(ExplorerSamples.item()), canOpenCard = true, canBump = true) }
+    }
+
     @Test fun wordDark() = shoot("explorer-06-word-dark", dark = true) {
         overCard { WordView(ExplorerSamples.wordUi(), listOf(ExplorerItem.Char("银"), ExplorerSamples.item()), canOpenCard = true, canBump = true) }
     }

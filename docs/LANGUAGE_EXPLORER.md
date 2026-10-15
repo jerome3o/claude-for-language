@@ -131,6 +131,20 @@ to the list header opens the one-line key: "purple top 100 · green top 1,000 ·
 A Word view opening looks up all its characters in ONE batched call (`prefetchChars`) and the
 word in one `GET /api/words`; everything already on the device renders at once.
 
+**The card tie-in never shows nothing.** While the learner's own cards are still being read the
+footer says "📚 Checking your cards…" (web `explorer-checking-cards`; Lab `EXPLORER_MINE_LOADING_TAG`
+row + a disabled footer pill) — never "+ Add as card" for a word they have — and the right
+section (📚 You have this · Open card · ⚡ Study it today, or + Add as card) replaces it as soon as
+the lookup answers. Each of the Word view's loads (dictionary, characters, cards, idiom, More
+about) applies its result to the state as it is when it lands: in the Lab app the dictionary
+lookup used to write back a copy of the state taken before its (network) call, wiping the card
+that had arrived meanwhile — the first open of a word showed no card section, a second one did
+(Oct 2026, podcast player). The Lab app keeps the learner's notes as a warm in-memory index
+(`ExplorerData.index`, rebuilt when Room's `notes` / `decks` change; read fresh after an add),
+built when a screen with tappable Chinese shows (`rememberExplorerTap`) so the first tap opens
+with its card. One tap = one open and one haptic: `ExplorerController.open` ticks itself (hosts
+don't tick too) and ignores the same word opened again within 600 ms.
+
 ## Explorable text (`shared/explorer/segments.ts`)
 
 `<ExplorableText text segments? />` (web, `components/explorer/ExplorableText.tsx`) and

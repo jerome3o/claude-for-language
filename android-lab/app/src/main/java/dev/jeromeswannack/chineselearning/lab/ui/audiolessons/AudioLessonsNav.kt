@@ -121,7 +121,7 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
                 onMusicVolume = vm::setMusicVolume,
                 onWord = { w, sentence ->
                     ExplorerStack.itemForText(w.text, w.pinyin.ifEmpty { null }, w.gloss.ifEmpty { null }, sentence)?.let { item ->
-                        app.haptics.tick()
+                        // ONE haptic per tap: the explorer's open() ticks itself.
                         explore?.invoke(item)
                     }
                 },

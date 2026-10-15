@@ -361,6 +361,13 @@
   font-size: 0.9375rem;
 }
 
+.xp-checking {
+  color: var(--color-text-light);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
 .xp-add {
   width: 100%;
 }
