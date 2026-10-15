@@ -155,6 +155,21 @@ class SpokenAnswerTest {
     }
 
     @Test
+    fun aWordCardsTranscriptLosesTheRecognisersTrailingFullStop() {
+        // Jerome's 撤销 came back as "撤销。 / chè xiāo。" on the review (the web's `tidy`).
+        StudyPrefs.get(app).spokenSkipReview = false
+        fake.live = "油。"
+        sessionVm = session()
+        val vm = sessionVm
+        vm.startSpokenAnswer()
+        vm.stopSpokenAnswer()
+        waitFor("the review") { spoken.phase == SpokenPhase.REVIEW }
+        assertEquals("油", spoken.finalText)
+        vm.submitSpokenAnswer()
+        assertEquals("油", assertNotNull(spoken.result).text)
+    }
+
+    @Test
     fun theReviewIsTheDefaultForAPhoneThatNeverTouchedTheSwitch() {
         // The store StudyPrefs reads ("lab_study"), as the old switch left it.
         val sp = StudyPrefs::class.java.getDeclaredField("sp").apply { isAccessible = true }.get(StudyPrefs.get(app)) as android.content.SharedPreferences

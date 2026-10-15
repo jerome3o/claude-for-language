@@ -98,8 +98,11 @@ class RecordAgainFlipTest : LabScreenshotTest() {
         // Read from the hanzi alone: no pinyin, no English, no "You said".
         compose.onNodeWithText(Samples.note.pinyin).assertDoesNotExist()
         compose.onNodeWithText("You said", substring = true).assertDoesNotExist()
-        // The ratings stay up, like a peek.
-        compose.onNodeWithText("Good").assertIsDisplayed()
+        // No ratings and no action row while re-recording: ⏹ Stop and ← Back where they were.
+        compose.onNodeWithText("Good").assertDoesNotExist()
+        compose.onNodeWithText("Ask Claude", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag(RERECORD_BAR_TAG).assertIsDisplayed()
+        compose.onNodeWithTag(RERECORD_STOP_TAG).assertIsDisplayed()
     }
 
     @Test fun recordAgainFlipsToTheQuestionAndATapStopsAndTurnsBack() {
@@ -130,11 +133,14 @@ class RecordAgainFlipTest : LabScreenshotTest() {
         studyScreen(previous, CardStartState(flipped = true))
         compose.onNodeWithText("🎤 Record again").performClick()
         compose.mainClock.advanceTimeBy(800)
-        compose.onNodeWithText("⏹  Stop").performClick()
+        compose.onNodeWithTag(RERECORD_STOP_TAG).performClick()
         compose.mainClock.advanceTimeBy(800)
         assertEquals(listOf("start(skip=true)", "stop"), calls)
         assertAnswerSide()
         compose.onNodeWithText("Transcribing…").assertIsDisplayed()
+        // Stopped: the ratings are back.
+        compose.onNodeWithText("Good").assertIsDisplayed()
+        compose.onNodeWithTag(RERECORD_BAR_TAG).assertDoesNotExist()
     }
 
     @Test fun backCancelsAndKeepsThePreviousTake() {
@@ -160,11 +166,14 @@ class RecordAgainFlipTest : LabScreenshotTest() {
         studyScreen(previous, CardStartState(flipped = true))
         compose.onNodeWithText("🎤 Record again").performClick()
         compose.mainClock.advanceTimeBy(800)
-        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithTag(RERECORD_BACK_TAG).performClick()
         compose.mainClock.advanceTimeBy(800)
         assertEquals(listOf("start(skip=true)", "cancel"), calls)
         assertAnswerSide()
         compose.onNodeWithText("You said", substring = true).assertIsDisplayed()
+        // Back: the ratings are back, nothing was rated.
+        compose.onNodeWithText("Good").assertIsDisplayed()
+        assertTrue("nothing rated", rated.isEmpty())
     }
 
     @Test fun theFirstRecordOnTheFrontIsUnchanged() {

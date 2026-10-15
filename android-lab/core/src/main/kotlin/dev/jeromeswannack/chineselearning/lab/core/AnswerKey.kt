@@ -296,6 +296,20 @@ object AnswerKey {
         else -> null
     }
 
+    /** Sentence punctuation (and JS whitespace) a recogniser leaves at the end of what it heard. */
+    private val TRAILING_SENTENCE_PUNCTUATION = Regex("[$JS_WS" + "。．.！!？?，,、；;：:…~～]+$")
+
+    /**
+     * Port of `tidySpokenTranscript`: what was said, as shown and used as the answer — the
+     * recogniser's trailing 。 (撤销。 / chè xiāo。) is dropped when the card's answer doesn't end in
+     * punctuation (a word card); a sentence card keeps it. Works on the pinyin line too.
+     */
+    fun tidySpokenTranscript(transcript: String, correct: String): String {
+        val text = jsTrim(transcript)
+        if (TRAILING_SENTENCE_PUNCTUATION.containsMatchIn(jsTrim(correct))) return text
+        return TRAILING_SENTENCE_PUNCTUATION.replace(text, "")
+    }
+
     /** The verdict's name in shared/cards/answer.ts (`AnswerVerdict`), for parity tests and analytics. */
     fun verdictName(v: Verdict): String = v.name.lowercase(java.util.Locale.ROOT)
 }

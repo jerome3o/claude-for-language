@@ -101,6 +101,11 @@ export interface SpokenAnswerDeps {
   isOnline(): boolean;
   /** Settings → "Skip the review — submit spoken answers as soon as I stop" (off by default). */
   skipReview(): boolean;
+  /**
+   * The transcript as shown and used (`tidySpokenTranscript` against the card's answer: a word card
+   * drops the recogniser's trailing 。). Identity when absent.
+   */
+  tidy?(text: string): string;
   onState(state: SpokenAnswerState): void;
   onResult(answer: SpokenAnswer): void;
   /** The live stream was refused (key etc.): reason as given, for the key cache. */
@@ -302,7 +307,8 @@ export class SpokenAnswerController {
   private land(outcome: TakeOutcome, streamed: boolean) {
     const ms = Math.max(0, this.now() - this.stoppedAt);
     const { again, practice } = this.state;
-    const text = outcome.kind === 'done' ? outcome.text.trim() : '';
+    const heard = outcome.kind === 'done' ? outcome.text.trim() : '';
+    const text = heard && this.deps.tidy ? this.deps.tidy(heard).trim() : heard;
     if (text) {
       if (this.deps.skipReview()) {
         // The review skipped (Settings): checked at once, like before the review step.

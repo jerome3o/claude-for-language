@@ -85,8 +85,10 @@ async function startRecordAgain(page: Page) {
   await expect(page.getByTestId('study-card-back')).toBeHidden();
   await expect(page.getByText('Tap anywhere to stop')).toBeVisible();
   await expect(page.getByText(/You said/)).toBeHidden();
-  // The ratings stay up, like a peek.
-  await expect(page.getByRole('button', { name: /^Good/ })).toBeVisible();
+  // No ratings while re-recording (Jerome rated by accident): ⏹ Stop and ← Back where they were.
+  await expect(page.getByRole('button', { name: /^Good/ })).toHaveCount(0);
+  await expect(page.getByTestId('study-rerecord-bar')).toBeVisible();
+  await expect(page.getByTestId('rerecord-stop')).toBeVisible();
 }
 
 test.describe('Record again flips to the question', () => {
@@ -143,10 +145,11 @@ test.describe('Record again flips to the question', () => {
     await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible();
     expect(page.url()).toBe(url);
 
-    // Cancel button: same.
+    // ← Back button: same, and the ratings are back.
     await startRecordAgain(page);
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByTestId('rerecord-back').click();
     await expect(page.getByTestId('study-card-back')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Good/ })).toBeVisible();
     await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible();
 
     // Esc: same.
@@ -162,7 +165,7 @@ test.describe('Record again flips to the question', () => {
     // Stop: the new take replaces it.
     await startRecordAgain(page);
     await page.waitForTimeout(1200);
-    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await page.getByTestId('rerecord-stop').click();
     await expect(page.getByTestId('study-card-back')).toBeVisible();
     await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '大' })).toBeVisible({ timeout: 5000 });
     expect(uploads.length).toBe(2);
