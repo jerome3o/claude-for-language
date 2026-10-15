@@ -39,3 +39,8 @@ export type {
   AnswerCheck, AnswerCheckInput, AnswerCheckVerdict, AnswerCheckTip, AnswerCheckAlternative, AnswerCheckSuggestion,
   AnswerCheckTone, AnswerTry, TipSegment,
 } from './answerCheck';
+export {
+  exerciseAudioClips, lessonAudioClips, lessonClipId, orderClipsForPrefetch, distinctLessonClips, lessonsToPrefetch,
+  UPCOMING_NEW_LESSONS_PREFETCH, EMPTY_LESSON_AUDIO_STATS,
+} from './audioClips';
+export type { LessonAudioClip, LessonClipKind, ResolveConversationClips, PrefetchLessonRow, LessonAudioStats } from './audioClips';

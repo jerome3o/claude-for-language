@@ -121,6 +121,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── validate.ts    # Structural validation for agent-authored specs
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
 │   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
+│   │   ├── audioClips.ts  # Every clip a lesson plays (lessonAudioClips), prefetch order, lessonsToPrefetch — device prefetch + server pre-generation (docs/AUDIO.md "Lesson audio prefetch")
 │   │   └── index.ts       # Re-exports
 │   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge, video fit / PiP (videoFit.ts), the shared text board CRDT (textDoc.ts), board pages across lessons (pages.ts), call alerts (alerts.ts), drawing on a shared screen (annotate.ts), board tab-complete rules (gloss.ts), Same view — one shared stage for both, My own view, Bring to my view (view.ts), Stop their share (follow.ts), camera on at join (devices.ts), the call timer (timer.ts), join / leave chimes + call sounds (chime.ts) (see docs/VIDEO_CALLS.md)
 │   ├── group/             # 🧪 Group classes — EXPERIMENTAL web-only prototype (docs/GROUP_CLASSES.md): room rules (mute / spotlight / hands, room.ts), quick quiz (quiz.ts), gallery / active speaker (layout.ts), the GroupRoom protocol; worker durable/group-room.ts + routes/group-classes.ts, web pages/group/
@@ -1396,6 +1397,7 @@ registry / samples / doc cover every validated type. Specs are validated with
 `validateLessonSpec` before storage; invalid specs come back with a list of problems so the
 agent can repair and retry.
 
+**Lesson audio is prefetched** (docs/AUDIO.md "Lesson audio prefetch"): every clip a lesson plays (`shared/lesson/audioClips.ts`) is fetched by the sync (today's, open homework, lockable, next new lessons), again when a lesson opens (exercise on screen first), and pre-generated server-side into R2 `tts-cache/` on every lesson write (`services/lesson-audio.ts`, tts-queue `lesson_audio`); a late clip never plays on a later exercise.
 Lessons are cached whole in IndexedDB (`customLessons`) and studied fully offline,
 **mixed into the study session's card flow** — one is offered every ~8 card reviews
 (`LESSON_MIX_INTERVAL` in useStudySession), leftovers run before the readers. NEW lessons are

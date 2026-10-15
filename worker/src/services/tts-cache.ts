@@ -11,10 +11,11 @@
  * replaced by the first provider's once it is back.
  */
 import type { Env } from '../types';
-import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED, bytesToBase64, generateConversationTTS, type ConversationTTSResult } from './audio';
+import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED, bytesToBase64, generateConversationTTS, synthesizeOrdered, type ConversationTTSResult } from './audio';
 import { TTS_MODEL } from './tts/settings';
 import type { TtsPriority } from './tts/bucket';
 import { conversationProviderVoice, loadTtsConfig, providerVoice, storedClipPolicy } from './tts/config';
+import type { TtsConfig } from '@shared/tts';
 import { TTS_PROVIDER_IMPLS } from './tts/providers';
 import type { ConversationDelivery, TtsProviderId } from '@shared/tts';
 
@@ -45,6 +46,60 @@ export async function ttsCacheKey(text: string, voiceId: string, speed: number, 
   return `${TTS_CACHE_PREFIX}v2/${hex}.mp3`;
 }
 
+/** The R2 key of a clip made by provider `p` (the same key `/api/practice/tts` reads and writes). */
+function clipKeyFor(
+  config: TtsConfig,
+  text: string,
+  o: { voiceId: string; speed: number; conversation?: { speed?: number; delivery?: ConversationDelivery } },
+): (p: TtsProviderId) => Promise<string> {
+  return (p) => {
+    if (o.conversation) {
+      return conversationTtsCacheKey(text, p, conversationProviderVoice(p, config, { voiceId: o.voiceId, ...o.conversation }));
+    }
+    const v = providerVoice(p, config, { voiceId: o.voiceId, speed: o.speed });
+    return ttsCacheKey(text, v.voice, v.rate, p);
+  };
+}
+
+export type PracticeClipStatus =
+  | { status: 'cached' | 'made' }
+  | { status: 'rate_limited'; retryAfterMs: number }
+  | { status: 'failed'; reason: string };
+
+/**
+ * Make sure a `/api/practice/tts` clip is in R2 (background pre-generation of a lesson's
+ * clips, services/lesson-audio.ts): nothing when a clip the stored-clip policy accepts is
+ * there (an R2 HEAD), else made in the STORED order at the given priority (batch by
+ * default — the limiter paces it behind anyone waiting) and kept. Never a live-only stand-in.
+ */
+export async function ensurePracticeClip(
+  env: Env,
+  text: string,
+  options: { voiceId?: string; speed?: number; conversation?: { speed?: number; delivery?: ConversationDelivery }; priority?: TtsPriority } = {},
+): Promise<PracticeClipStatus> {
+  const voiceId = options.voiceId ?? DEFAULT_MINIMAX_VOICE;
+  const speed = options.speed ?? DEFAULT_TTS_SPEED;
+  const config = await loadTtsConfig(env);
+  const policy = await storedClipPolicy(env);
+  if (policy.order.length === 0) return { status: 'failed', reason: 'no provider makes stored clips' };
+  const keyFor = clipKeyFor(config, text, { voiceId, speed, conversation: options.conversation });
+  for (const p of policy.acceptable.length ? policy.acceptable : ['minimax' as const]) {
+    if (await env.AUDIO_BUCKET.head(await keyFor(p)).catch(() => null)) return { status: 'cached' };
+  }
+  const out = await synthesizeOrdered(env, config.stored_order, text, {
+    voiceId,
+    speed,
+    priority: options.priority ?? 'batch',
+    conversation: options.conversation,
+  }, config);
+  if (!out.ok) {
+    return out.rateLimited ? { status: 'rate_limited', retryAfterMs: out.retryAfterMs ?? 60_000 } : { status: 'failed', reason: out.reason };
+  }
+  if (!policy.order.includes(out.provider)) return { status: 'failed', reason: `${out.provider} is not a stored-clip provider` };
+  await env.AUDIO_BUCKET.put(await keyFor(out.provider), out.bytes, { httpMetadata: { contentType: out.mime } });
+  return { status: 'made' };
+}
+
 export async function cachedConversationTTS(
   env: Env,
   text: string,
@@ -63,13 +118,7 @@ export async function cachedConversationTTS(
   const speed = options.speed ?? DEFAULT_TTS_SPEED;
   const config = await loadTtsConfig(env);
   const policy = await storedClipPolicy(env);
-  const keyFor = (p: TtsProviderId) => {
-    if (options.conversation) {
-      return conversationTtsCacheKey(text, p, conversationProviderVoice(p, config, { voiceId, ...options.conversation }));
-    }
-    const v = providerVoice(p, config, { voiceId, speed });
-    return ttsCacheKey(text, v.voice, v.rate, p);
-  };
+  const keyFor = clipKeyFor(config, text, { voiceId, speed, conversation: options.conversation });
 
   const lookup: TtsProviderId[] = options.regenerate ? [] : policy.acceptable.length ? policy.acceptable : ['minimax'];
   for (const p of lookup) {

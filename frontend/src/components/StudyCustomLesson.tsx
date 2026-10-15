@@ -41,6 +41,7 @@ import { markLessonStarted } from '../services/lessonsStarted';
 import { ExerciseView } from './ExerciseView';
 import { getTTSWithCache } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
+import { useLessonAudio } from '../hooks/useLessonAudio';
 import type { LessonRecording } from '../services/custom-lesson-study';
 import '../pages/PracticePage.css';
 import './StudyReader.css';
@@ -143,7 +144,6 @@ export function StudyCustomLesson({
   /** With `preview`: offer to keep the lesson (PreviewSave). */
   previewSave?: PreviewSave;
 }) {
-  const speak = useOfflineSpeak();
   const items = useMemo(() => flattenSpec(lesson.spec), [lesson]);
   const [idx, setIdx] = useState(0);
   const [score, setScore] = useState({ correct: 0, total: 0 });
@@ -157,6 +157,9 @@ export function StudyCustomLesson({
   const recordings = useRef<LessonRecording[]>([]);
   // Analytics: where this lesson is taken (session / homework pass / a tutor's preview).
   const lessonSource = preview ? 'preview' : replay ? 'replay' : counts ? 'session' : 'homework';
+  // Every clip of the lesson is fetched as it opens (current exercise first); a late clip never
+  // plays on a later exercise (docs/AUDIO.md "Lesson audio prefetch").
+  const { speak, cancelPending } = useLessonAudio(lesson.spec, idx, lessonSource);
   useEffect(() => {
     track('lesson.start', { source: lessonSource, exercises: items.length });
     // A real run makes the lesson today's: leaving it half-way never drops it from today.
@@ -188,6 +191,7 @@ export function StudyCustomLesson({
       recordings.current.push({ media_key: answer.recording.media_key, blob: recording });
     }
     exerciseStart.current = Date.now();
+    cancelPending();
     setIdx(i => i + 1);
   }
 
@@ -205,6 +209,7 @@ export function StudyCustomLesson({
     startedAt.current = new Date();
     exerciseStart.current = Date.now();
     setScore({ correct: 0, total: 0 });
+    cancelPending();
     setIdx(0);
   }
 

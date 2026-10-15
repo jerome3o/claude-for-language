@@ -39,6 +39,7 @@ import * as content from './content';
 import { shareDeck } from './conversations';
 import { shareReader } from './shared-readers';
 import { queueLessonImages, LESSON_SPEC_INPUT_SCHEMA } from './custom-lesson';
+import { queueLessonAudio } from './lesson-audio';
 import { LESSON_STYLE_RULES, LESSON_SPEC_SCHEMA_TEXT } from './lesson-editor';
 import { READER_SPEC_INPUT_SCHEMA } from './reader-editor';
 import { createReaderFromSpec } from '../db/reader-editor-queries';
@@ -965,6 +966,7 @@ async function finalize(ctx: RunContext, summary: string, skipped: string[]): Pr
           assigned_relationship_id: job.relationship_id,
         });
         await queueLessonImages(env, copy.id, spec);
+        await queueLessonAudio(env, copy.id);
         lesson.lesson_id = copy.id;
         pushLocal(ctx, { at: now(), kind: 'done', text: `Assigned the lesson "${lesson.title}"` });
       } catch (err) {

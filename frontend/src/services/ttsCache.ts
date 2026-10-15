@@ -11,6 +11,23 @@ import { generateConversationLineTTS, generatePracticeTTS } from '../api/client'
 import type { ConversationDelivery } from '@shared/tts';
 import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED } from '../types';
 import { getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
+import type { LessonAudioClip } from '@shared/lesson';
+
+/**
+ * Requests in flight by cache key: a clip the lesson prefetch is already fetching
+ * is awaited, never asked for twice (the learner presses Check while it downloads).
+ */
+const inflight = new Map<string, Promise<Blob | null>>();
+
+function once(key: string, make: () => Promise<Blob | null>): Promise<Blob | null> {
+  const running = inflight.get(key);
+  if (running) return running;
+  const p = make().finally(() => {
+    if (inflight.get(key) === p) inflight.delete(key);
+  });
+  inflight.set(key, p);
+  return p;
+}
 
 export function ttsCacheKey(text: string, speed: number = DEFAULT_TTS_SPEED, voice: string = DEFAULT_MINIMAX_VOICE): string {
   // djb2 string hash — deterministic, good enough for cache busting. The
@@ -45,15 +62,17 @@ export async function getTTSWithCache(
   if (cached) return cached;
   if (!navigator.onLine) return null;
 
-  try {
-    const result = await generatePracticeTTS(text, speed, voice);
-    const blob = base64ToBlob(result.audio_base64, result.content_type);
-    await cacheAudio(key, blob);
-    return blob;
-  } catch (err) {
-    console.error('[ttsCache] TTS generation failed:', err);
-    return null;
-  }
+  return once(key, async () => {
+    try {
+      const result = await generatePracticeTTS(text, speed, voice);
+      const blob = base64ToBlob(result.audio_base64, result.content_type);
+      await cacheAudio(key, blob);
+      return blob;
+    } catch (err) {
+      console.error('[ttsCache] TTS generation failed:', err);
+      return null;
+    }
+  });
 }
 
 /** Generate + cache clips (text + optional voice and speed) not yet cached.
@@ -110,15 +129,19 @@ export async function getConversationClip(clip: ConversationClip, opts: { regene
   const cached = await getCachedAudio(key);
   if (cached && (!opts.regenerate || !navigator.onLine)) return cached;
   if (!navigator.onLine) return null;
-  try {
-    const result = await generateConversationLineTTS(clip.text, { ...clip, regenerate: opts.regenerate });
-    const blob = base64ToBlob(result.audio_base64, result.content_type);
-    await cacheAudio(key, blob);
-    return blob;
-  } catch (err) {
-    console.error('[ttsCache] conversation line failed:', err);
-    return cached ?? null;
-  }
+  const make = async () => {
+    try {
+      const result = await generateConversationLineTTS(clip.text, { ...clip, regenerate: opts.regenerate });
+      const blob = base64ToBlob(result.audio_base64, result.content_type);
+      await cacheAudio(key, blob);
+      return blob;
+    } catch (err) {
+      console.error('[ttsCache] conversation line failed:', err);
+      return cached ?? null;
+    }
+  };
+  // A regeneration is its own request (it must reach the server); a plain fetch joins one in flight.
+  return opts.regenerate ? make() : once(key, make);
 }
 
 /** Prefetch conversation lines not yet on the device. */
@@ -128,4 +151,26 @@ export async function prefetchConversationClips(clips: ConversationClip[]): Prom
     if (!clip.text.trim()) continue;
     if (!(await isAudioCached(conversationClipKey(clip)))) await getConversationClip(clip);
   }
+}
+
+// ---------- Lesson clips (shared/lesson/audioClips.ts) ----------
+
+/** The device cache key of a lesson clip (the same keys `speak` and the conversation player use). */
+export function lessonClipCacheKey(clip: Pick<LessonAudioClip, 'kind' | 'text' | 'voice' | 'speed' | 'delivery'>): string {
+  if (clip.kind === 'conversation' && clip.voice) {
+    return conversationClipKey({ text: clip.text, voice: clip.voice, speed: clip.speed ?? DEFAULT_TTS_SPEED, delivery: clip.delivery ?? 'natural' });
+  }
+  return ttsCacheKey(clip.text, clip.speed ?? DEFAULT_TTS_SPEED, clip.voice);
+}
+
+export function isLessonClipCached(clip: LessonAudioClip): Promise<boolean> {
+  return isAudioCached(lessonClipCacheKey(clip));
+}
+
+/** Cache-first: a lesson clip from the device, else fetched (and kept); null offline / on failure. */
+export function getLessonClip(clip: LessonAudioClip): Promise<Blob | null> {
+  if (clip.kind === 'conversation' && clip.voice) {
+    return getConversationClip({ text: clip.text, voice: clip.voice, speed: clip.speed ?? DEFAULT_TTS_SPEED, delivery: clip.delivery ?? 'natural' });
+  }
+  return getTTSWithCache(clip.text, clip.speed ?? DEFAULT_TTS_SPEED, clip.voice);
 }

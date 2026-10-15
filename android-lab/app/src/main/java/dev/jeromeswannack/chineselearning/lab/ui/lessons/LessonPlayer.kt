@@ -36,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -206,6 +207,17 @@ fun LessonPlayer(
     // A real run makes the lesson today's: closing it (even on its intro) never drops it from today.
     LaunchedEffect(Unit) { if (!preview) resume?.onOpen?.invoke() }
     LaunchedEffect(idx) { onIndex(idx) }
+    // Every clip of the lesson fetched as it opens, the exercise on screen first (docs/AUDIO.md
+    // "Lesson audio prefetch"); `lesson.audio` when it closes.
+    // (The env is rebuilt on every recomposition — keyed on the spec, read through the latest one.)
+    val latestEnv by androidx.compose.runtime.rememberUpdatedState(env)
+    val audioIndex = remember(spec) { kotlinx.coroutines.flow.MutableStateFlow(idx) }
+    androidx.compose.runtime.SideEffect { audioIndex.value = idx }
+    DisposableEffect(spec) {
+        latestEnv.lessonAudioOpened()
+        onDispose { latestEnv.lessonAudioDone(lessonSource(context)) }
+    }
+    LaunchedEffect(spec) { latestEnv.prefetchLesson(spec, audioIndex) }
 
     fun advance(isCorrect: Boolean?, answer: dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer?, recording: java.io.File?) {
         val item = items[idx]
@@ -218,6 +230,8 @@ fun LessonPlayer(
         val rec = answer?.recording
         if (recording != null && rec != null) recordings += LessonRecording(rec.mediaKey, recording, rec.mime ?: "audio/mp4")
         exerciseStart = System.currentTimeMillis()
+        // A clip still on its way never plays on the next exercise.
+        env.exerciseChanged()
         idx++
         continuing = false
         if (!preview) resume?.onProgress(idx, correct, total, startedAt, attempts.toList(), recordings.toList())
@@ -257,6 +271,7 @@ fun LessonPlayer(
                         ContinueLine(dev.jeromeswannack.chineselearning.lab.core.LessonResume.continueLine(restored.index, items.size)) {
                             resume?.onStartOver()
                             continuing = false
+                            env.exerciseChanged()
                             run++
                         }
                     } else if (restored == null && resume?.openedBefore == true && run == 0 && idx == 0 && !preview && items.isNotEmpty()) {

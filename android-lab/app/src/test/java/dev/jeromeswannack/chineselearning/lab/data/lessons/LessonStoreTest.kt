@@ -16,6 +16,8 @@ import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent
 import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -53,6 +55,8 @@ class LessonStoreTest {
     private lateinit var outbox: Outbox
     private lateinit var cache: JsonCache
     private val requests = CopyOnWriteArrayList<Pair<String, String>>()
+    /** Texts asked of `POST /api/practice/tts`. */
+    private val ttsTexts = CopyOnWriteArrayList<String>()
 
     /** Completions the fake server knows; the media endpoint 404s until the attempt is there. */
     private val serverCompletions = CopyOnWriteArrayList<String>()
@@ -66,7 +70,7 @@ class LessonStoreTest {
           {"id":"L1","title":"把 sentences","icon":"🧱","source":"mcp","status":"active","created_at":"2026-09-20T10:00:00Z",
            "spec":{"title":"把 sentences","sections":[{"exercises":[{"type":"choice","question":"Q","options":[{"hanzi":"对"},{"hanzi":"错"}],"correct":0},{"type":"hologram"}]}]},
            "completions":[$completions]},
-          {"id":"L2","title":"Homework lesson","source":"tutor","status":"active","created_at":"2026-09-21T10:00:00Z","spec":{"title":"h","sections":[]},"completions":[]}
+          {"id":"L2","title":"Homework lesson","source":"tutor","status":"active","created_at":"2026-09-21T10:00:00Z","spec":{"title":"h","sections":[{"exercises":[{"type":"scramble","english":"Even if he is busy, he reviews Chinese every day.","tiles":["即使","他","很忙，","也","每天","复习中文。"],"correct_order":["即使","他","很忙，","也","每天","复习中文。"]}]}]},"completions":[]}
         ]}"""
     }
 
@@ -87,6 +91,10 @@ class LessonStoreTest {
                         if (id in serverCompletions) MockResponse().setBody("{}") else MockResponse().setResponseCode(404).setBody("""{"error":"Attempt not found"}""")
                     }
                     request.path == "/api/me/homework/events" -> MockResponse().setBody("""{"accepted":1}""")
+                    request.path == "/api/practice/tts" -> {
+                        ttsTexts += Json.parseToJsonElement(body).jsonObject["text"]!!.jsonPrimitive.content
+                        MockResponse().setBody("""{"audio_base64":"SUQz","content_type":"audio/mpeg"}""")
+                    }
                     request.path == "/api/me/revisit-events" -> {
                         Json.parseToJsonElement(body).jsonObject["events"]!!.jsonArray.forEach { serverRevisit += it.toString() }
                         MockResponse().setBody("""{"accepted":[],"orphans":[],"invalid":[]}""")
@@ -206,5 +214,28 @@ class LessonStoreTest {
         // Written into the same mirror the homework pass reads, so the pass shows it done at once.
         val events = cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
         assertEquals(listOf("A2" to "done"), events.map { it.assignment_id to it.result })
+    }
+
+    @Test fun syncPrefetchesEveryClipOfTodaysAndHomeworkLessonsOnce() = runBlocking {
+        // L2 is one-off homework: never in today's rotation, but its pass opens it — its audio comes down too.
+        cache.put(HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND, listOf(
+            HomeworkAssignment(id = "A1", kind = "lesson", target_id = "L2", mode = "one_off", status = "active"),
+        ))
+        store.sync(prefetch = true, online = true)
+        assertEquals(listOf("L1"), store.dueLessons(cutoff).map { it.id })
+        assertEquals(setOf("对", "错", "即使他很忙，也每天复习中文。"), ttsTexts.toSet())
+        assertEquals("each clip asked for once", 3, ttsTexts.size)
+        val scramble = dev.jeromeswannack.chineselearning.lab.core.LessonAudioClip("tts", "即使他很忙，也每天复习中文。", exercise = 0)
+        assertTrue(store.media.cachedClip(scramble) != null)
+        // On the phone now: the next sync asks for nothing.
+        store.sync(prefetch = true, online = true)
+        assertEquals(3, ttsTexts.size)
+    }
+
+    @Test fun aClipBeingFetchedIsJoinedNotAskedForTwice() = runBlocking {
+        val a = async(Dispatchers.IO) { store.media.tts("你好。", online = true) }
+        val b = async(Dispatchers.IO) { store.media.tts("你好。", online = true) }
+        assertTrue(a.await() != null && b.await() != null)
+        assertEquals(listOf("你好。"), ttsTexts.toList())
     }
 }
