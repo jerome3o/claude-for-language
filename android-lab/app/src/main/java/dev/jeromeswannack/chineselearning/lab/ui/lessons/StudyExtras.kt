@@ -16,6 +16,8 @@ import dev.jeromeswannack.chineselearning.lab.core.SessionItem
 import dev.jeromeswannack.chineselearning.lab.core.SessionMix
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.data.api.sentenceFeedback
+import dev.jeromeswannack.chineselearning.lab.data.api.checkLessonAnswer
+import dev.jeromeswannack.chineselearning.lab.data.api.askAboutLessonAnswer
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
@@ -178,6 +180,11 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean
         sentenceFeedback = { words, task, sentence ->
             if (!app.online.value) throw java.io.IOException("offline")
             app.repo.api.sentenceFeedback(words, task, sentence)
+        },
+        answerCheck = { input -> app.repo.api.checkLessonAnswer(input, app.cache, app.online.value) },
+        askAboutAnswer = { input, check, history, question ->
+            if (!app.online.value) throw dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable("offline", offline = true)
+            app.repo.api.askAboutLessonAnswer(input, check, history, question)
         },
         recorder = recorder,
         playFile = { runtime.audio.playFile(it) },

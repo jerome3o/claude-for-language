@@ -17,6 +17,7 @@ import { useLessonImage, lessonImagePlaceholder } from '../hooks/useLessonImage'
 import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
 import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
 import { lessonSpokenCheck } from '@shared/lesson/spoken-check';
+import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
 import './lesson-exercises.css';
 
 export interface ExerciseSentence {
@@ -212,25 +213,33 @@ export function TranslateExercise(props: {
   referenceHanzi: string;
   referencePinyin?: string | null;
   note?: string;
+  /** The lesson's title / grammar point (Claude's answer check stays on topic). */
+  focus?: string;
   speak: Speak;
   onNext: OnNext;
 }) {
-  const { label, english, referenceHanzi, referencePinyin, note, speak, onNext } = props;
+  const { label, english, referenceHanzi, referencePinyin, note, focus, speak, onNext } = props;
   const [answer, setAnswer] = useState('');
   const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
   const [revealed, setRevealed] = useState(false);
+  // Claude's check of the answer (shared/lesson/answerCheck.ts), started the moment it is final.
+  const ac = useLessonAnswerCheck({
+    exerciseType: 'translate', promptEn: english, modelAnswer: referenceHanzi, modelPinyin: referencePinyin, focus,
+    onRetry: () => { setAnswer(''); setSource(null); setRevealed(false); },
+  });
 
   function reveal(given?: DictatedAnswer) {
     if (given) {
       setAnswer(given.text);
       setSource(given.source);
     }
+    ac.onFinal(given ? given.text : answer, given ? given.source : 'typed');
     setRevealed(true);
     speak(referenceHanzi);
   }
   // Voice-first (shared/voice/dictation.ts): an unchanged spoken answer also matches by sound.
   const matched = isExactHanziMatch(answer, referenceHanzi) || lessonSpokenCheck(answer, referenceHanzi, [], source).accepted;
-  const report = () => ({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true });
+  const report = () => ac.report({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true });
 
   return (
     <div className="exercise">
@@ -267,6 +276,7 @@ export function TranslateExercise(props: {
                 )}
               </div>
               <div className="speak-transcript-text">{answer.trim()}</div>
+              {ac.view(answer.trim(), speak)}
             </div>
           )}
           <div className="translate-ref">
@@ -279,10 +289,10 @@ export function TranslateExercise(props: {
             {note || 'Did yours match the meaning? (Different wording is fine.)'}
           </p>
           <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false, report())}>
+            <button className={`practice-btn${ac.suggested === 'missed_it' ? ' suggested' : ''}`} onClick={() => onNext(false, report())} data-testid="lesson-missed-it">
               ✗ Missed it
             </button>
-            <button className="practice-btn primary" onClick={() => onNext(true, report())}>
+            <button className={`practice-btn primary${ac.suggested === 'got_it' ? ' suggested' : ''}`} onClick={() => onNext(true, report())} data-testid="lesson-got-it">
               ✓ Got it
             </button>
           </div>
@@ -645,20 +655,27 @@ function isListenAnswerMatch(answer: string, audio: ExerciseSentence): boolean {
 export function ListenTranslateExercise(props: {
   audio: ExerciseSentence;
   note?: string;
+  focus?: string;
   speak: Speak;
   onNext: OnNext;
 }) {
-  const { audio, note, speak, onNext } = props;
+  const { audio, note, focus, speak, onNext } = props;
   const [answer, setAnswer] = useState('');
   const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
   const [revealed, setRevealed] = useState(false);
   const plays = useRef(0);
-  const report = () => ({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true, plays: plays.current });
+  // Claude checks an answer written in Chinese (an English one keeps the self-assessment alone).
+  const ac = useLessonAnswerCheck({
+    exerciseType: 'listen_translate', promptEn: audio.english, modelAnswer: audio.hanzi, modelPinyin: audio.pinyin, focus,
+    onRetry: () => { setAnswer(''); setSource(null); setRevealed(false); },
+  });
+  const report = () => ac.report({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true, plays: plays.current });
   const reveal = (given?: DictatedAnswer) => {
     if (given) {
       setAnswer(given.text);
       setSource(given.source);
     }
+    ac.onFinal(given ? given.text : answer, given ? given.source : 'typed');
     setRevealed(true);
   };
 
@@ -698,6 +715,7 @@ export function ListenTranslateExercise(props: {
                 )}
               </div>
               <div className="speak-transcript-text">{answer.trim()}</div>
+              {ac.view(answer.trim(), speak)}
             </div>
           )}
           <div className="translate-ref">
@@ -711,10 +729,10 @@ export function ListenTranslateExercise(props: {
             {note || 'Did you catch the meaning? (Different wording is fine.)'}
           </p>
           <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false, report())}>
+            <button className={`practice-btn${ac.suggested === 'missed_it' ? ' suggested' : ''}`} onClick={() => onNext(false, report())}>
               ✗ Missed it
             </button>
-            <button className="practice-btn primary" onClick={() => onNext(true, report())}>
+            <button className={`practice-btn primary${ac.suggested === 'got_it' ? ' suggested' : ''}`} onClick={() => onNext(true, report())}>
               ✓ Got it
             </button>
           </div>

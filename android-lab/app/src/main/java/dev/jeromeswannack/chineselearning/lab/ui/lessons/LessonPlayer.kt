@@ -301,7 +301,9 @@ fun LessonPlayer(
                                     Text(item.sectionTitle.orEmpty(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Lab.colors.ink)
                                 }
                                 if (Lessons.renderable(item.exercise)) {
-                                    ExerciseView(item.exercise, env, if (preview) null else LessonAttempts.mediaKey(item.section, item.index)) { c, a, r -> if (i == idx) advance(c, a, r) }
+                                    androidx.compose.runtime.CompositionLocalProvider(LocalLessonFocus provides title) {
+                                        ExerciseView(item.exercise, env, if (preview) null else LessonAttempts.mediaKey(item.section, item.index)) { c, a, r -> if (i == idx) advance(c, a, r) }
+                                    }
                                 } else {
                                     // A half-typed exercise in the editor (the validator is the authority; this keeps it from crashing).
                                     Text("This exercise isn't complete yet — fill in its fields to preview it.", color = Lab.colors.muted)

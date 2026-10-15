@@ -163,6 +163,22 @@ private fun Handwritten(a: ExerciseAttempt, model: String) {
     }
 }
 
+/** Earlier tries (🔁 Try again) with their checks, then Claude's check of the final answer. */
+@Composable
+private fun CheckRows(a: dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer?, final: Boolean) {
+    if (a == null) return
+    if (!final) {
+        a.tries.orEmpty().forEachIndexed { i, t ->
+            AttRow("Try ${i + 1}", t.text)
+            t.check?.let { AnswerCheckBody(it, t.text, compact = true) }
+        }
+    } else {
+        val c = a.check
+        val text = a.text
+        if (c != null && text != null) AnswerCheckBody(c, text, compact = true)
+    }
+}
+
 @Composable
 private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, media: AttemptMediaDto?, onPlay: (AttemptMediaDto) -> Unit, playingKey: String?) {
     val a = attempt.answer
@@ -188,12 +204,16 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
         }
         is TranslateExercise -> {
             AttRow("English", exercise.english)
+            CheckRows(a, final = false)
             AttRow(dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck.inputLabel(a?.input), a?.text ?: "(said it / no text)")
             AttRow("Reference", exercise.referenceHanzi)
+            CheckRows(a, final = true)
         }
         is ListenTranslateExercise -> {
             AttRow("Played", exercise.audio.line())
+            CheckRows(a, final = false)
             AttRow(dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck.inputLabel(a?.input, "Their answer"), a?.text ?: "(in their head)")
+            CheckRows(a, final = true)
             a?.plays?.let { AttRow("Listened", "$it×") }
         }
         is MatchExercise -> AttRow("Wrong taps", "${a?.mistakes ?: 0}")
