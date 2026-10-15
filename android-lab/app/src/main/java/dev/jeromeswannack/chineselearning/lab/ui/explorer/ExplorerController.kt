@@ -32,6 +32,8 @@ class ExplorerController(
     private val track: (event: String, props: Map<String, Any?>) -> Unit = { _, _ -> },
     private val tick: () -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
+    /** Warms the learner's note index (ExplorerData.warm) so a Word view opens with its card at once. */
+    private val warmUp: () -> Unit = {},
 ) {
     var stack by mutableStateOf<List<ExplorerItem>>(emptyList())
         private set
@@ -53,8 +55,22 @@ class ExplorerController(
         if (stack.isEmpty()) context = null
     }
 
-    /** A tap outside the explorer: a fresh stack. [source] = where (study, reader, chat, breakdown, homework…). */
+    private var lastOpen: Pair<ExplorerItem, Long>? = null
+
+    /** A screen with tappable Chinese is showing: build the note index now, not on the first tap. */
+    fun warm() = warmUp()
+
+    /**
+     * A tap outside the explorer: a fresh stack. [source] = where (study, reader, chat, breakdown, homework…).
+     * ONE tap = one sheet and one haptic: the same word opened again within [DOUBLE_OPEN_MS] while
+     * it is the only view (two handlers answering one tap) is ignored.
+     */
     fun open(item: ExplorerItem, source: String, context: String? = null) {
+        val t = now()
+        val last = lastOpen
+        if (last != null && last.first == item && t - last.second < DOUBLE_OPEN_MS && stack == listOf(item)) return
+        lastOpen = item to t
+        warmUp()
         tick()
         this.context = context
         dispatch(ExplorerAction.Open(item))
@@ -107,6 +123,10 @@ class ExplorerController(
     fun endDrill() { drill = null }
 
     fun record(event: String, props: Map<String, Any?> = emptyMap()) = track(event, props)
+
+    companion object {
+        const val DOUBLE_OPEN_MS = 600L
+    }
 }
 
 /** The app's explorer (null outside the shell: previews / screenshot tests of other screens). */
@@ -123,5 +143,7 @@ val LocalInExplorer = compositionLocalOf { false }
 fun rememberExplorerTap(source: String, context: String? = null): ((ExplorerItem) -> Unit)? {
     val explorer = LocalExplorer.current ?: return null
     val inside = LocalInExplorer.current
+    // Every screen with tappable Chinese asks for one: warm the learner's cards before the first tap.
+    androidx.compose.runtime.LaunchedEffect(explorer) { explorer.warm() }
     return { item -> if (inside) explorer.push(item) else explorer.open(item, source, context) }
 }

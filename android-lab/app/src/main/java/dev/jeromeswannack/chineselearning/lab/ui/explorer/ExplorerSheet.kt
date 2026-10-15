@@ -78,6 +78,8 @@ const val EXPLORER_SHEET_TAG = "explorer-sheet"
 const val EXPLORER_BACK_TAG = "explorer-back"
 const val EXPLORER_CLOSE_TAG = "explorer-close"
 const val EXPLORER_CRUMB_TAG = "explorer-crumb"
+const val EXPLORER_MINE_LOADING_TAG = "explorer-mine-loading"
+const val EXPLORER_MINE_LOADING_FOOTER_TAG = "explorer-mine-loading-footer"
 
 /** Placed once in the app shell: the sheet while the stack isn't empty (+ the add-card / writing sheets it opens). */
 @Composable
@@ -296,49 +298,65 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
     var ui by remember { mutableStateOf(WordViewUi(item, rank = env.rank(hanzi), online = env.online(), rankOf = env.rank, decalOf = env.decal)) }
     var bumping by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // Every load below runs on its own and finishes in any order: each one FIRST awaits its value,
+    // then applies it to the state as it is NOW. (`ui = ui.copy(x = suspendCall())` read `ui`
+    // before the call and wrote that old copy back when it returned: a slow dictionary lookup
+    // finishing after the learner's card wiped the card out — the first open of a word showed no
+    // "📚 You have this" / Open card / ⚡ / "+ Add as card" at all, a second open did.)
+    fun update(change: (WordViewUi) -> WordViewUi) { ui = change(ui) }
 
     // The word dictionary (cache first) …
-    LaunchedEffect(Unit) { ui = ui.copy(lookup = runCatching { env.wordLookup(hanzi) }.getOrElse { WordDict.Lookup.Error(it.userMessage()) }) }
+    LaunchedEffect(Unit) {
+        val lookup = runCatching { env.wordLookup(hanzi) }.getOrElse { WordDict.Lookup.Error(it.userMessage()) }
+        update { it.copy(lookup = lookup) }
+    }
     // … its characters in ONE batched call, then each record from the device …
     LaunchedEffect(Unit) {
         runCatching { env.prefetchChars(chars) }
         val records = LinkedHashMap<String, CharRecordDto>()
         for (c in chars) (runCatching { env.chars.lookup(c) }.getOrNull() as? CharDict.Lookup.Ok)?.let { records[c] = it.record }
-        ui = ui.copy(charRecords = records)
+        update { it.copy(charRecords = records) }
         // … the related words' ✓ Known / 📚 In your decks from Room.
         val related = RelatedWords.relatedWords(hanzi, chars.mapNotNull { c -> records[c]?.let { dev.jeromeswannack.chineselearning.lab.core.explorer.CharWordList(c, it.words) } }, { it.hanzi }, env.rank)
         if (related.isNotEmpty()) {
             val rows = runCatching { env.chars.statuses(related.map { it.word }, null) }.getOrDefault(emptyList())
-            ui = ui.copy(statuses = rows.associate { it.word.hanzi to it.status })
+            update { it.copy(statuses = rows.associate { r -> r.word.hanzi to r.status }) }
         }
     }
     // A 成语 already on the phone (the "📜 Story & usage" row).
     LaunchedEffect(Unit) {
-        if (dev.jeromeswannack.chineselearning.lab.core.idioms.Idioms.isShaped(hanzi)) ui = ui.copy(idiomKnown = runCatching { env.idiomKnown(hanzi) }.getOrDefault(false))
+        if (dev.jeromeswannack.chineselearning.lab.core.idioms.Idioms.isShaped(hanzi)) {
+            val known = runCatching { env.idiomKnown(hanzi) }.getOrDefault(false)
+            update { it.copy(idiomKnown = known) }
+        }
     }
-    // The learner's own card and notes (again after an add).
-    LaunchedEffect(refresh) { ui = ui.copy(mine = runCatching { env.myWord(hanzi) }.getOrDefault(MyWord())) }
+    // The learner's own card and notes (again, read fresh, after an add).
+    LaunchedEffect(refresh) {
+        val mine = runCatching { env.myWord(hanzi, refresh > 0) }.getOrDefault(MyWord())
+        update { it.copy(mine = mine) }
+    }
     // A "More about" already on the device opens at once.
     LaunchedEffect(ui.mine != null) {
         if (ui.mine == null || ui.more != WordMore.Idle) return@LaunchedEffect
-        env.cachedExplanation(hanzi, ui.explainSentence)?.let { ui = ui.copy(more = WordMore.Done(it)) }
+        env.cachedExplanation(hanzi, ui.explainSentence)?.let { done -> update { if (it.more == WordMore.Idle) it.copy(more = WordMore.Done(done)) else it } }
     }
 
     fun askMore() {
-        if (!env.online()) { ui = ui.copy(more = WordMore.Offline); return }
+        if (!env.online()) { update { it.copy(more = WordMore.Offline) }; return }
         controller.record("explorer.more", mapOf("kind" to "word"))
-        ui = ui.copy(more = WordMore.Loading)
+        update { it.copy(more = WordMore.Loading) }
         val r = ui.resolved
         scope.launch {
-            ui = try {
-                ui.copy(more = WordMore.Done(env.explain(hanzi, ui.explainSentence, r.pinyin.ifBlank { null }, r.english.ifBlank { null })))
+            val more = try {
+                WordMore.Done(env.explain(hanzi, ui.explainSentence, r.pinyin.ifBlank { null }, r.english.ifBlank { null }))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: java.io.IOException) {
-                ui.copy(more = WordMore.Offline)
+                WordMore.Offline
             } catch (e: Exception) {
-                ui.copy(more = WordMore.Error(e.userMessage()))
+                WordMore.Error(e.userMessage())
             }
+            update { it.copy(more = more) }
         }
     }
 
@@ -364,12 +382,13 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             bumping = true
             scope.launch {
                 try {
-                    ui = ui.copy(bumped = bump(listOf(hanzi), null))
+                    val message = bump(listOf(hanzi), null)
+                    update { it.copy(bumped = message) }
                     controller.record("explorer.bump")
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    ui = ui.copy(bumped = null)
+                    update { it.copy(bumped = null) }
                 } finally { bumping = false }
             }
         },
@@ -400,7 +419,13 @@ fun WordView(
     val mine = ui.mine
     val card = mine?.card
     val footer: (@Composable RowScope.() -> Unit)? = when {
-        mine == null -> null
+        // Still reading the learner's cards: a quiet placeholder — never nothing, and never a
+        // "+ Add as card" for a word he already has.
+        mine == null -> {
+            {
+                SecondaryPill("Checking your cards…", Modifier.weight(1f).height(52.dp).testTag(EXPLORER_MINE_LOADING_FOOTER_TAG), enabled = false, onClick = {})
+            }
+        }
         card != null && (canOpenCard || canBump) -> {
             {
                 if (canOpenCard) SecondaryPill("Open card", Modifier.weight(1f).height(52.dp).testTag("explorer-open-card"), onClick = onOpenCard)

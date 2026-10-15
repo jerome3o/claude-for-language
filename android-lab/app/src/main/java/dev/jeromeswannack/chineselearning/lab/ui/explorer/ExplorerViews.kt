@@ -275,7 +275,17 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
             }
         }
 
-        // Your card
+        // Your card (a placeholder row while this phone's cards are still being read)
+        if (ui.mine == null) {
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "📚 Checking your cards…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Lab.colors.muted,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint)
+                    .padding(horizontal = 12.dp, vertical = 10.dp).testTag(EXPLORER_MINE_LOADING_TAG),
+            )
+        }
         ui.mine?.card?.let { card ->
             Spacer(Modifier.height(14.dp))
             Text(

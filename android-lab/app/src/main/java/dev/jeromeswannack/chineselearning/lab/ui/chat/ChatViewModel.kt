@@ -1947,7 +1947,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         val w = words.getOrNull(index) ?: return
         val text = ChatLearning.wordsText(m.content, m.attachment?.transcript, m.words_source)
         val start = dev.jeromeswannack.chineselearning.lab.core.ReaderWords.offsets(words.map { it.text })[index]
-        app.haptics.tick()
+        // No haptic here: the explorer's open() ticks (one tap = one haptic).
         openSheet(ChatSheet.ChatWord(w, dev.jeromeswannack.chineselearning.lab.core.ReaderWords.sentenceAround(text, start, start + w.text.length)))
     }
 

@@ -130,7 +130,7 @@ fun NavGraphBuilder.podcastsGraph(nav: LabNav) {
                 onReveal = vm::reveal,
                 onWord = { w, sentence ->
                     ExplorerStack.itemForText(w.text, w.pinyin.ifEmpty { null }, w.gloss.ifEmpty { null }, sentence)?.let { item ->
-                        app.haptics.tick()
+                        // ONE haptic per tap: the explorer's open() ticks itself.
                         explore?.invoke(item)
                     }
                 },

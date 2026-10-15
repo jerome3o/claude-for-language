@@ -315,7 +315,11 @@ export function WordView({
 
       {footer && createPortal(
         <div className="xp-footer" data-testid="explorer-word-card">
-          {existing === null ? null : existing.length > 0 ? (
+          {existing === null ? (
+            // Still reading this device's cards: a quiet placeholder — never nothing, never a
+            // "+ Add as card" for a word they already have.
+            <div className="xp-have-line xp-checking" role="status" data-testid="explorer-checking-cards">📚 Checking your cards…</div>
+          ) : existing.length > 0 ? (
             <div className="xp-have">
               <div className="xp-have-line">📚 You have this card in {decks.join(', ')}</div>
               {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}

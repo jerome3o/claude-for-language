@@ -118,7 +118,7 @@ fun LabShell(
 
     // The language explorer (ui/explorer): one sheet with a stack of Character / Word views any screen can open.
     val explorer = remember(app) {
-        dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerController(track = { e, p -> app.analytics.track(e, p) }, tick = { app.haptics.tick() })
+        dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerController(track = { e, p -> app.analytics.track(e, p) }, tick = { app.haptics.tick() }, warmUp = { dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerData.warm(app) })
     }
     val explorerEnv = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerEnv(app, nav, close = explorer::close)
     androidx.compose.runtime.CompositionLocalProvider(dev.jeromeswannack.chineselearning.lab.ui.explorer.LocalExplorer provides explorer) {

@@ -19,6 +19,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import dev.jeromeswannack.chineselearning.lab.ui.quests.QuestSpeech
 import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** The learner's own card of the word ("📚 You have this in <deck>"). */
@@ -48,8 +50,11 @@ class ExplorerEnv(
     val prefetchChars: suspend (List<String>) -> Unit = {},
     /** The word dictionary: cache first, then `GET /api/words`. */
     val wordLookup: suspend (String) -> WordDict.Lookup = { WordDict.Lookup.Offline },
-    /** The learner's card + up to three of their notes using the word (Room). */
-    val myWord: suspend (String) -> MyWord = { MyWord() },
+    /**
+     * The learner's card + up to three of their notes using the word (Room). `fresh` = read the
+     * database again (after an add) instead of the warm in-memory index.
+     */
+    val myWord: suspend (hanzi: String, fresh: Boolean) -> MyWord = { _, _ -> MyWord() },
     /** Rank in the shipped word-freq list (null = not listed). */
     val rank: (String) -> Int? = { null },
     /** Frequency decals (outlines on word / character tiles) from the shipped list; null = none. */
@@ -80,25 +85,92 @@ class ExplorerEnv(
 )
 
 object ExplorerData {
-    /** `myWord`: the learner's note spelled [hanzi] (normalised like the bump / Paste a list) and up to 3 notes using it. */
-    suspend fun myWord(app: LabApp, hanzi: String): MyWord = withContext(Dispatchers.IO) {
-        val dao = app.repo.dao
-        val decks = dao.decks().associate { it.id to it.name }
-        val notes = dao.allNotes().filter { it.deckId in decks }
-        val key = WordListParser.normalizeHanzi(hanzi)
-        val own = notes.firstOrNull { WordListParser.normalizeHanzi(it.hanzi) == key }
-        val examples = ArrayList<MyExample>()
-        for (n in notes) {
-            if (examples.size >= 3) break
-            if (n.id == own?.id) continue
-            if (Known.noteKey(n.hanzi) == Known.noteKey(hanzi)) continue
-            when {
-                hanzi in n.hanzi -> examples += MyExample(n.id, n.hanzi.trim(), n.english.ifBlank { null })
-                n.sentenceClue?.contains(hanzi) == true -> examples += MyExample(n.id, n.sentenceClue.trim(), n.sentenceClueTranslation?.ifBlank { null })
+    /** The learner's notes as the explorer needs them, kept warm in memory (built once, rebuilt when notes / decks change). */
+    class NoteIndex(val notes: List<Row>) {
+        class Row(
+            val id: String,
+            val deckName: String,
+            val hanzi: String,
+            val pinyin: String,
+            val english: String,
+            val wordTags: String?,
+            val sentenceClue: String?,
+            val sentenceClueTranslation: String?,
+        ) {
+            val key: String = WordListParser.normalizeHanzi(hanzi)
+        }
+
+        /** `myWord`: the note spelled [hanzi] (normalised like the bump / Paste a list) and up to 3 notes using it. */
+        fun myWord(hanzi: String): MyWord {
+            val key = WordListParser.normalizeHanzi(hanzi)
+            val own = notes.firstOrNull { it.key == key }
+            val examples = ArrayList<MyExample>()
+            for (n in notes) {
+                if (examples.size >= 3) break
+                if (n.id == own?.id) continue
+                if (Known.noteKey(n.hanzi) == Known.noteKey(hanzi)) continue
+                when {
+                    hanzi in n.hanzi -> examples += MyExample(n.id, n.hanzi.trim(), n.english.ifBlank { null })
+                    n.sentenceClue?.contains(hanzi) == true -> examples += MyExample(n.id, n.sentenceClue.trim(), n.sentenceClueTranslation?.ifBlank { null })
+                }
+            }
+            return MyWord(own?.let { MyWordCard(it.id, it.deckName, it.pinyin, it.english, it.wordTags) }, examples)
+        }
+    }
+
+    /** One app's warm index: the current build, the database generation it was built from, and the watcher. */
+    private class Warm(val app: LabApp) {
+        @Volatile var generation = 0L
+        @Volatile var built: Pair<Long, NoteIndex>? = null
+        val lock = kotlinx.coroutines.sync.Mutex()
+        init {
+            // Any write to notes / decks (sync, an add, a move, a delete) makes the index stale.
+            runCatching {
+                app.repo.db.invalidationTracker.addObserver(object : androidx.room.InvalidationTracker.Observer(arrayOf("notes", "decks")) {
+                    override fun onInvalidated(tables: Set<String>) { generation++ }
+                })
             }
         }
-        MyWord(own?.let { MyWordCard(it.id, decks[it.deckId].orEmpty(), it.pinyin, it.english, it.wordTags) }, examples)
     }
+
+    private val warm = java.util.WeakHashMap<LabApp, Warm>()
+    private fun warmOf(app: LabApp): Warm = synchronized(warm) { warm.getOrPut(app) { Warm(app) } }
+
+    private suspend fun build(app: LabApp): NoteIndex = withContext(Dispatchers.IO) {
+        val dao = app.repo.dao
+        val decks = dao.decks().associate { it.id to it.name }
+        NoteIndex(
+            dao.allNotes().filter { it.deckId in decks }.map {
+                NoteIndex.Row(it.id, decks[it.deckId].orEmpty(), it.hanzi, it.pinyin, it.english, it.wordTags, it.sentenceClue, it.sentenceClueTranslation)
+            },
+        )
+    }
+
+    /** The index, from memory when nothing changed since it was built; [fresh] = always read the database. */
+    suspend fun index(app: LabApp, fresh: Boolean = false): NoteIndex {
+        val w = warmOf(app)
+        return w.lock.withLock {
+            val gen = w.generation
+            val have = w.built
+            if (!fresh && have != null && have.first == gen) return@withLock have.second
+            build(app).also { w.built = gen to it }
+        }
+    }
+
+    /**
+     * Builds the index in the background so the first word tapped opens with its card at once
+     * (called when a screen with tappable Chinese shows and when the explorer opens).
+     */
+    fun warm(app: LabApp) {
+        val w = warmOf(app)
+        val have = w.built
+        if (have != null && have.first == w.generation) return
+        if (w.lock.isLocked) return
+        app.scope.launch { app.safely("explorer.warm") { index(app) } }
+    }
+
+    /** `myWord`: the learner's note spelled [hanzi] and up to 3 notes using it. */
+    suspend fun myWord(app: LabApp, hanzi: String, fresh: Boolean = false): MyWord = index(app, fresh).myWord(hanzi)
 }
 
 /** The running app's explorer environment. */
@@ -115,7 +187,7 @@ fun rememberExplorerEnv(app: LabApp, nav: LabNav?, close: () -> Unit): ExplorerE
             chars = chars,
             prefetchChars = { list -> if (online()) runCatching { charDict.prefetch(list) } },
             wordLookup = wordDict::lookup,
-            myWord = { ExplorerData.myWord(app, it) },
+            myWord = { h, fresh -> ExplorerData.myWord(app, h, fresh) },
             rank = { h -> WordFrequency.shipped?.words?.get(h) },
             decal = shippedDecals(),
             online = online,
