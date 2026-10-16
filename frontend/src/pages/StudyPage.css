@@ -873,6 +873,126 @@ button.you-said-round:focus-visible {
   padding: 0.35rem 1rem 0;
 }
 
+/* The card's meta row: ⚡ badge + the 📚 deck pill, one line. */
+.study-card-meta {
+  position: relative;
+  z-index: 5;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding-top: 0;
+}
+
+/* The deck pill (components/study/DeckPill.tsx): neutral grey, one line, ellipsis. The visible pill
+   is small; the button's padding makes the tap target 44px tall. */
+.deck-pill-wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(17rem, 100%);
+}
+.deck-pill {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 0.1rem;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font: inherit;
+}
+.deck-pill__body {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.1rem 0.6rem 0.1rem 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.deck-pill__icon {
+  flex: none;
+}
+.deck-pill__name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck-pill:hover .deck-pill__body,
+.deck-pill--open .deck-pill__body {
+  background: #e5e7eb;
+  border-color: #d1d5db;
+  color: #1f2937;
+}
+.deck-pill:focus-visible {
+  outline: none;
+}
+.deck-pill:focus-visible .deck-pill__body {
+  outline: 2px solid #6b7280;
+  outline-offset: 1px;
+}
+.deck-pill-pop {
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: max-content;
+  max-width: min(20rem, calc(100vw - 2rem));
+  padding: 0.6rem 0.75rem;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1f2937);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  text-align: left;
+  animation: deck-pill-pop-in 120ms ease-out;
+}
+@keyframes deck-pill-pop-in {
+  from { opacity: 0; transform: translate(-50%, -4px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+.deck-pill-pop__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light, #6b7280);
+}
+.deck-pill-pop__name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.deck-pill-pop__open {
+  align-self: flex-start;
+  min-height: 44px;
+  margin: 0.1rem 0 -0.35rem;
+  padding: 0 0.1rem;
+  border: none;
+  background: transparent;
+  color: var(--color-primary, #dc2626);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* Say the answer (typing cards): the answer box + 🎤, the live transcript, Cancel, hints. */
 /* The listen card's floating 🔊 sits above the typing row, never over the 🎤 / the box. */
 .audio-replay-fab.audio-replay-fab--above-typing {

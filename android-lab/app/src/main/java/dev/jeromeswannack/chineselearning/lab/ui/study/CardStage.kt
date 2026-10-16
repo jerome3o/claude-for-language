@@ -580,7 +580,15 @@ private fun CardFront(
                 TypeChip(view.card.cardType)
                 if (view.bumped) dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpChip(view.bumpedBy)
             }
-            view.deckName?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).padding(start = 8.dp)) }
+            // The deck it came from: a 📚 pill cut to one line; a tap shows the full name + Open deck →.
+            view.deckName?.takeIf { it.isNotBlank() }?.let { name ->
+                DeckPill(
+                    name,
+                    Modifier.weight(1f, fill = false).padding(start = 8.dp),
+                    onOpenDeck = { actions.onDeckPill("open_deck"); actions.onOpenDeck(view.card.deckId) },
+                    onExpand = { actions.onTick(); actions.onDeckPill("expand") },
+                )
+            }
         }
         note.context?.takeIf { it.isNotBlank() }?.let {
             Spacer(Modifier.height(12.dp))

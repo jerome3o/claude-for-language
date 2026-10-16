@@ -672,6 +672,19 @@ Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRe
 `replayAfterReRecordRef` in `StudyPage.tsx` (plays when the new take's blob lands); Lab
 `recordingAgain` / `playWordAfterRecordAgain` in `StudyViewModel.kt` (`RecordAgainAutoplayTest`).
 
+## Deck pill
+
+The card says which deck it came from with a **📚 deck pill** (web `components/study/DeckPill.tsx`, under the
+top bar beside the ⚡ badge; Lab `ui/study/DeckPill.kt`, the card header's right side next to the card-type
+chip): neutral grey, one line, cut with an ellipsis so a long name ("课堂生词 Lesson words – 12 Oct (from
+tutor)") never crowds the card — the card-type chip and ⚡ stay whole. A tap opens a small popover / popup
+with the **full** name and **Open deck →** (the deck page; coming back to Study shows the same card, as
+left); a tap elsewhere, Escape / back or a second tap on the pill closes it. The pill never reveals the
+card on the question side nor peeks it on the answer side (its taps stop there). The tap target is 44
+px / dp tall; its label is "Deck: <full name>". Same on every screen that shows the study card: the
+session, a homework pass word and the tutor-notes practice (the Try-it preview has the deck name as its
+title). Analytics `study.deck_pill` (`action` expand | open_deck, `where` homework | tutor_notes).
+
 ## New characters shimmer
 
 Jerome: "When a card arrives with a character I've never seen before, the character should be

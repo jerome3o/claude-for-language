@@ -25,6 +25,7 @@ import { useAskListening } from '../services/askClaudeListening';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
 import { BumpBadge } from '../components/bumps/BumpButton';
+import { DeckPill } from '../components/study/DeckPill';
 import { useBumps } from '../services/studyBumps';
 import { SentenceChunk } from '../types';
 import './RoleplayPage.css';
@@ -547,7 +548,7 @@ export function StudyCard({
   const [audioProvider, setAudioProvider] = useState<'minimax' | 'gtts' | ''>('');
   const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_MINIMAX_VOICE);
 
-  // Get deck info for debug modal
+  // The deck the card came from: the 📚 deck pill under the top bar (and the debug modal).
   const deckInfo = useLiveQuery(
     () => card.note.deck_id ? db.decks.get(card.note.deck_id) : undefined,
     [card.note.deck_id]
@@ -2787,9 +2788,20 @@ export function StudyCard({
           </div>
         </div>
         {banner}
-        {bumped && (
-          <div className="study-bump-row" data-testid="study-bump-badge">
-            <BumpBadge fromName={bumped.fromName} />
+        {(bumped || deckInfo?.name) && (
+          <div className="study-bump-row study-card-meta">
+            {bumped && (
+              <span data-testid="study-bump-badge">
+                <BumpBadge fromName={bumped.fromName} />
+              </span>
+            )}
+            {deckInfo?.name && (
+              <DeckPill
+                name={deckInfo.name}
+                where={pass ? 'homework' : inStudySession ? undefined : 'tutor_notes'}
+                onOpenDeck={() => navigate(`/decks/${encodeURIComponent(deckInfo.id)}`)}
+              />
+            )}
           </div>
         )}
 
