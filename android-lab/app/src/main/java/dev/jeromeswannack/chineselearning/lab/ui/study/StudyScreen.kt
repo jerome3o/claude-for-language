@@ -156,6 +156,10 @@ class StudyActions(
     val onYouSaidCoach: (text: String, source: String) -> Unit = { _, _ -> },
     /** ▶ on a read card's "You said" box: play the take it was transcribed from. */
     val onYouSaidPlay: () -> Unit = {},
+    /** The card's 📚 deck pill: [action] = expand (the full name) | open_deck (analytics). */
+    val onDeckPill: (action: String) -> Unit = {},
+    /** "Open deck →" in the deck pill's popup: the deck page; back returns to this card as it is. */
+    val onOpenDeck: (deckId: String) -> Unit = {},
     /** CardStage reports a spoken answer's transcript / a practice transcript, so the card comes back from the coach as it was. */
     val onCardSpoken: (presentation: Int, spokenText: String?, spokenReviewed: Boolean, practiceSaid: String?) -> Unit = { _, _, _, _ -> },
     val sendFlag: suspend (FlagTutor, String) -> Boolean = { _, _ -> false },
@@ -283,6 +287,11 @@ fun StudyRoute(
                 vm.currentCardType()?.let { app.analytics.track("study.you_said_play", mapOf("card_type" to it) + where) }
                 vm.playMyRecording()
             },
+            onDeckPill = { action ->
+                val where = when { pass != null -> mapOf("where" to "homework"); practice != null -> mapOf("where" to "tutor_notes"); else -> emptyMap() }
+                app.analytics.track("study.deck_pill", mapOf("action" to action) + where)
+            },
+            onOpenDeck = { id -> onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.deck(id)) },
             onCardSpoken = vm::onCardSpoken,
             onPlayMyRecording = vm::playMyRecording,
             onPlayTutorModel = vm::playTutorModel,
