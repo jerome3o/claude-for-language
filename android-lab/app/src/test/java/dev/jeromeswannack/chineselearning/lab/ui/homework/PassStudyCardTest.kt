@@ -100,9 +100,22 @@ class PassStudyCardTest {
     }
 
     private fun showAnswer() {
-        settle("the card's Show answer") { compose.onAllNodesWithText("Show answer").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Show answer").performClick()
-        settle("the answer side") { compose.onAllNodesWithTag("hw-gotit").fetchSemanticsNodes().isNotEmpty() }
+        // Right after an undo the pass can hand the study card the same word once more (the undo's
+        // writes land one after the other), which starts it again on the question: a Show answer
+        // tapped in between is lost. Tap again until the answer side is up.
+        val hangGuard = System.nanoTime() + 120_000_000_000L
+        while (true) {
+            settle("the card's Show answer") { compose.onAllNodesWithText("Show answer").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Show answer").performClick()
+            val retryAt = System.nanoTime() + 5_000_000_000L
+            while (System.nanoTime() < retryAt) {
+                compose.waitForIdle()
+                shadowOf(android.os.Looper.getMainLooper()).idle()
+                if (compose.onAllNodesWithTag("hw-gotit").fetchSemanticsNodes().isNotEmpty()) return
+                Thread.sleep(5)
+            }
+            check(System.nanoTime() < hangGuard) { "Still waiting for the answer side after 2 minutes" }
+        }
     }
 
     private fun events() = runBlocking { app.cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty() }
@@ -219,6 +232,9 @@ class PassStudyCardTest {
 
         compose.onNodeWithTag("hw-pass-undo").performScrollTo().performClick()
         settle("the last word back", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.let { it.note?.id == "n2" && !it.progress.complete && it.progress.done == 1 } == true }
+        // The pass reopens in the cache right after the undo event is written (the screen can follow the
+        // event a moment before): wait for it rather than racing it.
+        settle("the pass open again") { runBlocking { app.cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty().single().status == "active" } }
         val a = runBlocking { app.cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty().single() }
         assertEquals("active", a.status)
         assertEquals(null, a.completed_at)
