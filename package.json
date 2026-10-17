@@ -31,5 +31,8 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "overrides": {
+    "@modelcontextprotocol/sdk": "^1.32.1"
   }
 }

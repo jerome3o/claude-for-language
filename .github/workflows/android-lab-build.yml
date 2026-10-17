@@ -39,6 +39,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Read-only by default; only the publish job (creates / prunes releases) gets contents: write.
+permissions:
+  contents: read
+
 # versionCode = this workflow's run number, for the APK AND the AAB of a run (both are built
 # from this env). run_number only ever goes up (PR runs spend numbers too, which just leaves
 # gaps), so every Lab release — Obtainium pre-release or Play upload — is newer than the one
@@ -58,12 +62,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The parity tests regenerate their golden vectors by running the web app's
       # TypeScript (shared/scheduler, shared/decks, numberHanzi), so they need node_modules.
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -72,13 +76,13 @@ jobs:
         run: npm ci
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Core unit tests (parity with the TypeScript)
         run: ./gradlew :core:test --no-daemon
@@ -86,11 +90,11 @@ jobs:
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lab-core-test-reports
           path: android-lab/core/build/reports/tests
-          retention-days: 14
+          retention-days: 7
 
   app-tests:
     runs-on: ubuntu-latest
@@ -98,7 +102,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # shared/data = the word-frequency list core ships as a resource ("Most common first",
           # the explorer's ranks and frequency decals); without it WordFrequency.shipped is null.
@@ -107,23 +111,23 @@ jobs:
             shared/data
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           packages: platform-tools
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       # Robolectric downloads its android-all-instrumented jars (one per SDK the tests pin) into
       # ~/.m2 at test time; keep them between runs.
       - name: Cache Robolectric android-all jars
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.m2/repository/org/robolectric
           key: robolectric-${{ hashFiles('android-lab/gradle/libs.versions.toml') }}
@@ -144,11 +148,11 @@ jobs:
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lab-test-reports
           path: android-lab/app/build/reports/tests
-          retention-days: 14
+          retention-days: 7
 
   # ---- Debug build (PRs / branches) ----
   debug-apk:
@@ -158,7 +162,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # shared/data = the word-frequency list core ships as a resource ("Most common first",
           # the explorer's ranks and frequency decals); without it WordFrequency.shipped is null.
@@ -167,18 +171,18 @@ jobs:
             shared/data
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           packages: platform-tools
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Firebase config (google-services.json)
         env:
@@ -194,11 +198,11 @@ jobs:
         working-directory: android-lab
 
       - name: Upload debug APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chinese-learning-lab-debug-apk
           path: android-lab/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          retention-days: 7
 
   release:
     runs-on: ubuntu-latest
@@ -210,7 +214,7 @@ jobs:
       is_release: ${{ env.IS_RELEASE }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # shared/data = the word-frequency list core ships as a resource ("Most common first",
           # the explorer's ranks and frequency decals); without it WordFrequency.shipped is null.
@@ -219,18 +223,18 @@ jobs:
             shared/data
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           packages: platform-tools
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       # Chat notifications over FCM (android-lab/PUSH.md): the Firebase config, base64 in the
       # GOOGLE_SERVICES_JSON secret. Without it the build has no FCM (BuildConfig.FCM_* empty)
@@ -259,7 +263,9 @@ jobs:
 
       - name: Decode signing keystore
         if: env.IS_RELEASE == 'true'
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
       # The same key signs the Play bundle: for Play it is the UPLOAD key; Play App Signing
       # re-signs what users install with Google's app signing key.
@@ -285,7 +291,7 @@ jobs:
 
       - name: Hand the signed APK and AAB to the publish job
         if: env.IS_RELEASE == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lab-release
           path: lab-release/
@@ -305,13 +311,13 @@ jobs:
       HAS_PLAY_KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
     steps:
       - name: Download the signed APK and AAB
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: lab-release
           path: .
 
       - name: Publish GitHub pre-release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: lab-v${{ env.APP_VERSION_NAME }}
           name: Lab v${{ env.APP_VERSION_NAME }}
@@ -326,6 +332,26 @@ jobs:
           files: |
             chinese-learning-lab.apk
             chinese-learning-lab-v${{ env.APP_VERSION_NAME }}.aab
+
+      # Keep the newest 15 Lab pre-releases (Obtainium only needs the latest); older ones go with
+      # their lab-v* tags. At most 40 a run so a backlog never trips GitHub's write rate limits —
+      # it drains over a few releases. Non-fatal: pruning must never fail a release.
+      - name: Prune old Lab pre-releases (keep the newest 15)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: 15
+          MAX_DELETE: 40
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.prerelease and (.tag_name | test("^lab-v0\\.[0-9]+$"))) | .tag_name' \
+            | sort -t. -k2,2nr | tail -n +"$((KEEP + 1))" | sort -t. -k2,2n | head -n "$MAX_DELETE" > "$RUNNER_TEMP/old-lab-releases.txt"
+          echo "Deleting $(wc -l < "$RUNNER_TEMP/old-lab-releases.txt") old Lab pre-release(s)"
+          while read -r tag; do
+            gh release delete "$tag" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" \
+              && echo "deleted $tag" || echo "::warning::could not delete $tag"
+            sleep 1
+          done < "$RUNNER_TEMP/old-lab-releases.txt"
 
       # ---- Google Play internal testing (android-lab/PLAY.md) ----
       # Non-fatal: Google only accepts API uploads once the first bundle has been uploaded by hand
