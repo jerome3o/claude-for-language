@@ -60,7 +60,15 @@ describe('materials API', () => {
     expect(made.status).toBe(201);
     const id = made.body!.material.id as string;
     expect(made.body!.material).toMatchObject({ title: 'Lesson 5 – 把字句', kind: 'pptx', status: 'uploading' });
-    expect((await tutor(`/api/materials/${id}/original`, { method: 'PUT', body: new Uint8Array(2048) })).status).toBe(200);
+    // The bytes decide the type: zeros are not a PowerPoint, an HTML page dressed as one neither.
+    expect((await tutor(`/api/materials/${id}/original`, { method: 'PUT', body: new Uint8Array(2048) })).status).toBe(400);
+    expect((await tutor(`/api/materials/${id}/original`, { method: 'PUT', body: new TextEncoder().encode('<html><script>alert(1)</script></html>') })).status).toBe(400);
+    const pptx = new Uint8Array(2048);
+    pptx.set([0x50, 0x4b, 0x03, 0x04]);
+    expect((await tutor(`/api/materials/${id}/original`, { method: 'PUT', body: pptx })).status).toBe(200);
+    expect(db.rows('SELECT mime_type FROM materials WHERE id = ?', [id])[0]).toEqual({ mime_type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+    const original = await tutor(`/api/materials/${id}/original`);
+    expect(original.status).toBe(200);
     // Completing before the pages are there is refused.
     expect((await tutor(`/api/materials/${id}/complete`, { method: 'POST', json: { pages: [] } })).status).toBe(409);
     expect((await tutor(`/api/materials/${id}/pages/0`, { method: 'PUT', body: new Uint8Array([1, 2, 3]) })).status).toBe(400);

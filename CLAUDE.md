@@ -368,6 +368,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
+- `rate_limit_counters` - The cost guard's hourly job counter per user (migration 0128; key `jobs:<user id>`, epoch-hour window, count; `middleware/cost-guard.ts`)
 - `usage_events` - Usage analytics (migration 0100, docs/ANALYTICS.md): client + server events (id, user_id, ts, received_at, platform, app_version, session_id, event, screen = route pattern, props JSON of ids / enums / counts only); pruned after 180 days; `users.analytics_opt_out`
 - `tts_settings` - The admin's TTS provider settings (migration 0107): ONE row (id 1), `settings` JSON per `shared/tts/config.ts`, updated_at / updated_by; no row = the defaults
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
@@ -398,6 +399,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - Generated TTS audio and user recordings stored in Cloudflare R2
 - Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
 - Types: `generated` (TTS), `recordings` (user voice)
+- **Every response that streams an R2 object goes through `applyStoredFileHeaders`** (`worker/src/services/stored-file-headers.ts`): `nosniff`, `CSP: sandbox`, and `Content-Disposition: attachment` for anything that isn't audio / video / a raster picture (HTML / SVG never inline). Uploads store a type sniffed from the bytes, never the uploader's (`sniffOriginalType`, `lessonNoteFileType`, `screenshotImageType`). CORS echoes only the apps' own origins (`services/cors-origins.ts`, `CORS_EXTRA_ORIGINS` for more).
 - **`GET /api/audio/<key>` is an allowlist** (`shared/media/access.ts`, `routes/media.ts`, docs/AUDIO.md
   "Private media"): generated clips / pictures + avatars are public; person-made media (`recordings/`,
   `calls/`, `note-uploads/`, `lesson-notes/`) needs a credential — a signed link `?exp=&sig=` (the API
@@ -424,6 +426,12 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
   minute, ×0.5 on a 1002, floor 2, capped by `MINIMAX_RPM` = 55 (pay-as-you-go) and `MINIMAX_RPM_MAX` = 60;
   interactive before batch, a waiting tap reserves the next token;
   a 1002 / 429 is requeued 60 s later, never retried in the request). A new TTS path must use it.
+- **No refuse-and-requeue churn** (docs/AUDIO.md "Queue churn"; 16 Oct 2026: ~250k tts-queue messages
+  and ~525k limiter calls for ~19k clips): a refused BATCH clip the backfill would find (`backfillFinds`)
+  is dropped and the pump nudged; any other refused clip BOOKS its slot in the limiter's line
+  (`AcquireOptions.book` → `ticket`) and is requeued with that delay + ticket; in-process batch waiters
+  (pump, lesson audio) book within their deadline and sleep; an account-paused provider is skipped
+  without a DO call for ≤ 2 min (`services/tts/known-pauses.ts`). Simulated in `tts-churn-sim.test.ts`.
 - **Account problems** (no credit 2053 / 1008 / 2056, bad key 1004 / 2049 / HTTP 401 / 403;
   `services/tts/account.ts`): every call paused 5 → 60 min, never a clip failure; one probe per pause
   clears it (account-failed clips retried, pump started, ntfy on start + clear). Status:
@@ -481,6 +489,10 @@ change there. `leastThinking(model)` gives the right thinking setting per family
   `max_tokens`. A small `max_tokens` then truncates or empties the answer — this is what broke the
   Sentence Coach (PR #392 set 900). With forced `tool_choice`, set `thinking: { type: 'disabled' }`
   (as `lesson-editor.ts`, `sentence-set.ts`, `enrich-words.ts`, `calls/report.ts` do).
+- **Opus = `OPUS_MODEL` (`worker/src/services/models.ts`, `claude-opus-5-5`)**: thinking is always on
+  (`{ type: 'disabled' }` is a 400) and counts against `max_tokens`, forced `tool_choice` and `temperature`
+  are 400s; wrap the params in `withEffort(params, 'low' | 'medium' | …)` (default effort is medium) and use
+  `tool_choice: auto` + an instruction naming the tool.
 - For a short user-facing structured reply, use `structuredCall` (`worker/src/services/structured-call.ts`):
   forced tool + thinking off, `stop_reason` checked (`max_tokens` → retried with double the budget),
   `validate()` on the shape, every non-4xx failure retried with the last attempt on Haiku, 45 s timeout;
@@ -978,6 +990,7 @@ npm run dev
 - `ANTHROPIC_API_KEY`: For AI card generation and Ask Claude feature
 - `MINIMAX_API_KEY`: MiniMax TTS (the default provider; docs/AUDIO.md).
 - `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION`: Azure Speech TTS (optional second provider; deploy.yml pushes them only when set). `MINIMAX_RPM` (wrangler var) = hard cap on the learned rate (9 = Starter), `MINIMAX_RPM_MAX` = its ceiling (60)
+- `AI_DAILY_COST_CAP_USD` (wrangler var, default "10", "off" = none): a user's estimated AI spend today before costly endpoints answer 429 (`middleware/cost-guard.ts`, docs/ANALYTICS.md "Cost guard"; admins exempt)
 - `GOOGLE_TTS_API_KEY`: Google TTS, by default only an in-the-moment fallback for live playback nobody keeps (chat `/tts`, role-play replies; stored only if an admin puts it in the stored order)
 - D1 and R2 bindings are configured in `wrangler.toml`
 
@@ -1689,6 +1702,16 @@ durations, booleans only — never message text, card content, answers, recordin
   tokens and estimated cost via a `fetch` wrapper (`services/analytics/ai-usage.ts`) and an AsyncLocalStorage
   request scope (`scope.ts`, compat flag `nodejs_als`); one JSON log line per request with the route pattern
   (`request-log.ts`, Workers Observability, sampling 1.0).
+- **Cost guard** (docs/ANALYTICS.md "Cost guard", `middleware/cost-guard.ts`, mounted after auth): per-user
+  rate limits — `ai` 60/min (`/api/ai/*`, sentence / coach / explain, transcribe, Ask Claude, answer checks,
+  idioms), `tts` 600/min (`/api/practice/tts`), `jobs` 10/min + 30/hour (job-creating POSTs: audio lessons,
+  readers/generate, picture hunts, quests, podcast episodes, session notes / drafts) via the
+  `AI_RATE_LIMITER` / `TTS_RATE_LIMITER` / `JOB_RATE_LIMITER` bindings + D1 for the hour — and the daily
+  AI cost cap (`AI_DAILY_COST_CAP_USD`) from `server.ai_call`; 429 `{ error, code, retry_after }` +
+  Retry-After. **A new costly endpoint must be added to its group** (`costGroupFor`, tested).
+- Gemini image models' picture tokens are priced at the image rate (`GEMINI_IMAGE_OUTPUT_PRICES` in
+  `ai-usage.ts`); Workers Logs keep console lines only (`[observability.logs] invocation_logs = false`,
+  docs/ANALYTICS.md "Workers Logs").
 - Switches: `ANALYTICS_LEVEL` = off | basic | verbose (default); per user Settings → Advanced → "Share usage data"
   (`PUT /api/profile/analytics { share_usage }`, `users.analytics_opt_out`, off deletes their rows; `share_usage`
   on `/api/auth/me`). The daily cron (`[triggers]`, `scheduled()` in index.ts) prunes rows older than 180 days.

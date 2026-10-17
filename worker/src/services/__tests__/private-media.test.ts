@@ -136,7 +136,7 @@ describe('GET /api/audio/*', () => {
     const ok = await get(`/api/audio/${KEYS.take}`, { Authorization: 'Bearer sess-tutor' });
     expect(ok.status).toBe(200);
     expect(ok.headers.get('Cache-Control')).toBe('private, max-age=3600');
-    expect(ok.headers.get('Content-Security-Policy')).toBe('sandbox');
+    expect(ok.headers.get('Content-Security-Policy')).toContain('sandbox');
     expect((await get(`/api/audio/${KEYS.take}`, { Authorization: 'Bearer sess-stranger' })).status).toBe(404);
     expect((await get(`/api/audio/${KEYS.take}`, { Authorization: 'Bearer no-such-session' })).status).toBe(401);
     // A cookie is not a credential here.

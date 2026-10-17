@@ -183,11 +183,9 @@ empty, and nothing came back for it. A bulk import came out ~95 % silent.
 - MiniMax `1002` / `1039` / HTTP 429 → the limiter empties both buckets and blocks (15 s
   everyone, 60 s batch); the message is **requeued with a delay (60 s)** — never retried inside
   the request. A rate limit is not a failure.
-- Our own limiter's "wait" (any provider): an interactive message is requeued after the wait it
-  was given; a **batch** message after at least **30–60 s** (jittered, `BATCH_REQUEUE_MIN_SECONDS`).
-  With MiniMax paused and Azure at 15/min, hundreds of queued sentence-set clips each came back
-  after a few seconds — ~15,600 denials an hour for ~530 clips — and used up their 60 requeues in
-  minutes.
+- Our own limiter's "wait" (any provider): see **Queue churn** below — a batch clip the backfill
+  would find is left to the pump; any other refused clip books its slot and comes back then; an
+  interactive one after the wait it was given (three times, then it counts as batch).
 - No Google fallback for stored clips (Google Wavenet is "pretty terrible"). A clip that can't be
   made now waits in the queue. See "Google fallback" for the only live exceptions.
 - The DO logs `{"type":"tts_limiter", …}` once a minute with tokens and last-hour counts, and
@@ -195,6 +193,44 @@ empty, and nothing came back for it. A bulk import came out ~95 % silent.
 - **A waiting tap reserves the next token**: when an interactive caller is told to wait, batch may
   not take a token until its retry time + 5 s. At 9/min the burst is ONE token, so without this a
   pump worker polling for a slot could take every token from under a waiting tap.
+
+## Queue churn (bookings, the pump, paused providers)
+
+16 Oct 2026: tts-queue processed ~250k messages and the TtsLimiter DOs took ~525k calls to make
+~19k clips (~13 messages per clip; Azure 778 OK vs 12,238 refused in one hour), costing Queues
+operations, DO requests and Workers Logs. Every refused batch clip came back 30–60 s later, up to
+60 times, and asked MiniMax's (out-of-credit) limiter first each time. Now (`services/tts/queue.ts`,
+`bucket.ts`, `limiter.ts`, `known-pauses.ts`; simulation in `tts-churn-sim.test.ts`: ~1.1 messages
+and ~3 limiter calls per clip for 600 queued missing clips, 2 and 2 for forced remakes, same
+throughput):
+- **Left to the backfill**: a BATCH clip message the limiter refuses whose clip the backfill would
+  find by itself (missing, or not made with a current settings hash — `backfillFinds`) is acked and
+  dropped; the pump is nudged (one `pump` message a minute per isolate at most). The pump is the
+  one paced producer of stored clips, in priority order.
+- **Bookings** (`BucketState.bookings`): a refused batch caller may book its place in the limiter's
+  line — the next free batch slot (`retryAfterMs` + a `ticket`). A queue message that must come back
+  (a forced remake, a text edited under a current hash, a broken key) is requeued with the slot as
+  its delay and the ticket in the body (`ticket: { provider, at }`); a pump / lesson-audio worker
+  that waits in process books within its deadline and sleeps until the slot. A holder presenting
+  its ticket gets the token (one batch token of debt allowed, since the slots already are the pacing,
+  so a delivery a second late costs no requeue); a caller without one waits behind any booking due
+  within an interval. A booking nobody claims stops holding others back 2 s after its time and is
+  dropped after 30 s. In memory only (a DO restart forgets the line; holders then just compete).
+  Interactive callers ignore the line. `snapshot()` shows `bookings` / `bookings_until`.
+- **Interactive** clip messages are requeued after the limiter's wait at most
+  `INTERACTIVE_REQUEUES` (3) times; after that nobody is waiting and they are treated as batch.
+- **The pump** rests `PUMP_IDLE_DELAY_SECONDS` (30 s) after a tick that made nothing, so it never
+  loops faster than clips come.
+- **Paused providers are skipped without a call**: an account pause the isolate has seen (an
+  `acquire` answering `account`, or an account error from the provider) is remembered for at most
+  `KNOWN_PAUSE_MAX_MS` (2 min) — the provider is skipped without asking its DO, and the probe /
+  `audio_retry_failed` still take effect within 2 minutes. Cleared by a clip from that provider, a
+  settings save and `audio_retry_failed`.
+- **Logs**: one `{ type: "tts_queue", <status>: n }` line per queue batch that made or failed
+  something (never one per refused clip); refused-and-dropped clips are counted as
+  `rate_limited_left_to_backfill`.
+- `lesson_audio` deliveries wait up to `LESSON_AUDIO_SLOT_WAIT_MS` (15 s) for a booked slot per clip
+  instead of giving up on the first refusal.
 
 ## Account problems (no credit, bad key)
 
@@ -208,7 +244,7 @@ day. An account problem is not about the clip, so (`services/tts/account.ts`):
   (`MINIMAX_ACCOUNT_CODES` / `MINIMAX_ACCOUNT_HTTP`). `1004` used to be "permanent" per clip (7 days).
 - `callMiniMaxTTS` reports `account_error` to the limiter and returns `rateLimited: true` +
   `account: <code>`: the caller waits, exactly like a rate limit — **no `tts_clip_failures` row,
-  no attempt burnt**. Queue messages requeue after the pause (≤ 5 min a hop); the pump sleeps.
+  no attempt burnt**. A batch clip message is left to the backfill (others requeue after the pause, ≤ 5 min a hop); the pump sleeps; this isolate then skips the provider without a limiter call for ≤ 2 min (Queue churn).
 - The limiter **pauses every call** (all priorities): 5 min, then 10, 20, 40, 60, 60… Calls that
   were already in flight when the pause began don't lengthen it. While paused `acquire` answers
   `{ granted: false, account: <code> }` at once (an interactive tap doesn't wait 8 s) and the
@@ -365,12 +401,12 @@ Check is pressed:
 | private | `recordings/` (study takes, recorded note pronunciations, old chat voice `recordings/messages/`, lesson answers `recordings/lessons/`), `calls/`, `note-uploads/` (uploaded card photos), `lesson-notes/` | with a credential, to someone allowed (below); `private, max-age=3600`, `Referrer-Policy: no-referrer` |
 | none | everything else — `chat-media/`, `audio-lessons/`, `tutor-recordings/`, `materials/`, `picture-hunts/`, `screenshots/`, `debug/`, `podcast-episodes/`, `tts-cache/`, `voice-samples/`, unknown prefixes | 404 — each has its own authenticated route (or nothing fetches it by key) |
 
-Every response carries `X-Content-Type-Options: nosniff` + `Content-Security-Policy: sandbox`
-(an uploaded file's type is whatever the uploader said). Podcast episode copies are NOT public:
+Every response goes through `applyStoredFileHeaders` (`nosniff`, `CSP: sandbox`, anything not
+audio / video / a raster picture as an attachment). Podcast episode copies are NOT public:
 they are third-party audio, played through `GET /api/podcasts/episodes/:id/audio` (signed in) and
 fetched by the transcriber through its own signed link — a public mirror would be an open re-host.
 
-**Credentials for a private key** (any one; cookies are not one — the CORS headers reflect the origin):
+**Credentials for a private key** (any one; cookies are not one):
 - `?exp=&sig=` — a signed link for that one key (HMAC from `SESSION_SECRET`, `services/media-signing.ts`),
   minted by the API only for a caller it has checked: `GET /api/calls/:id` pieces (6 h), lesson-attempt
   `audio_url` (1 h), `POST /api/audio/upload`'s `url`, and `POST /api/media/sign { keys, ttl_s ≤ 86400 }`

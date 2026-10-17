@@ -28,6 +28,12 @@ export interface Env {
   AUDIO_LESSON_QUEUE: Queue<import('./services/audio-lessons/job').AudioLessonJobMessage | import('./services/companion-lesson').CompanionJobMessage | import('./services/podcasts/job').PodcastEpisodeMessage | import('./services/podcasts/lesson').PodcastLessonMessage>;
   /** Workers rate-limit binding for the podcast feed (wrangler.toml [[ratelimits]]); absent in tests. */
   PODCAST_RATE_LIMITER?: import('./services/podcast-feed').RateLimiterBinding;
+  /** Per-user rate limits on costly endpoints (middleware/cost-guard.ts); absent in tests → in-memory windows. */
+  AI_RATE_LIMITER?: import('./services/podcast-feed').RateLimiterBinding;
+  TTS_RATE_LIMITER?: import('./services/podcast-feed').RateLimiterBinding;
+  JOB_RATE_LIMITER?: import('./services/podcast-feed').RateLimiterBinding;
+  /** Daily estimated AI spend per user before 429 (middleware/cost-guard.ts): dollars, default 10; "off" = no cap. */
+  AI_DAILY_COST_CAP_USD?: string;
   /** Word checks (services/card-check.ts): new / edited notes and per-deck "Check for errors" runs. */
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
   /** Sentence Coach replies in the background (services/coach-replies.ts). */
@@ -71,6 +77,8 @@ export interface Env {
   /** Soniox API key — the best code-switching transcription; used for calls when set. */
   SONIOX_API_KEY?: string;
   CCR_FEATURE_REQUEST_ROUTINE_URL?: string;
+  /** Extra exact origins allowed by CORS (comma-separated; services/cors-origins.ts). */
+  CORS_EXTRA_ORIGINS?: string;
   CCR_FEATURE_REQUEST_ROUTINE_KEY?: string;
   ENVIRONMENT: string;
   // Auth secrets

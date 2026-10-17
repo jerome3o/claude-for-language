@@ -17,6 +17,7 @@
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { applyStoredFileHeaders } from '../services/stored-file-headers';
 import * as q from '../db/audio-lesson-queries';
 import { parseByteRange, resolveServedRange } from '../services/audio';
 import {
@@ -130,7 +131,7 @@ podcastPublic.get('/:token/lessons/:id/:version/audio.mp3', async (c) => {
   if (!head) return NOT_FOUND();
   const size = head.size;
   const headers = new Headers();
-  headers.set('Content-Type', 'audio/mpeg');
+  applyStoredFileHeaders(headers, { contentType: 'audio/mpeg' });
   headers.set('Accept-Ranges', 'bytes');
   // The version is in the path: the file at this URL never changes.
   headers.set('Cache-Control', 'private, max-age=31536000, immutable');

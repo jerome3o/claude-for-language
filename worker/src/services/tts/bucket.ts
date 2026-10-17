@@ -45,6 +45,24 @@ export interface BucketState {
    * reservation a polling batch worker could take it from under a waiting tap).
    */
   interactiveReservedUntil?: number;
+  /**
+   * Batch slots promised to callers that were told to come back (ascending epoch
+   * ms): a queue message requeued with its slot as the delay, a pump worker
+   * sleeping until its slot. A caller presenting its ticket gets the token; others
+   * may not take a token a booking needs. In memory only (a restart forgets them;
+   * a returning holder then simply competes like everyone else).
+   */
+  bookings?: number[];
+}
+
+/** Asking for a batch slot (docs/AUDIO.md "Bookings"). */
+export interface AcquireOptions {
+  /** When refused: book the next free batch slot and return it as `ticket`. */
+  book?: boolean;
+  /** …only if that slot is at most this far away (an in-process waiter's deadline). */
+  bookWithinMs?: number;
+  /** The slot this caller booked earlier. */
+  ticket?: number | null;
 }
 
 export const DEFAULT_MINIMAX_RPM = 55;
@@ -55,6 +73,13 @@ export const RATE_LIMIT_BLOCK_MS = 15_000;
 export const RATE_LIMIT_BATCH_BLOCK_MS = 60_000;
 /** How long past its retry time a waiting tap keeps the next token reserved. */
 export const INTERACTIVE_RESERVE_GRACE_MS = 5_000;
+/** A booking nobody claimed this long after its time is dropped. */
+export const BOOKING_GRACE_MS = 30_000;
+/** A booking whose time passed this long ago no longer holds others back (its owner may still claim it). */
+export const BOOKING_LATE_MS = 2_000;
+/** Bookings never reach further out than this (Queues' longest delay is 12 h). */
+export const MAX_BOOKING_AHEAD_MS = 12 * 3600_000;
+export const MAX_BOOKINGS = 5_000;
 
 /** `MINIMAX_RPM` env → config. Default 55 (headroom under a 60 RPM plan). */
 export function limiterConfig(rpmRaw: string | number | undefined, night = false): LimiterConfig {
@@ -90,9 +115,16 @@ export interface AcquireResult {
   retryAfterMs: number;
   /** Whole tokens left in the global bucket after this call. */
   remaining: number;
+  /** When denied with a booking (new or still held): the slot to come back at. */
+  ticket?: number;
 }
 
-export function tryAcquire(prev: BucketState, cfg: LimiterConfig, priority: TtsPriority, now: number): AcquireResult {
+/** Time between two batch tokens. */
+export function batchIntervalMs(cfg: LimiterConfig): number {
+  return 60_000 / Math.max(0.001, cfg.rpm * cfg.batchShare);
+}
+
+export function tryAcquire(prev: BucketState, cfg: LimiterConfig, priority: TtsPriority, now: number, opts: AcquireOptions = {}): AcquireResult {
   const state = refill(prev, cfg, now);
   const perMs = cfg.rpm / 60_000;
   const deny = (retryAfterMs: number): AcquireResult => ({
@@ -114,15 +146,46 @@ export function tryAcquire(prev: BucketState, cfg: LimiterConfig, priority: TtsP
     return { state: next, granted: true, retryAfterMs: 0, remaining: Math.floor(next.tokens) };
   }
 
-  if (now < state.blockedUntil) return deny(state.blockedUntil - now);
-  if (now < state.batchBlockedUntil) return deny(state.batchBlockedUntil - now);
-  if (now < (state.interactiveReservedUntil ?? 0)) return deny((state.interactiveReservedUntil ?? 0) - now);
+  // ---- batch: bookings first (FIFO), then the bucket ----
+  const allBookings = state.bookings ?? [];
+  const bookings = allBookings.filter((b) => b >= now - BOOKING_GRACE_MS);
+  const base: BucketState = bookings.length !== allBookings.length ? { ...state, bookings } : state;
+  const ticket = opts.ticket ?? null;
+  const holder = ticket !== null && bookings.includes(ticket);
+  const interval = batchIntervalMs(cfg);
+  const lineEnd = bookings.length ? bookings[bookings.length - 1] + interval : now;
+  const denyBatch = (waitMs: number): AcquireResult => {
+    const wait = Math.max(1, Math.ceil(waitMs));
+    if (holder) {
+      // Keep the place: come back when both the token and the slot are there.
+      return { state: base, granted: false, retryAfterMs: Math.max(wait, Math.ceil(ticket! - now)), remaining: Math.floor(base.tokens), ticket: ticket! };
+    }
+    if (opts.book) {
+      const slot = Math.ceil(Math.max(now + wait, lineEnd));
+      if (slot - now <= (opts.bookWithinMs ?? MAX_BOOKING_AHEAD_MS) && bookings.length < MAX_BOOKINGS) {
+        return { state: { ...base, bookings: [...bookings, slot] }, granted: false, retryAfterMs: slot - now, remaining: Math.floor(base.tokens), ticket: slot };
+      }
+    }
+    // No booking: told when the line ends (or the token, whichever is later).
+    return { state: base, granted: false, retryAfterMs: Math.max(wait, Math.ceil(lineEnd - now)), remaining: Math.floor(base.tokens) };
+  };
+
+  if (holder && now < ticket! - 1_000) return denyBatch(ticket! - now);
+  if (now < base.blockedUntil) return denyBatch(base.blockedUntil - now);
+  if (now < base.batchBlockedUntil) return denyBatch(base.batchBlockedUntil - now);
+  if (now < (base.interactiveReservedUntil ?? 0)) return denyBatch((base.interactiveReservedUntil ?? 0) - now);
+  // Someone holds a booking that the next token belongs to: wait in line.
+  if (!holder && bookings.some((b) => b >= now - BOOKING_LATE_MS && b <= now + interval)) return denyBatch(lineEnd - now);
   // Batch never takes the last global token (when the burst allows keeping one).
   const need = Math.min(2, cfg.burst);
-  const globalWait = state.tokens < need ? (need - state.tokens) / perMs : 0;
-  const batchWait = state.batchTokens < 1 ? (1 - state.batchTokens) / (perMs * cfg.batchShare) : 0;
-  if (globalWait > 0 || batchWait > 0) return deny(Math.max(globalWait, batchWait));
-  const next = { ...state, tokens: state.tokens - 1, batchTokens: state.batchTokens - 1 };
+  const globalWait = base.tokens < need ? (need - base.tokens) / perMs : 0;
+  // A holder's slot already IS the batch pacing (slots are an interval apart), so it may
+  // run one batch token into debt: a queue delivery a second late must not cost a requeue.
+  const batchNeed = holder ? 0 : 1;
+  const batchWait = base.batchTokens < batchNeed ? (batchNeed - base.batchTokens) / (perMs * cfg.batchShare) : 0;
+  if (globalWait > 0 || batchWait > 0) return denyBatch(Math.max(globalWait, batchWait));
+  const left = holder ? bookings.filter((b) => b !== ticket) : bookings;
+  const next: BucketState = { ...base, tokens: base.tokens - 1, batchTokens: base.batchTokens - 1, ...(left !== bookings || base.bookings ? { bookings: left } : {}) };
   return { state: next, granted: true, retryAfterMs: 0, remaining: Math.floor(next.tokens) };
 }
 

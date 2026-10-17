@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
-    "hono": "^4.4.0",
+    "hono": "^4.13.12",
     "pinyin-pro": "^3.28.0"
   },
   "devDependencies": {

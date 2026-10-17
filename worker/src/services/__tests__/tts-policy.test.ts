@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { generateTTSDetailed, generateTTS, generateConversationTTS } from '../audio';
+import { generateTTSDetailed, generateTTS, generateConversationTTS, forgetKnownAccountPauses } from '../audio';
 import type { Env } from '../../types';
 
 /**
@@ -50,6 +50,7 @@ function env(overrides: Partial<Env> = {}, withLimiter = true): Env {
 }
 
 beforeEach(() => {
+  forgetKnownAccountPauses();
   calls = [];
   minimaxResponses = [];
   googleResponses = [];

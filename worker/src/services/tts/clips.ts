@@ -15,7 +15,7 @@
  * source note is made (once) and its clip is shared with every copy.
  */
 import type { Env } from '../../types';
-import { generateTTSDetailed, type TTSOptions, type TTSOutcome } from '../audio';
+import { generateTTSDetailed, type TTSOptions, type TTSOutcome, type TtsTicket } from '../audio';
 import type { TtsPriority } from './bucket';
 import { clipSignature, settingsHash, TTS_MODEL } from './settings';
 import { storedClipPolicy, type StoredClipPolicy } from './config';
@@ -28,7 +28,13 @@ export interface ClipTarget {
 
 export type ClipResult =
   | { status: 'current' | 'generated' | 'copied' | 'none' | 'gone' }
-  | { status: 'rate_limited'; retryAfterMs: number; minimax: boolean }
+  | {
+      status: 'rate_limited'; retryAfterMs: number; minimax: boolean;
+      /** The backfill would pick this clip up by itself (missing / not current): a batch message need not come back. */
+      backfill?: boolean;
+      /** A booked limiter slot (with `requeue`): come back after retryAfterMs with it. */
+      ticket?: TtsTicket;
+    }
   | { status: 'failed'; reason: string; permanent: boolean };
 
 export type TtsFn = (env: Env, text: string, keyId: string, options: TTSOptions) => Promise<TTSOutcome>;
@@ -48,6 +54,27 @@ export interface EnsureClipOptions {
   depth?: number;
   /** Which providers' clips are current (default: from the admin settings + account state). */
   policy?: StoredClipPolicy;
+  /**
+   * A queue message that will come back if refused: when the backfill would NOT find
+   * this clip (force, an edited text, a broken key), book a limiter slot so it comes
+   * back exactly when it can be made (docs/AUDIO.md "Bookings").
+   */
+  requeue?: boolean;
+  /** The slot booked on an earlier delivery. */
+  ticket?: TtsTicket | null;
+}
+
+/**
+ * Would the backfill (services/tts/backfill.ts) pick this clip up by itself? It finds a
+ * clip that is missing, or whose settings hash is not one of the current ones. It does
+ * NOT find a clip whose text changed under a current hash, a broken R2 key or a forced
+ * remake — those must keep their queue message.
+ */
+export function backfillFinds(row: Pick<ClipRow, 'url' | 'signature'>, policy: Pick<StoredClipPolicy, 'acceptableHashes'>, force = false): boolean {
+  if (force) return false;
+  if (!row.url) return true;
+  if (!row.signature) return true;
+  return !policy.acceptableHashes.some((h) => row.signature!.startsWith(`${h}.`));
 }
 
 /** The settings hash a new clip records (null = custom settings, never current). */
@@ -311,18 +338,34 @@ export async function ensureClip(env: Env, target: ClipTarget, opts: EnsureClipO
     if (row.signature && current.has(row.signature)) return { status: 'current' };
   }
 
+  // A broken key still has its url in the row: the backfill won't see it, so it isn't findable.
+  const findable = backfillFinds(row, policy, opts.force);
+
   // A student's copy: share the tutor's clip instead of making its own.
   if (target.kind !== 'sentence' && (opts.depth ?? 0) === 0 && !opts.force) {
     const shared = await shareFromSource(env, target, row, hasClip, current, opts);
-    if (shared) return shared;
+    if (shared) return shared.status === 'rate_limited' ? { ...shared, backfill: findable } : shared;
   }
 
   const tts = opts.tts ?? generateTTSDetailed;
-  const made = await tts(env, text, keyIdFor(target, row), { priority: opts.priority, maxWaitMs: opts.maxWaitMs });
+  // Book a slot only for a message that must come back (the backfill won't find its clip).
+  const book = !!opts.requeue && !findable;
+  const made = await tts(env, text, keyIdFor(target, row), {
+    priority: opts.priority,
+    maxWaitMs: opts.maxWaitMs,
+    ...(book ? { book: true } : {}),
+    ...(opts.ticket ? { ticket: opts.ticket } : {}),
+  });
   if (!made.ok) {
     if (made.rateLimited) {
       // Also an account pause (no credit / bad key): wait it out, record nothing against the clip.
-      return { status: 'rate_limited', retryAfterMs: made.retryAfterMs ?? 60_000, minimax: made.reason !== 'limiter' && made.account === undefined };
+      return {
+        status: 'rate_limited',
+        retryAfterMs: made.retryAfterMs ?? 60_000,
+        minimax: made.reason !== 'limiter' && made.reason !== 'account paused' && made.account === undefined,
+        backfill: findable,
+        ...(made.ticket ? { ticket: made.ticket } : {}),
+      };
     }
     await recordClipFailure(env.DB, target, made.reason, made.permanent).catch(() => {});
     return { status: 'failed', reason: made.reason, permanent: made.permanent };

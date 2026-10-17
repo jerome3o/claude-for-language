@@ -5,6 +5,7 @@ import { ChatListeningSettings } from '../components/chat/ChatListeningSettings'
 import { ChatSettingsSection } from '../components/ChatSettingsSection';
 import { CardCheckSettingsSection } from '../components/CardCheckSettingsSection';
 import { Link } from 'react-router-dom';
+import { AuthedScreenshot } from '../components/AuthedScreenshot';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget, updateShareUsage } from '../api/client';
 import { RevisitSettingsSection } from '../components/settings/RevisitSettingsSection';
 import { NewCardOrderSection } from '../components/settings/NewCardOrderSection';
@@ -127,13 +128,10 @@ function FeatureRequestDetail({ requestId, onClose }: { requestId: string; onClo
 
         {request.screenshot_url && (
           <div style={{ marginTop: '0.75rem' }}>
-            <a href={`${API_BASE}${request.screenshot_url}`} target="_blank" rel="noopener noreferrer">
-              <img
-                src={`${API_BASE}${request.screenshot_url}`}
-                alt="Screenshot"
-                style={{ maxWidth: '100%', border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
-              />
-            </a>
+            <AuthedScreenshot
+              path={request.screenshot_url}
+              style={{ maxWidth: '100%', border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
+            />
           </div>
         )}
 

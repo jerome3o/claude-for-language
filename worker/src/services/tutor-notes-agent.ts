@@ -55,8 +55,10 @@ import { studentLoad } from './homework';
 import { addDays, isHomeworkMode, localDate, normalizeDraftPlan, type DraftContents, type DraftPlan } from '@shared/homework';
 import { studentProfilePrompt, type StudentProfileFields } from '@shared/students';
 import { getStudentProfile } from '../db/student-profile-queries';
+import { OPUS_MODEL, withEffort } from './models';
 
-export const TUTOR_NOTES_MODEL = 'claude-opus-4-6';
+/** Opus 5.5: thinking always on (counted in MAX_TOKENS), tool_choice auto, effort set per call. */
+export const TUTOR_NOTES_MODEL = OPUS_MODEL;
 /** Hard cap on model turns per job. A normal job takes 6–12. */
 export const MAX_ROUNDS = 30;
 /** After this much wall clock in one delivery the job re-enqueues itself. */
@@ -508,13 +510,13 @@ async function callModel(client: Anthropic, messages: Anthropic.MessageParam[]):
   for (let attempt = 0; attempt < 4; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, 1500 * attempt));
     try {
-      return await client.messages.create({
+      return await client.messages.create(withEffort({
         model: TUTOR_NOTES_MODEL,
         max_tokens: MAX_TOKENS,
         system: SYSTEM_PROMPT,
         tools: TOOLS as Anthropic.Tool[],
         messages,
-      });
+      }, 'medium'));
     } catch (error) {
       lastError = error;
       if (!isRetryable(error)) break;

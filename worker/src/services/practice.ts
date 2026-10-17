@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { VocabularyItem } from '../types';
+import { OPUS_MODEL, withEffort } from './models';
 
-const MODEL = 'claude-opus-4-6';
+const MODEL = OPUS_MODEL;
 
 export interface GrammarPoint {
   id: string;
@@ -216,19 +217,23 @@ ${grammarBlock(grammarPoint)}
 Learner's known vocabulary (use ONLY these plus basic function words):
 ${vocabBlock(vocabulary)}${lessonContext}
 
-Generate a practice session: 6 flood examples, 3 scrambles, 3 multiple-choice exercises (each with 4 options — one correct and three plausible distractors), 5 translation prompts. Every sentence must demonstrate or test the target pattern "${grammarPoint.pattern}".`;
+Generate a practice session: 6 flood examples, 3 scrambles, 3 multiple-choice exercises (each with 4 options — one correct and three plausible distractors), 5 translation prompts. Every sentence must demonstrate or test the target pattern "${grammarPoint.pattern}".
 
-  const response = await client.messages.create({
+Hand in the whole session by calling the create_practice_session tool once. Do not answer in plain text.`;
+
+  const response = await client.messages.create(withEffort({
     model: MODEL,
     // A full session (6 flood + 3 scramble + 3 four-option contrast + 5 translate, each with
     // hanzi/pinyin/english) is large; keep generous headroom so the tool_use JSON is never
-    // truncated mid-output (a truncated tool call yields partial, unusable input).
-    max_tokens: 8000,
+    // truncated mid-output (a truncated tool call yields partial, unusable input) — and the
+    // model's thinking (always on with Opus 5.5) counts against the same cap.
+    max_tokens: 16000,
     system: GENERATION_SYSTEM_PROMPT,
     tools: [SESSION_TOOL],
-    tool_choice: { type: 'tool', name: 'create_practice_session' },
+    // Opus 5.5 refuses a forced tool_choice (400): auto + the instruction above.
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content: userPrompt }],
-  });
+  }, 'medium'));
 
   // If the model hits the token ceiling, the tool_use block is cut off and its JSON is partial,
   // leaving required arrays undefined. Fail with a clear message instead of crashing downstream.

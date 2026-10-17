@@ -41,7 +41,7 @@ admin.put('/admin/users/:user/role', async (c) => {
     return c.json({ error: `role must be one of: ${USER_ROLES.join(', ')}` }, 400);
   }
   await setUserRole(c.env.DB, ref.id, body.role as UserRole);
-  console.log('[admin] role', ref.id, ref.email, '→', body.role, 'by', c.get('user').email);
+  console.log('[admin] role', ref.id, '→', body.role, 'by', c.get('user').id);
   return c.json({ id: ref.id, email: ref.email, name: ref.name, role: body.role });
 });
 

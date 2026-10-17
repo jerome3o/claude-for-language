@@ -7,8 +7,7 @@
  *                           user's media token) or `Authorization: Bearer <session>`, and — for the last
  *                           two — only when that user may see it (services/media-access.ts). 401 without
  *                           a credential, 404 when not allowed. Every other key: 404 (served by its own
- *                           route, or by none). Cookies are NOT a credential here (the CORS headers
- *                           reflect the origin).
+ *                           route, or by none). Cookies are NOT a credential here.
  *   GET  /api/media/token   → { token, expires_at }: the signed-in user's media token (3 days).
  *   POST /api/media/sign    { keys (≤ 100), ttl_s? (60…86400, default 3600) }
  *                           → { urls: { [key]: path | null } } — a signed path per key the caller may see
@@ -23,6 +22,8 @@ import { mediaAccessOf, mediaKeyOf, MEDIA_TOKEN_PARAM } from '@shared/media/acce
 import { getAudio, parseByteRange, resolveServedRange } from '../services/audio';
 import { getSessionWithUser } from '../services/auth';
 import { canAccessMedia } from '../services/media-access';
+import { applyStoredFileHeaders } from '../services/stored-file-headers';
+import { allowedCorsOrigin } from '../services/cors-origins';
 import { createMediaToken, mediaPath, signMediaPath, verifyMediaSignature, verifyMediaToken, MEDIA_LINK_MAX_TTL_S, MEDIA_LINK_TTL_S } from '../services/media-signing';
 
 const notFound = (c: Context) => c.json({ error: 'Audio not found' }, 404);
@@ -65,25 +66,26 @@ export async function serveAudio(c: Context<{ Bindings: Env }>): Promise<Respons
   const object = await getAudio(c.env.AUDIO_BUCKET, key, range);
   if (!object) return notFound(c);
 
-  const origin = c.req.header('Origin') || '*';
+  // CORS: the apps' origins with credentials; anyone else may only read a public clip.
+  const origin = allowedCorsOrigin(c.req.header('Origin'), c.env.CORS_EXTRA_ORIGINS);
   const headers = new Headers();
-  headers.set('Content-Type', object.httpMetadata?.contentType || 'audio/mpeg');
+  // nosniff + sandbox; anything not audio / video / a raster picture downloads (services/stored-file-headers.ts).
+  applyStoredFileHeaders(headers, { contentType: object.httpMetadata?.contentType, fallbackType: 'audio/mpeg' });
   // Public objects never change under a key (a new clip gets a new key); private ones stay in
   // the browser's own cache only — the apps keep their offline copies by R2 key, not by URL.
   headers.set('Cache-Control', access === 'public' ? 'public, max-age=31536000' : 'private, max-age=3600');
   headers.set('Accept-Ranges', 'bytes');
-  // An uploaded file's type is whatever the uploader said: never sniffed, never run as a page.
-  headers.set('X-Content-Type-Options', 'nosniff');
-  headers.set('Content-Security-Policy', 'sandbox');
   if (access === 'private') headers.set('Referrer-Policy', 'no-referrer');
   if (object.httpEtag) headers.set('ETag', object.httpEtag);
   // Explicit CORS headers for audio element cross-origin playback
-  headers.set('Access-Control-Allow-Origin', origin);
-  headers.set('Access-Control-Allow-Credentials', 'true');
+  headers.set('Access-Control-Allow-Origin', origin ?? '*');
+  if (origin) {
+    headers.set('Access-Control-Allow-Credentials', 'true');
+    headers.set('Vary', 'Origin');
+  }
   // Range is not a CORS-safelisted response header, so the media element can
   // only see the partial-content headers if we expose them.
   headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, ETag');
-  headers.set('Vary', 'Origin');
 
   const served = range ? resolveServedRange(object.range, object.size) : null;
   if (served && served.length < object.size) {

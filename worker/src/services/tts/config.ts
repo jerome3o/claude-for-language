@@ -30,6 +30,7 @@ import { conversationVoice } from '@shared/lesson/voices';
 import { configuredProviders, AZURE_OUTPUT_FORMAT } from './providers';
 import { houseSpeed, otherProviderHash, settingsHash, TTS_MODEL } from './settings';
 import type { AccountProblem } from './account';
+import { forgetKnownAccountPauses } from './known-pauses';
 
 export const TTS_CONFIG_CACHE_MS = 30_000;
 
@@ -39,6 +40,7 @@ let cached: { at: number; config: TtsConfig } | null = null;
 export function clearTtsConfigCache(): void {
   cached = null;
   cachedAccounts = null;
+  forgetKnownAccountPauses();
 }
 
 export async function loadTtsConfig(env: Pick<Env, 'DB'>, now = Date.now()): Promise<TtsConfig> {

@@ -17,6 +17,7 @@ import { stripJpegMetadata } from '../services/image-bytes';
 import { sanitizeHuntPlay } from '@shared/picture-hunt';
 import type { PictureHuntPlay } from '@shared/picture-hunt';
 import type { Env } from '../types';
+import { applyStoredFileHeaders } from '../services/stored-file-headers';
 import * as huntDb from '../db/picture-hunt-queries';
 import { readPictureBytes } from '../services/profile';
 import { extFor, sniffImage } from '../services/picture-hunt';
@@ -145,13 +146,11 @@ routes.get('/picture-hunts/:id/image', async (c) => {
   if (!row?.image_key) return c.json({ error: 'Not found' }, 404);
   const obj = await c.env.AUDIO_BUCKET.get(row.image_key);
   if (!obj) return c.json({ error: 'Not found' }, 404);
-  return new Response(obj.body, {
-    headers: {
-      'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg',
-      // The picture never changes for a given key; private because it may be a personal photo.
-      'Cache-Control': 'private, max-age=31536000, immutable',
-    },
-  });
+  const headers = new Headers();
+  applyStoredFileHeaders(headers, { contentType: obj.httpMetadata?.contentType, fallbackType: 'image/jpeg' });
+  // The picture never changes for a given key; private because it may be a personal photo.
+  headers.set('Cache-Control', 'private, max-age=31536000, immutable');
+  return new Response(obj.body, { headers });
 });
 
 routes.post('/picture-hunts/:id/retry', async (c) => {

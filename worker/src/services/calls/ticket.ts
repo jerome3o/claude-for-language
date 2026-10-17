@@ -17,9 +17,13 @@ export interface TicketClaims {
 
 type TicketEnv = { SESSION_SECRET?: string; GOOGLE_CLIENT_SECRET?: string; E2E_TEST_MODE?: string };
 
-/** SESSION_SECRET, else the Google OAuth secret (always set where sign-in works), else a dev key under E2E_TEST_MODE. */
+/**
+ * A key DERIVED for call tickets from SESSION_SECRET (never the raw secret, which other
+ * HMACs share), else from the Google OAuth secret (always set where sign-in works), else a
+ * dev key under E2E_TEST_MODE. Tickets live 60 s, so the switch needs no overlap window.
+ */
 function secretFor(env: TicketEnv): string {
-  if (env.SESSION_SECRET) return env.SESSION_SECRET;
+  if (env.SESSION_SECRET) return `call-ticket:${env.SESSION_SECRET}`;
   if (env.GOOGLE_CLIENT_SECRET) return `call-ticket:${env.GOOGLE_CLIENT_SECRET}`;
   if (env.E2E_TEST_MODE === 'true') return DEV_SECRET;
   throw new Error('SESSION_SECRET is not set');

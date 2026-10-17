@@ -46,6 +46,9 @@ ENVIRONMENT = "production"
 # pay-as-you-go's 60/min for T2A (Oct 2026; it was 9 on the 10/min Starter plan).
 MINIMAX_RPM = "55"
 MINIMAX_RPM_MAX = "60"
+# Daily estimated AI spend per user before costly endpoints answer 429 (middleware/cost-guard.ts,
+# docs/ANALYTICS.md "Cost guard"). Dollars; "off" = no cap. Admins are exempt.
+AI_DAILY_COST_CAP_USD = "10"
 
 # Local development settings
 [dev]
@@ -225,15 +228,46 @@ type = "ratelimit"
 namespace_id = "5410"
 simple = { limit = 120, period = 60 }
 
+# Per-user rate limits on costly endpoints (middleware/cost-guard.ts), keyed by user id.
+# Generous: normal study / teaching never comes near. Jobs also have 30 an hour (D1).
+[[unsafe.bindings]]
+name = "AI_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "5411"
+simple = { limit = 60, period = 60 }
+
+[[unsafe.bindings]]
+name = "TTS_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "5412"
+simple = { limit = 600, period = 60 }
+
+[[unsafe.bindings]]
+name = "JOB_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "5413"
+simple = { limit = 10, period = 60 }
+
 # Workers AI (for speech-to-text transcription)
 [ai]
 binding = "AI"
 
-# Workers Observability: every request logs one JSON line (services/analytics/request-log.ts).
-# Two-ish users, so keep every log (turn head_sampling_rate down if volume grows).
+# Workers Observability (docs/ANALYTICS.md "Workers Logs"). What is kept:
+# - every console line: the request log (one JSON line per HTTP request, services/analytics/
+#   request-log.ts), ai_call lines, warnings / errors, the TTS limiter's minute line, one
+#   tts_queue line per queue batch that did something;
+# - NOT the automatic invocation log of every invocation (invocation_logs = false): one event
+#   per Durable Object RPC (each TTS limiter acquire / report), per queue batch, per cron —
+#   ~22k an hour on 16 Oct 2026, most of the ~28M events a month (20M included).
+# Errors still show: a route's exception is logged by Hono's error handler + the request line
+# (`error`), queue / cron / DO failures by their console.error. head_sampling_rate stays 1:
+# keep every request line. To debug an invocation, `wrangler tail` still shows everything.
 [observability]
 enabled = true
 head_sampling_rate = 1
+
+[observability.logs]
+invocation_logs = false
 
 # Daily at 03:17 UTC: prune usage_events older than 180 days (docs/ANALYTICS.md).
 # 23:00 + 00:00 UTC: the nightly audio backfill, acting only at London midnight

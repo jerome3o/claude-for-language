@@ -131,6 +131,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'daily_activities', sql: `DELETE FROM daily_activities WHERE user_id = ?1` },
   { label: 'daily_counts', sql: `DELETE FROM daily_counts WHERE user_id = ?1` },
   { label: 'study_time_days', sql: `DELETE FROM study_time_days WHERE user_id = ?1` },
+  { label: 'rate_limit_counters', sql: `DELETE FROM rate_limit_counters WHERE key = 'jobs:' || ?1` },
   { label: 'usage_events', sql: `DELETE FROM usage_events WHERE user_id = ?1` },
   { label: 'daily_readers', sql: `DELETE FROM daily_readers WHERE user_id = ?1 OR reader_id IN ${READERS}` },
   { label: 'sync_metadata', sql: `DELETE FROM sync_metadata WHERE user_id = ?1` },
@@ -425,6 +426,6 @@ export async function deleteUserAccount(
   if (bg) bg.waitUntil(cleanup);
   else r2Deleted = await cleanup;
 
-  console.log('[delete-user] deleted', user.id, user.email, deleted, 'kept', kept, 'r2', keys.length);
+  console.log('[delete-user] deleted', user.id, deleted, 'kept', kept, 'r2', keys.length);
   return { deleted_user: user, deleted, kept, r2_objects_deleted: r2Deleted };
 }

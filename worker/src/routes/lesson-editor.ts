@@ -730,10 +730,10 @@ lessonEditor.post('/editor-chat/:targetType/:targetId/messages', async (c) => {
 
 async function setStatus(c: Ctx, status: 'accepted' | 'rejected') {
   const userId = c.get('user').id;
-  const target = await loadTarget(c.env.DB, c.req.param('targetType'), c.req.param('targetId'), userId);
+  const target = await loadTarget(c.env.DB, c.req.param('targetType')!, c.req.param('targetId')!, userId);
   if (!target) return c.json({ error: 'Not found' }, 404);
   const chat = await lib.getOrCreateEditorChat(c.env.DB, userId, target.type, target.row.id);
-  const row = await lib.setProposalStatus(c.env.DB, c.req.param('id'), chat.id, status);
+  const row = await lib.setProposalStatus(c.env.DB, c.req.param('id')!, chat.id, status);
   if (!row) return c.json({ error: 'Proposal not found' }, 404);
   return c.json({ id: row.id, proposal_status: row.proposal_status });
 }
