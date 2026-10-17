@@ -1,5 +1,5 @@
 import { db } from '../db/database';
-import { API_BASE } from '../api/client';
+import { getAudioUrl, mediaFetchInit } from '../api/client';
 import { DEVICE_SPEECH_RATE } from '@shared/tts';
 import { whenAudioIdle } from '../utils/audioPlayback';
 
@@ -96,7 +96,8 @@ export async function getAudioWithCache(audioUrl: string): Promise<Blob | null> 
 
   // Fetch from network
   try {
-    const response = await fetch(`${API_BASE}/api/audio/${audioUrl}`);
+    // By R2 key (the cache key); a private key carries its credential (api/mediaToken.ts).
+    const response = await fetch(getAudioUrl(audioUrl), mediaFetchInit(audioUrl));
     if (!response.ok) {
       return null;
     }

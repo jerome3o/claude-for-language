@@ -7,7 +7,7 @@ import { writeConversationVoices } from '../services/conversationVoices';
 import { writeConversationAudio } from '../services/conversationAudio';
 import { AuthUser } from '../types';
 import { setSharingUsage } from '../services/analytics';
-import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
+import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken, refreshMediaTokenIfDue } from '../api/client';
 
 const SESSION_TOKEN_KEY = 'session_token';
 const CACHED_USER_KEY = 'cached_user';
@@ -86,6 +86,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const userData = await getCurrentUser();
         setUser(userData);
+        // Private recordings / photos play with a media token (api/mediaToken.ts).
+        void refreshMediaTokenIfDue();
         writeStudyBudget(userData);
         writeRevisitSettings(userData as { revisit_settings?: unknown });
         writeNewCardOrder(userData as { new_card_order?: unknown });

@@ -137,7 +137,7 @@ export function pictureProblems(bytes: Uint8Array | null): string[] {
   return [];
 }
 
-/** Public URL of an avatar key: the existing public GET /api/audio/<key> route serves any R2 object. */
+/** Public URL of an avatar key: GET /api/audio/<key> serves avatars/ publicly (shared/media/access.ts). */
 export function avatarUrl(origin: string, key: string): string {
   return `${origin.replace(/\/$/, '')}/api/audio/${key}`;
 }

@@ -354,6 +354,49 @@ Check is pressed:
   when it arrives. A tap on Play still uses the device voice meanwhile; offline nothing changes.
 - **Lab**: `NoteAudioFixer` does the same (`queued` is pending, not a failure).
 
+## Private media (who may fetch an R2 object)
+
+`GET /api/audio/<key>` (`worker/src/routes/media.ts`) serves the whole bucket by an ALLOWLIST,
+`shared/media/access.ts`:
+
+| Access | Prefixes | Served |
+|---|---|---|
+| public | `generated/` (TTS clips), `reader-images/`, `lesson-images/`, `note-images/` (generated pictures), `avatars/` (profile photos, shown on the /join page) | to anyone, `Cache-Control: public, max-age=31536000` |
+| private | `recordings/` (study takes, recorded note pronunciations, old chat voice `recordings/messages/`, lesson answers `recordings/lessons/`), `calls/`, `note-uploads/` (uploaded card photos), `lesson-notes/` | with a credential, to someone allowed (below); `private, max-age=3600`, `Referrer-Policy: no-referrer` |
+| none | everything else — `chat-media/`, `audio-lessons/`, `tutor-recordings/`, `materials/`, `picture-hunts/`, `screenshots/`, `debug/`, `podcast-episodes/`, `tts-cache/`, `voice-samples/`, unknown prefixes | 404 — each has its own authenticated route (or nothing fetches it by key) |
+
+Every response carries `X-Content-Type-Options: nosniff` + `Content-Security-Policy: sandbox`
+(an uploaded file's type is whatever the uploader said). Podcast episode copies are NOT public:
+they are third-party audio, played through `GET /api/podcasts/episodes/:id/audio` (signed in) and
+fetched by the transcriber through its own signed link — a public mirror would be an open re-host.
+
+**Credentials for a private key** (any one; cookies are not one — the CORS headers reflect the origin):
+- `?exp=&sig=` — a signed link for that one key (HMAC from `SESSION_SECRET`, `services/media-signing.ts`),
+  minted by the API only for a caller it has checked: `GET /api/calls/:id` pieces (6 h), lesson-attempt
+  `audio_url` (1 h), `POST /api/audio/upload`'s `url`, and `POST /api/media/sign { keys, ttl_s ≤ 86400 }`
+  (checks each key; the MCP tools use it with 24 h, `mcp-server/src/tools/media.ts`, so a recording
+  in a claude.ai transcript stops working the next day). Tampered / expired → 403.
+- `?mt=<token>` — the user's media token (`GET /api/media/token`, 3 days): the web app appends it to
+  private keys' `<audio src>` / `<img src>` (`getAudioUrl` / `getReaderImageUrl`, `api/mediaToken.ts`;
+  refreshed at start-up and every sync when under 2 days are left). Each request is still authorised.
+- `Authorization: Bearer <session>` — the Lab app on every download / stream from the API
+  (`Api.mediaHeaders`, `Api.download`, `WordAudio`), the web's `fetch` of a private key.
+
+**Who may see it** (`services/media-access.ts`): the owner (review / note / attempt / lesson-note row),
+or the TUTOR of an owner in an active relationship (not the other way round); call audio → the call's
+members; an old chat voice message → the two people of the chat. Nothing else; 404 otherwise.
+
+**Offline**: both apps keep their copies by R2 KEY — web `cachedAudio` (IndexedDB, keyed by the key),
+Lab `files/audio/<key>` (`Repository.fileName`) — never by URL, so a new token or a re-signed link never
+re-downloads anything and cached recordings play offline as before. The web service worker's
+`audio-cache` (CacheFirst by URL) leaves the private prefixes out (`vite.config.ts`, kept in step by
+`api/mediaToken.test.ts`).
+
+**Old clients** (before Oct 2026): anything that fetched a private key anonymously now gets 401 — old
+Lab builds' recording players (tutor recordings, note history, lesson answers) until updated; their
+call review still plays (the server's `audio_url` is signed now). Generated clips and pictures — what
+study needs offline — are unchanged for every version.
+
 ## Operating it
 
 - Status: MCP `audio_backfill_status` (or `GET /api/admin/audio/backfill`): `account_problem`

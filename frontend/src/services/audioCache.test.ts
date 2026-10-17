@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   cacheAudio,
   getCachedAudio,
@@ -7,7 +7,9 @@ import {
   evictIfOverBudget,
   getAudioCacheStats,
   clearAudioCache,
+  getAudioWithCache,
 } from './audioCache';
+import { setMediaToken } from '../api/mediaToken';
 import { db } from '../db/database';
 
 function blobOfSize(bytes: number): Blob {
@@ -103,5 +105,27 @@ describe('audio cache', () => {
     await clearAudioCache();
     expect((await getAudioCacheStats()).count).toBe(0);
     expect((await getCachedAudioKeys()).size).toBe(0);
+  });
+});
+
+describe('private media in the offline cache (docs/AUDIO.md "Private media")', () => {
+  it('fetches a recording with the media token but keeps it by R2 key — a new token re-downloads nothing', async () => {
+    setMediaToken({ token: 'tok-1', expires_at: new Date(Date.now() + 86_400_000).toISOString() });
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(20), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(await getAudioWithCache('recordings/ev-9.webm')).not.toBeNull();
+      expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe('/api/audio/recordings/ev-9.webm?mt=tok-1');
+      expect(await isAudioCached('recordings/ev-9.webm')).toBe(true);
+      setMediaToken({ token: 'tok-2', expires_at: new Date(Date.now() + 86_400_000).toISOString() });
+      expect(await getAudioWithCache('recordings/ev-9.webm')).not.toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // A generated clip goes without any credential.
+      await getAudioWithCache('generated/z.mp3');
+      expect(fetchMock.mock.calls[1]).toEqual(['/api/audio/generated/z.mp3', undefined]);
+    } finally {
+      vi.unstubAllGlobals();
+      setMediaToken(null);
+    }
   });
 });

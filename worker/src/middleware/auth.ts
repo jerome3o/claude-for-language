@@ -21,7 +21,7 @@ const PUBLIC_ROUTES = [
 
 // Routes that are public only for GET requests (e.g., serving audio files)
 const PUBLIC_GET_ROUTES = [
-  '/api/audio/', // Audio files are public for playback, but upload requires auth
+  '/api/audio/', // R2 objects: the handler itself decides (public allowlist, or a signed link / media token / Bearer — routes/media.ts); upload requires auth
   '/api/feature-requests/screenshot/', // Screenshots served via <img> tags which don't send auth headers
 ];
 

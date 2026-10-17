@@ -4,6 +4,7 @@
  * students), pending invites and homework decks, with quick actions that
  * call back into the app-only tools below.
  */
+import { signMediaUrls } from '../media.js';
 import { z } from 'zod';
 import type { ToolContext } from '../context.js';
 import { registerApp } from '../apps.js';
@@ -36,7 +37,8 @@ function dashboardSummary(students: DashStudent[]): string {
 }
 
 async function buildDashboardPayload(ctx: ToolContext, tzOffset: number): Promise<DashboardPayload> {
-  const dash = await loadDashboard(ctx, tzOffset);
+  // Recording keys become signed 24 h links (the UI plays absolute URLs as they are; tools/media.ts).
+  const dash = await signMediaUrls(ctx.api, await loadDashboard(ctx, tzOffset));
   return {
     kind: 'students_dashboard',
     media_base: mediaBase(ctx),
@@ -113,12 +115,12 @@ export function registerStudentsDashboardApp(ctx: ToolContext): void {
             return { recordings: [], range: undefined, since_lesson: false };
           }),
       ]);
-      const payload: StudentDetailPayload = {
+      const payload: StudentDetailPayload = await signMediaUrls(ctx.api, {
         overview,
         recordings: insights.recordings ?? [],
         range: insights.range ?? null,
         since_lesson: !!insights.since_lesson,
-      };
+      });
       return appResult(
         `Loaded detail for ${studentName(overview.student)} (${payload.recordings.length} recordings in range).`,
         payload as unknown as Record<string, unknown>,

@@ -29,7 +29,7 @@ import {
 } from '../db/database';
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
-import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardStates } from '../api/client';
+import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardStates, refreshMediaTokenIfDue } from '../api/client';
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents, processPendingReviewDeletions, recomputeCardsWithEvents, repairCardStatesIfDue } from './review-events';
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
 import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from './readerSync';
@@ -469,6 +469,8 @@ class SyncService {
       );
     }
 
+    // The media token for private recordings / photos (api/mediaToken.ts): refreshed when < 2 days are left.
+    void refreshMediaTokenIfDue();
     // Prefetch ALL owned audio (recordings, sentence clues, everything) in
     // the background so study works fully offline. Throttled internally.
     prefetchAllAudio().catch(err =>
@@ -826,6 +828,7 @@ class SyncService {
     // Sync graded readers (content + pages) so they can be studied offline
     await this.syncReaders();
 
+    void refreshMediaTokenIfDue();
     // Prefetch ALL owned audio in the background (throttled internally)
     prefetchAllAudio().catch(err =>
       console.error('[Sync] Full audio prefetch failed:', err)

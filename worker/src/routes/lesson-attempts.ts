@@ -18,6 +18,7 @@
  * configured (the same providers as video calls).
  */
 
+import { mediaPathFor } from './media';
 import { Hono, Context } from 'hono';
 import type { LessonAttemptData, CustomLessonSpec } from '@shared/lesson';
 import type { Env } from '../types';
@@ -140,7 +141,7 @@ lessonAttempts.put('/lesson-attempts/:id/media/:key', async (c) => {
   await q.upsertAttemptMedia(c.env.DB, { attempt_id: attemptId, media_key: mediaKey, user_id: userId, audio_key: audioKey, content_type: mime, size: bytes.byteLength });
 
   c.executionCtx.waitUntil(transcribeAttemptMedia(c.env, attemptId, mediaKey, new Uint8Array(bytes), mime));
-  return c.json({ ok: true, audio_url: `/api/audio/${audioKey}` }, 201);
+  return c.json({ ok: true, audio_url: await mediaPathFor(c.env, audioKey) }, 201);
 });
 
 /** Transcribe one recording in the background; failures are recorded, never thrown. */
@@ -175,15 +176,16 @@ async function attemptDetail(env: Env, row: q.LessonAttemptRow) {
     rating: row.rating,
     spec: JSON.parse(row.spec) as CustomLessonSpec,
     data: JSON.parse(row.data) as LessonAttemptData,
-    media: media.map(m => ({
+    media: await Promise.all(media.map(async m => ({
       media_key: m.media_key,
       audio_key: m.audio_key,
-      audio_url: `/api/audio/${m.audio_key}`,
+      // A signed link (1 h): the recording is private (shared/media/access.ts); the caller was checked above.
+      audio_url: await mediaPathFor(env, m.audio_key),
       content_type: m.content_type,
       transcript_status: m.transcript_status,
       transcript: m.transcript,
       transcript_translation: m.transcript_translation,
-    })),
+    }))),
   };
 }
 
