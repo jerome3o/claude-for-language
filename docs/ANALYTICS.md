@@ -49,14 +49,54 @@ time; Lab: `0.N (versionCode)`).
   provider, model, input / output / cache-read tokens, estimated USD cost, the route or queue that
   made it). AI calls are captured without touching the call sites: `installAiUsageCapture()` wraps
   `fetch` once and reads `usage` from a clone of each Anthropic / Gemini JSON response
-  (`ai-usage.ts`, `MODEL_PRICES` — list prices, an estimate). The user and route come from an
+  (`ai-usage.ts`, `MODEL_PRICES` — list prices, an estimate). **Gemini image models**
+  (`gemini-2.5-flash-image`, `gemini-3.1-flash-image`, `gemini-3-pro-image`) price their IMAGE
+  output tokens (`candidatesTokensDetails[].modality = IMAGE`) at the image rate
+  (`GEMINI_IMAGE_OUTPUT_PRICES`: $30 / $60 / $120 per M ≈ $0.039 / $0.067 / $0.134 a picture) and
+  the rest at their text rate; without the breakdown every candidate token counts as image. Until
+  Oct 2026 pictures were priced at the text rate and the AI dashboard under-reported spend by
+  ~25–30 %. The user and route come from an
   AsyncLocalStorage scope (`scope.ts`, compatibility flag `nodejs_als`) set for every request,
   queue batch and cron run.
 - **Request logs** — `request-log.ts` writes one JSON line per request to Workers Observability:
   `{ type: "request", method, route: "/api/decks/:id", status, duration_ms, user_id, error? }`
-  (route pattern, never the raw path). `[observability]` is on with `head_sampling_rate = 1`.
-  Query them in the Cloudflare dashboard (Workers → Observability, `type = request`), or with the
-  Cloudflare observability MCP.
+  (route pattern, never the raw path). Query them in the Cloudflare dashboard (Workers →
+  Observability, `type = request`), or with the Cloudflare observability MCP.
+
+## Workers Logs (what is sampled)
+
+`wrangler.toml`: `[observability] head_sampling_rate = 1` (every invocation's console lines are
+kept) and `[observability.logs] invocation_logs = false` — the automatic per-invocation event
+(`$cloudflare.$metadata.type = "cf-worker-event"`) is **not** written. That event was most of the
+volume: one per TTS limiter Durable Object RPC (each `acquire` / `report`), per queue batch, per
+cron run — ~22k an hour on 16 Oct 2026, ~28M events a month against 20M included. What is kept:
+the request line above (every HTTP request), `ai_call` lines, warnings / errors (a route's
+exception through Hono's error handler + the request line's `error`), the TTS limiter's one line a
+minute, and one `tts_queue` line per queue batch that made / failed something (it used to be one
+line per refused clip). `wrangler tail` still shows everything live.
+
+## Cost guard (per-user limits on costly endpoints)
+
+`worker/src/middleware/cost-guard.ts`, mounted after sign-in on `/api/*` (security review M4).
+1. **Rate limits per user**, Workers rate-limit bindings in `wrangler.toml` keyed `<group>:<user id>`
+   (in-memory windows with the same numbers when a binding is absent):
+   `ai` 60 a minute (`AI_RATE_LIMITER`: `/api/ai/*`, `/api/sentence/*`, sentence explains, `/api/coach/*`,
+   `/api/transcribe*`, `/api/notes/:id/ask`, `/api/lessons/answer-check*`, `/api/lessons/sentence-feedback`,
+   `POST /api/idioms`); `tts` 600 a minute (`TTS_RATE_LIMITER`: `/api/practice/tts` — mostly R2 hits,
+   real TTS calls are paced by the TTS limiter); `jobs` 10 a minute (`JOB_RATE_LIMITER`) and 30 an
+   hour (D1 `rate_limit_counters`, migration 0128 — the bindings only count 10 / 60 s windows): POSTs
+   that start background generation (audio lessons + companion / retry, readers/generate + retry,
+   picture hunts + upload / retry, quests + retry, podcast episodes + retry / lesson, session notes +
+   retry, `/api/calls/:id/homework`, lesson notes / drafts / draft messages). Reads never count.
+2. **Daily AI cost cap**: `AI_DAILY_COST_CAP_USD` (`[vars]`, default `10`; `off` = none) against the
+   user's `server.ai_call` `cost_usd` since UTC midnight (cached a minute per isolate), on the `ai`
+   and `jobs` groups; admins (`is_admin` or `ADMIN_EMAIL`) exempt. Background jobs' calls carry no
+   user and opted-out users' calls aren't recorded, so the cap only sees request-time spend.
+Over a limit → **429** `{ error, code: 'rate_limited' | 'daily_ai_limit', retry_after }` + `Retry-After`;
+the `error` is shown as is by both apps ("You're asking Claude very quickly — please wait a minute
+and try again." / "You've reached today's AI limit ($10 a day). It resets at midnight UTC — studying
+and everything else still work."). Every refusal logs `{ type: "cost_guard", reason, group, user_id }`.
+Skipped in `E2E_TEST_MODE`.
 
 ## How it is sent
 
