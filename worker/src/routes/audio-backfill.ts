@@ -13,7 +13,7 @@ import { TTS_MODEL, ttsSettings } from '../services/tts/settings';
 import { loadTtsConfig, storedClipPolicy } from '../services/tts/config';
 import { providerStatuses } from './audio-settings';
 import { limiterConfig } from '../services/tts/bucket';
-import { callMiniMaxTTS } from '../services/audio';
+import { callMiniMaxTTS, forgetKnownAccountPauses } from '../services/audio';
 import type { LimiterSnapshot } from '../durable/tts-limiter';
 import { accountFailureCondition, resetAccountFailures } from '../services/tts/account';
 import type { AccountProblem } from '../services/tts/account';
@@ -188,6 +188,8 @@ routes.post('/admin/audio/retry-failed', async (c) => {
     reset = await resetAccountFailures(c.env.DB, { code, now });
   }
   let probing = false;
+  // This isolate's remembered pauses go too (other isolates forget theirs within KNOWN_PAUSE_MAX_MS).
+  forgetKnownAccountPauses();
   if (c.env.TTS_LIMITER) {
     // Every provider's pause ends: the next call to each probes it.
     for (const name of [LIMITER_NAME, 'azure', 'google']) {

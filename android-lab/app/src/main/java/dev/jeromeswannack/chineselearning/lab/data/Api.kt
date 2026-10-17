@@ -243,9 +243,23 @@ class Api(val baseUrl: String = Config.API_BASE, private val tokenProvider: () -
     suspend fun sentences(since: String?): SentencesPageDto =
         call(request("/api/sentences/changes" + (since?.let { "?since=${enc(it)}" } ?: "")).build(), SentencesPageDto.serializer())
 
-    /** Downloads a public audio clip (no auth needed) into [dest]. */
+    /**
+     * The headers a request to [url] needs: the session for our own API (so person-made media —
+     * recordings, lesson answers, call audio, uploaded card photos — downloads and streams; the
+     * server answers 401 to an anonymous request for those since Oct 2026, docs/AUDIO.md
+     * "Private media"), nothing for any other host.
+     */
+    fun mediaHeaders(url: String): Map<String, String> {
+        if (!url.startsWith(baseUrl)) return emptyMap()
+        val token = tokenProvider() ?: return emptyMap()
+        return mapOf("Authorization" to "Bearer $token")
+    }
+
+    /** Downloads an R2 object (a clip, a picture, a recording) into [dest]; the session goes with it to our API. */
     suspend fun download(url: String, dest: File) = withContext(Dispatchers.IO) {
-        http.newCall(Request.Builder().url(url).build()).execute().use { res ->
+        val req = Request.Builder().url(url)
+        mediaHeaders(url).forEach { (k, v) -> req.header(k, v) }
+        http.newCall(req.build()).execute().use { res ->
             if (!res.isSuccessful) throw HttpException(res.code, url)
             // Unique temp name: the card and the background prefetch may fetch the same clip at once.
             val tmp = File(dest.parentFile, dest.name + "." + java.util.UUID.randomUUID().toString().take(8) + ".part")

@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import type { ToolContext } from './context.js';
 import { errorResult, guard, jsonResult, textResult } from './context.js';
+import { signMediaUrls } from './media.js';
 import { CONFIRM_SEND, NEEDS_CONFIRM, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_TODAY, STUDENT_NAME, assignmentSummary, describeSend, resolveStudent, sendAsHomework, sentTo } from './homework-send.js';
 import type { StudyBudgetInfo } from '../../../shared/decks/tutor-budget';
 import type {
@@ -98,6 +99,8 @@ const PROFILE_DOC =
 export function registerStudentTools(ctx: ToolContext): void {
   const { server, api } = ctx;
   const apiBase = api.baseUrl;
+  /** A result whose recordings / call audio carry signed 24 h links instead of permanent ones (tools/media.ts). */
+  const signedJson = async (data: unknown) => jsonResult(await signMediaUrls(api, data));
 
   // ============ Who are my students ============
 
@@ -111,7 +114,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           api.get<TutorDashboard>('/api/tutor/dashboard', { tz_offset: tz_offset_minutes ?? 0 }),
           api.get<MyRelationships>('/api/relationships'),
         ]);
-        return jsonResult({
+        return signedJson({
           students: dashboard.students.map((s) => compactStudentRow(s, apiBase)),
           pending_invites: dashboard.invites.map(compactDashboardInvite),
           homework_decks: dashboard.homework_decks,
@@ -131,7 +134,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           api.get<StudentOverview>(`${rel(relationship_id)}/overview`, { tz_offset: tz_offset_minutes ?? 0 }),
           api.get<{ profile: StudentProfile | null }>(`${rel(relationship_id)}/student-profile`).catch(() => ({ profile: null })),
         ]);
-        return jsonResult({ ...compactStudentOverview(overview, apiBase), student_profile: profile.profile });
+        return signedJson({ ...compactStudentOverview(overview, apiBase), student_profile: profile.profile });
       })
   );
 
@@ -215,7 +218,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           from: normalizeDateParam(from, 'from'),
           to: normalizeDateParam(to, 'to'),
         });
-        return jsonResult({
+        return signedJson({
           range: r.range,
           since_lesson: r.since_lesson,
           latest_lesson: r.latest_lesson,
@@ -234,7 +237,7 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'get_student_history',
-    `Every individual review the student did, newest first, with filters — the raw material behind get_student_insights. Each event: when, the word (hanzi/pinyin/english/deck), card_type, rating, what the student typed (\`user_answer\`, for the typing card types), time spent and an \`audio_url\` when they recorded themselves. Use \`q\` to follow one word (matches hanzi, pinyin or English), \`rating\` to list only failures, \`card_type\` to isolate listening vs writing. Paged: when \`next_cursor\` is non-null pass it back as \`cursor\` for the next page. The first page also lists the student's \`decks\` (id + name) for the \`deck_id\` filter. ${RANGE_DOC} ${CARD_TYPE_DOC} ${RATING_DOC}`,
+    `Every individual review the student did, newest first, with filters — the raw material behind get_student_insights. Each event: when, the word (hanzi/pinyin/english/deck), card_type, rating, what the student typed (\`user_answer\`, for the typing card types), time spent and an \`audio_url\` when they recorded themselves (a private signed link, valid 24 hours). Use \`q\` to follow one word (matches hanzi, pinyin or English), \`rating\` to list only failures, \`card_type\` to isolate listening vs writing. Paged: when \`next_cursor\` is non-null pass it back as \`cursor\` for the next page. The first page also lists the student's \`decks\` (id + name) for the \`deck_id\` filter. ${RANGE_DOC} ${CARD_TYPE_DOC} ${RATING_DOC}`,
     {
       relationship_id: RELATIONSHIP_ID,
       from: z.string().optional().describe('Range start (ISO). Default: the last logged lesson, else 14 days before `to`.'),
@@ -258,7 +261,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           cursor,
           limit: clampInt(limit, 1, 500, 100),
         });
-        return jsonResult({
+        return signedJson({
           range: r.range,
           ...(r.decks ? { decks: r.decks } : {}),
           events: r.events.map((e) => compactHistoryEvent(e, apiBase)),
@@ -286,7 +289,7 @@ export function registerStudentTools(ctx: ToolContext): void {
             `${rel(relationship_id)}/student-progress`
           ),
         ]);
-        return jsonResult({
+        return signedJson({
           student: daily.student,
           last_30_days: daily.summary,
           stats: progress.stats,
@@ -345,7 +348,7 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'list_student_recordings',
-    `The student's pronunciation recordings (they can record themselves on the "see the characters, say it" card) in a date range, each with the word, the rating they gave themselves, \`recorded_at\`, an \`audio_url\` to listen to (opens in the app; the tutor must be signed in) and the tutor's \`mark\` if any (listened / needs_work + comment; \`has_model_recording\` = she recorded how it should sound in the app — the student hears it beside their own take). \`queue: true\` lists only the "Needs your ear" queue — unmarked recordings where the transcript didn't match the card, the student rated it Again / Hard, the Azure pronunciation score is low or a character sounded off (\`sounded_off\`: char + tone / sound / missed), or the student flagged the card — each with \`why\` (e.g. "Heard: 音响", "Sounded off: 银 (tone)") and a \`reference_audio_url\`; listen to those first. \`only_unmarked\` lists every recording still waiting to be heard. Mark them with mark_recording (a mark takes it out of the queue). ${RANGE_DOC}`,
+    `The student's pronunciation recordings (they can record themselves on the "see the characters, say it" card) in a date range, each with the word, the rating they gave themselves, \`recorded_at\`, an \`audio_url\` to listen to (a private signed link that works for 24 hours — fetch the tool again for a fresh one; never share it beyond the tutor) and the tutor's \`mark\` if any (listened / needs_work + comment; \`has_model_recording\` = she recorded how it should sound in the app — the student hears it beside their own take). \`queue: true\` lists only the "Needs your ear" queue — unmarked recordings where the transcript didn't match the card, the student rated it Again / Hard, the Azure pronunciation score is low or a character sounded off (\`sounded_off\`: char + tone / sound / missed), or the student flagged the card — each with \`why\` (e.g. "Heard: 音响", "Sounded off: 银 (tone)") and a \`reference_audio_url\`; listen to those first. \`only_unmarked\` lists every recording still waiting to be heard. Mark them with mark_recording (a mark takes it out of the queue). ${RANGE_DOC}`,
     {
       relationship_id: RELATIONSHIP_ID,
       from: z.string().optional().describe('Range start (ISO). Default: the last logged lesson, else 14 days before `to`.'),
@@ -363,7 +366,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           view: queue ? 'queue' : 'all',
         });
         const items = only_unmarked ? r.items.filter((i) => !i.mark) : r.items;
-        return jsonResult({
+        return signedJson({
           range: r.range,
           total: items.length,
           in_queue: r.counts.queue,
@@ -572,7 +575,7 @@ export function registerStudentTools(ctx: ToolContext): void {
           `/api/conversations/${encodeURIComponent(convId)}/messages`
         );
         const n = clampInt(limit, 1, 500, 50);
-        return jsonResult({
+        return signedJson({
           conversation_id: r.messages[0]?.conversation_id ?? convId,
           total: r.messages.length,
           messages: lastMessages(r.messages, n).map((m) => compactMessage(m, ctx.userId, apiBase)),

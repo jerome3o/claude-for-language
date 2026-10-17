@@ -84,6 +84,8 @@ import {
 } from './services/auth';
 import { notifyNewUser, notifyAccessRequest } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
+import { mediaRoutes, mediaPathFor, serveAudio } from './routes/media';
+import { costGuard } from './middleware/cost-guard';
 import testAuth from './routes/test-auth';
 import invitesRoutes from './routes/invites';
 import onboardingRoutes from './routes/onboarding';
@@ -573,12 +575,16 @@ app.route('/api/podcast-source', podcastSourcePublic);
 app.use('/api/*', authMiddleware);
 // Hand the signed-in user + route pattern to analytics (server events, AI calls).
 app.use('/api/*', bindAnalyticsScope);
+// Per-user rate limits + the daily AI cost cap on costly endpoints (middleware/cost-guard.ts).
+app.use('/api/*', costGuard);
 
 // One chat per pair: merged-away conversation ids answer as the chat they became,
 // and the conversation get / create / rename routes (routes/one-chat.ts).
 mountMergedConversations(app);
 app.route('/api', oneChatRoutes);
 app.route('/api', coachRoutes);
+// GET /api/media/token, POST /api/media/sign — credentials for private media (routes/media.ts).
+app.route('/api', mediaRoutes);
 app.route('/api', idiomsRoutes); // 成语 Idioms (beta): GET|POST /api/idioms, GET /api/idioms/:hanzi
 app.route('/api', messageTranslateRoutes);
 
@@ -2669,7 +2675,7 @@ app.post('/api/audio/upload', async (c) => {
   // The tutor's "Needs your ear" check (transcript + Azure score), in the background.
   if ((updated.meta?.changes ?? 0) > 0) c.executionCtx.waitUntil(enqueueRecordingCheck(c.env, targetReviewId!, userId));
 
-  return c.json({ key, url: `/api/audio/${key}` }, 201);
+  return c.json({ key, url: await mediaPathFor(c.env, key) }, 201);
 });
 
 // All audio URLs the user owns, for offline prefetch. Distinct path so it
@@ -2800,59 +2806,9 @@ app.post('/api/audio-quality/regenerate', async (c) => {
   return c.json({ queued, remaining });
 });
 
-app.get('/api/audio/*', async (c) => {
-  const key = c.req.path.replace('/api/audio/', '');
-  // Chat photos / voice messages are private: only GET /api/chat-media/:messageId serves them.
-  if (key.startsWith('chat-media/')) return c.json({ error: 'Audio not found' }, 404);
-  // An audio lesson is its learner's: only GET /api/audio-lessons/:id/audio serves it.
-  if (key.startsWith('audio-lessons/')) return c.json({ error: 'Audio not found' }, 404);
-  // A tutor's model recording: only GET /api/recording-marks/:eventId/model-audio serves it (the two people of the mark).
-  if (key.startsWith('tutor-recordings/')) return c.json({ error: 'Audio not found' }, 404);
-
-  // <audio> streams media with Range requests. Answering every one with the
-  // full body (200) forces the element to re-buffer from zero whenever it
-  // seeks or recovers from a stall, which on a weak connection sounds like the
-  // clip cutting out. Serve real 206 partials instead.
-  const rangeHeader = c.req.header('Range');
-  const range = parseByteRange(rangeHeader);
-  const object = await getAudio(c.env.AUDIO_BUCKET, key, range);
-
-  if (!object) {
-    return c.json({ error: 'Audio not found' }, 404);
-  }
-
-  // CORS: the apps' origins with credentials; anyone else may only read the public clip.
-  const origin = allowedCorsOrigin(c.req.header('Origin'), c.env.CORS_EXTRA_ORIGINS);
-
-  const headers = new Headers();
-  // nosniff + sandbox; anything not audio / video / a raster picture downloads (services/stored-file-headers.ts).
-  applyStoredFileHeaders(headers, { contentType: object.httpMetadata?.contentType, fallbackType: 'audio/mpeg' });
-  headers.set('Cache-Control', 'public, max-age=31536000');
-  headers.set('Accept-Ranges', 'bytes');
-  if (object.httpEtag) {
-    headers.set('ETag', object.httpEtag);
-  }
-  // Explicit CORS headers for audio element cross-origin playback
-  headers.set('Access-Control-Allow-Origin', origin ?? '*');
-  if (origin) {
-    headers.set('Access-Control-Allow-Credentials', 'true');
-    headers.set('Vary', 'Origin');
-  }
-  // Range is not a CORS-safelisted response header, so the media element can
-  // only see the partial-content headers if we expose them.
-  headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, ETag');
-
-  const served = range ? resolveServedRange(object.range, object.size) : null;
-  if (served && served.length < object.size) {
-    const { offset, length } = served;
-    headers.set('Content-Length', String(length));
-    headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${object.size}`);
-    return new Response(object.body, { status: 206, headers });
-  }
-
-  headers.set('Content-Length', String(object.size));
-  return new Response(object.body, { headers });
-});
+// R2 objects: generated content is public, person-made media needs a credential +
+// authorisation, everything else is 404 (routes/media.ts, shared/media/access.ts).
+app.get('/api/audio/*', serveAudio);
 
 // ============ Transcription ============
 // POST /api/transcribe (the upload path: Whisper → Soniox async → Gemini) and

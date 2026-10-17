@@ -354,6 +354,7 @@ interface Call {
 function fakeContext(routes: Record<string, unknown | ((call: Call) => unknown)>) {
   const tools = new Map<string, { description: string; handler: Handler }>();
   const calls: Call[] = [];
+  const signCalls: Call[] = [];
   const respond = (call: Call) => {
     const key = `${call.method} ${call.path}`;
     if (!(key in routes)) throw new ApiError(404, `No fake route for ${key}`, null);
@@ -369,6 +370,12 @@ function fakeContext(routes: Record<string, unknown | ((call: Call) => unknown)>
     },
     post: async (path: string, body?: unknown) => {
       const call = { method: 'POST', path, body: body ?? {} };
+      // Recording links are signed by the API (tools/media.ts): answered here, kept apart from `calls`.
+      if (path === '/api/media/sign' && !(`POST ${path}` in routes)) {
+        signCalls.push(call);
+        const keys = (body as { keys: string[] }).keys;
+        return { urls: Object.fromEntries(keys.map((k) => [k, `/api/audio/${k}?exp=1&sig=s`])) };
+      }
       calls.push(call);
       return respond(call);
     },
@@ -401,7 +408,7 @@ function fakeContext(routes: Record<string, unknown | ((call: Call) => unknown)>
     api: api as unknown as ApiClient,
   } as unknown as ToolContext;
   registerStudentTools(ctx);
-  return { tools, calls };
+  return { tools, calls, signCalls };
 }
 
 function parse(result: CallToolResult): Record<string, unknown> {
@@ -483,7 +490,7 @@ describe('registerStudentTools', () => {
       check: { status: 'done', transcript: '音行', transcript_match: false, score: 71.5, char_scores: [], weak_chars: [{ char: '银', score: 48, kind: 'tone' }], score_note: null },
       flag: null, reasons: ['heard_different', 'low_score', 'sounded_off'], labels: ['Heard: 音行', 'Pronunciation score 72', 'Sounded off: 银 (tone)'], in_queue: true,
     };
-    const { tools, calls } = fakeContext({
+    const { tools, calls, signCalls } = fakeContext({
       'GET /api/relationships/rel-1/recordings/queue': () => ({ range: { from: 'a', to: 'b' }, view: 'queue', items: [item], counts: { queue: 1, all: 4, checking: 0 }, scoring: true }),
     });
     const out = parse(await tools.get('list_student_recordings')!.handler({ relationship_id: 'rel-1', queue: true }));
@@ -493,6 +500,11 @@ describe('registerStudentTools', () => {
     expect(rec).toMatchObject({ event_id: 'ev-1', heard: '音行', pronunciation_score: 71.5, why: ['Heard: 音行', 'Pronunciation score 72', 'Sounded off: 银 (tone)'] });
     expect(rec.sounded_off).toEqual([{ char: '银', kind: 'tone', score: 48 }]);
     expect(String(rec.reference_audio_url)).toContain('generated/n.mp3');
+    // The recording is private: a signed, expiring link for the transcript (tools/media.ts); the TTS clip stays plain.
+    expect(rec.audio_url).toBe(`${API}/api/audio/recordings/ev-1.webm?exp=1&sig=s`);
+    expect(String(rec.reference_audio_url)).not.toContain('sig=');
+    expect(signCalls).toHaveLength(1);
+    expect((signCalls[0].body as { keys: string[]; ttl_s: number })).toEqual({ keys: ['recordings/ev-1.webm'], ttl_s: 86400 });
   });
 
   it('list_student_recordings says whether the tutor recorded how it should sound', async () => {
@@ -708,7 +720,7 @@ describe('registerStudentTools', () => {
     expect(out.struggling_total).toBe(20);
     expect((out.struggling as unknown[]).length).toBe(3);
     expect((out.struggling as Array<Record<string, unknown>>)[0].events).toBeUndefined();
-    expect((out.recordings as Array<Record<string, unknown>>)[0].audio_url).toBe(`${API}/api/audio/recordings/a.webm`);
+    expect((out.recordings as Array<Record<string, unknown>>)[0].audio_url).toBe(`${API}/api/audio/recordings/a.webm?exp=1&sig=s`);
   });
 
   it('get_student_history passes every filter as a query param and returns next_cursor', async () => {

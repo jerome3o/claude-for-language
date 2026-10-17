@@ -103,6 +103,15 @@ test('the tutor records how it should sound; the student hears it next to their 
   // Never through the public audio route.
   const key = await request.fetch(`${API}/api/audio/tutor-recordings/${relId}/x.webm`);
   expect(key.status()).toBe(404);
+  // The student's own take is private media too (docs/AUDIO.md "Private media"): no anonymous
+  // fetch; the two of them with their session or media token; never a stranger.
+  const take = `${API}/api/audio/recordings/${eventId}.webm`;
+  expect((await request.fetch(take)).status()).toBe(401);
+  for (const [who, status] of [[student, 200], [tutor, 200], [stranger, 404]] as const) {
+    expect((await request.fetch(take, { headers: { Authorization: `Bearer ${who.token}` } })).status(), who.email).toBe(status);
+    const mt = await api<{ token: string }>(request, '/api/media/token', { token: who.token });
+    expect((await request.fetch(`${take}?mt=${encodeURIComponent(mt.token)}`)).status(), who.email).toBe(status);
+  }
 
   // ---- The student: the Tutor notes page, then the card back ----
   // His own device (a fresh browser context: nothing cached from the tutor's session).

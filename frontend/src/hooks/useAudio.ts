@@ -3,6 +3,7 @@ import { getAudioWithCache, getCachedAudio, pickChineseVoice } from '../services
 import { isEffectivelyOffline } from '../services/offlineMode';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { DEVICE_SPEECH_RATE } from '@shared/tts';
+import { withMediaCredential } from '../api/mediaToken';
 
 /**
  * Hook for recording audio using MediaRecorder
@@ -285,7 +286,7 @@ export async function resolveNoteAudioSource(
   apiBase: string
 ): Promise<Blob | string> {
   const blob = await getAudioWithCache(audioUrl).catch(() => null);
-  return blob ?? `${apiBase}/api/audio/${audioUrl}`;
+  return blob ?? withMediaCredential(`${apiBase}/api/audio/${audioUrl}`, audioUrl);
 }
 
 /**

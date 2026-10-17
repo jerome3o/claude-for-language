@@ -11,7 +11,11 @@ import type { Env } from '../../types';
 import { currentScope, keepAlive } from './scope';
 import { trackServer } from './server-events';
 
-/** USD per million tokens: [input, output]. Cache reads are ~0.1× input. Estimates. */
+/**
+ * USD per million tokens: [input, output]. Cache reads are ~0.1× input. Estimates
+ * from the providers' list prices (paid tier). The first matching prefix wins, so
+ * the specific names come before the family ones.
+ */
 export const MODEL_PRICES: ReadonlyArray<[prefix: string, input: number, output: number]> = [
   ['claude-opus-5-5', 4, 20],
   ['claude-opus', 5, 25],
@@ -20,10 +24,33 @@ export const MODEL_PRICES: ReadonlyArray<[prefix: string, input: number, output:
   ['claude-sonnet-4', 3, 15],
   ['claude-haiku-4', 1, 5],
   ['claude-fable', 10, 50],
+  // Image models: these are the TEXT output prices (incl. thinking); their IMAGE
+  // output tokens are priced from GEMINI_IMAGE_OUTPUT_PRICES below.
+  ['gemini-3-pro-image', 2, 12],
+  ['gemini-3.1-flash-image', 0.5, 3],
+  ['gemini-2.5-flash-image', 0.3, 2.5],
+  ['gemini-3.6-flash', 0.75, 3.75],
   ['gemini-2.5-flash-lite', 0.1, 0.4],
   ['gemini-3.5-flash-lite', 0.1, 0.4],
   ['gemini', 0.3, 2.5],
 ];
+
+/**
+ * USD per million IMAGE output tokens of Gemini's image models (Oct 2026 list prices).
+ * One 1024×1024 picture is ~1,290 tokens on 2.5 Flash Image ($0.039) and ~1,120 on
+ * 3.1 Flash Image ($0.067). Before this, picture tokens were priced at the text rate
+ * ($2.50 / M) — the AI dashboard under-reported every illustration by ~10–20×.
+ */
+export const GEMINI_IMAGE_OUTPUT_PRICES: ReadonlyArray<[prefix: string, perMillion: number]> = [
+  ['gemini-3-pro-image', 120],
+  ['gemini-3.1-flash-image', 60],
+  ['gemini-2.5-flash-image', 30],
+];
+
+export function imageOutputPriceFor(model: string): number | null {
+  const m = model.toLowerCase();
+  return GEMINI_IMAGE_OUTPUT_PRICES.find(([prefix]) => m.startsWith(prefix))?.[1] ?? null;
+}
 
 export interface AiUsage {
   provider: 'anthropic' | 'gemini';
@@ -41,10 +68,32 @@ export function priceFor(model: string): [number, number] | null {
   return hit ? [hit[1], hit[2]] : null;
 }
 
-export function estimateCost(model: string, input: number, output: number, cacheRead = 0): number {
+/**
+ * Estimated USD. `imageOutput` = how many of the `output` tokens are image tokens
+ * (Gemini's image models), priced at the image rate; the rest at the text rate.
+ */
+export function estimateCost(model: string, input: number, output: number, cacheRead = 0, imageOutput = 0): number {
   const p = priceFor(model);
   if (!p) return 0;
-  return Math.round(((input * p[0] + cacheRead * p[0] * 0.1 + output * p[1]) / 1_000_000) * 1e6) / 1e6;
+  const imagePrice = imageOutputPriceFor(model);
+  const image = imagePrice === null ? 0 : Math.max(0, Math.min(output, imageOutput));
+  const text = output - image;
+  const usd = (input * p[0] + cacheRead * p[0] * 0.1 + text * p[1] + image * (imagePrice ?? 0)) / 1_000_000;
+  return Math.round(usd * 1e6) / 1e6;
+}
+
+/**
+ * Image tokens of a Gemini answer: `candidatesTokensDetails[].modality === 'IMAGE'`.
+ * An image model that answers without the breakdown: every candidate token is
+ * counted as image (an image model's output is almost all picture).
+ */
+export function geminiImageOutputTokens(model: string, usageMetadata: Record<string, any>): number {
+  if (imageOutputPriceFor(model) === null) return 0;
+  const details = usageMetadata.candidatesTokensDetails;
+  if (Array.isArray(details) && details.length) {
+    return details.reduce((n: number, d: any) => n + (String(d?.modality ?? '').toUpperCase() === 'IMAGE' ? Number(d?.tokenCount) || 0 : 0), 0);
+  }
+  return Number(usageMetadata.candidatesTokenCount) || 0;
 }
 
 export function providerOf(url: string): 'anthropic' | 'gemini' | null {
@@ -73,7 +122,8 @@ export function parseAiUsage(provider: 'anthropic' | 'gemini', url: string, body
   const input = Number(u.promptTokenCount) || 0;
   const output = (Number(u.candidatesTokenCount) || 0) + (Number(u.thoughtsTokenCount) || 0);
   const cacheRead = Number(u.cachedContentTokenCount) || 0;
-  return { provider, model, input_tokens: input, output_tokens: output, cache_read_tokens: cacheRead, cost_usd: estimateCost(model, input, output, cacheRead), status };
+  const image = geminiImageOutputTokens(model, u);
+  return { provider, model, input_tokens: input, output_tokens: output, cache_read_tokens: cacheRead, cost_usd: estimateCost(model, input, output, cacheRead, image), status };
 }
 
 export function recordAiUsage(usage: AiUsage, env?: Env): Promise<void> {

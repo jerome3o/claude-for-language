@@ -20,6 +20,7 @@
  *   GET    /calls/:id/ws?ticket=                      WebSocket into the CallRoom
  */
 
+import { mediaPathFor } from './media';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import * as content from '../services/content';
@@ -173,7 +174,7 @@ calls.get('/calls/:id', async (c) => {
       report: lessonReport ? (JSON.parse(lessonReport) as CallReport) : summary_json ? (JSON.parse(summary_json) as CallReport) : null,
       /** In-call activities played in the lesson (shared/call-activities), oldest first. */
       activities,
-      pieces: pieces.map((p) => ({
+      pieces: await Promise.all(pieces.map(async (p) => ({
         id: p.id,
         call_id: p.call_id,
         user_id: p.user_id,
@@ -183,8 +184,9 @@ calls.get('/calls/:id', async (c) => {
         status: p.status,
         error: p.error,
         provider: p.provider,
-        audio_url: p.audio_key ? `/api/audio/${p.audio_key}` : null,
-      })),
+        // A signed link (6 h, a long review): call audio is private (shared/media/access.ts); requireCall checked the caller.
+        audio_url: await mediaPathFor(c.env, p.audio_key, 6 * 3600),
+      }))),
       transcript: mergeTranscript((segments.results ?? []) as Array<{ id: string; start_ms: number; end_ms: number }>),
       transcriber: pickTranscriber(c.env),
     });

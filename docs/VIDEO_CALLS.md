@@ -246,8 +246,9 @@ Minghui's sentences off), and the touch chip wraps to up to four lines instead o
 
 Tables (migration `0071_video_calls.sql`): `calls`, `call_recording_pieces`,
 `call_recording_chunks`, `call_transcript_segments`. Audio lives in the existing R2 bucket
-under `calls/<callId>/…` and is served by the public `/api/audio/*` route (unguessable
-keys, same model as study recordings).
+under `calls/<callId>/…`. It is private media (docs/AUDIO.md "Private media"): `GET /api/calls/:id`
+hands the call's members each piece's `audio_url` as a signed link (6 h); `/api/audio/calls/…`
+without a credential is 401, and only the call's members are served.
 
 ## Board pages
 

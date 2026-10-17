@@ -60,6 +60,8 @@ import {
 import type { Quest, QuestSummary } from '@shared/quest';
 import type { ConversationVoice, ConversationAudioPrefs } from '@shared/lesson';
 import type { ConversationDelivery, TtsProviderId } from '@shared/tts';
+import { isPrivateMediaKey } from '@shared/media/access';
+import { mediaTokenRefreshDue, setMediaToken, withMediaCredential, type StoredMediaToken } from './mediaToken';
 
 export const API_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL
@@ -94,6 +96,7 @@ export function setSessionToken(token: string | null) {
 
 export function clearSessionToken() {
   sessionToken = null;
+  setMediaToken(null);
 }
 
 export function getAuthHeaders(): Record<string, string> {
@@ -972,8 +975,27 @@ export async function uploadRecording(cardId: string, audioBlob: Blob): Promise<
   return result;
 }
 
+/**
+ * The URL of an R2 object. Private keys (recordings, call audio, uploaded photos…) carry the
+ * media token (api/mediaToken.ts); generated clips and pictures are plain public URLs.
+ */
 export function getAudioUrl(key: string): string {
-  return `${API_PATH}/audio/${key}`;
+  return withMediaCredential(`${API_PATH}/audio/${key}`, key);
+}
+
+/** fetch() options for an R2 object: the session too for a private key (works before the media token arrives). */
+export function mediaFetchInit(key: string): RequestInit | undefined {
+  return isPrivateMediaKey(key) && sessionToken ? { headers: { Authorization: `Bearer ${sessionToken}` } } : undefined;
+}
+
+/** GET /api/media/token when the stored one is missing or has under 2 days left (startup + every sync). */
+export async function refreshMediaTokenIfDue(): Promise<void> {
+  if (!sessionToken || !mediaTokenRefreshDue()) return;
+  try {
+    setMediaToken(await fetchJSON<StoredMediaToken>('/media/token'));
+  } catch (err) {
+    console.warn('[media] token refresh failed:', err);
+  }
 }
 
 export interface TranscriptionResult {
@@ -1735,7 +1757,7 @@ export async function generateReaderPageImage(
 }
 
 export function getReaderImageUrl(imageKey: string): string {
-  return `${API_PATH}/audio/${imageKey}`;
+  return getAudioUrl(imageKey);
 }
 
 // ============ Reader Editor ============
