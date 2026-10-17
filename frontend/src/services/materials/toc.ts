@@ -54,7 +54,7 @@ export async function tocFromFile(file: Blob, kind: MaterialKind, pageCount: num
     const pdfjs = await import('pdfjs-dist');
     const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
     try {
       return await pdfOutlineToc(doc, Math.min(pageCount, doc.numPages, MAX_MATERIAL_PAGES));
     } finally {

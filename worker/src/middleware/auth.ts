@@ -14,6 +14,10 @@ const PUBLIC_ROUTES = [
   '/api/health',
   '/api/auth/login',
   '/api/auth/callback',
+  // Resolve (or trade for) the session themselves (routes/auth-session.ts).
+  '/api/auth/exchange',
+  '/api/auth/logout',
+  '/api/csp-report', // browsers' CSP violation reports (routes/csp-report.ts)
   '/api/auth/me', // Returns 401 if not authenticated, which is expected behavior
   '/api/test/', // E2E test auth endpoints (protected by E2E_TEST_MODE check in handler)
 ];

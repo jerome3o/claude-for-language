@@ -36,6 +36,12 @@ export interface ResolveSignupOptions {
   /** Invite token from the OAuth state, if sign-in started on /join/<token>. */
   inviteToken?: string | null;
   adminEmail?: string | null;
+  /**
+   * Google verified the account's address (`verified_email`). When false, nothing
+   * that matches on the email admits it — only an invite link bound to no email.
+   * Defaults to true for callers that already checked.
+   */
+  emailVerified?: boolean;
   now?: Date;
 }
 
@@ -53,13 +59,14 @@ export async function resolveSignup(
   opts: ResolveSignupOptions = {}
 ): Promise<SignupResolution> {
   const now = opts.now ?? new Date();
-  const isAdmin = emailsMatch(googleUser.email, opts.adminEmail);
+  const emailVerified = opts.emailVerified !== false;
+  const isAdmin = emailVerified && emailsMatch(googleUser.email, opts.adminEmail);
 
   // 1. Token from the /join link
   if (isPlausibleInviteToken(opts.inviteToken)) {
     const invite = await getInviteById(db, opts.inviteToken);
     if (isInviteValid(invite, now)) {
-      if (!invite.email || emailsMatch(invite.email, googleUser.email)) {
+      if (!invite.email || (emailVerified && emailsMatch(invite.email, googleUser.email))) {
         return { kind: 'invite', invite, source: 'token' };
       }
       // Valid link, wrong Google account. The admin is still let in.
@@ -68,6 +75,9 @@ export async function resolveSignup(
     }
     // Expired / revoked / used up: fall through — an email-bound invite may still exist.
   }
+
+  // An unverified address proves nothing: no email-bound invite, pending invitation or admin.
+  if (!emailVerified) return { kind: 'denied', reason: 'invite_only' };
 
   // 2. Email-bound invite
   const emailInvite = await findValidInviteForEmail(db, googleUser.email);

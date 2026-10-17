@@ -17,6 +17,11 @@ class Prefs(context: Context) {
         get() = sp.getString("pending_auth_nonce", null)
         set(v) = sp.edit().putString("pending_auth_nonce", v).apply()
 
+    /** PKCE verifier of that sign-in: only its hash went to the server; traded with the code (AuthExchange). */
+    var pendingAuthVerifier: String?
+        get() = sp.getString("pending_auth_verifier", null)
+        set(v) = sp.edit().putString("pending_auth_verifier", v).apply()
+
     var userName: String?
         get() = sp.getString("user_name", null)
         set(v) = sp.edit().putString("user_name", v).apply()

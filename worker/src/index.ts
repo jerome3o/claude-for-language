@@ -70,9 +70,10 @@ import {
   parseNativeAuthClient,
   authRedirectUrl,
   createSession,
-  deleteSession,
+  createAuthCode,
+  parseAuthChallenge,
+  isVerifiedGoogleEmail,
   createSessionCookie,
-  clearSessionCookie,
   parseSessionCookie,
   getSessionWithUser,
   createStateCookie,
@@ -207,7 +208,9 @@ import { fireFeatureRequestRoutine, ownScreenshotUrl, screenshotImageType, serve
 import { lessonNoteFileType, LESSON_NOTE_FILE_TYPES } from './services/lesson-note-files';
 import { applyStoredFileHeaders } from './services/stored-file-headers';
 import { allowedCorsOrigin } from './services/cors-origins';
-import { cleanupExpiredSessions } from './services/auth';
+import { cleanupExpiredSessions, cleanupExpiredAuthCodes } from './services/auth';
+import authSessionRoutes from './routes/auth-session';
+import cspReportRoutes from './routes/csp-report';
 import { CreateRelationshipRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
 import {
   computeCardState,
@@ -255,9 +258,12 @@ app.get('/api/auth/login', (c) => {
   // can admit a brand-new account and bind it to the inviter.
   const inviteParam = c.req.query('invite');
   const inviteToken = isPlausibleInviteToken(inviteParam) ? inviteParam : null;
-  // A native app (android-lab) gets the session back on its own URL scheme.
+  // A native app (android-lab, desktop) gets the result back on its own URL scheme.
   const native = parseNativeAuthClient(c.req.query('client'), c.req.query('nonce'));
-  const state = encodeOAuthState(generateState(), inviteToken, native);
+  // PKCE challenge of a verifier the app kept: the sign-in then ends with a one-time
+  // code for /api/auth/exchange, never the session token in a URL (services/auth.ts).
+  const challenge = parseAuthChallenge(c.req.query('challenge'));
+  const state = encodeOAuthState(generateState(), inviteToken, native, challenge);
   const isSecure = c.req.url.startsWith('https');
 
   // Determine redirect URI based on environment
@@ -324,9 +330,12 @@ app.get('/api/auth/callback', async (c) => {
     console.log('[Auth Callback] Got Google user');
 
     // Create or update user in database — sign-up is invite-only.
-    const isAdminEmail = !!c.env.ADMIN_EMAIL && normalizeEmail(googleUser.email) === normalizeEmail(c.env.ADMIN_EMAIL);
+    // Every email-based decision (admin, the email match, email-bound invites) needs
+    // Google to have verified the address; the google_id match doesn't.
+    const emailVerified = isVerifiedGoogleEmail(googleUser);
+    const isAdminEmail = emailVerified && !!c.env.ADMIN_EMAIL && normalizeEmail(googleUser.email) === normalizeEmail(c.env.ADMIN_EMAIL);
     console.log('[Auth Callback] Is admin?', isAdminEmail);
-    const { inviteToken } = parseOAuthState(state);
+    const { inviteToken, challenge } = parseOAuthState(state);
 
     let user: User;
     let isNewUser = false;
@@ -339,7 +348,7 @@ app.get('/api/auth/callback', async (c) => {
       // (and the decks) — the inviter sent it to them on purpose.
       if (inviteToken) {
         const invite = await getInviteById(c.env.DB, inviteToken);
-        if (isInviteValid(invite) && (!invite.email || invite.email === normalizeEmail(googleUser.email))) {
+        if (isInviteValid(invite) && (!invite.email || (emailVerified && invite.email === normalizeEmail(googleUser.email)))) {
           await redeemInvite(c.env.DB, user, invite).catch(err => {
             console.error('[Auth Callback] Failed to redeem invite for existing user:', err);
           });
@@ -349,6 +358,7 @@ app.get('/api/auth/callback', async (c) => {
       const resolution = await resolveSignup(c.env.DB, googleUser, {
         inviteToken,
         adminEmail: c.env.ADMIN_EMAIL,
+        emailVerified,
       });
       console.log('[Auth Callback] Sign-up resolution:', resolution.kind);
 
@@ -416,14 +426,20 @@ app.get('/api/auth/callback', async (c) => {
       })
     );
 
-    // Create session
-    const session = await createSession(c.env.DB, user.id);
-
-    // Redirect to frontend with session token in URL
-    // We pass the token in the URL because third-party cookies are blocked by browsers
-    // Frontend will store this in localStorage and send as Authorization header
-    const redirectUrl = redirectTo({ session_token: session.id });
-    console.log('[Auth Callback] Redirecting to frontend with token in URL');
+    // The app gets a one-time code bound to its PKCE challenge and trades it for the
+    // session at POST /api/auth/exchange (the token itself never travels in a URL).
+    // Without a challenge — an older Lab / desktop build, a stale web bundle — the
+    // legacy redirect still carries the session token (services/auth.ts "Transition").
+    let redirectUrl: string;
+    if (challenge) {
+      const authCode = await createAuthCode(c.env.DB, user.id, challenge, native?.client ?? 'web');
+      redirectUrl = redirectTo({ code: authCode });
+      console.log('[Auth Callback] Redirecting with a one-time code');
+    } else {
+      const session = await createSession(c.env.DB, user.id);
+      redirectUrl = redirectTo({ session_token: session.id });
+      console.log('[Auth Callback] Redirecting with the session token (legacy client)');
+    }
 
     const headers = new Headers();
     headers.set('Location', redirectUrl);
@@ -439,23 +455,10 @@ app.get('/api/auth/callback', async (c) => {
   }
 });
 
-app.post('/api/auth/logout', async (c) => {
-  const cookieHeader = c.req.header('Cookie') || null;
-  const sessionId = parseSessionCookie(cookieHeader);
-  const isSecure = c.req.url.startsWith('https');
-
-  if (sessionId) {
-    await deleteSession(c.env.DB, sessionId);
-  }
-
-  return new Response(JSON.stringify({ success: true }), {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'Set-Cookie': clearSessionCookie(isSecure),
-    },
-  });
-});
+// POST /api/auth/exchange, /api/auth/logout (revokes the Bearer session), /api/auth/logout-all.
+app.route('/api', authSessionRoutes);
+// POST /api/csp-report: the web app's CSP violation reports (frontend/public/_headers), public.
+app.route('/api', cspReportRoutes);
 
 app.get('/api/auth/me', async (c) => {
   // Try Authorization header first (preferred for cross-origin)
@@ -6336,7 +6339,8 @@ export default {
       // Expired sign-in sessions (bearer tokens) are deleted, not just ignored.
       try {
         const sessions = await cleanupExpiredSessions(env.DB, event.scheduledTime || Date.now());
-        console.log(JSON.stringify({ type: 'cron', job: 'prune_auth_sessions', deleted: sessions }));
+        const codes = await cleanupExpiredAuthCodes(env.DB, event.scheduledTime || Date.now());
+        console.log(JSON.stringify({ type: 'cron', job: 'prune_auth_sessions', deleted: sessions, codes }));
       } catch (err) {
         console.error('[cron] prune auth sessions failed:', err);
       }

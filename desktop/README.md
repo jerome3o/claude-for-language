@@ -88,9 +88,14 @@ desktop/
 - **No doubles**: the overlay is excluded from screen capture (`setContentProtection`), so the
   student sees each stroke once — drawn by their own call page over the video.
 - **Sign-in**: Google refuses OAuth in embedded browsers, so `…/api/auth/login` opens in the system
-  browser with `client=desktop&nonce=…`; the worker (`NATIVE_AUTH_CLIENTS`) redirects to
-  `chineselearning-desktop://auth?session_token=…&nonce=…`, and the app loads the web app with
-  `?session_token=` (only with the nonce it generated).
+  browser with `client=desktop&nonce=…&challenge=…` (the PKCE challenge of a verifier only the main
+  process holds, `shared/auth/signin.ts`); the worker (`NATIVE_AUTH_CLIENTS`) redirects to
+  `chineselearning-desktop://auth?code=…&nonce=…` (a 60-second, single-use code — never the session
+  token), the app checks the nonce, trades code + verifier at `POST /api/auth/exchange` and writes
+  the session into the page's `localStorage` before loading it (`handOverSession`, main.ts). The
+  preload says `signsInWithCode`, so the page ignores a `?session_token=` in its URL; builds before
+  this (no `signsInWithCode`) still get the old `session_token` redirect and the page still accepts it
+  from them — until the worker's legacy path is removed.
 - **No secrets** are in the app: it holds nothing but the web app's URL; every key stays in the worker.
 - Analytics events from the app carry platform `desktop`; `call.desktop_overlay` records the overlay.
 

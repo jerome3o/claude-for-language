@@ -1,0 +1,24 @@
+# Cloudflare Pages response headers for the web app (copied to dist/ by Vite).
+# Docs: CLAUDE.md "Content-Security-Policy". Pages limit: 2,000 characters per header line.
+#
+# ENFORCED now: no framing (clickjacking), no plugins, no <base> hijack, no MIME sniffing,
+# a strict referrer, and powerful features only for the app itself.
+#
+# REPORT-ONLY for now: the full policy. Every origin the app uses is listed —
+#   'self' (Pages: the app, its service worker, workers, wasm, /strokes, /audio),
+#   the API worker over https + wss (REST, audio / media, ChatHub live chat, call room,
+#     group room sockets), Soniox real-time transcription (wss://stt-rt.soniox.com),
+#   images from anywhere over https (avatars, link previews, YouTube thumbnails),
+#   blob: / data: media and images (cached audio, recordings, page pictures),
+#   'wasm-unsafe-eval' for sql.js (Anki export) and pdf.js, inline styles (React style attrs,
+#     Document Picture-in-Picture copies the page's styles).
+# WebRTC media / STUN / TURN are not governed by CSP. Violations are POSTed to the API's
+# /api/csp-report (one "type":"csp" log line each); once those stay quiet, rename the
+# header to Content-Security-Policy to enforce it.
+/*
+  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https://chinese-learning-api.jeromeswannack.workers.dev; font-src 'self' data:; connect-src 'self' data: blob: https://chinese-learning-api.jeromeswannack.workers.dev wss://chinese-learning-api.jeromeswannack.workers.dev wss://stt-rt.soniox.com; worker-src 'self' blob:; manifest-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri https://chinese-learning-api.jeromeswannack.workers.dev/api/csp-report
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), fullscreen=(self), geolocation=(), payment=(), usb=()

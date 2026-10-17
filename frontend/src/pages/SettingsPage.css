@@ -284,3 +284,43 @@
 .revisit-field--wide {
   margin: 0.25rem 0 0.75rem;
 }
+
+/* Settings → Sign out of all devices (components/settings/SignOutSection.tsx). */
+.settings-signout-all {
+  margin-top: 0.5rem;
+}
+
+.settings-signout-confirm {
+  margin-top: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.settings-signout-confirm p {
+  margin: 0.375rem 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.settings-signout-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.settings-signout-confirm-actions .btn {
+  min-height: 44px;
+}
+
+.settings-signout-danger {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+
+.settings-signout-danger:disabled {
+  opacity: 0.6;
+}

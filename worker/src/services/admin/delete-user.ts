@@ -218,6 +218,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'oauth_codes', sql: `DELETE FROM oauth_codes WHERE user_id = ?1` },
   { label: 'oauth_tokens', sql: `DELETE FROM oauth_tokens WHERE user_id = ?1` },
   { label: 'auth_sessions', sql: `DELETE FROM auth_sessions WHERE user_id = ?1` },
+  { label: 'auth_codes', sql: `DELETE FROM auth_codes WHERE user_id = ?1` },
   { label: 'access_requests', sql: `DELETE FROM access_requests WHERE email = (SELECT email FROM users WHERE id = ?1)` },
   { label: 'users', sql: `DELETE FROM users WHERE id = ?1` },
 ];

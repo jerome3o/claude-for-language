@@ -50,10 +50,15 @@ only on `main`; a branch builds through its PR, or with Actions → Android Lab 
 workflow" when it has none. Core parity tests, app unit tests, the debug APK and the release
 build are parallel jobs; on `main` the publish job waits for all of them.
 
-Sign-in opens Google in a Chrome Custom Tab. The worker's `/api/auth/login?client=lab&nonce=…`
-carries the app in the OAuth state and the callback redirects to
-`chineselearning-lab://auth?session_token=…&nonce=…` (`NATIVE_AUTH_CLIENTS` in
-`worker/src/services/auth.ts`); the app only accepts the nonce it generated.
+Sign-in opens Google in a Chrome Custom Tab. The worker's
+`/api/auth/login?client=lab&nonce=…&challenge=…` carries the app in the OAuth state (`challenge` =
+the PKCE S256 hash of a verifier kept in `Prefs.pendingAuthVerifier`) and the callback redirects to
+`chineselearning-lab://auth?code=…&nonce=…` (`NATIVE_AUTH_CLIENTS` in `worker/src/services/auth.ts`);
+the app only accepts the nonce it generated and trades the one-time code (60 s, single use) with the
+verifier at `POST /api/auth/exchange` for the session token (`data/AuthExchange.kt`) — the token never
+rides the custom-scheme link. Builds before Oct 2026 sent no challenge and still get the old
+`session_token=` redirect until the worker drops it. Sign out revokes the session on the server
+(`POST /api/auth/logout`); Settings → "Sign out of all devices" revokes every session of the account.
 
 ## Layout
 

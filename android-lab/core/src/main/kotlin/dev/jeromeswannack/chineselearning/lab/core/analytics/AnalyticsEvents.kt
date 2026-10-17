@@ -259,6 +259,7 @@ object AnalyticsEvents {
         ev("settings.analytics", "settings", listOf("on")),
         ev("settings.full_sync", "settings", emptyList()),
         ev("settings.debug_report", "settings", emptyList()),
+        ev("settings.sign_out_all", "settings", emptyList()),
         ev("notification.tapped", "notifications", listOf("kind")),
         ev("error.shown", "errors", listOf("code", "where", "status")),
         ev("server.content_created", "server", listOf("kind", "count", "via"), server = true),

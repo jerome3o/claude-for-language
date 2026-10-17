@@ -77,6 +77,8 @@ class SettingsActions(
     val toggleSound: (Boolean) -> Unit = {},
     val toggleHaptics: (Boolean) -> Unit = {},
     val signOut: () -> Unit = {},
+    /** "Sign out of all devices" (POST /api/auth/logout-all); calls back with why it failed, null = done. */
+    val signOutEverywhere: (onFailed: (String) -> Unit) -> Unit = {},
     val openAdvanced: () -> Unit = {},
     val classifyAudio: () -> Unit = {},
     val regenerateAudio: () -> Unit = {},
@@ -116,6 +118,9 @@ fun SettingsScreen(
 ) {
     var advanced by rememberSaveable { mutableStateOf(startAdvanced) }
     var confirmSignOut by remember { mutableStateOf(false) }
+    var confirmSignOutAll by remember { mutableStateOf(false) }
+    var signingOutEverywhere by remember { mutableStateOf(false) }
+    var signOutAllError by remember { mutableStateOf<String?>(null) }
     val role = env.role
     LabScreen(title = "Settings", onBack = actions.onBack, listState = listState) {
         // Name, photo, About me, time zone and the private bio live on the Profile screen (web: SettingsPage → /profile).
@@ -145,8 +150,19 @@ fun SettingsScreen(
             }
         }
         item {
-            SecondaryPill("Sign out", Modifier.fillMaxWidth(), danger = true) {
-                if (env.sync.unsynced > 0 || env.pendingWrites > 0) confirmSignOut = true else actions.signOut()
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryPill("Sign out", Modifier.fillMaxWidth(), danger = true) {
+                    if (env.sync.unsynced > 0 || env.pendingWrites > 0) confirmSignOut = true else actions.signOut()
+                }
+                // Web: components/settings/SignOutSection.tsx — every session of the account, after a confirm.
+                SecondaryPill(
+                    if (signingOutEverywhere) "Signing out…" else "Sign out of all devices…",
+                    Modifier.fillMaxWidth(),
+                    enabled = !signingOutEverywhere,
+                    danger = true,
+                ) { signOutAllError = null; confirmSignOutAll = true }
+                if (!env.online && confirmSignOutAll) InlineNotice("You’re offline — this needs a connection.", kind = NoticeKind.Offline)
+                signOutAllError?.let { InlineNotice(it, kind = NoticeKind.Error) }
             }
         }
         item {
@@ -198,6 +214,24 @@ fun SettingsScreen(
             danger = true,
             onConfirm = actions.signOut,
             onDismiss = { confirmSignOut = false },
+        )
+    }
+
+    if (confirmSignOutAll && env.online) {
+        val waiting = env.sync.unsynced + env.pendingWrites
+        ConfirmDialog(
+            title = "Sign out everywhere?",
+            text = "Every phone, tablet and computer signed in to this account — this one too — will have to sign in with Google again. " +
+                "Use this if you lost a device or signed in somewhere you shouldn’t have." +
+                if (waiting > 0) " $waiting change${if (waiting == 1) " hasn't" else "s haven't"} reached the server yet and will be deleted from this phone." else "",
+            confirmLabel = "Sign out everywhere",
+            danger = true,
+            onConfirm = {
+                confirmSignOutAll = false
+                signingOutEverywhere = true
+                actions.signOutEverywhere { why -> signingOutEverywhere = false; signOutAllError = why }
+            },
+            onDismiss = { confirmSignOutAll = false },
         )
     }
 }

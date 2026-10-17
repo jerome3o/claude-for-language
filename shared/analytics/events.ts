@@ -313,6 +313,7 @@ export const ANALYTICS_EVENTS = {
   'settings.analytics': e('settings', 'Turned usage data sharing on / off.', ['on']),
   'settings.full_sync': e('settings', 'Ran a full sync by hand.', []),
   'settings.debug_report': e('settings', 'Sent a debug report by hand.', []),
+  'settings.sign_out_all': e('settings', 'Signed out of all devices (Settings → Sign out of all devices; every session of the account revoked).', []),
 
   // ── notifications ──────────────────────────────────────────────────────
   'notification.tapped': e('notifications', 'Opened the app from a notification.', ['kind']),
