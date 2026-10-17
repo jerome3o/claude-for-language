@@ -89,7 +89,7 @@ describe('chat files, video and forwarding', () => {
     expect(messagePreviewText({ content: '看这个', deleted_at: null, attachment: { kind: 'video', bytes: 1, mime: 'video/mp4' } })).toBe('🎬 Video: 看这个');
   });
 
-  it('a PDF is stored, served inline under its name, sandboxed; other files download', async () => {
+  it('a PDF is stored and downloads under its name, sandboxed (never inline); other files download too', async () => {
     const res = await w.as(STUDENT).upload('conv-1', 'kind=file&name=%E4%BD%9C%E4%B8%9A.pdf&client_id=f1', pdf());
     expect(res.status).toBe(201);
     const msg = (await res.json()) as MessageWithSender;
@@ -97,7 +97,7 @@ describe('chat files, video and forwarding', () => {
     expect(msg.media_url).toBe(`/api/chat-media/${msg.id}`);
     const got = await w.as(TUTOR).call('GET', `/api/chat-media/${msg.id}`);
     expect(got.status).toBe(200);
-    expect(got.headers.get('Content-Disposition')).toBe(`inline; filename*=UTF-8''${encodeURIComponent('作业.pdf')}`);
+    expect(got.headers.get('Content-Disposition')).toBe(`attachment; filename*=UTF-8''${encodeURIComponent('作业.pdf')}`);
     expect(got.headers.get('Content-Security-Policy')).toContain('sandbox');
     expect(got.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect((await w.as('stranger').call('GET', `/api/chat-media/${msg.id}`)).status).toBe(403);

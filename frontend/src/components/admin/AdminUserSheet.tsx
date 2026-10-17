@@ -9,7 +9,7 @@ import {
   inspectAdminUser,
   setAdminUserRole,
 } from '../../api/admin';
-import { API_BASE } from '../../api/client';
+import { AuthedScreenshot } from '../AuthedScreenshot';
 import './AdminUserSheet.css';
 
 const LABELS: Record<string, string> = {
@@ -246,7 +246,7 @@ export function AdminUserSheet({
                       {r.content}
                       <span className="admin-sheet-muted"> · {when(r.created_at)} · {r.page_context || '/'} · {r.status}</span>
                       {r.screenshot_url && (
-                        <> · <a href={`${API_BASE}${r.screenshot_url}`} target="_blank" rel="noopener noreferrer">screenshot</a></>
+                        <> · <AuthedScreenshot path={r.screenshot_url} linkOnly /></>
                       )}
                     </li>
                   ))}

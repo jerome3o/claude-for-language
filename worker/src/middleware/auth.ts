@@ -15,14 +15,12 @@ const PUBLIC_ROUTES = [
   '/api/auth/login',
   '/api/auth/callback',
   '/api/auth/me', // Returns 401 if not authenticated, which is expected behavior
-  '/api/oauth/', // MCP OAuth endpoints
   '/api/test/', // E2E test auth endpoints (protected by E2E_TEST_MODE check in handler)
 ];
 
 // Routes that are public only for GET requests (e.g., serving audio files)
 const PUBLIC_GET_ROUTES = [
   '/api/audio/', // Audio files are public for playback, but upload requires auth
-  '/api/feature-requests/screenshot/', // Screenshots served via <img> tags which don't send auth headers
 ];
 
 // GET routes that are public but sit under an otherwise-authenticated prefix
@@ -30,7 +28,7 @@ const PUBLIC_GET_PATTERNS = [
   /^\/api\/invites\/[A-Za-z0-9_-]+\/public$/, // the /join page looks up an invite before sign-in
 ];
 
-function isPublicRoute(path: string, method: string): boolean {
+export function isPublicRoute(path: string, method: string): boolean {
   if (PUBLIC_ROUTES.some(route => path.startsWith(route))) {
     return true;
   }

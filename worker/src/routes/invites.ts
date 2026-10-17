@@ -219,7 +219,7 @@ invites.get('/admin/access-requests', adminMiddleware, async (c) => {
  */
 invites.post('/admin/access-requests/:id/approve', adminMiddleware, async (c) => {
   const admin = c.get('user');
-  const request = await getAccessRequestById(c.env.DB, c.req.param('id'));
+  const request = await getAccessRequestById(c.env.DB, c.req.param('id')!);
   if (!request) return c.json({ error: 'Access request not found' }, 404);
 
   const invite = await createInvite(c.env.DB, {
@@ -245,14 +245,14 @@ invites.post('/admin/access-requests/:id/approve', adminMiddleware, async (c) =>
 });
 
 invites.post('/admin/access-requests/:id/dismiss', adminMiddleware, async (c) => {
-  const request = await getAccessRequestById(c.env.DB, c.req.param('id'));
+  const request = await getAccessRequestById(c.env.DB, c.req.param('id')!);
   if (!request) return c.json({ error: 'Access request not found' }, 404);
   await setAccessRequestStatus(c.env.DB, request.id, 'dismissed');
   return c.json({ ...request, status: 'dismissed' });
 });
 
 invites.put('/admin/users/:id/can-invite', adminMiddleware, async (c) => {
-  const userId = c.req.param('id');
+  const userId = c.req.param('id')!;
   const body = await c.req.json<{ can_invite?: unknown }>().catch(() => ({} as { can_invite?: unknown }));
   if (typeof body.can_invite !== 'boolean') {
     return c.json({ error: 'can_invite must be a boolean' }, 400);
