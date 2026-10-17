@@ -10,6 +10,7 @@ import {
   getAudioWithCache,
 } from './audioCache';
 import { setMediaToken } from '../api/mediaToken';
+import { API_BASE } from '../api/client';
 import { db } from '../db/database';
 
 function blobOfSize(bytes: number): Blob {
@@ -115,14 +116,14 @@ describe('private media in the offline cache (docs/AUDIO.md "Private media")', (
     vi.stubGlobal('fetch', fetchMock);
     try {
       expect(await getAudioWithCache('recordings/ev-9.webm')).not.toBeNull();
-      expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe('/api/audio/recordings/ev-9.webm?mt=tok-1');
+      expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe(`${API_BASE}/api/audio/recordings/ev-9.webm?mt=tok-1`);
       expect(await isAudioCached('recordings/ev-9.webm')).toBe(true);
       setMediaToken({ token: 'tok-2', expires_at: new Date(Date.now() + 86_400_000).toISOString() });
       expect(await getAudioWithCache('recordings/ev-9.webm')).not.toBeNull();
       expect(fetchMock).toHaveBeenCalledTimes(1);
       // A generated clip goes without any credential.
       await getAudioWithCache('generated/z.mp3');
-      expect(fetchMock.mock.calls[1]).toEqual(['/api/audio/generated/z.mp3', undefined]);
+      expect(fetchMock.mock.calls[1]).toEqual([`${API_BASE}/api/audio/generated/z.mp3`, undefined]);
     } finally {
       vi.unstubAllGlobals();
       setMediaToken(null);

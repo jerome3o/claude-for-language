@@ -3,7 +3,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { PRIVATE_MEDIA_PREFIXES } from '@shared/media/access';
 import { getMediaToken, mediaTokenRefreshDue, setMediaToken, withMediaCredential } from './mediaToken';
-import { getAudioUrl, getReaderImageUrl } from './client';
+import { API_BASE, getAudioUrl, getReaderImageUrl } from './client';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -12,10 +12,10 @@ describe('media token (private recordings / photos, docs/AUDIO.md "Private media
 
   it('only private keys carry the token; generated clips stay plain public URLs', () => {
     setMediaToken({ token: 'tok.sig', expires_at: new Date(Date.now() + 3 * DAY).toISOString() });
-    expect(getAudioUrl('recordings/ev-1.webm')).toBe('/api/audio/recordings/ev-1.webm?mt=tok.sig');
-    expect(getReaderImageUrl('note-uploads/n-1.jpg')).toBe('/api/audio/note-uploads/n-1.jpg?mt=tok.sig');
-    expect(getAudioUrl('generated/n-1_a.mp3')).toBe('/api/audio/generated/n-1_a.mp3');
-    expect(getReaderImageUrl('reader-images/p.png')).toBe('/api/audio/reader-images/p.png');
+    expect(getAudioUrl('recordings/ev-1.webm')).toBe(API_BASE + '/api/audio/recordings/ev-1.webm?mt=tok.sig');
+    expect(getReaderImageUrl('note-uploads/n-1.jpg')).toBe(API_BASE + '/api/audio/note-uploads/n-1.jpg?mt=tok.sig');
+    expect(getAudioUrl('generated/n-1_a.mp3')).toBe(API_BASE + '/api/audio/generated/n-1_a.mp3');
+    expect(getReaderImageUrl('reader-images/p.png')).toBe(API_BASE + '/api/audio/reader-images/p.png');
   });
 
   it('an expired token is not used; refresh is due with under 2 days left', () => {
