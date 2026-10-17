@@ -20,7 +20,7 @@ import { adaptiveBounds, initialAdaptive, noteRequest, rollAdaptive } from '../t
 import { TtsLimiter } from '../../durable/tts-limiter';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import { ensureClip, type TtsFn } from '../tts/clips';
-import { handleClipMessage } from '../tts/queue';
+import { handleClipMessage, resetPumpNudge } from '../tts/queue';
 import type { Env } from '../../types';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -132,14 +132,19 @@ describe('a 2053 never burns a clip’s attempts', () => {
       reason: 'base_resp 2053 insufficient credit', retryAfterMs: ACCOUNT_PAUSE_MIN_MS,
     });
     const r = await ensureClip(env, { kind: 'word', id: 'n1' }, { priority: 'batch', tts: noCredit });
-    expect(r).toEqual({ status: 'rate_limited', retryAfterMs: ACCOUNT_PAUSE_MIN_MS, minimax: false });
+    expect(r).toEqual({ status: 'rate_limited', retryAfterMs: ACCOUNT_PAUSE_MIN_MS, minimax: false, backfill: true });
     expect(db.rows('SELECT * FROM tts_clip_failures')).toEqual([]);
   });
 
-  it('the queue requeues it after the pause (capped at 5 min), never as a failure', async () => {
+  it('the queue leaves a missing clip to the backfill (the pump is nudged); a forced one comes back after the pause (≤ 5 min); never a failure', async () => {
+    resetPumpNudge();
     const paused: TtsFn = async () => ({ ok: false, permanent: false, rateLimited: true, account: 2053, reason: 'account paused', retryAfterMs: 40 * MIN });
-    await handleClipMessage(env, { kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'batch' }, paused);
-    expect(sent[0]).toMatchObject({ body: { attempt: 1 }, opts: { delaySeconds: 300 } });
+    const left = await handleClipMessage(env, { kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'batch' }, paused);
+    expect(left.queued).toBe('left_to_backfill');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ body: { kind: 'pump' } });
+    await handleClipMessage(env, { kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'batch', force: true }, paused);
+    expect(sent[1]).toMatchObject({ body: { kind: 'clip', attempt: 1, force: true }, opts: { delaySeconds: 300 } });
     expect(db.rows('SELECT * FROM tts_clip_failures')).toEqual([]);
   });
 

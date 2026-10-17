@@ -75,7 +75,11 @@ export type PracticeClipStatus =
 export async function ensurePracticeClip(
   env: Env,
   text: string,
-  options: { voiceId?: string; speed?: number; conversation?: { speed?: number; delivery?: ConversationDelivery }; priority?: TtsPriority } = {},
+  options: {
+    voiceId?: string; speed?: number; conversation?: { speed?: number; delivery?: ConversationDelivery }; priority?: TtsPriority;
+    /** Wait this long for a slot in process (a batch caller books its place and sleeps: docs/AUDIO.md "Bookings"). */
+    maxWaitMs?: number;
+  } = {},
 ): Promise<PracticeClipStatus> {
   const voiceId = options.voiceId ?? DEFAULT_MINIMAX_VOICE;
   const speed = options.speed ?? DEFAULT_TTS_SPEED;
@@ -90,6 +94,7 @@ export async function ensurePracticeClip(
     voiceId,
     speed,
     priority: options.priority ?? 'batch',
+    maxWaitMs: options.maxWaitMs,
     conversation: options.conversation,
   }, config);
   if (!out.ok) {

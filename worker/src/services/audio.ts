@@ -2,6 +2,7 @@ import { Env } from '../types';
 import { TTS_SPEED, TTS_VOICE, houseSpeed } from './tts/settings';
 import type { TtsPriority } from './tts/bucket';
 import { acquireTtsSlot, reportTts } from './tts/limiter';
+import { clearKnownPause, knownAccountPause, noteKnownPause } from './tts/known-pauses';
 import { TTS_PROVIDER_IMPLS, configuredProviders, type SynthRequest } from './tts/providers';
 import { conversationProviderVoice, loadTtsConfig, providerVoice, storedClipHash } from './tts/config';
 import { usableOrder, type ConversationDelivery, type TtsConfig, type TtsProviderId } from '@shared/tts';
@@ -39,6 +40,9 @@ export interface TTSOptions {
   priority?: TtsPriority;
   /** Interactive: how long to wait for a limiter slot. */
   maxWaitMs?: number;
+  /** Batch caller that requeues itself: book a slot when refused / the slot it booked (docs/AUDIO.md "Bookings"). */
+  book?: boolean;
+  ticket?: TtsTicket | null;
 }
 
 // ---------- R2 storage ----------
@@ -131,48 +135,73 @@ export function getRecordingKey(reviewId: string): string {
  * — set with `rateLimited`. `network` = no answer at all. `permanent` = stop
  * trying this text (with this provider).
  */
+/** A batch slot booked with one provider's limiter (docs/AUDIO.md "Bookings"). */
+export interface TtsTicket {
+  provider: TtsProviderId;
+  at: number;
+}
+
 export type MiniMaxOutcome =
   | { ok: true; bytes: Uint8Array }
-  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number; account?: number | string; network?: boolean };
+  | {
+      ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number; account?: number | string; network?: boolean;
+      /** Refused, but a slot was booked: come back after `retryAfterMs` with it. */
+      ticket?: TtsTicket;
+    };
 export type ProviderCallOutcome = Exclude<MiniMaxOutcome, { ok: true }> | { ok: true; bytes: Uint8Array; mime: string };
 
 export { MINIMAX_RATE_LIMIT_CODES, RATE_LIMIT_REQUEUE_MS } from './tts/providers';
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
+export { forgetKnownAccountPauses, knownAccountPause, KNOWN_PAUSE_MAX_MS } from './tts/known-pauses';
+
 /**
  * The ONE way to call a TTS provider: a slot from that provider's limiter first,
  * then the call, the outcome reported back. A rate limit is never retried here
  * — the caller requeues (batch), queues the clip or falls back (interactive).
  * Interactive callers get one retry on a network blip / 5xx; batch callers none.
+ * `book` / `ticket`: a batch caller that requeues itself books its place in line
+ * (docs/AUDIO.md "Bookings").
  */
 export async function callProviderTTS(
   env: Env,
   providerId: TtsProviderId,
   req: SynthRequest,
-  opts: { priority?: TtsPriority; maxWaitMs?: number; maxRpm?: number } = {},
+  opts: { priority?: TtsPriority; maxWaitMs?: number; maxRpm?: number; book?: boolean; ticket?: TtsTicket | null } = {},
 ): Promise<ProviderCallOutcome> {
   const provider = TTS_PROVIDER_IMPLS[providerId];
   if (!provider.configured(env)) return { ok: false, permanent: true, rateLimited: false, reason: 'not configured' };
+  const paused = knownAccountPause(providerId);
+  if (paused) {
+    return { ok: false, permanent: false, rateLimited: true, reason: 'account paused', retryAfterMs: paused.until - Date.now(), account: paused.code };
+  }
   const target = { provider: providerId, maxRpm: opts.maxRpm };
   const priority = opts.priority ?? 'interactive';
   const attempts = priority === 'interactive' ? 2 : 1;
+  const ticket = opts.ticket && opts.ticket.provider === providerId ? opts.ticket.at : null;
   let last: ProviderCallOutcome = { ok: false, permanent: false, rateLimited: false, reason: 'unattempted' };
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (attempt > 0) await sleep(500);
-    const slot = await acquireTtsSlot(env, priority, opts.maxWaitMs, target);
+    const slot = await acquireTtsSlot(env, priority, opts.maxWaitMs, target, { book: opts.book, ticket });
     if (!slot.granted) {
       // An account pause is the limiter saying no too: wait, record nothing against the clip.
-      return { ok: false, permanent: false, rateLimited: true, reason: slot.account ? 'account paused' : 'limiter', retryAfterMs: slot.retryAfterMs, account: slot.account };
+      if (slot.account !== undefined) noteKnownPause(providerId, slot.account, slot.retryAfterMs);
+      return {
+        ok: false, permanent: false, rateLimited: true, reason: slot.account !== undefined ? 'account paused' : 'limiter', retryAfterMs: slot.retryAfterMs, account: slot.account,
+        ...(slot.ticket !== undefined ? { ticket: { provider: providerId, at: slot.ticket } } : {}),
+      };
     }
     last = await provider.synthesize(env, req);
     if (last.ok) {
+      clearKnownPause(providerId);
       await reportTts(env, 'ok', undefined, target);
       return last;
     }
     if (last.account !== undefined) {
       // No credit / bad key: pause every call to this provider and wait out the pause.
       const pause = await reportTts(env, 'account_error', { code: last.account, message: last.reason }, target);
+      noteKnownPause(providerId, last.account, pause ?? last.retryAfterMs);
       return { ...last, retryAfterMs: pause ?? last.retryAfterMs };
     }
     await reportTts(env, last.rateLimited ? 'rate_limited' : last.network ? 'network' : 'failed', { code: 'failed', message: last.reason }, target);
@@ -219,7 +248,9 @@ export function combineProviderFailures(
   if (attempts.length === 0) return { ok: false, permanent: true, rateLimited: false, reason: 'not configured' };
   const waits = attempts.filter((a) => a.outcome.rateLimited);
   if (waits.length) {
-    const first = waits.reduce((a, b) => ((b.outcome.retryAfterMs ?? 60_000) < (a.outcome.retryAfterMs ?? 60_000) ? b : a));
+    // A booked slot is a promise: come back for it (else that slot is wasted). Otherwise the shortest wait.
+    const booked = waits.find((w) => w.outcome.ticket);
+    const first = booked ?? waits.reduce((a, b) => ((b.outcome.retryAfterMs ?? 60_000) < (a.outcome.retryAfterMs ?? 60_000) ? b : a));
     // `account` only when every provider that asked to wait is account-paused (else it's a plain wait).
     const allAccount = waits.every((w) => w.outcome.account !== undefined);
     return {
@@ -229,6 +260,7 @@ export function combineProviderFailures(
       reason: first.outcome.reason,
       retryAfterMs: first.outcome.retryAfterMs,
       account: allAccount ? first.outcome.account : undefined,
+      ...(first.outcome.ticket ? { ticket: first.outcome.ticket } : {}),
     };
   }
   const reason = attempts.map((a) => (a.provider === 'minimax' ? a.outcome.reason : a.outcome.reason.startsWith(a.provider) ? a.outcome.reason : `${a.provider} ${a.outcome.reason}`)).join('; ');
@@ -261,6 +293,9 @@ export async function synthesizeOrdered(
     maxWaitMs?: number;
     /** A conversation line: provider voice / own rate / delivery (conversationProviderVoice). */
     conversation?: { speed?: number; delivery?: ConversationDelivery };
+    /** Batch caller that requeues itself: book its place in line / the place it booked (docs/AUDIO.md "Bookings"). */
+    book?: boolean;
+    ticket?: TtsTicket | null;
   },
   config?: TtsConfig,
 ): Promise<OrderedOutcome> {
@@ -275,6 +310,8 @@ export async function synthesizeOrdered(
       priority: req.priority,
       maxWaitMs: req.maxWaitMs,
       maxRpm: cfg.providers[providerId].max_rpm,
+      book: req.book,
+      ticket: req.ticket,
     });
     if (out.ok) {
       return { ok: true, bytes: out.bytes, mime: out.mime, provider: providerId, voice, rate, model: TTS_PROVIDER_IMPLS[providerId].model(voice) };
@@ -289,7 +326,7 @@ export async function synthesizeOrdered(
 
 export type TTSOutcome =
   | { ok: true; result: TTSResult }
-  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number; account?: number | string };
+  | { ok: false; permanent: boolean; rateLimited: boolean; reason: string; retryAfterMs?: number; account?: number | string; ticket?: TtsTicket };
 
 /**
  * Make a STORED clip and put it in R2: the stored-clip order (MiniMax first by
@@ -310,6 +347,8 @@ export async function generateTTSDetailed(
     speed,
     priority: options.priority ?? 'interactive',
     maxWaitMs: options.maxWaitMs,
+    book: options.book,
+    ticket: options.ticket,
   }, config);
   if (!out.ok) {
     if (!out.rateLimited) console.warn('[TTS] no provider could make the clip:', out.reason);

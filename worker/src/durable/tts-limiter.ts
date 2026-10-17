@@ -15,6 +15,7 @@ import { DurableObject } from 'cloudflare:workers';
 import type { Env } from '../types';
 import {
   adaptiveBounds,
+  BOOKING_GRACE_MS,
   initialAdaptive,
   noteRateLimited,
   noteRequest,
@@ -24,6 +25,7 @@ import {
   penalize,
   refill,
   tryAcquire,
+  type AcquireOptions,
   type AdaptiveState,
   type BucketState,
   type RateChange,
@@ -69,6 +71,10 @@ export interface LimiterSnapshot {
   batch_tokens: number;
   blocked_until: number | null;
   pump_lease_until: number | null;
+  /** Batch slots promised to callers that will come back (requeued clips, sleeping pump workers). */
+  bookings: number;
+  /** When the last booked slot is (null = none). */
+  bookings_until: number | null;
   /** Last 60 minutes, oldest first (minutes with nothing are left out). */
   minutes: MinuteStats[];
   /** No credit / bad key: every call paused (services/tts/account.ts). Null = fine. */
@@ -238,8 +244,15 @@ export class TtsLimiter extends DurableObject<Env> {
     }));
   }
 
-  /** One slot for one MiniMax call, or how long to wait. */
-  async acquire(priority: TtsPriority, target?: LimiterTarget): Promise<{ granted: boolean; retryAfterMs: number; remaining: number; account?: number | string }> {
+  /**
+   * One slot for one call, or how long to wait. A batch caller may book its place
+   * in line (`opts.book`) and come back with the `ticket` (docs/AUDIO.md "Bookings").
+   */
+  async acquire(
+    priority: TtsPriority,
+    target?: LimiterTarget,
+    opts?: AcquireOptions,
+  ): Promise<{ granted: boolean; retryAfterMs: number; remaining: number; account?: number | string; ticket?: number }> {
     await this.load();
     this.target(target);
     const now = Date.now();
@@ -249,7 +262,7 @@ export class TtsLimiter extends DurableObject<Env> {
       return { granted: false, retryAfterMs: Math.max(1, Math.ceil(gate.retryAfterMs)), remaining: 0, account: this.account!.code };
     }
     const cfg = this.cfg(now);
-    const result = tryAcquire(this.bucket(now), cfg, priority, now);
+    const result = tryAcquire(this.bucket(now), cfg, priority, now, opts ?? {});
     this.state = result.state;
     if (gate.probe && result.granted) {
       // This call is the probe: the others wait for what it finds.
@@ -264,7 +277,7 @@ export class TtsLimiter extends DurableObject<Env> {
     if (result.granted) s[priority] += 1;
     else s.denied += 1;
     this.maybeLog(now);
-    return { granted: result.granted, retryAfterMs: result.retryAfterMs, remaining: result.remaining };
+    return { granted: result.granted, retryAfterMs: result.retryAfterMs, remaining: result.remaining, ...(result.ticket !== undefined ? { ticket: result.ticket } : {}) };
   }
 
   /**
@@ -374,6 +387,8 @@ export class TtsLimiter extends DurableObject<Env> {
       batch_tokens: Math.floor(bucket.batchTokens),
       blocked_until: this.state && this.state.blockedUntil > now ? this.state.blockedUntil : null,
       pump_lease_until: this.pumpLeaseUntil > now ? this.pumpLeaseUntil : null,
+      bookings: (bucket.bookings ?? []).filter((b) => b >= now - BOOKING_GRACE_MS).length,
+      bookings_until: bucket.bookings?.length ? bucket.bookings[bucket.bookings.length - 1] : null,
       minutes: this.minutes.filter((m) => m.minute > minute - KEEP_MINUTES),
       account_problem: this.account,
       provider: this.provider,
