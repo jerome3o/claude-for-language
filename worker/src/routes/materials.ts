@@ -18,6 +18,7 @@
 
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { applyStoredFileHeaders, safeFileName } from '../services/stored-file-headers';
 import {
   completeMaterial,
   createMaterial,
@@ -26,6 +27,7 @@ import {
   listPages,
   materialJson,
   MaterialError,
+  originalContentType,
   pageJson,
   requireMaterial,
   tocColumn,
@@ -122,9 +124,10 @@ materials.get('/materials/:id/pages/:n/image', async (c) => {
     if (!row?.image_key) throw new MaterialError(404, 'Page not found');
     const obj = await c.env.AUDIO_BUCKET.get(row.image_key);
     if (!obj) throw new MaterialError(404, 'Page not found');
-    return new Response(obj.body, {
-      headers: { 'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'private, max-age=31536000, immutable' },
-    });
+    const headers = new Headers();
+    applyStoredFileHeaders(headers, { contentType: obj.httpMetadata?.contentType, fallbackType: 'image/jpeg' });
+    headers.set('Cache-Control', 'private, max-age=31536000, immutable');
+    return new Response(obj.body, { headers });
   } catch (error) {
     return fail(c, error, 'Failed to load the page');
   }
@@ -136,10 +139,13 @@ materials.get('/materials/:id/original', async (c) => {
     if (!material.original_key) throw new MaterialError(404, 'No original file');
     const obj = await c.env.AUDIO_BUCKET.get(material.original_key);
     if (!obj) throw new MaterialError(404, 'No original file');
-    const name = (material.file_name || 'material').replace(/[^\w.\- ]+/g, '_');
-    return new Response(obj.body, {
-      headers: { 'Content-Type': material.mime_type || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${name}"` },
-    });
+    const headers = new Headers();
+    applyStoredFileHeaders(headers, { contentType: originalContentType(material), filename: material.file_name || 'material' });
+    // Always a download, a picture too.
+    if (!headers.has('Content-Disposition')) {
+      headers.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(safeFileName(material.file_name, 'material'))}`);
+    }
+    return new Response(obj.body, { headers });
   } catch (error) {
     return fail(c, error, 'Failed to download the file');
   }

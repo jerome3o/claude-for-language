@@ -17,6 +17,7 @@
 import { autoCheckMessageInBackground } from '../services/chat/auto-check';
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { applyStoredFileHeaders } from '../services/stored-file-headers';
 import { findMessageByClientId, normalizeClientId, sendMessage, toggleReaction, resolveConversationId } from '../services/conversations';
 import { generateId } from '../services/cards';
 import { getConversationParticipants } from '../services/chat/reads';
@@ -250,15 +251,12 @@ chatMessages.get('/chat-media/:messageId', async (c) => {
     const object = await c.env.AUDIO_BUCKET.get(msg.attachment.key);
     if (!object) return c.json({ error: 'Not found' }, 404);
     const headers = new Headers();
-    headers.set('Content-Type', msg.attachment.mime || object.httpMetadata?.contentType || 'application/octet-stream');
+    // Documents download under their own name; photos / voice / video play inline.
+    applyStoredFileHeaders(headers, {
+      contentType: msg.attachment.mime || object.httpMetadata?.contentType,
+      filename: msg.attachment.kind === 'file' ? msg.attachment.name : null,
+    });
     headers.set('Cache-Control', 'private, max-age=31536000, immutable');
-    headers.set('X-Content-Type-Options', 'nosniff');
-    if (msg.attachment.kind === 'file') {
-      // Documents download (a PDF may open inline) under their own name.
-      const disposition = msg.attachment.mime === 'application/pdf' ? 'inline' : 'attachment';
-      headers.set('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(msg.attachment.name)}`);
-      headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
-    }
     if (typeof object.size === 'number') headers.set('Content-Length', String(object.size));
     if (object.httpEtag) headers.set('ETag', object.httpEtag);
     return new Response(object.body, { headers });

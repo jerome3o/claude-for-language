@@ -398,6 +398,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - Generated TTS audio and user recordings stored in Cloudflare R2
 - Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
 - Types: `generated` (TTS), `recordings` (user voice)
+- **Every response that streams an R2 object goes through `applyStoredFileHeaders`** (`worker/src/services/stored-file-headers.ts`): `nosniff`, `CSP: sandbox`, and `Content-Disposition: attachment` for anything that isn't audio / video / a raster picture (HTML / SVG never inline). Uploads store a type sniffed from the bytes, never the uploader's (`sniffOriginalType`, `lessonNoteFileType`, `screenshotImageType`). CORS echoes only the apps' own origins (`services/cors-origins.ts`, `CORS_EXTRA_ORIGINS` for more).
 - **Providers: MiniMax · Azure Speech · Google** (docs/AUDIO.md "Providers"): which one speaks, in what
   order (`stored_order` for anything kept, `live_order` for played-once audio), voices per role
   (default / female / male), enabled + max RPM and "upgrade backup clips" are an ADMIN SETTING —

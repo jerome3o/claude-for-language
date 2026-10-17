@@ -223,8 +223,16 @@ export async function deleteSession(db: D1Database, sessionId: string): Promise<
   await db.prepare('DELETE FROM auth_sessions WHERE id = ?').bind(sessionId).run();
 }
 
-export async function cleanupExpiredSessions(db: D1Database): Promise<void> {
-  await db.prepare("DELETE FROM auth_sessions WHERE expires_at < datetime('now')").run();
+/**
+ * Delete every expired session (the daily cron). `expires_at` is ISO 8601 ("…T…Z"), so it
+ * is compared as a time, not as text against SQLite's "YYYY-MM-DD HH:MM:SS".
+ */
+export async function cleanupExpiredSessions(db: D1Database, nowMs: number = Date.now()): Promise<number> {
+  const res = await db
+    .prepare('DELETE FROM auth_sessions WHERE julianday(expires_at) < julianday(?)')
+    .bind(new Date(nowMs).toISOString())
+    .run();
+  return res.meta?.changes ?? 0;
 }
 
 // Session cookie helpers
