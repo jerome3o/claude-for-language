@@ -22,11 +22,8 @@ function introWarningText(spec: unknown): string {
     return '';
   }
 }
-import OAuthProvider, {
-  type AuthRequest,
-  type OAuthHelpers,
-} from "@cloudflare/workers-oauth-provider";
-import { Hono } from "hono";
+import { createOAuthApp } from "./oauth/handler.js";
+import { providerCache } from "./oauth/provider.js";
 import {
   registerAppTool,
   registerAppResource,
@@ -61,14 +58,6 @@ import { registerPinyinScanTools } from './tools/pinyin-scan.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerPreparedActivityTools } from './tools/prepared-activities.js';
 import { registerTutorApps } from './tools/apps.js';
-
-interface User {
-  id: string;
-  email: string | null;
-  google_id: string | null;
-  name: string | null;
-  picture_url: string | null;
-}
 
 interface Deck {
   id: string;
@@ -1994,193 +1983,18 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
   }
 }
 
-// Create the Hono app for handling OAuth and other routes
-const app = new Hono<{ Bindings: Env & { OAUTH_PROVIDER: OAuthHelpers } }>();
-
-// Health check
-app.get("/", (c) => {
-  return c.json({
-    status: "ok",
-    name: "Chinese Learning MCP Server",
-    version: "1.0.0",
-    transport: "Streamable HTTP with OAuth 2.1",
-    endpoint: "/mcp",
-  });
-});
-
-app.get("/health", (c) => {
-  return c.json({ status: "ok" });
-});
-
-// OAuth Authorization endpoint - handles the initial authorization request
-app.get("/authorize", async (c) => {
-  const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
-  if (!oauthReqInfo.clientId) {
-    return c.text("Invalid request - missing client_id", 400);
-  }
-
-  // Store the OAuth request info and redirect to Google
-  const stateId = generateId();
-  await c.env.OAUTH_KV.put(`oauth_state:${stateId}`, JSON.stringify(oauthReqInfo), {
-    expirationTtl: 600, // 10 minutes
-  });
-
-  const redirectUri = new URL("/callback", c.req.url).href;
-  const params = new URLSearchParams({
-    client_id: c.env.GOOGLE_CLIENT_ID,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "openid email profile",
-    state: stateId,
-    access_type: "offline",
-    prompt: "consent",
-  });
-
-  return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
-});
-
-// OAuth Callback - handles the callback from Google
-app.get("/callback", async (c) => {
-  const code = c.req.query("code");
-  const stateId = c.req.query("state");
-  const error = c.req.query("error");
-
-  if (error || !code || !stateId) {
-    return c.text(`OAuth failed: ${error || "missing params"}`, 400);
-  }
-
-  // Retrieve the original OAuth request info
-  const storedState = await c.env.OAUTH_KV.get(`oauth_state:${stateId}`);
-  if (!storedState) {
-    return c.text("Invalid or expired state", 400);
-  }
-
-  const oauthReqInfo: AuthRequest = JSON.parse(storedState);
-
-  // Clean up the state
-  await c.env.OAUTH_KV.delete(`oauth_state:${stateId}`);
-
-  // Exchange code for tokens with Google
-  const redirectUri = new URL("/callback", c.req.url).href;
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: c.env.GOOGLE_CLIENT_ID,
-      client_secret: c.env.GOOGLE_CLIENT_SECRET,
-      code,
-      grant_type: "authorization_code",
-      redirect_uri: redirectUri,
-    }),
-  });
-
-  if (!tokenResponse.ok) {
-    const err = await tokenResponse.text();
-    return c.text(`Token exchange failed: ${err}`, 500);
-  }
-
-  const tokens = await tokenResponse.json() as { access_token: string };
-
-  // Get user info from Google
-  const userInfoResponse = await fetch(
-    "https://www.googleapis.com/oauth2/v2/userinfo",
-    { headers: { Authorization: `Bearer ${tokens.access_token}` } }
-  );
-
-  if (!userInfoResponse.ok) {
-    return c.text("Failed to get user info from Google", 500);
-  }
-
-  const googleUser = await userInfoResponse.json() as {
-    id: string;
-    email: string;
-    name: string;
-    picture: string;
-  };
-
-  // Get or create user in database
-  let user = await c.env.DB
-    .prepare("SELECT * FROM users WHERE google_id = ?")
-    .bind(googleUser.id)
-    .first<User>();
-
-  if (!user) {
-    // Check by email
-    user = await c.env.DB
-      .prepare("SELECT * FROM users WHERE email = ?")
-      .bind(googleUser.email)
-      .first<User>();
-
-    if (user) {
-      // Link Google account
-      await c.env.DB
-        .prepare(`
-          UPDATE users SET
-            google_id = ?,
-            google_name = ?,
-            google_picture_url = ?,
-            name = CASE WHEN name_custom = 1 THEN name ELSE ? END,
-            picture_url = CASE WHEN picture_source = 'google' THEN ? ELSE picture_url END,
-            last_login_at = datetime('now')
-          WHERE id = ?
-        `)
-        // A name / picture the user set on their Profile survives (worker services/profile.ts).
-        .bind(googleUser.id, googleUser.name, googleUser.picture, googleUser.name, googleUser.picture, user.id)
-        .run();
-    } else {
-      // Create new user
-      const newUserId = generateId();
-      await c.env.DB
-        .prepare(`
-          INSERT INTO users (id, email, google_id, name, picture_url, google_name, google_picture_url, role, is_admin, last_login_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'student', 0, datetime('now'))
-        `)
-        .bind(newUserId, googleUser.email, googleUser.id, googleUser.name, googleUser.picture, googleUser.name, googleUser.picture)
-        .run();
-
-      user = await c.env.DB
-        .prepare("SELECT * FROM users WHERE id = ?")
-        .bind(newUserId)
-        .first<User>();
-    }
-  } else {
-    // Update last login
-    await c.env.DB
-      .prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?")
-      .bind(user.id)
-      .run();
-  }
-
-  if (!user) {
-    return c.text("Failed to create or get user", 500);
-  }
-
-  // Complete the OAuth flow - this issues tokens to the MCP client
-  const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
-    request: oauthReqInfo,
-    userId: user.id,
-    metadata: {
-      label: user.name || user.email || "User",
-    },
-    scope: oauthReqInfo.scope,
-    props: {
-      userId: user.id,
-      userEmail: user.email,
-      userName: user.name,
-    } as Props,
-  });
-
-  return c.redirect(redirectTo);
-});
-
-// Export the OAuthProvider wrapper
-export default new OAuthProvider({
-  apiHandlers: {
-    "/mcp": ChineseLearningMCPv2.serve("/mcp"),
-  },
+// OAuth (approval page → Google → existing accounts only) around the /mcp
+// endpoint: src/oauth/. The provider is built per origin so its canonical
+// resource is `<origin>/mcp` in production and under `wrangler dev`.
+const oauthApp = createOAuthApp();
+const providerFor = providerCache(
+  ChineseLearningMCPv2.serve("/mcp") as unknown as Parameters<typeof providerCache>[0],
   // Hono's fetch signature is narrower than ExportedHandler's; same contract at runtime.
-  defaultHandler: app as unknown as ExportedHandler,
-  authorizeEndpoint: "/authorize",
-  tokenEndpoint: "/token",
-  clientRegistrationEndpoint: "/register",
-});
+  oauthApp as unknown as Parameters<typeof providerCache>[1],
+);
+
+export default {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return providerFor(request.url).fetch(request, env, ctx);
+  },
+} satisfies ExportedHandler<Env>;

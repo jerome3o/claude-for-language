@@ -135,37 +135,43 @@ function showComplete() {
   elements.completeStats.textContent = `You studied ${cardsStudied} card${cardsStudied !== 1 ? 's' : ''}!`;
 }
 
-// Render character diff for typed answers
-function renderAnswerDiff(userAnswer: string, correctAnswer: string): string {
-  const maxLen = Math.max(userAnswer.length, correctAnswer.length);
-  let userRow = '';
-  let correctRow = '';
-  let isFullyCorrect = userAnswer === correctAnswer;
+// Render character diff for typed answers. Built with DOM nodes and
+// textContent — the typed answer and the card's hanzi are never parsed as HTML.
+function renderAnswerDiff(userAnswer: string, correctAnswer: string): DocumentFragment {
+  const user = Array.from(userAnswer);
+  const correct = Array.from(correctAnswer);
+  const maxLen = Math.max(user.length, correct.length);
+  const userRow = document.createElement('div');
+  userRow.className = 'answer-diff-row';
+  const correctRow = document.createElement('div');
+  correctRow.className = 'answer-diff-row';
+  const isFullyCorrect = userAnswer === correctAnswer;
+
+  const charSpan = (text: string, className: string) => {
+    const span = document.createElement('span');
+    span.className = `diff-char ${className}`;
+    span.textContent = text;
+    return span;
+  };
 
   for (let i = 0; i < maxLen; i++) {
-    const userChar = userAnswer[i] || '';
-    const correctChar = correctAnswer[i] || '';
+    const userChar = user[i] || '';
+    const correctChar = correct[i] || '';
     const isMatch = userChar === correctChar;
-
-    if (i < userAnswer.length) {
-      const className = isMatch ? 'diff-correct' : 'diff-wrong';
-      userRow += `<span class="diff-char ${className}">${userChar}</span>`;
-    }
-    if (i < correctAnswer.length) {
-      const className = isMatch ? 'diff-correct' : 'diff-expected';
-      correctRow += `<span class="diff-char ${className}">${correctChar}</span>`;
-    }
+    if (i < user.length) userRow.appendChild(charSpan(userChar, isMatch ? 'diff-correct' : 'diff-wrong'));
+    if (i < correct.length) correctRow.appendChild(charSpan(correctChar, isMatch ? 'diff-correct' : 'diff-expected'));
   }
 
-  if (isFullyCorrect) {
-    return `<div class="answer-diff-row">${userRow}</div>`;
+  const fragment = document.createDocumentFragment();
+  fragment.appendChild(userRow);
+  if (!isFullyCorrect) {
+    const arrow = document.createElement('div');
+    arrow.className = 'answer-diff-arrow';
+    arrow.textContent = '↓';
+    fragment.appendChild(arrow);
+    fragment.appendChild(correctRow);
   }
-
-  return `
-    <div class="answer-diff-row">${userRow}</div>
-    <div class="answer-diff-arrow">↓</div>
-    <div class="answer-diff-row">${correctRow}</div>
-  `;
+  return fragment;
 }
 
 // Display current card (front)
@@ -196,7 +202,12 @@ function showCardFront() {
   // Set content based on card type
   switch (card.card_type) {
     case 'hanzi_to_meaning':
-      elements.cardContent.innerHTML = `<div class="hanzi">${card.note.hanzi}</div>`;
+      {
+        const hanzi = document.createElement('div');
+        hanzi.className = 'hanzi';
+        hanzi.textContent = card.note.hanzi;
+        elements.cardContent.replaceChildren(hanzi);
+      }
       break;
     case 'meaning_to_hanzi':
       elements.cardContent.textContent = card.note.english;
@@ -241,7 +252,7 @@ function showCardBack() {
 
   // Show diff for typing cards
   if (info.action === 'type' && userAnswer) {
-    elements.answerDiff.innerHTML = renderAnswerDiff(userAnswer, card.note.hanzi);
+    elements.answerDiff.replaceChildren(renderAnswerDiff(userAnswer, card.note.hanzi));
     elements.answerDiff.style.display = 'block';
     elements.answerHanzi.style.display = 'none';
   } else {
