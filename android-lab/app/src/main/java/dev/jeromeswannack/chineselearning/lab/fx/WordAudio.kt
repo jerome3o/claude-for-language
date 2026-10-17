@@ -42,7 +42,9 @@ class WordAudio(private val context: Context, private val repo: Repository) {
         _playingKey.value = id
         try {
             mp.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-            mp.setDataSource(source)
+            // A stream from our API carries the session (private recordings need it; Api.mediaHeaders).
+            if (file == null) mp.setDataSource(context, android.net.Uri.parse(source), repo.api.mediaHeaders(source))
+            else mp.setDataSource(source)
             mp.setOnPreparedListener { it.start() }
             mp.setOnCompletionListener { if (player === it) { _playingKey.value = null; it.release(); player = null } }
             mp.setOnErrorListener { p, _, _ ->

@@ -400,6 +400,14 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
 - Types: `generated` (TTS), `recordings` (user voice)
 - **Every response that streams an R2 object goes through `applyStoredFileHeaders`** (`worker/src/services/stored-file-headers.ts`): `nosniff`, `CSP: sandbox`, and `Content-Disposition: attachment` for anything that isn't audio / video / a raster picture (HTML / SVG never inline). Uploads store a type sniffed from the bytes, never the uploader's (`sniffOriginalType`, `lessonNoteFileType`, `screenshotImageType`). CORS echoes only the apps' own origins (`services/cors-origins.ts`, `CORS_EXTRA_ORIGINS` for more).
+- **`GET /api/audio/<key>` is an allowlist** (`shared/media/access.ts`, `routes/media.ts`, docs/AUDIO.md
+  "Private media"): generated clips / pictures + avatars are public; person-made media (`recordings/`,
+  `calls/`, `note-uploads/`, `lesson-notes/`) needs a credential — a signed link `?exp=&sig=` (the API
+  signs `audio_url`s it returns; `POST /api/media/sign` for the MCP tools, 24 h), the web's media token
+  `?mt=` (`GET /api/media/token`, `api/mediaToken.ts`, used by `getAudioUrl`), or the Lab's
+  `Authorization: Bearer` (`Api.mediaHeaders`) — and the right person (`services/media-access.ts`: owner,
+  their tutor, call members); everything else is 404. Device caches stay keyed by R2 key, never URL.
+  A new R2 prefix goes in BOTH registries (STORAGE_PREFIXES and shared/media/access.ts).
 - **Providers: MiniMax · Azure Speech · Google** (docs/AUDIO.md "Providers"): which one speaks, in what
   order (`stored_order` for anything kept, `live_order` for played-once audio), voices per role
   (default / female / male), enabled + max RPM and "upgrade backup clips" are an ADMIN SETTING —

@@ -109,8 +109,13 @@ export default defineConfig({
             },
           },
           {
-            // Audio files - cache first, 30-day expiry
-            urlPattern: /^.*\/api\/audio\/.*/i,
+            // Audio files - cache first, 30-day expiry. Not private media (docs/AUDIO.md "Private
+            // media"; the prefixes of PRIVATE_MEDIA_PREFIXES in shared/media/access.ts — this function
+            // is copied into the service worker, so it can't import them): those links carry a
+            // credential and never go in a cache by URL; the app keeps its offline copy by R2 key
+            // (services/audioCache.ts).
+            urlPattern: ({ url }: { url: URL }) =>
+              /\/api\/audio\//.test(url.pathname) && !/\/api\/audio\/(recordings|calls|note-uploads|lesson-notes)\//.test(url.pathname),
             handler: 'CacheFirst',
             options: {
               cacheName: 'audio-cache',
