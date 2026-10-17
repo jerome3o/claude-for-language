@@ -120,6 +120,19 @@ describe('desktop sign-in', () => {
     expect(parseAuthDeepLink(`chineselearning-desktop://elsewhere?session_token=tok&nonce=${nonce}`, nonce)).toBeNull();
     expect(parseAuthDeepLink(`chineselearning-desktop://auth?nonce=${nonce}`, nonce)).toBeNull();
   });
+
+  it('asks for a one-time code with its own challenge and accepts the code link', () => {
+    const nonce = 'abcdefghijklmnop1234';
+    const challenge = 'C'.repeat(43);
+    // The page's own challenge (if any) is replaced by the app's: the app holds the verifier.
+    const url = new URL(desktopLoginUrl(`${api}/api/auth/login?invite=abc&challenge=${'P'.repeat(43)}`, nonce, challenge));
+    expect(url.searchParams.get('challenge')).toBe(challenge);
+    expect(url.searchParams.getAll('challenge')).toHaveLength(1);
+    expect(url.searchParams.get('invite')).toBe('abc');
+    expect(new URL(desktopLoginUrl(`${api}/api/auth/login?challenge=x`, nonce)).searchParams.has('challenge')).toBe(false);
+    expect(parseAuthDeepLink(`chineselearning-desktop://auth?code=one-time&nonce=${nonce}`, nonce)?.get('code')).toBe('one-time');
+    expect(parseAuthDeepLink(`chineselearning-desktop://auth?code=one-time&nonce=x${nonce}`, nonce)).toBeNull();
+  });
 });
 
 describe('update check', () => {

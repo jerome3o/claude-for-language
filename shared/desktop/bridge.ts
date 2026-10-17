@@ -73,6 +73,12 @@ export interface DesktopBridge {
   /** The app's version, e.g. "0.12.0". */
   version: string;
   platform: 'darwin' | 'win32' | 'linux' | string;
+  /**
+   * This build signs in by itself with the one-time code exchange (desktop/src/auth.ts) and
+   * hands the session to the page; the page then ignores a `?session_token=` in its URL.
+   * Missing on builds before it (they still load the page with `?session_token=`).
+   */
+  signsInWithCode?: boolean;
   /** The source the last getDisplayMedia() call was answered with (null when none / cancelled). */
   lastSharedSource(): Promise<SharedSource | null>;
   overlay: {
@@ -202,12 +208,17 @@ export const DESKTOP_NONCE_RE = /^[A-Za-z0-9_-]{16,64}$/;
  * The URL the desktop app opens in the SYSTEM browser to sign in. Google refuses
  * OAuth inside embedded browsers, so the app never shows Google's page itself:
  * the browser signs in and the worker redirects to `chineselearning-desktop://auth`.
- * Any query of the page's own login link (an invite) is kept.
+ * Any query of the page's own login link (an invite) is kept; `challenge` is the
+ * PKCE challenge of the verifier THIS app kept (shared/auth/signin.ts), so the
+ * redirect carries a one-time code, not the session token. Without it (never
+ * passed by this build) the worker answers the legacy token.
  */
-export function desktopLoginUrl(pageLoginUrl: string, nonce: string): string {
+export function desktopLoginUrl(pageLoginUrl: string, nonce: string, challenge?: string): string {
   const u = new URL(pageLoginUrl);
   u.searchParams.set('client', DESKTOP_AUTH_CLIENT);
   u.searchParams.set('nonce', nonce);
+  u.searchParams.delete('challenge');
+  if (challenge) u.searchParams.set('challenge', challenge);
   return u.toString();
 }
 
@@ -224,8 +235,9 @@ export function isLoginNavigation(url: string, apiOrigin: string): boolean {
 /**
  * The deep link the browser hands back. Only a link carrying the nonce THIS app
  * asked with is accepted (another app or page can't sign it in to someone
- * else's account). Returns the query to pass to the web app (`session_token`,
- * or `signup=…` when the sign-in was refused) without the nonce.
+ * else's account). Returns the query without the nonce: `code` (the one-time
+ * code the app trades at /api/auth/exchange), a legacy `session_token`, or
+ * `signup=…` / `error=…` when the sign-in was refused.
  */
 export function parseAuthDeepLink(url: string, expectedNonce: string | null): URLSearchParams | null {
   let u: URL;
@@ -242,7 +254,7 @@ export function parseAuthDeepLink(url: string, expectedNonce: string | null): UR
   if (!expectedNonce || nonce !== expectedNonce) return null;
   const out = new URLSearchParams();
   for (const [k, v] of u.searchParams) if (k !== 'nonce') out.set(k, v);
-  if (!out.has('session_token') && !out.has('signup') && !out.has('error')) return null;
+  if (!out.has('code') && !out.has('session_token') && !out.has('signup') && !out.has('error')) return null;
   return out;
 }
 

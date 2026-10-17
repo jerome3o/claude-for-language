@@ -7,7 +7,8 @@ import { writeConversationVoices } from '../services/conversationVoices';
 import { writeConversationAudio } from '../services/conversationAudio';
 import { AuthUser } from '../types';
 import { setSharingUsage } from '../services/analytics';
-import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
+import { getCurrentUser, logout as apiLogout, logoutAllDevices as apiLogoutAllDevices, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
+import { completeSignInFromUrl, startSignIn } from '../services/signIn';
 
 const SESSION_TOKEN_KEY = 'session_token';
 const CACHED_USER_KEY = 'cached_user';
@@ -16,8 +17,12 @@ interface AuthContextType {
   user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** Why the last sign-in didn't finish (the code exchange refused / failed), for the sign-in screen. */
+  authError: string | null;
   login: () => void;
   logout: () => Promise<void>;
+  /** Settings → "Sign out of all devices": revokes every session of the account, then signs out here. */
+  logoutAllDevices: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
@@ -26,6 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -51,17 +57,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Initial load - check for token in URL first
   useEffect(() => {
     const loadUser = async () => {
-      // Check for session token in URL (from OAuth callback)
-      const params = new URLSearchParams(window.location.search);
-      const urlToken = params.get('session_token');
+      // Back from Google: `?code=` traded for the session at /api/auth/exchange with the
+      // verifier this device kept (services/signIn.ts). A bare `?session_token=` is only
+      // honoured on the dev server / inside an older desktop build (login CSRF).
+      const signIn = await completeSignInFromUrl();
 
-      if (urlToken) {
-        // Store token and clear from URL
-        localStorage.setItem(SESSION_TOKEN_KEY, urlToken);
-        setSessionToken(urlToken);
-        // Clean up URL
-        window.history.replaceState({}, '', window.location.pathname);
+      if (signIn && 'token' in signIn) {
+        localStorage.setItem(SESSION_TOKEN_KEY, signIn.token);
+        // A fresh sign-in may be another account than the one cached.
+        localStorage.removeItem(CACHED_USER_KEY);
+        setSessionToken(signIn.token);
       } else {
+        if (signIn && 'error' in signIn) setAuthError(signIn.error);
         // Check localStorage for existing token
         const storedToken = localStorage.getItem(SESSION_TOKEN_KEY);
         if (storedToken) {
@@ -91,7 +98,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         writeNewCardOrder(userData as { new_card_order?: unknown });
         writeConversationVoices(userData.conversation_voices);
         writeConversationAudio(userData.conversation_audio);
-      writeConversationAudio(userData.conversation_audio);
         if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);
         localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
       } catch (err) {
@@ -144,11 +150,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(() => {
-    window.location.href = getLoginUrl();
+    void startSignIn(getLoginUrl());
   }, []);
 
-  const logout = useCallback(async () => {
-    await apiLogout();
+  const signOutLocally = useCallback(() => {
     localStorage.removeItem(SESSION_TOKEN_KEY);
     localStorage.removeItem(CACHED_USER_KEY);
     clearSessionToken();
@@ -156,14 +161,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = '/';
   }, []);
 
+  const logout = useCallback(async () => {
+    // Revokes this device's session on the server (Bearer token) before forgetting it.
+    await apiLogout();
+    signOutLocally();
+  }, [signOutLocally]);
+
+  const logoutAllDevices = useCallback(async () => {
+    // Throws when the server didn't do it (offline): the caller shows why, nothing is cleared.
+    await apiLogoutAllDevices();
+    signOutLocally();
+  }, [signOutLocally]);
+
   return (
     <AuthContext.Provider
       value={{
         user,
         isLoading,
         isAuthenticated: !!user,
+        authError,
         login,
         logout,
+        logoutAllDevices,
         refreshUser,
       }}
     >

@@ -36,7 +36,8 @@ async function renderPdf(file: Blob, onProgress?: Progress): Promise<RenderResul
   const pdfjs = await import('pdfjs-dist');
   const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  // isEvalSupported: false — no eval() for fonts, so the page CSP (public/_headers) never trips.
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
   const total = Math.min(doc.numPages, MAX_MATERIAL_PAGES);
   const pages: RenderedPage[] = [];
   for (let i = 1; i <= total; i++) {

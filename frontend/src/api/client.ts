@@ -154,11 +154,22 @@ export async function getCurrentUser(): Promise<AuthUser> {
   return fetchJSON<AuthUser>('/auth/me');
 }
 
+/** Revoke THIS device's session on the server (the Bearer token). Never throws: signing out works offline. */
 export async function logout(): Promise<void> {
-  await fetch(`${API_PATH}/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-  });
+  try {
+    await fetch(`${API_PATH}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: getAuthHeaders(),
+    });
+  } catch {
+    // Offline: the local sign-out still happens; the session expires by itself.
+  }
+}
+
+/** "Sign out of all devices": every session of the account, this one too. Throws when it didn't happen. */
+export async function logoutAllDevices(): Promise<{ signed_out: number }> {
+  return fetchJSON<{ signed_out: number }>('/auth/logout-all', { method: 'POST' });
 }
 
 export function getLoginUrl(): string {

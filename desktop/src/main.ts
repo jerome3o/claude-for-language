@@ -9,8 +9,8 @@
 import path from 'node:path';
 import { app, BrowserWindow, ipcMain, Menu, session, shell, systemPreferences, type MenuItemConstructorOptions, type WebContents } from 'electron';
 import { DESKTOP_AUTH_SCHEME, isLoginNavigation } from '../../shared/desktop/bridge';
-import { startSignIn, takeAuthDeepLink } from './auth';
-import { API_ORIGIN, APP_ORIGIN, APP_URL } from './config';
+import { exchangeCode, startSignIn, takeAuthDeepLink } from './auth';
+import { API_ORIGIN, API_URL, APP_ORIGIN, APP_URL } from './config';
 import { IPC } from './ipc';
 import { OverlayManager } from './overlay';
 import { installDisplayMediaHandler, lastSharedSource } from './share';
@@ -59,10 +59,43 @@ function focusMain() {
 }
 
 function handleDeepLink(url: string) {
-  const params = takeAuthDeepLink(url);
-  if (!params || !mainWindow) return;
-  void mainWindow.loadURL(`${APP_URL}/?${params.toString()}`);
+  const link = takeAuthDeepLink(url);
+  if (!link || !mainWindow) return;
   focusMain();
+  void finishSignIn(mainWindow, link.params, link.verifier).catch((err) => console.error('[desktop] sign-in failed', err));
+}
+
+/**
+ * `code` → traded at /api/auth/exchange with this process's verifier, the token handed to
+ * the page; `signup=…` / `error=…` → the page's sign-in screen explains.
+ */
+async function finishSignIn(win: BrowserWindow, params: URLSearchParams, verifier: string | null) {
+  const code = params.get('code');
+  const legacyToken = params.get('session_token');
+  if (code || legacyToken) {
+    const out = code ? await exchangeCode(API_URL, code, verifier) : { token: legacyToken! };
+    if ('token' in out) {
+      await handOverSession(win, out.token);
+      return;
+    }
+    console.warn('[desktop] code exchange refused:', out.error);
+    await win.loadURL(`${APP_URL}/?${new URLSearchParams({ error: 'auth_failed' }).toString()}`);
+    return;
+  }
+  await win.loadURL(`${APP_URL}/?${params.toString()}`);
+}
+
+/**
+ * The page keeps its session in localStorage['session_token'] (frontend AuthContext):
+ * write it there on the app's own origin, then load the app — no token in any URL.
+ */
+async function handOverSession(win: BrowserWindow, token: string) {
+  if (!isAppUrl(win.webContents.getURL())) await win.loadURL(APP_URL);
+  await win.webContents.executeJavaScript(
+    `try { localStorage.setItem('session_token', ${JSON.stringify(token)}); localStorage.removeItem('cached_user'); } catch (e) {}`,
+    true,
+  );
+  await win.loadURL(`${APP_URL}/`);
 }
 
 // ------------------------------------------------------------------ the app window
@@ -86,7 +119,7 @@ function guardNavigation(contents: WebContents) {
   contents.on('will-navigate', (e, url) => {
     if (isLoginNavigation(url, API_ORIGIN)) {
       e.preventDefault();
-      startSignIn(url);
+      void startSignIn(url);
       return;
     }
     if (isAppUrl(url) || originOf(url) === API_ORIGIN) return;
@@ -95,7 +128,7 @@ function guardNavigation(contents: WebContents) {
   });
   contents.setWindowOpenHandler(({ url }) => {
     if (isLoginNavigation(url, API_ORIGIN)) {
-      startSignIn(url);
+      void startSignIn(url);
       return { action: 'deny' };
     }
     // The app's own pages (print views) open in an app window; everything else in the browser.

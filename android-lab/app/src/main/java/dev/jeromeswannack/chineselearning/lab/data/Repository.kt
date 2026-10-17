@@ -533,6 +533,9 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
         beforeSignOut.forEach { hook -> runCatching { hook() } }
+        // Last thing while the token is still known: revoke this session on the server
+        // (POST /api/auth/logout with the Bearer token; best effort, a few seconds at most).
+        if (prefs.sessionToken != null) api.revokeSession()
         stopAudioPrefetch()
         db.clearAllTables()
         prefs.clearAccount()
@@ -545,6 +548,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
     fun onSignedIn(token: String) {
         prefs.sessionToken = token
         prefs.pendingAuthNonce = null
+        prefs.pendingAuthVerifier = null
         _status.update { it.copy(signedOut = false, error = null) }
     }
 

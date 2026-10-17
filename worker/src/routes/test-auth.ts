@@ -1,7 +1,7 @@
 import { autoCheckMessageInBackground } from '../services/chat/auto-check';
 import { Hono } from 'hono';
 import { Env, User } from '../types';
-import { createSession } from '../services/auth';
+import { createAuthCode, createSession, parseAuthChallenge } from '../services/auth';
 import * as tutorJobs from '../db/tutor-notes-queries';
 import * as insightsQ from '../db/insights-queries';
 import * as huntDb from '../db/picture-hunt-queries';
@@ -96,6 +96,24 @@ testAuth.post('/auth', async (c) => {
     session_token: session.id,
     user: user,
   });
+});
+
+/**
+ * POST /api/test/auth-code `{ email, challenge, client? }` → `{ code }`
+ *
+ * What the Google callback does at the end of a sign-in, without Google: a one-time code for
+ * an existing test user bound to the caller's PKCE challenge (services/auth.ts). Lets E2E,
+ * the Lab contract test and a hand-run check drive the real /api/auth/exchange.
+ */
+testAuth.post('/auth-code', async (c) => {
+  const body = await c.req.json<{ email?: string; challenge?: string; client?: string }>().catch(() => ({} as { email?: string; challenge?: string; client?: string }));
+  const challenge = parseAuthChallenge(body.challenge);
+  if (!body.email || !challenge) return c.json({ error: 'email and a 43-character challenge are required' }, 400);
+  const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(body.email).first<{ id: string }>();
+  if (!user) return c.json({ error: 'Unknown test user (POST /api/test/auth first)' }, 404);
+  const client = body.client === 'lab' || body.client === 'desktop' ? body.client : 'web';
+  const code = await createAuthCode(c.env.DB, user.id, challenge, client);
+  return c.json({ code });
 });
 
 /**

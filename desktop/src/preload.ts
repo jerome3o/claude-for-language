@@ -15,6 +15,8 @@ const bridge: DesktopBridge = {
   isDesktop: true,
   version: info.version,
   platform: info.platform,
+  // Signs in with the one-time code exchange and hands the session to the page (auth.ts, main.ts).
+  signsInWithCode: true,
   lastSharedSource: () => ipcRenderer.invoke(IPC.lastSharedSource) as Promise<SharedSource | null>,
   overlay: {
     show: (displayId: string) => ipcRenderer.invoke(IPC.overlayShow, String(displayId)) as Promise<boolean>,

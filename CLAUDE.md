@@ -233,8 +233,9 @@ Jerome wants it at **full feature parity with the web app, to the same standard*
   next debug report (`crashes`, summary visible in the MCP `list_debug_reports`). Non-critical
   start-up work (Home / Today / Progress loads, landing counts, widget, audio fixer, "new characters
   first") must go through `app.safely` / `app.scope` so a failure is reported, never a crash.
-- Native sign-in: `/api/auth/login?client=lab&nonce=…` → callback redirects to
-  `chineselearning-lab://auth?session_token=…&nonce=…` (`NATIVE_AUTH_CLIENTS`, `services/auth.ts`).
+- Native sign-in: `/api/auth/login?client=lab&nonce=…&challenge=…` → callback redirects to
+  `chineselearning-lab://auth?code=…&nonce=…` → the app POSTs code + verifier to `/api/auth/exchange`
+  (`data/AuthExchange.kt`; see "Sign-in & sessions").
 - **Google Play internal testing**: each `main` build also runs `:app:bundleRelease` (same key = the
   Play *upload key*), attaches `chinese-learning-lab-v0.N.aab` to the pre-release and uploads it to the
   internal track when `PLAY_SERVICE_ACCOUNT_JSON` is set (non-fatal; warning annotation on failure).
@@ -323,6 +324,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 
 ### Database Tables
 - `users` - User accounts
+- `auth_sessions` - Sign-in sessions (the id is the Bearer token; 30 days) · `auth_codes` - one-time sign-in codes (migration 0128; see "Sign-in & sessions")
 - `decks` - Vocabulary decks
 - `notes` - Vocabulary items (hanzi, pinyin, english, audio_url, fun_facts)
 - `cards` - SRS cards (3 per note, one per card_type)
@@ -2020,13 +2022,50 @@ background sync generates no daily story (`services/accountRole.ts`). **Try it**
 page shows "▶ Try it as a student" instead of Study) and `/library/:id/try` (`pages/editor/LessonTryPage.tsx`, the real
 `StudyCustomLesson` with `preview`: no counts, no rating, no completion event). Both are immersive routes.
 
+## Sign-in & sessions (`worker/src/services/auth.ts`, `routes/auth-session.ts`, `shared/auth/signin.ts`)
+
+- **The session token never travels in a URL.** Every app makes a random `verifier`, keeps it (web:
+  `sessionStorage` + a 15-min `localStorage` copy, `frontend/src/services/signIn.ts`; Lab:
+  `Prefs.pendingAuthVerifier`; desktop: main-process memory) and sends only `challenge` =
+  base64url(SHA-256(verifier)) (PKCE S256) to `/api/auth/login?challenge=` (carried in the OAuth state
+  as `.x.<challenge>`). The callback stores a one-time code (`auth_codes`, migration 0128: only its
+  SHA-256, the user, the challenge, the client; 60 s) and redirects with `?code=` (web) /
+  `chineselearning-{lab,desktop}://auth?code=&nonce=`. `POST /api/auth/exchange { code, verifier }` →
+  `{ session_token, expires_at }`; the row is DELETEd by the same statement that reads it (single use,
+  a wrong verifier burns it; 400 `reason`: invalid_request | invalid_code | expired | nonce_mismatch).
+  A link carrying someone else's code is worthless in your browser (login CSRF).
+- **`?session_token=` in the web app's URL is ignored** except on the Vite dev server (E2E /
+  screenshots log in with it) and inside a desktop build from before the exchange (its preload lacks
+  `signsInWithCode`). The new desktop app exchanges the code itself and writes the session into the
+  page's `localStorage` (`desktop/src/main.ts` `handOverSession`).
+- **Transition**: a login WITHOUT `challenge` (Lab builds before the exchange, old desktop builds, a
+  stale cached web bundle) still gets the legacy `session_token` redirect. Drop it (require `challenge`
+  in `/api/auth/login`) once every installed Lab / desktop app has updated.
+- **Sign out revokes**: `POST /api/auth/logout` deletes the Bearer session (web `logout()` sends the
+  header; Lab `Repository.signOut` → `Api.revokeSession`, ≤ 4 s, best effort). **Sign out of all
+  devices** (Settings, web `components/settings/SignOutSection.tsx` + Lab `SettingsScreen`, in-page
+  confirm): `POST /api/auth/logout-all` → `{ signed_out }`, every `auth_sessions` row of the account.
+- E2E: `POST /api/test/auth-code { email, challenge, client? }` mints a code without Google (Lab
+  `AuthContractTest`, hand-run checks).
+- **Content-Security-Policy** (`frontend/public/_headers`, Pages): enforced `frame-ancestors 'none'` +
+  `X-Frame-Options: DENY`, nosniff, Referrer-Policy, Permissions-Policy (camera / mic / display-capture
+  for the app only). The full policy (every origin the app uses is listed there) is **Report-Only** for
+  now, reporting to `POST /api/csp-report` (`routes/csp-report.ts`: one `"type":"csp"` log line per
+  violation — directive + blocked origin + page path only). A new external origin (API, socket,
+  image / media host, script) must be added to that header. Verified with zero violations under the
+  ENFORCED policy on a production build (sign-in, study, Anki export / sql.js, pdf.js materials,
+  progress worker, chat ChatHub socket, call room socket + camera, settings); flip the header name to
+  `Content-Security-Policy` once the reports stay quiet.
+
 ## Invite-only sign-up
 
 **A Google sign-in for an email with no `users` row creates a user only if an invite admits it.**
 The gate lives in the `/api/auth/callback` handler (`worker/src/index.ts`) and
 `worker/src/services/signup.ts`:
 
-1. `findExistingUser` — existing users (by google_id, then email) always get in; nothing changes for them.
+1. `findExistingUser` — existing users (by google_id, then email — the email match only when Google says
+   `verified_email`) always get in; nothing changes for them. An unverified address never matches an
+   email-bound invite, a pending invitation or `ADMIN_EMAIL` either (`resolveSignup`'s `emailVerified`).
 2. Otherwise `resolveSignup(db, googleUser, { inviteToken, adminEmail })` tries, in order:
    the invite token carried in the OAuth `state` (from `/join/<token>` → `/api/auth/login?invite=`),
    a still-valid `invites` row bound to the Google email, a `pending_invitations` row whose

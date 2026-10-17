@@ -11,6 +11,7 @@ import { RevisitSettingsSection } from '../components/settings/RevisitSettingsSe
 import { NewCardOrderSection } from '../components/settings/NewCardOrderSection';
 import { AskClaudeLanguageSection } from '../components/settings/AskClaudeLanguageSection';
 import { PodcastFeedSection } from '../components/settings/PodcastFeedSection';
+import { SignOutSection } from '../components/settings/SignOutSection';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
@@ -894,7 +895,6 @@ function StartOnSection({ hasStudents }: { hasStudents: boolean }) {
 }
 
 export function SettingsPage() {
-  const { logout } = useAuth();
   const role = useNavRole();
   const maintenance = useMaintenanceActions();
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -1007,11 +1007,7 @@ export function SettingsPage() {
           </Link>
         </div>
 
-        <div className="settings-section">
-          <button className="btn btn-secondary export-btn settings-signout" onClick={() => { logout(); }}>
-            Sign out
-          </button>
-        </div>
+        <SignOutSection />
 
         <section className="nav-section">
           <button

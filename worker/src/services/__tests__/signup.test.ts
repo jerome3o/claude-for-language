@@ -230,6 +230,28 @@ describe('resolveSignup', () => {
     const withoutToken = await resolveSignup(db, google, { now: NOW });
     expect(withoutToken.kind === 'invite' && withoutToken.source).toBe('email');
   });
+
+  describe('an address Google has not verified', () => {
+    const unverified = { emailVerified: false, now: NOW };
+
+    it('admits nothing that matches on the email: email invite, pending invitation, admin', async () => {
+      db.addAllResult(Q_INVITE_BY_EMAIL, [makeInvite({ id: 'e'.repeat(43), email: 'new.student@example.com' })]);
+      db.addResult(Q_PENDING, { id: 'pi-1', inviter_id: 'tutor-1', inviter_role: 'tutor' });
+      expect(await resolveSignup(db, google, unverified)).toEqual({ kind: 'denied', reason: 'invite_only' });
+      expect(await resolveSignup(db, { email: 'admin@example.com' }, { ...unverified, adminEmail: 'admin@example.com' }))
+        .toEqual({ kind: 'denied', reason: 'invite_only' });
+    });
+
+    it('a link bound to that email is a mismatch; an open link still works', async () => {
+      db.addResult(Q_INVITE_BY_ID, makeInvite({ email: 'new.student@example.com' }));
+      const bound = await resolveSignup(db, google, { ...unverified, inviteToken: TOKEN });
+      expect(bound.kind === 'denied' && bound.reason).toBe('email_mismatch');
+      db.reset();
+      db.addResult(Q_INVITE_BY_ID, makeInvite());
+      const open = await resolveSignup(db, google, { ...unverified, inviteToken: TOKEN });
+      expect(open.kind === 'invite' && open.source).toBe('token');
+    });
+  });
 });
 
 describe('redeemInvite', () => {

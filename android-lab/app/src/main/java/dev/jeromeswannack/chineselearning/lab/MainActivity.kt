@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import dev.jeromeswannack.chineselearning.lab.data.AuthExchange
 import dev.jeromeswannack.chineselearning.lab.shell.ShellLinks
 import dev.jeromeswannack.chineselearning.lab.shell.ShellPermission
 import dev.jeromeswannack.chineselearning.lab.ui.home.SignInScreen
@@ -28,7 +29,7 @@ import java.security.SecureRandom
 
 /**
  * Sign-in gate + the shell (ui/nav/LabShell.kt). Handles two kinds of links:
- * `chineselearning-lab://auth?session_token=…&nonce=…` (the worker's sign-in callback) and
+ * `chineselearning-lab://auth?code=…&nonce=…` (the worker's sign-in callback) and
  * `chineselearning-lab:///<web route>` (opens that screen natively, or its placeholder).
  */
 class MainActivity : ComponentActivity() {
@@ -115,32 +116,54 @@ class MainActivity : ComponentActivity() {
         if (data.host == "auth") handleAuth(data) else deepLinkPath(data)?.let { pending = NavRequest(it, soft) }
     }
 
-    /** `chineselearning-lab://auth?session_token=…&nonce=…` from the worker's auth callback. */
+    /**
+     * `chineselearning-lab://auth?code=…&nonce=…` from the worker's auth callback: the one-time
+     * code is traded with this app's verifier for the session (data/AuthExchange.kt). The old
+     * `session_token=` form only comes back for a sign-in started without a challenge.
+     */
     private fun handleAuth(data: Uri) {
         val expected = app.prefs.pendingAuthNonce
+        val code = data.getQueryParameter("code")
         val token = data.getQueryParameter("session_token")
         val error = data.getQueryParameter("error") ?: data.getQueryParameter("signup")
         when {
             expected == null || data.getQueryParameter("nonce") != expected -> authError = "That sign-in link wasn't started from this app. Try again."
-            token.isNullOrBlank() -> authError = "Sign-in failed (${error ?: "no session"})."
-            else -> {
-                app.repo.onSignedIn(token)
-                authError = null
-                signedIn = true
-                notificationPermission.maybeAsk()
-                dev.jeromeswannack.chineselearning.lab.data.chat.ChatDelivery.signedIn(app)
-                lifecycleScope.launch { app.safely("sync after sign-in") { app.repo.sync(forceFull = true) } }
+            !code.isNullOrBlank() -> {
+                val verifier = app.prefs.pendingAuthVerifier
+                app.prefs.pendingAuthNonce = null
+                app.prefs.pendingAuthVerifier = null
+                lifecycleScope.launch {
+                    when (val out = AuthExchange.exchange(app.repo.api, code, verifier)) {
+                        is AuthExchange.Outcome.Token -> completeSignIn(out.token)
+                        is AuthExchange.Outcome.Failed -> authError = out.message
+                    }
+                }
             }
+            token.isNullOrBlank() -> authError = "Sign-in failed (${error ?: "no session"})."
+            else -> completeSignIn(token)
         }
+    }
+
+    private fun completeSignIn(token: String) {
+        app.repo.onSignedIn(token)
+        authError = null
+        signedIn = true
+        notificationPermission.maybeAsk()
+        dev.jeromeswannack.chineselearning.lab.data.chat.ChatDelivery.signedIn(app)
+        lifecycleScope.launch { app.safely("sync after sign-in") { app.repo.sync(forceFull = true) } }
     }
 
     private fun startSignIn() {
         val bytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val nonce = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+        val verifier = AuthExchange.makeVerifier()
         app.prefs.pendingAuthNonce = nonce
+        app.prefs.pendingAuthVerifier = verifier
         val url = Uri.parse("${Config.API_BASE}/api/auth/login").buildUpon()
             .appendQueryParameter("client", Config.AUTH_CLIENT)
             .appendQueryParameter("nonce", nonce)
+            // PKCE: the redirect then carries a one-time code, never the session token.
+            .appendQueryParameter("challenge", AuthExchange.challengeFor(verifier))
             .build()
         CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, url)
     }

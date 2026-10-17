@@ -14,7 +14,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
+import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
+import dev.jeromeswannack.chineselearning.lab.data.signOutAllDevices
 import dev.jeromeswannack.chineselearning.lab.data.settings.SettingsStore
 import dev.jeromeswannack.chineselearning.lab.ui.more.DebugReportRow
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
@@ -84,6 +86,18 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 toggleSound = { sound = it; app.prefs.soundOn = it; app.analytics.track("settings.change", mapOf("setting" to "sound", "value" to if (it) "on" else "off")) },
                 toggleHaptics = { haptics = it; app.prefs.hapticsOn = it; if (it) app.haptics.tick(); app.analytics.track("settings.change", mapOf("setting" to "haptics", "value" to if (it) "on" else "off")) },
                 signOut = { app.scope.launch { app.repo.signOut(); nav.onSignedOut() } },
+                signOutEverywhere = { onFailed ->
+                    app.scope.launch {
+                        val failed = runCatching { app.repo.api.signOutAllDevices() }.exceptionOrNull()
+                        if (failed != null) {
+                            onFailed("Nothing was signed out: ${failed.userMessage()}")
+                        } else {
+                            app.analytics.track("settings.sign_out_all")
+                            app.repo.signOut()
+                            nav.onSignedOut()
+                        }
+                    }
+                },
                 openAdvanced = { vm.loadAudioQuality(); vm.loadRequests() },
                 classifyAudio = { vm.classifyAudio() },
                 regenerateAudio = { vm.regenerateAudio() },

@@ -9,18 +9,34 @@ describe('OAuth state', () => {
   it('keeps the plain and invite formats unchanged', () => {
     expect(encodeOAuthState(NONCE, null)).toBe(NONCE);
     expect(encodeOAuthState(NONCE, INVITE)).toBe(`${NONCE}.i.${INVITE}`);
-    expect(parseOAuthState(`${NONCE}.i.${INVITE}`)).toEqual({ nonce: NONCE, inviteToken: INVITE, native: null });
-    expect(parseOAuthState(NONCE)).toEqual({ nonce: NONCE, inviteToken: null, native: null });
-    expect(parseOAuthState(undefined)).toEqual({ nonce: '', inviteToken: null, native: null });
+    expect(parseOAuthState(`${NONCE}.i.${INVITE}`)).toEqual({ nonce: NONCE, inviteToken: INVITE, native: null, challenge: null });
+    expect(parseOAuthState(NONCE)).toEqual({ nonce: NONCE, inviteToken: null, native: null, challenge: null });
+    expect(parseOAuthState(undefined)).toEqual({ nonce: '', inviteToken: null, native: null, challenge: null });
   });
 
   it('round-trips a native client, with and without an invite', () => {
     const native = { client: 'lab', appNonce: APP_NONCE };
     const plain = encodeOAuthState(NONCE, null, native);
     expect(plain).toBe(`${NONCE}.c.lab.${APP_NONCE}`);
-    expect(parseOAuthState(plain)).toEqual({ nonce: NONCE, inviteToken: null, native });
+    expect(parseOAuthState(plain)).toEqual({ nonce: NONCE, inviteToken: null, native, challenge: null });
     const both = encodeOAuthState(NONCE, INVITE, native);
-    expect(parseOAuthState(both)).toEqual({ nonce: NONCE, inviteToken: INVITE, native });
+    expect(parseOAuthState(both)).toEqual({ nonce: NONCE, inviteToken: INVITE, native, challenge: null });
+  });
+
+  it('carries a PKCE challenge, with or without a native client and invite', () => {
+    const challenge = 'C'.repeat(43);
+    const native = { client: 'lab', appNonce: APP_NONCE };
+    expect(encodeOAuthState(NONCE, null, null, challenge)).toBe(`${NONCE}.x.${challenge}`);
+    expect(parseOAuthState(`${NONCE}.x.${challenge}`)).toEqual({ nonce: NONCE, inviteToken: null, native: null, challenge });
+    const all = encodeOAuthState(NONCE, INVITE, native, challenge);
+    expect(all).toBe(`${NONCE}.c.lab.${APP_NONCE}.x.${challenge}.i.${INVITE}`);
+    expect(parseOAuthState(all)).toEqual({ nonce: NONCE, inviteToken: INVITE, native, challenge });
+    // A malformed challenge is dropped (the legacy token flow), never trusted.
+    expect(parseOAuthState(`${NONCE}.x.short`).challenge).toBeNull();
+    expect(parseOAuthState(NONCE).challenge).toBeNull();
+    // The web and native code redirects.
+    expect(authRedirectUrl('https://app.example', null, { code: 'abc' })).toBe('https://app.example?code=abc');
+    expect(authRedirectUrl('https://app.example', native, { code: 'abc' })).toBe(`chineselearning-lab://auth?code=abc&nonce=${APP_NONCE}`);
   });
 
   it('only accepts known clients with a well-formed app nonce', () => {

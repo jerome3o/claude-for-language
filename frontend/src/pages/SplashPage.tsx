@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import './SplashPage.css';
 
 export function SplashPage() {
-  const { login } = useAuth();
+  const { login, authError } = useAuth();
   const [searchParams] = useSearchParams();
   const error = searchParams.get('error');
   const signup = searchParams.get('signup');
@@ -43,6 +43,10 @@ export function SplashPage() {
             {error === 'invalid_state' && 'Security check failed. Please try again.'}
             {error === 'missing_params' && 'Something went wrong. Please try again.'}
           </div>
+        )}
+
+        {!error && authError && (
+          <div className="splash-error" role="alert" data-testid="splash-auth-error">{authError}</div>
         )}
 
         {signup === 'invite_only' && (

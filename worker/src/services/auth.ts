@@ -88,14 +88,21 @@ export async function getGoogleUserInfo(accessToken: string): Promise<GoogleUser
 /**
  * Find the users row for a Google account: by google_id first, then by email
  * (a user created before Google sign-in, or by an invite / test endpoint).
+ * The email match needs Google to have VERIFIED the address: a Google account
+ * can carry an unverified address it doesn't own, and must never take over the
+ * row of the person who does. The google_id match is unchanged.
  */
-export async function findExistingUser(db: D1Database, googleUser: GoogleUserInfo): Promise<User | null> {
+export async function findExistingUser(
+  db: D1Database,
+  googleUser: Pick<GoogleUserInfo, 'id' | 'email' | 'verified_email'>,
+): Promise<User | null> {
   const byGoogleId = await db
     .prepare('SELECT * FROM users WHERE google_id = ?')
     .bind(googleUser.id)
     .first<User>();
   if (byGoogleId) return byGoogleId;
 
+  if (!isVerifiedGoogleEmail(googleUser)) return null;
   return db
     .prepare('SELECT * FROM users WHERE email = ?')
     .bind(googleUser.email)
@@ -223,6 +230,120 @@ export async function deleteSession(db: D1Database, sessionId: string): Promise<
   await db.prepare('DELETE FROM auth_sessions WHERE id = ?').bind(sessionId).run();
 }
 
+/** "Sign out of all devices": every session of the user (this one too). Returns how many went. */
+export async function deleteAllSessionsForUser(db: D1Database, userId: string): Promise<number> {
+  const res = await db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').bind(userId).run();
+  return res.meta?.changes ?? 0;
+}
+
+/** The session id a request carries: `Authorization: Bearer <id>` (every app), else the legacy cookie. */
+export function sessionIdFromHeaders(authorization: string | null | undefined, cookieHeader: string | null | undefined): string | null {
+  if (authorization?.startsWith('Bearer ')) {
+    const token = authorization.slice(7).trim();
+    return token || null;
+  }
+  return parseSessionCookie(cookieHeader ?? null);
+}
+
+/** Google says it verified this address (userinfo v2 `verified_email`). Anything else counts as unverified. */
+export function isVerifiedGoogleEmail(googleUser: Pick<GoogleUserInfo, 'verified_email'>): boolean {
+  return googleUser.verified_email === true;
+}
+
+// ------------------------------------------------------------------ one-time sign-in codes
+
+/**
+ * Sign-in hands the app a ONE-TIME CODE, never the session token itself
+ * (CLAUDE.md "Sign-in"). Before leaving for Google the app makes a random
+ * `verifier`, keeps it (web: sessionStorage; Lab / desktop: the app's own
+ * storage) and sends only its SHA-256 (`challenge`, base64url, 43 characters —
+ * PKCE S256) to /api/auth/login. The callback stores the code's hash with the
+ * user and the challenge and redirects with `?code=`; the app then POSTs
+ * `{ code, verifier }` to /api/auth/exchange for the session token. A code
+ * lives 60 s and works once, and only for the app that holds the verifier — so
+ * a link carrying someone else's code (login CSRF) or a code read off the
+ * custom-scheme redirect by another app is worthless.
+ */
+export const AUTH_CODE_TTL_MS = 60_000;
+export const AUTH_CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
+const AUTH_VERIFIER_RE = /^[A-Za-z0-9_-]{32,128}$/;
+const AUTH_CODE_RE = /^[A-Za-z0-9_-]{32,128}$/;
+
+export function parseAuthChallenge(value: string | null | undefined): string | null {
+  return value && AUTH_CHALLENGE_RE.test(value) ? value : null;
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** PKCE S256: base64url(SHA-256(verifier)), no padding. */
+export async function authChallengeFor(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return base64Url(new Uint8Array(digest));
+}
+
+/** Constant-time compare of two equal-length strings (hashes here). */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** Make a one-time code for `userId`, bound to the app's challenge. Only its hash is stored. */
+export async function createAuthCode(
+  db: D1Database,
+  userId: string,
+  challenge: string,
+  client: string,
+  nowMs: number = Date.now(),
+): Promise<string> {
+  const code = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  await db
+    .prepare('INSERT INTO auth_codes (code_hash, user_id, challenge, client, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(await hashString(code), userId, challenge, client, nowMs, nowMs + AUTH_CODE_TTL_MS)
+    .run();
+  return code;
+}
+
+export type AuthCodeExchange =
+  | { ok: true; session: AuthSession; client: string }
+  | { ok: false; reason: 'invalid_request' | 'invalid_code' | 'expired' | 'nonce_mismatch' };
+
+/**
+ * Trade a code + verifier for a new session. The code row is DELETED by the same
+ * statement that reads it, so a code works once even when two requests race —
+ * and a wrong verifier burns it too (no second guess).
+ */
+export async function exchangeAuthCode(
+  db: D1Database,
+  code: unknown,
+  verifier: unknown,
+  nowMs: number = Date.now(),
+): Promise<AuthCodeExchange> {
+  if (typeof code !== 'string' || !AUTH_CODE_RE.test(code) || typeof verifier !== 'string' || !AUTH_VERIFIER_RE.test(verifier)) {
+    return { ok: false, reason: 'invalid_request' };
+  }
+  const row = await db
+    .prepare('DELETE FROM auth_codes WHERE code_hash = ? RETURNING user_id, challenge, client, expires_at')
+    .bind(await hashString(code))
+    .first<{ user_id: string; challenge: string; client: string; expires_at: number }>();
+  if (!row) return { ok: false, reason: 'invalid_code' };
+  if (Number(row.expires_at) <= nowMs) return { ok: false, reason: 'expired' };
+  if (!safeEqual(await authChallengeFor(verifier), row.challenge)) return { ok: false, reason: 'nonce_mismatch' };
+  const session = await createSession(db, row.user_id);
+  return { ok: true, session, client: row.client };
+}
+
+/** The daily cron: codes nobody exchanged. */
+export async function cleanupExpiredAuthCodes(db: D1Database, nowMs: number = Date.now()): Promise<number> {
+  const res = await db.prepare('DELETE FROM auth_codes WHERE expires_at <= ?').bind(nowMs).run();
+  return res.meta?.changes ?? 0;
+}
+
 /**
  * Delete every expired session (the daily cron). `expires_at` is ISO 8601 ("…T…Z"), so it
  * is compared as a time, not as text against SQLite's "YYYY-MM-DD HH:MM:SS".
@@ -343,6 +464,16 @@ export interface NativeAuthClient {
   appNonce: string;
 }
 
+/*
+ * Transition (Oct 2026): a sign-in WITHOUT a `challenge` still ends with the old
+ * redirect carrying `session_token` — Lab and desktop builds from before the
+ * code exchange, and a web tab still running a cached older bundle. The web app
+ * itself no longer accepts `?session_token=` (only on the Vite dev server, for
+ * E2E), so the legacy web redirect gives an attacker nothing. Plan: once every
+ * installed Lab / desktop app has updated (the debug reports' app_version shows
+ * it), drop the legacy path — /api/auth/login then requires `challenge`.
+ */
+
 const APP_NONCE_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 /** Validate `?client=&nonce=` from /api/auth/login; anything unexpected is ignored (web sign-in). */
@@ -364,26 +495,37 @@ export function encodeOAuthState(
   nonce: string,
   inviteToken: string | null | undefined,
   native?: NativeAuthClient | null,
+  challenge?: string | null,
 ): string {
   let state = nonce;
   if (native) state += `.c.${native.client}.${native.appNonce}`;
+  if (challenge) state += `.x.${challenge}`;
   if (inviteToken) state += `.i.${inviteToken}`;
   return state;
 }
 
+/** `<nonce>[.c.<client>.<appNonce>][.x.<challenge>][.i.<invite>]` — none of the parts contain a dot. */
 export function parseOAuthState(state: string | null | undefined): {
   nonce: string;
   inviteToken: string | null;
   native: NativeAuthClient | null;
+  /** The app's PKCE challenge: the sign-in ends with a one-time code instead of the session token. */
+  challenge: string | null;
 } {
-  if (!state) return { nonce: '', inviteToken: null, native: null };
+  if (!state) return { nonce: '', inviteToken: null, native: null, challenge: null };
   const idx = state.indexOf('.i.');
-  const head = idx === -1 ? state : state.slice(0, idx);
+  let head = idx === -1 ? state : state.slice(0, idx);
   const inviteToken = idx === -1 ? null : state.slice(idx + 3) || null;
+  let challenge: string | null = null;
+  const x = head.indexOf('.x.');
+  if (x !== -1) {
+    challenge = parseAuthChallenge(head.slice(x + 3));
+    head = head.slice(0, x);
+  }
   const c = head.indexOf('.c.');
-  if (c === -1) return { nonce: head, inviteToken, native: null };
+  if (c === -1) return { nonce: head, inviteToken, native: null, challenge };
   const [client, appNonce] = head.slice(c + 3).split('.');
-  return { nonce: head.slice(0, c), inviteToken, native: parseNativeAuthClient(client, appNonce) };
+  return { nonce: head.slice(0, c), inviteToken, native: parseNativeAuthClient(client, appNonce), challenge };
 }
 
 /**
