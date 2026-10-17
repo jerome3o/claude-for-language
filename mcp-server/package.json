@@ -15,7 +15,7 @@
     "@cfworker/json-schema": "^4.1.1",
     "@cloudflare/workers-oauth-provider": "^1.2.3",
     "@modelcontextprotocol/ext-apps": "^0.4.0",
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/sdk": "1.26.0",
     "agents": "^0.7.9",
     "ai": "^6.0.309",
     "cron-schedule": "^6.0.0",
