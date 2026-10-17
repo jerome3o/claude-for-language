@@ -168,12 +168,44 @@ export function pageKey(m: Pick<MaterialRow, 'owner_id' | 'id'>, page: number, e
   return `${MATERIAL_PREFIX}${m.owner_id}/${m.id}/p${page}.${ext}`;
 }
 
+const PDF_TYPE = 'application/pdf';
+const PPTX_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+/**
+ * The real type of an original from its first bytes, checked against the material's kind:
+ * a PDF must start with %PDF-, a PowerPoint is a zip, a picture a PNG / JPEG / WebP / GIF.
+ * null = the bytes are not what the material says it is.
+ */
+export function sniffOriginalType(kind: MaterialRow['kind'], bytes: Uint8Array): string | null {
+  const ascii = (n: number) => String.fromCharCode(...bytes.subarray(0, n));
+  if (kind === 'pdf') return ascii(5) === '%PDF-' ? PDF_TYPE : null;
+  if (kind === 'pptx') return bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04 ? PPTX_TYPE : null;
+  if (kind === 'image') {
+    const img = sniffImage(bytes);
+    if (img) return img.mime;
+    return ascii(6) === 'GIF87a' || ascii(6) === 'GIF89a' ? 'image/gif' : null;
+  }
+  return null;
+}
+
+/** The Content-Type an original is served with: only the types a material can be. */
+export function originalContentType(m: Pick<MaterialRow, 'kind' | 'mime_type'>): string {
+  const t = (m.mime_type ?? '').toLowerCase();
+  if (m.kind === 'pdf') return PDF_TYPE;
+  if (m.kind === 'pptx') return PPTX_TYPE;
+  if (m.kind === 'image' && /^image\/(png|jpeg|webp|gif)$/.test(t)) return t;
+  return 'application/octet-stream';
+}
+
 export async function storeOriginal(env: { DB: D1Database; AUDIO_BUCKET: R2Bucket }, m: MaterialRow, body: ArrayBuffer): Promise<void> {
   if (body.byteLength === 0) throw new MaterialError(400, 'The file is empty');
   if (m.original_size && body.byteLength > m.original_size * 1.05 + 1024) throw new MaterialError(413, 'The file is larger than announced');
+  // Never trust the announced type: the bytes decide, and must match the kind.
+  const type = sniffOriginalType(m.kind, new Uint8Array(body.slice(0, 64 * 1024)));
+  if (!type) throw new MaterialError(400, 'The file isn’t a PDF, PowerPoint (.pptx) or picture (JPEG, PNG, WebP, GIF).');
   const key = originalKey(m);
-  await env.AUDIO_BUCKET.put(key, body, { httpMetadata: { contentType: m.mime_type || 'application/octet-stream' } });
-  await env.DB.prepare('UPDATE materials SET original_key = ?, original_size = ?, updated_at = ? WHERE id = ?').bind(key, body.byteLength, Date.now(), m.id).run();
+  await env.AUDIO_BUCKET.put(key, body, { httpMetadata: { contentType: type } });
+  await env.DB.prepare('UPDATE materials SET original_key = ?, original_size = ?, mime_type = ?, updated_at = ? WHERE id = ?').bind(key, body.byteLength, type, Date.now(), m.id).run();
 }
 
 export async function storePage(env: { DB: D1Database; AUDIO_BUCKET: R2Bucket }, m: MaterialRow, page: number, body: ArrayBuffer): Promise<void> {

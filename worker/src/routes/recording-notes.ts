@@ -21,6 +21,7 @@ import type { Env } from '../types';
 import { listUnseenFlagReplies, markFlagReplySeen } from '../services/card-flags';
 import { sqliteToIso } from '@shared/chats';
 import { loadModelRecordingFor, modelAudioUrl } from '../services/model-recordings';
+import { applyStoredFileHeaders } from '../services/stored-file-headers';
 
 const recordingNotes = new Hono<{ Bindings: Env }>();
 
@@ -252,9 +253,8 @@ recordingNotes.get('/recording-marks/:eventId/model-audio', async (c) => {
     const object = await c.env.AUDIO_BUCKET.get(clip.key);
     if (!object) return c.json({ error: 'Not found' }, 404);
     const headers = new Headers();
-    headers.set('Content-Type', clip.mime || object.httpMetadata?.contentType || 'audio/webm');
+    applyStoredFileHeaders(headers, { contentType: clip.mime || object.httpMetadata?.contentType, fallbackType: 'audio/webm' });
     headers.set('Cache-Control', 'private, max-age=31536000, immutable');
-    headers.set('X-Content-Type-Options', 'nosniff');
     if (typeof object.size === 'number') headers.set('Content-Length', String(object.size));
     if (object.httpEtag) headers.set('ETag', object.httpEtag);
     return new Response(object.body, { headers });

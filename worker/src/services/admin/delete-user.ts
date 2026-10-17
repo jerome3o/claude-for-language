@@ -426,6 +426,6 @@ export async function deleteUserAccount(
   if (bg) bg.waitUntil(cleanup);
   else r2Deleted = await cleanup;
 
-  console.log('[delete-user] deleted', user.id, user.email, deleted, 'kept', kept, 'r2', keys.length);
+  console.log('[delete-user] deleted', user.id, deleted, 'kept', kept, 'r2', keys.length);
   return { deleted_user: user, deleted, kept, r2_objects_deleted: r2Deleted };
 }

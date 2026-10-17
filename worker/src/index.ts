@@ -202,6 +202,11 @@ import {
   saveMessageDiscussion,
 } from './services/conversations';
 import { getSharedDeckProgress, getStudentSharedDeckProgress, getOwnDeckProgress } from './services/shared-deck-progress';
+import { fireFeatureRequestRoutine, ownScreenshotUrl, screenshotImageType, serveScreenshot } from './services/feature-requests';
+import { lessonNoteFileType, LESSON_NOTE_FILE_TYPES } from './services/lesson-note-files';
+import { applyStoredFileHeaders } from './services/stored-file-headers';
+import { allowedCorsOrigin } from './services/cors-origins';
+import { cleanupExpiredSessions } from './services/auth';
 import { CreateRelationshipRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
 import {
   computeCardState,
@@ -232,20 +237,10 @@ function contentErrorResponse(c: { json: (body: unknown, status: number) => Resp
   return null;
 }
 
-// CORS middleware - allow credentials for cookie-based auth
+// CORS middleware - credentials for cookie-based auth, only for the apps' own origins
+// (services/cors-origins.ts); any other origin gets no Access-Control-Allow-Origin.
 app.use('/api/*', cors({
-  origin: (origin) => {
-    // Allow localhost for development
-    if (origin?.includes('localhost') || origin?.includes('127.0.0.1')) {
-      return origin;
-    }
-    // Allow production domains
-    if (origin?.includes('chinese-learning-2x9.pages.dev') || origin?.includes('jeromeswannack.workers.dev')) {
-      return origin;
-    }
-    // Allow any origin in development
-    return origin || '*';
-  },
+  origin: (origin, c) => allowedCorsOrigin(origin, (c.env as Env).CORS_EXTRA_ORIGINS),
   credentials: true,
 }));
 
@@ -305,10 +300,9 @@ app.get('/api/auth/callback', async (c) => {
   }
 
   // Verify state
+  // Never log the cookie or the state: the state carries the invite token.
   const cookieHeader = c.req.header('Cookie') || null;
-  console.log('[Auth Callback] Cookie header:', cookieHeader);
   const cookieState = parseStateCookie(cookieHeader);
-  console.log('[Auth Callback] State check:', { received: state, fromCookie: cookieState });
   if (state !== cookieState) {
     console.error('[Auth Callback] State mismatch');
     return Response.redirect(redirectTo({ error: 'invalid_state' }), 302);
@@ -326,7 +320,7 @@ app.get('/api/auth/callback', async (c) => {
 
     // Get user info from Google
     const googleUser = await getGoogleUserInfo(tokens.access_token);
-    console.log('[Auth Callback] Got Google user:', { email: googleUser.email, name: googleUser.name });
+    console.log('[Auth Callback] Got Google user');
 
     // Create or update user in database — sign-up is invite-only.
     const isAdminEmail = !!c.env.ADMIN_EMAIL && normalizeEmail(googleUser.email) === normalizeEmail(c.env.ADMIN_EMAIL);
@@ -394,7 +388,7 @@ app.get('/api/auth/callback', async (c) => {
       // pending_invitation: processPendingInvitations below creates the relationship.
       await markAccessRequestApprovedByEmail(c.env.DB, googleUser.email).catch(() => {});
     }
-    console.log('[Auth Callback] User:', { id: user.id, email: user.email, isNewUser });
+    console.log('[Auth Callback] User:', { id: user.id, isNewUser });
 
     // Send notification for new users (in background)
     if (isNewUser && c.env.NTFY_TOPIC) {
@@ -423,7 +417,6 @@ app.get('/api/auth/callback', async (c) => {
 
     // Create session
     const session = await createSession(c.env.DB, user.id);
-    console.log('[Auth Callback] Created session:', session.id);
 
     // Redirect to frontend with session token in URL
     // We pass the token in the URL because third-party cookies are blocked by browsers
@@ -474,7 +467,6 @@ app.get('/api/auth/me', async (c) => {
   } else {
     // Fallback to cookie (for same-origin or when cookies work)
     const cookieHeader = c.req.header('Cookie') || null;
-    console.log('[Auth Me] Cookie header:', cookieHeader);
     sessionId = parseSessionCookie(cookieHeader);
   }
   console.log('[Auth Me] Session ID:', sessionId ? 'found' : 'not found');
@@ -494,7 +486,6 @@ app.get('/api/auth/me', async (c) => {
 
   // Return user without sensitive fields
   const { user } = result;
-  console.log('[Auth Me] Returning user:', { id: user.id, email: user.email });
   return c.json({
     id: user.id,
     email: user.email,
@@ -2580,7 +2571,9 @@ app.put('/api/notes/:id/audio/:recordingId/primary', async (c) => {
     return c.json({ error: 'Note not found' }, 404);
   }
 
-  await db.setAudioRecordingPrimary(c.env.DB, noteId, recordingId);
+  if (!(await db.setAudioRecordingPrimary(c.env.DB, noteId, recordingId))) {
+    return c.json({ error: 'Recording not found' }, 404);
+  }
   return c.json({ success: true });
 });
 
@@ -2594,7 +2587,7 @@ app.delete('/api/notes/:id/audio/:recordingId', async (c) => {
     return c.json({ error: 'Note not found' }, 404);
   }
 
-  const result = await db.deleteAudioRecording(c.env.DB, recordingId);
+  const result = await db.deleteAudioRecording(c.env.DB, noteId, recordingId);
   if (!result) {
     return c.json({ error: 'Recording not found' }, 404);
   }
@@ -2828,19 +2821,23 @@ app.get('/api/audio/*', async (c) => {
     return c.json({ error: 'Audio not found' }, 404);
   }
 
-  // Get origin for CORS
-  const origin = c.req.header('Origin') || '*';
+  // CORS: the apps' origins with credentials; anyone else may only read the public clip.
+  const origin = allowedCorsOrigin(c.req.header('Origin'), c.env.CORS_EXTRA_ORIGINS);
 
   const headers = new Headers();
-  headers.set('Content-Type', object.httpMetadata?.contentType || 'audio/mpeg');
+  // nosniff + sandbox; anything not audio / video / a raster picture downloads (services/stored-file-headers.ts).
+  applyStoredFileHeaders(headers, { contentType: object.httpMetadata?.contentType, fallbackType: 'audio/mpeg' });
   headers.set('Cache-Control', 'public, max-age=31536000');
   headers.set('Accept-Ranges', 'bytes');
   if (object.httpEtag) {
     headers.set('ETag', object.httpEtag);
   }
   // Explicit CORS headers for audio element cross-origin playback
-  headers.set('Access-Control-Allow-Origin', origin);
-  headers.set('Access-Control-Allow-Credentials', 'true');
+  headers.set('Access-Control-Allow-Origin', origin ?? '*');
+  if (origin) {
+    headers.set('Access-Control-Allow-Credentials', 'true');
+    headers.set('Vary', 'Origin');
+  }
   // Range is not a CORS-safelisted response header, so the media element can
   // only see the partial-content headers if we expose them.
   headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, ETag');
@@ -4712,18 +4709,6 @@ app.get('/api/decks/:deckId/tutor-shares', async (c) => {
   }
 });
 
-// ============ Debug ============
-
-app.get('/api/debug/notes-audio', async (c) => {
-  const results = await c.env.DB.prepare(
-    'SELECT id, hanzi, audio_url FROM notes ORDER BY created_at DESC LIMIT 20'
-  ).all();
-  return c.json({
-    notes: results.results,
-    hasGoogleTtsKey: !!c.env.GOOGLE_TTS_API_KEY,
-  });
-});
-
 // ============ My Progress (Self-view) ============
 
 // Get my daily activity summary (last 30 days)
@@ -5528,15 +5513,19 @@ app.post('/api/lesson-notes/:id/files', async (c) => {
     return c.json({ error: 'file required' }, 400);
   }
   const blob = file as Blob & { name?: string };
-  const filename = blob.name ?? 'upload';
+  const bytes = await blob.arrayBuffer();
+  // Allowed kinds only, checked against the bytes; our type and a cleaned name in the key.
+  const allowed = lessonNoteFileType(blob.name, new Uint8Array(bytes.slice(0, 64 * 1024)));
+  if (!allowed) {
+    return c.json({ error: `Attach a document, picture or audio file (${LESSON_NOTE_FILE_TYPES.join(', ')})` }, 415);
+  }
+  const { filename, contentType } = allowed;
   const key = `lesson-notes/${noteId}/${crypto.randomUUID()}-${filename}`;
-  await c.env.AUDIO_BUCKET.put(key, await blob.arrayBuffer(), {
-    httpMetadata: { contentType: blob.type || 'application/octet-stream' },
-  });
+  await c.env.AUDIO_BUCKET.put(key, bytes, { httpMetadata: { contentType } });
   const fileId = await db.addLessonNoteFile(c.env.DB, noteId, {
     r2_key: key,
     filename,
-    content_type: blob.type || null,
+    content_type: contentType,
     size: blob.size,
   });
   return c.json({ id: fileId, r2_key: key, filename });
@@ -6145,29 +6134,20 @@ app.post('/api/feature-requests/screenshot', async (c) => {
   const screenshotId = crypto.randomUUID();
   const key = `screenshots/${user.id}/${screenshotId}.png`;
   const arrayBuffer = await blob.arrayBuffer();
-  await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type || 'image/png');
+  // A picture only (PNG / JPEG / WebP, from its bytes) — stored with the sniffed type.
+  const imageType = screenshotImageType(new Uint8Array(arrayBuffer.slice(0, 64 * 1024)));
+  if (!imageType) {
+    return c.json({ error: 'The screenshot must be a PNG, JPEG or WebP picture' }, 415);
+  }
+  await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, imageType);
 
   return c.json({ key, url: `/api/feature-requests/screenshot/${key}` }, 201);
 });
 
-// Serve a feature request screenshot
+// Serve a feature request screenshot: signed in, the request's owner or an admin, and only
+// a `screenshots/` key a feature request points at (services/feature-requests.ts).
 app.get('/api/feature-requests/screenshot/*', async (c) => {
-  const key = c.req.path.replace('/api/feature-requests/screenshot/', '');
-  const object = await getAudio(c.env.AUDIO_BUCKET, key);
-
-  if (!object) {
-    return c.json({ error: 'Screenshot not found' }, 404);
-  }
-
-  const origin = c.req.header('Origin') || '*';
-
-  const headers = new Headers();
-  headers.set('Content-Type', object.httpMetadata?.contentType || 'image/png');
-  headers.set('Cache-Control', 'public, max-age=31536000');
-  headers.set('Access-Control-Allow-Origin', origin);
-  headers.set('Access-Control-Allow-Credentials', 'true');
-
-  return new Response(object.body, { headers });
+  return serveScreenshot(c.env, c.get('user'), c.req.path);
 });
 
 // Create a feature request
@@ -6187,47 +6167,18 @@ app.post('/api/feature-requests', async (c) => {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const approvalStatus = user.is_admin ? 'approved' : 'pending';
+  // Only one of the creator's own uploads; any other key is dropped.
+  const screenshot = ownScreenshotUrl(screenshotUrl, user.id);
 
   await c.env.DB.prepare(`
     INSERT INTO feature_requests (id, user_id, content, page_context, console_logs, screenshot_url, status, approval_status, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)
-  `).bind(id, user.id, content.trim(), pageContext || null, consoleLogs || null, screenshotUrl || null, approvalStatus, now, now).run();
+  `).bind(id, user.id, content.trim(), pageContext || null, consoleLogs || null, screenshot, approvalStatus, now, now).run();
 
-  if (c.env.CCR_FEATURE_REQUEST_ROUTINE_URL && c.env.CCR_FEATURE_REQUEST_ROUTINE_KEY) {
-    const text = [
-      `Feature request ${id} from ${user.name || user.email}`,
-      `Page: ${pageContext || 'unknown'}`,
-      '',
-      content.trim(),
-      consoleLogs ? `\n--- Console logs ---\n${consoleLogs}` : '',
-      screenshotUrl ? `\nScreenshot: ${screenshotUrl}` : '',
-    ].join('\n').slice(0, 65000);
-
-    c.executionCtx.waitUntil(
-      fetch(c.env.CCR_FEATURE_REQUEST_ROUTINE_URL, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${c.env.CCR_FEATURE_REQUEST_ROUTINE_KEY}`,
-          'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'experimental-cc-routine-2026-04-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text }),
-      })
-        .then(async (r) => {
-          if (!r.ok) {
-            console.error('CCR routine fire failed', r.status, await r.text());
-            return;
-          }
-          const data = await r.json() as { claude_code_session_url?: string };
-          if (data.claude_code_session_url) {
-            await c.env.DB.prepare(
-              `UPDATE feature_requests SET ccr_session_url = ? WHERE id = ?`
-            ).bind(data.claude_code_session_url, id).run();
-          }
-        })
-        .catch((e) => console.error('CCR routine fire error', e)),
-    );
+  // The autonomous routine starts only for an approved request: an admin's own now, anyone
+  // else's when an admin approves it (PATCH …/approval).
+  if (approvalStatus === 'approved') {
+    c.executionCtx.waitUntil(fireFeatureRequestRoutine(c.env, id, null));
   }
 
   return c.json({ id, status: 'new', approval_status: approvalStatus, created_at: now });
@@ -6339,6 +6290,11 @@ app.patch('/api/feature-requests/:id/approval', async (c) => {
     UPDATE feature_requests SET approval_status = ?, updated_at = ? WHERE id = ?
   `).bind(approval_status, now, id).run();
 
+  // Approved by an admin → the routine may start now (once; services/feature-requests.ts).
+  if (approval_status === 'approved') {
+    c.executionCtx.waitUntil(fireFeatureRequestRoutine(c.env, id, user.name || 'admin'));
+  }
+
   return c.json({ success: true, approval_status });
 });
 
@@ -6423,6 +6379,13 @@ export default {
         console.log(JSON.stringify({ type: 'cron', job: 'prune_usage_events', deleted }));
       } catch (err) {
         console.error('[cron] prune usage events failed:', err);
+      }
+      // Expired sign-in sessions (bearer tokens) are deleted, not just ignored.
+      try {
+        const sessions = await cleanupExpiredSessions(env.DB, event.scheduledTime || Date.now());
+        console.log(JSON.stringify({ type: 'cron', job: 'prune_auth_sessions', deleted: sessions }));
+      } catch (err) {
+        console.error('[cron] prune auth sessions failed:', err);
       }
       // Prepared in-call activities: catch up students whose newest lesson has none yet.
       try {

@@ -77,6 +77,8 @@ export interface Env {
   /** Soniox API key — the best code-switching transcription; used for calls when set. */
   SONIOX_API_KEY?: string;
   CCR_FEATURE_REQUEST_ROUTINE_URL?: string;
+  /** Extra exact origins allowed by CORS (comma-separated; services/cors-origins.ts). */
+  CORS_EXTRA_ORIGINS?: string;
   CCR_FEATURE_REQUEST_ROUTINE_KEY?: string;
   ENVIRONMENT: string;
   // Auth secrets

@@ -209,7 +209,7 @@ export async function notifyNewChatMessage(
         unsubscribeUrl: url,
         headers: listUnsubscribeHeaders(url),
       });
-      console.log('[Email] Message notification to', recipient.email, sent ? 'sent' : 'FAILED');
+      console.log('[Email] Message notification to', recipientId, sent ? 'sent' : 'FAILED');
     }),
     step('in-app notification', async () => {
       if (!recipientId) return;

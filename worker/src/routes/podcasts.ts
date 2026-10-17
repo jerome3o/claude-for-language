@@ -20,6 +20,7 @@
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { applyStoredFileHeaders } from '../services/stored-file-headers';
 import { parseByteRange, resolveServedRange } from '../services/audio';
 import { trackServer } from '../services/analytics/server-events';
 import { apiOrigin } from '../services/podcast-feed';
@@ -326,7 +327,8 @@ async function serveAudio(c: { req: { header: (n: string) => string | undefined;
   const head = await c.env.AUDIO_BUCKET.head(key);
   if (!head) return new Response('Not found', { status: 404 });
   const size = head.size;
-  const headers = new Headers({ 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=86400', ETag: `"${head.etag}"`, 'Content-Disposition': `inline; filename="${filename}"` });
+  const headers = new Headers({ 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=86400', ETag: `"${head.etag}"`, 'Content-Disposition': `inline; filename="${filename}"` });
+  applyStoredFileHeaders(headers, { contentType: mime, filename });
   const rangeHeader = c.req.header('Range');
   const range = parseByteRange(rangeHeader);
   if (rangeHeader && range) {

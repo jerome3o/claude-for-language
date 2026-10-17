@@ -2691,7 +2691,13 @@ export async function setAudioRecordingPrimary(
   db: D1Database,
   noteId: string,
   recordingId: string
-): Promise<void> {
+): Promise<boolean> {
+  // The recording must be one of THIS note's (the caller checked the note is theirs).
+  const recording = await db.prepare('SELECT audio_url, provider FROM note_audio_recordings WHERE id = ? AND note_id = ?')
+    .bind(recordingId, noteId)
+    .first<{ audio_url: string; provider: string }>();
+  if (!recording) return false;
+
   // Unset all primary flags for this note
   await db.prepare(`
     UPDATE note_audio_recordings SET is_primary = 0 WHERE note_id = ?
@@ -2703,33 +2709,29 @@ export async function setAudioRecordingPrimary(
   `).bind(recordingId, noteId).run();
 
   // Update notes.audio_url to match the new primary
-  const recording = await db.prepare('SELECT audio_url, provider FROM note_audio_recordings WHERE id = ?')
-    .bind(recordingId)
-    .first<{ audio_url: string; provider: string }>();
-
-  if (recording) {
-    await db.prepare(`
-      UPDATE notes SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE id = ?
-    `).bind(recording.audio_url, recording.provider, noteId).run();
-  }
+  await db.prepare(`
+    UPDATE notes SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE id = ?
+  `).bind(recording.audio_url, recording.provider, noteId).run();
+  return true;
 }
 
 export async function deleteAudioRecording(
   db: D1Database,
+  noteId: string,
   recordingId: string
 ): Promise<{ was_primary: boolean; note_id: string; audio_url: string } | null> {
-  const recording = await db.prepare('SELECT * FROM note_audio_recordings WHERE id = ?')
-    .bind(recordingId)
+  // Scoped to the note: a recording id of someone else's note is "not found".
+  const recording = await db.prepare('SELECT * FROM note_audio_recordings WHERE id = ? AND note_id = ?')
+    .bind(recordingId, noteId)
     .first<NoteAudioRecording>();
 
   if (!recording) return null;
 
   const wasPrimary = !!recording.is_primary;
-  const noteId = recording.note_id;
   const audioUrl = recording.audio_url;
 
-  await db.prepare('DELETE FROM note_audio_recordings WHERE id = ?')
-    .bind(recordingId)
+  await db.prepare('DELETE FROM note_audio_recordings WHERE id = ? AND note_id = ?')
+    .bind(recordingId, noteId)
     .run();
 
   // If we deleted the primary, promote the next one

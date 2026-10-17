@@ -18,6 +18,7 @@
 import { Hono } from 'hono';
 import { pickAudioLessonInput } from '@shared/audio-lesson/input';
 import type { Env } from '../types';
+import { applyStoredFileHeaders } from '../services/stored-file-headers';
 import * as q from '../db/audio-lesson-queries';
 import { parseByteRange, resolveServedRange } from '../services/audio';
 import { deleteLessonObjects, runAudioLessonJob } from '../services/audio-lessons/job';
@@ -143,7 +144,7 @@ routes.get('/audio-lessons/:id/audio', async (c) => {
   const object = await c.env.AUDIO_BUCKET.get(row.audio_key, range ? { range } : undefined);
   if (!object) return c.json({ error: 'Not found' }, 404);
   const headers = new Headers();
-  headers.set('Content-Type', 'audio/mpeg');
+  applyStoredFileHeaders(headers, { contentType: 'audio/mpeg' });
   headers.set('Accept-Ranges', 'bytes');
   // The key changes when the lesson is rebuilt; private: it is this learner's.
   headers.set('Cache-Control', 'private, max-age=31536000, immutable');
