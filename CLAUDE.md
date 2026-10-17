@@ -2107,23 +2107,25 @@ Error: SqlError: SQL query failed: This Durable Object is not backed by SQLite s
 
 **Note**: An existing non-SQLite class cannot be converted. You must create a new class with a different name using `new_sqlite_classes`.
 
-#### 2. OAuth Flow Implementation
+#### 2. OAuth Flow Implementation (`mcp-server/src/oauth/`, `@cloudflare/workers-oauth-provider` 1.2)
 
-The `OAuthProvider` does NOT auto-handle the authorization UI. Your `defaultHandler` must implement:
-- `GET /authorize` - Parse OAuth request, store state in KV, redirect to Google
-- `GET /callback` - Exchange Google code for tokens, get user info, call `completeAuthorization()`
-
-```typescript
-// Key pattern in callback handler:
-const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
-  request: oauthReqInfo,  // Original OAuth request from KV
-  userId: user.id,
-  metadata: { label: user.name || user.email },
-  scope: oauthReqInfo.scope,
-  props: { userId, userEmail, userName },  // Passed to McpAgent
-});
-return c.redirect(redirectTo);
-```
+The flow is **approval page → Google → existing accounts only**, built on the provider's consent / upstream helpers:
+- `GET /authorize` (`oauth/handler.ts`): `parseAuthRequest`, then "<client> wants to access your Chinese Learning
+  account" with the redirect URI's host, a localhost warning, Approve / Cancel (`oauth/pages.ts`; everything from the
+  client escaped) — skipped when this browser already approved the same client + redirect URI (the provider's
+  HMAC-signed `__Host-oauth-approvals` cookie, key derived from `COOKIE_ENCRYPTION_KEY`, 90 days).
+- `POST /authorize`: `approveConsent` (handle bound to the browser by a `__Host-` HttpOnly Secure SameSite=Lax cookie,
+  single use, 10 min) → `beginUpstream` (Google `state`, also browser-bound) → Google; Cancel → `denyConsent`.
+- `GET /callback`: `finishUpstream` (refused without the state's cookie), Google code → userinfo, then
+  `findMcpUser` (`oauth/users.ts`): by `google_id`, else by email ONLY when `verified_email`. **Never INSERTs a user**
+  — sign-up is invite-only in the app; an unknown account gets a 403 "Sign up in the app first" page and an
+  `access_requests` row (same rules as the web callback). Google's error bodies are never echoed.
+- `oauth/provider.ts`: resource `<origin>/mcp` (built per origin, cached), S256 PKCE only (the library's 1.2 rule),
+  `/register` accepts only `https://claude.ai|claude.com` (+ subdomains) and loopback redirect URIs
+  (`oauth/redirect-policy.ts`), and `requireLiveUser` refuses (401) + revokes the grants of a user no longer in D1
+  (admin account deletion can't reach `OAUTH_KV`); a refresh for one fails `invalid_grant` (`tokenExchangeCallback`).
+- Tests: `oauth/__tests__/` run the real provider in Node (in-memory KV, fake D1; `cloudflare:workers` aliased in
+  `vitest.config.ts`).
 
 #### 3. Required Secrets
 
