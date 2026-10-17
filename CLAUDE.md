@@ -14,9 +14,12 @@ container. Practical implications:
   `npm test`, `vite build`, `wrangler deploy --dry-run`) before reporting done.
 - **Secrets live in GitHub Actions secrets**, not a local `.dev.vars`. To make a
   new secret reach the deployed Worker, add it to the "Set Worker Secrets" step
-  in `.github/workflows/deploy.yml` (`echo "${{ secrets.NAME }}" | npx wrangler
-  secret put NAME`). Setting it in the GitHub UI alone is not enough — the
-  workflow must push it to Cloudflare.
+  in `.github/workflows/deploy.yml`: an `env:` entry `NAME: ${{ secrets.NAME }}`
+  plus `echo "$NAME" | npx wrangler secret put NAME` in the `run:` block (never
+  `${{ secrets.… }}` inside `run:` — the value would be pasted into the script).
+  Setting it in the GitHub UI alone is not enough — the workflow must push it to
+  Cloudflare. Workflow actions are pinned to a full commit SHA with a `# vX.Y.Z`
+  comment, and every workflow declares least-privilege `permissions:`.
 - **The only path to a running/deployed app is merging to `main`** (CI in
   `deploy.yml` deploys on push to main). A feature on a branch is not live until
   it lands on main. Demos/verification of deployed behaviour therefore require

@@ -20,6 +20,10 @@ on:
 # 4. Run initial migration:
 #    cd worker && wrangler d1 migrations apply chinese-learning-db
 
+# Read-only token: the deploy talks to Cloudflare with its own token, never writes to the repo.
+permissions:
+  contents: read
+
 # Never cancelled: every deploy runs (no concurrency group).
 jobs:
   # Type check, tests and the frontend build run side by side; the deploy starts once all pass
@@ -41,10 +45,10 @@ jobs:
             dist: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -59,7 +63,7 @@ jobs:
 
       - name: Hand the built frontend to the deploy job
         if: matrix.dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: frontend-dist
           path: frontend/dist/
@@ -72,10 +76,10 @@ jobs:
     name: Deploy
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -85,13 +89,13 @@ jobs:
         run: npm ci
 
       - name: Download the built frontend
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-dist
           path: frontend/dist
 
       - name: Apply D1 Migrations
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
@@ -120,34 +124,36 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}
 
       - name: Deploy Worker
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
           workingDirectory: worker
           command: deploy
 
+      # A new secret: add `NAME: ${{ secrets.NAME }}` under env: and `echo "$NAME" | …` here.
+      # Never `${{ secrets.NAME }}` inside run: (it would be pasted into the script text).
       - name: Set Worker Secrets
         working-directory: worker
         run: |
-          echo "${{ secrets.ANTHROPIC_API_KEY }}" | npx wrangler secret put ANTHROPIC_API_KEY
-          echo "${{ secrets.GOOGLE_TTS_API_KEY }}" | npx wrangler secret put GOOGLE_TTS_API_KEY
-          echo "${{ secrets.MINIMAX_API_KEY }}" | npx wrangler secret put MINIMAX_API_KEY
-          echo "${{ secrets.GEMINI_API_KEY }}" | npx wrangler secret put GEMINI_API_KEY
-          echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID
-          echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET
-          echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
-          echo "${{ secrets.ADMIN_EMAIL }}" | npx wrangler secret put ADMIN_EMAIL
-          echo "${{ secrets.NTFY_TOPIC }}" | npx wrangler secret put NTFY_TOPIC
-          echo "${{ secrets.SENDGRID_API_KEY }}" | npx wrangler secret put SENDGRID_API_KEY
-          echo "${{ secrets.TURN_KEY_ID }}" | npx wrangler secret put TURN_KEY_ID
-          echo "${{ secrets.TURN_KEY_API_TOKEN }}" | npx wrangler secret put TURN_KEY_API_TOKEN
-          echo "${{ secrets.SONIOX_API_KEY }}" | npx wrangler secret put SONIOX_API_KEY
+          echo "$ANTHROPIC_API_KEY" | npx wrangler secret put ANTHROPIC_API_KEY
+          echo "$GOOGLE_TTS_API_KEY" | npx wrangler secret put GOOGLE_TTS_API_KEY
+          echo "$MINIMAX_API_KEY" | npx wrangler secret put MINIMAX_API_KEY
+          echo "$GEMINI_API_KEY" | npx wrangler secret put GEMINI_API_KEY
+          echo "$GOOGLE_CLIENT_ID" | npx wrangler secret put GOOGLE_CLIENT_ID
+          echo "$GOOGLE_CLIENT_SECRET" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+          echo "$SESSION_SECRET" | npx wrangler secret put SESSION_SECRET
+          echo "$ADMIN_EMAIL" | npx wrangler secret put ADMIN_EMAIL
+          echo "$NTFY_TOPIC" | npx wrangler secret put NTFY_TOPIC
+          echo "$SENDGRID_API_KEY" | npx wrangler secret put SENDGRID_API_KEY
+          echo "$TURN_KEY_ID" | npx wrangler secret put TURN_KEY_ID
+          echo "$TURN_KEY_API_TOKEN" | npx wrangler secret put TURN_KEY_API_TOKEN
+          echo "$SONIOX_API_KEY" | npx wrangler secret put SONIOX_API_KEY
           # Web Push (call alerts). Optional: without them the worker generates a key pair once (app_keys).
-          echo "${{ secrets.VAPID_PUBLIC_KEY }}" | npx wrangler secret put VAPID_PUBLIC_KEY
-          echo "${{ secrets.VAPID_PRIVATE_KEY }}" | npx wrangler secret put VAPID_PRIVATE_KEY
-          echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_URL }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_URL
-          echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_KEY }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_KEY
+          echo "$VAPID_PUBLIC_KEY" | npx wrangler secret put VAPID_PUBLIC_KEY
+          echo "$VAPID_PRIVATE_KEY" | npx wrangler secret put VAPID_PRIVATE_KEY
+          echo "$CCR_FEATURE_REQUEST_ROUTINE_URL" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_URL
+          echo "$CCR_FEATURE_REQUEST_ROUTINE_KEY" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_KEY
           # FCM (Lab app chat notifications): the whole Firebase service-account JSON (multi-line).
           # Optional — only pushed when set, so an unset secret never blanks a working one.
           if [ -n "$FCM_SERVICE_ACCOUNT_JSON" ]; then
@@ -167,16 +173,33 @@ jobs:
           FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
           AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
           AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          TURN_KEY_ID: ${{ secrets.TURN_KEY_ID }}
+          TURN_KEY_API_TOKEN: ${{ secrets.TURN_KEY_API_TOKEN }}
+          SONIOX_API_KEY: ${{ secrets.SONIOX_API_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          CCR_FEATURE_REQUEST_ROUTINE_URL: ${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_URL }}
+          CCR_FEATURE_REQUEST_ROUTINE_KEY: ${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_KEY }}
 
       - name: Deploy Frontend to Pages
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
           command: pages deploy frontend/dist --project-name=chinese-learning --commit-dirty=true
 
       - name: Deploy MCP Server
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
@@ -186,9 +209,12 @@ jobs:
       - name: Set MCP Server Secrets
         working-directory: mcp-server
         run: |
-          echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID
-          echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET
-          echo "${{ secrets.MCP_COOKIE_ENCRYPTION_KEY }}" | npx wrangler secret put COOKIE_ENCRYPTION_KEY
+          echo "$GOOGLE_CLIENT_ID" | npx wrangler secret put GOOGLE_CLIENT_ID
+          echo "$GOOGLE_CLIENT_SECRET" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+          echo "$MCP_COOKIE_ENCRYPTION_KEY" | npx wrangler secret put COOKIE_ENCRYPTION_KEY
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          MCP_COOKIE_ENCRYPTION_KEY: ${{ secrets.MCP_COOKIE_ENCRYPTION_KEY }}

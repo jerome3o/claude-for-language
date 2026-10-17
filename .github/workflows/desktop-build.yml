@@ -29,6 +29,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Read-only by default; only the publish job (creates the release) gets contents: write.
+permissions:
+  contents: read
+
 # 0.<run number>: only ever goes up, so every release is newer than the one before.
 env:
   APP_VERSION: 0.${{ github.run_number }}.0
@@ -44,10 +48,10 @@ jobs:
         working-directory: desktop
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -82,12 +86,12 @@ jobs:
 
       - name: Upload smoke screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: desktop-smoke
           path: ${{ runner.temp }}/smoke
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   mac:
     runs-on: macos-latest
@@ -100,10 +104,10 @@ jobs:
       HAS_SIGNING: ${{ secrets.CSC_LINK != '' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -151,14 +155,14 @@ jobs:
           ls -la release
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: desktop-mac
           path: |
             desktop/release/*.dmg
             desktop/release/*.zip
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
   windows:
     runs-on: windows-latest
@@ -169,10 +173,10 @@ jobs:
         working-directory: desktop
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -192,12 +196,12 @@ jobs:
           npx electron-builder --win --publish never
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: desktop-windows
           path: desktop/release/*.exe
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
   publish:
     needs: [check, mac, windows]
@@ -209,19 +213,19 @@ jobs:
       contents: write
     steps:
       - name: Download the Mac app
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: desktop-mac
           path: dist
 
       - name: Download the Windows installer
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: desktop-windows
           path: dist
 
       - name: Publish GitHub pre-release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: desktop-v${{ env.RELEASE_NAME }}
           name: Desktop v${{ env.RELEASE_NAME }}
