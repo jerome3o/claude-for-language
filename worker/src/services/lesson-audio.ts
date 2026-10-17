@@ -60,10 +60,17 @@ export async function lessonClipsForUser(env: Env, userId: string, spec: CustomL
 
 export type EnsureClip = (env: Env, clip: LessonAudioClip) => Promise<PracticeClipStatus>;
 
+/**
+ * Waits up to this long for a batch slot per clip (it books its place in the limiter's
+ * line and sleeps), so a delivery makes clips at the limiter's pace instead of giving up
+ * on the first refusal and coming back a minute later.
+ */
+export const LESSON_AUDIO_SLOT_WAIT_MS = 15_000;
+
 const defaultEnsure: EnsureClip = (env, clip) =>
   clip.kind === 'conversation'
-    ? ensurePracticeClip(env, clip.text, { voiceId: clip.voice, conversation: { speed: clip.speed, delivery: clip.delivery } })
-    : ensurePracticeClip(env, clip.text);
+    ? ensurePracticeClip(env, clip.text, { voiceId: clip.voice, conversation: { speed: clip.speed, delivery: clip.delivery }, maxWaitMs: LESSON_AUDIO_SLOT_WAIT_MS })
+    : ensurePracticeClip(env, clip.text, { maxWaitMs: LESSON_AUDIO_SLOT_WAIT_MS });
 
 export interface LessonAudioRun {
   clips: number;

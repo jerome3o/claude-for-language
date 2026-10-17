@@ -9,7 +9,7 @@ import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import { selectBackfill, backfillCounts, throughputPerMinute, etaMinutes } from '../tts/backfill';
 import { ensureClip, type TtsFn } from '../tts/clips';
 import { clipSignature, ttsSettings } from '../tts/settings';
-import { handleClipMessage, runPumpTick } from '../tts/queue';
+import { handleClipMessage, resetPumpNudge, runPumpTick } from '../tts/queue';
 import type { Env } from '../../types';
 
 const SETTINGS = ttsSettings();
@@ -261,19 +261,44 @@ describe('tts-queue', () => {
     } as unknown as Env;
   });
 
-  it('a clip MiniMax rate-limits (1002) is requeued 60 s later, not retried in the delivery', async () => {
+  it('a missing clip MiniMax rate-limits (1002) is left to the backfill (the pump nudged once), not retried or requeued', async () => {
+    resetPumpNudge();
     note(db, 'n1', 'j-own', '你好');
+    note(db, 'n2', 'j-own', '再见');
     let calls = 0;
     const limited: TtsFn = async () => {
       calls++;
       return { ok: false, permanent: false, rateLimited: true, reason: 'base_resp 1002 rate limit exceeded(RPM)', retryAfterMs: 60_000 };
     };
     const result = await handleClipMessage(env, { kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'batch' }, limited);
-    expect(result.status).toBe('rate_limited');
-    expect(calls).toBe(1);
-    expect(sent).toEqual([{ body: { kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'batch', force: undefined, attempt: 1 }, opts: { delaySeconds: 60 } }]);
+    expect(result).toMatchObject({ status: 'rate_limited', backfill: true, queued: 'left_to_backfill' });
+    await handleClipMessage(env, { kind: 'clip', target: { kind: 'word', id: 'n2' }, priority: 'batch' }, limited);
+    expect(calls).toBe(2);
+    // one pump nudge for both, no clip message
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ body: { kind: 'pump' } });
     // and it is not recorded as a failure
     expect(db.rows('SELECT * FROM tts_clip_failures')).toEqual([]);
+  });
+
+  it('a clip the backfill would NOT find (forced / edited text) is requeued: 60 s after a 1002, at its booked slot otherwise', async () => {
+    note(db, 'n1', 'j-own', '你好', { audio: 'generated/old.mp3', settings: current('你好') });
+    const limited: TtsFn = async () => ({ ok: false, permanent: false, rateLimited: true, reason: 'base_resp 1002', retryAfterMs: 60_000 });
+    await handleClipMessage(env, { kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'batch', force: true }, limited);
+    expect(sent[0]).toEqual({ body: { kind: 'clip', target: { kind: 'word', id: 'n1' }, priority: 'batch', force: true, attempt: 1 }, opts: { delaySeconds: 60 } });
+    // the edited-text case: a current hash for another text — asked to book, and requeued at the slot with the ticket
+    note(db, 'n2', 'j-own', '再见', { audio: 'generated/old2.mp3', settings: current('别的') });
+    let asked: { book?: boolean; ticket?: unknown } = {};
+    const booked: TtsFn = async (_e, _t, _k, o) => {
+      asked = { book: o.book, ticket: o.ticket };
+      return { ok: false, permanent: false, rateLimited: true, reason: 'limiter', retryAfterMs: 412_300, ticket: { provider: 'azure', at: 1 } };
+    };
+    await handleClipMessage(env, { kind: 'clip', target: { kind: 'word', id: 'n2' }, priority: 'batch' }, booked);
+    expect(asked).toEqual({ book: true, ticket: undefined });
+    expect(sent[1]).toEqual({ body: { kind: 'clip', target: { kind: 'word', id: 'n2' }, priority: 'batch', force: undefined, attempt: 1, ticket: { provider: 'azure', at: 1 } }, opts: { delaySeconds: 413 } });
+    // it comes back with the ticket
+    await handleClipMessage(env, sent[1].body as never, booked);
+    expect(asked.ticket).toEqual({ provider: 'azure', at: 1 });
   });
 
   it('our own limiter saying "wait" requeues after the wait', async () => {

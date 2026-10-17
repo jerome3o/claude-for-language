@@ -83,6 +83,7 @@ import {
 } from './services/auth';
 import { notifyNewUser, notifyAccessRequest } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
+import { costGuard } from './middleware/cost-guard';
 import testAuth from './routes/test-auth';
 import invitesRoutes from './routes/invites';
 import onboardingRoutes from './routes/onboarding';
@@ -570,6 +571,8 @@ app.route('/api/podcast-source', podcastSourcePublic);
 app.use('/api/*', authMiddleware);
 // Hand the signed-in user + route pattern to analytics (server events, AI calls).
 app.use('/api/*', bindAnalyticsScope);
+// Per-user rate limits + the daily AI cost cap on costly endpoints (middleware/cost-guard.ts).
+app.use('/api/*', costGuard);
 
 // One chat per pair: merged-away conversation ids answer as the chat they became,
 // and the conversation get / create / rename routes (routes/one-chat.ts).

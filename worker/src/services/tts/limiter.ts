@@ -29,25 +29,50 @@ export function limiterStub(env: LimiterEnv, provider: TtsProviderId = 'minimax'
   return env.TTS_LIMITER ? env.TTS_LIMITER.get(env.TTS_LIMITER.idFromName(provider)) : null;
 }
 
-/** `account` = refused because the MiniMax account is paused (no credit / bad key; services/tts/account.ts). */
-export type SlotResult = { granted: true } | { granted: false; retryAfterMs: number; account?: number | string };
+/**
+ * `account` = refused because the provider's account is paused (no credit / bad key;
+ * services/tts/account.ts). `ticket` = a batch slot booked for this caller: come back
+ * after `retryAfterMs` and present it (docs/AUDIO.md "Bookings").
+ */
+export type SlotResult = { granted: true } | { granted: false; retryAfterMs: number; account?: number | string; ticket?: number };
 export type TtsReport = 'ok' | 'failed' | 'rate_limited' | 'network' | 'account_error';
+
+export interface SlotOptions {
+  /** A batch caller that will requeue itself: book the next free slot (up to 12 h out) and return it. */
+  book?: boolean;
+  /** A slot booked earlier with this provider. */
+  ticket?: number | null;
+}
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * One slot, or how long to wait. Interactive callers wait up to `maxWaitMs` (polling).
+ * A BATCH caller that waits in process (the pump, lesson / audio-lesson jobs) books a
+ * slot within its deadline and sleeps until it: two limiter calls per clip, instead
+ * of three workers polling every few seconds and colliding.
+ */
 export async function acquireTtsSlot(
   env: LimiterEnv,
   priority: TtsPriority,
   maxWaitMs = priority === 'interactive' ? INTERACTIVE_MAX_WAIT_MS : 0,
   target: LimiterTarget = { provider: 'minimax' },
+  opts: SlotOptions = {},
 ): Promise<SlotResult> {
   const limiter = limiterStub(env, target.provider);
   if (!limiter) return { granted: true };
   const deadline = Date.now() + maxWaitMs;
+  let ticket = opts.ticket ?? null;
   for (;;) {
-    let res: { granted: boolean; retryAfterMs: number; account?: number | string | null };
+    let res: { granted: boolean; retryAfterMs: number; account?: number | string | null; ticket?: number | null };
+    const left = deadline - Date.now();
+    const waitsHere = priority === 'batch' && left > 0;
     try {
-      res = await limiter.acquire(priority, target);
+      res = await limiter.acquire(
+        priority,
+        target,
+        priority === 'batch' ? { ticket, book: waitsHere || !!opts.book, bookWithinMs: waitsHere ? left : undefined } : undefined,
+      );
     } catch (err) {
       console.error('[tts-limiter] acquire failed, going ahead:', err instanceof Error ? err.message : err);
       return { granted: true };
@@ -55,7 +80,8 @@ export async function acquireTtsSlot(
     if (res.granted) return { granted: true };
     const wait = res.retryAfterMs;
     if (res.account !== undefined && res.account !== null) return { granted: false, retryAfterMs: wait, account: res.account };
-    if (Date.now() + wait > deadline) return { granted: false, retryAfterMs: wait };
+    if (typeof res.ticket === 'number') ticket = res.ticket;
+    if (Date.now() + wait > deadline) return { granted: false, retryAfterMs: wait, ...(ticket !== null ? { ticket } : {}) };
     await sleep(wait);
   }
 }

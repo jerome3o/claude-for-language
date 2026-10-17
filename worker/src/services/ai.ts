@@ -7,6 +7,7 @@ import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
 import { addBumps, MAX_BUMPS_PER_REQUEST } from './study-bumps';
 import { buildAskSystemPrompt, ASK_KNOWN_WORDS_MAX } from './ask-prompt';
 import { plainAnswerText, type AskLanguage } from '@shared/study/askClaude';
+import { OPUS_MODEL, withEffort } from './models';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -660,15 +661,16 @@ export async function askAboutNoteWithTools(
   const MAX_ITERATIONS = 5;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.messages.create({
-      model: 'claude-opus-4-6',
+    const response = await client.messages.create(withEffort({
+      model: OPUS_MODEL,
       // A full custom-lesson spec (sections of exercises with tiles, options
-      // and pinyin) is far bigger than a chat answer — the cap must fit it.
-      max_tokens: 4000,
+      // and pinyin) is far bigger than a chat answer — the cap must fit it,
+      // plus the model's thinking (always on, counted in max_tokens).
+      max_tokens: 12000,
       messages,
       system,
       tools: tools as Anthropic.Tool[],
-    });
+    }, 'low'));
 
     // Process response content
     const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
@@ -1076,14 +1078,15 @@ export async function coachChatWithTools(
   const MAX_ITERATIONS = 5;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.messages.create({
-      model: 'claude-opus-4-6',
-      // Big enough for a full custom-lesson spec, not just chat answers
-      max_tokens: 4000,
+    const response = await client.messages.create(withEffort({
+      model: OPUS_MODEL,
+      // Big enough for a full custom-lesson spec, not just chat answers, plus the
+      // model's thinking (always on, counted in max_tokens). Written in the background.
+      max_tokens: 16000,
       messages,
       system: COACH_CHAT_SYSTEM_PROMPT,
       tools: tools as Anthropic.Tool[],
-    });
+    }, 'medium'));
 
     const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
 
@@ -1294,14 +1297,15 @@ The student wrote: "${userMessage}"
 
 Evaluate this message. Is it grammatically correct and natural Chinese for this conversation context?`;
 
-  const response = await client.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 1000,
+  const response = await client.messages.create(withEffort({
+    model: OPUS_MODEL,
+    // A short JSON verdict + room for the thinking (always on, counted in max_tokens).
+    max_tokens: 4000,
     messages: [
       { role: 'user', content: userPrompt }
     ],
     system: CHECK_MESSAGE_SYSTEM_PROMPT,
-  });
+  }, 'low'));
 
   const textContent = response.content.find(c => c.type === 'text');
   if (!textContent || textContent.type !== 'text') {
@@ -1374,14 +1378,15 @@ ${chatContext}
     userPrompt += `The student doesn't know what to say next. Generate 3-5 options they could say, with varying difficulty levels.\nInclude the relevant conversation context with each option.`;
   }
 
-  const response = await client.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 2000,
+  const response = await client.messages.create(withEffort({
+    model: OPUS_MODEL,
+    // 3–5 options as JSON + the thinking (always on, counted in max_tokens).
+    max_tokens: 6000,
     messages: [
       { role: 'user', content: userPrompt }
     ],
     system: I_DONT_KNOW_SYSTEM_PROMPT,
-  });
+  }, 'low'));
 
   const textContent = response.content.find(c => c.type === 'text');
   if (!textContent || textContent.type !== 'text') {
@@ -1535,13 +1540,14 @@ export async function discussMessage(
   const MAX_ITERATIONS = 5;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.messages.create({
-      model: 'claude-opus-4-6',
-      max_tokens: 2000,
+    const response = await client.messages.create(withEffort({
+      model: OPUS_MODEL,
+      // A chat answer (or a few flashcards) + the thinking (always on, counted in max_tokens).
+      max_tokens: 8000,
       messages,
       system: DISCUSS_MESSAGE_SYSTEM_PROMPT,
       tools: tools as Anthropic.Tool[],
-    });
+    }, 'low'));
 
     // Process response content
     const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
