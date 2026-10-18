@@ -50,6 +50,7 @@ import { registerDebugTools } from './tools/debug.js';
 import { registerUsageTools } from './tools/usage.js';
 import { registerPictureHuntTools } from './tools/picture-hunts.js';
 import { registerIdiomTools } from './tools/idioms.js';
+import { registerMemeReviewTools } from './tools/meme-review.js';
 import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerBumpTools } from './tools/bumps.js';
 import { registerNoteImageTools } from './tools/note-images.js';
@@ -1972,6 +1973,8 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     registerUsageTools(ctx);
     registerPictureHuntTools(ctx);
     registerIdiomTools(ctx);
+    // 梗 Meme review (prototype): the monthly issue (read) + generate (admin).
+    registerMemeReviewTools(ctx);
     // Audio lessons: an agent-written listening lesson rendered to one audio file (docs/AUDIO_LESSONS.md).
     registerAudioLessonTools(ctx);
     registerBumpTools(ctx);

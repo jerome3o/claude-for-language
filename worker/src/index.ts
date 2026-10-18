@@ -2,6 +2,9 @@ import { Hono } from 'hono';
 import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
 import coachRoutes from './routes/coach';
 import idiomsRoutes from './routes/idioms';
+import memeReviewRoutes from './routes/meme-review';
+import { ensureMonthlyMemeIssue, handleMemeIssueMessage, type MemeReviewQueueMessage } from './services/meme-review/job';
+import { runMemeLessonJob } from './services/meme-review/lesson';
 import { runIdiomJob, type IdiomQueueMessage } from './services/idioms';
 import messageTranslateRoutes from './routes/message-translate';
 import { cors } from 'hono/cors';
@@ -587,6 +590,7 @@ app.route('/api', coachRoutes);
 // GET /api/media/token, POST /api/media/sign — credentials for private media (routes/media.ts).
 app.route('/api', mediaRoutes);
 app.route('/api', idiomsRoutes); // 成语 Idioms (beta): GET|POST /api/idioms, GET /api/idioms/:hanzi
+app.route('/api', memeReviewRoutes); // 梗 Meme review (prototype): GET /api/meme-review[/:month], POST …/generate (admin), …/:month/lesson
 app.route('/api', messageTranslateRoutes);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
@@ -6353,6 +6357,15 @@ export default {
       } catch (err) {
         console.error('[cron] prune auth sessions failed:', err);
       }
+      // 梗 Meme review (prototype): the month's issue on the 1st (daily 03:17 UTC run; the 2nd catches a missed 1st).
+      if (event.cron === '17 3 * * *') {
+        try {
+          const meme = await ensureMonthlyMemeIssue(env, event.scheduledTime || Date.now());
+          console.log(JSON.stringify({ type: 'cron', job: 'meme_review', result: meme }));
+        } catch (err) {
+          console.error('[cron] meme review failed:', err);
+        }
+      }
       // Prepared in-call activities: catch up students whose newest lesson has none yet.
       try {
         const queued = await prepareNightly(env, new Date(event.scheduledTime || Date.now()));
@@ -6364,12 +6377,12 @@ export default {
   },
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage | HomeworkEmailMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage | MemeReviewQueueMessage | HomeworkEmailMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
     return runInScope({ env, userId: null, route: `queue:${batch.queue}`, waitUntil: (p) => ctx.waitUntil(p) }, () => handleQueueBatch(batch, env));
   },
 };
 
-async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage | HomeworkEmailMessage>, env: Env): Promise<void> {
+async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage | CardCheckMessage | RecordingCheckMessage | CoachReplyMessage | IdiomQueueMessage | MemeReviewQueueMessage | HomeworkEmailMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6745,6 +6758,20 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           console.error('[Queue] homework e-mail crashed:', body.student_id, err);
           message.retry({ delaySeconds: 60 });
         }
+      }
+    } else if (queueName === 'meme-review-queue') {
+      // 梗 Meme review (services/meme-review/): an issue delivery (checkpointed in R2, re-enqueues
+      // itself until settled) or a "make a mini lesson" job; the rows record failures, so every
+      // message is acked.
+      for (const message of batch.messages) {
+        const body = message.body as MemeReviewQueueMessage;
+        try {
+          if (body.kind === 'lesson' && body.jobId) console.log('[Queue] meme lesson', body.jobId, await runMemeLessonJob(env, body.jobId));
+          else if (body.month) console.log('[Queue] meme review', body.month, await handleMemeIssueMessage(env, body.month));
+        } catch (err) {
+          console.error('[Queue] meme review crashed:', body, err);
+        }
+        message.ack();
       }
     } else if (queueName === 'idiom-queue') {
       // 成语 Idioms (services/idioms.ts): one structured call per message; the row is written

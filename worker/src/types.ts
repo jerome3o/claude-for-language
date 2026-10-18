@@ -41,6 +41,8 @@ export interface Env {
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
   /** 成语 Idioms (beta): one generated entry per idiom (services/idioms.ts, docs/IDIOMS.md). */
   IDIOM_QUEUE?: Queue<import('./services/idioms').IdiomQueueMessage>;
+  /** 梗 Meme review (prototype): monthly issue deliveries + "make a mini lesson" jobs (services/meme-review/, docs/MEME_REVIEW.md). */
+  MEME_REVIEW_QUEUE?: Queue<import('./services/meme-review/job').MemeReviewQueueMessage>;
   /** "<Tutor> sent you homework" e-mails, delayed ~2 min so a burst of sends is one e-mail (services/homework-emails, docs/HOMEWORK.md §12). */
   HOMEWORK_EMAIL_QUEUE?: Queue<import('./services/homework-emails').HomeworkEmailMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */

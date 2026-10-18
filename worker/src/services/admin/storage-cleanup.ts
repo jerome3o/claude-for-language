@@ -193,6 +193,21 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     collectable: true,
   },
   {
+    prefix: 'meme-review/images/',
+    what: '梗 Meme review illustrations, our own Gemini art per meme (`meme-review/images/<month>/<item>-<stamp>.<ext>`), shared by every account',
+    writtenBy: 'services/meme-review/images.ts drawMemePicture (MEME_IMAGE_PREFIX)',
+    referencedBy: ['meme_issues.issue'],
+    collectable: true,
+  },
+  {
+    prefix: 'meme-review/',
+    what: '梗 Meme review research-agent checkpoints (`meme-review/agent/<month>.json`)',
+    writtenBy: 'services/meme-review/job.ts saveState (agentKey)',
+    referencedBy: ['meme_issues.agent_key'],
+    collectable: false,
+    protectedReason: 'the agent checkpoint of a monthly issue (resumes a generation; replaced by the next one)',
+  },
+  {
     prefix: 'screenshots/',
     what: 'Feature-request screenshots (uploaded before the request row exists)',
     writtenBy: 'index.ts POST /api/feature-requests/screenshot',
@@ -270,6 +285,8 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'tutor_recording_marks.model_audio_key', sql: 'SELECT model_audio_key AS v FROM tutor_recording_marks WHERE model_audio_key IS NOT NULL' },
   { source: 'audio_lessons.audio_key', sql: 'SELECT audio_key AS v FROM audio_lessons WHERE audio_key IS NOT NULL' },
   { source: 'podcast_episodes.audio_key', sql: 'SELECT audio_key AS v FROM podcast_episodes WHERE audio_key IS NOT NULL' },
+  { source: 'meme_issues.issue', sql: 'SELECT issue AS v FROM meme_issues WHERE issue IS NOT NULL' },
+  { source: 'meme_issues.agent_key', sql: 'SELECT agent_key AS v FROM meme_issues WHERE agent_key IS NOT NULL' },
 ];
 
 export const DEFAULT_MIN_AGE_DAYS = 7;

@@ -26,6 +26,7 @@ export type AnalyticsArea =
   | 'quests'
   | 'picture_hunt'
   | 'idioms'
+  | 'meme_review'
   | 'lessons'
   | 'coach'
   | 'decks'
@@ -224,6 +225,15 @@ export const ANALYTICS_EVENTS = {
   'idioms.generate': e('idioms', 'An idiom entry started generating (status after the request; retry = Retry after a failure).', ['status', 'retry'], { server: true }),
   'idioms.add_card': e('idioms', '"+ Add as card" from an idiom page.', []),
   'idioms.quiz': e('idioms', 'Finished the "Try it" check on an idiom page (practice only, nothing recorded).', ['correct', 'total']),
+  'meme_review.open': e('meme_review', 'Opened a 梗 Meme review issue (prototype; source = list / link; cached = read from the device; items = memes in it).', ['source', 'cached', 'items']),
+  'meme_review.item_open': e('meme_review', 'Expanded one meme of an issue (item = its id m1…, position = 1-based).', ['item', 'position']),
+  'meme_review.link_out': e('meme_review', 'Opened a meme\'s original video / post or a source in the browser (link = media / source; kind = video / post; platform = bilibili / youtube / weibo / …).', ['link', 'kind', 'platform']),
+  'meme_review.add_card': e('meme_review', '"+ Add as card" for a meme (item = its id).', ['item']),
+  'meme_review.quiz_finish': e('meme_review', 'Finished an issue\'s quiz (practice only, nothing recorded).', ['correct', 'total']),
+  'meme_review.make_lesson': e('meme_review', '"Make a mini lesson from this issue" (status = started / writing / open — opened the lesson made before).', ['status']),
+  'meme_review.generate': e('meme_review', 'A monthly meme-review issue started generating (via = cron / admin / mcp).', ['via', 'regenerate'], { server: true }),
+  'meme_review.ready': e('meme_review', 'A monthly meme-review issue was written (items, searches and pictures used).', ['items', 'searches', 'images'], { server: true }),
+  'meme_review.lesson_ready': e('meme_review', 'A mini lesson was made from a meme-review issue in the caller\'s account.', [], { server: true }),
   'audio_lesson.create': e('lessons', 'Asked for a new audio lesson (docs/AUDIO_LESSONS.md; format dialogue / sleep / story, chunks = a story lesson\'s lines).', ['format', 'target_minutes', 'chunks']),
   'audio_lesson.play': e('lessons', 'Started playing an audio lesson.', ['format', 'offline', 'resumed']),
   'audio_lesson.complete': e('lessons', 'Listened to an audio lesson to the end.', ['format', 'duration_ms']),

@@ -64,7 +64,7 @@ object NavRules {
         TabId.MORE, "More", "/more",
         listOf(
             "/more", "/settings", "/profile", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
-            "/quests", "/picture-hunt", "/idioms", "/audio-lessons", "/podcasts", "/library", "/duplicate-finder", "/admin",
+            "/quests", "/picture-hunt", "/idioms", "/meme-review", "/audio-lessons", "/podcasts", "/library", "/duplicate-finder", "/admin",
             // Decks live under More since the Chats tab took their tab.
             "/decks", "/generate", "/search",
         ),
