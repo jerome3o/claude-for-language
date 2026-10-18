@@ -144,11 +144,17 @@ export const SUBMIT_ISSUE_TOOL: Anthropic.Tool = {
   },
 };
 
-/** The tools for one request: the web tools with what is left of the budget (≥ 1: the API needs it). */
+/**
+ * The tools for one request. Only TWO shapes, so the cached conversation (tools come first in the
+ * prompt-cache prefix) breaks at most once: up to 10 searches / 5 fetches a request while the
+ * budget allows a whole request more, then 1 each (the API needs max_uses ≥ 1) — so the total stays
+ * at about MAX_SEARCHES / MAX_FETCHES, plus one a round after that (bounded by MAX_ROUNDS).
+ */
 export function memeTools(state: Pick<MemeAgentState, 'searches' | 'fetches'>): Anthropic.Tool[] {
+  const open = state.searches + 10 <= MAX_SEARCHES && state.fetches + 5 <= MAX_FETCHES;
   return [
-    { type: 'web_search_20260209', name: 'web_search', max_uses: Math.max(1, Math.min(10, MAX_SEARCHES - state.searches)) },
-    { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: Math.max(1, Math.min(5, MAX_FETCHES - state.fetches)) },
+    { type: 'web_search_20260209', name: 'web_search', max_uses: open ? 10 : 1 },
+    { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: open ? 5 : 1 },
     SUBMIT_ISSUE_TOOL,
   ] as unknown as Anthropic.Tool[];
 }
@@ -245,9 +251,9 @@ function isRetryable(error: unknown): boolean {
   return error instanceof Anthropic.APIConnectionError;
 }
 
-/** Was this 400 about the refusal-fallback parameter (then the call is sent again without it)? */
+/** A 400 while the refusal-fallback parameter was sent: the call is sent again once without it (and it stays off). */
 function fallbackRejected(error: unknown): boolean {
-  return error instanceof Anthropic.APIError && error.status === 400 && /fallback/i.test(error.message);
+  return error instanceof Anthropic.APIError && error.status === 400;
 }
 
 let fallbacksOff = false;

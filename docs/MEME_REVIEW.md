@@ -39,8 +39,9 @@ Sixth Tone…), check a meme is genuinely current, prefer memes a learner would 
 sensitive, sexual, hateful content and anything about a private person; label crude ones; be honest about
 uncertain origins. Earlier issues' memes are listed so a new issue doesn't repeat them.
 
-**Bounded**: ≤ 25 web searches and ≤ 10 fetches (counted from the API's own `usage.server_tool_use`; each
-request's `max_uses` is what is left, at least 1 — so at most one more per repair round), ≤ 14 model calls,
+**Bounded**: ~25 web searches and ~10 fetches (counted from the API's own `usage.server_tool_use`; a request
+may use up to 10 / 5 while the budget allows a whole request more, then 1 / 1 — only two tool shapes, so the
+prompt cache of the growing conversation breaks at most once), ≤ 14 model calls,
 ≤ 3 `submit_issue` tries (the first + two repairs). A `pause_turn` (the server's tool loop paused) is
 resumed by calling again with the paused turn as is. A turn that ends without `submit_issue` gets one nudge.
 

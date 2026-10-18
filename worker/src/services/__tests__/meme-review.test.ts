@@ -132,8 +132,11 @@ describe('runMemeAgent', () => {
 
   it('keeps each request inside the search budget', () => {
     expect(memeTools({ searches: 0, fetches: 0 })[0]).toMatchObject({ type: 'web_search_20260209', max_uses: 10 });
-    expect(memeTools({ searches: MAX_SEARCHES - 3, fetches: 9 })[0]).toMatchObject({ max_uses: 3 });
-    expect(memeTools({ searches: MAX_SEARCHES, fetches: 10 })[1]).toMatchObject({ type: 'web_fetch_20260209', max_uses: 1 });
+    expect(memeTools({ searches: MAX_SEARCHES - 10, fetches: 0 })[1]).toMatchObject({ type: 'web_fetch_20260209', max_uses: 5 });
+    // Two shapes only (the prompt cache breaks once): past the budget, 1 a request.
+    expect(memeTools({ searches: MAX_SEARCHES - 3, fetches: 0 })[0]).toMatchObject({ max_uses: 1 });
+    expect(memeTools({ searches: MAX_SEARCHES, fetches: 10 })[1]).toMatchObject({ max_uses: 1 });
+    expect(memeTools({ searches: 2, fetches: 1 })).toEqual(memeTools({ searches: 7, fetches: 3 }));
   });
 
   it('stops at the deadline and resumes from the checkpoint (a pending submit_issue runs first)', async () => {

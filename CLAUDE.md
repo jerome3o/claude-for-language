@@ -1365,7 +1365,7 @@ An isolated tracer bullet (nothing in the study queue / sync reads it): ONE issu
 memes, each with meaning in simple Chinese, origin + confidence, chat-style examples, register, "would you say it?",
 related memes, real sources and the original videos / posts (LINKED OUT, never embedded; only YouTube's public thumbnail),
 our own Gemini picture (R2 `meme-review/images/`, public) and a 3–5 question quiz (practice only). Written by a research
-agent (`agent.ts`: `OPUS_MODEL` + server-side `web_search_20260209` / `web_fetch_20260209`, ≤ 25 searches / 10 fetches /
+agent (`agent.ts`: `OPUS_MODEL` + server-side `web_search_20260209` / `web_fetch_20260209`, ~25 searches / 10 fetches, ≤
 14 calls, `submit_issue` + ≤ 2 repairs, `pause_turn` resumed, transcript checkpointed in R2 `meme-review/agent/<month>.json`)
 on **`meme-review-queue`**; `validateMemeIssue` drops every URL the tools didn't return and re-derives pinyin
 (`rederivePinyin`). Cron: the 03:17 UTC run on the 1st–2nd starts the month (`ensureMonthlyMemeIssue`). "Make a mini
