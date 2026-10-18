@@ -131,7 +131,7 @@ test('a dialogue lesson lists its chapters and shows the transcript', async ({ a
   await expect(page.locator('.al-chapters li', { hasText: 'First listen' }).locator('.al-chapter-pinyin')).toHaveCount(0);
 });
 
-test('a story lesson: paste a conversation → each line three times with its English, in the list and the player', async ({ authenticatedPage: page }) => {
+test('a story lesson: paste a conversation → each line three times, its English, twice more, in the list and the player', async ({ authenticatedPage: page }) => {
   test.setTimeout(120_000);
   await page.gotoAuthenticated('/audio-lessons');
   await page.getByRole('radio', { name: /Story/ }).click();
@@ -151,11 +151,11 @@ test('a story lesson: paste a conversation → each line three times with its En
   await expect(page.getByText('📖 Listen & repeat a story')).toBeVisible();
   await expect(page.getByText('✓ Saved on this phone · plays offline')).toBeVisible({ timeout: 30000 });
 
-  // Transcript on by default: each line ONE row, ×3, the speaker's name, its pinyin and its English.
+  // Transcript on by default: each line ONE row, ×3 +2, the speaker's name, its pinyin and its English.
   const transcript = page.getByLabel('Transcript');
   const first = transcript.locator('li', { hasText: '明慧：你好！你今天想喝什么？' });
   await expect(first).toHaveCount(1);
-  await expect(first).toContainText('×3');
+  await expect(first).toContainText('×3 +2');
   await expect(first).toContainText('Line 1 of the story.');
   await expect(first.locator('.al-line-pinyin')).toBeVisible();
   await expect(transcript.locator('li')).toHaveCount(5);

@@ -2,7 +2,7 @@
  * Story lessons ("Listen & repeat a story", docs/AUDIO_LESSONS.md "Story") through the audio-lesson
  * job against real SQLite with a mocked translation and mocked voices: the text split by code,
  * translated in batches (checkpointed — a deadline in the middle resumes without translating
- * again), each chunk ×3 + its English, spoken at the slowest rate, rendered to one file.
+ * again), each chunk ×3, its English, ×2 more, spoken at the slowest rate, rendered to one file.
  */
 import { describe, expect, it, beforeEach } from 'vitest';
 import { SAMPLE_STORY_TEXT, STORY_LIMITS, uniqueSpeech, type AudioLessonScript, type StoryPlan } from '@shared/audio-lesson';
@@ -68,7 +68,7 @@ async function newStory(text: string) {
 }
 
 describe('story lessons', () => {
-  it('splits, translates, speaks each chunk ×3 + its English, renders one file', async () => {
+  it('splits, translates, speaks each chunk ×3, its English, ×2 more, renders one file', async () => {
     const id = await newStory(SAMPLE_STORY_TEXT);
     const { translate, requests } = mockTranslate();
     const spoken: ClipRequest[] = [];
@@ -97,7 +97,7 @@ describe('story lessons', () => {
     const detail = q.lessonDetail(row);
     expect(detail.format).toBe('story');
     expect(detail.chapters.map((c) => c.title)).toEqual(['在咖啡馆']);
-    expect(detail.transcript.filter((l) => l.lang === 'zh')).toHaveLength(15);
+    expect(detail.transcript.filter((l) => l.lang === 'zh')).toHaveLength(25);
     expect(detail.transcript[0]).toMatchObject({ text: '明慧：你好！你今天想喝什么？', english: 'English of line 1.' });
     expect(detail.words).toEqual([]);
     expect(detail.notice).toBeNull();

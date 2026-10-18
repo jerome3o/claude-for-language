@@ -49,7 +49,7 @@ export interface StoryBatchResult {
 
 export type StoryTranslate = (req: StoryBatchRequest) => Promise<StoryBatchResult>;
 
-export const STORY_SYSTEM = `You translate a Chinese story or conversation, chunk by chunk, for an English-speaking learner who will HEAR each chunk three times in Chinese and then your English once.
+export const STORY_SYSTEM = `You translate a Chinese story or conversation, chunk by chunk, for an English-speaking learner who will HEAR each chunk three times in Chinese, then your English once, then the Chinese twice more.
 
 For every chunk:
 - english: a natural, faithful English translation of exactly that chunk — what it says, in plain spoken English, one or two sentences. Do not add, explain or summarise; do not correct the Chinese. Keep names as names (pinyin without tone marks is fine for a name: Minghui). No Chinese characters, no pinyin with tone marks.

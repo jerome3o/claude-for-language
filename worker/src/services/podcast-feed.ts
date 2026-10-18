@@ -270,7 +270,7 @@ export function episodeDescription(l: FeedLesson): string {
     l.format === 'sleep'
       ? 'Sleep lesson — slow Chinese to fall asleep to.'
       : l.format === 'story'
-        ? 'Listen & repeat — a story or conversation, each line three times slowly, then its English.'
+        ? 'Listen & repeat — a story or conversation, each line three times slowly, then its English, then twice more.'
         : 'Dialogue lesson — a Chinese conversation, explained in English.',
   );
   if (l.words.length) {

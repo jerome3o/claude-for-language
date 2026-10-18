@@ -27,10 +27,10 @@ object AudioLessonFormats {
     fun info(format: String?): AudioLessonFormatInfo = INFO[format] ?: INFO.getValue("dialogue")
 
     /** Port of STORY_MS_PER_HAN: about how much audio one character of a story makes. */
-    const val STORY_MS_PER_HAN = 2350
+    const val STORY_MS_PER_HAN = 3600
 
     /** Port of STORY_LIMITS.maxMinutes: a story lesson holds this much at most. */
-    const val STORY_MAX_MINUTES = 60
+    const val STORY_MAX_MINUTES = 90
 
     /** Port of storyMinutesForText's result. */
     data class StoryEstimate(val minutes: Int, val han: Int, val capped: Boolean)
@@ -50,7 +50,7 @@ object AudioLessonFormats {
     /** Port of storyEstimateLine: the line under a story's text box. */
     fun storyEstimateLine(text: String): String {
         val est = storyMinutesForText(text)
-        if (est.han == 0) return "Each line three times, slowly, then its English."
+        if (est.han == 0) return "Each line three times, slowly, then its English, then twice more."
         if (est.capped) return "Long text: the lesson covers about the first $STORY_MAX_MINUTES minutes — paste the rest as another lesson."
         return "About ${est.minutes} minute${if (est.minutes == 1) "" else "s"} of audio."
     }

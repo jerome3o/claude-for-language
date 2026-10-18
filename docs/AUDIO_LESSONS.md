@@ -201,7 +201,16 @@ transcript, a dialogue with speaker labels, an article (≤ 6,000 characters). N
 rewritten: the app splits it, Claude only translates, and the lesson is the whole text, chunk by chunk:
 1. the chunk (one or two sentences) in Chinese at the slowest rate, 2 s;
 2. the same again, 2 s; a third time, 2 s;
-3. its English translation once (the calm English voice, role `recap`, app rate 0.9), 2.5 s; the next chunk.
+3. its English translation once (the calm English voice, role `recap`, app rate 0.9), 2 s;
+4. the Chinese twice more (2 s between), 2.5 s; the next chunk.
+
+The English sits in the MIDDLE (Jerome, Oct 2026: "you get the English in the middle, then another repetition of Chinese, so
+you transition in Chinese as well"): he hears the words again knowing what they mean, and every chunk ends — and the next
+begins — in Chinese. Until Oct 2026 a chunk was ×3 then its English (layout 1); the compiled script carries `layout: 2`
+(`STORY_LAYOUT`, `STORY_REPEATS_BEFORE` 3 / `STORY_REPEATS_AFTER` 2, `STORY_PAUSES` repeat / afterEnglish / afterChunk). The
+five plays are ONE clip (and the English another): the distinct-clip count is unchanged. The transcript shows the chunk once,
+"×3 +2" (`transcriptRows`: the recap voice's English joins the row, the plays after it are `again`; `repeatLabel` "said 3
+times, then 2 times more after the English"); the current-line highlight stays on that row through all six lines.
 
 The music bed is on by default (background listening, like sleep); the transcript is on by default.
 
@@ -222,11 +231,12 @@ The music bed is on by default (background listening, like sleep); the transcrip
   words of its first chunk (its first clause when that is 4–12 characters, "小明每天早上七点起床…"); ≤ 40 chapters.
 - **Cleaned out of the spoken text**: short asides in brackets ("（笑）", "[laughs]", ≤ 12 characters — stage directions), list
   markers ("- ", "1. "), and symbols a voice reads out (/ | \\ _ * # ~ brackets). Lines without Chinese are dropped.
-- **Length**: as long as the text — about 2.35 s of audio per Han character (`STORY_MS_PER_HAN`, the forms' "About 5 minutes
-  of audio." — `storyEstimateLine`, Lab `AudioLessonFormats`, parity-tested). A lesson holds at most 60 minutes
+- **Length**: as long as the text — about 3.6 s of audio per Han character (`STORY_MS_PER_HAN`; 2.35 s before the two plays
+  after the English; the forms' "About 5 minutes of audio." — `storyEstimateLine`, Lab `AudioLessonFormats`, parity-tested).
+  A lesson holds at most 90 minutes (60 until the layout change — about the same amount of text)
   (`STORY_LIMITS.maxMinutes`, estimated per chunk the way `estimateScriptMs` measures a script) and 120 chunks (two distinct clips
   each, under the 260-clip limit): `fitStoryChunks` keeps the first chunks that fit and the rest is LEFT OUT — the POST answers
-  `notice: "The text is long: this lesson covers the first 1,480 of 3,900 characters (about 60 minutes). Paste the rest as
+  `notice: "The text is long: this lesson covers the first 1,518 of 3,900 characters (about 90 minutes). Paste the rest as
   another lesson."` (`storyCutNotice`; also on the lesson's detail and the player), the forms say so while typing. That is
   roughly 1,500 Han characters a lesson. No `target_minutes`.
 - **Translation** (`worker/src/services/audio-lessons/story.ts`): one Claude pass, `structuredCall` with Sonnet (Haiku on the
@@ -241,6 +251,25 @@ The music bed is on by default (background listening, like sleep); the transcrip
 - **Rates**: the chunks are app rate 0.5 (`STORY_RATE`); any Chinese clip at 0.5 is spoken at the provider's slowest natural
   rate, like the sleep voice (`lessonClipRate`: MiniMax 0.5, Azure 0.6, Google 0.6).
 - E2E_TEST_MODE: `fakeStoryTranslate` ("Line 3 of the story." + pinyin-pro's pinyin).
+- **Re-rendering** (`worker/src/services/audio-lessons/rerender.ts`): a READY story lesson whose script is in an older layout
+  is rebuilt in the current one from its stored plan — `compileStoryLesson(plan)` — and its clips are CUT OUT OF ITS OWN MP3
+  (`cutClips`: the old script + its timeline give each clip's first frame, the pauses before the next clip where it ends — every
+  check that could catch a file that doesn't match its script (frame count vs `duration_ms`, whole-frame starts, text per line,
+  the same length at every use) refuses rather than guesses). The per-clip parts are deleted after a render, so this is what
+  makes it free: no translation, no TTS. A clip the file doesn't have (the plan changed) is made with `speakClip` and the
+  lesson's pinned Chinese provider, one try; one that can't be made (e.g. MiniMax paused for credit) leaves the lesson exactly
+  as it was (`failed` + reason in the log, the old file still plays). The row switches in ONE conditional UPDATE (`script_json`,
+  `timeline_json`, `audio_key`, `duration_ms`, `size_bytes`, only while still ready on the old file) and the old file is then
+  deleted. Id, title, plan, created / finished dates, `listened_at`, companion mini lessons are untouched; the file gets a new
+  version (`…-<version>.mp3`), so the podcast feed's enclosure URL + guid change (a podcast app sees it as a new episode) and
+  both apps' offline copies (web Cache API `/__audio-lessons/<id>/<version>.mp3`, Lab `files/audio-lessons/<id>-<version>.mp3`)
+  are fetched again the next time the list / player loads. Idempotent: an up-to-date lesson is `up_to_date`.
+  Runs on audio-lesson-queue (`{ lessonId, rerender: true }`). Queued by `POST /api/admin/audio-lessons/rerender
+  { format: 'story', dry_run? (default true) }` (admin; the dry run lists each lesson with its length now and about how long
+  after) = MCP `audio_lessons_rerender`, and ONCE automatically by the first cron after the deploy that brought layout 2
+  (`queueStoryRerendersOnce`, claimed by an `app_keys` row `story_rerender_layout_2` holding the counts; logged as
+  `{"job":"story_rerender"}`). A story lesson still being made with a layout-1 script (or retried) is compiled again from its
+  plan before rendering (`runAudioLessonJob`), so nothing new is made in the old layout.
 
 Speeds are on the app's scale (MiniMax's: 1 = normal, cards 0.6); Azure maps them with its
 `speed_factor` (0.75 → cards 0.7). Pauses: `PAUSES` in `shared/audio-lesson/compile.ts`.
@@ -537,14 +566,21 @@ with the audio backfill → roughly 5–15 minutes per lesson.
 - `shared/audio-lesson/story.test.ts`: the splitter (sentence ends and their runs, closing quotes, never inside quotes, unclosed
   quotes, long sentences at commas / hard, speaker labels Latin / Han / "他说：", a lone label line, no merging across turns,
   short sentences merged — also across narration lines, headings, asides / list markers / symbols / English lines dropped,
-  CRLF), the compile order (×3 at 0.5 with 2 s, the English, 2.5 s; the pinyin / English on the first only; voices; a third
-  speaker; chapters per heading / every 10; the transcript rows ×3 with the English joined), the 60-minute cut + notice, the
+  CRLF), the compile order (×3 at 0.5 with 2 s, the English, 2 s, ×2 more, 2.5 s; one clip per chunk; the pinyin / English on
+  the first only; voices; a third speaker; chapters per heading / every 10; the transcript rows "×3 +2" with the English joined,
+  their timing and the current line through the repeats), the 90-minute cut + notice (still ~1,500 characters), the
   forms' estimate (calibrated within 20 % of the compiled script), `validateStoryPlan`, `pickAudioLessonInput` (story), format
   info + music default.
 - `worker/…/__tests__/audio-lesson-story.test.ts`: the job on real SQLite with a mocked translation and voices — one batch, the
   一 / 不 rule over Claude's pinyin, 10 distinct clips for 5 chunks, the chapters / transcript / usage; a long text in batches of 30
   with a deadline in the middle → re-enqueue → resume without translating again, the cut noted; no Chinese → failed; a throwing
   translation → failed, Retry translates again; the slowest provider rates; the translation call's shape and its check.
+- `worker/…/__tests__/audio-lesson-rerender.test.ts`: `cutClips` gives back every clip exactly and refuses a timeline / file that
+  doesn't match; a layout-1 lesson re-rendered from its own file (nothing spoken, same id / title / dates, new version, old file
+  gone, the new file byte-for-byte the new script's render, "×3 +2" rows), again → `up_to_date`; dialogue / unfinished / missing
+  lessons untouched; a clip not in the file made with the pinned provider, a paused provider → the lesson left as it was; a
+  truncated file → left as it was; the dry run / queueing lists only ready layout-1 stories and the cron's one-time run fires once;
+  the job compiles a layout-1 script again before rendering.
 - `shared/audio-lesson/characters.test.ts`: the picker (known words first — mature, then frequent; common words within
   the rank limit and with the word's reading; other reading; new vs met-only-in-a-sentence; never the word itself;
   one step for a one-character word / 姐姐), `char_notes` validation against the facts (invented / unquoted-in-facts
@@ -594,5 +630,5 @@ chapters, no offline player and no notion of what the learner already knew.
   lesson takes minutes.
 - `analyseText` is a greedy match, not a word segmenter; Claude makes the final call.
 - No URL input yet (paste the text).
-- Story: a lesson is at most ~60 minutes (~1,500 characters); a longer text needs several lessons (the first part is made, the
+- Story: a lesson is at most ~90 minutes (~1,500 characters); a longer text needs several lessons (the first part is made, the
   notice says so).

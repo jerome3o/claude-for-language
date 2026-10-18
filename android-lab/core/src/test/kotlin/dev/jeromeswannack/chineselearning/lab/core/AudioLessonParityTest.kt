@@ -77,12 +77,13 @@ class AudioLessonParityTest {
             json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonTranscriptLine.serializer()), lessons[0]["transcript"]!!),
         )
         assertTrue(dialogueRows.any { it.last > it.first && it.text.contains("兰州拉面") })
-        // A story: one row per line, said three times, its English joined to it.
+        // A story: one row per line, said three times, its English joined to it, then twice more ("×3 +2").
         val storyRows = AudioLessonTimeline.transcriptRows(
             json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(AudioLessonTranscriptLine.serializer()), lessons[2]["transcript"]!!),
         )
         assertEquals(25, storyRows.size)
-        assertTrue(storyRows.all { it.repeat == 3 && !it.english.isNullOrEmpty() })
+        assertTrue(storyRows.all { it.repeat == 3 && it.again == 2 && !it.english.isNullOrEmpty() })
+        assertEquals("×3 +2", AudioLessonTimeline.repeatLabel(storyRows[0].repeat, storyRows[0].again).first)
         assertEquals("明慧：你好！你今天想喝什么？", storyRows[0].text)
     }
 

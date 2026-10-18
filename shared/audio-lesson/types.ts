@@ -108,6 +108,8 @@ export interface ScriptSpeaker {
 export interface AudioLessonScript {
   version: 1;
   format: AudioLessonFormat;
+  /** A story lesson's per-chunk layout (`STORY_LAYOUT` in story.ts); absent = 1 (×3 then the English). */
+  layout?: number;
   title: string;
   chapters: Array<{ title: string }>;
   segments: ScriptSegment[];

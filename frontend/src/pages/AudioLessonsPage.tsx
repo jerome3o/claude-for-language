@@ -27,7 +27,7 @@ const SITUATIONS: Array<{ zh: string; en: string }> = [
 const FORMATS: Array<{ id: AudioLessonFormat; blurb: string }> = [
   { id: 'dialogue', blurb: 'An English host, a short Chinese dialogue played three times, then the new words explained.' },
   { id: 'sleep', blurb: 'Very slow and calm Chinese over soft music: the new words from a text, each said three times, its tones, its meaning told again and again in simple Chinese, one English line to check — then simple sentences, each with its English.' },
-  { id: 'story', blurb: 'Paste a longer story or conversation: each line or two is said three times, slowly, with a pause after each, then its English — over soft music, for background listening. As long as your text.' },
+  { id: 'story', blurb: 'Paste a longer story or conversation: each line or two is said three times, slowly, with a pause after each, then its English, then twice more — over soft music, for background listening. As long as your text.' },
 ];
 
 

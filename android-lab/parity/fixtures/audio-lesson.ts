@@ -81,7 +81,7 @@ function clipFrames(script: AudioLessonScript): Map<string, number> {
 const lessons = [
   { name: 'dialogue', script: compileDialogueLesson(SAMPLE_DIALOGUE_PLAN) },
   { name: 'sleep', script: compileSleepLesson(SAMPLE_SLEEP_PLAN, { sourceText: SAMPLE_SLEEP_SOURCE }) },
-  // A story: five scenes of the sample conversation — a chapter per heading, each line ×3 + its English.
+  // A story: five scenes of the sample conversation — a chapter per heading, each line ×3, its English, ×2 more.
   {
     name: 'story',
     script: compileStoryLesson({
@@ -139,7 +139,9 @@ const rowCases = [
   [L(0, 'en', 'narrator', 'Again'), L(400, 'en', 'narrator', 'Again')],
   // Line by line: ×3, the host's English, the line once more → one row "×3 +1"; the next line is its own row.
   [L(0, 'zh', 'speaker_a', '你好。', 2, 'nǐ hǎo.', 'Hello.'), L(500, 'zh', 'speaker_a', '你好。', 2), L(1000, 'zh', 'speaker_a', '你好。', 2), L(1500, 'en', 'narrator', 'Hello.', 2), L(2200, 'zh', 'speaker_a', '你好。', 2), L(2700, 'zh', 'speaker_b', '你好。', 2, 'nǐ hǎo.', 'Hello.'), L(3200, 'zh', 'speaker_b', '你好。', 2)],
-  // …but not another voice, another line, a story's recap translation, or a fourth time after the "+1".
+  // A story chunk: ×3, the recap voice's English, twice more → one row "×3 +2"; the next chunk is its own row.
+  [L(0, 'zh', 'teacher', '小明起床了。', 0, 'Xiǎomíng qǐchuáng le.', 'Xiaoming got up'), L(500, 'zh', 'teacher', '小明起床了。'), L(1000, 'zh', 'teacher', '小明起床了。'), L(1500, 'en', 'recap', 'Xiaoming got up.'), L(2200, 'zh', 'teacher', '小明起床了。'), L(2700, 'zh', 'teacher', '小明起床了。'), L(3200, 'zh', 'teacher', '他很累。', 0, 'tā hěn lèi.', 'He is tired.')],
+  // …but not another voice, another line, or another voice after the "+1" (the same line again after it is "+2").
   [L(0, 'zh', 'speaker_a', '好。', 0, 'hǎo.', 'OK.'), L(500, 'en', 'narrator', 'OK.'), L(900, 'zh', 'speaker_b', '好。')],
   [L(0, 'zh', 'speaker_a', '好。', 0, 'hǎo.', 'OK.'), L(500, 'en', 'recap', 'OK.'), L(900, 'zh', 'speaker_a', '好。')],
   [L(0, 'zh', 'speaker_a', '好。', 0, 'hǎo.', 'OK.'), L(500, 'en', 'narrator', 'OK.'), L(900, 'zh', 'speaker_a', '好。'), L(1300, 'zh', 'speaker_a', '好。'), L(1700, 'en', 'narrator', 'OK.')],

@@ -1267,9 +1267,11 @@ conversation split BY CODE (`splitStoryText`: after 。！？!?…, at line brea
 "A：" / "明慧：" off the spoken text and onto two voices `speaker_a` / `speaker_b`, narration in the app voice `teacher`;
 `# …` / 第一章 headings = chapters, else a chapter every 10 chunks; a short sentence merged into the next, ~8–40
 characters a chunk), each chunk said ×3 at the slowest rate with 2 s after each, then its English once (recap voice),
-2.5 s; Claude only TRANSLATES (`structuredCall`, Sonnet, forced tool, thinking off, 30 chunks a call, checkpointed in
+2 s, then the Chinese ×2 more, 2.5 s (layout 2, `STORY_LAYOUT`; transcript "×3 +2"; ready layout-1 stories are re-rendered
+from their own MP3 — no translation / TTS — by `services/audio-lessons/rerender.ts`, queued once by the cron after deploy and by
+admin `POST /api/admin/audio-lessons/rerender` = MCP `audio_lessons_rerender`; new audio version); Claude only TRANSLATES (`structuredCall`, Sonnet, forced tool, thinking off, 30 chunks a call, checkpointed in
 `agent_transcript`; pinyin through `applyYiBuToneChanges`) — the Chinese is never rewritten; ≤ 6,000 characters pasted,
-≤ 60 minutes / 120 chunks made (`fitStoryChunks`; the rest is left out and `notice` says so); no `target_minutes`. The sleep
+≤ 90 minutes / 120 chunks made (~1,500 characters; `fitStoryChunks`; the rest is left out and `notice` says so); no `target_minutes`. The sleep
 voice (and any Chinese at app rate 0.5, i.e. a story's chunks) runs at each provider's slowest natural rate
 (`SLEEP_ZH_PROVIDER_RATE`: MiniMax 0.5, Azure 0.6, Google 0.6). Both players mix a
 soft procedural music loop under the lesson (`shared/audio-lesson/music.ts`; CC0, made by
@@ -2249,7 +2251,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
-| `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` | Audio lessons (`tools/audio-lessons.ts`): start one — the description says when to use which: dialogue (practise a situation: `description` / `dialogue`), sleep (learn a text's new words: `text`), story (listen & repeat a whole pasted story / conversation: `text`, ≤ 6,000 characters, ≤ 60 min, `notice` when cut, no `target_minutes`); a tutor's `for_relationship_id` is only a label / status, chapters, transcript, usage / the list |
+| `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` | Audio lessons (`tools/audio-lessons.ts`): start one — the description says when to use which: dialogue (practise a situation: `description` / `dialogue`), sleep (learn a text's new words: `text`), story (listen & repeat a whole pasted story / conversation: `text`, ≤ 6,000 characters, ≤ 90 min, `notice` when cut, no `target_minutes`); a tutor's `for_relationship_id` is only a label / status, chapters, transcript, usage / the list |
 | `get_audio_lesson_feed` | The signed-in user's private podcast feed URL of their audio lessons (`GET /api/me/podcast-feed`; made on first use) + podcast:// link; private — give it to the user only |
 | `get_idiom` / `list_idioms` | 成语 Idioms (`tools/idioms.ts`): one idiom's entry — meaning, 典故, usage, examples, quiz; generated when missing (waits up to 90 s), `caution` when not high confidence, `app_path` to point a learner at it / the starter list + looked-up idioms. Read / generate only, sends nothing |
 | `list_picture_hunts` / `create_picture_hunt` | The user's picture hunts (status, objects, best score) / start one from a scene description (`tools/picture-hunts.ts`) |
@@ -2402,7 +2404,7 @@ id or an email. Unit-tested in `tools/admin.test.ts`.
 | `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
 | `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
 
-Audio (same file, docs/AUDIO.md): `audio_settings_get` / `audio_settings_update` (provider order for stored / live, voices, enabled, max RPM, upgrade backup clips, `reset`; `GET|PUT /api/admin/audio/settings`), `audio_backfill_status` (now with `providers` + `stored_clips`) (read-only: backlog by kind × state, clips by provider / model / voice, limiter, measured clips/min, ETA), `audio_backfill_run` (`limit?`: start the pump, queue that many clips now), `audio_retry_failed` (`error_code?`: failed clips due now — account errors by default, one code, or "all" — and probe MiniMax at once), `audio_tts_compare` (old vs current model durations — perceived speed check). API: `GET /api/admin/audio/backfill` (with `account_problem` first), `POST /api/admin/audio/backfill/run`, `POST /api/admin/audio/retry-failed`, `POST /api/admin/audio/compare` (`routes/audio-backfill.ts`).
+Audio (same file, docs/AUDIO.md): `audio_settings_get` / `audio_settings_update` (provider order for stored / live, voices, enabled, max RPM, upgrade backup clips, `reset`; `GET|PUT /api/admin/audio/settings`), `audio_backfill_status` (now with `providers` + `stored_clips`) (read-only: backlog by kind × state, clips by provider / model / voice, limiter, measured clips/min, ETA), `audio_backfill_run` (`limit?`: start the pump, queue that many clips now), `audio_retry_failed` (`error_code?`: failed clips due now — account errors by default, one code, or "all" — and probe MiniMax at once), `audio_tts_compare` (old vs current model durations — perceived speed check), `audio_lessons_rerender` (`dry_run` default true: ready story lessons in the old ×3-then-English layout re-rendered in the current one from their own MP3; `POST /api/admin/audio-lessons/rerender`). API: `GET /api/admin/audio/backfill` (with `account_problem` first), `POST /api/admin/audio/backfill/run`, `POST /api/admin/audio/retry-failed`, `POST /api/admin/audio/compare` (`routes/audio-backfill.ts`).
 
 #### Debug tools (`mcp-server/src/tools/debug.ts`)
 

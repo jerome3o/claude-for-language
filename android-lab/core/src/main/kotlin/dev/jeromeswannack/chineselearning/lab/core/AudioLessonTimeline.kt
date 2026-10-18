@@ -189,13 +189,21 @@ object AudioLessonTimeline {
                 rows[rows.size - 1] = prev.copy(last = i)
                 return@forEachIndexed
             }
-            // Line by line: the line once more right after the host read its English: the same row, "+1".
+            // Line by line: the line once more right after the host read its English: the same row, "+1"; a
+            // story chunk says it twice more after the recap voice's English: "+2".
             val head = prev?.let { lines[it.first] }
             if (prev != null && prevLine != null && head != null && prev.again == null && prev.last == i - 1 && prev.last > prev.first &&
-                prev.lang == "zh" && l.lang == "zh" && prevLine.voice == "narrator" && !prev.english.isNullOrEmpty() &&
+                prev.lang == "zh" && l.lang == "zh" && (prevLine.voice == "narrator" || prevLine.voice == "recap") && !prev.english.isNullOrEmpty() &&
                 sameEnglish(prev.english, prevLine.text) && head.voice == l.voice && head.chapter == l.chapter && head.text == l.text
             ) {
                 rows[rows.size - 1] = prev.copy(last = i, again = 1)
+                return@forEachIndexed
+            }
+            // …and again, straight after that play: "+2".
+            if (prev != null && prevLine != null && head != null && (prev.again ?: 0) > 0 && prev.last == i - 1 && l.lang == "zh" &&
+                prevLine.lang == "zh" && prevLine.voice == l.voice && prevLine.chapter == l.chapter && prevLine.text == l.text && head.text == l.text
+            ) {
+                rows[rows.size - 1] = prev.copy(last = i, again = (prev.again ?: 0) + 1)
                 return@forEachIndexed
             }
             // The same Chinese line again, right after itself (same voice, same chapter): one row, "×N".
