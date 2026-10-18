@@ -78,6 +78,8 @@ const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default:
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
 const IdiomsPage = lazy(() => import('./pages/IdiomsPage').then(m => ({ default: m.IdiomsPage })));
 const IdiomPage = lazy(() => import('./pages/IdiomPage').then(m => ({ default: m.IdiomPage })));
+const MemeReviewPage = lazy(() => import('./pages/MemeReviewPage').then(m => ({ default: m.MemeReviewPage })));
+const MemeIssuePage = lazy(() => import('./pages/MemeIssuePage').then(m => ({ default: m.MemeIssuePage })));
 const PictureHuntsPage = lazy(() => import('./pages/PictureHuntsPage').then(m => ({ default: m.PictureHuntsPage })));
 const PictureHuntPlayPage = lazy(() => import('./pages/PictureHuntPlayPage').then(m => ({ default: m.PictureHuntPlayPage })));
 const AudioLessonsPage = lazy(() => import('./pages/AudioLessonsPage').then(m => ({ default: m.AudioLessonsPage })));
@@ -638,6 +640,19 @@ function AppRoutes() {
             <Header />
             <ErrorBoundary fallbackTitle="Couldn't load this idiom">
               <IdiomPage />
+            </ErrorBoundary>
+          </ProtectedRoute>
+        }
+      />
+      {/* 梗 Meme review (prototype, docs/MEME_REVIEW.md): one issue a month. */}
+      <Route path="/meme-review" element={<ProtectedRoute><Header /><MemeReviewPage /></ProtectedRoute>} />
+      <Route
+        path="/meme-review/:month"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ErrorBoundary fallbackTitle="Couldn't load this issue">
+              <MemeIssuePage />
             </ErrorBoundary>
           </ProtectedRoute>
         }

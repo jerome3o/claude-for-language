@@ -33,6 +33,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.profile.profileGraph
 import dev.jeromeswannack.chineselearning.lab.ui.picturehunt.pictureHuntGraph
 import dev.jeromeswannack.chineselearning.lab.ui.audiolessons.audioLessonsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.idioms.idiomsGraph
+import dev.jeromeswannack.chineselearning.lab.ui.memereview.memeReviewGraph
 import dev.jeromeswannack.chineselearning.lab.ui.upnext.upNextGraph
 import dev.jeromeswannack.chineselearning.lab.ui.podcasts.podcastsGraph
 
@@ -75,6 +76,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     homeworkLibraryGraph(nav) // "/homework-library", "/connections/:relId/homework" F
     audioLessonsGraph(nav)  // "/audio-lessons", "/audio-lessons/:id" (player: background playback, AudioLessonService)
     idiomsGraph(nav)        // "/idioms", "/idioms/:hanzi" — 成语 Idioms (beta)
+    memeReviewGraph(nav)    // "/meme-review", "/meme-review/:month" — 梗 Meme review (prototype)
     podcastsGraph(nav)      // "/podcasts", "/podcasts/feed", "/podcasts/episodes/:id" — 🎙 Podcasts (Lab only for now)
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)

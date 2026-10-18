@@ -147,6 +147,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'notes', sql: `DELETE FROM notes WHERE id IN ${NOTES}` },
   { label: 'student_shared_decks', sql: `DELETE FROM student_shared_decks WHERE deck_id IN ${DECKS} OR relationship_id IN ${REL}` },
   { label: 'audio_lessons', sql: `DELETE FROM audio_lessons WHERE user_id = ?1` },
+  { label: 'meme_review_lessons', sql: `DELETE FROM meme_review_lessons WHERE user_id = ?1` },
   { label: 'podcast_feeds', sql: `DELETE FROM podcast_feeds WHERE user_id = ?1` },
   // Podcasts (docs/PODCASTS.md): his subscriptions and episode list go; the shared transcripts stay (detached).
   { label: 'podcast_subscriptions', sql: `DELETE FROM podcast_subscriptions WHERE user_id = ?1` },

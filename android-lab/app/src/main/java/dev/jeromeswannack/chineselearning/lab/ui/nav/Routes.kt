@@ -110,6 +110,9 @@ object Routes {
     /** 成语 Idioms (beta): the list and one idiom ([from] = list | search | explorer | related, for analytics). */
     fun idioms() = "/idioms"
     fun idiom(hanzi: String, from: String? = null) = "/idioms/${seg(hanzi)}" + query("from" to from)
+    /** 梗 Meme review (prototype): the issue list and one month ([from] = list | link, for analytics). */
+    fun memeReview() = "/meme-review"
+    fun memeIssue(month: String, from: String? = null) = "/meme-review/${seg(month)}" + query("from" to from)
     fun audioLessons() = "/audio-lessons"
     fun audioLesson(id: String) = "/audio-lessons/${seg(id)}"
     /** 🎙 Podcasts (docs/PODCASTS.md, Lab only for now): the list, one feed, one episode's segment player. */

@@ -320,6 +320,19 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
 
+# Queue for 梗 Meme review (PROTOTYPE; services/meme-review/, docs/MEME_REVIEW.md): the monthly
+# issue's research agent (checkpointed in R2, re-enqueues itself until done) and the
+# "make a mini lesson from this issue" jobs. Create with: `wrangler queues create meme-review-queue`
+[[queues.producers]]
+queue = "meme-review-queue"
+binding = "MEME_REVIEW_QUEUE"
+
+[[queues.consumers]]
+queue = "meme-review-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+
 # Homework e-mails (services/homework-emails, docs/HOMEWORK.md §12): one message per
 # send, delayed ~2 minutes so a burst of sends becomes ONE "sent you homework" e-mail.
 # The hourly cron (:37) sweeps what a lost message left and sends the reminders.

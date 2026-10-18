@@ -19,7 +19,7 @@
 export type MediaAccess = 'public' | 'private' | 'none';
 
 /** Generated content + profile photos: public, cacheable for a year. */
-export const PUBLIC_MEDIA_PREFIXES = ['generated/', 'reader-images/', 'lesson-images/', 'note-images/', 'avatars/'] as const;
+export const PUBLIC_MEDIA_PREFIXES = ['generated/', 'reader-images/', 'lesson-images/', 'note-images/', 'avatars/', 'meme-review/images/'] as const;
 
 /** Person-made media served through /api/audio/* with a credential + an authorisation check. */
 export const PRIVATE_MEDIA_PREFIXES = ['recordings/', 'calls/', 'note-uploads/', 'lesson-notes/'] as const;

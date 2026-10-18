@@ -104,6 +104,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   └── index.ts       # Re-exports
 │   ├── audio-lesson/      # Audio lessons (docs/AUDIO_LESSONS.md): plan types (DialoguePlan / SleepPlan / StoryPlan), compile.ts (plan → speech/pause script, RATES / PAUSES), dialogue-tones.ts (a dialogue word's tone lines from its pinyin: "打, dǎ, third tone."), story.ts (the story splitter, compileStoryLesson, the 60-min cap), validate.ts, timeline.ts (chapters / transcript in ms, player helpers), input.ts
 │   ├── idioms/            # 成语 Idioms (beta, docs/IDIOMS.md): the entry shape (types.ts), starter list (~46), cache key + explorer link rule (normalize.ts), validator (validate.ts), "+ Add as card" fields (card.ts), sample entry — parity-tested by the Lab app
+│   ├── meme-review/       # 梗 Meme review (PROTOTYPE, docs/MEME_REVIEW.md): the monthly issue shape (types.ts), the validator — URLs must come from the agent's search results, pinyin re-derived (validate.ts) —, labels / card fields / URL rules (rules.ts), the sample submission — app-side rules parity-tested by the Lab app
 │   ├── cards/             # Card standard, word checks, answer checking, word tags (word-tags.ts = the tagger; word-tags-build.ts + word-tags-curated.ts = the lexicon build), pictures on cards (note-image.ts: which side shows the picture, the prompt, the estimate — parity-tested by the Lab app)
 │   ├── picture-hunt/      # Picture hunt (看图找词): types (normalised boxes / outlines), answer matching (match.ts), hit-testing (geometry.ts), feedback copy, validation — parity-tested by the Lab app
 │   ├── quest/             # Quests: the tile-map mini-game framework
@@ -1335,7 +1336,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `coach-reply-queue` (Sentence Coach replies, docs/CHAT.md "Chat ↔ Coach"), `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue` (word checks + AI word tags), `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md; also carries 🎙 podcast episode transcriptions and their mini lessons, `{ kind: 'podcast_episode' | 'podcast_lesson' }`, docs/PODCASTS.md), `idiom-queue` (docs/IDIOMS.md), `homework-email-queue` (docs/HOMEWORK.md §12).
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `coach-reply-queue` (Sentence Coach replies, docs/CHAT.md "Chat ↔ Coach"), `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`, `tts-queue` (docs/AUDIO.md), `card-check-queue` (word checks + AI word tags), `recording-check-queue` (docs/RECORDING_REVIEW.md), `audio-lesson-queue` (docs/AUDIO_LESSONS.md; also carries 🎙 podcast episode transcriptions and their mini lessons, `{ kind: 'podcast_episode' | 'podcast_lesson' }`, docs/PODCASTS.md), `idiom-queue` (docs/IDIOMS.md), `meme-review-queue` (docs/MEME_REVIEW.md), `homework-email-queue` (docs/HOMEWORK.md §12).
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -1357,6 +1358,23 @@ links a 成语 ("📜 Story & usage", `showIdiomLink`). E2E_TEST_MODE: `services
 - `GET /api/idioms` → `{ starter, more }` (IdiomSummary rows with status) · `GET /api/idioms/:hanzi` → `{ idiom }` (status `missing` when never asked)
 - `POST /api/idioms` `{ hanzi, retry? }` → get-or-generate: 200 ready / not_idiom, 202 generating; 400 not a possible 成语 key; 503 without AI
 - `POST /api/admin/idioms/backfill` `{ limit? }` - admin: queue starter idioms with no entry yet
+
+### 梗 Meme review (PROTOTYPE; `routes/meme-review.ts`, `services/meme-review/`, `shared/meme-review`, docs/MEME_REVIEW.md)
+An isolated tracer bullet (nothing in the study queue / sync reads it): ONE issue per calendar month for everyone
+(D1 `meme_issues`, migration 0130, no user ids in the content) about the Chinese internet of the last ~8 weeks — 6–10
+memes, each with meaning in simple Chinese, origin + confidence, chat-style examples, register, "would you say it?",
+related memes, real sources and the original videos / posts (LINKED OUT, never embedded; only YouTube's public thumbnail),
+our own Gemini picture (R2 `meme-review/images/`, public) and a 3–5 question quiz (practice only). Written by a research
+agent (`agent.ts`: `OPUS_MODEL` + server-side `web_search_20260209` / `web_fetch_20260209`, ≤ 25 searches / 10 fetches /
+14 calls, `submit_issue` + ≤ 2 repairs, `pause_turn` resumed, transcript checkpointed in R2 `meme-review/agent/<month>.json`)
+on **`meme-review-queue`**; `validateMemeIssue` drops every URL the tools didn't return and re-derives pinyin
+(`rederivePinyin`). Cron: the 03:17 UTC run on the 1st–2nd starts the month (`ensureMonthlyMemeIssue`). "Make a mini
+lesson" = the lesson writer → a normal custom lesson in the CALLER's account (`meme_review_lessons` jobs; cost guard
+`jobs`). E2E / no key: `services/meme-review/fake.ts`. ≈ $1.5–2.5 an issue. Web `pages/MemeReviewPage.tsx`,
+`MemeIssuePage.tsx`, own IndexedDB `meme-review` (`services/memeReview.ts`); Lab `ui/memereview/`, core
+`memereview/MemeReview.kt` (parity-tested). MCP `get_meme_review` / `generate_meme_review` (admin).
+- `GET /api/meme-review` → `{ issues, current_month, can_generate }` · `GET /api/meme-review/:month` → `{ issue, lesson, stats? (admin) }`
+- `POST /api/meme-review/generate` `{ month?, regenerate? }` - admin only → 202 · `POST /api/meme-review/:month/lesson` → 202 `{ job }` · `GET /api/meme-review/lessons/:jobId`
 
 ### Picture hunt (看图找词; `worker/src/services/picture-hunt.ts`, `routes/picture-hunts.ts`, page at `/picture-hunt`, play at `/picture-hunt/:id`)
 Type the Chinese names of things in a picture; each right answer lights up that object. Built like quests on
@@ -2252,6 +2270,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` | Audio lessons (`tools/audio-lessons.ts`): start one — the description says when to use which: dialogue (practise a situation: `description` / `dialogue`), sleep (learn a text's new words: `text`), story (listen & repeat a whole pasted story / conversation: `text`, ≤ 6,000 characters, ≤ 60 min, `notice` when cut, no `target_minutes`); a tutor's `for_relationship_id` is only a label / status, chapters, transcript, usage / the list |
 | `get_audio_lesson_feed` | The signed-in user's private podcast feed URL of their audio lessons (`GET /api/me/podcast-feed`; made on first use) + podcast:// link; private — give it to the user only |
 | `get_idiom` / `list_idioms` | 成语 Idioms (`tools/idioms.ts`): one idiom's entry — meaning, 典故, usage, examples, quiz; generated when missing (waits up to 90 s), `caution` when not high confidence, `app_path` to point a learner at it / the starter list + looked-up idioms. Read / generate only, sends nothing |
+| `get_meme_review` / `generate_meme_review` | 梗 Meme review (prototype, `tools/meme-review.ts`): the newest (or a given month's) issue — memes with meaning, origin, examples, register, "would you say it?", source / video links, quiz — and the months / ADMIN: start the research agent for a month (~$1.5–2.5, background; `regenerate` redoes a ready one). Read only otherwise, sends nothing |
 | `list_picture_hunts` / `create_picture_hunt` | The user's picture hunts (status, objects, best score) / start one from a scene description (`tools/picture-hunts.ts`) |
 | `list_folders` / `create_folder` / `rename_folder` / `delete_folder` / `move_to_folder` | Folders for decks, library lessons and readers (`tools/folders.ts`): list with full paths ("HSK 2 / Week 1 / Monday"), depth + item counts, create (inside any folder, or by `path` — missing steps made), rename / re-parent (cycles / > 5 levels refused), delete (items → Unfiled, subfolders up one level, nothing deleted), file items by `folder_id` or by folder name / path (found or made). `list_decks`, `list_lesson_library`, `list_readers` show each item's folder and take a `folder_id` filter (`'unfiled'`); `create_deck`, `create_library_lesson`, `create_reader`, `generate_reader` take `folder_id` / `folder` |
 | `get_up_next` / `add_to_up_next` / `move_in_up_next` / `remove_from_up_next` / `get_student_up_next` / `add_to_student_up_next` / `move_in_student_up_next` / `remove_from_student_up_next` | "Up next" (`tools/up-next.ts`): the ordered list of words the user already has, introduced FIRST within the daily budget (the list + today's ⚡ pocket / add by note_ids or hanzi at 'top' / 'bottom' / a 1-based place — already-listed words move, fully studied words are refused with a bump_cards hint / move / take off — the card is kept) and the tutor's versions on a student's list (only when she asked; nothing is created or sent) |
@@ -2736,6 +2755,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/audio-lessons`, `/audio-lessons/:id` - Audio lessons: list + New audio lesson (Dialogue / Sleep / Story; More → Practice), the player (immersive; offline once opened)
 - `/podcasts`, `/podcasts/feed?url=`, `/podcasts/episodes/:id` - 🎙 Podcasts — **Lab app only** (no web page yet; docs/PODCASTS.md)
 - `/idioms`, `/idioms/:hanzi` - 成语 Idioms (beta): look one up / browse the starter list, and one idiom's page (More → Practice; tutors More → Tools; the explorer's "📜 Story & usage")
+- `/meme-review`, `/meme-review/:month` - 梗 Meme review (prototype; More → Practice, tutors More → Tools): the monthly issues (admin: Generate now) and one issue (offline once opened; links need a connection)
 - `/picture-hunt`, `/picture-hunt/:id` - Picture hunt: list + make / upload, and the game (immersive; More → Practice)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/materials`, `/materials/:id` - Lesson materials (not in any menu since Oct 2026; the call's Present material sheet uploads too): upload / share / rename / delete, and the page viewer (cache-first, offline)

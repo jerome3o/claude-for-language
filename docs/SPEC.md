@@ -214,6 +214,16 @@ narration, its source only when known (uncertain or modern origins say so), usag
 opposite idioms and a 2–3 question "Try it" (practice only). "+ Add as card" makes a card-standard card;
 opened entries read offline. The explorer's Word view links a 成语 to its page. Details: docs/IDIOMS.md.
 
+### 15b. 梗 Meme review (prototype)
+
+Once a month, what the Chinese internet has been saying lately (More → Practice → 🌀 梗 Meme review). A research
+agent with web search writes ONE issue for everyone: 6–10 current memes, each with what it means in simple Chinese
+(word chips, 🔊, English on demand), where it came from (honest about uncertainty), how people use it in chats and
+comments, who says it and whether a ~30-year-old foreigner should, older memes it riffs on, and the original videos /
+posts and sources (opened in the browser — every link came from the search). A short quiz (practice only), + Add as
+card, and "Make a mini lesson from this issue" (saved in the learner's own Mini Lessons). Opened issues read offline.
+Details: docs/MEME_REVIEW.md.
+
 ### 16. Word tags
 
 The answer side of a card (and the explorer's Word view) shows small, muted pills about the word —

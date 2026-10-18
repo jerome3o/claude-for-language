@@ -8,7 +8,8 @@
  *               answer checks, /api/ai/*, idioms): 60 a minute;
  *    - `tts`  — /api/practice/tts (mostly R2 hits; the TTS limiter paces real calls): 600 a minute;
  *    - `jobs` — POSTs that start background generation (audio lessons, readers, picture
- *               hunts, quests, podcast episodes, session notes / homework drafts): 10 a
+ *               hunts, quests, podcast episodes, session notes / homework drafts, meme-review
+ *               lessons): 10 a
  *               minute and 30 an hour (the hour in D1: the bindings only count 10 s / 60 s).
  * 2. A DAILY AI COST CAP per user (`AI_DAILY_COST_CAP_USD`, default $10; "0" / "off" turns
  *    it off) from the `server.ai_call` accounting in usage_events (services/analytics/
@@ -65,6 +66,7 @@ const JOB_PATHS: RegExp[] = [
   /^\/api\/relationships\/[^/]+\/lesson-notes$/,
   /^\/api\/relationships\/[^/]+\/lesson-notes\/[^/]+\/draft$/,
   /^\/api\/relationships\/[^/]+\/homework-drafts\/[^/]+\/messages$/,
+  /^\/api\/meme-review\/[^/]+\/lesson$/,
 ];
 
 /** Which costly group a request belongs to (null = not limited). Reads never count. Pure. */
