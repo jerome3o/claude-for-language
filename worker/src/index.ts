@@ -164,6 +164,7 @@ import { pruneUsageEvents } from './services/analytics/usage';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { runAudioLessonJob, type AudioLessonJobMessage } from './services/audio-lessons/job';
 import { runCompanionJob } from './services/companion-lesson';
+import { queueStoryRerendersOnce, rerenderStoryLesson } from './services/audio-lessons/rerender';
 import { applyLessonUnlocks, lessonUnlockFields, validateUnlockForUser, MAX_UNLOCK_EVENTS } from './services/lesson-unlock';
 import { deleteReaderWithImages } from './services/shared-readers';
 import {
@@ -6324,6 +6325,14 @@ export default {
           console.error('[cron] homework e-mails failed:', err);
         }
       }
+      // Once after the deploy that changed the story layout: re-render the ready story lessons
+      // (docs/AUDIO_LESSONS.md "Story" → "Re-rendering"; app_keys-guarded, logs its counts).
+      try {
+        const rerender = await queueStoryRerendersOnce(env);
+        if (rerender.ran) console.log(JSON.stringify({ type: 'cron', job: 'story_rerender', ...rerender }));
+      } catch (err) {
+        console.error('[cron] story re-render queueing failed:', err);
+      }
       // Audio backfill (docs/AUDIO.md): nightly at London midnight, kept alive hourly.
       const audio = await runAudioCron(env, event.cron, new Date(event.scheduledTime || Date.now()));
       if (audio !== 'not_audio') {
@@ -6780,8 +6789,14 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           }
           continue;
         }
-        const { lessonId, companion } = message.body as AudioLessonJobMessage & { companion?: boolean };
+        const { lessonId, companion, rerender } = message.body as AudioLessonJobMessage & { companion?: boolean };
         try {
+          // A ready story lesson in an older layout, re-rendered from its own file (services/audio-lessons/rerender.ts).
+          if (rerender) {
+            console.log('[Queue] audio lesson re-render', JSON.stringify(await rerenderStoryLesson(env, lessonId)));
+            message.ack();
+            continue;
+          }
           // Its companion mini lesson (services/companion-lesson.ts): one Claude call + repairs; failures land on the row.
           if (companion) {
             console.log('[Queue] companion lesson', lessonId, await runCompanionJob(env, lessonId));

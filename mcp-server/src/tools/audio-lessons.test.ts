@@ -30,7 +30,7 @@ function fakeContext() {
     post: async (path: string, body: unknown) => {
       calls.push({ method: 'POST', path, body });
       const story = (body as { format?: string }).format === 'story';
-      return { lesson: { ...SUMMARY, status: 'queued', ...(story ? { format: 'story', word_count: 0 } : {}) }, ...(story ? { chunks: 42, notice: 'The text is long: this lesson covers the first 1,500 of 4,000 characters (about 60 minutes). Paste the rest as another lesson.' } : {}) };
+      return { lesson: { ...SUMMARY, status: 'queued', ...(story ? { format: 'story', word_count: 0 } : {}) }, ...(story ? { chunks: 42, notice: 'The text is long: this lesson covers the first 1,500 of 4,000 characters (about 90 minutes). Paste the rest as another lesson.' } : {}) };
     },
   };
   const server = {

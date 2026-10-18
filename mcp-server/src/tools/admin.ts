@@ -146,6 +146,13 @@ export function registerAdminTools(ctx: ToolContext): void {
     async ({ error_code }) => guard(async () => jsonResult(await api.post('/api/admin/audio/retry-failed', error_code !== undefined ? { error_code } : {})))
   );
 
+  server.tool(
+    'audio_lessons_rerender',
+    'ADMIN ONLY. Re-render every READY "story" audio lesson still in the old layout (each chunk ×3 then its English) in the current one (×3, the English, ×2 more). The clips are cut out of each lesson\'s own MP3 — nothing is translated or spoken again; ids, titles, companion mini lessons and listens stay; the file gets a new version (the podcast feed and the apps fetch it again). `dry_run` (default TRUE) only lists the lessons with their length now and about how long after; `dry_run: false` queues one job per lesson. Safe to repeat. The deploy that brought the layout already queued this once (`once` in the reply). Dialogue and sleep lessons are never touched.',
+    { dry_run: z.boolean().optional().describe('Default true: list only. false = queue the re-renders.') },
+    async ({ dry_run }) => guard(async () => jsonResult(await api.post('/api/admin/audio-lessons/rerender', { format: 'story', dry_run: dry_run !== false })))
+  );
+
   // ---------- Audio providers (docs/AUDIO.md "Providers"; worker/src/routes/audio-settings.ts) ----------
 
   const PROVIDER = z.enum(['minimax', 'azure', 'google']);

@@ -18,7 +18,9 @@ import { pinyinSources } from '../pinyin-check';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   buildTimeline,
+  compileStoryLesson,
   speechChars,
+  STORY_LAYOUT,
   speechKey,
   uniqueSpeech,
   type AudioLessonFormat,
@@ -26,6 +28,7 @@ import {
   type AudioLessonScript,
   type AudioLessonUsage,
   type SpeechSegment,
+  type StoryPlan,
 } from '@shared/audio-lesson';
 import type { TtsProviderId } from '@shared/tts';
 import type { Env } from '../../types';
@@ -43,6 +46,8 @@ import { anthropicStoryTranslate, fakeStoryTranslate, startStory, storyCostUsd, 
 
 export interface AudioLessonJobMessage {
   lessonId: string;
+  /** Re-render a ready story lesson in the current layout (rerender.ts) instead of building it. */
+  rerender?: boolean;
 }
 
 /** Wall clock per delivery before the job re-enqueues itself. */
@@ -223,7 +228,15 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
       row = (await q.getAudioLesson(env.DB, lessonId))!;
     }
 
-    const script = JSON.parse(row.script_json!) as AudioLessonScript;
+    let script = JSON.parse(row.script_json!) as AudioLessonScript;
+    // A story compiled in an older layout (made before the change, retried after it): compiled again
+    // from its plan — the same clips, played in the current order (docs/AUDIO_LESSONS.md "Story").
+    if (row.format === 'story' && row.plan_json && (script.layout ?? 1) < STORY_LAYOUT) {
+      const title = script.title;
+      script = compileStoryLesson(JSON.parse(row.plan_json) as StoryPlan);
+      script.title = title || script.title;
+      await q.patchAudioLesson(env.DB, lessonId, { script_json: script });
+    }
     const priorUsage = parseJson<AudioLessonUsage | null>(row.usage_json, null);
 
     // ---------- 2. speaking ----------

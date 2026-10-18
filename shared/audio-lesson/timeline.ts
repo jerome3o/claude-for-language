@@ -121,7 +121,7 @@ export interface TranscriptRow {
   english?: string;
   /** How many times the line is said in a row (a sleep word ×3, an example sentence ×3); absent = once. */
   repeat?: number;
-  /** Said once more after its English (a dialogue's line by line: "×3 +1"); absent = not. */
+  /** Said again after its English (a dialogue's line by line: "×3 +1"; a story chunk: "×3 +2"); absent = not. */
   again?: number;
 }
 
@@ -173,15 +173,22 @@ export function transcriptRows(lines: AudioLessonTranscriptLine[]): TranscriptRo
       prev.last = i;
       return;
     }
-    // Line by line: the line once more right after the host read its English: the same row, "+1".
+    // Line by line: the line once more right after the host read its English: the same row, "+1"; a
+    // story chunk says it twice more after the recap voice's English: "+2".
     const head = prev ? lines[prev.first] : undefined;
     if (
       prev && prevLine && head && !prev.again && prev.last === i - 1 && prev.last > prev.first && prev.lang === 'zh' && l.lang === 'zh' &&
-      prevLine.voice === 'narrator' && !!prev.english && sameEnglish(prev.english, prevLine.text) &&
+      (prevLine.voice === 'narrator' || prevLine.voice === 'recap') && !!prev.english && sameEnglish(prev.english, prevLine.text) &&
       head.voice === l.voice && head.chapter === l.chapter && head.text === l.text
     ) {
       prev.last = i;
       prev.again = 1;
+      return;
+    }
+    // …and again, straight after that play: "+2".
+    if (prev && prevLine && head && prev.again && prev.last === i - 1 && l.lang === 'zh' && prevLine.lang === 'zh' && prevLine.voice === l.voice && prevLine.chapter === l.chapter && prevLine.text === l.text && head.text === l.text) {
+      prev.last = i;
+      prev.again += 1;
       return;
     }
     // The same Chinese line again, right after itself (same voice, same chapter): one row, "×N".

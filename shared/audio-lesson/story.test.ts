@@ -19,8 +19,12 @@ import {
   storyEstimateLine,
   storyMinutesForText,
   STORY_LIMITS,
+  STORY_LAYOUT,
   STORY_MS_PER_HAN,
+  repeatLabel,
+  transcriptIndexAt,
   transcriptRows,
+  uniqueSpeech,
   validateScript,
   validateStoryPlan,
   type StoryPlan,
@@ -146,29 +150,42 @@ describe('splitStoryText', () => {
 describe('compileStoryLesson', () => {
   const script = compileStoryLesson(SAMPLE_STORY_PLAN);
 
-  it('per chunk: the Chinese ×3 at the slowest rate with 2 s after each, then its English once, 2.5 s', () => {
+  it('per chunk: the Chinese ×3 at the slowest rate with 2 s after each, its English once, 2 s, the Chinese ×2 more, 2.5 s', () => {
     const segs = script.segments;
     // Start: a beat of silence, then the first chunk.
     expect(segs[0]).toEqual({ kind: 'pause', ms: 1000, chapter: 0 });
-    const first = segs.slice(1, 9);
+    const first = segs.slice(1, 13);
+    const zh0 = 'zh:speaker_a:0.5:你好！你今天想喝什么？';
     expect(first.map((s) => (s.kind === 'pause' ? s.ms : `${s.lang}:${s.voice}:${s.rate}:${s.text}`))).toEqual([
-      'zh:speaker_a:0.5:你好！你今天想喝什么？',
-      2000,
-      'zh:speaker_a:0.5:你好！你今天想喝什么？',
-      2000,
-      'zh:speaker_a:0.5:你好！你今天想喝什么？',
-      2000,
+      zh0, 2000, zh0, 2000, zh0, 2000,
       'en:recap:0.9:Hi! What would you like to drink today?',
-      2500,
+      2000,
+      zh0, 2000, zh0, 2500,
     ]);
-    // Only the first of the three carries the pinyin / English (the transcript shows it once).
+    // The next chunk follows straight on (another voice).
+    expect(segs[13]).toMatchObject({ kind: 'speech', lang: 'zh', voice: 'speaker_b', text: SAMPLE_STORY_PLAN.chunks[1].hanzi });
+    // Only the first of the five carries the pinyin / English (the transcript shows it once); every play carries the label.
     expect(first[0]).toMatchObject({ pinyin: SAMPLE_STORY_PLAN.chunks[0].pinyin, english: SAMPLE_STORY_PLAN.chunks[0].english, display: '明慧：你好！你今天想喝什么？' });
-    expect(first[2]).not.toHaveProperty('pinyin');
+    for (const k of [2, 4, 8, 10]) {
+      expect(first[k]).not.toHaveProperty('pinyin');
+      expect(first[k]).not.toHaveProperty('english');
+      expect(first[k]).toMatchObject({ display: '明慧：你好！你今天想喝什么？' });
+    }
     const zh = segs.filter((s) => s.kind === 'speech' && s.lang === 'zh');
     const en = segs.filter((s) => s.kind === 'speech' && s.lang === 'en');
-    expect(zh.length).toBe(3 * SAMPLE_STORY_PLAN.chunks.length);
+    expect(zh.length).toBe(5 * SAMPLE_STORY_PLAN.chunks.length);
     expect(en.length).toBe(SAMPLE_STORY_PLAN.chunks.length);
     expect(segs[segs.length - 1]).toMatchObject({ kind: 'pause' });
+    expect(script.layout).toBe(STORY_LAYOUT);
+  });
+
+  it('no new clips: one Chinese clip and one English clip per chunk, however many plays', () => {
+    expect(uniqueSpeech(script).length).toBe(2 * SAMPLE_STORY_PLAN.chunks.length);
+  });
+
+  it('a chunk without an English line: ×5 with 2 s between, no English pause', () => {
+    const s = compileStoryLesson({ title: 't', speakers: [], chunks: [{ hanzi: '你好。', pinyin: 'nǐ hǎo.', english: '', speaker: null, section: null }] });
+    expect(s.segments.map((x) => (x.kind === 'pause' ? x.ms : x.lang))).toEqual([1000, 'zh', 2000, 'zh', 2000, 'zh', 2000, 'zh', 2000, 'zh', 2500 + 3000]);
   });
 
   it('two consistent voices for the speakers, the app voice for narration; the English full stop added', () => {
@@ -207,15 +224,38 @@ describe('compileStoryLesson', () => {
     expect(validateScript(s)).toEqual([]);
   });
 
-  it('the transcript: one row per chunk, "×3", with its pinyin and English (the spoken English joins the row)', () => {
+  it('the transcript: one row per chunk, "×3 +2", with its pinyin and English (the spoken English and the two plays after it join the row)', () => {
     const frames = new Map<string, number>();
-    for (const s of script.segments) if (s.kind === 'speech') frames.set(speechKey(s), 40);
+    for (const s of script.segments) if (s.kind === 'speech') frames.set(speechKey(s), s.lang === 'zh' ? 40 : 30);
     const timeline = buildTimeline(script, frames, 24, 1);
     const rows = transcriptRows(timeline.transcript);
     expect(rows.length).toBe(SAMPLE_STORY_PLAN.chunks.length);
-    expect(rows[0]).toMatchObject({ text: '明慧：你好！你今天想喝什么？', repeat: 3, pinyin: SAMPLE_STORY_PLAN.chunks[0].pinyin, english: SAMPLE_STORY_PLAN.chunks[0].english });
-    expect(rows[4]).toMatchObject({ text: '他们坐在窗边，外面下着小雨。', repeat: 3 });
-    expect(rows[1].start_ms).toBeGreaterThan(rows[0].start_ms);
+    expect(rows[0]).toMatchObject({ text: '明慧：你好！你今天想喝什么？', repeat: 3, again: 2, pinyin: SAMPLE_STORY_PLAN.chunks[0].pinyin, english: SAMPLE_STORY_PLAN.chunks[0].english });
+    expect(repeatLabel(rows[0])).toEqual({ text: '×3 +2', aria: 'said 3 times, then 2 times more after the English' });
+    expect(rows[4]).toMatchObject({ text: '他们坐在窗边，外面下着小雨。', repeat: 3, again: 2 });
+    // Every row spans its six lines (five plays + the English), in order, no gaps.
+    rows.forEach((r, i) => {
+      expect(r.last - r.first).toBe(5);
+      if (i > 0) expect(r.first).toBe(rows[i - 1].last + 1);
+    });
+    // Timing: 1 lead frame + 1 s, then 40 frames of Chinese + 2 s … the English (30 frames) + 2 s … the fifth play + 2.5 s.
+    const t = timeline.transcript;
+    const zhMs = 40 * 24;
+    const enMs = 30 * 24;
+    expect(t[0].start_ms).toBe(24 + 1008);
+    expect(t[1].start_ms - t[0].start_ms).toBe(zhMs + 1992);
+    expect(t[3].lang).toBe('en');
+    expect(t[4].start_ms - t[3].start_ms).toBe(enMs + 1992);
+    expect(t[5].start_ms - t[4].start_ms).toBe(zhMs + 1992);
+    expect(t[6].start_ms - t[5].start_ms).toBe(zhMs + 2496);
+    // The current line follows the repeats: a moment inside the fourth play is that line, in the first row.
+    const inFourth = t[4].start_ms + 100;
+    const idx = transcriptIndexAt(t, inFourth);
+    expect(idx).toBe(4);
+    expect(rows.findIndex((r) => r.first <= idx && idx <= r.last)).toBe(0);
+    expect(rows[1].start_ms).toBe(t[6].start_ms);
+    // The chapter starts where its first chunk does (after the lead frame and the opening second).
+    expect(timeline.chapters[0].start_ms).toBe(24);
   });
 
   it('its spoken length matches the per-chunk estimate the cap uses', () => {
@@ -227,7 +267,7 @@ describe('compileStoryLesson', () => {
 });
 
 describe('length', () => {
-  it('a long text is cut at about 60 minutes, and says so', () => {
+  it('a long text is cut at about 90 minutes, and says so', () => {
     const para = '小明每天早上七点起床，然后吃早饭，坐地铁去公司上班。';
     const chunks = splitStoryText(Array.from({ length: 200 }, () => para).join('\n'));
     const fit = fitStoryChunks(chunks);
@@ -239,14 +279,17 @@ describe('length', () => {
     const minutes = estimateScriptMs(compileStoryLesson(plan)) / 60000;
     expect(minutes).toBeLessThanOrEqual(STORY_LIMITS.maxMinutes + 2);
     expect(minutes).toBeGreaterThan(STORY_LIMITS.maxMinutes - 6);
-    expect(storyCutNotice(fit.cut!)).toMatch(/^The text is long: this lesson covers the first [\d,]+ of [\d,]+ characters \(about 60 minutes\)\./);
+    expect(storyCutNotice(fit.cut!)).toMatch(/^The text is long: this lesson covers the first [\d,]+ of [\d,]+ characters \(about 90 minutes\)\./);
+    // About as much text as before the two extra plays (60 minutes then held ~1,500 characters).
+    expect(fit.cut!.chars).toBeGreaterThan(1300);
+    expect(fit.cut!.chars).toBeLessThan(1800);
   });
 
-  it('the forms’ estimate: about 2.35 s of audio per character, capped at 60 minutes', () => {
+  it('the forms’ estimate: about 3.6 s of audio per character, capped at 90 minutes', () => {
     expect(storyMinutesForText('')).toEqual({ minutes: 0, han: 0, capped: false });
     expect(storyMinutesForText('你好')).toEqual({ minutes: 1, han: 2, capped: false });
     expect(storyMinutesForText('好'.repeat(1000))).toEqual({ minutes: Math.round((1000 * STORY_MS_PER_HAN) / 60000), han: 1000, capped: false });
-    expect(storyMinutesForText('好'.repeat(3000))).toEqual({ minutes: 60, han: 3000, capped: true });
+    expect(storyMinutesForText('好'.repeat(3000))).toEqual({ minutes: 90, han: 3000, capped: true });
     // Calibrated on real chunks: within a fifth of the compiled script's estimate.
     const text = Array.from({ length: 20 }, () => '小明每天早上七点起床，然后吃早饭。').join('\n');
     const plan: StoryPlan = { title: 't', speakers: [], chunks: splitStoryText(text).map((c) => ({ ...c, pinyin: 'x', english: 'Xiaoming gets up at seven and has breakfast.' })) };
@@ -257,10 +300,10 @@ describe('length', () => {
 
 describe('storyEstimateLine', () => {
   it('what the forms say under the text box', () => {
-    expect(storyEstimateLine('')).toBe('Each line three times, slowly, then its English.');
+    expect(storyEstimateLine('')).toBe('Each line three times, slowly, then its English, then twice more.');
     expect(storyEstimateLine('你好')).toBe('About 1 minute of audio.');
-    expect(storyEstimateLine('好'.repeat(500))).toBe('About 20 minutes of audio.');
-    expect(storyEstimateLine('好'.repeat(3000))).toBe('Long text: the lesson covers about the first 60 minutes — paste the rest as another lesson.');
+    expect(storyEstimateLine('好'.repeat(500))).toBe('About 30 minutes of audio.');
+    expect(storyEstimateLine('好'.repeat(3000))).toBe('Long text: the lesson covers about the first 90 minutes — paste the rest as another lesson.');
   });
 });
 

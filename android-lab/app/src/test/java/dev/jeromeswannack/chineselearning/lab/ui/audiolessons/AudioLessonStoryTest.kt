@@ -57,7 +57,7 @@ class AudioLessonStoryTest {
         compose.onAllNodesWithText("Length: about 0 minutes").assertCountEquals(0)
         compose.onAllNodesWithText("Length: about 12 minutes").assertCountEquals(0)
         compose.onNodeWithTag("al-story-estimate").assertIsDisplayed()
-        compose.onNodeWithText("0 / 6,000 characters · Each line three times, slowly, then its English.").assertIsDisplayed()
+        compose.onNodeWithText("0 / 6,000 characters · Each line three times, slowly, then its English, then twice more.").assertIsDisplayed()
         // Make it: enabled once there is text.
         compose.onNodeWithText("🎧 Make the lesson").performScrollTo().performClick()
         assertEquals(0, started)
@@ -80,9 +80,9 @@ class AudioLessonStoryTest {
             }
         }
         compose.onNodeWithText("📖 Listen & repeat a story").assertIsDisplayed()
-        // Transcript on by default: the first line once, "×3", with its English.
+        // Transcript on by default: the first line once, "×3 +2", with its English.
         compose.onNodeWithText("明慧：你好！你今天想喝什么？").assertIsDisplayed()
-        compose.onAllNodesWithContentDescription("said 3 times", useUnmergedTree = true).onFirst().assertIsDisplayed()
+        compose.onAllNodesWithContentDescription("said 3 times, then 2 times more after the English", useUnmergedTree = true).onFirst().assertIsDisplayed()
         compose.onNodeWithText("Hi! What would you like to drink today?").assertIsDisplayed()
         compose.onNodeWithText("拼").performClick()
         compose.onNodeWithText("EN").performClick()

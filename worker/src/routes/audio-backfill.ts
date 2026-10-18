@@ -17,6 +17,7 @@ import { callMiniMaxTTS, forgetKnownAccountPauses } from '../services/audio';
 import type { LimiterSnapshot } from '../durable/tts-limiter';
 import { accountFailureCondition, resetAccountFailures } from '../services/tts/account';
 import type { AccountProblem } from '../services/tts/account';
+import { queueStoryRerenders, STORY_RERENDER_FLAG } from '../services/audio-lessons/rerender';
 
 function accountProblemView(p: AccountProblem | null | undefined, now: number) {
   if (!p) return null;
@@ -44,6 +45,7 @@ async function accountFailureCount(db: D1Database, now: number): Promise<number>
 
 const routes = new Hono<{ Bindings: Env }>();
 routes.use('/admin/audio/*', adminMiddleware);
+routes.use('/admin/audio-lessons/*', adminMiddleware);
 
 async function snapshot(env: Env): Promise<LimiterSnapshot | null> {
   if (!env.TTS_LIMITER) return null;
@@ -232,6 +234,29 @@ routes.post('/admin/audio/compare', async (c) => {
     }
   }
   return c.json({ text, voice: settings.voice, results: out });
+});
+
+/**
+ * Re-render every READY story lesson still in an older layout (docs/AUDIO_LESSONS.md "Story" →
+ * "Re-rendering"): `{ format: 'story', dry_run? (default true) }` → the lessons (id, title, chunks,
+ * duration now and about how long after) and, unless a dry run, one audio-lesson-queue message each.
+ * Nothing is translated or spoken again; ids, titles, companions and listens stay; the file gets a
+ * new version. Safe to repeat (an up-to-date lesson is skipped). `once` = the cron's one-time run.
+ */
+routes.post('/admin/audio-lessons/rerender', async (c) => {
+  let body: { format?: unknown; dry_run?: unknown; limit?: unknown } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // defaults
+  }
+  const format = body.format ?? 'story';
+  if (format !== 'story') return c.json({ error: 'Only story lessons have a new layout to re-render (format: "story")' }, 400);
+  const dryRun = body.dry_run !== false;
+  const limit = typeof body.limit === 'number' && body.limit > 0 ? Math.min(500, Math.floor(body.limit)) : 500;
+  const out = await queueStoryRerenders(c.env, { dryRun, limit });
+  const once = await c.env.DB.prepare('SELECT value, created_at FROM app_keys WHERE name = ?').bind(STORY_RERENDER_FLAG).first<{ value: string; created_at: string }>().catch(() => null);
+  return c.json({ format, ...out, once: once ? { ...JSON.parse(once.value), created_at: once.created_at } : null });
 });
 
 export default routes;

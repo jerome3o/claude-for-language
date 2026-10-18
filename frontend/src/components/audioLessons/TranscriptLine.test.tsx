@@ -80,6 +80,13 @@ describe('TranscriptLine — word chips in the audio-lesson transcript', () => {
     expect(chip?.getAttribute('aria-label')).toBe('said 3 times, then once more after the English');
   });
 
+  it('a story chunk: "×3 +2" (three times, the English, twice more)', async () => {
+    await render({ ...story, again: 2 });
+    const chip = host.querySelector('.al-line-repeat');
+    expect(chip?.textContent).toBe('×3 +2');
+    expect(chip?.getAttribute('aria-label')).toBe('said 3 times, then 2 times more after the English');
+  });
+
   it('a word tap opens the explorer Word view and does not seek', async () => {
     const onSeek = await render(story);
     await act(async () => chips()[3].click());

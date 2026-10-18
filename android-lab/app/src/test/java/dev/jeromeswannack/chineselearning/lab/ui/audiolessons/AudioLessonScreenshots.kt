@@ -121,17 +121,17 @@ object SampleAudioLessons {
         ),
     )
 
-    /** A story lesson (format story): each line ×3 + its English, a chapter per heading. */
+    /** A story lesson (format story): each line ×3, its English, ×2 more, a chapter per heading. */
     val story = AudioLessonDto(
         id = "al6",
         format = "story",
         title = "在咖啡馆",
         status = "ready",
-        duration_ms = 214_000,
-        size_bytes = 1_200_000,
+        duration_ms = 260_000,
+        size_bytes = 1_700_000,
         word_count = 0,
         audio_version = "v1",
-        chapters = listOf(AudioLessonChapter("在咖啡馆", 0, "在咖啡馆", "zài kā fēi guǎn"), AudioLessonChapter("他们坐在窗边", 168_000, "他们坐在窗边", "tā men zuò zài chuāng biān")),
+        chapters = listOf(AudioLessonChapter("在咖啡馆", 0, "在咖啡馆", "zài kā fēi guǎn"), AudioLessonChapter("他们坐在窗边", 205_000, "他们坐在窗边", "tā men zuò zài chuāng biān")),
         transcript = run {
             val chunks = listOf(
                 Triple("明慧：你好！你今天想喝什么？", "nǐ hǎo! nǐ jīntiān xiǎng hē shénme?", "Hi! What would you like to drink today?") to "speaker_a",
@@ -148,6 +148,7 @@ object SampleAudioLessons {
                 repeat(2) { lines += l(t, voice, c.first, ch); t += 9_000 }
                 lines += l(t, "recap", c.third, ch)
                 t += 6_000
+                repeat(2) { lines += l(t, voice, c.first, ch); t += 9_000 }
                 lines
             }
         },
@@ -290,12 +291,12 @@ class AudioLessonScreenshots : LabScreenshotTest() {
     /** A long story: the server's notice after it was started. */
     @Test fun storyFormNotice() = shoot("audio-lessons-20-form-story-notice") {
         AudioLessonsScreen(
-            s.list.copy(format = "story", minutes = 0, notice = "The text is long: this lesson covers the first 1,480 of 3,912 characters (about 60 minutes). Paste the rest as another lesson."),
+            s.list.copy(format = "story", minutes = 0, notice = "The text is long: this lesson covers the first 1,480 of 3,912 characters (about 90 minutes). Paste the rest as another lesson."),
             AudioLessonsActions(),
         )
     }
 
-    /** The story player: each line one row "×3" with its pinyin and English; 拼 / EN toggles; music on by default. */
+    /** The story player: each line one row "×3 +2" with its pinyin and English; 拼 / EN toggles; music on by default. */
     @Test fun playerStory() = shoot("audio-lessons-21-player-story") {
         AudioLessonPlayerScreen(
             AudioLessonPlayerUi(lesson = s.story, savedOnPhone = true, canPlay = true, playing = true, positionMs = 40_000, musicOn = true),

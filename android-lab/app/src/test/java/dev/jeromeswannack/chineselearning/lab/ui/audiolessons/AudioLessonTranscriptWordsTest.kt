@@ -56,10 +56,10 @@ class AudioLessonTranscriptWordsTest {
         compose.onAllNodesWithText("你今天").assertCountEquals(0)
         compose.onAllNodesWithText("今天").onFirst().assertIsDisplayed()
         compose.onAllNodesWithContentDescription("什么, in your decks").onFirst().assertIsDisplayed()
-        // The row's pinyin and English lines and its ×3 stay as they were.
+        // The row's pinyin and English lines and its ×3 +2 stay as they were.
         compose.onNodeWithText("nǐ hǎo! nǐ jīntiān xiǎng hē shénme?").assertIsDisplayed()
         compose.onNodeWithText("Hi! What would you like to drink today?").assertIsDisplayed()
-        compose.onAllNodesWithContentDescription("said 3 times", useUnmergedTree = true).onFirst().assertIsDisplayed()
+        compose.onAllNodesWithContentDescription("said 3 times, then 2 times more after the English", useUnmergedTree = true).onFirst().assertIsDisplayed()
 
         compose.onAllNodesWithText("今天").onFirst().performClick()
         assertEquals(listOf("今天"), words.map { it.first.text })

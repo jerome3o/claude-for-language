@@ -3,7 +3,8 @@
  * agent) pastes a longer Chinese story or conversation; the app splits it into chunks of one or
  * two sentences (here, deterministic — never Claude), Claude translates each chunk (worker
  * services/audio-lessons/story.ts), and the compiler (`compileStoryLesson`) says every chunk
- * three times, slowly, with a pause after each, then its English once.
+ * three times, slowly, with a pause after each, then its English once, then the Chinese twice
+ * more — so each chunk ends, and the next begins, in Chinese.
  *
  * The splitter:
  * - breaks after 。！？!?… (a run of them, with the closing quotes / brackets after it), at line
@@ -28,8 +29,11 @@ export const STORY_LIMITS = {
   maxChunkChars: 40,
   /** A piece still longer than this is cut at sentence ends inside quotes, then anywhere. */
   hardChunkChars: 80,
-  /** A lesson holds this much audio at most (estimated); the rest of the text is left out — and the app says so. */
-  maxMinutes: 60,
+  /**
+   * A lesson holds this much audio at most (estimated); the rest of the text is left out — and the app says so.
+   * 60 until Oct 2026, when every chunk got two more plays after its English (about 1,500 characters either way).
+   */
+  maxMinutes: 90,
   /** And at most this many chunks (two clips each — the lesson's distinct-clip limit is 260). */
   maxChunks: 120,
   /** A chapter every this many chunks (or one per heading). */
@@ -332,17 +336,30 @@ export function storySpeakers(chunks: Array<Pick<StoryChunk, 'speaker'>>): strin
   return out;
 }
 
+/** A chunk is said this many times before its English… */
+export const STORY_REPEATS_BEFORE = 3;
+/** …and this many times after it (Jerome, Oct 2026: "you transition in Chinese as well"). */
+export const STORY_REPEATS_AFTER = 2;
+
 /**
- * Rough spoken length of one chunk (the same model as `estimateScriptMs`): the Chinese three
- * times at the slowest rate, three 2 s pauses, the English (about 0.7 words a character) and
- * the pause after it.
+ * The layout of a compiled story script (`AudioLessonScript.layout`): 1 (absent) = ×3 then the
+ * English; 2 = ×3, the English, ×2 more. A ready lesson with an older layout is re-rendered from
+ * its stored plan (worker services/audio-lessons/rerender.ts) — no new translations or clips.
+ */
+export const STORY_LAYOUT = 2;
+
+/**
+ * Rough spoken length of one chunk (the same model as `estimateScriptMs`): the Chinese five
+ * times at the slowest rate (three before the English, two after), a 2 s pause after each but the
+ * last, the English (about 0.7 words a character) with its pause, and the pause after the chunk.
  */
 export function estimateStoryChunkMs(hanzi: string, english?: string): number {
   const han = [...hanzi].filter((c) => hasHan(c)).length;
   const zh = (han * 260) / STORY_RATE + 300;
   const words = english ? english.trim().split(/\s+/).length : Math.max(2, Math.round(han * 0.7));
   const en = (words * 380) / 0.9 + 200;
-  return 3 * zh + 3 * STORY_PAUSES.repeat + en + STORY_PAUSES.afterTranslation;
+  const plays = STORY_REPEATS_BEFORE + STORY_REPEATS_AFTER;
+  return plays * zh + (plays - 1) * STORY_PAUSES.repeat + en + STORY_PAUSES.afterEnglish + STORY_PAUSES.afterChunk;
 }
 
 /** The app-scale rate of a story's Chinese — the slowest (each provider speaks it at its own slowest natural rate). */
@@ -350,16 +367,18 @@ export const STORY_RATE = 0.5;
 
 /** Pauses of a story lesson (ms). */
 export const STORY_PAUSES = {
-  /** After each of the three times a chunk is said (the third one before its English). */
+  /** After each time a chunk is said, but its last (the third one comes before its English). */
   repeat: 2000,
-  /** After the English, before the next chunk. */
-  afterTranslation: 2500,
+  /** After the English, before the Chinese again. */
+  afterEnglish: 2000,
+  /** After the chunk's last play, before the next chunk. */
+  afterChunk: 2500,
   start: 1000,
   end: 3000,
 } as const;
 
-/** About how long a story lesson of this many Han characters runs (the forms' hint; both apps). */
-export const STORY_MS_PER_HAN = 2350;
+/** About how long a story lesson of this many Han characters runs (the forms' hint; both apps). 2350 before the ×2 after the English. */
+export const STORY_MS_PER_HAN = 3600;
 
 /** "about 9 minutes" for the form, from the pasted text's Han characters (capped at STORY_LIMITS.maxMinutes). */
 export function storyMinutesForText(text: string): { minutes: number; han: number; capped: boolean } {
@@ -372,7 +391,7 @@ export function storyMinutesForText(text: string): { minutes: number; han: numbe
 /** The line under a story's text box in both apps' forms: "About 9 minutes of audio." (Lab: AudioLessonFormats.storyEstimateLine). */
 export function storyEstimateLine(text: string): string {
   const est = storyMinutesForText(text);
-  if (est.han === 0) return 'Each line three times, slowly, then its English.';
+  if (est.han === 0) return 'Each line three times, slowly, then its English, then twice more.';
   if (est.capped) return `Long text: the lesson covers about the first ${STORY_LIMITS.maxMinutes} minutes — paste the rest as another lesson.`;
   return `About ${est.minutes} minute${est.minutes === 1 ? '' : 's'} of audio.`;
 }
@@ -439,8 +458,11 @@ export function storyVoiceOf(labels: string[], label: string | null): VoiceRole 
 
 /**
  * Story → script (docs/AUDIO_LESSONS.md "Story"). Per chunk: the Chinese, 2 s, again, 2 s, a third
- * time, 2 s, its English once (the calm English voice), 2.5 s. All the Chinese at the slowest rate.
- * A chapter per heading, else every 10 chunks, titled with the first words.
+ * time, 2 s, its English once (the calm English voice), 2 s, the Chinese again, 2 s, a fifth time,
+ * 2.5 s — the English sits in the middle, so he hears the words once more knowing what they mean
+ * and moves on to the next chunk in Chinese. All the Chinese at the slowest rate (one clip per
+ * chunk: the five plays reuse it). A chapter per heading, else every 10 chunks, titled with the
+ * first words.
  */
 export function compileStoryLesson(plan: StoryPlan): AudioLessonScript {
   const b = new ScriptBuilder();
@@ -466,12 +488,18 @@ export function compileStoryLesson(plan: StoryPlan): AudioLessonScript {
     inChapter++;
     const voice = storyVoiceOf(labels, c.speaker ?? null);
     const display = c.speaker ? `${c.speaker}：${c.hanzi}` : undefined;
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < STORY_REPEATS_BEFORE; k++) {
       b.say('zh', voice, c.hanzi, STORY_RATE, k === 0 ? { pinyin: c.pinyin, english: c.english, display } : { display });
       b.pause(STORY_PAUSES.repeat);
     }
-    if (c.english?.trim()) b.say('en', 'recap', sleepTranslationText(c.english), RATES.recap);
-    b.pause(STORY_PAUSES.afterTranslation);
+    if (c.english?.trim()) {
+      b.say('en', 'recap', sleepTranslationText(c.english), RATES.recap);
+      b.pause(STORY_PAUSES.afterEnglish);
+    }
+    for (let k = 0; k < STORY_REPEATS_AFTER; k++) {
+      b.say('zh', voice, c.hanzi, STORY_RATE, { display });
+      b.pause(k < STORY_REPEATS_AFTER - 1 ? STORY_PAUSES.repeat : STORY_PAUSES.afterChunk);
+    }
   });
   b.pause(STORY_PAUSES.end);
   const speakers: ScriptSpeaker[] = [];
@@ -481,7 +509,7 @@ export function compileStoryLesson(plan: StoryPlan): AudioLessonScript {
     if (have) have.name = `${have.name} / ${label}`;
     else speakers.push({ role, name: label, gender: gender(label, i) });
   });
-  return { version: 1, format: 'story', title: plan.title, chapters: b.chapters, segments: b.segments, speakers, words: [] };
+  return { version: 1, format: 'story', layout: STORY_LAYOUT, title: plan.title, chapters: b.chapters, segments: b.segments, speakers, words: [] };
 }
 
 /** At most this many chapters (validateScript's limit). */
