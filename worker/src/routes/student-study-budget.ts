@@ -5,15 +5,17 @@
  *
  *   GET /relationships/:relId/student-study-budget
  *       → { budget: StudyBudgetInfo, default, top_deck: { id, name, words_to_go } | null }
- *   PUT /relationships/:relId/student-study-budget  { new_cards_per_day?, secondary_cards_per_day? }
- *       (null = back to the default; same validation as the student's own
+ *   PUT /relationships/:relId/student-study-budget  { new_cards_per_day?, secondary_cards_per_day?, pause_new_when_reviews_over? }
+ *       (null = back to the default / the pause off; same validation as the student's own
  *       PUT /api/profile/study-budget, 400 + problems)
  *       → { budget, changed, message_sent }
  *
  * A change records the tutor as `study_budget_set_by` (the student's Settings shows
  * "Set by <tutor> · 3 Oct"; the student can still change it, last write wins) and
  * posts a short chat message from the tutor through the normal send path (unread
- * badge, live, push). The student's own decks and their caps are never touched.
+ * badge, live, push) when the NUMBERS changed — "Pause new cards on heavy days"
+ * (shared/decks/review-load.ts) alone posts nothing (the student's Home explains a
+ * paused day itself). The student's own decks and their caps are never touched.
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
@@ -74,18 +76,20 @@ studentStudyBudget.put('/relationships/:relId/student-study-budget', async (c) =
   const body = await c.req.json<Record<string, unknown>>().catch(() => null);
   const { update, problems } = pickStudyBudgetUpdate(body);
   if (problems.length) return c.json({ error: problems.join('; '), problems }, 400);
-  if (update.new_cards_per_day === undefined && update.secondary_cards_per_day === undefined) {
-    const msg = 'Send new_cards_per_day and/or secondary_cards_per_day (a number 0–200, or null for the default)';
+  if (update.new_cards_per_day === undefined && update.secondary_cards_per_day === undefined && update.pause_new_when_reviews_over === undefined) {
+    const msg = 'Send new_cards_per_day and/or secondary_cards_per_day (a number 0–200, or null for the default) and/or pause_new_when_reviews_over (10–1000, or null for off)';
     return c.json({ error: msg, problems: [msg] }, 400);
   }
 
   const before = await getStudyBudgetInfo(c.env.DB, g.studentId);
   const budget = await setStudyBudget(c.env.DB, g.studentId, update, user.id);
-  const changed = !sameNumbers(before, budget);
+  const changed = !sameNumbers(before, budget) || before.pause_new_when_reviews_over !== budget.pause_new_when_reviews_over;
+  // The message says the numbers the student now gets — only when those changed (3 + 6 → an explicit 3 + 6 is no news).
+  const numbersChanged = before.new_cards_per_day !== budget.new_cards_per_day || before.secondary_cards_per_day !== budget.secondary_cards_per_day;
 
-  // Tell the student in the chat, as the tutor, through the normal send path.
+  // Tell the student in the chat, as the tutor, through the normal send path (the numbers only).
   let message_sent = false;
-  if (changed) {
+  if (numbersChanged) {
     try {
       const conversationId = (await openRelationshipConversation(c.env.DB, g.rel.id, user.id)).conversation.id;
       const sent = await sendMessage(c.env.DB, conversationId, user.id, budgetChangeMessage(budget, budget.is_default));

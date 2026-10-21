@@ -224,6 +224,19 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
             Spacer(Modifier.height(6.dp))
             Text(bumpedLine, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("home-bumped"))
         }
+        // "Pause new cards on heavy days" (core ReviewLoad, same copy as the web): why there are no new cards today.
+        val pausedLine = dev.jeromeswannack.chineselearning.lab.core.ReviewLoad.pausedLabel(ui.reviewLoad)
+        if (pausedLine != null && ui.loaded) {
+            Spacer(Modifier.height(10.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.18f)).padding(horizontal = 12.dp, vertical = 9.dp)
+                    .testTag("home-new-paused"),
+            ) {
+                Text("⏸ $pausedLine", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(2.dp))
+                Text(dev.jeromeswannack.chineselearning.lab.core.ReviewLoad.PAUSED_DETAIL, color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp)
+            }
+        }
         // Four zero chips say nothing once the cards are done (Lab today split: the Today card says what's left).
         if (!(empty && extras.isNotEmpty())) {
             Spacer(Modifier.height(16.dp))

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import {
   db,
   getRawQueueCounts,
+  type RawQueueCounts,
   DeckQueueRaw,
 } from '../db/database';
 import { syncService } from '../services/sync';
@@ -108,8 +109,10 @@ export function useOfflineDecks(apiDecks?: { id: string }[]) {
 export function useRawQueueCounts() {
   const raw = useLiveQuery(() => getRawQueueCounts(), []);
   return {
-    byDeck: raw ?? new Map<string, DeckQueueRaw>(),
+    byDeck: raw ?? (new Map<string, DeckQueueRaw>() as RawQueueCounts),
     isLoading: raw === undefined,
+    /** "Pause new cards on heavy days" (shared/decks/review-load.ts): today's load against the limit. */
+    reviewLoad: raw?.reviewLoad ?? null,
   };
 }
 

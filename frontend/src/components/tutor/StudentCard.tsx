@@ -1,3 +1,4 @@
+import { tutorPausedLabel } from '@shared/decks';
 import type { LibraryItem } from '@shared/homework';
 import { RecentHomeworkLine } from './library/RecentHomeworkCard';
 import { useState } from 'react';
@@ -56,7 +57,7 @@ export function StudentCard({ overview, onSendHomework, recent }: { overview: St
           <span className="td-chevron">›</span>
         </Link>
         <SetupChecklistCompact overview={overview} />
-        {(overview.has_profile === false || (overview.study_budget && !overview.study_budget.is_default)) && (
+        {(overview.has_profile === false || (overview.study_budget && !overview.study_budget.is_default) || overview.review_load?.paused) && (
           <div className="td-pills">
             <BudgetPill overview={overview} relId={relId} />
             {overview.has_profile === false && <ProfileHint relId={relId} />}
@@ -152,13 +153,31 @@ export function StudentCard({ overview, onSendHomework, recent }: { overview: St
   );
 }
 
-/** "📚 5 + 10 a day" — the student's daily new cards, only when not the default. */
+/**
+ * "📚 5 + 10 a day" — the student's daily new cards, only when not the default — and, on a day
+ * their review load is over their limit, "⏸ New cards paused today · 124 reviews due"
+ * (shared/decks/review-load.ts).
+ */
 function BudgetPill({ overview, relId }: { overview: StudentOverview; relId: string }) {
   const b = overview.study_budget;
-  if (!b || b.is_default) return null;
+  const paused = tutorPausedLabel(overview.review_load);
   return (
-    <Link to={`/connections/${relId}`} className="td-pill td-pill-budget" title="Daily new cards: new words + extra cards a day" data-testid="td-pill-budget">
-      📚 {b.new_cards_per_day} + {b.secondary_cards_per_day} a day
-    </Link>
+    <>
+      {b && !b.is_default && (
+        <Link to={`/connections/${relId}`} className="td-pill td-pill-budget" title="Daily new cards: new words + extra cards a day" data-testid="td-pill-budget">
+          📚 {b.new_cards_per_day} + {b.secondary_cards_per_day} a day
+        </Link>
+      )}
+      {paused && overview.review_load && (
+        <Link
+          to={`/connections/${relId}`}
+          className="td-pill td-pill-paused"
+          title={`More than ${overview.review_load.threshold} reviews due today: no new cards for them today, only the reviews`}
+          data-testid="td-pill-paused"
+        >
+          {paused}
+        </Link>
+      )}
+    </>
   );
 }

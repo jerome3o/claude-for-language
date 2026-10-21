@@ -597,7 +597,7 @@ describe('registerStudentTools', () => {
     const out = parse(await tools.get('set_student_study_budget')!.handler({ relationship_id: 'rel-1', new_cards_per_day: 5, secondary_cards_per_day: null }));
     expect(calls).toEqual([expect.objectContaining({ method: 'PUT', path: '/api/relationships/rel-1/student-study-budget', body: { new_cards_per_day: 5, secondary_cards_per_day: null } })]);
     expect(out).toEqual({
-      study_budget: { new_words_per_day: 5, extra_cards_per_day: 6, is_default: false, set_by: 'tutor', set_by_name: 'Minghui', set_at: '2026-10-03T08:00:00.000Z' },
+      study_budget: { new_words_per_day: 5, extra_cards_per_day: 6, is_default: false, set_by: 'tutor', set_by_name: 'Minghui', set_at: '2026-10-03T08:00:00.000Z', pause_new_when_reviews_over: null },
       summary: '5 new words + 6 extra a day',
       changed: true,
       chat_message_sent: true,
@@ -612,10 +612,34 @@ describe('registerStudentTools', () => {
   });
 
   it('list_students / get_student_overview carry the study budget', async () => {
-    const study_budget = { new_cards_per_day: 3, secondary_cards_per_day: 6, is_default: true, set_by_id: null, set_by_name: null, set_by_tutor: false, set_at: null };
+    const study_budget = { new_cards_per_day: 3, secondary_cards_per_day: 6, is_default: true, set_by_id: null, set_by_name: null, set_by_tutor: false, set_at: null, pause_new_when_reviews_over: null };
     const { tools } = fakeContext({ 'GET /api/relationships/rel-1/overview': overview({ study_budget }) });
     const out = parse(await tools.get('get_student_overview')!.handler({ relationship_id: 'rel-1' }));
-    expect(out.study_budget).toEqual({ new_words_per_day: 3, extra_cards_per_day: 6, is_default: true, set_by: null, set_by_name: null, set_at: null });
+    expect(out.study_budget).toEqual({ new_words_per_day: 3, extra_cards_per_day: 6, is_default: true, set_by: null, set_by_name: null, set_at: null, pause_new_when_reviews_over: null });
+  });
+
+  it('set_student_study_budget passes "pause new cards on heavy days" and validates it first', async () => {
+    const budget = { new_cards_per_day: 3, secondary_cards_per_day: 6, is_default: true, set_by_id: 'tutor', set_by_name: 'Minghui', set_by_tutor: true, set_at: '2026-10-21T08:00:00.000Z', pause_new_when_reviews_over: 100 };
+    const { tools, calls } = fakeContext({
+      'PUT /api/relationships/rel-1/student-study-budget': { budget, changed: true, message_sent: false },
+    });
+    const out = parse(await tools.get('set_student_study_budget')!.handler({ relationship_id: 'rel-1', pause_new_when_reviews_over: 100 }));
+    expect(calls).toEqual([expect.objectContaining({ method: 'PUT', body: { pause_new_when_reviews_over: 100 } })]);
+    expect(out).toMatchObject({
+      study_budget: { pause_new_when_reviews_over: 100 },
+      summary: '3 new words + 6 extra a day · Pauses new cards on days with more than 100 reviews due',
+      chat_message_sent: false,
+    });
+    const bad = fakeContext({});
+    const res = await bad.tools.get('set_student_study_budget')!.handler({ relationship_id: 'rel-1', pause_new_when_reviews_over: 5 });
+    expect(res.isError).toBe(true);
+    expect(bad.calls).toHaveLength(0);
+  });
+
+  it('get_student_overview carries today\'s review load', async () => {
+    const { tools } = fakeContext({ 'GET /api/relationships/rel-1/overview': overview({ review_load: { load: 124, threshold: 100, paused: true } }) });
+    const out = parse(await tools.get('get_student_overview')!.handler({ relationship_id: 'rel-1' }));
+    expect(out.review_load).toEqual({ load: 124, threshold: 100, paused: true });
   });
 
   it('get_student_overview still works when the profile cannot be read', async () => {

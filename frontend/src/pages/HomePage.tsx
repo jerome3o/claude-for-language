@@ -76,7 +76,18 @@ function StudyHome() {
   };
 
   // ---- Queue counts: ONE live query, bonus applied in-memory ----
-  const { byDeck: rawByDeck, isLoading: countsLoading } = useRawQueueCounts();
+  const { byDeck: rawByDeck, isLoading: countsLoading, reviewLoad } = useRawQueueCounts();
+  // "Pause new cards on heavy days": recorded once a local day while Home says so.
+  useEffect(() => {
+    if (!reviewLoad?.paused) return;
+    const key = 'new-cards-paused-tracked';
+    const today = new Date().toDateString();
+    try {
+      if (localStorage.getItem(key) === today) return;
+      localStorage.setItem(key, today);
+    } catch { /* storage unavailable: track anyway */ }
+    track('study.new_cards_paused', { load: reviewLoad.load, limit: reviewLoad.threshold });
+  }, [reviewLoad?.paused, reviewLoad?.load, reviewLoad?.threshold]);
   const dueReaders = useLiveQuery(() => getDueReaders(), []) ?? [];
 
   const { perDeck, liveTotal } = useMemo(() => {
@@ -158,6 +169,7 @@ function StudyHome() {
           hasMoreNew={liveTotal.hasMoreNew}
           onStudy={handleStudyAll}
           onMoreNew={bumpBonus}
+          reviewLoad={countsLoading ? null : reviewLoad}
         />
 
         <TutorNotesHomeRow />

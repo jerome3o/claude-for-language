@@ -111,6 +111,8 @@ export function compactStudentRow(o: StudentOverview, apiBase: string, needsAtte
     last_conversation_id: o.last_conversation_id,
     has_student_profile: o.has_profile ?? false,
     study_budget: compactStudyBudget(o.study_budget),
+    // "Pause new cards on heavy days" today: { load, threshold, paused } (null = their limit is off / older API).
+    review_load: o.review_load ?? null,
   };
 }
 
@@ -124,6 +126,8 @@ export function compactStudyBudget(b: StudyBudgetInfo | null | undefined) {
     set_by: b.set_by_id ? (b.set_by_tutor ? 'tutor' : 'student') : null,
     set_by_name: b.set_by_name,
     set_at: b.set_at,
+    /** "Pause new cards on heavy days": no new cards on a day with more than this many reviews due; null = off. */
+    pause_new_when_reviews_over: b.pause_new_when_reviews_over ?? null,
   };
 }
 

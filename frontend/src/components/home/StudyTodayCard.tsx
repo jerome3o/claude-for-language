@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { QueueCounts } from '../../types';
 import { describeDue, breakdownRows } from './studyEstimate';
-import { bumpedLabel } from '@shared/decks';
+import { bumpedLabel, pausedNewCardsLabel, PAUSED_NEW_CARDS_DETAIL, type ReviewLoadState } from '@shared/decks';
 
 interface StudyTodayCardProps {
   counts: QueueCounts;
@@ -18,6 +19,22 @@ interface StudyTodayCardProps {
   onMoreNew: () => void;
   /** "⚡ Study it today": bumped words in today's pocket (their cards are in the counts). */
   bumped?: number;
+  /** "Pause new cards on heavy days" (shared/decks/review-load.ts): says why there are no new cards today. */
+  reviewLoad?: ReviewLoadState | null;
+}
+
+/** "⏸ New cards paused — 124 reviews due today (limit 100)" + what else waits; nothing on a normal day. */
+function PausedLine({ reviewLoad }: { reviewLoad?: ReviewLoadState | null }) {
+  const label = pausedNewCardsLabel(reviewLoad);
+  if (!label) return null;
+  return (
+    <div className="home-paused" data-testid="home-new-paused">
+      <span className="home-paused-label"><span aria-hidden="true">⏸</span> {label}</span>
+      <span className="home-paused-detail">
+        {PAUSED_NEW_CARDS_DETAIL} <Link to="/settings">Change</Link>
+      </span>
+    </div>
+  );
 }
 
 /**
@@ -26,7 +43,7 @@ interface StudyTodayCardProps {
  * header, untouched).
  */
 export function StudyTodayCard({
-  counts, totalDue, isLoading, hasSyncedOnce, isSyncing, isOnline, hasDecks, hasMoreNew, onStudy, onMoreNew, bumped = 0,
+  counts, totalDue, isLoading, hasSyncedOnce, isSyncing, isOnline, hasDecks, hasMoreNew, onStudy, onMoreNew, bumped = 0, reviewLoad,
 }: StudyTodayCardProps) {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -100,6 +117,7 @@ export function StudyTodayCard({
         {bumped > 0 && (
           <div className="home-bumped" data-testid="home-bumped">{bumpedLabel(bumped)}</div>
         )}
+        <PausedLine reviewLoad={reviewLoad} />
       </div>
     );
   }
@@ -133,6 +151,7 @@ export function StudyTodayCard({
           <span>Nothing due right now — see you tomorrow.</span>
         )}
       </div>
+      <PausedLine reviewLoad={reviewLoad} />
     </div>
   );
 }

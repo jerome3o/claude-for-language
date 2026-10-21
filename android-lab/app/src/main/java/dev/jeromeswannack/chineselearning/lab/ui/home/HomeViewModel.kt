@@ -35,6 +35,8 @@ data class HomeUi(
     /** "Up next": the list's size and its first words ("↑ 4 up next: 银行、学生…"; core UpNext.label). */
     val upNextCount: Int = 0,
     val upNextFirst: List<String> = emptyList(),
+    /** "Pause new cards on heavy days" (core ReviewLoad): today's load against the limit; Home says why there are no new cards. */
+    val reviewLoad: dev.jeromeswannack.chineselearning.lab.core.ReviewLoadState? = null,
 )
 
 class HomeViewModel(private val app: LabApp) : ViewModel() {
@@ -78,11 +80,14 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
         val longTerm = dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
         val upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao)
+        // "Pause new cards on heavy days": today's budget (0 + 0 over the limit) and the load Home explains.
+        val todays = dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(dao, app.prefs, cards, first, now, zone)
+        trackPaused(todays.reviewLoad, today)
         // The queue a session would get: the notes' hanzi + "Order new cards by" pick WHICH new words.
-        val all = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus("all", today), introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, upNext = upNext, order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = dao.noteFormality(app.prefs.newCardOrder))
+        val all = StudyQueue.build(queueDecks, cards, todays.budget, app.prefs.bonus("all", today), introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, upNext = upNext, order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = dao.noteFormality(app.prefs.newCardOrder))
         val noteCounts = dao.noteCounts().associate { it.deckId to it.count }
         val summaries = decks.map { d ->
-            val q = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext)
+            val q = StudyQueue.build(queueDecks, cards, todays.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext)
             DeckSummary(d.id, d.name, noteCounts[d.id] ?: 0, StudyQueue.counts(q.dueCards, q.reviewedNoteIds))
         }
         val snapshot = runCatching { todayData.snapshot(now, zone) }.getOrDefault(dev.jeromeswannack.chineselearning.lab.ui.today.TodaySnapshot.EMPTY)
@@ -107,7 +112,15 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
             bumped = all.bumpedNoteIds.size,
             upNextCount = upNext?.size ?: 0,
             upNextFirst = upNext.orEmpty().take(3).let { ids -> dao.notes(ids).associateBy { it.id }.let { m -> ids.mapNotNull { m[it]?.hanzi } } },
+            reviewLoad = todays.reviewLoad,
         )
+    }
+
+    /** `study.new_cards_paused` once a local day while Home says "New cards paused" (the web's HomePage). */
+    private fun trackPaused(state: dev.jeromeswannack.chineselearning.lab.core.ReviewLoadState, today: String) {
+        if (!state.paused || app.prefs.newCardsPausedTrackedDay == today) return
+        app.prefs.newCardsPausedTrackedDay = today
+        app.analytics.track("study.new_cards_paused", mapOf("load" to state.load, "limit" to state.threshold))
     }
 
     class Factory(private val app: LabApp) : ViewModelProvider.Factory {

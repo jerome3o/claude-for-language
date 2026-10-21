@@ -100,6 +100,8 @@ data class UpNextUi(
     val readOnlyReason: String? = null,
     val toast: String? = null,
     val toastUndo: Boolean = false,
+    /** "Pause new cards on heavy days": "Up next waits — new cards are paused today (…)" (core ReviewLoad); null on a normal day. */
+    val paused: String? = null,
 )
 
 data class UpNextActions(
@@ -164,6 +166,7 @@ fun UpNextScreen(ui: UpNextUi, actions: UpNextActions, previewOrder: List<String
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item("intro") { Text(ui.intro, color = Lab.colors.muted, fontSize = 15.sp) }
+                if (ui.paused != null) item("paused") { InlineNotice("⏸ ${ui.paused}", kind = NoticeKind.Warning) }
                 if (ui.error != null) item("error") { InlineNotice(ui.error, kind = NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRetry) }
                 if (ui.readOnlyReason != null) item("readonly") { InlineNotice(ui.readOnlyReason, kind = NoticeKind.Offline) }
 

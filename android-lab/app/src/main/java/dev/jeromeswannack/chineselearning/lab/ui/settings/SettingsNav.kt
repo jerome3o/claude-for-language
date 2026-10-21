@@ -81,7 +81,11 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 setForcedOffline = { store.setForcedOffline(it); app.haptics.tick(); app.analytics.track("settings.change", mapOf("setting" to "offline_mode", "value" to if (it) "forced" else "auto")) },
                 exportBackup = { vm.startExport { name -> saveAs.launch(name) } },
                 setBudget = vm::setBudgetDraft,
-                saveBudget = { vm.saveBudget(); app.analytics.track("settings.change", mapOf("setting" to "study_budget", "value" to "${ui.budgetDraft.newCardsPerDay}_${ui.budgetDraft.secondaryCardsPerDay}")) },
+                setReviewCap = vm::setReviewCapDraft,
+                saveBudget = {
+                    if (ui.budgetDraft != ui.budget) app.analytics.track("settings.change", mapOf("setting" to "study_budget", "value" to "${ui.budgetDraft.newCardsPerDay}_${ui.budgetDraft.secondaryCardsPerDay}"))
+                    vm.saveBudget()
+                },
                 chooseLanding = { vm.chooseLanding(it); app.analytics.track("settings.change", mapOf("setting" to "landing_page", "value" to (it ?: "auto"))) },
                 toggleSound = { sound = it; app.prefs.soundOn = it; app.analytics.track("settings.change", mapOf("setting" to "sound", "value" to if (it) "on" else "off")) },
                 toggleHaptics = { haptics = it; app.prefs.hapticsOn = it; if (it) app.haptics.tick(); app.analytics.track("settings.change", mapOf("setting" to "haptics", "value" to if (it) "on" else "off")) },

@@ -419,7 +419,7 @@ class StudyViewModel(
             val noteHanzi = repo.dao.noteHanzi()
             seenChars = seenCharactersOf(cards, noteHanzi)
             StudyQueue.build(
-                decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, noteHanzi, longTerm = repo.dao.noteLongTerm(),
+                decks.map { it.toQueueDeck() }, cards, dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(repo.dao, app.prefs, cards, first, now, zone).budget, bonus, introduced, cutoff, deckId, noteHanzi, longTerm = repo.dao.noteLongTerm(),
                 bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
                 upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
@@ -532,7 +532,7 @@ class StudyViewModel(
             val noteHanzi = repo.dao.noteHanzi()
             seenChars = seenCharactersOf(cards, noteHanzi)
             StudyQueue.build(
-                decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId, noteHanzi, longTerm = repo.dao.noteLongTerm(),
+                decks.map { it.toQueueDeck() }, cards, dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(repo.dao, app.prefs, cards, first, now, zone).budget, bonus, introduced, cutoff, deckId, noteHanzi, longTerm = repo.dao.noteLongTerm(),
                 bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
                 upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,

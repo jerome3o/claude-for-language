@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { canAddToUpNext, upNextStatus, upNextStatusLabel } from '@shared/decks';
+import { canAddToUpNext, upNextPausedLabel, upNextStatus, upNextStatusLabel } from '@shared/decks';
+import { useRawQueueCounts } from '../hooks/useOfflineData';
 import { db, type LocalNote } from '../db/database';
 import { addToUpNext, localCardCounts, removeFromUpNext, reorderUpNext, useUpNextRows } from '../services/upNext';
 import { bumpNotes, clearBump, useBumps } from '../services/studyBumps';
@@ -21,6 +22,8 @@ const queuesOf = (c?: { fresh: number; total: number }) => (c ? Array.from({ len
  * off (Undo), search to add at the top / bottom or drag a result into its place. Offline-first.
  */
 export function UpNextPage() {
+  // "Pause new cards on heavy days" (shared/decks/review-load.ts): Up next draws from the budget, so it waits too.
+  const { reviewLoad } = useRawQueueCounts();
   const list = useUpNextRows();
   const bumps = useBumps();
   const bumpIds = useMemo(() => [...bumps.keys()], [bumps]);
@@ -175,6 +178,9 @@ export function UpNextPage() {
           Words you choose to learn next. They take the first of your daily new cards, in this order — nothing extra is added.
           {' '}<Link to="/settings">New cards a day</Link>
         </p>
+        {upNextPausedLabel(reviewLoad) && (
+          <p className="upnext-paused" data-testid="upnext-paused">⏸ {upNextPausedLabel(reviewLoad)}</p>
+        )}
         <UpNextBoard
           rows={rows}
           onReorder={onReorder}

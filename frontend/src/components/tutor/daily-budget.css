@@ -35,6 +35,18 @@
   font-size: 0.8125rem;
 }
 
+/* "⏸ New cards paused today · 124 reviews due" (shared/decks/review-load.ts) */
+.db-paused {
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
 .db-edit {
   min-height: 44px;
   min-width: 64px;

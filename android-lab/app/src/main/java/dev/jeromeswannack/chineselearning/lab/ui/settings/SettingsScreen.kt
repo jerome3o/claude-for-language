@@ -72,6 +72,7 @@ class SettingsActions(
     val setForcedOffline: (Boolean) -> Unit = {},
     val exportBackup: () -> Unit = {},
     val setBudget: (StudyBudget) -> Unit = {},
+    val setReviewCap: (Int?) -> Unit = {},
     val saveBudget: () -> Unit = {},
     val chooseLanding: (String?) -> Unit = {},
     val toggleSound: (Boolean) -> Unit = {},
@@ -312,7 +313,11 @@ private fun BudgetSection(ui: SettingsUi, env: SettingsEnv, actions: SettingsAct
         }
         Stepper("New words", "Words you have never seen (blue)", d.newCardsPerDay, { actions.setBudget(d.copy(newCardsPerDay = it)) }, StudyBudget.MAX, !ui.budgetBusy.busy)
         Stepper("Extra cards", "More card types of words you have started (purple)", d.secondaryCardsPerDay, { actions.setBudget(d.copy(secondaryCardsPerDay = it)) }, StudyBudget.MAX, !ui.budgetBusy.busy)
-        val dirty = d != ui.budget
+        ReviewLoadCapField(
+            ui.reviewCapDraft, actions.setReviewCap, !ui.budgetBusy.busy,
+            "On a day with more reviews due than this you get no new cards — nothing from Up next either — just the reviews. ⚡ bumps, homework and Study 10 more still work.",
+        )
+        val dirty = d != ui.budget || ui.reviewCapDraft != ui.reviewCap
         Row(verticalAlignment = Alignment.CenterVertically) {
             PrimaryPill(
                 when {

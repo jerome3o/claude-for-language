@@ -91,7 +91,16 @@ class UpNextViewModel(private val app: LabApp) : ViewModel() {
             UpNextTodayUi(b.noteId, n?.hanzi ?: "…", n?.pinyin.orEmpty(), n?.english.orEmpty(), n?.let { decks[it.deckId] }.orEmpty(), b.bumpedByName,
                 canMoveToUpNext = (status == UpNext.NEW || status == UpNext.STARTED) && b.noteId !in onList)
         }
-        _ui.update { it.copy(loading = false, rows = rows, today = today) }
+        // Up next draws from the daily budget: on a paused day (core ReviewLoad) it waits — say so.
+        val paused = app.prefs.reviewLoadCap?.let { cap ->
+            runCatching {
+                val cards = dao.cards().map { it.toQueueCard() }
+                val first = dao.firstReviews().associate { it.cardId to dev.jeromeswannack.chineselearning.lab.core.Js.parseDate(it.firstAt) }
+                val st = dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.state(dao, cap, cards, first, System.currentTimeMillis(), java.time.ZoneId.systemDefault())
+                dev.jeromeswannack.chineselearning.lab.core.ReviewLoad.upNextPausedLabel(st)
+            }.getOrNull()
+        }
+        _ui.update { it.copy(loading = false, rows = rows, today = today, paused = paused) }
         if (_ui.value.query.isNotBlank()) search(_ui.value.query, debounce = false)
     }
 

@@ -82,6 +82,8 @@ export interface DebugComparison {
     new_card_order: ValuePair<string>;
     /** "Up next": "<count>:<hash of the ordered ids>" ("?" = not reported). */
     up_next: ValuePair<string>;
+    /** "Pause new cards on heavy days": "limit 100 · load 124 · paused" / "off · load 80" ("?" = not reported). */
+    review_load: ValuePair<string>;
     bonus_all: ValuePair<number>;
     introduced_basis: ValuePair<string>;
   };
@@ -208,6 +210,7 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
     },
     new_card_order: { a: orderLabel(a.new_card_order), b: orderLabel(b.new_card_order) },
     up_next: { a: upNextLabel(a.up_next), b: upNextLabel(b.up_next) },
+    review_load: { a: reviewLoadLabel(a.review_load), b: reviewLoadLabel(b.review_load) },
     bonus_all: { a: a.bonus.all, b: b.bonus.all },
     introduced_basis: { a: a.introduced_basis, b: b.introduced_basis },
   };
@@ -223,6 +226,18 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
     hints.push(`The "Up next" list differs: ${A} ${context.up_next.a} vs ${B} ${context.up_next.b} (count:order hash) — a sync brings them together.`);
   }
   if (a.bonus.all !== b.bonus.all) hints.push(`"Study 10 more" bonus differs: ${A} ${a.bonus.all} vs ${B} ${b.bonus.all}.`);
+  if (a.review_load && b.review_load) {
+    const ra = a.review_load;
+    const rb = b.review_load;
+    if (ra.threshold !== rb.threshold) {
+      hints.push(`"Pause new cards on heavy days" limit differs: ${A} ${ra.threshold ?? 'off'} vs ${B} ${rb.threshold ?? 'off'} — a sync brings the setting across.`);
+    }
+    if (ra.paused !== rb.paused) {
+      hints.push(`New cards are paused on ${ra.paused ? A : B} only (review load ${A} ${ra.load} vs ${B} ${rb.load}) — that one gets 0 + 0 new cards today.`);
+    } else if (ra.load !== rb.load) {
+      hints.push(`Today's review load differs: ${A} ${ra.load} vs ${B} ${rb.load} (cards due today + reviewed today) — usually events not synced yet.`);
+    }
+  }
 
   // ---------- headline ----------
   const headline: DebugComparison['headline'] = {};
@@ -242,6 +257,7 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
   for (const k of ['decks', 'notes', 'cards', 'events', 'unsynced_events', 'pending_deletions', 'orphan_events'] as const) {
     put(`totals.${k}`, a.totals[k] ?? 0, b.totals[k] ?? 0);
   }
+  if (a.review_load && b.review_load) put('review_load', a.review_load.load, b.review_load.load);
   const laA = learningAfterCutoff(a);
   const laB = learningAfterCutoff(b);
   put('cards.learning_due_after_cutoff', laA, laB);
@@ -459,6 +475,12 @@ export function serverTruthFromRows(
 function upNextLabel(ids: DebugReport['up_next']): string {
   if (!ids) return '?';
   return ids.length === 0 ? '0' : `${ids.length}:${eventIdHash(ids.join(','))}`;
+}
+
+/** "Pause new cards on heavy days" as "limit 100 · load 124 · paused"; "?" not in the report. */
+function reviewLoadLabel(r: DebugReport['review_load']): string {
+  if (!r) return '?';
+  return `${r.threshold === null ? 'off' : `limit ${r.threshold}`} · load ${r.load}${r.paused ? ' · paused' : ''}`;
 }
 
 /** "chars,words,everyday,common,sentences-last,known-chars-english-first" for the switches that are on; "-" none; "?" not in the report. */

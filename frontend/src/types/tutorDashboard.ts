@@ -2,7 +2,7 @@
  * Types for the tutor dashboard and the student page. Mirrors
  * worker/src/services/tutor-dashboard.ts and routes/tutor-dashboard.ts.
  */
-import type { StudyBudgetInfo } from '@shared/decks';
+import type { ReviewLoadState, StudyBudgetInfo } from '@shared/decks';
 import type { HomeworkMode, OneOffSummary } from '@shared/homework';
 
 import type { UserSummary, RelationshipRole } from '../types';
@@ -152,6 +152,11 @@ export interface StudentOverview {
   has_profile?: boolean;
   /** The student's daily new-card budget and who set it ("Daily new cards" row; older servers omit it). */
   study_budget?: StudyBudgetInfo;
+  /**
+   * "Pause new cards on heavy days" today (shared/decks/review-load.ts): the student's review load
+   * against their limit; `paused` = no new cards for them today. null = their limit is off.
+   */
+  review_load?: ReviewLoadState | null;
 }
 
 export interface PendingInvite {

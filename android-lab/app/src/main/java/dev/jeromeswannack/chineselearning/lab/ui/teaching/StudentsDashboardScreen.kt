@@ -176,6 +176,7 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
                 // One-off homework only — a long-term deck is not "homework progress" (docs/HOMEWORK.md §11).
                 homeworkPill(p)?.let { (text, tone) -> TeachPill(text, tone) { actions.open(Routes.connection(relId, Routes.SECTION_HOMEWORK)) } }
                 budgetChip(o.study_budget)?.let { TeachPill(it, PillTone.Muted) { actions.open(Routes.connection(relId)) } }
+                pausedChip(o.review_load)?.let { TeachPill(it, PillTone.Setup) { actions.open(Routes.connection(relId)) } }
                 if (o.has_profile == false) ProfileHintPill { actions.open(Routes.connection(relId)) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

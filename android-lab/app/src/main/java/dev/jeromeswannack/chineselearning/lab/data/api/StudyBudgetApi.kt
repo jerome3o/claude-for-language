@@ -24,6 +24,8 @@ data class StudyBudgetInfoDto(
     val set_by_name: String? = null,
     val set_by_tutor: Boolean = false,
     val set_at: String? = null,
+    /** "Pause new cards on heavy days" (core ReviewLoad): null = off. */
+    val pause_new_when_reviews_over: Int? = null,
 ) {
     fun toInfo() = StudyBudgetInfo(
         newCardsPerDay = new_cards_per_day.coerceIn(0, StudyBudget.MAX),
@@ -33,6 +35,7 @@ data class StudyBudgetInfoDto(
         setByName = set_by_name,
         setByTutor = set_by_tutor,
         setAt = set_at,
+        pauseNewWhenReviewsOver = pause_new_when_reviews_over?.takeIf { it >= 0 },
     )
 }
 
@@ -58,20 +61,27 @@ data class StudentStudyBudgetDto(
 @Serializable
 data class SavedStudentBudgetDto(val budget: StudyBudgetInfoDto, val changed: Boolean = false, val message_sent: Boolean = false)
 
-private fun budgetBody(newPerDay: Int?, secondaryPerDay: Int?): JsonObject = buildJsonObject {
-    // Built by hand: the API's Json drops nulls, and null here means "back to the default".
-    put("new_cards_per_day", newPerDay?.let(::JsonPrimitive) ?: JsonNull)
-    put("secondary_cards_per_day", secondaryPerDay?.let(::JsonPrimitive) ?: JsonNull)
+/** A change of "Pause new cards on heavy days": [value] null = off. Absent (null [PauseChange]) = leave it. */
+data class PauseChange(val value: Int?)
+
+private fun budgetBody(newPerDay: Int?, secondaryPerDay: Int?, pause: PauseChange? = null, numbers: Boolean = true): JsonObject = buildJsonObject {
+    // Built by hand: the API's Json drops nulls, and null here means "back to the default" (the pause: "off").
+    // numbers = false: a pause-only change leaves the numbers (and their default) alone.
+    if (numbers) {
+        put("new_cards_per_day", newPerDay?.let(::JsonPrimitive) ?: JsonNull)
+        put("secondary_cards_per_day", secondaryPerDay?.let(::JsonPrimitive) ?: JsonNull)
+    }
+    if (pause != null) put("pause_new_when_reviews_over", pause.value?.let(::JsonPrimitive) ?: JsonNull)
 }
 
 /** PUT /api/profile/study-budget — the learner's own; null = back to the default. 400 carries `problems`. */
-suspend fun Api.saveOwnStudyBudget(newPerDay: Int?, secondaryPerDay: Int?): StudyBudgetInfoDto =
-    put<JsonObject, StudyBudgetInfoDto>("/api/profile/study-budget", budgetBody(newPerDay, secondaryPerDay))
+suspend fun Api.saveOwnStudyBudget(newPerDay: Int?, secondaryPerDay: Int?, pause: PauseChange? = null, numbers: Boolean = true): StudyBudgetInfoDto =
+    put<JsonObject, StudyBudgetInfoDto>("/api/profile/study-budget", budgetBody(newPerDay, secondaryPerDay, pause, numbers))
 
 /** GET /api/relationships/:relId/student-study-budget — tutor of an active relationship only. */
 suspend fun Api.studentStudyBudget(relId: String): StudentStudyBudgetDto =
     get("/api/relationships/${enc(relId)}/student-study-budget")
 
 /** PUT …/student-study-budget — both null = reset to the default; the server posts the chat message. */
-suspend fun Api.saveStudentStudyBudget(relId: String, newPerDay: Int?, secondaryPerDay: Int?): SavedStudentBudgetDto =
-    put<JsonObject, SavedStudentBudgetDto>("/api/relationships/${enc(relId)}/student-study-budget", budgetBody(newPerDay, secondaryPerDay))
+suspend fun Api.saveStudentStudyBudget(relId: String, newPerDay: Int?, secondaryPerDay: Int?, pause: PauseChange? = null, numbers: Boolean = true): SavedStudentBudgetDto =
+    put<JsonObject, SavedStudentBudgetDto>("/api/relationships/${enc(relId)}/student-study-budget", budgetBody(newPerDay, secondaryPerDay, pause, numbers))
