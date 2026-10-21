@@ -12,6 +12,8 @@
  * the tutor dashboard uses the same budget to say "about N days to go".
  */
 
+import { pickReviewLoadCap } from './review-load';
+
 export interface StudyBudget {
   /** Brand-new words a day (blue), across all decks. */
   new_cards_per_day: number;
@@ -197,13 +199,17 @@ export function daysToIntroduce(wordsLeft: number, budget: Pick<StudyBudget, 'ne
   return Math.ceil(wordsLeft / Math.max(1, budget.new_cards_per_day));
 }
 
-/** A change to the budget: a number sets it, `null` resets it to the default, a missing key leaves it. */
-export type StudyBudgetUpdate = { [K in keyof StudyBudget]?: number | null };
+/**
+ * A change to the budget: a number sets it, `null` resets it to the default, a missing key leaves it.
+ * `pause_new_when_reviews_over` ("Pause new cards on heavy days", review-load.ts): a number
+ * REVIEW_LOAD_CAP_MIN–MAX sets the limit, `null` turns it off.
+ */
+export type StudyBudgetUpdate = { [K in keyof StudyBudget]?: number | null } & { pause_new_when_reviews_over?: number | null };
 
 /**
  * Validate a budget change from an untrusted object (the learner's own Settings and
  * the tutor's "Daily new cards" both go through this): numbers 0–STUDY_BUDGET_MAX,
- * `null` = back to the default.
+ * `null` = back to the default; the review-load cap 10–1000, `null` = off.
  */
 export function pickStudyBudgetUpdate(input: Record<string, unknown> | null | undefined): { update: StudyBudgetUpdate; problems: string[] } {
   const update: StudyBudgetUpdate = {};
@@ -216,6 +222,11 @@ export function pickStudyBudgetUpdate(input: Record<string, unknown> | null | un
     const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
     if (!Number.isInteger(n) || n < 0 || n > STUDY_BUDGET_MAX) problems.push(`${key} must be a whole number between 0 and ${STUDY_BUDGET_MAX}`);
     else update[key] = n;
+  }
+  if (input && 'pause_new_when_reviews_over' in input) {
+    const cap = pickReviewLoadCap(input.pause_new_when_reviews_over);
+    if (cap.problem) problems.push(cap.problem);
+    else if (cap.value !== undefined) update.pause_new_when_reviews_over = cap.value;
   }
   return { update, problems };
 }

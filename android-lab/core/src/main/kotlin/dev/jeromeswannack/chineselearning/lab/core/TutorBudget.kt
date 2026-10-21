@@ -18,6 +18,8 @@ data class StudyBudgetInfo(
     val setByTutor: Boolean = false,
     /** When (server ISO time). */
     val setAt: String? = null,
+    /** "Pause new cards on heavy days" (ReviewLoad.kt): no new cards on a day with more reviews due; null = off. */
+    val pauseNewWhenReviewsOver: Int? = null,
 ) {
     val budget: StudyBudget get() = StudyBudget(newCardsPerDay, secondaryCardsPerDay)
 
@@ -33,6 +35,7 @@ data class StudyBudgetRow(
     val studyBudgetSetBy: String? = null,
     val studyBudgetSetAt: String? = null,
     val studyBudgetSetByName: String? = null,
+    val pauseNewWhenReviewsOver: Int? = null,
 )
 
 object TutorBudget {
@@ -49,6 +52,7 @@ object TutorBudget {
             setByName = if (!setBy.isNullOrEmpty()) row.studyBudgetSetByName else null,
             setByTutor = !setBy.isNullOrEmpty() && setBy != ownerId,
             setAt = row?.studyBudgetSetAt,
+            pauseNewWhenReviewsOver = row?.pauseNewWhenReviewsOver,
         )
     }
 

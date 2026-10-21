@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { budgetFinishHint, budgetSummary, DEFAULT_STUDY_BUDGET, firstName, shortDay, type StudyBudget, type StudyBudgetInfo } from '@shared/decks';
+import { budgetFinishHint, budgetSummary, DEFAULT_STUDY_BUDGET, firstName, reviewLoadCapSummary, shortDay, tutorPausedLabel, type ReviewLoadState, type StudyBudget, type StudyBudgetInfo } from '@shared/decks';
+import { ReviewLoadCapField, reviewLoadCapValid } from '../ReviewLoadCapField';
 import { getStudentStudyBudget, setStudentStudyBudget, type StudentStudyBudget } from '../../api/client';
 import { BudgetStepper } from '../BudgetStepper';
 import { track } from '../../services/analytics';
@@ -11,10 +12,13 @@ import './daily-budget.css';
  * "Daily new cards" on the tutor's student page: the student's ONE daily budget
  * (shared/decks/budget.ts — N new words + M extra cards a day, filled from their
  * deck queue) with Edit → a sheet with the two steppers, Reset to default and a
- * live "At 5 a day, <deck> finishes in ~9 days". Saving posts a chat message from
- * the tutor; the student can still change it in their Settings (last write wins).
+ * live "At 5 a day, <deck> finishes in ~9 days", and "Pause new cards on heavy days"
+ * (shared/decks/review-load.ts). Saving new numbers posts a chat message from the
+ * tutor (the pause alone posts nothing); the student can still change it in their
+ * Settings (last write wins). `reviewLoad`: today's state from the overview — the row
+ * says "⏸ New cards paused today · 124 reviews due" while it holds.
  */
-export function DailyBudgetSection({ relId, studentName, initial }: { relId: string; studentName: string; initial?: StudyBudgetInfo }) {
+export function DailyBudgetSection({ relId, studentName, initial, reviewLoad }: { relId: string; studentName: string; initial?: StudyBudgetInfo; reviewLoad?: ReviewLoadState | null }) {
   const [editing, setEditing] = useState(false);
   const query = useQuery({
     queryKey: ['student-study-budget', relId],
@@ -37,7 +41,13 @@ export function DailyBudgetSection({ relId, studentName, initial }: { relId: str
         ) : (
           <span className="db-muted">{query.isError ? 'Could not load' : 'Loading…'}</span>
         )}
-        {budget && !budget.is_default && who && (
+        {budget && reviewLoadCapSummary(budget.pause_new_when_reviews_over) && (
+          <span className="db-muted db-small" data-testid="daily-budget-cap">{reviewLoadCapSummary(budget.pause_new_when_reviews_over)}</span>
+        )}
+        {tutorPausedLabel(reviewLoad) && (
+          <span className="db-paused" data-testid="daily-budget-paused">{tutorPausedLabel(reviewLoad)}</span>
+        )}
+        {budget && (!budget.is_default || budget.pause_new_when_reviews_over != null) && who && (
           <span className="db-muted db-small">Set by {who}{when ? ` · ${when}` : ''}</span>
         )}
       </div>
@@ -60,13 +70,15 @@ export function DailyBudgetSection({ relId, studentName, initial }: { relId: str
 export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose }: {
   relId: string;
   studentName: string;
-  budget: StudyBudget;
+  budget: StudyBudget & { pause_new_when_reviews_over?: number | null };
   topDeck: StudentStudyBudget['top_deck'];
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const [primary, setPrimary] = useState(budget.new_cards_per_day);
   const [secondary, setSecondary] = useState(budget.secondary_cards_per_day);
+  const initialCap = budget.pause_new_when_reviews_over ?? null;
+  const [cap, setCap] = useState<number | null>(initialCap);
   const [error, setError] = useState<string | null>(null);
   const name = firstName(studentName);
 
@@ -77,9 +89,13 @@ export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose 
   }, [onClose]);
 
   const save = useMutation({
-    mutationFn: (update: { new_cards_per_day: number | null; secondary_cards_per_day: number | null }) => setStudentStudyBudget(relId, update),
+    mutationFn: (update: { new_cards_per_day?: number | null; secondary_cards_per_day?: number | null; pause_new_when_reviews_over?: number | null }) => setStudentStudyBudget(relId, update),
     onSuccess: (res, update) => {
-      track('tutor.budget_change', { new_cards: update.new_cards_per_day, secondary_cards: update.secondary_cards_per_day, reset: update.new_cards_per_day === null && update.secondary_cards_per_day === null });
+      track('tutor.budget_change', {
+        ...(update.new_cards_per_day !== undefined ? { new_cards: update.new_cards_per_day, secondary_cards: update.secondary_cards_per_day } : {}),
+        reset: update.new_cards_per_day === null && update.secondary_cards_per_day === null,
+        ...(update.pause_new_when_reviews_over !== undefined ? { pause_over: update.pause_new_when_reviews_over ?? 'off' } : {}),
+      });
       queryClient.setQueryData<StudentStudyBudget>(['student-study-budget', relId], (old) => (old ? { ...old, budget: res.budget } : old));
       queryClient.invalidateQueries({ queryKey: ['student-study-budget', relId] });
       queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
@@ -91,7 +107,10 @@ export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose 
 
   const hint = budgetFinishHint(primary, topDeck?.name, topDeck?.words_to_go);
   const isDefault = primary === DEFAULT_STUDY_BUDGET.new_cards_per_day && secondary === DEFAULT_STUDY_BUDGET.secondary_cards_per_day;
-  const dirty = primary !== budget.new_cards_per_day || secondary !== budget.secondary_cards_per_day;
+  const capChanged = cap !== initialCap;
+  const numbersDirty = primary !== budget.new_cards_per_day || secondary !== budget.secondary_cards_per_day;
+  const dirty = numbersDirty || capChanged;
+  const capPart = capChanged ? { pause_new_when_reviews_over: cap } : {};
 
   return (
     <div className="td-sheet-backdrop" onClick={onClose} role="presentation">
@@ -105,7 +124,8 @@ export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose 
           onSubmit={(e) => {
             e.preventDefault();
             setError(null);
-            save.mutate({ new_cards_per_day: primary, secondary_cards_per_day: secondary });
+            // Only what changed: a pause-only change leaves the numbers (and their default) alone.
+            save.mutate({ ...(numbersDirty ? { new_cards_per_day: primary, secondary_cards_per_day: secondary } : {}), ...capPart });
           }}
         >
           <p className="db-lead">
@@ -114,7 +134,14 @@ export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose 
           <BudgetStepper tone="primary" label="New words a day" hint="Words they have never seen" value={primary} onChange={setPrimary} disabled={save.isPending} testId="tutor-budget-primary" />
           <BudgetStepper tone="secondary" label="Extra cards a day" hint="Other card types of words already started" value={secondary} onChange={setSecondary} disabled={save.isPending} testId="tutor-budget-secondary" />
           {hint && <p className="db-hint" data-testid="daily-budget-hint">{hint}</p>}
-          <p className="db-muted db-small">{name} gets a chat message from you, and can still change it in their Settings.</p>
+          <ReviewLoadCapField
+            value={cap}
+            onChange={setCap}
+            disabled={save.isPending}
+            testId="tutor-review-cap"
+            hint={`On a day with more reviews due than this, ${name} gets no new cards — Up next waits too — just the reviews. ⚡ bumps and homework still come.`}
+          />
+          <p className="db-muted db-small">{name} gets a chat message from you when the numbers change, and can still change it in their Settings.</p>
           {error && <div className="td-error" role="alert">{error}</div>}
           <div className="db-actions sheet-footer">
             <button
@@ -125,13 +152,13 @@ export function DailyBudgetSheet({ relId, studentName, budget, topDeck, onClose 
                 setError(null);
                 setPrimary(DEFAULT_STUDY_BUDGET.new_cards_per_day);
                 setSecondary(DEFAULT_STUDY_BUDGET.secondary_cards_per_day);
-                save.mutate({ new_cards_per_day: null, secondary_cards_per_day: null });
+                save.mutate({ new_cards_per_day: null, secondary_cards_per_day: null, ...capPart });
               }}
               data-testid="daily-budget-reset"
             >
               Reset to default ({DEFAULT_STUDY_BUDGET.new_cards_per_day} + {DEFAULT_STUDY_BUDGET.secondary_cards_per_day})
             </button>
-            <button type="submit" className="btn btn-primary" disabled={save.isPending || !dirty} data-testid="daily-budget-save">
+            <button type="submit" className="btn btn-primary" disabled={save.isPending || !dirty || !reviewLoadCapValid(cap)} data-testid="daily-budget-save">
               {save.isPending ? 'Saving…' : 'Save'}
             </button>
           </div>

@@ -460,7 +460,7 @@ ALTER TABLE messages ADD COLUMN album_notified_at TEXT;   -- set on the ONE phot
   takes `album_count` (Lab `ChatInbox.messagePreview`, parity-tested). Listening mode is unaffected (photos are never hidden).
 - Analytics: `chat.album_sent { count, offline }`, `chat.album_viewer_open { count, index }`.
 
-## System messages (migration 0131_chat_system_messages.sql)
+## System messages (migration 0132_chat_system_messages.sql)
 
 Jerome (Lab screenshot of his chat with Minghui): the lines the PLATFORM posts on someone's behalf read as if the
 person typed them, in the first person — "I've set your new cards to 2 a day (+5 extra) 📚", "📹 I started a video

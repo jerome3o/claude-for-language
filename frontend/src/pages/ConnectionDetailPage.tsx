@@ -609,7 +609,7 @@ export function ConnectionDetailPage() {
               <h2>Long-term learning</h2>
               <p className="td-muted td-long-term-intro">Decks in {otherName.split(' ')[0] || 'their'}’s daily review, introduced at their daily new-card budget. Not counted as homework.</p>
               {/* The student's ONE daily new-card budget — what decides how fast these decks are introduced */}
-              <DailyBudgetSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} initial={overview?.study_budget} />
+              <DailyBudgetSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} initial={overview?.study_budget} reviewLoad={overview?.review_load} />
               {/* "Up next": the words introduced first within that budget, in order (shared/decks/up-next.ts) */}
               <StudentUpNextLink relId={relId!} studentName={otherName.split(' ')[0] || 'them'} />
               {longTermDecks.length > 0 ? (

@@ -438,3 +438,31 @@
   font-weight: 600;
   color: #b45309;
 }
+
+/* "⏸ New cards paused — 124 reviews due today (limit 100)" (shared/decks/review-load.ts) */
+.home-paused {
+  margin-top: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-md, 8px);
+  background: #fef3c7;
+  color: #78350f;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  text-align: left;
+}
+
+.home-paused-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.home-paused-detail {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.home-paused-detail a {
+  color: inherit;
+  text-decoration: underline;
+}

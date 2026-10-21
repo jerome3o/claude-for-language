@@ -149,6 +149,8 @@ export interface StudentOverview {
   has_profile?: boolean;
   /** The student's daily new-card budget and who set it (worker: shared/decks/tutor-budget.ts). */
   study_budget?: StudyBudgetInfo;
+  /** "Pause new cards on heavy days" today (shared/decks/review-load.ts); null when the student's limit is off. */
+  review_load?: { load: number; threshold: number | null; paused: boolean } | null;
 }
 
 export interface DashboardInvite {

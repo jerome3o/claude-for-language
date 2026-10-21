@@ -24,6 +24,8 @@ class DecksEnv(
     /** Bumped when Room changed (sync, review, one of our writes). */
     val dataVersion: Flow<Int>,
     val budget: () -> StudyBudget = { StudyBudget.DEFAULT },
+    /** "Pause new cards on heavy days" (Prefs.reviewLoadCap, core ReviewLoad); null = off. */
+    val reviewLoadCap: () -> Int? = { null },
     val bonus: (scope: String, day: String) -> Int = { _, _ -> 0 },
     val setBonus: (scope: String, day: String, value: Int) -> Unit = { _, _, _ -> },
     /** users.role = tutor: the deck page offers "Try it as a student" instead of Study. */
@@ -62,6 +64,7 @@ class DecksEnv(
                 online = app.online,
                 dataVersion = app.repo.dataVersion,
                 budget = { app.prefs.budget },
+                reviewLoadCap = { app.prefs.reviewLoadCap },
                 bonus = { scope, day -> app.prefs.bonus(scope, day) },
                 setBonus = { scope, day, v -> app.prefs.setBonus(scope, day, v) },
                 isTutorAccount = { app.prefs.accountRole == "tutor" },

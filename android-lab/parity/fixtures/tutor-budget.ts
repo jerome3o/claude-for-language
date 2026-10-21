@@ -58,6 +58,9 @@ const rows: Array<StudyBudgetRow | null> = [
   { new_cards_per_day: null, secondary_cards_per_day: null, study_budget_set_by: 'tutor-1', study_budget_set_at: '2026-10-02T23:30:00Z', study_budget_set_by_name: null },
   { study_budget_set_by: '', study_budget_set_by_name: 'Ghost' },
   { study_budget_set_by: null, study_budget_set_by_name: 'Ghost', study_budget_set_at: '2026-10-03T10:00:00Z' },
+  { pause_new_when_reviews_over: 100 },
+  { new_cards_per_day: 2, pause_new_when_reviews_over: 10, study_budget_set_by: 'tutor-1', study_budget_set_at: '2026-10-21T08:00:00Z', study_budget_set_by_name: 'Minghui Wang' },
+  { pause_new_when_reviews_over: null },
 ];
 const infos = rows.map((row) => {
   const info = studyBudgetInfo(row, 'me');

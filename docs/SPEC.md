@@ -244,6 +244,16 @@ words are introduced FIRST, in its order, from any deck (deck caps don't hold th
 by itself once every card of it has been studied, and taking one off never deletes the card. The page also
 shows today's ⚡ pocket. Rules: `shared/decks/up-next.ts`; details in docs/STUDY_SESSION.md "Up next".
 
+### 18. Pause new cards on heavy days (review-load cap)
+
+An optional limit on the ONE daily new-card budget (Settings → New cards a day; the tutor's "Daily new
+cards" sheet; MCP `set_student_study_budget`): on a day with MORE reviews due than the limit (cards due
+today, counting the ones already reviewed today, so the number holds all day) the learner gets no new
+cards — only the reviews; ⚡ bumps, homework and lessons are unaffected, Up next waits, "Study 10 more"
+still adds. The next lighter day the configured budget comes back. Home says "⏸ New cards paused — 124
+reviews due today (limit 100)"; the tutor's student card says so too. Rules: `shared/decks/review-load.ts`;
+details in docs/STUDY_SESSION.md "Pause new cards on heavy days".
+
 ### Tutor Capabilities
 - View all assigned students
 - See student progress and statistics

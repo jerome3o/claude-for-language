@@ -43,6 +43,7 @@ import {
 } from '../../../shared/students/profile';
 import { STUDY_BUDGET_MAX, pickStudyBudgetUpdate } from '../../../shared/decks/budget';
 import { budgetSummary } from '../../../shared/decks/tutor-budget';
+import { REVIEW_LOAD_CAP_MAX, REVIEW_LOAD_CAP_MIN, reviewLoadCapSummary } from '../../../shared/decks/review-load';
 import type { RecordingQueueResponse } from '../../../shared/recordings/queue';
 import {
   clampInt,
@@ -176,24 +177,26 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'set_student_study_budget',
-    `Change how many NEW cards the student gets a day (tutor only). The student has ONE daily budget for all their decks — \`new_cards_per_day\` brand-new words (blue) + \`secondary_cards_per_day\` extra cards (purple: the other card types of words already started) — filled from the top of their deck queue down. Homework decks never add to it, so this is the lever for their daily load and for how fast a homework deck gets introduced. Default 3 + 6. Pass a number (0–${STUDY_BUDGET_MAX}) to set one, \`null\` to put it back to the default, omit it to leave it. The student's devices pick it up on their next sync; the student gets a short chat message from the tutor ("I've set your new cards to 5 a day (+10 extra) 📚") and can still change it in their Settings (their Settings shows "Set by <tutor>"). The current values are \`study_budget\` in list_students / get_student_overview. Their own decks' per-deck caps are not changed.`,
+    `Change how many NEW cards the student gets a day (tutor only). The student has ONE daily budget for all their decks — \`new_cards_per_day\` brand-new words (blue) + \`secondary_cards_per_day\` extra cards (purple: the other card types of words already started) — filled from the top of their deck queue down. Homework decks never add to it, so this is the lever for their daily load and for how fast a homework deck gets introduced. Default 3 + 6. Pass a number (0–${STUDY_BUDGET_MAX}) to set one, \`null\` to put it back to the default, omit it to leave it. The student's devices pick it up on their next sync; the chat shows a system line ("Minghui set your new cards to 5 a day (+10 extra)") and can still change it in their Settings (their Settings shows "Set by <tutor>"). The current values are \`study_budget\` in list_students / get_student_overview. Their own decks' per-deck caps are not changed. \`pause_new_when_reviews_over\` ("Pause new cards on heavy days"): on a day with MORE than this many reviews due (learning + review cards due today, counting the ones already done today), the student gets no new cards at all — only the reviews (⚡ bumps, homework passes and lessons are unaffected; Up next waits too); a number ${REVIEW_LOAD_CAP_MIN}–${REVIEW_LOAD_CAP_MAX} turns it on (100 is a good start), \`null\` turns it off, omit to leave it. Changing only this posts no chat message. get_student_overview's \`review_load\` says whether today is paused.`,
     {
       relationship_id: RELATIONSHIP_ID,
       new_cards_per_day: z.number().int().min(0).max(STUDY_BUDGET_MAX).nullable().optional().describe('Brand-new words a day across all decks; null = default (3).'),
       secondary_cards_per_day: z.number().int().min(0).max(STUDY_BUDGET_MAX).nullable().optional().describe('Extra cards a day (other card types of words already started); null = default (6).'),
+      pause_new_when_reviews_over: z.number().int().min(REVIEW_LOAD_CAP_MIN).max(REVIEW_LOAD_CAP_MAX).nullable().optional().describe(`"Pause new cards on heavy days": no new cards on a day with more than this many reviews due (${REVIEW_LOAD_CAP_MIN}–${REVIEW_LOAD_CAP_MAX}); null = off.`),
     },
-    async ({ relationship_id, new_cards_per_day, secondary_cards_per_day }) =>
+    async ({ relationship_id, new_cards_per_day, secondary_cards_per_day, pause_new_when_reviews_over }) =>
       guard(async () => {
         const body: Record<string, number | null> = {};
         if (new_cards_per_day !== undefined) body.new_cards_per_day = new_cards_per_day;
         if (secondary_cards_per_day !== undefined) body.secondary_cards_per_day = secondary_cards_per_day;
+        if (pause_new_when_reviews_over !== undefined) body.pause_new_when_reviews_over = pause_new_when_reviews_over;
         const { problems } = pickStudyBudgetUpdate(body);
         if (problems.length) return errorResult(problems.join('; '));
-        if (!Object.keys(body).length) return errorResult('Pass new_cards_per_day and/or secondary_cards_per_day (a number, or null for the default).');
+        if (!Object.keys(body).length) return errorResult('Pass new_cards_per_day and/or secondary_cards_per_day (a number, or null for the default) and/or pause_new_when_reviews_over (a number, or null for off).');
         const r = await api.put<{ budget: StudyBudgetInfo; changed: boolean; message_sent: boolean }>(`${rel(relationship_id)}/student-study-budget`, body);
         return jsonResult({
           study_budget: compactStudyBudget(r.budget),
-          summary: budgetSummary(r.budget),
+          summary: budgetSummary(r.budget) + (r.budget.pause_new_when_reviews_over != null ? ` · ${reviewLoadCapSummary(r.budget.pause_new_when_reviews_over)}` : ''),
           changed: r.changed,
           chat_message_sent: r.message_sent,
         });

@@ -1,6 +1,6 @@
 /**
  * System messages (docs/CHAT.md "System messages") against real SQLite with every
- * migration: migration 0131 tags the automated messages already in the chat by the
+ * migration: migration 0132 tags the automated messages already in the chat by the
  * exact templates the code wrote (anything else stays an ordinary message), and the
  * new paths store the kind + data with a third-person fallback.
  */
@@ -32,9 +32,9 @@ function tagged(db: SqliteD1): Record<string, { kind: string | null; data: Recor
   return out;
 }
 
-describe('migration 0131: existing automated messages', () => {
+describe('migration 0132: existing automated messages', () => {
   it('tags each template, fills the data, and leaves everything else alone', async () => {
-    const db = await createSqliteD1({ stopBefore: '0131' });
+    const db = await createSqliteD1({ stopBefore: '0132' });
     seedPeople(db);
     db.raw.run("INSERT INTO decks (id, user_id, name) VALUES ('d', 'student', 'HSK')");
     db.raw.run("INSERT INTO notes (id, deck_id, hanzi, pinyin, english) VALUES ('n1', 'd', '银行', 'yínháng', 'bank'), ('n2', 'd', '长大', 'zhǎngdà', 'grow up')");
@@ -67,7 +67,7 @@ describe('migration 0131: existing automated messages', () => {
     insertMessage(db, 'z-chinese', STUDENT, '我今天去银行了', T(7));
     db.raw.run("UPDATE messages SET deleted_at = '2026-10-08T00:00:00Z', content = '' WHERE id = 'z-typed2'");
 
-    applyMigrationsFrom(db, '0131');
+    applyMigrationsFrom(db, '0132');
     const t = tagged(db);
     expect(t['a-budget']).toEqual({ kind: 'study_budget', data: { new_cards_per_day: 2, secondary_cards_per_day: 5, is_default: false } });
     expect(t['a-budget-none']).toEqual({ kind: 'study_budget', data: { new_cards_per_day: 12, secondary_cards_per_day: 0, is_default: false } });

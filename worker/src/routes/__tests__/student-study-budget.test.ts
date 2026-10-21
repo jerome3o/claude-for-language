@@ -113,4 +113,32 @@ describe('tutor sets the student study budget', () => {
     const mine = await setStudyBudget(db, STUDENT, { new_cards_per_day: 2 }, STUDENT);
     expect(mine).toMatchObject({ new_cards_per_day: 2, secondary_cards_per_day: 6, set_by_id: STUDENT, set_by_tutor: false });
   });
+
+  it('the review-load cap: validated, stored, recorded as the tutor\'s, no chat message on its own', async () => {
+    const bad = await as(env, TUTOR)('PUT', { pause_new_when_reviews_over: 5 });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { problems: string[] }).problems[0]).toMatch(/between 10 and 1000/);
+
+    const res = await as(env, TUTOR)('PUT', { pause_new_when_reviews_over: 100 });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { budget: Record<string, unknown>; changed: boolean; message_sent: boolean };
+    expect(body).toMatchObject({ changed: true, message_sent: false });
+    expect(body.budget).toMatchObject({ pause_new_when_reviews_over: 100, is_default: true, set_by_tutor: true });
+    expect(await rows(db, 'SELECT id FROM messages')).toHaveLength(0);
+
+    // Numbers + pause together: the usual budget message, once.
+    const both = await (await as(env, TUTOR)('PUT', { new_cards_per_day: 2, pause_new_when_reviews_over: 150 })).json() as { budget: Record<string, unknown>; message_sent: boolean };
+    expect(both).toMatchObject({ message_sent: true, budget: { new_cards_per_day: 2, pause_new_when_reviews_over: 150 } });
+    expect(await rows<{ content: string }>(db, 'SELECT content FROM messages')).toEqual([{ content: "📚 Minghui set your new cards to 2 a day (+6 extra)" }]);
+
+    // The default numbers sent explicitly: no news for the student, no message.
+    const same = await (await as(env, TUTOR)('PUT', { new_cards_per_day: 2, secondary_cards_per_day: 6 })).json() as { message_sent: boolean };
+    expect(same.message_sent).toBe(false);
+    expect(await rows(db, 'SELECT id FROM messages')).toHaveLength(1);
+
+    // null = off.
+    const off = await (await as(env, TUTOR)('PUT', { pause_new_when_reviews_over: null })).json() as { budget: Record<string, unknown>; changed: boolean };
+    expect(off).toMatchObject({ changed: true, budget: { pause_new_when_reviews_over: null } });
+    expect(await rows(db, 'SELECT pause_new_when_reviews_over FROM users WHERE id = ?', [STUDENT])).toEqual([{ pause_new_when_reviews_over: null }]);
+  });
 });

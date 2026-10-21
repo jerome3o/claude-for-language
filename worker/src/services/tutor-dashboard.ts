@@ -9,7 +9,7 @@
  */
 
 import type { User } from '../types';
-import { DEFAULT_STUDY_BUDGET, daysToIntroduce, studyBudgetInfo, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow } from '@shared/decks';
+import { DEFAULT_STUDY_BUDGET, daysToIntroduce, studyBudgetInfo, type ReviewLoadState, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow } from '@shared/decks';
 import { isLongTermDeck, summarizeOneOffHomework, type HomeworkAssignment, type HomeworkMode, type OneOffSummary } from '@shared/homework';
 import {
   rankStruggling,
@@ -77,6 +77,8 @@ export interface StudentUserRow extends UserSummary, StudyBudgetRow {
   cached_audio_count: number | null;
   last_opened_at: string | null;
   created_at: string;
+  /** IANA zone (Profile), for the student's own "today". */
+  time_zone?: string | null;
 }
 
 export interface InviteRef {
@@ -117,6 +119,8 @@ export interface StudentOverviewInput {
   has_profile?: boolean;
   /** Client's Date.getTimezoneOffset() in minutes; days are bucketed in that zone. */
   tz_offset_minutes: number;
+  /** "Pause new cards on heavy days" today (services/review-load.ts); null = the student's limit is off. */
+  review_load?: ReviewLoadState | null;
   now?: Date;
 }
 
@@ -232,6 +236,11 @@ export interface StudentOverview {
   has_profile: boolean;
   /** The student's daily new-card budget and who set it (the "Daily new cards" row; tutor can change it). */
   study_budget: StudyBudgetInfo;
+  /**
+   * "Pause new cards on heavy days" (shared/decks/review-load.ts): today's review load against the
+   * student's limit — `paused` = no new cards for them today. null when their limit is off.
+   */
+  review_load: ReviewLoadState | null;
 }
 
 // ---------- Days & streaks ----------
@@ -551,6 +560,7 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
     last_conversation_id: input.last_conversation_id,
     has_profile: !!input.has_profile,
     study_budget: studyBudgetInfo(input.student, input.student.id),
+    review_load: input.review_load ?? null,
   };
 }
 

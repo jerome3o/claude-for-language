@@ -180,7 +180,15 @@ data class StudentOverviewDto(
     val has_profile: Boolean? = null,
     /** The student's daily new-card budget and who set it (null from an older server). */
     val study_budget: StudyBudgetInfoDto? = null,
+    /** "Pause new cards on heavy days" today (null = the student's limit is off / an older server). */
+    val review_load: ReviewLoadDto? = null,
 )
+
+/** Today's review load against the student's limit (shared/decks/review-load.ts `ReviewLoadState`). */
+@Serializable
+data class ReviewLoadDto(val load: Int = 0, val threshold: Int? = null, val paused: Boolean = false) {
+    fun toState() = dev.jeromeswannack.chineselearning.lab.core.ReviewLoadState(load, threshold, paused)
+}
 
 @Serializable
 data class PendingInviteDto(

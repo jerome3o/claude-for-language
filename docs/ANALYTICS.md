@@ -192,6 +192,7 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `study.answer_spoken` | `card_type`, `result`, `via`, `live_error`, `speech_ms`, `ms`, `auto_submit`, `retry`, `reviewed`, `edited` | Said the answer of a typing card with 🎤: result submitted / filled (✏️ Edit put the transcript in the box) / retaken (🔁 Retry on the review) / failed / empty / cancelled; via live / upload / none; live_error as above; speech_ms = mic open; ms = stop → transcript; auto_submit = the Settings switch "Skip the review"; retry = a "🎤 Say it again" from the answer side; reviewed = the take went through the review step (the default); edited = ✏️ Edit on the review. A reviewed take is reported when the learner decides (Submit / Edit / Retry / cancel). Never the transcript. |
 | `study.spoken_answer_checked` | `card_type`, `verdict`, `retry`, `reviewed` | A spoken answer was checked: exact / punctuation_only / equivalent / alternative / sound (a homophone) / close (other tones) / wrong; retry = the answer of a "🎤 Say it again"; reviewed = submitted from the review step. |
 | `study.study_more` | `count` | Pressed Study More (bonus new cards). |
+| `study.new_cards_paused` | `load`, `limit` | Home said "New cards paused" (review load over the "Pause new cards on heavy days" limit; once a local day). |
 | `study.celebration` | `reviews`, `active_ms` | Emptied today's queue (the once-a-day celebration). |
 | `study.long_term_toggle` | `value` | "Add to my long-term review" switched for a word. |
 | `study.sentence_reveal` | `step` | Tapped an example sentence row open. |
@@ -260,7 +261,7 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `tutor.library_assign` | `students` | Assigned a library lesson to students. |
 | `tutor.library_push_update` | — | Pushed a library lesson update to copies. |
 | `tutor.catalogue_copy` | `exercise_type` | Copied a catalogue sample into the library. |
-| `tutor.budget_change` | `new_cards`, `secondary_cards`, `reset` | Changed a student's daily new cards. |
+| `tutor.budget_change` | `new_cards`, `secondary_cards`, `reset`, `pause_over` | Changed a student's daily new cards (`pause_over` = their "Pause new cards on heavy days" limit when it changed, or off). |
 | `tutor.student_profile_save` | — | Saved the private student profile. |
 | `tutor.recording_mark` | `status` | Marked a recording (listened / needs work). |
 | `tutor.flag_reply` | — | Replied to a flagged card. |

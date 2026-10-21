@@ -98,6 +98,12 @@ export interface DebugReport {
   budget: { new_cards_per_day: number; secondary_cards_per_day: number };
   /** "Order new cards by" (shared/decks/new-card-order.ts) as this device applies it; absent in older reports. */
   new_card_order?: { new_characters_first: boolean; new_words_first: boolean; most_common_first: boolean; sentences_last: boolean; known_characters_english_first?: boolean; everyday_first?: boolean };
+  /**
+   * "Pause new cards on heavy days" (shared/decks/review-load.ts) as this device applies it: the
+   * account's limit (null = off), today's review load and whether today's budget is 0 + 0.
+   * `budget` above stays the configured numbers. Absent in older reports.
+   */
+  review_load?: { threshold: number | null; load: number; paused: boolean };
   /** "Up next" (shared/decks/up-next.ts): the list's note ids in order as this device holds it; absent in older reports. */
   up_next?: string[];
   /** "Study 10 more" bonuses in effect: all-decks bonus + per deck, and the day key they are stored under. */

@@ -6,8 +6,9 @@ import { bumpPocket, type QueueBump, type QueueBumps } from '@shared/decks';
 import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, isLeadCard, knownCharacterNotesInQueue, isKnownCardState, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { newBudgetLeft, takeUpNext, upNextSlots, withUpNextPicks } from '@shared/decks';
+import { budgetForToday, reviewLoadState, reviewLoadToday, type ReviewLoadState } from '@shared/decks';
 import { seenCharactersOf } from '@shared/study/newCharacters';
-import { readStudyBudget } from '../services/studyBudget';
+import { readReviewLoadCap, readStudyBudget } from '../services/studyBudget';
 import { readNewCardOrder } from '../services/newCardOrder';
 import { loadWordFrequency } from '../services/wordFrequency';
 import { loadWordTagLexicon } from '../services/wordTags';
@@ -1330,27 +1331,51 @@ async function getFirstReviewedAtMap(cardIds: string[]): Promise<Map<string, str
  * cost is O(events_today) regardless of total history size.
  */
 async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCardsStudiedToday>> {
+  return (await computeTodayFromEvents()).introduced;
+}
+
+/** What today's review events say: new cards introduced per deck + which cards were reviewed (review-load.ts). */
+interface TodayFromEvents {
+  introduced: Map<string, NewCardsStudiedToday>;
+  /** Cards with a review since local midnight. */
+  reviewedToday: Set<string>;
+  /** First-ever review (epoch ms) of each card in `reviewedToday` (and their siblings when some were introduced). */
+  firstReviewMs: Map<string, number>;
+  dayStartMs: number;
+}
+
+async function computeTodayFromEvents(): Promise<TodayFromEvents> {
   // Local midnight as an instant: reviewed_at is a UTC ISO string, so comparing
   // it with the local DATE string ("2026-09-27") was off by the UTC offset.
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
   const dayStartIso = dayStart.toISOString();
+  const empty: TodayFromEvents = { introduced: new Map(), reviewedToday: new Set(), firstReviewMs: new Map(), dayStartMs: dayStart.getTime() };
 
   const todayEvents = await db.reviewEvents
     .where('reviewed_at')
     .aboveOrEqual(dayStartIso)
     .toArray();
-  if (todayEvents.length === 0) return new Map();
+  if (todayEvents.length === 0) return empty;
 
   const cardIds = [...new Set(todayEvents.map(e => e.card_id))];
   const [firstReviewedAt, cards] = await Promise.all([
     getFirstReviewedAtMap(cardIds),
     db.cards.bulkGet(cardIds),
   ]);
+  const toMs = (m: Map<string, string>) => {
+    const out = new Map<string, number>();
+    for (const [id, at] of m) {
+      const ms = Date.parse(at);
+      if (Number.isFinite(ms)) out.set(id, ms);
+    }
+    return out;
+  };
+  const base: TodayFromEvents = { ...empty, reviewedToday: new Set(cardIds), firstReviewMs: toMs(firstReviewedAt) };
   const introduced = cards.filter(
     (card): card is LocalCard => !!card && (firstReviewedAt.get(card.id) ?? '') >= dayStartIso
   );
-  if (introduced.length === 0) return new Map();
+  if (introduced.length === 0) return base;
 
   // Siblings of the introduced notes and their first reviews decide primary vs
   // secondary; the rule itself is the shared one (shared/decks/study-queue.ts,
@@ -1360,12 +1385,8 @@ async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCards
   const unknownFirst = siblings.filter(s => !firstReviewedAt.has(s.id)).map(s => s.id);
   for (const [id, at] of await getFirstReviewedAtMap(unknownFirst)) firstReviewedAt.set(id, at);
 
-  const firstMs = new Map<string, number>();
-  for (const [id, at] of firstReviewedAt) {
-    const ms = Date.parse(at);
-    if (Number.isFinite(ms)) firstMs.set(id, ms);
-  }
-  return introducedTodayFromFirstReviews(siblings, firstMs, dayStart.getTime());
+  const firstMs = toMs(firstReviewedAt);
+  return { ...base, firstReviewMs: firstMs, introduced: introducedTodayFromFirstReviews(siblings, firstMs, dayStart.getTime()) };
 }
 
 /**
@@ -1516,6 +1537,11 @@ interface StudyInputs {
   bumps: QueueBumps | null;
   /** "Up next": the account's ordered list (note ids). */
   upNext: string[];
+  /**
+   * "Pause new cards on heavy days" (shared/decks/review-load.ts): today's review load over ALL
+   * decks against the account's limit. `budget` is already today's (0 + 0 while paused).
+   */
+  reviewLoad: ReviewLoadState;
 }
 
 /** The notes with a long-term choice (shared/decks/long-term.ts), with this device's pending ones on top. */
@@ -1581,13 +1607,22 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
   const decks = deckId ? allDecks.filter(d => d.id === deckId) : allDecks;
   // The daily budget is shared by every deck, so a single-deck session still
   // has to know what was introduced elsewhere today.
-  const [cards, studied, longTerm, bumps, upNext] = await Promise.all([
+  const [cards, today, longTerm, bumps, upNext] = await Promise.all([
     loadCards(deckId),
-    getNewCardsStudiedTodayMap(allDecks.map(d => d.id)),
+    computeTodayFromEvents(),
     loadLongTermPrefs(),
     loadQueueBumps(),
     loadQueueUpNext(),
   ]);
+  const studied = new Map<string, NewCardsStudiedToday>();
+  for (const d of allDecks) studied.set(d.id, today.introduced.get(d.id) ?? { primary: 0, secondary: 0 });
+  for (const [id, v] of today.introduced) if (!studied.has(id)) studied.set(id, v);
+  // Today's review load is account-wide: a one-deck session still counts every deck's reviews.
+  const loadCardsAll = deckId ? await db.cards.where('queue').above(CardQueue.NEW).toArray() : cards;
+  const reviewLoad = reviewLoadState(
+    reviewLoadToday(loadCardsAll.map(queueInput), today.reviewedToday, today.firstReviewMs, today.dayStartMs, getStudyCutoff().ts),
+    readReviewLoadCap()
+  );
   const spentElsewhere = { primary: 0, secondary: 0 };
   if (deckId) {
     for (const [id, s] of studied) {
@@ -1596,7 +1631,7 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
       spentElsewhere.secondary += s.secondary;
     }
   }
-  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere, deckId, longTerm, bumps, upNext };
+  return { decks, cards, studied, budget: budgetForToday(readStudyBudget(), reviewLoad), spentElsewhere, deckId, longTerm, bumps, upNext, reviewLoad };
 }
 
 /** Notes with at least one reviewed card (queue != NEW). */
@@ -1697,7 +1732,8 @@ function poolOf(deckId: string, raw: DeckQueueRaw): DeckNewPool {
 export function allocateQueueCounts(
   rawByDeck: Map<string, DeckQueueRaw>,
   bonus = 0,
-  budget: StudyBudget = readStudyBudget(),
+  // Today's budget the raw counts were made with (0 + 0 on a paused day), else the stored one.
+  budget: StudyBudget = (rawByDeck as RawQueueCounts).budget ?? readStudyBudget(),
   spentElsewhere: { primary: number; secondary: number } = { primary: 0, secondary: 0 }
 ): Map<string, DeckQueueCounts> {
   const basePools = [...rawByDeck].map(([id, raw]) => poolOf(id, raw));
@@ -1889,10 +1925,20 @@ function countRawQueues(
 /** Per-deck rows follow the global "Order new cards by" picks for this many "Study more" cards past the budget. */
 const NOVELTY_PICKS_AHEAD = 100;
 
+/**
+ * Raw per-deck counts plus what they were counted with: today's budget (0 + 0 while
+ * "Pause new cards on heavy days" holds, shared/decks/review-load.ts) and the review load.
+ * allocateQueueCounts reads `budget` when it is given none, so every view agrees.
+ */
+export type RawQueueCounts = Map<string, DeckQueueRaw> & { budget?: StudyBudget; reviewLoad?: ReviewLoadState };
+
 /** Single scan of the cards table producing raw per-deck counts. */
-export async function getRawQueueCounts(deckId?: string): Promise<Map<string, DeckQueueRaw>> {
+export async function getRawQueueCounts(deckId?: string): Promise<RawQueueCounts> {
   const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
-  return countRawQueues(inputs, collectReviewedNoteIds(inputs.cards), getStudyCutoff(), noteText);
+  const raw: RawQueueCounts = countRawQueues(inputs, collectReviewedNoteIds(inputs.cards), getStudyCutoff(), noteText);
+  raw.budget = inputs.budget;
+  raw.reviewLoad = inputs.reviewLoad;
+  return raw;
 }
 
 /**

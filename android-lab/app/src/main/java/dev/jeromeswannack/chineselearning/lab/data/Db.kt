@@ -271,6 +271,8 @@ interface LabDao {
     @Query("SELECT * FROM review_events WHERE id = :id") suspend fun event(id: String): ReviewEventEntity?
     @Query("SELECT cardId, MIN(reviewedAt) AS firstAt FROM review_events GROUP BY cardId") suspend fun firstReviews(): List<FirstReview>
     @Query("SELECT COUNT(*) FROM review_events WHERE reviewedAt >= :sinceIso") suspend fun reviewsSince(sinceIso: String): Int
+    /** Cards with a review since [sinceIso] — today's review load ("Pause new cards on heavy days", core ReviewLoad). */
+    @Query("SELECT DISTINCT cardId FROM review_events WHERE reviewedAt >= :sinceIso") suspend fun cardIdsReviewedSince(sinceIso: String): List<String>
     /** Today's numbers on the All done screen (docs/STUDY_SESSION.md): reviews since [sinceIso] and how many were Good / Easy. */
     @Query("SELECT COUNT(*) AS reviews, COALESCE(SUM(CASE WHEN rating >= 2 THEN 1 ELSE 0 END), 0) AS correct FROM review_events WHERE reviewedAt >= :sinceIso AND synced != -1")
     suspend fun reviewSummarySince(sinceIso: String): ReviewSummary

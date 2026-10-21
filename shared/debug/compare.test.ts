@@ -210,4 +210,23 @@ describe('compareDebugReports', () => {
     expect(cmp.hints.join('\n')).toContain('WEB shows 2 homework item(s) to do; LAB does not report homework');
     expect('homework.todo' in compareDebugReports(lab, report('web')).headline).toBe(false);
   });
+
+  it('diffs "Pause new cards on heavy days": the limit, the load and who is paused', () => {
+    const lab = report('lab', { review_load: { threshold: 100, load: 124, paused: true } });
+    const web = report('web', { review_load: { threshold: 100, load: 98, paused: false } });
+    const cmp = compareDebugReports(lab, web);
+    expect(cmp.context.review_load).toEqual({ a: 'limit 100 · load 124 · paused', b: 'limit 100 · load 98' });
+    expect(cmp.headline['review_load']).toEqual({ a: 124, b: 98, diff: -26 });
+    expect(cmp.hints.join('\n')).toContain('New cards are paused on LAB only (review load LAB 124 vs WEB 98)');
+
+    const off = compareDebugReports(lab, report('web', { review_load: { threshold: null, load: 124, paused: false } }));
+    expect(off.hints.join('\n')).toContain('"Pause new cards on heavy days" limit differs: LAB 100 vs WEB off');
+
+    const load = compareDebugReports(report('lab', { review_load: { threshold: null, load: 50, paused: false } }), report('web', { review_load: { threshold: null, load: 52, paused: false } }));
+    expect(load.hints.join('\n')).toContain("Today's review load differs: LAB 50 vs WEB 52");
+
+    const old = compareDebugReports(report('lab'), web);
+    expect(old.context.review_load.a).toBe('?');
+    expect('review_load' in old.headline).toBe(false);
+  });
 });
