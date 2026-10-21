@@ -4,6 +4,8 @@
  * exact templates the code wrote (anything else stays an ordinary message), and the
  * new paths store the kind + data with a third-person fallback.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { createSqliteD1, applyMigrationsFrom, type SqliteD1 } from './sqlite-d1';
 import { markCallMessageEnded, postSystemMessage } from '../chat/system';
@@ -33,6 +35,11 @@ function tagged(db: SqliteD1): Record<string, { kind: string | null; data: Recor
 }
 
 describe('migration 0132: existing automated messages', () => {
+  it('uses no LIKE patterns (D1 refuses long ones: "LIKE or GLOB pattern too complex")', () => {
+    const sql = fs.readFileSync(path.resolve(__dirname, '../../db/migrations/0132_chat_system_messages.sql'), 'utf8').replace(/--[^\n]*/g, '');
+    expect(sql).not.toMatch(/\bLIKE\b|\bGLOB\b/i);
+  });
+
   it('tags each template, fills the data, and leaves everything else alone', async () => {
     const db = await createSqliteD1({ stopBefore: '0132' });
     seedPeople(db);
