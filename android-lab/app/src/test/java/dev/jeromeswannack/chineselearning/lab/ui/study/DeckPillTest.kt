@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.github.takahirom.roborazzi.captureScreenRoboImage
@@ -27,13 +28,15 @@ import org.junit.Test
 import org.robolectric.Shadows.shadowOf
 
 /**
- * The study card's 📚 deck pill (web: components/study/DeckPill.tsx): a long deck name is cut to
- * one line beside the whole card-type chip; a tap shows the FULL name (with "(from tutor)") and
- * Open deck →, never reveals the card; a tap elsewhere / back closes it.
+ * The study card's 📚 deck pill (web: components/study/DeckPill.tsx): never on the question side
+ * (the deck name could hint the answer), a small quiet line under the meaning once revealed. A
+ * long deck name is cut to one line; a tap shows the FULL name (with "(from tutor)") and Open
+ * deck →, never peeks back at the question; a second tap / back closes it.
  */
 class DeckPillTest : LabScreenshotTest() {
     private val long = "课堂生词 Lesson words – 12 Oct (from tutor)"
     private val reveals = mutableListOf<Any?>()
+    private val peeks = mutableListOf<Unit>()
     private val pill = mutableListOf<String>()
     private val opened = mutableListOf<String>()
 
@@ -41,7 +44,7 @@ class DeckPillTest : LabScreenshotTest() {
         shadowOf(ApplicationProvider.getApplicationContext<Application>()).grantPermissions(Manifest.permission.RECORD_AUDIO)
     }
 
-    private fun studyScreen(cardType: String = CardTypes.HANZI_TO_MEANING, dark: Boolean = false, bumped: Boolean = false) {
+    private fun studyScreen(cardType: String = CardTypes.HANZI_TO_MEANING, dark: Boolean = false, bumped: Boolean = false, revealed: Boolean = true) {
         val now = Js.parseDate("2026-10-16T09:30:00.000Z")
         val state = CardScheduler.initialCardState()
         val card = QueueCard("c1", Samples.note.id, "deck-42", cardType, state)
@@ -49,40 +52,54 @@ class DeckPillTest : LabScreenshotTest() {
         val ui = StudyUi(StudyPhase.Showing(view), Samples.counts, SessionStats(), canUndo = false, online = true, forcedOffline = false)
         val actions = StudyActions(
             onReveal = { reveals += it },
+            onPeek = { peeks += Unit },
             onDeckPill = { pill += it },
             onOpenDeck = { opened += it },
         )
-        compose.setContent { LabTheme(dark = dark) { StudyScreen(ui, playingKey = null, actions = actions, autoplay = false) } }
+        val start = if (revealed) CardStartState(flipped = true) else null
+        compose.setContent { LabTheme(dark = dark) { StudyScreen(ui, playingKey = null, actions = actions, cardStart = start, autoplay = false) } }
         compose.mainClock.advanceTimeBy(1_500)
     }
 
-    @Test fun longNameIsCutToOneLineBesideTheWholeTypeChip() {
-        studyScreen(bumped = true)
+    @Test fun neverOnTheQuestionSideThenSmallUnderTheMeaningOnceRevealed() {
+        studyScreen(bumped = true, revealed = false)
         compose.onNodeWithText("Read · 读").assertIsDisplayed()
+        compose.onNodeWithTag(DECK_PILL_TAG).assertDoesNotExist()
+        compose.onRoot().captureRoboImage("screenshots/study-deck-pill-01-question-none.png")
+
+        compose.onNodeWithText("Show answer").performClick()
+        compose.mainClock.advanceTimeBy(1_500)
+        assertEquals(1, reveals.size)
         compose.onNodeWithTag(DECK_PILL_TAG).assertIsDisplayed().assertContentDescriptionEquals("Deck: $long")
-        val bounds = compose.onNodeWithTag(DECK_PILL_LABEL_TAG, useUnmergedTree = true).getBoundsInRoot()
-        assertTrue("the label is cut inside the pill", bounds.right - bounds.left < DECK_PILL_MAX_WIDTH)
+        val label = compose.onNodeWithTag(DECK_PILL_LABEL_TAG, useUnmergedTree = true).getBoundsInRoot()
+        assertTrue("the label is cut inside the pill", label.right - label.left < DECK_PILL_MAX_WIDTH)
+        assertTrue("caption-size: one small line", label.bottom - label.top < 20.dp)
+        // Under the meaning, above Play.
+        val meaning = compose.onNodeWithText(Samples.note.english).getBoundsInRoot()
+        val play = compose.onNodeWithTag(PLAY_WORD_TAG).getBoundsInRoot()
+        assertTrue("under the meaning", label.top > meaning.bottom)
+        assertTrue("above Play", label.bottom < play.top)
         compose.onNodeWithTag(DECK_PILL_FULL_TAG).assertDoesNotExist()
-        compose.onRoot().captureRoboImage("screenshots/study-deck-pill-01-truncated.png")
+        compose.onRoot().captureRoboImage("screenshots/study-deck-pill-02-answer.png")
     }
 
-    @Test fun aTapShowsTheFullNameAndNeverRevealsTheCard() {
+    @Test fun aTapShowsTheFullNameAndNeverPeeks() {
         studyScreen()
         compose.onNodeWithTag(DECK_PILL_TAG).performClick()
         compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithTag(DECK_PILL_FULL_TAG).assertIsDisplayed()
         compose.onNodeWithTag(DECK_PILL_NAME_TAG, useUnmergedTree = true).assertIsDisplayed().assertTextEquals(long)
         compose.onNodeWithText("Open deck →").assertIsDisplayed()
-        assertTrue("the card was not revealed", reveals.isEmpty())
+        assertTrue("never peeked back at the question", peeks.isEmpty())
         assertEquals(listOf("expand"), pill)
-        captureScreenRoboImage("screenshots/study-deck-pill-02-expanded.png")
+        captureScreenRoboImage("screenshots/study-deck-pill-03-expanded.png")
 
         compose.onNodeWithTag(DECK_PILL_OPEN_TAG).performClick()
         compose.mainClock.advanceTimeBy(300)
         assertEquals(listOf("deck-42"), opened)
         assertEquals(listOf("expand", "open_deck"), pill)
         compose.onNodeWithTag(DECK_PILL_FULL_TAG).assertDoesNotExist()
-        assertTrue(reveals.isEmpty())
+        assertTrue(peeks.isEmpty())
     }
 
     @Test fun aSecondTapClosesIt() {
@@ -93,13 +110,23 @@ class DeckPillTest : LabScreenshotTest() {
         compose.onNodeWithTag(DECK_PILL_TAG).performClick()
         compose.mainClock.advanceTimeBy(300)
         compose.onNodeWithTag(DECK_PILL_FULL_TAG).assertDoesNotExist()
-        assertTrue(reveals.isEmpty())
+        assertTrue(peeks.isEmpty())
+    }
+
+    @Test fun noPillOnTheMeaningQuestion() {
+        studyScreen(CardTypes.MEANING_TO_HANZI, revealed = false)
+        compose.onNodeWithTag(DECK_PILL_TAG).assertDoesNotExist()
+    }
+
+    @Test fun noPillOnTheListenQuestion() {
+        studyScreen(CardTypes.AUDIO_TO_HANZI, revealed = false)
+        compose.onNodeWithTag(DECK_PILL_TAG).assertDoesNotExist()
     }
 
     @Test fun expandedDark() {
         studyScreen(CardTypes.AUDIO_TO_HANZI, dark = true)
         compose.onNodeWithTag(DECK_PILL_TAG).performClick()
         compose.mainClock.advanceTimeBy(500)
-        captureScreenRoboImage("screenshots/study-deck-pill-03-expanded-dark.png")
+        captureScreenRoboImage("screenshots/study-deck-pill-04-expanded-dark.png")
     }
 }

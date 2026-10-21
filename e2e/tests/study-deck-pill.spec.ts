@@ -2,10 +2,11 @@ import { test, expect, APIRequestContext } from '@playwright/test';
 import { skipFirstCardExplainer } from './fixtures/explainer';
 
 /**
- * The study card's 📚 deck pill (components/study/DeckPill.tsx): a long deck name is cut to one
- * line with an ellipsis; a tap shows the FULL name (with "(from tutor)") and "Open deck →"; a tap
- * on it never reveals the card (question side) nor peeks it (answer side); a tap elsewhere closes
- * it; "Open deck →" opens the deck page.
+ * The study card's 📚 deck pill (components/study/DeckPill.tsx): never on the question side (the
+ * deck name could hint the answer), a small quiet line on the answer side once revealed. A long
+ * deck name is cut to one line with an ellipsis; a tap shows the FULL name (with "(from tutor)")
+ * and "Open deck →"; a tap on it never peeks back at the question; a tap elsewhere closes it;
+ * "Open deck →" opens the deck page.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
@@ -28,7 +29,7 @@ async function api<T = unknown>(
 test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 test.use({ viewport: { width: 412, height: 915 } });
 
-test('deck pill: truncated, a tap shows the full name without revealing the card, Open deck →', async ({ page, request }) => {
+test('deck pill: only on the answer side, small and truncated; a tap shows the full name, Open deck →', async ({ page, request }) => {
   test.setTimeout(120_000);
   const email = `deck-pill-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Deck pill learner' } });
@@ -42,45 +43,58 @@ test('deck pill: truncated, a tap shows the full name without revealing the card
 
   await page.goto(`/decks?session_token=${token}`);
   await expect(page.getByText(DECK).first()).toBeVisible({ timeout: 30000 });
+  const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first();
   // The session can be built before the sync has the new deck's cards ("Nothing due"): open it again then.
   await expect(async () => {
     await page.goto(`/study?deck=${deck.id}&autostart=true`);
-    await expect(page.getByTestId('study-deck-pill')).toBeVisible({ timeout: 5000 });
+    await expect(reveal).toBeVisible({ timeout: 5000 });
   }).toPass({ timeout: 60000 });
 
+  // The question side never shows the deck.
   const pill = page.getByTestId('study-deck-pill');
-  await expect(pill).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('study-card-back')).toHaveCount(0);
+  await expect(pill).toHaveCount(0);
+
+  // Revealed: the pill is on the answer side.
+  await reveal.click();
+  const back = page.getByTestId('study-card-back');
+  await expect(back).toBeVisible();
+  await expect(back.getByTestId('study-deck-pill')).toBeVisible({ timeout: 15000 });
   await expect(pill).toHaveAttribute('aria-label', `Deck: ${DECK}`);
-  // One line, cut with an ellipsis: the label is narrower than its text.
+  // One line, cut with an ellipsis, caption-size: the label is narrower than its text.
   const label = page.getByTestId('study-deck-pill-label');
   const cut = await label.evaluate((el) => ({
     overflow: el.scrollWidth > el.clientWidth,
     ellipsis: getComputedStyle(el).textOverflow,
-    oneLine: el.getBoundingClientRect().height < 24,
+    oneLine: el.getBoundingClientRect().height < 20,
+    small: parseFloat(getComputedStyle(el).fontSize) <= 12,
   }));
-  expect(cut).toEqual({ overflow: true, ellipsis: 'ellipsis', oneLine: true });
-  // The touch target is at least 44px tall.
+  expect(cut).toEqual({ overflow: true, ellipsis: 'ellipsis', oneLine: true, small: true });
+  // The touch target is at least 44px tall (invisible padding); the visible pill is much smaller.
   expect((await pill.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await page.locator('.deck-pill__body').boundingBox())!.height).toBeLessThan(24);
+  // It sits under the meaning, above the example sentences.
+  const pillBox = (await pill.boundingBox())!;
+  const meaningBox = (await page.locator('.study-back-meaning').boundingBox())!;
+  const sentencesBox = (await page.getByTestId('study-sentences').boundingBox())!;
+  expect(pillBox.y).toBeGreaterThan(meaningBox.y);
+  expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(sentencesBox.y + 1);
 
-  // A tap shows the full name; the card stays on the question.
+  // A tap shows the full name and never peeks back at the question.
   await pill.click();
   await expect(page.getByTestId('study-deck-pill-name')).toHaveText(DECK);
-  await expect(page.getByTestId('study-card-back')).toHaveCount(0);
+  await expect(back).toBeVisible();
+  await expect(page.getByTestId('study-peek-front')).toHaveCount(0);
   await page.getByTestId('study-deck-pill-name').click();
-  await expect(page.getByTestId('study-card-back')).toHaveCount(0);
+  await expect(page.getByTestId('study-peek-front')).toHaveCount(0);
   // A tap elsewhere closes it.
   await page.locator('.study-topbar').click({ position: { x: 5, y: 5 } });
   await expect(page.getByTestId('study-deck-pill-full')).toHaveCount(0);
-
-  // On the answer side, a tap on the pill never peeks the question.
-  await page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first().click();
-  await expect(page.getByTestId('study-card-back')).toBeVisible();
-  await pill.click();
-  await expect(page.getByTestId('study-deck-pill-full')).toBeVisible();
-  await expect(page.getByTestId('study-card-back')).toBeVisible();
   await expect(page.getByTestId('study-peek-front')).toHaveCount(0);
 
   // Open deck → the deck page.
+  await pill.click();
+  await expect(page.getByTestId('study-deck-pill-full')).toBeVisible();
   await page.getByTestId('study-deck-pill-open').click();
   await expect(page).toHaveURL(new RegExp(`/decks/${deck.id}$`));
 });

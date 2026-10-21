@@ -1,7 +1,8 @@
 /**
  * The study card's 📚 deck pill: the name is cut to one line (ellipsis class), a tap shows the
  * FULL name with "Open deck →", a tap elsewhere / Escape closes it, and no tap on it ever reaches
- * the card underneath (so it never reveals or peeks the card).
+ * the card underneath (so it never peeks back at the question). Where it sits — the answer side
+ * only, never the question — is StudyPage's; e2e study-deck-pill.spec.ts covers it.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act } from 'react';

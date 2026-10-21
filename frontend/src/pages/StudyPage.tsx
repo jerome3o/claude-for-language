@@ -548,7 +548,7 @@ export function StudyCard({
   const [audioProvider, setAudioProvider] = useState<'minimax' | 'gtts' | ''>('');
   const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_MINIMAX_VOICE);
 
-  // The deck the card came from: the 📚 deck pill under the top bar (and the debug modal).
+  // The deck the card came from: the 📚 deck pill on the answer side (and the debug modal).
   const deckInfo = useLiveQuery(
     () => card.note.deck_id ? db.decks.get(card.note.deck_id) : undefined,
     [card.note.deck_id]
@@ -1657,6 +1657,17 @@ export function StudyCard({
         <div className="study-back-meaning">{card.note.english}</div>
         {/* Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off) */}
         <WordTagPills hanzi={card.note.hanzi} aiTags={card.note.word_tags} source="study" />
+        {/* The deck it came from: a small quiet line on the answer side only (on the question it
+            could hint the answer). A tap shows the full name + Open deck →. */}
+        {deckInfo?.name && (
+          <div className="study-back-deck">
+            <DeckPill
+              name={deckInfo.name}
+              where={pass ? 'homework' : inStudySession ? undefined : 'tutor_notes'}
+              onOpenDeck={() => navigate(`/decks/${encodeURIComponent(deckInfo.id)}`)}
+            />
+          </div>
+        )}
         {showNoteImage(card.card_type, 'back', picturesOn, card.note.image_key) && (
           <div className="study-back-picture">
             <NoteImage imageKey={card.note.image_key} side="back" cardType={card.card_type} testId="study-picture-back" />
@@ -2788,20 +2799,9 @@ export function StudyCard({
           </div>
         </div>
         {banner}
-        {(bumped || deckInfo?.name) && (
-          <div className="study-bump-row study-card-meta">
-            {bumped && (
-              <span data-testid="study-bump-badge">
-                <BumpBadge fromName={bumped.fromName} />
-              </span>
-            )}
-            {deckInfo?.name && (
-              <DeckPill
-                name={deckInfo.name}
-                where={pass ? 'homework' : inStudySession ? undefined : 'tutor_notes'}
-                onOpenDeck={() => navigate(`/decks/${encodeURIComponent(deckInfo.id)}`)}
-              />
-            )}
+        {bumped && (
+          <div className="study-bump-row" data-testid="study-bump-badge">
+            <BumpBadge fromName={bumped.fromName} />
           </div>
         )}
 

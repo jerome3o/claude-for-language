@@ -575,19 +575,11 @@ private fun CardFront(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = if (short) Arrangement.spacedBy(6.dp, Alignment.CenterVertically) else Arrangement.Top,
     ) {
+        // No deck pill here: on the question side the deck name could hint the answer (it is on the answer side).
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 TypeChip(view.card.cardType)
                 if (view.bumped) dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpChip(view.bumpedBy)
-            }
-            // The deck it came from: a 📚 pill cut to one line; a tap shows the full name + Open deck →.
-            view.deckName?.takeIf { it.isNotBlank() }?.let { name ->
-                DeckPill(
-                    name,
-                    Modifier.weight(1f, fill = false).padding(start = 8.dp),
-                    onOpenDeck = { actions.onDeckPill("open_deck"); actions.onOpenDeck(view.card.deckId) },
-                    onExpand = { actions.onTick(); actions.onDeckPill("expand") },
-                )
             }
         }
         note.context?.takeIf { it.isNotBlank() }?.let {
@@ -763,6 +755,16 @@ private fun CardBack(
             Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
             // Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off)
             KeepTaps { WordTagsFor(note.hanzi, source = "study", aiTags = note.wordTags, modifier = Modifier.padding(top = 8.dp)) }
+            // The deck it came from: a small quiet line, answer side only (on the question it could
+            // hint the answer). A tap shows the full name + Open deck →; it never peeks back.
+            view.deckName?.takeIf { it.isNotBlank() }?.let { name ->
+                DeckPill(
+                    name,
+                    Modifier.padding(top = 2.dp),
+                    onOpenDeck = { actions.onDeckPill("open_deck"); actions.onOpenDeck(view.card.deckId) },
+                    onExpand = { actions.onTick(); actions.onDeckPill("expand") },
+                )
+            }
             // The picture of the meaning: on the answer side of every card (core cards/NoteImage.kt).
             if (NoteImage.show(view.card.cardType, front = false, enabled = picturesOn, imageKey = note.imageKey)) {
                 Spacer(Modifier.height(10.dp))

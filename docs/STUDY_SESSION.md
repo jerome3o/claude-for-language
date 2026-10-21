@@ -694,16 +694,19 @@ Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRe
 
 ## Deck pill
 
-The card says which deck it came from with a **📚 deck pill** (web `components/study/DeckPill.tsx`, under the
-top bar beside the ⚡ badge; Lab `ui/study/DeckPill.kt`, the card header's right side next to the card-type
-chip): neutral grey, one line, cut with an ellipsis so a long name ("课堂生词 Lesson words – 12 Oct (from
-tutor)") never crowds the card — the card-type chip and ⚡ stay whole. A tap opens a small popover / popup
-with the **full** name and **Open deck →** (the deck page; coming back to Study shows the same card, as
-left); a tap elsewhere, Escape / back or a second tap on the pill closes it. The pill never reveals the
-card on the question side nor peeks it on the answer side (its taps stop there). The tap target is 44
-px / dp tall; its label is "Deck: <full name>". Same on every screen that shows the study card: the
-session, a homework pass word and the tutor-notes practice (the Try-it preview has the deck name as its
-title). Analytics `study.deck_pill` (`action` expand | open_deck, `where` homework | tutor_notes).
+The card says which deck it came from with a **📚 deck pill** (web `components/study/DeckPill.tsx`; Lab
+`ui/study/DeckPill.kt`) — on the **answer side only**, as a small quiet line under the meaning / word tags
+(above Play and the example sentences). Jerome (Oct 2026): "The deck pill is on the question side of the card.
+I'd like it smaller and on the answer side." On the question side the deck name can hint the answer, so it is
+never shown there (and the question header is just the card-type chip and ⚡). The pill is caption-size (11 px /
+`labelSmall`), muted grey, no border, a smaller 📚, one line cut with an ellipsis (≤ 13 rem / 200 dp) so a long
+name ("张老师课本 1–2 册补漏 (from tutor)") never crowds the answer. A tap opens a small popover / popup centred
+under it with the **full** name and **Open deck →** (the deck page; coming back to Study shows the same card, as
+left); a tap elsewhere, Escape / back or a second tap on the pill closes it. Its taps stop there, so it never
+peeks back at the question. The tap target is still 44 px / dp tall (invisible padding around the small pill);
+its label is "Deck: <full name>". Same on every screen that shows the study card: the session, a homework pass
+word and the tutor-notes practice (the Try-it preview has the deck name as its title). Analytics
+`study.deck_pill` (`action` expand | open_deck, `where` homework | tutor_notes).
 
 ## New characters shimmer
 
