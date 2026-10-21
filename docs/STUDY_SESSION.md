@@ -200,7 +200,8 @@ rate.
      pills. Only WORD notes get a class: sentences and longer phrases are neutral (kept simple). The
      web loads the lexicon (`services/wordTags.ts`, a precached chunk) next to the frequency list when
      the queue is built and memoises each note's class (`services/noteFormality.ts`); the Lab reads
-     `notes.wordTags` from Room (`LabDao.noteFormality`) and the lexicon as a core resource. No lexicon
+     `notes.wordTags` from Room (`LabDao.noteFormality`) and the lexicon as a core resource — never
+     waiting for it: LabApp reads it at start, and a queue built before that treats every note as neutral. No lexicon
      → every note neutral (the plain order). Up next, ⚡ bumps and homework passes are untouched.
   4. **Most common first** — not a tier: inside each tier the most common word first (in tier 1,
      first the most common new character, above), and in the

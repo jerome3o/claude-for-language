@@ -346,9 +346,14 @@ suspend fun LabDao.noteHanzi(): Map<String, String>? = try {
  * class for StudyQueue.build's `formality`, from the shipped word-tag lexicon (a core resource)
  * and each note's AI word tags. null when the switch is off, or it can't be read (the plain order —
  * an ordering nicety must never stop the queue). Memoised per note across builds.
+ *
+ * Never waits for the lexicon: LabApp warms it at start, and until it is read every note is
+ * neutral (the next build — Home's refresh, the next session — has it). Parsing it here instead
+ * held the first queue build up on a slow device (and timed out Robolectric sessions on CI).
  */
 suspend fun LabDao.noteFormality(order: dev.jeromeswannack.chineselearning.lab.core.NewCardOrder): Map<String, Int>? {
     if (!order.everydayFirst) return null
+    if (!dev.jeromeswannack.chineselearning.lab.core.cards.WordTags.shippedLoaded) return null
     return try {
         NoteFormalityMemo.of(noteWordTagRows())
     } catch (e: kotlinx.coroutines.CancellationException) {
