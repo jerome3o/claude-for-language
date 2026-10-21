@@ -201,6 +201,10 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onRecordSendNow = vm::sendRecordingNow,
             onToggleTime = vm::toggleTime,
             onVideoCall = { vm.videoCall { id -> nav.open(Routes.call(id)) } },
+            onOpenPath = { path, kind ->
+                nav.app.analytics.track("chat.system_action", mapOf("kind" to kind))
+                nav.open(path)
+            },
             onOpenLink = { url -> runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } },
             onRequestLinkPreview = vm::requestLinkPreview,
             loadLinkImage = vm::linkImage,

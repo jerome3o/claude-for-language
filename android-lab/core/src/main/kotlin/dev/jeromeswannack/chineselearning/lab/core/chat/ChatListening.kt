@@ -33,6 +33,8 @@ object ChatListening {
         val createdAt: String,
         val deletedAt: String? = null,
         val attachmentKind: String? = null,
+        /** A system message (core chat/SystemMessages.kt) is never hidden. */
+        val systemKind: String? = null,
     )
 
     /** The inbox row's newest message (`ChatListLastMessage` + `deleted`). */
@@ -43,6 +45,7 @@ object ChatListening {
         val preview: String,
         val attachmentKind: String? = null,
         val deleted: Boolean = false,
+        val systemKind: String? = null,
     )
 
     private fun isHanUnit(c: Char): Boolean = c in '一'..'鿿' || c in '㐀'..'䶿'
@@ -58,6 +61,7 @@ object ChatListening {
         if (msg.senderId == viewerId) return false
         if (!msg.deletedAt.isNullOrEmpty()) return false
         if (!msg.attachmentKind.isNullOrEmpty()) return false
+        if (!msg.systemKind.isNullOrEmpty()) return false
         return hasHan(msg.content)
     }
 
@@ -92,6 +96,7 @@ object ChatListening {
             id = last.id, senderId = last.senderId, content = last.preview, createdAt = last.createdAt,
             deletedAt = if (last.deleted) last.createdAt else null,
             attachmentKind = last.attachmentKind,
+            systemKind = last.systemKind,
         )
         return if (shouldHideMessage(msg, viewerId, setting, readMarker, revealed)) LISTENING_PREVIEW else null
     }

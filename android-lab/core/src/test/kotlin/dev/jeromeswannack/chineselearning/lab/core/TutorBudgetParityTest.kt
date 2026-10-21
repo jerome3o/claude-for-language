@@ -30,15 +30,13 @@ class TutorBudgetParityTest {
     private val offsets: List<Int> by lazy { data["offsets"]!!.jsonArray.map { it.jsonPrimitive.int } }
 
     @Test
-    fun summaryAndChatMessage() {
+    fun summary() {
         val cases = data["summaries"]!!.jsonArray
         assertTrue(cases.size > 50)
         for (c in cases) {
             val o = c.jsonObject
             val b = budget(o["budget"]!!)
             assertEquals(o["summary"].str, TutorBudget.budgetSummary(b), "$b")
-            assertEquals(o["message"].str, TutorBudget.budgetChangeMessage(b, false), "$b")
-            assertEquals(o["message_default"].str, TutorBudget.budgetChangeMessage(b, true), "$b default")
         }
     }
 

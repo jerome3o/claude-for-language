@@ -1,13 +1,12 @@
 /**
  * The daily new-card budget as tutor and learner see it (shared/decks/tutor-budget.ts):
- * studyBudgetInfo, budgetSummary, budgetChangeMessage, shortDay, firstName,
+ * studyBudgetInfo, budgetSummary, shortDay, firstName,
  * budgetSetByLabel, budgetFinishHint. Writes tutor-budget.json; checked by
  * core/…/TutorBudgetParityTest.kt.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  budgetChangeMessage,
   budgetFinishHint,
   budgetSetByLabel,
   budgetSummary,
@@ -25,8 +24,6 @@ const budgets = nums.flatMap((n) => nums.map((s) => ({ new_cards_per_day: n, sec
 const summaries = budgets.map((b) => ({
   budget: b,
   summary: budgetSummary(b),
-  message: budgetChangeMessage(b, false),
-  message_default: budgetChangeMessage(b, true),
 }));
 
 const isos = [

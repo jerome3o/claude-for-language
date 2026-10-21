@@ -31,6 +31,8 @@ object ChatBubbles {
         val attachmentKind: String? = null,
         val content: String? = null,
         val albumId: String? = null,
+        /** A system message (core chat/SystemMessages.kt): its own centred row, never in a group. */
+        val systemKind: String? = null,
     )
 
     enum class Tick(val id: String) { NONE("none"), PENDING("pending"), FAILED("failed"), SENT("sent"), READ("read") }
@@ -54,9 +56,11 @@ object ChatBubbles {
         val messageIds: List<String> = listOf(id),
         /** Album: the photo whose caption shows under the collage (the last one with a caption). */
         val captionId: String? = null,
+        /** A system message: a centred row, no bubble, no tick (docs/CHAT.md "System messages"). */
+        val system: Boolean = false,
     ) {
-        /** The web's `kind`: 'message' | 'album'. */
-        val kind: String get() = if (album) "album" else "message"
+        /** The web's `kind`: 'message' | 'album' | 'system'. */
+        val kind: String get() = if (album) "album" else if (system) "system" else "message"
     }
 
     /** `Date.parse` for the shapes the server sends (ISO with Z / offset, date-only, SQLite UTC); null = NaN. */
@@ -70,7 +74,7 @@ object ChatBubbles {
 
     /** Port of tickFor. */
     fun tickFor(msg: Message, viewerId: String, otherReadAt: String?): Tick {
-        if (msg.senderId != viewerId || !msg.deletedAt.isNullOrEmpty()) return Tick.NONE
+        if (msg.senderId != viewerId || !msg.deletedAt.isNullOrEmpty() || !msg.systemKind.isNullOrEmpty()) return Tick.NONE
         if (msg.pending == "failed") return Tick.FAILED
         if (!msg.pending.isNullOrEmpty()) return Tick.PENDING
         return if (!otherReadAt.isNullOrEmpty() && msg.createdAt <= otherReadAt) Tick.READ else Tick.SENT
@@ -79,6 +83,7 @@ object ChatBubbles {
     private fun isPhoto(m: Message) = m.attachmentKind == "image" && m.deletedAt.isNullOrEmpty()
     private fun hasCaption(m: Message) = !m.content.isNullOrEmpty() && NoteSearch.jsTrim(m.content).isNotEmpty()
     private fun isDeleted(m: Message) = !m.deletedAt.isNullOrEmpty()
+    private fun isSystem(m: Message) = !m.systemKind.isNullOrEmpty() && !isDeleted(m)
 
     /**
      * Port of layoutBubbles: the bubbles of a thread, oldest first — one per message, except that an
@@ -138,6 +143,8 @@ object ChatBubbles {
             if (a < 0 || b >= items.size) return false
             val x = messages[last(a)]
             val y = messages[first(b)]
+            // A system row stands alone: it ends the group before it and starts none after it.
+            if (isSystem(x) || isSystem(y)) return false
             if (x.senderId != y.senderId || days[last(a)] != days[first(b)]) return false
             val ta = times[last(a)] ?: return false
             val tb = times[first(b)] ?: return false
@@ -165,6 +172,7 @@ object ChatBubbles {
                 album = album,
                 messageIds = members.map { messages[it].id },
                 captionId = if (album) members.lastOrNull { hasCaption(messages[it]) }?.let { messages[it].id } else null,
+                system = !album && isSystem(head),
             )
         }
     }

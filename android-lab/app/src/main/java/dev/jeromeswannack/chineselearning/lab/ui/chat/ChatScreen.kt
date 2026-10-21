@@ -192,6 +192,8 @@ class ChatActions(
     /** 📹 in the header. */
     val onVideoCall: () -> Unit = {},
     val onOpenLink: (String) -> Unit = {},
+    /** A system message's button (Join, Open card…): an app path (docs/CHAT.md "System messages"). */
+    val onOpenPath: (path: String, kind: String) -> Unit = { _, _ -> },
     /** A bubble with a link came on screen (the VM fetches its preview once, cache-first). */
     val onRequestLinkPreview: (String) -> Unit = {},
     val loadLinkImage: suspend (String, Int) -> ImageBitmap? = { _, _ -> null },
@@ -447,6 +449,7 @@ private fun MessageList(ui: ChatUi, actions: ChatActions, onView: (ViewerTarget)
                     is ChatRow.Msg -> MessageBubbleRow(row.message, row.layout, ui, actions, onView)
                     is ChatRow.Pending -> PendingBubbleRow(row.bubble, row.layout, ui, actions, onView)
                     is ChatRow.Album -> AlbumBubbleRow(row, ui, actions, onView)
+                    is ChatRow.System -> SystemMessageRow(row.message, ui, actions)
                 }
             }
             if (ui.waitingForAi) item(key = "typing-ai") { TypingBubble() }

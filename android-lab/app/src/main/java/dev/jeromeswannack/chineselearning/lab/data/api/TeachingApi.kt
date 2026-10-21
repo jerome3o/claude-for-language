@@ -256,7 +256,15 @@ suspend fun Api.revokeInvite(id: String) = delete<Unit>("/api/invites/${enc(id)}
 // ---------------- conversations / lessons / lesson log ----------------
 
 @Serializable
-data class LastMessageDto(val content: String = "", val attachment_kind: String? = null, val deleted_at: String? = null)
+data class LastMessageDto(
+    val content: String = "",
+    val attachment_kind: String? = null,
+    val deleted_at: String? = null,
+    val sender_id: String = "",
+    /** A system message (docs/CHAT.md "System messages"): the preview reads it from my side. */
+    val system_kind: String? = null,
+    val system_data: kotlinx.serialization.json.JsonElement? = null,
+)
 
 @Serializable
 data class ConversationDto(
@@ -267,6 +275,8 @@ data class ConversationDto(
     val last_message: LastMessageDto? = null,
     /** PR 2 (docs/CHAT.md): messages from the other person after my read marker. */
     val unread: Int = 0,
+    /** The other person (a system message's preview reads from my side). */
+    val other_user: UserSummaryDto? = null,
 )
 
 suspend fun Api.conversations(relId: String): List<ConversationDto> = get("${rel(relId)}/conversations")

@@ -460,6 +460,60 @@ ALTER TABLE messages ADD COLUMN album_notified_at TEXT;   -- set on the ONE phot
   takes `album_count` (Lab `ChatInbox.messagePreview`, parity-tested). Listening mode is unaffected (photos are never hidden).
 - Analytics: `chat.album_sent { count, offline }`, `chat.album_viewer_open { count, index }`.
 
+## System messages (migration 0131_chat_system_messages.sql)
+
+Jerome (Lab screenshot of his chat with Minghui): the lines the PLATFORM posts on someone's behalf read as if the
+person typed them, in the first person — "I've set your new cards to 2 a day (+5 extra) 📚", "📹 I started a video
+call — join here: …". They are now **system messages**: visibly different, third person, from the viewer's side.
+
+```sql
+ALTER TABLE messages ADD COLUMN system_kind TEXT;   -- NULL = an ordinary message
+ALTER TABLE messages ADD COLUMN system_data TEXT;   -- JSON, per kind (shared/chats/system.ts)
+CREATE INDEX idx_messages_system ON messages(system_kind) WHERE system_kind IS NOT NULL;
+```
+
+**Kinds** (the person the platform speaks for stays the sender — permissions, the one chat, unread counts, receipts):
+
+| kind | posted by | data | the recipient reads | the sender reads |
+|---|---|---|---|---|
+| `study_budget` | the tutor's "Daily new cards" change (`PUT …/student-study-budget`) | `new_cards_per_day`, `secondary_cards_per_day`, `is_default` | 📚 Minghui set your new cards to 2 a day (+5 extra) | 📚 You set Jerome's new cards to 2 a day (+5 extra) |
+| `call_started` | `POST /api/calls` (the Join link) | `call_id`, `ended?`, `missed?` | 📹 Minghui started a video call · **Join** → Video call ended / Missed video call from Minghui | 📹 You started a video call · **Join** → Video call ended / Video call · Jerome didn't join |
+| `card_flag` | the student's Flag for tutor (`POST /api/card-flags`) | `flag_id`, `note_id`, `hanzi`, `pinyin`, `english`, `message` | 🚩 Jerome flagged 银行 for you + “their note” · **Open card** (her view of his card) | 🚩 You flagged 银行 for Minghui + the note · **Open card** |
+| `flag_reply` | the tutor's reply to a flag | `flag_id`, `note_id`, `hanzi`, `reply` | 🚩 Minghui replied about 银行 + “her reply” · **Open card** | 🚩 You replied about 银行 + the reply |
+| `install_howto` | Send how-to (`POST …/send-howto`) | `app_url` | 📲 Minghui sent you how to install the app · Show the steps | 📲 You sent Jerome how to install the app |
+| `group_class` | the group class's "send the link" | `group_name`, `session_id` | 🧪 Minghui started the group class “周三班” · **Join** | 🧪 You sent Jerome the link to the group class “周三班” |
+
+Quoted words (a flag's note, a reply) are the person's own and are never rewritten. The invite's `welcome_message`
+is the inviter's own words and stays an ordinary message; the MCP `send_message_to_student` and the session-notes
+agent's draft messages are typed by / for the tutor and stay ordinary too. There are no automated homework notices.
+
+- **One definition**: `systemMessageView(msg, { viewerIsSender, otherName, relationshipId })` → `{ kind, icon, text,
+  quote, body, action, quiet }` and `systemMessageText` (one line: Copy, previews) in `shared/chats/system.ts`; Lab
+  `core/…/chat/SystemMessages.kt`, parity-tested (`parity/fixtures/chat-system.ts`). An unknown kind (a newer server)
+  shows the stored text as a plain system row; malformed data falls back the same way.
+- **`content` is the readable fallback**: the RECIPIENT's view in the third person (`systemFallbackContent`, worker
+  `services/chat/system.ts` `postSystemMessage`), plus what an older app needs — the call / group-class "— join here:
+  <url>" (old Lab builds still find the Join link) and the install steps. So e-mails, Web Push, FCM, the bell, ntfy
+  and old app versions all read "Minghui set your new cards to …" — nobody says "I" any more.
+- **Rendering** (web `components/chat/SystemMessageRow.tsx`, Lab `ui/chat/ChatSystemViews.kt`): a centred, compact,
+  muted row like the day pills — never a bubble: no ticks, reactions, swipe-to-reply, listening-mode hiding, read-aloud,
+  word chips or auto-check. `layoutBubbles` gives it `kind: 'system'` and keeps it out of groups (it ends the group
+  before it); `messageMenu` gives it Copy only (long press / right-click), which copies what THIS person reads. An
+  ended call is quieter (no background).
+- **Calls**: `markCallEnded` sets `ended`; the CallRoom's end (`finishEnd`) also sets `missed` (nobody but the caller
+  ever joined) and sends `message_updated`; `updated_at` is bumped so `?since=` polling picks it up.
+- **Inbox / previews**: `/api/me/chats` rows carry `system_kind` / `system_data` and the server's preview is already
+  from my side; `chatRowPreview` re-reads it (never "You: …"); `/api/relationships/:relId/conversations` carries them
+  for the student / tutor page's "Messages" row; `/api/me/chat-inbox` and FCM data carry `system_kind` (the Lab never
+  masks one as "🎧 New message"). The server never makes word chips, translations, read-aloud clips, corrections or
+  forwards of a system message, and refuses to edit one (409).
+- **Existing rows**: the migration tags the messages the code wrote by their EXACT templates ("I've set your new cards
+  to N a day (…) 📚", "… back to the usual …", "📹 I started a video call — join here: …/calls/<id>", "🚩 Flagged 字
+  (pīnyīn · meaning): …" matched to its `card_flags` row when the word is unchanged, "🚩 About 字: …", the install
+  how-to, the group-class link) and fills the data it can parse; anything else stays an ordinary message. Their stored
+  text is left as it was (older apps keep showing it).
+- Analytics: `chat.system_action { kind }` (Join / Open card).
+
 ## Chats tab (the inbox)
 
 The bottom tab bar's **Chats** tab (it replaced Decks; Decks is now the first row of More, Home's

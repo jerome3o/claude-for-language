@@ -137,7 +137,7 @@ object ChatListeningStore {
         if (myId == null || row.isAi) return null
         val last = row.lastMessage ?: return null
         return ChatListening.listeningPreview(
-            ChatListening.LastMessage(last.id, last.senderId, last.createdAt, last.preview, last.attachmentKind),
+            ChatListening.LastMessage(last.id, last.senderId, last.createdAt, last.preview, last.attachmentKind, systemKind = last.systemKind),
             myId, settingFor(state, row.conversationId), row.myReadAt, revealed,
         )
     }
@@ -152,8 +152,8 @@ object ChatListeningStore {
      * A notification built here from the message itself (live socket, inbox check) follows the
      * worker's `notificationPreviewFor`: [chat] with "🎧 New message" when my mode hides it.
      */
-    suspend fun masked(cache: JsonCache, chat: IncomingChat, content: String, attachmentKind: String?, deletedAt: String?, myId: String?): IncomingChat {
-        val msg = ChatListening.Message(chat.messageId, chat.senderId, content, chat.createdAt, deletedAt, attachmentKind?.takeIf { it.isNotEmpty() })
+    suspend fun masked(cache: JsonCache, chat: IncomingChat, content: String, attachmentKind: String?, deletedAt: String?, myId: String?, systemKind: String? = null): IncomingChat {
+        val msg = ChatListening.Message(chat.messageId, chat.senderId, content, chat.createdAt, deletedAt, attachmentKind?.takeIf { it.isNotEmpty() }, systemKind = systemKind)
         val text = runCatching { notificationText(cache, chat.conversationId, msg, myId, chat.content) }.getOrDefault(chat.content)
         return if (text == chat.content) chat else chat.copy(content = text)
     }
@@ -161,6 +161,8 @@ object ChatListeningStore {
     fun listeningMessage(m: ChatMessageDto) = ChatListening.Message(
         id = m.id, senderId = m.sender_id.ifEmpty { m.sender.id }, content = m.content, createdAt = m.created_at,
         deletedAt = m.deleted_at, attachmentKind = m.attachment?.kind?.takeIf { it.isNotEmpty() },
+        // A line the app posted (docs/CHAT.md "System messages") is never hidden or read aloud.
+        systemKind = m.system_kind,
     )
 
     /** Registered in FeatureSyncs: the settings, then the newest clips of every chat into the read-aloud cache. */

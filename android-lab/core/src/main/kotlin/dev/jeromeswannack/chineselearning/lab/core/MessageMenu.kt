@@ -36,6 +36,8 @@ object MessageMenu {
         val autoCheckText: String? = null,
         val hasDiscussion: Boolean = false,
         val pinnedAt: String? = null,
+        /** A system message (core chat/SystemMessages.kt): only Copy. */
+        val systemKind: String? = null,
     )
 
     data class Item(
@@ -98,6 +100,8 @@ object MessageMenu {
         translateOn: Boolean = false,
     ): Menu {
         if (truthy(msg.deletedAt)) return Menu(false, emptyList())
+        // A line the app posted on someone's behalf: copy it, nothing else (docs/CHAT.md "System messages").
+        if (truthy(msg.systemKind)) return Menu(false, listOf(Item(COPY, "Copy", "📋", false)))
         val text = menuText(msg)
         val kind = msg.attachmentKind
         val noKind = kind.isNullOrEmpty()

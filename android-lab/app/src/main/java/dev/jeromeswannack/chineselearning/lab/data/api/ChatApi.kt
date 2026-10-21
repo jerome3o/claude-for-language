@@ -67,8 +67,13 @@ data class ChatMessageDto(
     // ---- auto-check (docs/CHAT.md "Auto-check") ----
     /** The background "Check my Chinese" of this text message — only on the SENDER's own view; null when stale / not checked. */
     val auto_check: AutoCheckDto? = null,
+    // ---- system messages (docs/CHAT.md "System messages") ----
+    /** A line the app posted on the sender's behalf (core chat/SystemMessages.kt) — drawn as a centred row. */
+    val system_kind: String? = null,
+    val system_data: kotlinx.serialization.json.JsonElement? = null,
 ) {
     val isDeleted: Boolean get() = !deleted_at.isNullOrEmpty()
+    val isSystem: Boolean get() = !isDeleted && !system_kind.isNullOrEmpty()
     val isImage: Boolean get() = !isDeleted && attachment?.kind == "image"
     val isVoice: Boolean get() = !isDeleted && attachment?.kind == "voice"
     val isFile: Boolean get() = !isDeleted && attachment?.kind == "file"

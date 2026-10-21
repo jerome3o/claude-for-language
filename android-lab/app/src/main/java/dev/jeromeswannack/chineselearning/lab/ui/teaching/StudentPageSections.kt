@@ -684,7 +684,12 @@ fun ConversationsCard(name: String, conversations: List<ConversationDto>?, onMes
                     when {
                         conversations == null -> MutedLine("Loading…")
                         c?.last_message == null -> MutedLine("Send a message to get started")
-                        else -> MutedLine(dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(c.last_message.content, c.last_message.attachment_kind, c.last_message.deleted_at))
+                        else -> MutedLine(
+                            dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.systemPreview(
+                                c.last_message.system_kind, c.last_message.system_data, c.last_message.content, c.last_message.deleted_at,
+                                c.last_message.sender_id, c.other_user?.id, c.other_user?.name ?: name,
+                            ) ?: dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(c.last_message.content, c.last_message.attachment_kind, c.last_message.deleted_at),
+                        )
                     }
                 }
                 if (c != null) Column(horizontalAlignment = Alignment.End) {

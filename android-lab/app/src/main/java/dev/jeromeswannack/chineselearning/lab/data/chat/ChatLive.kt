@@ -184,7 +184,7 @@ class ChatLive(private val app: LabApp) {
                     if (rel != null) {
                         // A photo of an album: one "📷 3 photos" line for the whole album (docs/CHAT.md "Photo albums").
                         val albumCount = obj["album_count"]?.let { runCatching { it.jsonPrimitive.content.toInt() }.getOrNull() }
-                        val chat = ChatListeningStore.masked(app.cache, IncomingChat.fromMessage(m, rel, albumCount), m.content, m.attachment?.kind, m.deleted_at, me)
+                        val chat = ChatListeningStore.masked(app.cache, IncomingChat.fromMessage(m, rel, albumCount), m.content, m.attachment?.kind, m.deleted_at, me, systemKind = m.system_kind)
                         ChatNotifier.notifyIncoming(app, chat, me)
                     }
                 }

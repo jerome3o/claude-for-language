@@ -62,6 +62,9 @@ data class MessageDto(
     /** PR 2 (docs/CHAT.md): image | voice | null, and the soft delete — for the list preview. */
     val attachment_kind: String? = null,
     val deleted_at: String? = null,
+    /** A system message (docs/CHAT.md "System messages"): the preview reads it from my side. */
+    val system_kind: String? = null,
+    val system_data: kotlinx.serialization.json.JsonElement? = null,
 )
 
 @Serializable
