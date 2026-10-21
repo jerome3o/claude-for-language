@@ -56,8 +56,8 @@ private val NewBlueSoft = Color(0xFFDBEAFE)
 
 /**
  * Settings → New cards → "Order new cards by" (the web's NewCardOrderSection; core NewCardOrder):
- * which brand-new words the daily budget introduces first. Four switches applied in order as
- * tiers, then the deck order; under them the "known characters → English first" switch (LeadCard). Stateless for screenshots; [NewCardOrderSettingsCard] wires it up.
+ * which brand-new words the daily budget introduces first. The switches in order (tiers, and
+ * inside them everyday words before formal ones and the most common first), then the deck order; under them the "known characters → English first" switch (LeadCard). Stateless for screenshots; [NewCardOrderSettingsCard] wires it up.
  */
 @Composable
 fun NewCardOrderSection(
@@ -170,6 +170,7 @@ fun NewCardOrderSettingsCard(app: LabApp) {
             put("most_common_first", saved.mostCommonFirst)
             put("sentences_last", saved.sentencesLast)
             put("known_characters_english_first", saved.knownCharactersEnglishFirst)
+            put("everyday_first", saved.everydayFirst)
         },
     )
     fun save(next: NewCardOrder, field: String?, call: suspend () -> NewCardOrder) {

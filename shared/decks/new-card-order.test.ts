@@ -18,7 +18,7 @@ import { frequencyRank, parseFrequencyList, NO_HAN_RANK, UNKNOWN_WORD_BASE, UNRA
 import { selectStudyQueue, type QueueCardInput, type QueueDeckInput } from './study-queue';
 import { fastestTimes, MAX_GROWTH_AT_4X, checkPerfBudgets } from '../testing/perf';
 
-const ALL_OFF: NewCardOrder = { new_characters_first: false, new_words_first: false, most_common_first: false, sentences_last: false, known_characters_english_first: false };
+const ALL_OFF: NewCardOrder = { new_characters_first: false, new_words_first: false, most_common_first: false, sentences_last: false, known_characters_english_first: false, everyday_first: false };
 const only = (k: keyof NewCardOrder, extra: Partial<NewCardOrder> = {}): NewCardOrder => ({ ...ALL_OFF, [k]: true, ...extra });
 
 describe('settings', () => {
@@ -34,8 +34,11 @@ describe('settings', () => {
     expect(pickNewCardOrderUpdate({ new_words_first: 'yes' }).problems).toEqual(['new_words_first must be true, false or null']);
     expect(pickNewCardOrderUpdate(null).problems.length).toBe(1);
     expect(pickNewCardOrderUpdate({ reset: true }).update).toEqual({
-      new_characters_first: null, new_words_first: null, most_common_first: null, sentences_last: null, known_characters_english_first: null,
+      new_characters_first: null, new_words_first: null, most_common_first: null, sentences_last: null, known_characters_english_first: null, everyday_first: null,
     });
+    expect(pickNewCardOrderUpdate({ everyday_first: false }).update).toEqual({ everyday_first: false });
+    expect(parseNewCardOrder('{"everyday_first":false}')).toEqual({ ...DEFAULT_NEW_CARD_ORDER, everyday_first: false });
+    expect(DEFAULT_NEW_CARD_ORDER.everyday_first).toBe(true);
     expect(pickNewCardOrderUpdate({ known_characters_english_first: false }).update).toEqual({ known_characters_english_first: false });
   });
 
@@ -185,6 +188,41 @@ describe('pickNewCardsByOrder', () => {
     });
   });
 
+  describe('everyday words before formal ones', () => {
+    // The real ranks: 抵达 (formal) 2,836 · 告知 4,064 · 搞定 (colloquial) 10,841 · 用餐 (formal) 11,904.
+    const real = parseFrequencyList(readFileSync(join(__dirname, '../data/frequency/word-freq.txt'), 'utf8'));
+    const F: Record<string, number> = { 抵达: 2, 告知: 2, 用餐: 2, 搞定: 0, 买单: 0 };
+    const items = [it_('a', '抵达'), it_('b', '告知'), it_('c', '搞定'), it_('d', '买单'), it_('e', '工作')];
+    const run = (order: NewCardOrder, studied: string[], list = items, formality: ((i: Item) => number) | null = i => F[i.hanzi] ?? 1) =>
+      pickNewCardsByOrder(list, list.length, i => i.hanzi, i => i.deck, () => 0, new Map([['a', 99]]), i => i.id, order, studiedFrom(studied), real, formality)
+        .map(i => i.hanzi);
+    // Every character known: all five are new words (tier 1).
+    const known = ['抵', '达', '告', '知', '搞', '定', '买', '单', '工', '作'];
+
+    it('inside a tier, everyday words first and formal ones last — even when rarer', () => {
+      expect(run(DEFAULT_NEW_CARD_ORDER, known)).toEqual(['买单', '搞定', '工作', '抵达', '告知']);
+    });
+
+    it('switched off (or no classes): the order is exactly the old one', () => {
+      const old = run({ ...DEFAULT_NEW_CARD_ORDER, everyday_first: false }, known);
+      expect(old).toEqual(['工作', '抵达', '告知', '买单', '搞定']);
+      expect(run(DEFAULT_NEW_CARD_ORDER, known, items, null)).toEqual(old);
+    });
+
+    it('never above the tiers: a formal word bringing a new character still comes before an everyday word', () => {
+      // 用 is new: 用餐 is in tier 0; 搞定 / 买单 are only new words (tier 1).
+      const list = [it_('x', '搞定'), it_('y', '用餐'), it_('z', '买单')];
+      expect(run(DEFAULT_NEW_CARD_ORDER, [...known, '餐'], list)).toEqual(['用餐', '买单', '搞定']);
+    });
+
+    it('in the new-character tier, before the most common new character', () => {
+      // 用餐 brings 用 餐, 搞定 brings 搞 定 — 用 is the more common new character, but 用餐 is formal.
+      const list = [it_('y', '用餐'), it_('x', '搞定')];
+      expect(run(DEFAULT_NEW_CARD_ORDER, [], list)).toEqual(['搞定', '用餐']);
+      expect(run({ ...DEFAULT_NEW_CARD_ORDER, everyday_first: false }, [], list)).toEqual(['用餐', '搞定']);
+    });
+  });
+
   it('a deck gives at most its room', () => {
     const items = [it_('1', '熊', 'x'), it_('2', '猫', 'x'), it_('3', '狗', 'y')];
     expect(pick(items, 3, DEFAULT_NEW_CARD_ORDER, [], 1).sort()).toEqual(['1', '3']);
@@ -199,6 +237,13 @@ describe('orderWithinDeck', () => {
     expect(orderWithinDeck(items, h => h, only('sentences_last'), freq)).toEqual(['熊猫', '电脑', '银行', '我们去吧。']);
     expect(orderWithinDeck(items, h => h, ALL_OFF, freq)).toEqual(items);
     expect(orderWithinDeck(items, h => h, DEFAULT_NEW_CARD_ORDER, null)).toEqual(['熊猫', '电脑', '银行', '我们去吧。']);
+  });
+  it('everyday words before formal ones, after words-before-sentences and before the most common', () => {
+    const items = ['我们去吧。', '熊猫', '电脑', '银行'];
+    const f = (h: string) => ({ 银行: 2, 熊猫: 0 } as Record<string, number>)[h] ?? 1;
+    expect(orderWithinDeck(items, h => h, DEFAULT_NEW_CARD_ORDER, freq, f)).toEqual(['熊猫', '电脑', '银行', '我们去吧。']);
+    expect(orderWithinDeck(items, h => h, { ...DEFAULT_NEW_CARD_ORDER, everyday_first: false }, freq, f)).toEqual(['银行', '电脑', '熊猫', '我们去吧。']);
+    expect(orderWithinDeck(items, h => h, only('everyday_first'), null, f)).toEqual(['熊猫', '我们去吧。', '电脑', '银行']);
   });
 });
 
@@ -237,6 +282,15 @@ describe('selectStudyQueue with "Order new cards by"', () => {
     expect(newIds(only('sentences_last'), 4)).toEqual(['w1c', 'w2c', 'w3c', 's1c']);
   });
 
+  it('everyday words before formal ones: inside the tiers and the deck fallback; off = the old order', () => {
+    // 老师 (neutral) and 电脑 are new words of the low deck; mark 电脑 formal and 工作 everyday.
+    const formality = new Map([['w2', 2], ['w1', 0]]);
+    expect(newIds(undefined, 4, { formality })).toEqual(['w3c', 'w2c', 's1c', 'w1c']);
+    expect(newIds({ ...DEFAULT_NEW_CARD_ORDER, everyday_first: false }, 4, { formality })).toEqual(newIds(undefined, 4));
+    // Only the switch (no tiers): inside the deck fallback.
+    expect(newIds(only('everyday_first'), 4, { formality })).toEqual(['s1c', 'w1c', 'w3c', 'w2c']);
+  });
+
   it('a one-off deck (caps 0 + 0) and opted-out words still give nothing; bumps stay first', () => {
     const q = selectStudyQueue([deck('top', 9, 0, 0), deck('low', 0)], cards, { new_cards_per_day: 5, secondary_cards_per_day: 0 }, 0,
       new Map(), CUTOFF, null, { hanzi, frequency: freq }, new Map([['w2', 0]]),
@@ -253,19 +307,21 @@ describe('selectStudyQueue with "Order new cards by"', () => {
       const r = (() => { let a = 11; return () => ((a = (a * 1103515245 + 12345) >>> 0) / 4294967296); })();
       const noteText = new Map<string, string>();
       const many: QueueCardInput[] = [];
+      const formality = new Map<string, number>();
       for (let n = 0; n < notes; n++) {
         const p = r();
         const text = p < 0.25
           ? `${pool[Math.floor(r() * pool.length)]}${pool[Math.floor(r() * pool.length)]}${pool[Math.floor(r() * pool.length)]}。`
           : pool[Math.floor(r() * pool.length)];
         noteText.set(`n${n}`, text);
+        if (n % 3 !== 1) formality.set(`n${n}`, n % 3 === 0 ? 0 : 2); // "Everyday words before formal ones" classes
         const reviewed = r() < 0.5;
         for (const t of ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi']) {
           many.push(card(`c${n}-${t[0]}`, `n${n}`, `d${n % 20}`, reviewed ? 2 : 0, t));
         }
       }
       return () => selectStudyQueue(manyDecks, many, { new_cards_per_day: 20, secondary_cards_per_day: 10 }, 10, new Map(), CUTOFF, null,
-        { hanzi: noteText, frequency: real });
+        { hanzi: noteText, frequency: real, formality });
     };
     const small = build(2_500);
     const large = build(10_000);

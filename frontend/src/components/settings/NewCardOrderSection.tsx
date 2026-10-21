@@ -1,7 +1,7 @@
 /**
  * Settings → New cards → "Order new cards by" (shared/decks/new-card-order.ts): which
- * brand-new words the daily budget introduces first — new characters, new words, the most
- * common, sentences last — before the deck order decides; and, under it, which card a word
+ * brand-new words the daily budget introduces first — new characters, new words, everyday
+ * words before formal ones, the most common, sentences last — before the deck order decides; and, under it, which card a word
  * made only of characters he already knows starts with (shared/decks/lead-card.ts). Each switch saves at once
  * (PUT /api/profile/new-card-order) and is mirrored on the device so the study queue
  * follows it offline (services/newCardOrder.ts). Homework passes are not affected.
@@ -47,6 +47,7 @@ export function NewCardOrderSection() {
         most_common_first: saved.most_common_first,
         sentences_last: saved.sentences_last,
         known_characters_english_first: saved.known_characters_english_first,
+        everyday_first: saved.everyday_first,
       });
     } catch (err) {
       setOrder(before);

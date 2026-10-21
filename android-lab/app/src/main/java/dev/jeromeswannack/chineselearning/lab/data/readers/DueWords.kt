@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.data.readers
 
 import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
 import dev.jeromeswannack.chineselearning.lab.data.noteHanzi
+import dev.jeromeswannack.chineselearning.lab.data.noteFormality
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
@@ -19,7 +20,7 @@ object DueWords {
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
         val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
         val bonus = app.prefs.bonus("all", LocalDate.now(zone).toString())
-        val built = StudyQueue.build(dao.decks().map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, StudyQueue.cutoff(now, zone), null, dao.noteHanzi(), longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao), upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao), order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped)
+        val built = StudyQueue.build(dao.decks().map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, StudyQueue.cutoff(now, zone), null, dao.noteHanzi(), longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao), upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao), order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = dao.noteFormality(app.prefs.newCardOrder))
         built.dueCards.map { it.noteId }.distinct()
     }
 }

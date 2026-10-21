@@ -3,6 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.study
 import dev.jeromeswannack.chineselearning.lab.core.NewCharacters
 import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
 import dev.jeromeswannack.chineselearning.lab.data.noteHanzi
+import dev.jeromeswannack.chineselearning.lab.data.noteFormality
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -422,6 +423,7 @@ class StudyViewModel(
                 bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
                 upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
+                formality = repo.dao.noteFormality(app.prefs.newCardOrder),
             )
         }
         queue = built.dueCards.toMutableList()
@@ -534,6 +536,7 @@ class StudyViewModel(
                 bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao),
                 upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
+                formality = repo.dao.noteFormality(app.prefs.newCardOrder),
             )
         }
         queue = built.dueCards.toMutableList()

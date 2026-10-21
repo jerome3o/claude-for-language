@@ -21,6 +21,26 @@ class NewCardOrderTest {
         assertEquals(listOf("w1c", "w2c", "w3c", "s1c"), newIds(NewCardOrder.ALL_OFF.copy(sentencesLast = true), 4))
     }
 
+    /** "Everyday words before formal ones" (Formality.kt) over the shipped lexicon: inside a tier, before frequency. */
+    @Test
+    fun everydayWordsComeBeforeFormalOnesEvenWhenRarer() {
+        val lexicon = dev.jeromeswannack.chineselearning.lab.core.cards.WordTags.shipped!!
+        val decks = listOf(QueueDeck("d", 0, "2026-01-01", 10, 6))
+        val hanzi = mapOf("seen" to "他抵达后告知我搞定了结账的工作。", "didai" to "抵达", "gaozhi" to "告知", "gaoding" to "搞定", "jiezhang" to "结账", "gongzuo" to "工作")
+        val tags = mapOf(
+            "gaozhi" to """{"v":2,"register":"formal","confidence":"high"}""",
+            "jiezhang" to """{"v":2,"spoken":"everyday","spoken_confidence":"high","confidence":"high"}""",
+        )
+        val formality = Formality.noteFormalityMap(hanzi.map { (id, h) -> Formality.Note(id, h, tags[id]) }, lexicon)
+        assertEquals(mapOf("didai" to 2, "gaozhi" to 2, "gaoding" to 0, "jiezhang" to 0), formality)
+        val cards = listOf(card("seen-h", "seen", "d", 2)) + listOf("didai", "gaozhi", "gaoding", "jiezhang", "gongzuo").map { card("$it-h", it, "d", 0) }
+        fun newNotes(order: NewCardOrder) = StudyQueue.build(
+            decks, cards, StudyBudget(5, 0), 0, emptyMap(), cutoff, null, hanzi, order = order, frequency = WordFrequency.shipped, formality = formality,
+        ).dueCards.filter { it.queue == 0 }.map { it.noteId }
+        assertEquals(listOf("gaoding", "jiezhang", "gongzuo", "didai", "gaozhi"), newNotes(NewCardOrder.DEFAULT))
+        assertEquals(listOf("gongzuo", "didai", "gaozhi", "gaoding", "jiezhang"), newNotes(NewCardOrder.DEFAULT.copy(everydayFirst = false)))
+    }
+
     /**
      * A timing guard that holds on a loaded CI box (web: shared/testing/perf.ts): the same build at
      * 2.5k and 10k notes, interleaved, each size's FASTEST run — 4× the notes must not cost anywhere

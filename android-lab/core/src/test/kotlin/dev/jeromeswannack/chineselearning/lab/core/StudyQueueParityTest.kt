@@ -134,6 +134,7 @@ class StudyQueueParityTest {
             val knownNoteIds = c["knownNoteIds"]?.let { if (it is JsonNull) null else it.jsonArray.map { e -> e.jsonPrimitive.content } }
             val order = c["order"]?.let { NewCardOrder.parse(it.toString()) } ?: NewCardOrder.DEFAULT
             val frequency = if (c["useFrequency"]?.jsonPrimitive?.boolean == true) WordFrequency.shipped else null
+            val formality = c["formality"]?.jsonObject?.mapValues { it.value.jsonPrimitive.int }
             val decks = c["decks"]!!.jsonArray.map { it.jsonObject }.map {
                 QueueDeck(
                     it["id"]!!.jsonPrimitive.content,
@@ -184,7 +185,7 @@ class StudyQueueParityTest {
             for (q in c["queues"]!!.jsonArray.map { it.jsonObject }) {
                 val deckId = q["deckId"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
                 val where = "$i deck=$deckId"
-                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, longTerm = longTerm, bumps = bumps, order = order, frequency = frequency, upNext = upNext, knownNoteIds = knownNoteIds)
+                val built = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, deckId, noteHanzi, seenNoteIds, longTerm = longTerm, bumps = bumps, order = order, frequency = frequency, upNext = upNext, knownNoteIds = knownNoteIds, formality = formality)
                 q["upNext"]?.let { assertEquals(strings(it), built.upNext.map { c -> c.id }, "$where up next cards in order") }
                 q["upNextNoteIds"]?.let { assertEquals(strings(it), built.upNextNoteIds, "$where up next note ids") }
                 q["knownCharacterNoteIds"]?.let { assertEquals(strings(it), built.knownCharacterNoteIds.sorted(), "$where known-character notes") }

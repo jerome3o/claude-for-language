@@ -162,7 +162,7 @@ rate.
   **Order new cards by** (Settings → New cards, Oct 2026; `shared/decks/new-card-order.ts`, Lab
   `core/…/NewCardOrder.kt`, parity-tested by `parity/fixtures/new-card-order.ts` and the
   `ordered` study-queue vectors). Jerome: "I'm getting a bunch of sentences in my flashcards that
-  are probably not the highest leverage thing to learn right now." Four switches, all on by
+  are probably not the highest leverage thing to learn right now." Five switches, all on by
   default, one choice per account (`users.new_card_order`, `PUT /api/profile/new-card-order`,
   on `/api/auth/me` and `/api/sync/changes`, cached on the device so study follows it offline).
   Applied as tiers across ALL decks in scope (each deck still gives at most min(its unseen cards,
@@ -184,7 +184,25 @@ rate.
      new even when 银 and 行 are both known; a word already met inside a studied sentence (工作 in
      我在银行工作。) is not. The index is every 2–4 character piece inside a run of Han characters
      of every studied note (`StudiedIndex`), so a check is one Set lookup.
-  3. **Most common first** — not a tier: inside each tier the most common word first (in tier 1,
+  3. **Everyday words before formal ones** (Oct 2026; Jerome: "prefer non-formal words, and prefer
+     that more than frequency"; `everyday_first` in the same JSON, ON by default; `shared/decks/formality.ts`,
+     Lab `core/…/Formality.kt`, parity-tested) — not a tier: inside each tier (and inside a deck in the
+     fallback) everyday words first, neutral ones next, formal ones last, BEFORE "Most common first"
+     (in tier 1 before the most-common-new-character rank) — the frequency list counts mostly written
+     text, so it ranks 告知 / 抵达 / 用餐 above 搞定 / 买单 / 结账. It never moves a word across tiers
+     (a formal word bringing a new character still comes before an everyday word that doesn't) and
+     never changes which or how many notes the budget takes from a deck. The class: the shipped word-tag
+     lexicon's register first (Formal / Literary → formal; Colloquial / Informal / Slang → everyday;
+     Rude / Derogatory → neutral, never pushed forward; other codes such as Polite say nothing), else
+     the note's AI word tags when the lexicon has no register code at all and the verdict isn't low
+     confidence (register formal / literary → formal, rude → neutral; then ✨ Everyday speech at high
+     spoken confidence → everyday; then informal / slang → everyday) — the lexicon wins, as on the
+     pills. Only WORD notes get a class: sentences and longer phrases are neutral (kept simple). The
+     web loads the lexicon (`services/wordTags.ts`, a precached chunk) next to the frequency list when
+     the queue is built and memoises each note's class (`services/noteFormality.ts`); the Lab reads
+     `notes.wordTags` from Room (`LabDao.noteFormality`) and the lexicon as a core resource. No lexicon
+     → every note neutral (the plain order). Up next, ⚡ bumps and homework passes are untouched.
+  4. **Most common first** — not a tier: inside each tier the most common word first (in tier 1,
      first the most common new character, above), and in the
      deck fallback inside each deck (deck order still first there). Frequency = rank in
      `shared/data/frequency/word-freq.txt` (wordfreq `large_zh`, data CC BY-SA 4.0 — the same
@@ -193,10 +211,11 @@ rate.
      any sentence) ranks after every listed word, by its rarest character. The web loads the list
      as a lazily imported chunk the service worker precaches; the Lab app reads the same file as a
      core resource — no network during study. Without the list the switch simply does nothing.
-  4. **Sentences last** — inside tier 1 words before sentences, and after the tiers every word
+  5. **Sentences last** — inside tier 1 words before sentences, and after the tiers every word
      note (all decks, deck queue order, the most common first inside a deck) before any sentence.
-  5. Then the deck order, deck by deck as before (`respreadPrimary` in `budget.ts` keeps the total
-     of blue cards; `orderWithinDeck` puts words before sentences / the most common first inside a deck).
+  6. Then the deck order, deck by deck as before (`respreadPrimary` in `budget.ts` keeps the total
+     of blue cards; `orderWithinDeck` puts words before sentences / everyday before formal / the most
+     common first inside a deck).
 
   Picks are greedy: each pick's characters and word pieces count as studied for the next one,
   across decks too, so two notes sharing one new character aren't both introduced the same day,

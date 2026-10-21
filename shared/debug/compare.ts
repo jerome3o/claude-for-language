@@ -461,12 +461,13 @@ function upNextLabel(ids: DebugReport['up_next']): string {
   return ids.length === 0 ? '0' : `${ids.length}:${eventIdHash(ids.join(','))}`;
 }
 
-/** "chars,words,common,sentences-last,known-chars-english-first" for the switches that are on; "-" none; "?" not in the report. */
+/** "chars,words,everyday,common,sentences-last,known-chars-english-first" for the switches that are on; "-" none; "?" not in the report. */
 function orderLabel(o: DebugReport['new_card_order']): string {
   if (!o) return '?';
   const on = [
     o.new_characters_first && 'chars',
     o.new_words_first && 'words',
+    o.everyday_first !== false && 'everyday',
     o.most_common_first && 'common',
     o.sentences_last && 'sentences-last',
     o.known_characters_english_first && 'known-chars-english-first',

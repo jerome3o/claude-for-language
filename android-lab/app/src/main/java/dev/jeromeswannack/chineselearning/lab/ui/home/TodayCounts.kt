@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.home
 
 import dev.jeromeswannack.chineselearning.lab.data.noteLongTerm
 import dev.jeromeswannack.chineselearning.lab.data.noteHanzi
+import dev.jeromeswannack.chineselearning.lab.data.noteFormality
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.BuiltQueue
 import dev.jeromeswannack.chineselearning.lab.core.Js
@@ -33,6 +34,7 @@ object TodayCounts {
             bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao),
             upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao),
             order = prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
+            formality = dao.noteFormality(prefs.newCardOrder),
         )
     }
 }

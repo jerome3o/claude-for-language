@@ -4,7 +4,7 @@
  * (budget.ts); bumps, one-off decks (0 + 0), opted-out words, the secondary (purple)
  * pool and one-off homework passes are untouched.
  *
- * The account's choice is four switches, applied as tiers in this order before the deck
+ * The account's choice is five switches, applied as tiers in this order before the deck
  * queue decides (every candidate is the hanzi_to_meaning card of a never-studied note, in
  * any deck in scope, each deck within min(its unseen cards, what is left of its cap)):
  *
@@ -18,12 +18,16 @@
  *      progress/known.ts `noteKind`) whose text appears in no studied note's hanzi,
  *      sentences included: 银行 is new even when 银 and 行 are known; a word already met
  *      inside a studied sentence is not.
- *   3. most_common_first — not a tier: inside each tier the most common first (frequency.ts:
+ *   3. everyday_first — not a tier: inside each tier (and inside a deck in the fallback) the
+ *      everyday words first and the formal ones last (formality.ts: everyday < neutral < formal,
+ *      from the lexicon's register and the note's AI word tags), BEFORE "Most common first" —
+ *      the frequency list counts mostly written text. Never above the tiers themselves.
+ *   4. most_common_first — not a tier: inside each tier the most common first (frequency.ts:
  *      wordfreq rank, then rarest character; in the new-character tier first the most
  *      common NEW character), and in the deck fallback below, inside a deck.
- *   4. sentences_last — inside tier 1 words before sentences; after the tiers, every WORD
+ *   5. sentences_last — inside tier 1 words before sentences; after the tiers, every WORD
  *      note (all decks, deck queue order) before any sentence.
- *   5. then deck priority (queue order), as before: the rest deck by deck.
+ *   6. then deck priority (queue order), as before: the rest deck by deck.
  *
  * Greedy, like novelty.ts: every pick counts as studied for the next (two words sharing one
  * new character aren't both front-loaded; a picked sentence makes the words inside it "met").
@@ -35,6 +39,7 @@
 import { isHanCodePoint, MAX_WORD_CHARACTERS, noteKind } from '../progress/known';
 import { characterRank, frequencyRank, frequencyRankOfText, type FrequencyIndex } from './frequency';
 import { hanText, NEW_CHARACTER_RANK_CAP } from './novelty';
+import { FORMALITY_NEUTRAL } from './formality';
 
 export interface NewCardOrder {
   new_characters_first: boolean;
@@ -47,9 +52,11 @@ export interface NewCardOrder {
    * "New cards" preference, synced and cached alike).
    */
   known_characters_english_first: boolean;
+  /** Inside each tier, everyday words before formal ones (formality.ts) — ahead of "Most common first". */
+  everyday_first: boolean;
 }
 
-export const NEW_CARD_ORDER_KEYS = ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first'] as const;
+export const NEW_CARD_ORDER_KEYS = ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first'] as const;
 export type NewCardOrderKey = (typeof NEW_CARD_ORDER_KEYS)[number];
 
 export const DEFAULT_NEW_CARD_ORDER: Readonly<NewCardOrder> = Object.freeze({
@@ -58,12 +65,14 @@ export const DEFAULT_NEW_CARD_ORDER: Readonly<NewCardOrder> = Object.freeze({
   most_common_first: true,
   sentences_last: true,
   known_characters_english_first: true,
+  everyday_first: true,
 });
 
 /** The settings rows, in order (web Settings and the Lab app show the same words). */
 export const NEW_CARD_ORDER_OPTIONS: ReadonlyArray<{ key: NewCardOrderKey; label: string; hint: string }> = [
   { key: 'new_characters_first', label: 'New characters first', hint: 'Words that bring a character you have never studied come first.' },
   { key: 'new_words_first', label: 'New words first', hint: "Then words you haven't met anywhere yet — not even inside a sentence." },
+  { key: 'everyday_first', label: 'Everyday words before formal ones', hint: 'Within each group, words you would say in daily life come before formal or literary ones — even when those are more common in writing.' },
   { key: 'most_common_first', label: 'Most common first', hint: 'Within each group, the words Chinese speakers use most come first, and the most common new characters before rare ones.' },
   { key: 'sentences_last', label: 'Sentences last', hint: 'Sentence cards wait until the words are in.' },
 ];
@@ -240,6 +249,8 @@ interface Entry<T> {
   rank: number;
   group: string;
   key: string;
+  /** formality.ts class (0 everyday, 1 neutral, 2 formal); 1 for all when not ordering by it. */
+  formality: number;
   newChars: number;
   newWord: boolean;
 }
@@ -285,15 +296,18 @@ function compareSnapshots<T>(x: Snapshot<T>, y: Snapshot<T>, order: NewCardOrder
   const b = y.e;
   if (x.tier === 0) {
     if (order.sentences_last && a.sentence !== b.sentence) return a.sentence ? 1 : -1;
-    // The most common new character first (all 0 when not ranking by frequency).
+    // Everyday words before formal ones (all 1 when not ordering by it), then the most common new character first (all 0 when not ranking by frequency).
+    if (a.formality !== b.formality) return a.formality - b.formality;
     if (x.newCharRank !== y.newCharRank) return x.newCharRank - y.newCharRank;
     if (x.newCapped !== y.newCapped) return y.newCapped - x.newCapped;
     if (order.most_common_first && a.freq !== b.freq) return a.freq - b.freq;
   } else if (x.tier === 1) {
+    if (a.formality !== b.formality) return a.formality - b.formality;
     if (order.most_common_first && a.freq !== b.freq) return a.freq - b.freq;
   } else {
     // The words after the tiers: deck queue order first, the most common inside a deck.
     if (a.rank !== b.rank) return a.rank - b.rank;
+    if (a.formality !== b.formality) return a.formality - b.formality;
     if (order.most_common_first && a.freq !== b.freq) return a.freq - b.freq;
   }
   if (a.rank !== b.rank) return a.rank - b.rank;
@@ -365,10 +379,13 @@ export function pickNewCardsByOrder<T>(
   order: NewCardOrder,
   studied: StudiedIndex,
   frequency?: FrequencyIndex | null,
+  /** formality.ts class per candidate (missing = neutral), used when `order.everyday_first`. */
+  formalityOf?: ((item: T) => number) | null,
 ): T[] {
   if (take <= 0) return [];
   if (!order.new_characters_first && !order.new_words_first && !order.sentences_last) return [];
   const useFreq = order.most_common_first && !!frequency;
+  const formalityFn = order.everyday_first && formalityOf ? formalityOf : null;
   const left = new Map(room);
   const heap = new Heap<Snapshot<T>>((a, b) => compareSnapshots(a, b, order) < 0);
   const byChar = new Map<string, Array<Entry<T>>>();
@@ -408,6 +425,7 @@ export function pickNewCardsByOrder<T>(
       rank: rank(group),
       group,
       key: tieKey(item),
+      formality: formalityFn ? formalityFn(item) : FORMALITY_NEUTRAL,
       newChars,
       newWord: order.new_words_first && word && (length === 1 ? !studied.chars.has(text) : !(studied.pieces?.has(text) ?? false)),
     };
@@ -462,25 +480,29 @@ export function pickNewCardsByOrder<T>(
 
 /**
  * The deck fallback: a deck's remaining hanzi_to_meaning cards (given in their existing
- * order) with "sentences last" (words, then sentences) and "most common first" applied
- * inside the deck. Stable: ties keep the existing order.
+ * order) with "sentences last" (words, then sentences), "everyday words before formal ones"
+ * and "most common first" applied inside the deck, in that order. Stable: ties keep the
+ * existing order.
  */
 export function orderWithinDeck<T>(
   items: readonly T[],
   hanziOf: (item: T) => string,
   order: NewCardOrder,
   frequency?: FrequencyIndex | null,
+  formalityOf?: ((item: T) => number) | null,
 ): T[] {
   const useFreq = order.most_common_first && !!frequency;
-  if (!order.sentences_last && !useFreq) return [...items];
+  const formalityFn = order.everyday_first && formalityOf ? formalityOf : null;
+  if (!order.sentences_last && !useFreq && !formalityFn) return [...items];
   const keyed = items.map(item => {
     const hanzi = hanziOf(item);
     return {
       item,
       sentence: order.sentences_last && noteKind(hanzi) === 'sentence' ? 1 : 0,
+      formality: formalityFn ? formalityFn(item) : FORMALITY_NEUTRAL,
       freq: useFreq ? frequencyRank(hanzi, frequency!) : 0,
     };
   });
-  keyed.sort((a, b) => a.sentence - b.sentence || a.freq - b.freq);
+  keyed.sort((a, b) => a.sentence - b.sentence || a.formality - b.formality || a.freq - b.freq);
   return keyed.map(k => k.item);
 }

@@ -38,6 +38,7 @@
 import { allocateNewCards, newBudgetLeft, primaryCapLeft, respreadPrimary, sortDecksForQueue, type DeckAllocation, type DeckNewPool, type StudyBudget } from './budget';
 import { DEFAULT_NEW_CARD_ORDER, orderWithinDeck, pickNewCardsByOrder, studiedFrom, type NewCardOrder, type StudiedIndex } from './new-card-order';
 import type { FrequencyIndex } from './frequency';
+import { FORMALITY_NEUTRAL } from './formality';
 import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } from './long-term';
 import { bumpPocket, type QueueBumps } from './bumps';
 import { takeUpNext, upNextSlots } from './up-next';
@@ -108,6 +109,11 @@ export interface QueueNoteText {
   order?: NewCardOrder | null;
   /** Word frequency for "Most common first" (frequency.ts); without it that switch does nothing. */
   frequency?: FrequencyIndex | null;
+  /**
+   * "Everyday words before formal ones": note id → formality.ts class (0 everyday, 2 formal;
+   * missing = neutral), from `noteFormalityMap` — built once per queue. Without it that switch does nothing.
+   */
+  formality?: ReadonlyMap<string, number> | null;
   /**
    * Notes with a KNOWN card (mature, lead-card.ts) across ALL decks — their characters are known.
    * Defaults to the ones in `cards` (from their `stability`; pass it when `cards` is one deck's).
@@ -300,6 +306,8 @@ export function selectStudyQueue<C extends QueueCardInput>(
   const hanziOf = (c: C) => noteText?.hanzi.get(c.note_id) ?? '';
   const order = noteText ? noteText.order ?? DEFAULT_NEW_CARD_ORDER : null;
   const frequency = noteText?.frequency ?? null;
+  const formality = noteText?.formality ?? null;
+  const formalityOf = formality && formality.size > 0 ? (c: C) => formality.get(c.note_id) ?? FORMALITY_NEUTRAL : null;
   const tiered = !!order && (order.new_characters_first || order.new_words_first || order.sentences_last);
   const studied = noteText && tiered
     ? studiedFrom([...(noteText.reviewedNoteIds ?? reviewed)].map(id => noteText.hanzi.get(id) ?? ''), order!.new_words_first)
@@ -312,7 +320,7 @@ export function selectStudyQueue<C extends QueueCardInput>(
   if (studied && order) {
     let total = 0;
     for (const a of allocation.values()) total += a.primary;
-    const picked = pickNewCardsFirst(pools, newByDeck, reviewed, total, hanziOf, studied, order, frequency, lead);
+    const picked = pickNewCardsFirst(pools, newByDeck, reviewed, total, hanziOf, studied, order, frequency, lead, formality);
     if (picked.length > 0) {
       for (const c of picked) globalPicks.add(c.id);
       pickedIn = picksPerDeck(picked.map(c => c.deck_id));
@@ -330,7 +338,7 @@ export function selectStudyQueue<C extends QueueCardInput>(
     if (take > 0) {
       const primaryList = all.filter(c => !reviewed.has(c.note_id) && !globalPicks.has(c.id)).sort(byTierThenId);
       if (order) {
-        const first = orderWithinDeck(primaryList.filter(c => isLeadCard(c, lead)), hanziOf, order, frequency).slice(0, take);
+        const first = orderWithinDeck(primaryList.filter(c => isLeadCard(c, lead)), hanziOf, order, frequency, formalityOf).slice(0, take);
         const others = primaryList.filter(c => !isLeadCard(c, lead)).slice(0, take - first.length);
         due.push(...first, ...others);
       } else {
@@ -411,7 +419,9 @@ export function pickNewCardsFirst<C extends QueueCardInput>(
   studied: StudiedIndex,
   order: NewCardOrder = DEFAULT_NEW_CARD_ORDER,
   frequency?: FrequencyIndex | null,
-  knownCharacterNoteIds?: ReadonlySet<string> | null
+  knownCharacterNoteIds?: ReadonlySet<string> | null,
+  /** note id → formality.ts class (missing = neutral), for "Everyday words before formal ones". */
+  formality?: ReadonlyMap<string, number> | null
 ): C[] {
   if (take <= 0) return [];
   const position = new Map(sortDecksForQueue([...pools]).map((p, i) => [p.deckId, i]));
@@ -422,7 +432,8 @@ export function pickNewCardsFirst<C extends QueueCardInput>(
     for (const c of list) if (isLeadCard(c, knownCharacterNoteIds) && !reviewed.has(c.note_id)) candidates.push(c);
   }
   return pickNewCardsByOrder(
-    candidates, take, hanziOf, c => c.deck_id, id => position.get(id) ?? 0, room, c => c.id, order, studied, frequency
+    candidates, take, hanziOf, c => c.deck_id, id => position.get(id) ?? 0, room, c => c.id, order, studied, frequency,
+    formality && formality.size > 0 ? c => formality.get(c.note_id) ?? FORMALITY_NEUTRAL : null
   );
 }
 
