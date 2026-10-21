@@ -11,8 +11,9 @@ import java.util.PriorityQueue
  * budget introduces first. Port of shared/decks/new-card-order.ts + shared/decks/frequency.ts,
  * parity-tested through android-lab/parity/fixtures/new-card-order.ts (and the study-queue
  * vectors). See new-card-order.ts for the rules: tiers new characters → new words → (sentences
- * last) words before sentences, the most common first inside each tier (in the new-character
- * tier: the most common never-seen character first), then the deck order.
+ * last) words before sentences; inside each tier everyday words before formal ones
+ * (Formality.kt, "Everyday words before formal ones"), then the most common first (in the
+ * new-character tier: the most common never-seen character first), then the deck order.
  */
 
 /** Port of NewCardOrder (shared/decks/new-card-order.ts). Default: every switch on. */
@@ -23,6 +24,8 @@ data class NewCardOrder(
     val sentencesLast: Boolean = true,
     /** Not an order: a word made only of known characters starts with English → Chinese (LeadCard.kt). */
     val knownCharactersEnglishFirst: Boolean = true,
+    /** Inside each tier, everyday words before formal ones (Formality.kt) — ahead of "Most common first". */
+    val everydayFirst: Boolean = true,
 ) {
     val isDefault: Boolean get() = this == DEFAULT
 
@@ -32,6 +35,7 @@ data class NewCardOrder(
         "most_common_first" -> mostCommonFirst
         "sentences_last" -> sentencesLast
         "known_characters_english_first" -> knownCharactersEnglishFirst
+        "everyday_first" -> everydayFirst
         else -> false
     }
 
@@ -41,6 +45,7 @@ data class NewCardOrder(
         "most_common_first" -> copy(mostCommonFirst = on)
         "sentences_last" -> copy(sentencesLast = on)
         "known_characters_english_first" -> copy(knownCharactersEnglishFirst = on)
+        "everyday_first" -> copy(everydayFirst = on)
         else -> this
     }
 
@@ -51,13 +56,14 @@ data class NewCardOrder(
 
     companion object {
         val DEFAULT = NewCardOrder()
-        val ALL_OFF = NewCardOrder(false, false, false, false, false)
-        val KEYS = listOf("new_characters_first", "new_words_first", "most_common_first", "sentences_last", "known_characters_english_first")
+        val ALL_OFF = NewCardOrder(false, false, false, false, false, false)
+        val KEYS = listOf("new_characters_first", "new_words_first", "most_common_first", "sentences_last", "known_characters_english_first", "everyday_first")
 
         /** NEW_CARD_ORDER_OPTIONS — the settings rows, same words as the web (parity-tested). */
         val OPTIONS = listOf(
             Option("new_characters_first", "New characters first", "Words that bring a character you have never studied come first."),
             Option("new_words_first", "New words first", "Then words you haven't met anywhere yet — not even inside a sentence."),
+            Option("everyday_first", "Everyday words before formal ones", "Within each group, words you would say in daily life come before formal or literary ones — even when those are more common in writing."),
             Option("most_common_first", "Most common first", "Within each group, the words Chinese speakers use most come first, and the most common new characters before rare ones."),
             Option("sentences_last", "Sentences last", "Sentence cards wait until the words are in."),
         )
@@ -213,13 +219,15 @@ object NewCardOrdering {
         val rank: Int,
         val group: String,
         val key: String,
+        /** Formality.kt class (0 everyday, 1 neutral, 2 formal); 1 for all when not ordering by it. */
+        val formality: Int,
         var newChars: Int,
         var newWord: Boolean,
     )
 
     private class Snapshot<T>(val e: Entry<T>, val tier: Int, val newCharRank: Int, val newCapped: Int)
 
-    private class Keyed<T>(val item: T, val sentence: Int, val freq: Int)
+    private class Keyed<T>(val item: T, val sentence: Int, val formality: Int, val freq: Int)
 
     private fun <T> tierOf(e: Entry<T>, order: NewCardOrder): Int = when {
         order.newCharactersFirst && e.newChars > 0 -> 0
@@ -247,13 +255,18 @@ object NewCardOrdering {
         when (x.tier) {
             0 -> {
                 if (order.sentencesLast && a.sentence != b.sentence) return if (a.sentence) 1 else -1
+                if (a.formality != b.formality) return a.formality.compareTo(b.formality)
                 if (x.newCharRank != y.newCharRank) return x.newCharRank.compareTo(y.newCharRank)
                 if (x.newCapped != y.newCapped) return y.newCapped.compareTo(x.newCapped)
                 if (order.mostCommonFirst && a.freq != b.freq) return a.freq.compareTo(b.freq)
             }
-            1 -> if (order.mostCommonFirst && a.freq != b.freq) return a.freq.compareTo(b.freq)
+            1 -> {
+                if (a.formality != b.formality) return a.formality.compareTo(b.formality)
+                if (order.mostCommonFirst && a.freq != b.freq) return a.freq.compareTo(b.freq)
+            }
             else -> {
                 if (a.rank != b.rank) return a.rank.compareTo(b.rank)
+                if (a.formality != b.formality) return a.formality.compareTo(b.formality)
                 if (order.mostCommonFirst && a.freq != b.freq) return a.freq.compareTo(b.freq)
             }
         }
@@ -277,10 +290,13 @@ object NewCardOrdering {
         order: NewCardOrder,
         studied: StudiedIndex,
         frequency: FrequencyIndex?,
+        /** Formality.kt class per candidate (missing = neutral), used when `order.everydayFirst`. */
+        formalityOf: ((T) -> Int)? = null,
     ): List<T> {
         if (take <= 0) return emptyList()
         if (!order.newCharactersFirst && !order.newWordsFirst && !order.sentencesLast) return emptyList()
         val useFreq = order.mostCommonFirst && frequency != null
+        val formalityFn = if (order.everydayFirst) formalityOf else null
         val left = HashMap(room)
         val heap = PriorityQueue<Snapshot<T>> { a, b -> compareSnapshots(a, b, order) }
         val byChar = HashMap<String, MutableList<Entry<T>>>()
@@ -317,6 +333,7 @@ object NewCardOrdering {
                 rank = rank(group),
                 group = group,
                 key = tieKey(item),
+                formality = formalityFn?.invoke(item) ?: Formality.NEUTRAL,
                 newChars = newChars,
                 newWord = order.newWordsFirst && word && (if (length == 1) text !in studied.chars else studied.pieces?.contains(text) != true),
             )
@@ -352,17 +369,25 @@ object NewCardOrdering {
         return out
     }
 
-    /** Port of orderWithinDeck(): words before sentences, the most common first; stable. */
-    fun <T> orderWithinDeck(items: List<T>, hanziOf: (T) -> String, order: NewCardOrder, frequency: FrequencyIndex?): List<T> {
+    /** Port of orderWithinDeck(): words before sentences, everyday before formal, the most common first; stable. */
+    fun <T> orderWithinDeck(
+        items: List<T>,
+        hanziOf: (T) -> String,
+        order: NewCardOrder,
+        frequency: FrequencyIndex?,
+        formalityOf: ((T) -> Int)? = null,
+    ): List<T> {
         val useFreq = order.mostCommonFirst && frequency != null
-        if (!order.sentencesLast && !useFreq) return items.toList()
+        val formalityFn = if (order.everydayFirst) formalityOf else null
+        if (!order.sentencesLast && !useFreq && formalityFn == null) return items.toList()
         return items.map { item ->
             val hanzi = hanziOf(item)
             Keyed(
                 item,
                 if (order.sentencesLast && Known.noteKind(hanzi) == NoteKind.Sentence) 1 else 0,
+                formalityFn?.invoke(item) ?: Formality.NEUTRAL,
                 if (useFreq) WordFrequency.rank(hanzi, frequency!!) else 0,
             )
-        }.sortedWith(compareBy<Keyed<T>> { it.sentence }.thenBy { it.freq }).map { it.item }
+        }.sortedWith(compareBy<Keyed<T>> { it.sentence }.thenBy { it.formality }.thenBy { it.freq }).map { it.item }
     }
 }

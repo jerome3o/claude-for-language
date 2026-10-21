@@ -171,6 +171,11 @@ object StudyQueue {
         upNext: List<String>? = null,
         /** Notes with a known card across ALL decks (LeadCard.kt); default: from [cards]. */
         knownNoteIds: Collection<String>? = null,
+        /**
+         * "Everyday words before formal ones": note id → Formality.kt class (missing = neutral),
+         * from Formality.noteFormalityMap, built once per queue; null = that switch does nothing.
+         */
+        formality: Map<String, Int>? = null,
     ): BuiltQueue {
         val reviewed = reviewedNoteIds(cards)
         val inScope = if (deckId == null) decks else decks.filter { it.id == deckId }
@@ -231,6 +236,7 @@ object StudyQueue {
         // the primary cards (best tier first; the hanzi_to_meaning cards sentences-last /
         // most-common-first when ordering), then the secondary ones (best tier, then id).
         val hanziOf = { c: QueueCard -> noteHanzi?.get(c.noteId) ?: "" }
+        val formalityOf: ((QueueCard) -> Int)? = if (formality.isNullOrEmpty()) null else { c -> formality[c.noteId] ?: Formality.NEUTRAL }
         val newCards = ArrayList<QueueCard>()
         // The order only changes WHICH new words come; if it ever fails, the plain order is used
         // rather than failing the queue (Home, the session, the widget build it).
@@ -243,7 +249,7 @@ object StudyQueue {
         var pickedIn: Map<String, Int> = emptyMap()
         if (studied != null) {
             runCatching {
-                val picked = pickNewCardsFirst(pools, newByDeck, reviewed, alloc.values.sumOf { it.primary }, hanziOf, studied, ordering!!, frequency, lead)
+                val picked = pickNewCardsFirst(pools, newByDeck, reviewed, alloc.values.sumOf { it.primary }, hanziOf, studied, ordering!!, frequency, lead, formality)
                 if (picked.isNotEmpty()) {
                     val per = picked.groupingBy { it.deckId }.eachCount()
                     val respread = Budget.respreadPrimary(pools, alloc, per)
@@ -262,7 +268,7 @@ object StudyQueue {
                 val primaryList = all.filter { it.noteId !in reviewed && it.id !in globalPicks }.sortedWith(byTierThenId)
                 if (ordering != null) {
                     val firstType = primaryList.filter { LeadCard.isLead(it, lead) }
-                    val first = runCatching { NewCardOrdering.orderWithinDeck(firstType, hanziOf, ordering, frequency) }.getOrDefault(firstType).take(take)
+                    val first = runCatching { NewCardOrdering.orderWithinDeck(firstType, hanziOf, ordering, frequency, formalityOf) }.getOrDefault(firstType).take(take)
                     val others = primaryList.filter { !LeadCard.isLead(it, lead) }.take(Math.max(0, take - first.size))
                     newCards += first
                     newCards += others
@@ -311,6 +317,8 @@ object StudyQueue {
         order: NewCardOrder = NewCardOrder.DEFAULT,
         frequency: FrequencyIndex? = null,
         knownCharacterNoteIds: Set<String>? = null,
+        /** note id → Formality.kt class (missing = neutral), for "Everyday words before formal ones". */
+        formality: Map<String, Int>? = null,
     ): List<QueueCard> {
         if (take <= 0) return emptyList()
         val position = Budget.sortForQueue(pools, { it.priority }, { it.createdAt }).withIndex().associate { (i, p) -> p.deckId to i }
@@ -320,7 +328,8 @@ object StudyQueue {
             if ((room[deckId] ?: 0) <= 0) continue
             for (c in list) if (LeadCard.isLead(c, knownCharacterNoteIds) && c.noteId !in reviewed) candidates += c
         }
-        return NewCardOrdering.pickByOrder(candidates, take, hanziOf, { it.deckId }, { position[it] ?: 0 }, room, { it.id }, order, studied, frequency)
+        val formalityOf: ((QueueCard) -> Int)? = if (formality.isNullOrEmpty()) null else { c -> formality[c.noteId] ?: Formality.NEUTRAL }
+        return NewCardOrdering.pickByOrder(candidates, take, hanziOf, { it.deckId }, { position[it] ?: 0 }, room, { it.id }, order, studied, frequency, formalityOf)
     }
 
     fun counts(queue: Collection<QueueCard>, reviewedNoteIds: Set<String>): QueueCounts {

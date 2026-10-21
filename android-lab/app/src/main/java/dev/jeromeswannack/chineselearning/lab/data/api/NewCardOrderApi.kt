@@ -8,7 +8,7 @@ import kotlinx.serialization.json.buildJsonObject
 
 /*
  * "Order new cards by" (shared/decks/new-card-order.ts): PUT /api/profile/new-card-order
- * `{ <switch>: true | false }` or `{ reset: true }` → NewCardOrderInfo (the four switches +
+ * `{ <switch>: true | false }` or `{ reset: true }` → NewCardOrderInfo (the switches +
  * is_default). /api/auth/me and /api/sync/changes carry the same as `new_card_order`.
  */
 

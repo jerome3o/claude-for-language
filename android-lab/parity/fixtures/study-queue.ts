@@ -13,7 +13,7 @@
  *   - selectStudyQueue(..., bumps) + bumpPocket(...)    ("⚡ Study it today": the bump pocket heads the
  *                                                         queue, NEW over the budget, one early review,
  *                                                         carry-over, done after review — shared/decks/bumps.ts)
- *   - selectStudyQueue(..., { order, frequency })      (`ordered`: "Order new cards by" — every combination
+ *   - selectStudyQueue(..., { order, frequency, formality }) (`ordered`: "Order new cards by" — every combination
  *                                                         of the four switches, with / without the shipped
  *                                                         word-frequency list — shared/decks/new-card-order.ts)
  *   - selectStudyQueue(..., upNext)                    (`upNext`: the "Up next" list takes the budget first —
@@ -408,9 +408,13 @@ for (let i = 0; i < 320; i++) {
     }
   }
   const order: NewCardOrder = i < 32
-    ? { new_characters_first: !!(i & 1), new_words_first: !!(i & 2), most_common_first: !!(i & 4), sentences_last: !!(i & 8) }
-    : { new_characters_first: rand() < 0.7, new_words_first: rand() < 0.7, most_common_first: rand() < 0.7, sentences_last: rand() < 0.7 };
+    ? { new_characters_first: !!(i & 1), new_words_first: !!(i & 2), most_common_first: !!(i & 4), sentences_last: !!(i & 8), known_characters_english_first: true, everyday_first: i % 3 !== 0 }
+    : { new_characters_first: rand() < 0.7, new_words_first: rand() < 0.7, most_common_first: rand() < 0.7, sentences_last: rand() < 0.7, known_characters_english_first: true, everyday_first: rand() < 0.7 };
   const useFrequency = i < 32 ? i < 16 : rand() < 0.8;
+  // "Everyday words before formal ones": a class for some notes (0 everyday, 2 formal; missing = neutral), or none.
+  const formality: Record<string, number> = {};
+  if (rand() < 0.75) for (const id of Object.keys(noteHanzi)) { const r = rand(); if (r < 0.3) formality[id] = 0; else if (r < 0.6) formality[id] = 2; }
+  const formalityMap = new Map(Object.entries(formality));
   const budget = { new_cards_per_day: pick([0, 1, 3, 5, 10, 20]), secondary_cards_per_day: pick([0, 6]) };
   const bonus = pick([0, 0, 10]);
   const intro = introducedToday(cards, new Map(Object.entries(firstReviewAt)), dayStart);
@@ -419,7 +423,7 @@ for (let i = 0; i < 320; i++) {
   const scopes: Array<string | null> = [null, pick(decks).id];
   const queues = scopes.map(deckId => {
     const q = selectStudyQueue(decks, cards, budget, bonus, intro, cutoff, deckId,
-      { hanzi: hanziMap, order, frequency: useFrequency ? shipped : null }, longTermMap);
+      { hanzi: hanziMap, order, frequency: useFrequency ? shipped : null, formality: formalityMap }, longTermMap);
     return {
       deckId,
       due: q.due.map(c => c.id).sort(),
@@ -430,7 +434,7 @@ for (let i = 0; i < 320; i++) {
     };
   });
   ordered.push({
-    now, dayStart, cutoff, decks, cards, firstReviewAt, budget, bonus, noteHanzi, seenNoteIds: null, longTerm, order, useFrequency,
+    now, dayStart, cutoff, decks, cards, firstReviewAt, budget, bonus, noteHanzi, seenNoteIds: null, longTerm, order, useFrequency, formality,
     introduced: [...intro.entries()].map(([deckId, v]) => ({ deckId, ...v })),
     queues,
   });

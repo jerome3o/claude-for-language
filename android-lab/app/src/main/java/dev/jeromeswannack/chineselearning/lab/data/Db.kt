@@ -191,6 +191,9 @@ data class DeckCount(val deckId: String, val count: Int)
 /** A note's id and hanzi — what "new characters first" (core Novelty.kt) needs from every note. */
 data class NoteHanzi(val id: String, val hanzi: String)
 
+/** A note's hanzi + AI word tags, for "Everyday words before formal ones" (core Formality.kt). */
+data class NoteWordTags(val id: String, val hanzi: String, val wordTags: String?)
+
 data class CardPlacement(val id: String, val noteId: String, val deckId: String)
 
 /** A note's long-term choice (only notes that have one) — StudyQueue.build's `longTerm`. */
@@ -220,6 +223,7 @@ interface LabDao {
     @Query("SELECT * FROM notes WHERE id IN (:ids)") suspend fun notes(ids: List<String>): List<NoteEntity>
     @Query("SELECT * FROM notes") suspend fun allNotes(): List<NoteEntity>
     @Query("SELECT id, hanzi FROM notes") suspend fun noteHanziRows(): List<NoteHanzi>
+    @Query("SELECT id, hanzi, wordTags FROM notes") suspend fun noteWordTagRows(): List<NoteWordTags>
     @Query("SELECT id, longTerm FROM notes WHERE longTerm IS NOT NULL") suspend fun noteLongTermRows(): List<NoteLongTerm>
     @Query("UPDATE notes SET longTerm = :longTerm WHERE id = :id") suspend fun setNoteLongTerm(id: String, longTerm: Int?)
     /** Notes among [ids] with a card past NEW (their long-term switch is fixed: already in the reviews). */
@@ -335,4 +339,45 @@ suspend fun LabDao.noteHanzi(): Map<String, String>? = try {
 } catch (e: Throwable) {
     android.util.Log.w("LabDao", "note hanzi unavailable, plain new-card order", e)
     null
+}
+
+/**
+ * "Everyday words before formal ones" (core Formality.kt, NewCardOrder.everydayFirst): note id →
+ * class for StudyQueue.build's `formality`, from the shipped word-tag lexicon (a core resource)
+ * and each note's AI word tags. null when the switch is off, or it can't be read (the plain order —
+ * an ordering nicety must never stop the queue). Memoised per note across builds.
+ */
+suspend fun LabDao.noteFormality(order: dev.jeromeswannack.chineselearning.lab.core.NewCardOrder): Map<String, Int>? {
+    if (!order.everydayFirst) return null
+    return try {
+        NoteFormalityMemo.of(noteWordTagRows())
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        android.util.Log.w("LabDao", "note formality unavailable, plain new-card order", e)
+        null
+    }
+}
+
+/** Per-note memo of Formality.noteFormality (hanzi + tags unchanged = the same class). */
+internal object NoteFormalityMemo {
+    private data class Entry(val hanzi: String, val tags: String?, val formality: Int)
+    private val memo = java.util.concurrent.ConcurrentHashMap<String, Entry>()
+
+    fun of(rows: List<NoteWordTags>): Map<String, Int> {
+        val lexicon = dev.jeromeswannack.chineselearning.lab.core.cards.WordTags.shipped ?: return emptyMap()
+        val out = HashMap<String, Int>()
+        for (r in rows) {
+            var e = memo[r.id]
+            if (e == null || e.hanzi != r.hanzi || e.tags != r.wordTags) {
+                val f = dev.jeromeswannack.chineselearning.lab.core.Formality.noteFormalityMap(
+                    listOf(dev.jeromeswannack.chineselearning.lab.core.Formality.Note(r.id, r.hanzi, r.wordTags)), lexicon,
+                )[r.id] ?: dev.jeromeswannack.chineselearning.lab.core.Formality.NEUTRAL
+                e = Entry(r.hanzi, r.wordTags, f)
+                memo[r.id] = e
+            }
+            if (e.formality != dev.jeromeswannack.chineselearning.lab.core.Formality.NEUTRAL) out[r.id] = e.formality
+        }
+        return out
+    }
 }

@@ -10,6 +10,8 @@ import { seenCharactersOf } from '@shared/study/newCharacters';
 import { readStudyBudget } from '../services/studyBudget';
 import { readNewCardOrder } from '../services/newCardOrder';
 import { loadWordFrequency } from '../services/wordFrequency';
+import { loadWordTagLexicon } from '../services/wordTags';
+import { noteFormalities } from '../services/noteFormality';
 import { CardType, CardQueue, Rating } from '../types';
 
 // ============ Review Event Types ============
@@ -1875,7 +1877,7 @@ function countRawQueues(
     const secondaryTaken = takeUpNext({ primary: 0, secondary: slots.secondary.length }, newBudgetLeft(budget, 0, studiedAll)).secondary;
     const pools = withUpNextPicks(basePools, slots.primary.map(c => c.deck_id), slots.secondary.slice(0, secondaryTaken).map(c => c.deck_id));
     const picks = pickNewCardsFirst(pools, newByDeck, reviewedNoteIds, budget.new_cards_per_day + NOVELTY_PICKS_AHEAD,
-      c => noteText.hanzi.get(c.note_id) ?? '', studied, order, noteText.frequency, lead);
+      c => noteText.hanzi.get(c.note_id) ?? '', studied, order, noteText.frequency, lead, noteText.formality);
     picks.forEach((c, i) => {
       const raw = byDeck.get(c.deck_id)!;
       (raw.noveltyPicks ??= []).push(i);
@@ -1925,20 +1927,24 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
  */
 async function loadQueueNoteText(deckId?: string): Promise<QueueNoteText> {
   const order = readNewCardOrder();
-  const [notes, reviewedCards, frequency] = await Promise.all([
+  const [notes, reviewedCards, frequency, lexicon] = await Promise.all([
     db.notes.toArray(),
     deckId ? db.cards.where('queue').above(CardQueue.NEW).toArray() : Promise.resolve(null),
     order.most_common_first ? loadWordFrequency() : Promise.resolve(null),
+    // "Everyday words before formal ones" (shared/decks/formality.ts): the word-tag lexicon, a
+    // precached chunk; null (failed) = every note neutral, the plain order.
+    order.everyday_first ? loadWordTagLexicon() : Promise.resolve(null),
   ]);
   const hanzi = new Map<string, string>();
   for (const n of notes) hanzi.set(n.id, n.hanzi ?? '');
+  const formality = order.everyday_first ? noteFormalities(notes, lexicon) : null;
   // A one-deck session still knows the characters of every deck (lead-card.ts); all decks: from the cards.
   return reviewedCards
     ? {
-      hanzi, reviewedNoteIds: reviewedCards.map(c => c.note_id), order, frequency,
+      hanzi, reviewedNoteIds: reviewedCards.map(c => c.note_id), order, frequency, formality,
       knownNoteIds: reviewedCards.filter(c => isKnownCardState(c.queue, c.stability)).map(c => c.note_id),
     }
-    : { hanzi, order, frequency };
+    : { hanzi, order, frequency, formality };
 }
 
 /** The due-card selection described on getDueCards, over already-loaded inputs. */

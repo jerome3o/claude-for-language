@@ -7,9 +7,11 @@
  *   - frequencyRank(hanzi, the SHIPPED list) (shared/data/frequency/word-freq.txt — the Lab reads the
  *                                             same file as a core resource; proves both parse it alike)
  *   - wordPieces / isNewWord                 (what "met" means for "New words first")
- *   - pickNewCardsByOrder                    (random candidates, orders, rooms, studied text; plus the
- *                                             new-character tier ranked by its most common NEW character:
- *                                             hand-made cases + random ones over common words)
+ *   - pickNewCardsByOrder                    (random candidates, orders, rooms, studied text, formality
+ *                                             classes; plus the new-character tier ranked by its most common
+ *                                             NEW character: hand-made cases + random ones over common words)
+ *   - noteFormality / noteFormalityMap       (formality.ts — "Everyday words before formal ones" — over the
+ *                                             SHIPPED word-tag lexicon, with and without AI word tags)
  * The queue scenarios with an order live in study-queue.json (`ordered`).
  * Writes new-card-order.json; core NewCardOrderParityTest asserts NewCardOrder.kt reproduces them.
  */
@@ -26,6 +28,9 @@ import {
   type NewCardOrder,
 } from '../../../shared/decks/new-card-order';
 import { frequencyRank, parseFrequencyList } from '../../../shared/decks/frequency';
+import { noteFormality, noteFormalityMap } from '../../../shared/decks/formality';
+import { parseWordTagLexicon } from '../../../shared/cards/word-tags';
+import { parseAiWordTags } from '../../../shared/cards/word-tags-ai';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: new-card-order <out-dir>');
@@ -34,6 +39,7 @@ let root = OUT;
 while (!existsSync(join(root, 'android-lab', 'parity')) && dirname(root) !== root) root = dirname(root);
 if (!existsSync(join(root, 'android-lab', 'parity'))) throw new Error(`repo root not found above ${OUT}`);
 const shipped = parseFrequencyList(readFileSync(join(root, 'shared/data/frequency/word-freq.txt'), 'utf8'));
+const lexicon = parseWordTagLexicon(readFileSync(join(root, 'shared/data/word-tags/word-tags.txt'), 'utf8'));
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -56,11 +62,12 @@ const RAW = [
   '{"most_common_first":0}', '{"new_characters_first":false,"new_words_first":false,"most_common_first":false,"sentences_last":false}',
   '{"new_characters_first":true,"extra":1}', 'null', '"x"', '{"sentences_last":null}',
   '{"known_characters_english_first":false}', '{"known_characters_english_first":"false"}', '{"known_characters_english_first":null,"sentences_last":false}',
+  '{"everyday_first":false}', '{"everyday_first":"false"}', '{"everyday_first":0,"most_common_first":false}', '{"everyday_first":true,"new_words_first":false}',
 ];
 const settings = RAW.map(raw => ({ raw, order: parseNewCardOrder(raw) }));
 for (let i = 0; i < 20; i++) {
   const obj: Record<string, unknown> = {};
-  for (const k of ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first']) {
+  for (const k of ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first']) {
     if (rand() < 0.7) obj[k] = pick([true, false, 'true', 1, null]);
   }
   const raw = JSON.stringify(obj);
@@ -100,23 +107,27 @@ const pieces = TEXT.map(hanzi => ({ hanzi, pieces: wordPieces(hanzi) }));
 const POOL = [...TEXT, ...Array.from({ length: 30 }, () => pick(words.slice(0, 3000))), ...Array.from({ length: 10 }, () => pick(words.slice(20000)))];
 const randomOrder = (): NewCardOrder => ({
   new_characters_first: bool(), new_words_first: bool(), most_common_first: bool(), sentences_last: bool(),
+  known_characters_english_first: true, everyday_first: rand() < 0.6,
 });
+// A formality class per candidate (0 everyday, 1 neutral, 2 formal) — or none passed at all.
+const randomFormality = () => pick([0, 1, 1, 2]);
 const picker: unknown[] = [];
 for (let i = 0; i < 300; i++) {
   const groups = Array.from({ length: int(1, 4) }, (_, g) => `g${g}`);
-  const items = Array.from({ length: int(0, 25) }, (_, n) => ({ id: `i${i}-${String(n).padStart(2, '0')}`, hanzi: pick(POOL), group: pick(groups) }));
+  const items = Array.from({ length: int(0, 25) }, (_, n) => ({ id: `i${i}-${String(n).padStart(2, '0')}`, hanzi: pick(POOL), group: pick(groups), formality: randomFormality() }));
   const room: Record<string, number> = Object.fromEntries(groups.map(g => [g, int(0, 6)]));
   const rank: Record<string, number> = Object.fromEntries(groups.map(g => [g, int(0, 3)]));
   const studiedText = Array.from({ length: int(0, 10) }, () => pick(POOL));
-  const order = i < 16
-    ? { new_characters_first: !!(i & 1), new_words_first: !!(i & 2), most_common_first: !!(i & 4), sentences_last: !!(i & 8) }
+  const order: NewCardOrder = i < 32
+    ? { new_characters_first: !!(i & 1), new_words_first: !!(i & 2), most_common_first: !!(i & 4), sentences_last: !!(i & 8), known_characters_english_first: true, everyday_first: !!(i & 16) }
     : randomOrder();
   const useFrequency = rand() < 0.8;
+  const useFormality = rand() < 0.7;
   const withPieces = order.new_words_first || rand() < 0.5;
   const take = int(0, 12);
   const picked = pickNewCardsByOrder(items, take, x => x.hanzi, x => x.group, g => rank[g], new Map(Object.entries(room)), x => x.id,
-    order, studiedFrom(studiedText, withPieces), useFrequency ? shipped : null);
-  picker.push({ items, room, rank, studied: studiedText, withPieces, order, useFrequency, take, picked: picked.map(x => x.id) });
+    order, studiedFrom(studiedText, withPieces), useFrequency ? shipped : null, useFormality ? x => x.formality : null);
+  picker.push({ items, room, rank, studied: studiedText, withPieces, order, useFrequency, useFormality, take, picked: picked.map(x => x.id) });
 }
 
 // ---- the new-character tier, the most common NEW character first (shipped list) ----
@@ -136,7 +147,7 @@ const DIRECTED: Array<{ hanzi: string[]; group?: string[]; rank?: Record<string,
 let directed = 0;
 for (const d of DIRECTED) {
   for (let o = 0; o < 8; o++) {
-    const order: NewCardOrder = { new_characters_first: true, new_words_first: !!(o & 1), most_common_first: !!(o & 2), sentences_last: !!(o & 4) };
+    const order: NewCardOrder = { new_characters_first: true, new_words_first: !!(o & 1), most_common_first: !!(o & 2), sentences_last: !!(o & 4), known_characters_english_first: true, everyday_first: false };
     for (const useFrequency of [true, false]) {
       const items = d.hanzi.map((hanzi, n) => ({ id: `d${directed}-${n}`, hanzi, group: d.group?.[n] ?? 'g0' }));
       const groups = [...new Set(items.map(x => x.group))];
@@ -146,7 +157,7 @@ for (const d of DIRECTED) {
       const studiedText = d.studied ?? [];
       const picked = pickNewCardsByOrder(items, take, x => x.hanzi, x => x.group, g => rank[g], new Map(Object.entries(room)), x => x.id,
         order, studiedFrom(studiedText), useFrequency ? shipped : null);
-      picker.push({ items, room, rank, studied: studiedText, withPieces: true, order, useFrequency, take, picked: picked.map(x => x.id) });
+      picker.push({ items, room, rank, studied: studiedText, withPieces: true, order, useFrequency, useFormality: false, take, picked: picked.map(x => x.id) });
       directed++;
     }
   }
@@ -159,14 +170,46 @@ for (let i = 0; i < 80; i++) {
   const room: Record<string, number> = Object.fromEntries(groups.map(g => [g, int(1, 8)]));
   const rank: Record<string, number> = Object.fromEntries(groups.map(g => [g, int(0, 3)]));
   const studiedText = Array.from({ length: int(0, 30) }, () => pick(COMMON));
-  const order: NewCardOrder = { new_characters_first: true, new_words_first: bool(), most_common_first: true, sentences_last: bool() };
+  const order: NewCardOrder = { new_characters_first: true, new_words_first: bool(), most_common_first: true, sentences_last: bool(), known_characters_english_first: true, everyday_first: bool() };
   const take = int(1, 15);
-  const picked = pickNewCardsByOrder(items, take, x => x.hanzi, x => x.group, g => rank[g], new Map(Object.entries(room)), x => x.id,
-    order, studiedFrom(studiedText), shipped);
-  picker.push({ items, room, rank, studied: studiedText, withPieces: true, order, useFrequency: true, take, picked: picked.map(x => x.id) });
+  const withFormality = items.map(x => ({ ...x, formality: randomFormality() }));
+  const picked = pickNewCardsByOrder(withFormality, take, x => x.hanzi, x => x.group, g => rank[g], new Map(Object.entries(room)), x => x.id,
+    order, studiedFrom(studiedText), shipped, x => x.formality);
+  picker.push({ items: withFormality, room, rank, studied: studiedText, withPieces: true, order, useFrequency: true, useFormality: true, take, picked: picked.map(x => x.id) });
 }
+
+// ---- "Everyday words before formal ones": real classes from the shipped lexicon (+ AI tags) ----
+// Every lexicon word with a register code, random words, sentences / phrases, each with no AI tags
+// and with a random verdict (register, Everyday speech, confidences — and junk).
+const AI_SAMPLES: Array<string | null> = [
+  null, '', 'not json', '{"v":2,"confidence":"high"}',
+  '{"v":2,"register":"formal","register_note":"formal written; in speech use 告诉","confidence":"high"}',
+  '{"v":2,"register":"formal","confidence":"low"}', '{"v":2,"register":"literary","confidence":"medium"}',
+  '{"v":2,"register":"informal","confidence":"high"}', '{"v":2,"register":"slang","confidence":"medium"}',
+  '{"v":2,"register":"rude","spoken":"everyday","spoken_confidence":"high","confidence":"high"}',
+  '{"v":2,"register":"polite","confidence":"high"}', '{"v":2,"register":"neutral","confidence":"high"}',
+  '{"v":2,"spoken":"everyday","spoken_confidence":"high","confidence":"high"}',
+  '{"v":2,"spoken":"everyday","spoken_confidence":"high","confidence":"low"}',
+  '{"v":2,"spoken":"everyday","spoken_confidence":"medium","confidence":"high"}',
+  '{"v":2,"register":"formal","spoken":"everyday","spoken_confidence":"high","confidence":"high"}',
+  '{"v":1,"register":"informal","confidence":"high"}', '{"register":"formal"}',
+];
+const registered = [...lexicon.words.entries()].filter(([, e]) => e.register.length > 0).map(([w]) => w);
+const lexWords = [...lexicon.words.keys()];
+const FORMALITY_TEXT = [
+  ...registered, ...Array.from({ length: 300 }, () => pick(lexWords)), ...Array.from({ length: 100 }, () => pick(words.slice(0, 5000))),
+  '告知', '购置', '买', '搞定', '结账', '买单', '您', '不好意思', '咱们走吧。', '咱们一起去吃饭', ' 搞定！', '搞定。', 'OK', '', '卡拉OK',
+];
+const formality = FORMALITY_TEXT.map(hanzi => {
+  const ai = rand() < 0.5 ? null : pick(AI_SAMPLES);
+  return { hanzi, ai, formality: noteFormality(hanzi, lexicon, parseAiWordTags(ai)) };
+});
+const formalityNotes = formality.map((f, n) => ({ id: `f${n}`, hanzi: f.hanzi, word_tags: f.ai }));
+const formalityMap = Object.fromEntries(noteFormalityMap(formalityNotes, lexicon));
+const formalityNoLexicon = noteFormalityMap(formalityNotes, null).size;
 
 writeFileSync(join(OUT, 'new-card-order.json'), JSON.stringify({
   settings, options: NEW_CARD_ORDER_OPTIONS, knownCharactersOption: KNOWN_CHARACTERS_OPTION, frequency, studied, pieces, picker,
+  formality, formalityMap, formalityNoLexicon,
 }));
-console.log(`new-card-order: ${settings.length} settings + ${frequency.ranks.length} ranks + ${studied.length} studied + ${picker.length} picker cases`);
+console.log(`new-card-order: ${settings.length} settings + ${frequency.ranks.length} ranks + ${studied.length} studied + ${picker.length} picker cases + ${formality.length} formality`);

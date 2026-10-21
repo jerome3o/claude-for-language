@@ -31,4 +31,13 @@ describe('new card order', () => {
     db.raw.run("UPDATE users SET new_card_order = ? WHERE id = 'u1'", ['nope']);
     expect(await getNewCardOrderInfo(db, 'u1')).toMatchObject({ is_default: true });
   });
+
+  it('"Everyday words before formal ones" is on by default, also for a row stored before it existed', async () => {
+    db.raw.run("UPDATE users SET new_card_order = ? WHERE id = 'u1'", ['{"new_characters_first":true,"new_words_first":true,"most_common_first":false,"sentences_last":true,"known_characters_english_first":true}']);
+    expect(await getNewCardOrderInfo(db, 'u1')).toMatchObject({ everyday_first: true, most_common_first: false });
+    const saved = await setNewCardOrder(db, 'u2', pickNewCardOrderUpdate({ everyday_first: false }).update);
+    expect(saved).toEqual({ ...DEFAULT_NEW_CARD_ORDER, everyday_first: false, is_default: false });
+    expect(JSON.parse(stored('u2')!)).toMatchObject({ everyday_first: false });
+    expect(pickNewCardOrderUpdate({ everyday_first: 'no' }).problems).toEqual(['everyday_first must be true, false or null']);
+  });
 });

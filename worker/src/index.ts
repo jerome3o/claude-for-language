@@ -828,7 +828,7 @@ app.put('/api/profile/study-budget', async (c) => {
 
 /**
  * "Order new cards by" (Settings → New cards; shared/decks/new-card-order.ts):
- * `{ new_characters_first?, new_words_first?, most_common_first?, sentences_last?, known_characters_english_first? }`
+ * `{ new_characters_first?, new_words_first?, most_common_first?, sentences_last?, known_characters_english_first?, everyday_first? }`
  * (true / false, null = that default) or `{ reset: true }` → NewCardOrderInfo (400 + problems).
  */
 app.put('/api/profile/new-card-order', async (c) => {
