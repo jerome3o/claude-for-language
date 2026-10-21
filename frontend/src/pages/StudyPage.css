@@ -873,23 +873,22 @@ button.you-said-round:focus-visible {
   padding: 0.35rem 1rem 0;
 }
 
-/* The card's meta row: ⚡ badge + the 📚 deck pill, one line. */
-.study-card-meta {
-  position: relative;
-  z-index: 5;
-  align-items: center;
-  gap: 0.4rem;
+/* The answer side's deck line (components/study/DeckPill.tsx): under the meaning / word tags, small
+   and quiet. Never on the question side — the deck name can hint the answer. */
+.study-back-deck {
+  display: flex;
+  justify-content: center;
   min-width: 0;
-  padding-top: 0;
+  margin: 0.1rem 0 -0.35rem;
 }
 
-/* The deck pill (components/study/DeckPill.tsx): neutral grey, one line, ellipsis. The visible pill
-   is small; the button's padding makes the tap target 44px tall. */
+/* The deck pill: caption-size, muted, one line with an ellipsis. The visible pill is small; the
+   button's invisible padding makes the tap target 44px tall. */
 .deck-pill-wrap {
   position: relative;
   display: inline-flex;
   min-width: 0;
-  max-width: min(17rem, 100%);
+  max-width: min(13rem, 100%);
 }
 .deck-pill {
   display: inline-flex;
@@ -897,7 +896,7 @@ button.you-said-round:focus-visible {
   min-width: 0;
   max-width: 100%;
   min-height: 44px;
-  padding: 0 0.1rem;
+  padding: 0 0.25rem;
   margin: 0;
   border: none;
   background: transparent;
@@ -908,20 +907,21 @@ button.you-said-round:focus-visible {
 .deck-pill__body {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.2rem;
   min-width: 0;
   max-width: 100%;
-  padding: 0.1rem 0.6rem 0.1rem 0.5rem;
-  border: 1px solid #e5e7eb;
+  padding: 0.05rem 0.45rem 0.05rem 0.35rem;
   border-radius: 999px;
-  background: #f3f4f6;
-  color: #4b5563;
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1.5;
+  background: var(--deck-pill-bg, rgba(107, 114, 128, 0.08));
+  color: var(--color-text-light, #6b7280);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.45;
 }
 .deck-pill__icon {
   flex: none;
+  font-size: 0.625rem;
+  opacity: 0.8;
 }
 .deck-pill__name {
   min-width: 0;
@@ -931,9 +931,8 @@ button.you-said-round:focus-visible {
 }
 .deck-pill:hover .deck-pill__body,
 .deck-pill--open .deck-pill__body {
-  background: #e5e7eb;
-  border-color: #d1d5db;
-  color: #1f2937;
+  background: var(--deck-pill-bg-hover, rgba(107, 114, 128, 0.16));
+  color: var(--color-text, #1f2937);
 }
 .deck-pill:focus-visible {
   outline: none;

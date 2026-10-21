@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -51,15 +53,16 @@ const val DECK_PILL_FULL_TAG = "study-deck-pill-full"
 const val DECK_PILL_OPEN_TAG = "study-deck-pill-open"
 const val DECK_PILL_NAME_TAG = "study-deck-pill-name"
 
-/** The pill's widest on the card header (Pixel Fold folded: the type chip + ⚡ stay whole beside it). */
-val DECK_PILL_MAX_WIDTH = 190.dp
+/** The visible pill's widest (a quiet line under the meaning, centred on the answer side). */
+val DECK_PILL_MAX_WIDTH = 200.dp
 
 /**
  * The study card's deck pill (web: components/study/DeckPill.tsx): "📚 <deck name>" on one line,
- * cut with an ellipsis, a neutral grey distinct from the card-type chip. A tap shows a small popup
- * with the FULL name (suffixes like "(from tutor)" kept) and "Open deck →"; a tap elsewhere or back
- * closes it. The pill's own clickable consumes the tap, so it never reveals / peeks the card.
- * The touch target is 44 dp tall; the visible pill is small inside it.
+ * caption-size and muted, cut with an ellipsis. It is shown on the ANSWER side only, under the
+ * meaning / word tags — on the question side the deck name could hint the answer. A tap shows a
+ * small popup with the FULL name (suffixes like "(from tutor)" kept) and "Open deck →"; a tap
+ * elsewhere or back closes it. The pill's own clickable consumes the tap, so it never peeks back
+ * at the question. The touch target is 44 dp tall (invisible); the visible pill is small inside it.
  */
 @Composable
 fun DeckPill(
@@ -88,21 +91,20 @@ fun DeckPill(
                     stateDescription = if (open) "Expanded" else "Collapsed"
                     role = Role.Button
                 },
-            contentAlignment = Alignment.CenterEnd,
+            contentAlignment = Alignment.Center,
         ) {
-            val bg = if (open) Lab.colors.cardBorder else Lab.colors.faint
+            val bg = if (open) Lab.colors.cardBorder else Lab.colors.faint.copy(alpha = 0.7f)
             Row(
                 Modifier.widthIn(max = DECK_PILL_MAX_WIDTH).clip(CircleShape).background(bg)
-                    .border(1.dp, Lab.colors.cardBorder, CircleShape)
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    .padding(start = 6.dp, end = 8.dp, top = 1.dp, bottom = 1.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("📚", style = MaterialTheme.typography.labelMedium)
+                Text("📚", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), modifier = Modifier.alpha(0.8f))
                 Text(
                     name,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
                     color = if (open) Lab.colors.ink else Lab.colors.muted,
                     maxLines = 1,
                     softWrap = false,
@@ -113,13 +115,13 @@ fun DeckPill(
         }
         if (open) {
             Popup(
-                alignment = Alignment.TopEnd,
+                alignment = Alignment.TopCenter,
                 offset = IntOffset(0, heightPx),
                 onDismissRequest = { open = false },
                 properties = PopupProperties(focusable = true),
             ) {
                 val shown = remember { MutableTransitionState(false).apply { targetState = true } }
-                AnimatedVisibility(shown, enter = fadeIn() + scaleIn(initialScale = 0.92f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f))) {
+                AnimatedVisibility(shown, enter = fadeIn() + scaleIn(initialScale = 0.92f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f))) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = Lab.colors.card,

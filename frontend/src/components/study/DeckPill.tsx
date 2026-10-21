@@ -3,8 +3,9 @@
  * ("课堂生词 Lesson words – 12 Oct (from tutor)") never crowds the card. A tap opens a small
  * popover with the FULL name and "Open deck →"; a tap anywhere else or Escape closes it.
  *
- * The pill sits above the card's tap-to-flip area and stops its clicks / pointer presses, so a
- * tap on it never reveals or peeks the card (Lab app: ui/study/DeckPill.kt).
+ * It is shown on the ANSWER side only — a small, muted line under the meaning / word tags (on the
+ * question side the deck name could hint the answer). It stops its clicks / pointer presses, so a
+ * tap on it never peeks back at the question (Lab app: ui/study/DeckPill.kt).
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { track } from '../../services/analytics';
